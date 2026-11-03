@@ -212,6 +212,8 @@ const beforeOnLine = (text: string, at: number) =>
 const MOST_LINES_UP = 12;
 
 const WORDS = /[\p{L}%]/u;
+/** A note's reference, as a column beside a row's amounts prints it: "12(a)", "Note 12". */
+const NOTE_REF = /^(?:notes?\s*)?\d+(?:\.\d+)*\s*(?:\(?[a-z]\)?)?$/i;
 // A number on its own; "m2" or "CO2" in a row head is part of its words.
 const NUMBER = /(?<![\p{L}\d.,])\d[\d,.]*[)）%]?/u;
 // A label: no figure and no sentence's end. "Earnings per share are shown in note 9." is prose.
@@ -1030,7 +1032,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       const label = cells
         .slice(0, at < 0 ? cells.length : at)
         .reverse()
-        .find((cell) => /\p{L}/u.test(cell));
+        .find((cell) => /\p{L}/u.test(cell) && !NOTE_REF.test(cell.trim()));
       const cell = withoutStatement(label ?? "");
       return named(cell) ? cell : null;
     }

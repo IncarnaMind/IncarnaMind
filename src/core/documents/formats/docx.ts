@@ -30,7 +30,7 @@ import {
   type UnitTable,
 } from "../../../shared/units";
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
-import { cellTable, isDatum, isFigure, shiftedDigits } from "../tableCells";
+import { cellTable, isFigure, shiftedDigits } from "../tableCells";
 import { type Relationship, relationshipsOf } from "./docxPackage";
 import { ExtractionError } from "./errors";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
@@ -60,8 +60,9 @@ interface DocxStyles {
 
 function docxStyles(styles: XmlElement | undefined): DocxStyles {
   const levels = new Map<string, number>();
-  const raised = new Set<string>();
-  if (!styles) return { levels, raised };
+  const basedOn = new Map<string, string>();
+  const direct = new Set<string>();
+  if (!styles) return { levels, raised: direct };
   for (const style of elements(styles)) {
     if (style.name !== "w:style") continue;
     const id = style.attrs["w:styleId"];
@@ -70,11 +71,24 @@ function docxStyles(styles: XmlElement | undefined): DocxStyles {
       const level = headingLevelOf(style);
       if (level !== null) levels.set(id, level);
     }
+    const parent = child(style, "w:basedOn")?.attrs["w:val"];
+    if (parent) basedOn.set(id, parent);
     const rPr = child(style, "w:rPr");
     const align = rPr && child(rPr, "w:vertAlign")?.attrs["w:val"];
     const position = Number((rPr && child(rPr, "w:position")?.attrs["w:val"]) ?? 0);
-    if (align === "superscript" || position > 0) raised.add(id);
+    if (align === "superscript" || position > 0) direct.add(id);
   }
+  const raised = new Set<string>();
+  const isRaised = (id: string, seen: Set<string>): boolean => {
+    if (raised.has(id)) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    const parent = basedOn.get(id);
+    if (!direct.has(id) && !(parent && isRaised(parent, seen))) return false;
+    raised.add(id);
+    return true;
+  };
+  for (const id of new Set([...direct, ...basedOn.keys()])) isRaised(id, new Set());
   return { levels, raised };
 }
 
@@ -215,9 +229,10 @@ function readBlocks(
         out.push({ text, level: null, ...marks, ...ends });
     } else if (element.name === "w:tbl") {
       const table = tables.count++;
-      let previous: string[] | null = null;
-      let seenDatum = false;
-      for (const row of elements(element).filter((each) => each.name === "w:tr")) {
+      const starts: string[] = [];
+      const startedAt: number[] = [];
+      const rows = elements(element).filter((each) => each.name === "w:tr");
+      for (const [at, row] of rows.entries()) {
         const marks: CommentMarks = { references: [], starts: [] };
         const trPr = child(row, "w:trPr");
         const skipped = (name: string) =>
@@ -258,19 +273,23 @@ function readBlocks(
         cells.push(...after);
         covered.push(...after.map(() => false));
         continued.push(...after.map(() => false));
-        const hasDatum = cells.some(isDatum);
-        if (seenDatum || hasDatum) {
-          for (let column = 0; column < cells.length; column++) {
-            const above = previous?.[column];
-            if (continued[column] && above && !isFigure(above)) cells[column] = above;
+        // The first row heads the columns, so a merge it starts is a heading; a later one repeats
+        // its text down the rows it continues.
+        for (let column = 0; column < cells.length; column++) {
+          const start = starts[column];
+          if (continued[column] && start && !isFigure(start) && (startedAt[column] ?? 0) > 0)
+            cells[column] = start;
+        }
+        for (let column = 0; column < cells.length; column++) {
+          if (!continued[column]) {
+            starts[column] = cells[column] ?? "";
+            startedAt[column] = at;
           }
         }
-        seenDatum ||= hasDatum;
         const filled = cells.some((cell) => cell !== "");
         const text = filled ? cells.join("\t") : "";
         if (filled) out.push({ text, level: null, ...marks, row: { table, cells, covered } });
         else if (refersToComments(marks)) out.push({ text, level: null, ...marks });
-        previous = cells;
       }
     } else if (element.name === "w:sdt") {
       const content = child(element, "w:sdtContent");

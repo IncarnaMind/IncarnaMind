@@ -614,10 +614,8 @@ async function extractPdf(
     for (const unit of pages) {
       const scan = unit.label?.scan;
       if (!scan) continue;
-      // A scanned page's tables are where its recognized lines sit; one not read has none.
-      if (scan.unread) layouts.delete(unit.page);
-      else
-        layouts.set(unit.page, pageTables(scannedRows(unit.text, unit.anchors ?? [], scan.turn)));
+      // An unread scan keeps its text layer but no anchors, so it has no rows to find a table in.
+      layouts.set(unit.page, pageTables(scannedRows(unit.text, unit.anchors ?? [], scan.turn)));
     }
     const tables = continuedTables(layouts);
     const units = pages.map((unit, index) =>

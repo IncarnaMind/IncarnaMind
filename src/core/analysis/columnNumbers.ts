@@ -33,8 +33,8 @@ const PARTS =
   /^(\()?([-+])?(\p{Sc})?([-+])?(\d[\d.,]*|\.\d+)([eE][-+]?\d+)?(%)?\s?(\p{Sc})?(\))?$/u;
 const POINT = /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?$|^\.\d+$/;
 const COMMA = /^(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d+)?$/;
-/** The shape of a German thousand and an English decimal at once. */
-const GERMAN = /^\d{1,3}(?:\.\d{3})+$/;
+/** The shape of a German thousand and an English decimal at once; a leading zero is only the decimal. */
+const GERMAN = /^[1-9]\d{0,2}(?:\.\d{3})+$/;
 
 /** Superscript and subscript characters, which NFKC folds into plain digits: "1,234²" isn't 1,2342. */
 const RAISED = /[\u00b2\u00b3\u00b9\u2070-\u209f]/u;
@@ -78,6 +78,7 @@ function readColumn(cells: readonly AnalysisCell[]): AnalysisCell[] {
   if (numbers.every((each) => each.ambiguous)) return [...cells];
   const pointOnly = numbers.some((each) => each.comma === null);
   const commaOnly = numbers.some((each) => each.point === null);
+  const settled = pointOnly !== commaOnly;
   const numberOf = (each: Written): number | null => {
     if (pointOnly && commaOnly) return each.point === each.comma ? each.point : null;
     return commaOnly ? each.comma : each.point;
@@ -91,6 +92,7 @@ function readColumn(cells: readonly AnalysisCell[]): AnalysisCell[] {
   return cells.map((cell, index) => {
     const each = read[index];
     if (!each) return cell;
+    if (each.ambiguous && !settled) return cell;
     const value = numberOf(each);
     if (value === null || !Number.isFinite(value) || (each.percent && !percent)) return cell;
     if (each.negative === "parentheses" && !parentheses) return cell;

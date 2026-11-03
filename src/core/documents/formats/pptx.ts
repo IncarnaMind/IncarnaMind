@@ -12,7 +12,7 @@
  * office-formats spike.
  */
 import { type TextUnit, UnitBuilder } from "../../../shared/units";
-import { cellTable, isDatum, isFigure, shiftedDigits } from "../tableCells";
+import { cellTable, isFigure, shiftedDigits } from "../tableCells";
 import { ExtractionError } from "./errors";
 import { dataUrlOf, imageTypeOf } from "./images";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
@@ -42,6 +42,9 @@ async function relationships(zip: ZipArchive, part: string): Promise<Map<string,
   }
   return rels;
 }
+
+/** A merge flag as DrawingML writes it: "1", or "true" in files that spell booleans out. */
+const mergedAttr = (value: string | undefined) => value === "1" || value === "true";
 
 /** A run's text, digits set raised or lowered written as Unicode's superscript or subscript digits. */
 function runText(run: XmlElement): string {
@@ -136,15 +139,11 @@ function collect(tree: XmlElement, rels: Map<string, Rel>, into: Collected): voi
                 const covered: boolean[] = [];
                 const continued: boolean[] = [];
                 for (const cell of elements(row).filter((each) => each.name === "a:tc")) {
-                  const span = Math.max(1, Number(cell.attrs.gridSpan ?? 1) || 1);
+                  // A row names each of its grid's columns with a cell of its own; the cells a
+                  // merged one covers come after it marked hMerge, so the span adds none.
                   cells.push(paragraphs(child(cell, "a:txBody") ?? cell).join(" "));
-                  covered.push(cell.attrs.hMerge === "1");
-                  continued.push(cell.attrs.vMerge === "1");
-                  for (let at = 1; at < span; at++) {
-                    cells.push("");
-                    covered.push(true);
-                    continued.push(false);
-                  }
+                  covered.push(mergedAttr(cell.attrs.hMerge));
+                  continued.push(mergedAttr(cell.attrs.vMerge));
                 }
                 return { cells, covered, continued };
               }),
@@ -223,18 +222,22 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     const collected: Collected = { title: null, blocks: [], tables: [], images: [], charts: [] };
     if (tree) collect(tree, rels, collected);
     for (const rows of collected.tables) {
-      let previous: string[] | null = null;
-      let seenDatum = false;
-      for (const row of rows) {
-        const hasDatum = row.cells.some(isDatum);
-        if (seenDatum || hasDatum) {
-          for (let column = 0; column < row.cells.length; column++) {
-            const above = previous?.[column];
-            if (row.continued[column] && above && !isFigure(above)) row.cells[column] = above;
+      const starts: string[] = [];
+      const startedAt: number[] = [];
+      for (const [at, row] of rows.entries()) {
+        // The first row heads the columns, so a merge it starts is a heading; a later one repeats
+        // its text down the rows it continues.
+        for (let column = 0; column < row.cells.length; column++) {
+          const start = starts[column];
+          if (row.continued[column] && start && !isFigure(start) && (startedAt[column] ?? 0) > 0)
+            row.cells[column] = start;
+        }
+        for (let column = 0; column < row.cells.length; column++) {
+          if (!row.continued[column]) {
+            starts[column] = row.cells[column] ?? "";
+            startedAt[column] = at;
           }
         }
-        seenDatum ||= hasDatum;
-        previous = row.cells;
       }
     }
 

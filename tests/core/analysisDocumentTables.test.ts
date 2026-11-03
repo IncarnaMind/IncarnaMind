@@ -320,6 +320,52 @@ function deck(title: string, rows: readonly (readonly string[])[]): Uint8Array {
   });
 }
 
+/** A deck with a heading merged over two columns the way PowerPoint writes it. */
+function mergedDeck(): Uint8Array {
+  const cell = (text: string, attrs = "") =>
+    `<a:tc${attrs}><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-GB"/><a:t>${escapeXml(text)}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>`;
+  const grid = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="1100000"/><a:ext cx="8000000" cy="3600000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1"/><a:tblGrid>${'<a:gridCol w="2000000"/>'.repeat(3)}</a:tblGrid>${[
+    `<a:tr h="360000">${cell("Region")}${cell("Cost (GBP)", ' gridSpan="2"')}${cell("", ' hMerge="1"')}</a:tr>`,
+    `<a:tr h="360000">${cell("North")}${cell("1,200")}${cell("1,100")}</a:tr>`,
+    `<a:tr h="360000">${cell("South")}${cell("800")}${cell("760")}</a:tr>`,
+  ].join("")}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+  const heading = (text: string) =>
+    sp({
+      id: 2,
+      name: "Title",
+      ph: `<p:ph type="title"/>`,
+      spPr: xfrm(457200, 200000, 8000000, 800000),
+      body: txBody(para(escapeXml(text))),
+    });
+  return pptxOf({
+    slides: [{ shapes: heading("Board pack") }, { shapes: heading("Results") + grid }],
+  });
+}
+
+/** A deck with a label merged down its rows the way PowerPoint writes it. */
+function mergedDownDeck(): Uint8Array {
+  const cell = (text: string, attrs = "") =>
+    `<a:tc${attrs}><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-GB"/><a:t>${escapeXml(text)}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>`;
+  const grid = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="1100000"/><a:ext cx="8000000" cy="3600000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1"/><a:tblGrid><a:gridCol w="2000000"/><a:gridCol w="2000000"/></a:tblGrid>${[
+    `<a:tr h="360000">${cell("Workstream")}${cell("Cost")}</a:tr>`,
+    `<a:tr h="360000">${cell("Design", ' rowSpan="4"')}${cell("")}</a:tr>`,
+    `<a:tr h="360000">${cell("", ' vMerge="1"')}${cell("Surveys")}</a:tr>`,
+    `<a:tr h="360000">${cell("", ' vMerge="1"')}${cell("3,550")}</a:tr>`,
+    `<a:tr h="360000">${cell("", ' vMerge="1"')}${cell("1,200")}</a:tr>`,
+  ].join("")}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+  const heading = (text: string) =>
+    sp({
+      id: 2,
+      name: "Title",
+      ph: `<p:ph type="title"/>`,
+      spPr: xfrm(457200, 200000, 8000000, 800000),
+      body: txBody(para(escapeXml(text))),
+    });
+  return pptxOf({
+    slides: [{ shapes: heading("Board pack") }, { shapes: heading("Design costs") + grid }],
+  });
+}
+
 const SCANS = join(import.meta.dirname, "../fixtures/scans");
 /** What the real recognizer read of the table scan: Table 3, and 表 5 with "1,286" unsure. */
 const scanScript = (): FakeScanScript => {
@@ -556,6 +602,33 @@ describe("a deck's table (#448)", { timeout: 60_000 }, () => {
     expect(column(inputs[0], "Orders")).toEqual([2318, 1675]);
     expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 3993 }]);
     expect(reports[0]).toContain("1 cell has a footnote mark after its number");
+  });
+
+  test("a merged heading keeps its columns", async () => {
+    const { inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents: mergedDeck() }],
+      question: "Total the costs.",
+      query: "Cost North South",
+      runs: [run("Board pack", [{ name: "costs" }])],
+      helper: () => ({}),
+    });
+    expect(inputs[0]?.columns).toEqual(["Region", "Cost (GBP)", "Cost (GBP) (2)"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["North", 1200, 1100],
+      ["South", 800, 760],
+    ]);
+  });
+
+  test("a merged-down label repeats on every row it continues", async () => {
+    const { inputs } = await ask({
+      files: [{ name: "Board pack.pptx", contents: mergedDownDeck() }],
+      question: "What does Design cost?",
+      query: "Design costs",
+      runs: [run("Board pack", [{ name: "costs" }])],
+      helper: sumOf("Cost"),
+    });
+    expect(inputs[0]?.columns).toEqual(["Workstream", "Cost"]);
+    expect(inputs[0]?.rows.map((row) => row[0])).toEqual(["Design", "Design", "Design", "Design"]);
   });
 });
 
@@ -1327,10 +1400,13 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
   test("a Word superscript set by a style or a position doesn't join the number", async () => {
     const style = (id: string, rPr: string) =>
       `<w:style w:type="character" w:styleId="${id}"><w:name w:val="${id}"/><w:rPr>${rPr}</w:rPr></w:style>`;
+    const based = (id: string, parent: string) =>
+      `<w:style w:type="character" w:styleId="${id}"><w:name w:val="${id}"/><w:basedOn w:val="${parent}"/></w:style>`;
     const styles = [
       STYLES,
       style("Sup", '<w:vertAlign w:val="superscript"/>'),
       style("High", '<w:position w:val="6"/>'),
+      based("Sup2", "Sup"),
     ].join("");
     const cell = (amount: string, mark: string) =>
       `<w:r><w:t>${amount}</w:t></w:r><w:r><w:rPr><w:rStyle w:val="${mark}"/></w:rPr><w:t>1</w:t></w:r>`;
@@ -1344,17 +1420,222 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
               ["Supplier", "Amount"],
               ["Hollin Pumps", cell("1,240.50", "Sup")],
               ["Tarn Electrical", cell("615.25", "High")],
+              ["Mere Lane Haulage", cell("2,075.75", "Sup2")],
             ]),
           }),
         },
       ],
       question: "Total the amounts.",
-      query: "Hollin Pumps Tarn Electrical",
+      query: "Hollin Pumps Tarn Electrical Mere Lane",
       runs: [run("Grants", [{ name: "grants" }])],
       helper: sumOf("Amount"),
     });
-    expect(column(inputs[0], "Amount")).toEqual([1240.5, 615.25]);
-    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 1855.75 }]);
+    expect(column(inputs[0], "Amount")).toEqual([1240.5, 615.25, 2075.75]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 3931.5 }]);
+  });
+
+  test("a run's own raise or lowering doesn't join the number", async () => {
+    const mark = (amount: string, position: number) =>
+      `<w:r><w:t>${amount}</w:t></w:r><w:r><w:rPr><w:position w:val="${position}"/></w:rPr><w:t>1</w:t></w:r>`;
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Grants.docx",
+          contents: wordFile({
+            body: table([
+              ["Supplier", "Amount"],
+              ["Hollin Pumps", mark("1,240.50", 6)],
+              ["Garth Fencing", "3,980.00"],
+              ["Tarn Electrical", mark("615.25", -6)],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the amounts.",
+      query: "Hollin Pumps Garth Fencing Tarn Electrical",
+      runs: [run("Grants", [{ name: "grants" }])],
+      helper: sumOf("Amount"),
+    });
+    expect(column(inputs[0], "Amount")).toEqual([1240.5, 3980, "615.25₁"]);
+  });
+
+  test("a units row above the headings doesn't hide the first body row", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Revenue.docx",
+          contents: wordFile({
+            body: table([
+              ["", "(GBP m)", "(GBP m)"],
+              ["Product", "2024", "2025"],
+              ["Pumps", "1,200", "1,350"],
+              ["Fences", "900", "1,050"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the 2025 column.",
+      query: "Pumps Fences",
+      runs: [run("Revenue", [{ name: "revenue" }])],
+      helper: sumOf("2025"),
+    });
+    expect(inputs[0]?.columns[0]).toBe("Product");
+    expect(inputs[0]?.columns.slice(1)).toEqual(["(GBP m) 2024", "(GBP m) 2025"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["Pumps", 1200, 1350],
+      ["Fences", 900, 1050],
+    ]);
+  });
+
+  test("a units row below the headings still heads the columns", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Revenue.docx",
+          contents: wordFile({
+            body: table([
+              ["Product", "2024", "2025"],
+              ["", "(GBP m)", "(GBP m)"],
+              ["Pumps", "1,200", "1,350"],
+              ["Fences", "900", "1,050"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the 2025 column.",
+      query: "Pumps Fences",
+      runs: [run("Revenue", [{ name: "revenue" }])],
+      helper: sumOf("2025 (GBP m)"),
+    });
+    expect(inputs[0]?.columns).toEqual(["Product", "2024 (GBP m)", "2025 (GBP m)"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["Pumps", 1200, 1350],
+      ["Fences", 900, 1050],
+    ]);
+  });
+
+  test("a PDF units row below the headings still heads the columns", async () => {
+    const at = [72, 250, 310];
+    const rows = [
+      ["Product", "2024", "2025"],
+      ["", "(GBP m)", "(GBP m)"],
+      ["Pumps", "1,200", "1,350"],
+      ["Fences", "900", "1,050"],
+    ];
+    const contents = buildPdf([
+      {
+        lines: ["Revenue"],
+        placed: rows.flatMap((cells, index) =>
+          cells.flatMap((text, column) =>
+            text ? [{ text, x: at[column] ?? 72, y: 600 - index * 16 }] : [],
+          ),
+        ),
+      },
+    ]);
+    const { inputs } = await ask({
+      files: [{ name: "Revenue.pdf", contents }],
+      question: "Total the 2025 column.",
+      query: "Pumps Fences",
+      runs: [run("Revenue", [{ name: "revenue" }])],
+      helper: sumOf("2025 (GBP m)"),
+    });
+    expect(inputs[0]?.columns).toEqual(["Product", "2024 (GBP m)", "2025 (GBP m)"]);
+    expect(inputs[0]?.rows).toEqual([
+      ["Pumps", 1200, 1350],
+      ["Fences", 900, 1050],
+    ]);
+  });
+
+  test("a body row under a merged heading keeps its own label", async () => {
+    const span = (text: string) => `<w:tcPr><w:gridSpan w:val="2"/></w:tcPr>${paragraph(text)}`;
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(2)}</w:tblGrid>${[
+      `<w:tr><w:tc>${span("Sales")}</w:tc></w:tr>`,
+      `<w:tr>${tc("Alpha")}${tc("1,200")}</w:tr>`,
+      `<w:tr>${tc("Beta")}${tc("900")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const { inputs } = await ask({
+      files: [{ name: "Sales.docx", contents: wordFile({ body: grid }) }],
+      question: "Total the sales.",
+      query: "Alpha Beta",
+      runs: [run("Sales", [{ name: "sales" }])],
+      helper: sumOf("Sales"),
+    });
+    expect(inputs[0]?.rows).toEqual([
+      ["Alpha", 1200],
+      ["Beta", 900],
+    ]);
+  });
+
+  test("a merged label repeats under a row with no figure", async () => {
+    const restart = (text: string) =>
+      `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
+    const continued = () => "<w:tcPr><w:vMerge/></w:tcPr><w:p/>";
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(2)}</w:tblGrid>${[
+      `<w:tr>${tc("Workstream")}${tc("Cost")}</w:tr>`,
+      `<w:tr><w:tc>${restart("Design")}</w:tc><w:tc/></w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("Surveys")}</w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("3,550")}</w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("1,200")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const { inputs } = await ask({
+      files: [{ name: "Design.docx", contents: wordFile({ body: grid }) }],
+      question: "Total Design's costs.",
+      query: "Design costs",
+      runs: [run("Design", [{ name: "design" }])],
+      helper: sumOf("Cost"),
+    });
+    expect(inputs[0]?.rows.at(-1)?.[0]).toBe("Design");
+    expect(inputs[0]?.rows.at(-1)?.[1]).toBe(1200);
+    expect(inputs[0]?.rows.map((row) => row[0])).toEqual(["Design", "Design", "Design", "Design"]);
+  });
+
+  test("a figure merged down the rows counts once", async () => {
+    const restart = (text: string) =>
+      `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
+    const continued = () => "<w:tcPr><w:vMerge/></w:tcPr><w:p/>";
+    const tc = (text: string) => `<w:tc>${paragraph(text)}</w:tc>`;
+    const grid = `<w:tbl><w:tblGrid>${'<w:gridCol w:w="2000"/>'.repeat(3)}</w:tblGrid>${[
+      `<w:tr>${tc("Workstream")}${tc("Item")}${tc("Amount")}</w:tr>`,
+      `<w:tr><w:tc>${restart("1,200")}</w:tc>${tc("Surveys")}${tc("3,550")}</w:tr>`,
+      `<w:tr><w:tc>${continued()}</w:tc>${tc("Joinery")}${tc("900")}</w:tr>`,
+    ].join("")}</w:tbl>`;
+    const { analyses, inputs } = await ask({
+      files: [{ name: "Costs.docx", contents: wordFile({ body: grid }) }],
+      question: "Total the costs.",
+      query: "Surveys Joinery",
+      runs: [run("Costs", [{ name: "costs" }])],
+      helper: sumOf("Amount"),
+    });
+    expect(inputs[0]?.rows).toEqual([
+      [1200, "Surveys", 3550],
+      [null, "Joinery", 900],
+    ]);
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 4450 }]);
+  });
+
+  test("a column of English three-decimal numbers isn't read as German thousands", async () => {
+    const { inputs } = await ask({
+      files: [
+        {
+          name: "Rates.docx",
+          contents: wordFile({
+            body: table([
+              ["Item", "Rate"],
+              ["A", "0.123"],
+              ["B", "0.456"],
+              ["C", "0.789"],
+            ]),
+          }),
+        },
+      ],
+      question: "Add up the rates.",
+      query: "rates",
+      runs: [run("Rates", [{ name: "rates" }])],
+      helper: sumOf("Rate"),
+    });
+    expect(column(inputs[0], "Rate")).toEqual([0.123, 0.456, 0.789]);
   });
 
   test("a German d.ddd column stays text rather than a thousand times too small", async () => {
@@ -1366,7 +1647,7 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
             body: table([
               ["Posten", "Betrag"],
               ["A", "1.234"],
-              ["B", "5.678"],
+              ["B", "850"],
               ["C", "12.345"],
             ]),
           }),
@@ -1377,7 +1658,7 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
       runs: [run("Beträge", [{ name: "betraege" }])],
       helper: sumOf("Betrag"),
     });
-    expect(column(inputs[0], "Betrag")).toEqual(["1.234", "5.678", "12.345"]);
+    expect(column(inputs[0], "Betrag")).toEqual(["1.234", 850, "12.345"]);
     expect(checkOf(analyses[0])).toEqual([
       { kind: "unchecked", reason: expect.stringContaining("holds text, not numbers") },
     ]);

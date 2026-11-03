@@ -111,9 +111,7 @@ export function textLayerRows(items: readonly object[]): (Row & { items: object[
     // A footnote's mark is a smaller digit set above the row's baseline: written as Unicode's
     // superscript digits, it stays a mark instead of joining the number before it (#448).
     const raised =
-      /^\d+$/.test(placed.str.trim()) &&
-      placed.size <= row.size * 0.8 &&
-      placed.baseline - row.baseline >= placed.size * 0.25;
+      /^\d+$/.test(placed.str.trim()) && placed.baseline - row.baseline >= placed.size * 0.25;
     row.placed.push({
       x: placed.x,
       right: placed.x + placed.width,
@@ -317,8 +315,8 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     }
     return row.length >= 2 && covered.length >= spans.length - 1;
   };
-  // The heading rows go up from the row right above the body while each heads columns; a caption
-  // or a section line above them is not a heading, even when it sits over the labels' column.
+  // The heading rows go up from the row right above the body while each heads columns; a row of
+  // the labels' text alone is passed over on the way.
   let top = headingLimit;
   let above = headingLimit;
   while (above > 0) {
@@ -333,12 +331,12 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
     if (row.some((fragment) => isDatum(fragment.text))) break;
     if (bottom > top) {
       const above = rows[bottom - 1] ?? [];
-      // A grouped heading below a row that names fewer pieces than the columns, or a wrapped
-      // line whose label cell is empty, goes on heading the columns.
-      const grouped = above.length < spans.length;
-      const spanned = grouped || above.some((fragment) => overlapping(fragment, spans).length >= 2);
+      // A units row or a merged heading leaves the label column empty, so the row below still
+      // heads the columns; once a heading row has a label of its own, a row with its own label is
+      // the body's.
+      const aboveLabelEmpty = !above.some((fragment) => labelsHeading(fragment));
       const labelEmpty = !row.some((fragment) => labelsHeading(fragment));
-      if (!spanned && !labelEmpty) break;
+      if (!aboveLabelEmpty && !labelEmpty) break;
     }
     bottom++;
   }

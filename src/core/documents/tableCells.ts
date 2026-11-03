@@ -88,9 +88,11 @@ export function cellTable(
   if (firstData > 0) {
     headingCount = 1;
     while (headingCount < firstData && headingCount < MAX_HEADING_ROWS) {
-      const spanned = (spans.covered?.[headingCount - 1] ?? []).some(Boolean);
+      // A units row or a merged heading leaves the label cell empty, so the row below still heads
+      // the columns; once a heading row has a label of its own, a row with its own label is body.
+      const aboveLabelEmpty = (rows[headingCount - 1]?.[0] ?? "").trim() === "";
       const labelEmpty = (rows[headingCount]?.[0] ?? "").trim() === "";
-      if (!spanned && !labelEmpty) break;
+      if (!aboveLabelEmpty && !labelEmpty) break;
       headingCount++;
     }
   }
@@ -111,7 +113,6 @@ export function cellTable(
   return { headings, rows: body };
 }
 
-/** The text of the cell a covered cell's horizontal span starts at, or "" when it has none. */
 function leftHeading(row: readonly string[], covered: readonly boolean[], column: number): string {
   let at = column - 1;
   while (at >= 0 && covered[at] === true) at--;

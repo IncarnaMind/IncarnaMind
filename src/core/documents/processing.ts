@@ -109,8 +109,9 @@ export const PROCESSING_VERSION = 23;
  * changes. Version 23 PDFs', Word files' and decks': their Units keep their
  * tables' rows and columns, and a PDF's text comes out as it was. A Word
  * table's row keeps a tab for each of its grid's columns, also the empty ones
- * a merged cell leaves, and digits a Word file or a deck sets raised or lowered
- * are superscript or subscript digits, not plain ones (#448).
+ * a merged cell leaves, a merged cell's text repeats down the rows it
+ * continues, and digits a Word file or a deck sets raised or lowered are
+ * superscript or subscript digits, not plain ones (#448).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 23,

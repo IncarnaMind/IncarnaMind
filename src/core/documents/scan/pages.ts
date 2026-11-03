@@ -140,12 +140,12 @@ export async function invisibleText(
   ops: PdfJs["OPS"],
 ): Promise<boolean> {
   const { fnArray, argsArray } = await page.getOperatorList();
-  const known = ops as unknown as Record<string, number | undefined>;
-  const shows = new Set(
-    ["showText", "showSpacedText", "nextLineShowText", "nextLineSetSpacingShowText"]
-      .map((name) => known[name])
-      .filter((op): op is number => typeof op === "number"),
-  );
+  const shows = new Set([
+    ops.showText,
+    ops.showSpacedText,
+    ops.nextLineShowText,
+    ops.nextLineSetSpacingShowText,
+  ]);
   let mode = 0;
   for (let index = 0; index < fnArray.length; index++) {
     const op = fnArray[index] ?? 0;

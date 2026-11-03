@@ -3229,7 +3229,7 @@ test("a Word table row whose first cell is merged down keeps its label", {
   timeout: 60_000,
 }, async () => {
   const head = "(in thousands, except per share data)";
-  const quote = "Diluted EPS\t1.25";
+  const quote = "Diluted EPS\tNote 12\t1.25";
   const continued = "<w:tcPr><w:vMerge/></w:tcPr>";
   const restart = (text: string) =>
     `<w:tcPr><w:vMerge w:val="restart"/></w:tcPr>${paragraph(text)}`;
@@ -3270,9 +3270,9 @@ test("a Word table row whose first cell is merged down keeps its label", {
           paragraph("Pelican statement", { style: "Title" }),
           paragraph(head),
           table([
-            ["Workstream", "Item", "Amount"],
-            [restart("Design"), "Revenue", "1,234.5"],
-            [continued, "Diluted EPS", "1.25"],
+            ["Workstream", "Item", "Note", "Amount"],
+            [restart("Design"), "Revenue", "", "1,234.5"],
+            [continued, "Diluted EPS", "Note 12", "1.25"],
           ]),
         ].join(""),
       }),
