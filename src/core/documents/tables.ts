@@ -347,7 +347,7 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
       return body.some((each) => {
         const cells = cellsOf(each, spans);
         const cell = (cells?.[column] ?? "").trim();
-        return cell !== "" && !isFigure(cell);
+        return cell !== "" && !isFigure(cell) && !placeholder(cell);
       });
     });
   };
@@ -371,7 +371,11 @@ function gridOf(lines: readonly Row[]): { grid: TableGrid; dropped: number } | n
           blankUnderHeading(row, above)
         )
           break;
-      } else if (figureBesideLabel(row, rows.slice(bottom + 1))) break;
+      } else if (
+        row.filter((fragment) => isFigure(fragment.text)).length < 2 &&
+        figureBesideLabel(row, rows.slice(bottom + 1))
+      )
+        break;
     }
     bottom++;
   }

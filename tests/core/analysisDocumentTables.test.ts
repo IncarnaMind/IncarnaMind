@@ -1198,6 +1198,65 @@ describe("the heading matrix in decks and pages (#448)", () => {
   });
 });
 
+describe("the page heading matrix (#448)", () => {
+  type Cell = { text: string; x: number; y: number; width?: number };
+  const cases: { name: string; body: string; placed: Cell[] }[] = [];
+  for (const headings of [2, 3])
+    for (const corner of ["blank", "labelled"])
+      for (const spanned of [false, true])
+        for (const kind of ["years", "placeholder"])
+          for (const body of ["labelled", "blank"]) {
+            const at = [72, 250, 350, 450];
+            const placed: Cell[] = [];
+            const add = (text: string, column: number, row: number, width = 40) => {
+              if (text !== "") placed.push({ text, x: at[column] ?? 72, y: 600 - row * 16, width });
+            };
+            if (corner === "labelled") add("Item", 0, 0);
+            if (spanned) add("Revenue", 1, 0, 160);
+            else {
+              add("Revenue", 1, 0);
+              add("Revenue", 2, 0);
+            }
+            add("Margin", 3, 0);
+            add("2024", 1, 1);
+            add("2023", 2, 1);
+            add(kind === "years" ? "Change" : "n/a", 3, 1, 24);
+            const first = headings === 3 ? 3 : 2;
+            if (headings === 3) {
+              add("t", 1, 2);
+              add("t", 2, 2);
+              add("%", 3, 2);
+            }
+            add(body === "labelled" ? "Alpha" : "", 0, first);
+            add("1,500", 1, first);
+            add("1,200", 2, first);
+            add("12%", 3, first);
+            add("Beta", 0, first + 1);
+            add("900", 1, first + 1);
+            add("660", 2, first + 1);
+            add("9%", 3, first + 1);
+            cases.push({
+              name: `${headings} heading rows, ${corner} corner, ${spanned ? "a span" : "no span"}, ${kind}, ${body} body`,
+              body,
+              placed,
+            });
+          }
+  test.each(cases)("$name", ({ body, placed }) => {
+    const items = placed.map((each) => ({
+      str: each.text,
+      transform: [10, 0, 0, 10, each.x, each.y],
+      width: each.width ?? 40,
+      height: 10,
+    }));
+    const tables = pageTables(textLayerRows(items)).tables;
+    if (body === "blank") {
+      expect(tables).toEqual([]);
+      return;
+    }
+    expect(tables[0]?.rows.map((row) => row[2])).toEqual(["1,200", "660"]);
+  });
+});
+
 describe("a scanned page's tables (#448)", { timeout: 60_000 }, () => {
   test.each([
     ["en", "Add up the product lines in Table 3 and check them against its total."],
@@ -2192,6 +2251,35 @@ describe("the review's table cases (#448)", { timeout: 60_000 }, () => {
     });
     expect(inputs[0]?.rows[0]).toEqual([null, "Opening stock", 2045]);
     expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 5845 }]);
+  });
+
+  test("a placeholder in a body column doesn't make it a text column", async () => {
+    const { analyses } = await ask({
+      files: [
+        {
+          name: "Output.docx",
+          contents: wordFile({
+            body: table([
+              ["Item", "2024", "2023"],
+              ["", "n/a", "2045"],
+              ["Alpha", "n/a", "1,200"],
+              ["Beta", "n/a", "660"],
+            ]),
+          }),
+        },
+      ],
+      question: "Total the 2023 column.",
+      query: "Alpha Beta",
+      runs: [run("Output", [{ name: "output" }])],
+      helper: (job) => {
+        const [input] = job.inputs;
+        if (input?.kind !== "table") throw new Error("No table.");
+        const column = input.columns.find((name) => name.includes("2023"));
+        if (!column) throw new Error(`No 2023 column: ${input.columns.join(", ")}`);
+        return { output: { results: [figureOf(input, column, "sum")] } };
+      },
+    });
+    expect(checkOf(analyses[0])).toEqual([{ kind: "same", value: 1860 }]);
   });
 
   test("a first body row with placeholders under a units row stays a row", async () => {
