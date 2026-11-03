@@ -45,7 +45,6 @@ const bash =
     input: { title: "Totals", language: "bash", documents: [passage("server")], code },
   });
 
-/** A model that searches, makes `calls` with the Passages it found, then answers `reply`. */
 function replyingModel(calls: readonly Call[], reply: (passages: ShownPassage[]) => string) {
   return scriptedModel(
     (call) => {

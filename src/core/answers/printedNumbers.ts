@@ -116,7 +116,6 @@ function claimAround(text: string, sentences: readonly Span[], at: number): Span
 const wholeAsWritten = (stated: Figure) =>
   stated.decimals === 0 && !stated.approximate && stated.rangeTo === null && !stated.scaleWord;
 
-/** Whether `stated` is `reading` as the reply writes it. */
 function agrees(stated: Figure, reading: Pick<Figure, "value" | "unit">): boolean {
   if (wholeAsWritten(stated) && !sameNumber(reading.value, stated.value)) return false;
   return agreesAtShownPrecision(stated, asCalculated(reading)) === true;
@@ -153,7 +152,6 @@ function groupsOf(candidates: readonly Candidate[]): PrintedGroup[] {
   return [...groups.values()].sort((a, b) => a.value - b.value);
 }
 
-/** The groups whose value is within `near` of `value`. */
 function within(groups: readonly PrintedGroup[], value: number, near: number): PrintedGroup[] {
   let low = 0;
   let high = groups.length;

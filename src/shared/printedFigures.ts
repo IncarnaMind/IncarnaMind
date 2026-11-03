@@ -15,7 +15,6 @@ import { type Figure, type FigureUnit, readFigures } from "./figures";
 export interface PrintedValue {
   /** The value as the run's record keeps it, under a name no result of the run has. */
   value: Extract<AnalysisValue, { kind: "figure" }>;
-  /** How the number was printed. */
   reading: Figure;
 }
 
