@@ -1,4 +1,3 @@
-import { useCallback, useEffect } from "react";
 import type { Document, DocumentTag, Tag } from "../../../core/api";
 import { useT } from "../i18n";
 import { useAppStore } from "../store";
@@ -31,31 +30,22 @@ const MOST_CHIPS = 2;
 export function DocumentTagChips({
   document,
   variant = "header",
-  onOpen,
 }: {
   document: Document;
   variant?: "header" | "peek";
-  /** Lends the header a way to open its picker from the Document's ⋯ menu. */
-  onOpen?: (open: () => void) => void;
 }) {
   const peek = variant === "peek";
   const t = useT();
   const tags = useAppStore((state) => state.tags);
-  const popover = useTagPopover();
-  const pickerButton = popover.buttonProps.ref;
-  // The row can be folded away at a narrow width; then its button has no box to open from,
-  // so the popover is opened by its id, and the header's ⋯ menu can still reach it.
-  const openPicker = useCallback(() => {
-    const button = pickerButton.current;
-    if (!button) return;
-    const id = button.getAttribute("popovertarget");
-    const picker = id ? button.ownerDocument.getElementById(id) : null;
-    if (picker instanceof HTMLElement && !picker.matches(":popover-open")) picker.showPopover();
-    else button.click();
-  }, [pickerButton]);
-  useEffect(() => {
-    onOpen?.(openPicker);
-  }, [onOpen, openPicker]);
+  const popover = useTagPopover({
+    // A folded row's button has no box: the ⋯ that opened the picker is where it should show.
+    cover: (button) =>
+      button && button.getBoundingClientRect().width > 0
+        ? null
+        : (button
+            ?.closest<HTMLElement>('[data-testid="viewer-header"]')
+            ?.querySelector<HTMLElement>('[data-testid="document-file-menu"]') ?? null),
+  });
   const chips = chipsOf(document.tags, tags);
   const fitting = useFittingChips(chips.length, MOST_CHIPS);
   const listed = peek ? chips : chips.slice(0, MOST_CHIPS);

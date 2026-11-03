@@ -1046,7 +1046,17 @@ test("the toolbar gives way in the design's order, and a folded Tags action stay
     await pointAndClick(window, tagsItem);
     const picker = header.getByTestId("document-tags-popover");
     await expect(picker).toBeVisible();
+    // It opens at the ⋯ that opened it, not at the window's top-left over the sidebar.
+    const pickerBox = await boxOf(picker);
+    const headerBox = await boxOf(header);
+    const menuBox = await boxOf(menu);
+    expect(pickerBox.x).toBeGreaterThanOrEqual(headerBox.x);
+    expect(pickerBox.y).toBeLessThan(menuBox.y + menuBox.height);
+    expect(pickerBox.y + pickerBox.height).toBeGreaterThan(menuBox.y);
+    expect(pickerBox.x).toBeLessThanOrEqual(menuBox.x + menuBox.width);
+    expect(pickerBox.x + pickerBox.width).toBeGreaterThanOrEqual(menuBox.x);
     await expect(picker.getByTestId("tag-token")).toHaveCount(3);
+    await expect(picker.getByTestId("tag-picker-input")).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(picker).toBeHidden();
 
