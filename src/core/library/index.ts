@@ -326,31 +326,6 @@ const NAMED = 240;
 export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
 
 /**
- * Classifies each Document in turn, stopping at the first failure or when the turn is stopped.
- * `untouched` are the Documents it never reached, which go back as they were (#2252).
- */
-export async function classifyInTurn(
-  ids: readonly string[],
-  classify: (id: string) => Promise<unknown | null>,
-  stopped: () => boolean,
-): Promise<{ failure: unknown | null; untouched: string[] }> {
-  let failure: unknown | null = null;
-  const reached = new Set<string>();
-  for (const id of ids) {
-    if (stopped()) break;
-    const failed = await classify(id);
-    // Stopped during this one: it goes back as it was, like the ones after it.
-    if (stopped()) break;
-    reached.add(id);
-    if (failed) {
-      failure = failed;
-      break;
-    }
-  }
-  return { failure, untouched: ids.filter((id) => !reached.has(id)) };
-}
-
-/**
  * One flat group per Document; user choices, including Not in a Folder, always win.
  * Organize's choices are Suggested Folders until the User accepts them.
  */
@@ -946,10 +921,6 @@ export function createLibrary(options: {
     });
   }
 
-  /**
-   * One Document's classification, which the background queue and a turn waiting for its answer
-   * share (#2252): the queue never starts while an Answer is written.
-   */
   async function classifyOne(
     id: string,
     call: {
@@ -1779,21 +1750,27 @@ export function createLibrary(options: {
         }),
       );
       queueClassification(ids);
-      const { failure, untouched } = await classifyInTurn(
-        ids,
-        async (id) => {
-          let stopped: unknown = null;
-          await classifyOne(id, {
-            signal,
-            runsLocally: () => undefined,
-            failed: (error) => {
-              stopped = error;
-            },
-          });
-          return stopped;
-        },
-        () => signal.aborted && !lifetime.signal.aborted,
-      );
+      let failure: unknown | null = null;
+      const reached = new Set<string>();
+      for (const id of ids) {
+        if (signal.aborted) break;
+        let stopped: unknown = null;
+        await classifyOne(id, {
+          signal,
+          runsLocally: () => undefined,
+          failed: (error) => {
+            stopped = error;
+          },
+        });
+        // Stopped during this one: it goes back as it was, like the ones after it.
+        if (signal.aborted && !lifetime.signal.aborted) break;
+        reached.add(id);
+        if (stopped) {
+          failure = stopped;
+          break;
+        }
+      }
+      const untouched = ids.filter((id) => !reached.has(id));
       for (const id of untouched) {
         const prior = before.get(id);
         if (!prior) continue;

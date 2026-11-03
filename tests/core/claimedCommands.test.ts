@@ -266,6 +266,9 @@ describe("A reply that says it changed what only the User changes (#2407)", {
     // The line is shared with #2470's Chinese denials and the app's own marks.
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("没有, 未, 没能, 无法 or 尚未 before a verb");
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("「已在笔记中标出」");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain(
+      "Never flag a sentence saying sentences in the Note were marked, flagged, noted",
+    );
   });
 });
 

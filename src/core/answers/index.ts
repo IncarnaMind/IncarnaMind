@@ -3351,20 +3351,17 @@ export function createAnswers(options: AnswersOptions) {
             const folders = done.folders;
             // The model's own sentence may already name every Folder: the app adds its line only
             // when the reply doesn't (#2252), so the reply never says the same thing twice. A name
-            // inside a longer one is not named: "Harbours" alone doesn't say "Harbour".
-            const mentions = (name: string, others: readonly string[]) => {
-              let text = reply;
-              for (const other of [...others].sort((a, b) => b.length - a.length)) {
-                if (other !== name) text = text.split(other).join(" ");
-              }
-              return text.includes(name);
+            // inside a longer word is not named: "Rental" alone doesn't say "Rent".
+            const mentions = (name: string) => {
+              if (name === "") return false;
+              const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u").test(reply);
             };
-            const folderNames = folders?.map((folder) => folder.name) ?? [];
             if (
               done.command === "documents.organize" &&
               folders &&
               folders.length > 0 &&
-              !folders.every((folder) => mentions(folder.name, folderNames))
+              !folders.every((folder) => mentions(folder.name))
             ) {
               const count = folders.reduce((sum, folder) => sum + folder.count, 0);
               resultLines.push((each) => {
@@ -3409,14 +3406,11 @@ export function createAnswers(options: AnswersOptions) {
               );
             }
             const merges = done.merges;
-            const mergeSources = merges?.map((pair) => pair.from) ?? [];
             if (
               done.command === "tag.merge" &&
               merges &&
               merges.length > 0 &&
-              !merges.every(
-                (pair) => mentions(pair.from, mergeSources) && mentions(pair.into, mergeSources),
-              )
+              !merges.every((pair) => mentions(pair.from) && mentions(pair.into))
             ) {
               resultLines.push((each) =>
                 translate(each, "answer.commands.merged", {

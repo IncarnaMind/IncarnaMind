@@ -1,7 +1,6 @@
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import type { AssignmentState, DocumentGroupAssignment } from "../../src/core/api";
-import { classifyInTurn } from "../../src/core/library";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { startFakeJev } from "../helpers/jev";
@@ -52,34 +51,6 @@ async function setup() {
   });
   return { core, dataDir, fake, group, specs };
 }
-
-// protects=Stop during the second Document's classification leaves it and the ones after it unreached, so they go back as they were (#2252); fails_when=the loop classifies on after the stop or counts the stopped Document as reached; no_claim=which Document the stop reaches.
-test("classification stops at the Document it was stopped on", async () => {
-  let stopped = false;
-  const seen: string[] = [];
-  const result = await classifyInTurn(
-    ["a", "b", "c", "d"],
-    async (id) => {
-      seen.push(id);
-      if (id === "b") stopped = true;
-      return null;
-    },
-    () => stopped,
-  );
-  expect(seen).toEqual(["a", "b"]);
-  expect(result).toEqual({ failure: null, untouched: ["b", "c", "d"] });
-});
-
-// protects=a failed classification stops the loop and is returned, so the Documents after it go back (#2252); fails_when=the failure is lost or the loop goes on; no_claim=the error's words.
-test("a failed classification stops the loop", async () => {
-  const failure = new Error("The model went away.");
-  const result = await classifyInTurn(
-    ["a", "b", "c"],
-    async (id) => (id === "b" ? failure : null),
-    () => false,
-  );
-  expect(result).toEqual({ failure, untouched: ["c"] });
-});
 
 describe("Library groups", () => {
   test("starter groups are selected, localised, editable and not duplicated", async () => {

@@ -8,8 +8,11 @@
 import type {
   AssignmentChange,
   AssignmentState,
+  Document,
   DocumentGroupAssignment,
+  DocumentTag,
   LibraryGroup,
+  TagLinkState,
 } from "../../api";
 import { classifyProviderError } from "../../providers/providerErrors";
 import {
@@ -23,6 +26,46 @@ import {
   plural,
   unmake,
 } from "./run";
+
+type TagLink = Pick<DocumentTag, "source" | "confidence" | "needsReview">;
+
+const tagLinksOf = (documents: readonly Document[]) =>
+  new Map<string, Map<string, TagLink>>(
+    documents.map((document) => [
+      document.id,
+      new Map(
+        document.tags.map((tag) => [
+          tag.tagId,
+          { source: tag.source, confidence: tag.confidence, needsReview: tag.needsReview },
+        ]),
+      ),
+    ]),
+  );
+
+const sameLink = (a: TagLink | null, b: TagLink | null) =>
+  a === null || b === null
+    ? a === b
+    : a.source === b.source && a.confidence === b.confidence && a.needsReview === b.needsReview;
+
+/** The Tag links to put back from `target` where the step left `left` and no later work moved them. */
+const tagStates = (
+  target: Map<string, Map<string, TagLink>>,
+  left: Map<string, Map<string, TagLink>>,
+  current: Map<string, Map<string, TagLink>>,
+): TagLinkState[] => {
+  const states: TagLinkState[] = [];
+  for (const [documentId, leftLinks] of left) {
+    const currentLinks = current.get(documentId) ?? new Map<string, TagLink>();
+    const targetLinks = target.get(documentId) ?? new Map<string, TagLink>();
+    for (const tagId of new Set([...leftLinks.keys(), ...targetLinks.keys()])) {
+      if (!sameLink(currentLinks.get(tagId) ?? null, leftLinks.get(tagId) ?? null)) continue;
+      const link = targetLinks.get(tagId) ?? null;
+      if (sameLink(link, leftLinks.get(tagId) ?? null)) continue;
+      states.push({ documentId, tagId, link });
+    }
+  }
+  return states;
+};
 
 /** What the Library's Organize hasn't finished with: Undo puts such a Document back with none. */
 const unfinished = (item: DocumentGroupAssignment) =>
@@ -78,6 +121,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
     input.ids.length > 0 ? await documentsOf(core, input.ids) : await inNoFolder(core);
   const items = documents.map((each) => documentItem(each));
   const ids = documents.map((each) => each.id);
+  const beforeTags = tagLinksOf(documents);
   return {
     ...inApp(
       "documents.organize",
@@ -135,6 +179,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
         for (const id of ids) left.set(id, stateOf(after.get(id)));
         for (const change of moved) left.set(change.documentId, change.after);
         const { groups } = await core.getLibrary();
+        const afterTags = tagLinksOf(await core.listDocuments());
         const names = new Map(groups.map((group) => [group.id, group.name]));
         const counts = new Map<string, number>();
         for (const change of moved) {
@@ -215,6 +260,12 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                       );
                     }
                     await removeMade();
+                    const back = tagStates(
+                      beforeTags,
+                      afterTags,
+                      tagLinksOf(await core.listDocuments()),
+                    );
+                    if (back.length > 0) await core.revertDocumentTags(back);
                     return null;
                   },
                   redo: async () => {
@@ -234,6 +285,12 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                     }
                     const now = await assignmentsOf(core, ids);
                     for (const id of ids) left.set(id, stateOf(now.get(id)));
+                    const again = tagStates(
+                      afterTags,
+                      beforeTags,
+                      tagLinksOf(await core.listDocuments()),
+                    );
+                    if (again.length > 0) await core.revertDocumentTags(again);
                   },
                 },
           said:
