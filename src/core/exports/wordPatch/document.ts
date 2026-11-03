@@ -331,14 +331,15 @@ export class DocumentPatch {
   /** Copied as it was, a paragraph has no runs a comment's range could start and end in. */
   private forceForComments(counterpart: Counterpart): void {
     const based = counterpart.key ? this.based.get(counterpart.key) : undefined;
-    if (
-      !based ||
-      counterpart.kind !== "paragraph" ||
-      !this.input.review.choices.commentFailedChecks ||
-      !this.input.tokensOf(counterpart.node).some((token) => token.sentence)
-    ) {
-      return;
-    }
+    if (!based || counterpart.kind !== "paragraph") return;
+    const tokens = this.input.tokensOf(counterpart.node);
+    const sentence =
+      this.input.review.choices.commentFailedChecks && tokens.some((token) => token.sentence);
+    // A comment made here needs the paragraph written again, to hold its range (#328).
+    const comment = tokens.some(
+      (token) => token.marks.comment !== null && this.input.review.addsComment(token.marks.comment),
+    );
+    if (!sentence && !comment) return;
     for (let at: XmlElement | undefined = based.element; at; at = this.parents.get(at))
       this.forced.add(at);
   }
@@ -440,13 +441,19 @@ export class DocumentPatch {
       if (counterpart.pending.inserted) continue;
       const based = counterpart.key ? this.based.get(counterpart.key) : undefined;
       if (counterpart.kind === "paragraph") {
-        if (based && !this.needsWriting(counterpart, based)) {
+        // A new comment makes an unchanged paragraph be written again, for its range (#328):
+        // its tokens then carry the comment, as the writer's do.
+        const addsComment = this.input
+          .tokensOf(counterpart.node)
+          .some(
+            (token) =>
+              token.marks.comment !== null && this.input.review.addsComment(token.marks.comment),
+          );
+        if (based && !this.needsWriting(counterpart, based) && !addsComment) {
           yield { key: counterpart.node, authorship: "own" };
           continue;
         }
-        const tokens = based
-          ? withWordChanges(this.input.tokensOf(counterpart.node), counterpart.pending)
-          : this.input.tokensOf(counterpart.node);
+        const tokens = this.tokensOfWritten(counterpart, based ?? null);
         for (const each of alignTokens(based ? this.baseTokensOf(based) : [], tokens)) {
           if (each.step === "delete" || each.step === "proposed") continue;
           const token = tokens[each.y] as Token;
@@ -460,7 +467,12 @@ export class DocumentPatch {
                   : /^\s$/u.test(token.char)
                     ? "neither"
                     : "own";
-          yield { key: token, authorship, sentence: token.sentence };
+          yield {
+            key: token,
+            authorship,
+            sentence: token.sentence,
+            ...(token.marks.comment && { comments: [token.marks.comment] }),
+          };
         }
       } else if (counterpart.kind === "table" && based) {
         if (!this.input.edited(counterpart.node) && !this.forced.has(based.element)) {
@@ -501,6 +513,35 @@ export class DocumentPatch {
     const target = this.input.relationships.get(hyperlink.attrs["r:id"] ?? "");
     if (target?.external) return anchor ? `${target.target}#${anchor}` : target.target;
     return anchor ? `#${anchor}` : null;
+  }
+
+  /**
+   * The tokens a paragraph is written from, made once so a comment's range
+   * finds the same tokens the writer writes (#328): kept-as-is atoms become
+   * their characters, as the writer writes them.
+   */
+  private readonly writtenTokens = new Map<Counterpart, Token[]>();
+
+  private tokensOfWritten(counterpart: Counterpart, based: Based | null): Token[] {
+    const cached = this.writtenTokens.get(counterpart);
+    if (cached) return cached;
+    const { plan } = this.input;
+    const tokens = this.input.tokensOf(counterpart.node).flatMap((token): Token[] => {
+      const { node } = token;
+      if (token.kind !== "atom" || !token.source || !node) return [token];
+      if (plan.writes(token.source, node, keptKindOf(node))) return [token];
+      if (token.inline) {
+        // A note kept as is is a new footnote with only its text, so it is said, as a copy is.
+        if (node.type === WORD_ATOM_NODE) plan.copied(node);
+        return [special(token.inline)];
+      }
+      if (!plan.isForeign(node) && !plan.written(token.source)) return [];
+      plan.copied(node);
+      return asCharacters(token, copiedText(node));
+    });
+    const result = based ? withWordChanges(tokens, counterpart.pending) : tokens;
+    this.writtenTokens.set(counterpart, result);
+    return result;
   }
 
   /** The main part's text with every change made. */
@@ -809,20 +850,7 @@ export class DocumentPatch {
     scope: Namespaces,
     references: () => Reference[],
   ): string {
-    const { plan } = this.input;
-    const tokens = this.input.tokensOf(counterpart.node).flatMap((token): Token[] => {
-      const { node } = token;
-      if (token.kind !== "atom" || !token.source || !node) return [token];
-      if (plan.writes(token.source, node, keptKindOf(node))) return [token];
-      if (token.inline) {
-        // A note kept as is is a new footnote with only its text, so it is said, as a copy is.
-        if (node.type === WORD_ATOM_NODE) plan.copied(node);
-        return [special(token.inline)];
-      }
-      if (!plan.isForeign(node) && !plan.written(token.source)) return [];
-      plan.copied(node);
-      return asCharacters(token, copiedText(node));
-    });
+    const tokens = this.tokensOfWritten(counterpart, based ?? null);
     const filePPr = based ? this.pPrOf(based.element) : "";
     const basePPr = based
       ? resolvedMark(filePPr, based.counterpart.pending, counterpart.pending)
@@ -837,7 +865,7 @@ export class DocumentPatch {
     const { xml, lost } = writeParagraph(
       {
         base: based ? { element: based.element, tokens: this.baseTokensOf(based) } : null,
-        current: based ? withWordChanges(tokens, counterpart.pending) : tokens,
+        current: tokens,
         pPr,
         pPrChanged: pPr !== filePPr,
         fallbackRun: rPr,

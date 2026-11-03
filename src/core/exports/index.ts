@@ -17,6 +17,7 @@ import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
 import { translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
+import { mindCommentsOf } from "../../shared/mindComments";
 import { mindScopeOf } from "../../shared/mindScope";
 import { mindName, withoutTrailingMarks } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
@@ -44,6 +45,7 @@ import {
   type KeptCitationText,
   MIND_CONTENT_FIELD,
   type Mind,
+  type MindComment,
   type MindExport,
   type MindExportPreview,
   type SharedDocument,
@@ -201,6 +203,8 @@ interface Prepared {
   lineSpacing: number | null;
   /** Each Citation's footnote with the attributes it was made from, for the source pack. */
   attributesOf: ReadonlyMap<Footnote, Partial<CitationAttributes>>;
+  /** The Mind's comments (#328), written as Word comments with their threads and resolved state. */
+  comments: MindComment[];
 }
 
 export function createExports(deps: ExportsDependencies) {
@@ -253,6 +257,7 @@ export function createExports(deps: ExportsDependencies) {
       theirChanges,
       trackedChanges,
       othersComments: noteComments,
+      comments,
     } = deps.read(mind.id, (fragment) => {
       const { doc } = fragment;
       name = exportName(mind, fragment);
@@ -295,6 +300,7 @@ export function createExports(deps: ExportsDependencies) {
         trackedChanges:
           format === "docx" && review ? waiting.filter((each) => !review.skips(each.id)).length : 0,
         othersComments: doc ? (verificationOf(doc)?.comments ?? null) : null,
+        comments: doc ? mindCommentsOf(doc) : [],
       };
     });
     // Someone else's file goes back to them: comments that quote the User's Documents only when asked.
@@ -357,6 +363,7 @@ export function createExports(deps: ExportsDependencies) {
       font: deps.font(mind.id),
       lineSpacing: deps.lineSpacing(mind.id),
       attributesOf,
+      comments,
     };
   };
 
@@ -696,6 +703,7 @@ export function createExports(deps: ExportsDependencies) {
             paper: deps.paper(),
             created: deps.now(),
             review: reviewChoices(prepared, false),
+            comments: prepared.comments,
             font: prepared.font,
             lineSpacing: prepared.lineSpacing,
           },
@@ -744,6 +752,8 @@ export function createExports(deps: ExportsDependencies) {
       markAiText: options.markAiText,
       commentFailedChecks: options.commentFailedChecks,
       now: deps.now(),
+      intoWordFile: imported,
+      authorName: deps.author(),
     };
   }
 
@@ -775,6 +785,7 @@ export function createExports(deps: ExportsDependencies) {
         formatCitations: thin.format,
         withPictures: (blocks) => withPictures(blocks, language, deps),
         review: reviewChoices(prepared, true),
+        comments: prepared.comments,
       });
       deps.log.info("export.word", {
         notKept: report.notKept.length,

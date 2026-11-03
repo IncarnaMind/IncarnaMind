@@ -102,6 +102,7 @@ const PLAIN: ReviewChoices = {
   markAiText: false,
   commentFailedChecks: false,
   now: "2026-10-13T09:00:00.000Z",
+  authorName: "The User",
 };
 
 async function exportOf(
@@ -637,6 +638,7 @@ const REVIEWED: ReviewChoices = {
   markAiText: true,
   commentFailedChecks: true,
   now: PLAIN.now,
+  authorName: REVIEWER,
 };
 
 /**

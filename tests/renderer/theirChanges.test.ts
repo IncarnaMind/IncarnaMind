@@ -64,17 +64,15 @@ function decide(client: MindClient, ids: readonly string[], outcome: "accept" | 
 }
 
 describe("the reviewing pane's cards", () => {
-  test("list every change and comment in the Mind's order: clause, initials and a few words around each change", async () => {
+  test("list every change in the Mind's order: clause, initials and a few words around each change; comments are the Mind's own, beside their words (#328)", async () => {
     const client = await imported(supplyRedline());
     expect(itemsOf(client).map(card)).toEqual([
       "1.2 · DK · waiting: …at its plants in Leeds{+ and Gdańsk+} and delivers them to Corran under clause 4.",
       "1.3 · LO · waiting: Northwind gives [-90-]{+60+} days’ notice before moving production to another plant.",
       "2.1 · DK · waiting: …a year by up to [-8%, on 30 days’ notice-]{+6%, on 45 days’ notice, as agreed on the call of 3 September+}.",
-      "comment · Dana Kim: Resin is up 11% since June. Our letter of 19 September has the figures.",
       "3.1 · LO · waiting: Corran pays each invoice within [-14-]{+30+} days of the invoice date. Late payments carry interest at 4% a year above the Bank of England base rate.",
       "4.2 · DK · waiting: …the sites in Schedule 3{+, for orders of at least 40 pallets+}.",
       "6.2 · DK · waiting: Otherwise, {+Northwind’s total liability is capped at the fees paid in the three months before the claim+}.",
-      "comment · Dana Kim: Our insurer needs a cap in every supply contract.",
       "7.1 · DK · waiting: {+Every plant that makes the Products holds ISO 22000 certification.+}",
     ]);
     const changes = waitingChanges(itemsOf(client));
