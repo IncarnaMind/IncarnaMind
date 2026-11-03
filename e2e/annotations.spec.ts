@@ -90,7 +90,12 @@ const documentIdOf = async (window: Page): Promise<string> => {
 };
 
 /** The app on a Markdown Document, open in the viewer, with the panel's row count read. */
-async function openMarkdown(language: "en" | "zh-CN" = "en", text = MARKDOWN, name = "Costs.md") {
+async function openMarkdown(
+  language: "en" | "zh-CN" = "en",
+  text = MARKDOWN,
+  name = "Costs.md",
+  { mind = false }: { mind?: boolean } = {},
+) {
   const path = join(sources, name);
   await writeFile(path, text);
   const { app, window } = await launchApp(dataDir);
@@ -99,6 +104,8 @@ async function openMarkdown(language: "en" | "zh-CN" = "en", text = MARKDOWN, na
   if (language !== "en") await setLanguage(window, language);
   await addDocuments(window, [path]);
   await expectReadyDocuments(window, 1);
+  // With a Mind first, the Document opens beside it, which Add to note writes into.
+  if (mind) await newMind(window);
   await openDocumentAt(window, { documentId: await documentIdOf(window) });
   const viewer = window.getByTestId("viewer");
   await expect(viewer.getByTestId("viewer-text")).toBeVisible();
@@ -255,9 +262,7 @@ test("in Chinese: the menu, the panel and search are in Chinese", async () => {
 });
 
 test("Add to note and Collect into a Mind give quotes whose Citations are found", async () => {
-  const { window, viewer } = await openMarkdown();
-  await newMind(window);
-  await pointAndClick(window, window.getByTestId("viewer"));
+  const { window, viewer } = await openMarkdown("en", MARKDOWN, "Costs.md", { mind: true });
   await highlight(window, viewer, "4% is held");
 
   // Add to note, from the note's popover, at the Mind's cursor.

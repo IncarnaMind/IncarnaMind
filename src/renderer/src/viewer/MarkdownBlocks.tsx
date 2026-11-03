@@ -109,12 +109,19 @@ function renderInline(inline: Inline, key: number, rendering: Rendering): ReactN
           start={inline.start}
           end={inline.end}
           highlight={highlight}
+          annotations={rendering.annotations}
         />
       );
     case "code":
       return (
         <code key={key}>
-          <Slice source={source} start={inline.start} end={inline.end} highlight={highlight} />
+          <Slice
+            source={source}
+            start={inline.start}
+            end={inline.end}
+            highlight={highlight}
+            annotations={rendering.annotations}
+          />
         </code>
       );
     case "strong":
@@ -154,7 +161,15 @@ function Code({
   const { source, highlight } = rendering;
   const code = source.slice(start, end);
   if (!language || !lowlight.registered(language)) {
-    return <Slice source={source} start={start} end={end} highlight={highlight} />;
+    return (
+      <Slice
+        source={source}
+        start={start}
+        end={end}
+        highlight={highlight}
+        annotations={rendering.annotations}
+      />
+    );
   }
   // The highlighted tree's text is the code itself, in order: each piece keeps its place in the source.
   let at = start;
@@ -165,7 +180,16 @@ function Code({
         const from = at;
         at += node.value.length;
         // biome-ignore lint/suspicious/noArrayIndexKey: the pieces never reorder
-        return <Slice key={index} source={source} start={from} end={at} highlight={highlight} />;
+        return (
+          <Slice
+            key={index}
+            source={source}
+            start={from}
+            end={at}
+            highlight={highlight}
+            annotations={rendering.annotations}
+          />
+        );
       }
       if (node.type !== "element") return null;
       const className = node.properties?.className;
@@ -179,7 +203,15 @@ function Code({
   try {
     return <>{render(lowlight.highlight(language, code).children)}</>;
   } catch {
-    return <Slice source={source} start={start} end={end} highlight={highlight} />;
+    return (
+      <Slice
+        source={source}
+        start={start}
+        end={end}
+        highlight={highlight}
+        annotations={rendering.annotations}
+      />
+    );
   }
 }
 
