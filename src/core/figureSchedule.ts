@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import type { NodeJSON } from "../shared/blockJson";
 import { MAX_INPUTS_PER_FIGURE } from "../shared/calculatedFigures";
-import { gridOfTable, readChart, type SourceGrid } from "../shared/charts";
+import { gridOfTable, readChart, type SourceGrid, valueCitations } from "../shared/charts";
 import {
   analysisFigureShown,
   type ClaimCheckNow,
@@ -802,9 +802,11 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         ? readChart(place.element.getAttributes())
         : null;
     const { locator } = occurrence;
+    const chartValue =
+      locator.kind === "chart" ? chart?.data.rows[locator.row]?.values[locator.series] : null;
     const cited =
       locator.kind === "chart"
-        ? (chart?.data.rows[locator.row]?.values[locator.series]?.citation ?? null) !== null
+        ? chartValue != null && valueCitations(chartValue).length > 0
         : place?.citedAt().has(locator.to.offset) === true;
     const signOff = signOffs.get(occurrence.id);
     return {

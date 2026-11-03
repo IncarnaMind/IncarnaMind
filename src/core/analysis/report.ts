@@ -10,6 +10,7 @@ import {
 import { figureCellText, figureResultText, figureText, rawColumn } from "../../shared/figures";
 import type { AnswerAnalysis } from "../api";
 import type { Language } from "../language";
+import { tableWhereText } from "./documentTables";
 import { cellsText, notNumbersText, rowsText } from "./figureRows";
 
 const count = (n: number) => figureText("en", n);
@@ -72,15 +73,28 @@ export function analysisReport(
   for (const input of analysis.inputs) {
     if (input.kind === "range") {
       const sheet = input.citation.location?.kind === "rows" ? input.citation.location.sheet : null;
-      const where = `${input.citation.documentName}${sheet ? `, sheet "${sheet}"` : ""}, ${input.range}`;
+      const table = input.table
+        ? `, table ${input.table.number} (${tableWhereText(input.table.rows, input.citation.location?.kind)})`
+        : "";
+      const where = `${input.citation.documentName}${sheet ? `, sheet "${sheet}"` : ""}${table}, ${input.range}`;
       const cut = !input.cut
         ? ""
         : codeOffered && !analysis.files
-          ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most run_analysis reads; run it again with run_code, which reads every row)`
+          ? ` (cut: only its first ${rowsOf(input.rows)} were read, the most run_analysis reads; run it again with run_code, which reads up to 200,000 rows)`
           : ` (cut: only its first ${rowsOf(input.rows)} were read, the most this Analysis can read; say so in the Answer)`;
       lines.push(
         `- ${input.name}: ${where}: ${rowsOf(input.rows)} × ${input.columns} columns${cut}`,
       );
+      if (input.table?.scan) {
+        lines.push(
+          `  Its numbers were read from a scan by text recognition, which may misread them: say so in the Answer.`,
+        );
+      }
+      if (input.table?.marks) {
+        lines.push(
+          `  ${input.table.marks === 1 ? "1 cell has a footnote mark after its number" : `${count(input.table.marks)} cells have a footnote mark after their numbers`} (such as ¹ or *); a cell's value leaves it out.`,
+        );
+      }
     } else {
       lines.push(
         `- ${input.name}: ${input.input.number.chars}, from ${input.input.citation.documentName}`,
@@ -215,7 +229,7 @@ function refusal(
 ): string {
   if (check.kind === "unchecked") return `IncarnaMind couldn't work it out again: ${check.reason}.`;
   const of = result.of;
-  return `figure() gave ${figureText("en", result.value)}, but ${of ? `the ${of.how} of ${of.columns[0]} in those rows of ${of.input}` : "its cells"} comes to ${figureText("en", check.value)} as the sheet has them. figure() reads a column as its input has it; give a figure from a column the code changed with result().`;
+  return `figure() gave ${figureText("en", result.value)}, but ${of ? `the ${of.how} of ${of.columns[0]} in those rows of ${of.input}` : "its cells"} comes to ${figureText("en", check.value)} as the input has them. figure() reads a column as its input has it; give a figure from a column the code changed with result().`;
 }
 
 function endLine(analysis: AnswerAnalysis, end: AnswerAnalysis["end"]): string {

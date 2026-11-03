@@ -856,6 +856,13 @@ export function createCore(adapters: CoreAdapters): Core {
   );
   const platform = process.platform;
   const retention = createVersionRetention(db, now);
+  const missingFigureRecords = new Set<string>();
+  /** Once a Mind, however often its changes are stored: the log isn't the place the User sees it. */
+  const missingFigureRecord = (mindId: string, keeping: string) => {
+    if (missingFigureRecords.has(mindId)) return;
+    missingFigureRecords.add(mindId);
+    console.error(`Mind ${mindId}: a calculated figure's Analysis record is missing; ${keeping}`);
+  };
   const rebuildFigureRetention = (mindId: string) => {
     if (
       content.isLoaded(mindId) &&
@@ -869,6 +876,11 @@ export function createCore(adapters: CoreAdapters): Core {
         citations = figureCitations(doc.getXmlFragment(MIND_CONTENT_FIELD));
       } catch (error) {
         console.error(`Mind ${mindId}: retaining calculated figure sources failed`, error);
+        return;
+      }
+      // A figure whose Analysis record is gone doesn't say what it rests on: keep what is retained.
+      if (citations === null) {
+        missingFigureRecord(mindId, "keeping its retained sources");
         return;
       }
       const documents = new Set(
@@ -1010,7 +1022,10 @@ export function createCore(adapters: CoreAdapters): Core {
       eachCitingMind((fragment, mindId) => {
         if (collectVersions) {
           try {
-            addCitedVersions(fragment, cited);
+            if (!addCitedVersions(fragment, cited)) {
+              complete = false;
+              missingFigureRecord(mindId, "keeping old versions");
+            }
           } catch (error) {
             complete = false;
             console.error(`Mind ${mindId}: reading retained source dependencies failed`, error);
@@ -1989,6 +2004,7 @@ export function createCore(adapters: CoreAdapters): Core {
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
       searchableHasSheets: (documentIds, workbooksOnly) =>
         documents.searchableHasSheets(documentIds ?? undefined, workbooksOnly),
+      searchableHasTables: (documentIds) => documents.searchableHasTables(documentIds ?? undefined),
       passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       passagesCovering: (documentId, from, to, overlapping) =>

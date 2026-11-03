@@ -142,7 +142,6 @@ export function readRange(
     .sort((a, b) => a - b);
   const [headingRow, ...dataRows] = numbers;
   if (headingRow === undefined) return null;
-  // Folded, not spread: a spread of every row overflows the stack past about 120,000 rows.
   const widest = numbers.reduce((most, row) => Math.max(most, rows.get(row)?.length ?? 0), 0);
   const lastColumn = Math.min(bounds.lastColumn ?? widest - 1, widest - 1);
   if (lastColumn < bounds.firstColumn) return null;
@@ -152,12 +151,20 @@ export function readRange(
       { length: width },
       (_, offset) => rows.get(row)?.[bounds.firstColumn + offset] ?? null,
     );
-  const columns = slice(headingRow).map((cell, offset) =>
+  const named = slice(headingRow).map((cell, offset) =>
     cell === null || cell === "" ? columnName(bounds.firstColumn + offset) : String(cell),
   );
+  // Two columns under one heading name (a merged heading with no sub-heading) get a suffix, so
+  // the model can name either one and no figure silently takes the first (#448).
+  const seen = new Map<string, number>();
+  const columns = named.map((name) => {
+    const count = (seen.get(name) ?? 0) + 1;
+    seen.set(name, count);
+    return count === 1 ? name : `${name} (${count})`;
+  });
   const kept = Math.min(dataRows.length, limits.rows, Math.floor(limits.cells / width));
   const read = dataRows.slice(0, kept);
-  let lastStored = Number.NEGATIVE_INFINITY;
+  let lastStored = 0;
   for (const row of rows.keys()) lastStored = Math.max(lastStored, row);
   const cells = [...rows.values()].reduce(
     (sum, row) => sum + row.filter((cell) => cell !== null).length,

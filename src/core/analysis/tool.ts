@@ -13,6 +13,7 @@ import type { CitationSource } from "../documents";
 import type { Language } from "../language";
 import { ANALYSIS_TOOLS, type Tool, type ToolProviderInfo } from "../tools";
 import { runAnalysis, sha256 } from ".";
+import { documentTableInput } from "./documentTables";
 import {
   type AnalysisRecorder,
   createAnalysisRecorder,
@@ -66,14 +67,14 @@ type Read =
 type ReadInput = Extract<Read, { ok: true }>;
 
 /**
- * Two inputs that read the same cells of one sheet. Every Passage of a sheet reads the whole
- * sheet, so a model that gives each Passage it found as an input, then joins them, counts each
- * row as often (#2346): such inputs are refused before anything runs.
+ * Two inputs that read the same cells of one sheet or Document table. Every Passage of a sheet
+ * or a table reads the whole of it, so a model that gives each Passage it found as an input, then
+ * joins them, counts each row as often (#2346): such inputs are refused before anything runs.
  */
 function readTwice(reads: readonly ReadInput[]): string | null {
   const ranges = reads.flatMap((read) =>
     read.job.kind === "table" && read.record.kind === "range"
-      ? [{ job: read.job, citation: read.record.citation }]
+      ? [{ job: read.job, citation: read.record.citation, table: read.record.table?.number }]
       : [],
   );
   const rowsOf = (job: (typeof ranges)[number]["job"]) =>
@@ -83,13 +84,14 @@ function readTwice(reads: readonly ReadInput[]): string | null {
     for (const second of ranges.slice(at + 1)) {
       const sameSheet =
         first.citation.documentId === second.citation.documentId &&
-        sheetOf(first.citation) === sheetOf(second.citation);
+        sheetOf(first.citation) === sheetOf(second.citation) &&
+        first.table === second.table;
       if (!sameSheet) continue;
       const sharesRows = rowsOf(second.job).some((row) => rows.has(row));
       const sharesColumns = second.job.columns.some((column) => first.job.columns.includes(column));
       if (!sharesRows || !sharesColumns) continue;
       const sheet = sheetOf(first.citation);
-      return `"${first.job.name}" and "${second.job.name}" read the same rows of ${sheet ? `the sheet "${sheet}" in ` : ""}"${first.citation.documentName}", so joined they would count each row twice. Every Passage of a sheet reads the whole sheet: give the sheet once, as one input, and pick its rows in the code`;
+      return `"${first.job.name}" and "${second.job.name}" read the same rows of ${sheet ? `the sheet "${sheet}" in ` : ""}"${first.citation.documentName}", so joined they would count each row twice. ${first.table === undefined ? "Every Passage of a sheet reads the whole sheet: give the sheet once" : `Every Passage of table ${first.table} reads the whole table: give it once`}, as one input, and pick its rows in the code`;
     }
   }
   return null;
@@ -173,12 +175,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     const parsed = parseRange(text(given.range) || undefined);
     if (!parsed.ok) return { ok: false, problem: parsed.problem };
     const sheets = sheetsOf(units);
-    if (sheets.length === 0) {
-      return {
-        ok: false,
-        problem: `${passageId} is in ${source.documentName}, which has no sheet or CSV rows`,
-      };
-    }
+    if (sheets.length === 0) return documentTableInput(name, given, source, units);
     const own = units.find(
       (unit) => unit.kind === "rows" && unit.page !== null && unit.page === source.pageFrom,
     );
@@ -226,7 +223,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     provider: ANALYSIS_PROVIDER,
     providerTool: ANALYSIS_TOOLS.run,
     description:
-      'Run Python over sheets and CSV files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
+      'Run Python over sheets, CSV files and the tables of PDF, Word and PowerPoint files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once), a table a Passage of a PDF, Word file or deck shows, {"name": "costs", "passage": "P5"} (the whole table, over every page it runs to, its headings row 1; add "table": 2 where the Passage shows more than one), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
     inputSchema: {
       type: "object",
       properties: {
@@ -240,6 +237,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
               passage: { type: "string" },
               range: { type: "string" },
               sheet: { type: "string" },
+              table: { type: "number" },
               citation: { type: "number" },
               location: { type: "string" },
               quote: { type: "string" },

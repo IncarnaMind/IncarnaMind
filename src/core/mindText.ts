@@ -50,7 +50,7 @@ import {
   comparisonQuestionsOf,
   visibleComparisonQuestions,
 } from "../shared/comparisons";
-import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
+import { calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
@@ -1346,14 +1346,11 @@ function readInlineElement(
 
 function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): Inline {
   const { figure } = attributes;
-  let sources: CalculatedSources;
-  try {
-    sources = calculatedSources(attributes, doc);
-  } catch {
-    // Its saved Analysis is gone: it still reads as its text, and an export that would write its
-    // sources says they aren't available, as the editor does (`error.figure.evidenceMissing`).
+  const sources = calculatedSources(attributes, doc);
+  // A figure that names an Analysis whose record the Note no longer keeps reads as its value, and
+  // an export says its saved inputs aren't available, as the editor does (#2378).
+  if (figure.analysis && !sources.analysis)
     return { kind: "figure", figure, sources: null, analysis: null };
-  }
   return {
     kind: "figure",
     figure,

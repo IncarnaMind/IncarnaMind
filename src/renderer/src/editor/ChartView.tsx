@@ -3,7 +3,7 @@ import { NodeViewWrapper, type ReactNodeViewProps, useEditorState } from "@tipta
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import { BLOCK_ID_ATTRIBUTE, type CitationCheck } from "../../../core/api";
+import { BLOCK_ID_ATTRIBUTE, type CitationAttributes, type CitationCheck } from "../../../core/api";
 import { chartLegend } from "../../../shared/chartLayout";
 import {
   type ChartAttributes,
@@ -194,10 +194,32 @@ export function ChartView({
   const place = useTabPlace();
   const { card, peek, hold, pin, dismiss } = usePointCard();
 
-  const stateOf = useCallback(
-    (value: ChartValue | null | undefined): CitationState | null =>
-      value?.citation && !value.figure ? citationState(value.citation, documents, kept) : null,
+  /** Every Citation a value rests on with its state, in its order: an Analysis over two Documents (#2378). */
+  const cited = useCallback(
+    (
+      value: ChartValue | null | undefined,
+    ): { citation: CitationAttributes; state: CitationState }[] => {
+      if (!value || value.figure) return [];
+      return valueCitations(value).map((citation) => ({
+        citation,
+        state: citationState(citation, documents, kept),
+      }));
+    },
     [documents, kept],
+  );
+  const worstOf = useCallback(
+    (value: ChartValue | null | undefined) => {
+      const every = cited(value);
+      if (every.length === 0) return null;
+      const check = checksOf(every.map(({ state }) => state)).check;
+      const at = every.findIndex(({ state }) => state.check === check);
+      return every[at >= 0 ? at : 0] ?? null;
+    },
+    [cited],
+  );
+  const stateOf = useCallback(
+    (value: ChartValue | null | undefined): CitationState | null => worstOf(value)?.state ?? null,
+    [worstOf],
   );
   /** A calculated value's mark is its Inputs' worst check, said as calculated, never one Input's (#2307). */
   const markOf = (value: ChartValue): { check: CitationCheck | null; label: string } => {
@@ -208,10 +230,10 @@ export function ChartView({
         label: calculatedFrom(inputsOf([value.figure]), documents, t),
       };
     }
-    const state = stateOf(value);
-    if (!value.citation || !state) return { check: null, label: t("chart.point.noCitation") };
-    const badge = badgeMessage(state, withShownName(value.citation, documents), t);
-    return { check: state.check, label: t(badge.key, badge.params) };
+    const worst = worstOf(value);
+    if (!worst) return { check: null, label: t("chart.point.noCitation") };
+    const badge = badgeMessage(worst.state, withShownName(worst.citation, documents), t);
+    return { check: worst.state.check, label: t(badge.key, badge.params) };
   };
   const seriesName = useCallback((index: number) => nameOfSeries(chart, index, t), [chart, t]);
   const labelHeading = chart.data.labelHeading;
@@ -365,22 +387,26 @@ export function ChartView({
   };
   const sourceText = (value: ChartValue | null | undefined) => {
     if (value?.figure) return markOf(value).label;
-    const state = stateOf(value);
-    if (!value?.citation || !state) return t("chart.point.noCitation");
-    const citation = withShownName(value.citation, documents);
-    const badge = badgeMessage(state, citation, t);
-    return `${citationSource(citation, t).text}. ${t(badge.key, badge.params)}`;
+    const every = cited(value);
+    if (every.length === 0) return t("chart.point.noCitation");
+    return every
+      .map(({ citation, state }) => {
+        const shown = withShownName(citation, documents);
+        const badge = badgeMessage(state, shown, t);
+        return `${citationSource(shown, t).text}. ${t(badge.key, badge.params)}`;
+      })
+      .join(" · ");
   };
 
   const openValue = (point: PointRef) => {
-    const value = listed[point.row]?.values[point.series];
-    const state = stateOf(value);
-    if (!value?.citation || !state) return;
-    const documentId = state.documentId ?? value.citation.documentId;
+    const worst = worstOf(listed[point.row]?.values[point.series]);
+    if (!worst) return;
+    const { citation, state } = worst;
+    const documentId = state.documentId ?? citation.documentId;
     if (!documentId) return;
-    const location = citationLocation(value.citation);
+    const location = citationLocation(citation);
     void openCited(
-      { ...value.citation, documentId },
+      { ...citation, documentId },
       {
         check: state.check,
         withQuote: quoteSaysSo(state.check) || state.reason === "document-removed",
@@ -412,7 +438,8 @@ export function ChartView({
   const title = chart.title ? t("chart.label", { title: chart.title }) : t("chart.label.untitled");
   const legend = !asTable ? chartLegend(chart, seriesName) : [];
   const shownCard = card ? listed[card.point.row]?.values[card.point.series] : null;
-  const shownState = stateOf(shownCard);
+  const shownCitations = cited(shownCard);
+  const shownState = shownCitations[0]?.state ?? null;
   const shownUnitless = card
     ? unitlessRows(chart.data, card.point.series).has(card.point.row)
     : false;
@@ -606,8 +633,16 @@ export function ChartView({
                     })
                   : null
               }
-              citation={shownCard.citation && withShownName(shownCard.citation, documents)}
+              citation={
+                shownCitations[0]?.citation
+                  ? withShownName(shownCitations[0].citation, documents)
+                  : null
+              }
               state={shownState}
+              citations={shownCitations.map(({ citation, state }) => ({
+                citation: withShownName(citation, documents),
+                state,
+              }))}
               figure={
                 shownCard.figure ? (
                   <ChartValueFigure attributes={shownCard.figure} editor={editor} doc={doc} />

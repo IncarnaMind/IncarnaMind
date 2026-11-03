@@ -61,6 +61,13 @@ export function recalculate(
   if (how === null) return { kind: "unchecked", reason: "it names no way to work it out" };
   const input = inputs.find((each) => each.name === of.input);
   if (input?.kind !== "table") return { kind: "unchecked", reason: `${of.input} isn't a range` };
+  // Its cells are what a recognizer read: worked out again, they would only agree with themselves.
+  if (input.readFromScan) {
+    return {
+      kind: "unchecked",
+      reason: `${of.input}'s cells were read from a scan, which may have misread them, so a figure of them is never worked out again. Give it with result(name, value, label, unit, of=df) to show it as calculated by code, and say in the Answer that its numbers were read from a scan`,
+    };
+  }
   const [heading] = of.columns;
   const at = input.columns.flatMap((each, index) =>
     analysisLabel(each) === heading ? [index] : [],
