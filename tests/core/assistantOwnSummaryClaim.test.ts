@@ -30,7 +30,12 @@ const SUMMARY = "## Summary\n\nThe paper is about spring tides.";
 const LONGER = "## Summary\n\nThe paper is about spring tides, and how the moon drives them.";
 
 async function wroteThenLonger(
-  { first, second, claim }: { first: string; second: string; claim: string },
+  {
+    first,
+    second,
+    claim,
+    edit = true,
+  }: { first: string; second: string; claim: string; edit?: boolean },
   windowApplies: boolean,
 ) {
   let record = "";
@@ -39,7 +44,7 @@ async function wroteThenLonger(
       if (called(call, "add_to_mind")) return { text: "Wrote the summary." };
       if (asked(call).endsWith(first))
         return { calls: [{ tool: "add_to_mind", input: { content: SUMMARY } }] };
-      if (called(call, "edit_mind")) return { text: claim };
+      if (called(call, "edit_mind") || !edit) return { text: claim };
       return { calls: [{ tool: "edit_mind", input: { content: LONGER } }] };
     },
     {
@@ -81,7 +86,7 @@ describe("A claim about its own summary made longer", { timeout: 30_000 }, () =>
   // did not take effect claims nothing, and that the app's own marks in the Note are not a change;
   // fails_when=those rules are dropped from the instructions.
   test("the judge is told what a Chinese denial and an app mark are", () => {
-    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("没有改动");
+    expect(CLAIM_CHECK_INSTRUCTIONS).toContain("没能, 无法 or 尚未");
     expect(CLAIM_CHECK_INSTRUCTIONS).toContain("已在笔记中标出");
   });
 
@@ -125,5 +130,19 @@ describe("A claim about its own summary made longer", { timeout: 30_000 }, () =>
     expect(record).toContain('"applied": true');
     expect(secondAnswer.text).toBe("我已把摘要写长了一点。");
     expect(secondAnswer.steps?.unbackedClaims).toBeUndefined();
+  });
+
+  test("it flags the same claim when the second turn made no edit (zh)", async () => {
+    const { secondAnswer } = await wroteThenLonger(
+      {
+        first: "帮我写一份简短摘要。",
+        second: "把摘要写长一点。",
+        claim: "我已把摘要写长了一点。",
+        edit: false,
+      },
+      true,
+    );
+    expect(secondAnswer.text).toBe("我已把摘要写长了一点。");
+    expect(secondAnswer.steps?.unbackedClaims).toEqual(["changed"]);
   });
 });

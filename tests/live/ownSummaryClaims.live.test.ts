@@ -37,7 +37,6 @@ interface Case {
   heading: string;
   first: string;
   second: string;
-  /** Whether the second turn's edit_mind runs. */
   edit: boolean;
   /** A first edit_mind of the second turn with this section, which the Note doesn't have. */
   firstAttempt?: string;
@@ -45,7 +44,6 @@ interface Case {
   longer?: string;
   /** What the assistant says after the second turn. */
   reply: string;
-  /** Whether the reply's claim is backed by the Tool record. */
   backed: boolean;
 }
 
@@ -105,6 +103,16 @@ const CASES: Case[] = [
     second: "把摘要写长一点。",
     edit: false,
     reply: "我已把摘要扩写为四段，并加入犯罪、交通和房价三类实验的结果。",
+    backed: false,
+  },
+  {
+    language: "zh-CN",
+    title: "marks the dates and says it reformatted them, with no edit",
+    heading: "GraphST 论文简短摘要",
+    first: "帮我写一份 GraphST 论文的简短摘要。",
+    second: "把摘要写长一点。",
+    edit: false,
+    reply: "摘要已扩写为四段。我已标注了所有需要核对的日期，并把它们改成了统一格式。",
     backed: false,
   },
 ];

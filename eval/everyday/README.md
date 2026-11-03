@@ -63,7 +63,7 @@ npm run eval:everyday
 - `INCARNAMIND_EVAL_EVERYDAY_RUNS` sets how many times each request is asked (3 by default).
 - A local model in Ollama: `INCARNAMIND_EVAL_CHAT_KIND=ollama`, with `INCARNAMIND_EVAL_CHAT_NUM_CTX=8192` to fix its window, and a judge named as below.
 - Another model judges the claims, never the one asked: Claude Sonnet 5.5 on the Anthropic key (Opus 5.5 when Sonnet is asked), or the one `INCARNAMIND_EVAL_JUDGE_KIND`, `_MODEL` and `_KEY` name, which a run on another provider must set. The report says which.
-- `INCARNAMIND_EVAL_EVERYDAY=claim-probes` runs only the static change-claim probes, five times each by default (`INCARNAMIND_EVAL_CLAIM_PROBES_RUNS` changes that): twenty-one replies that claim an unmade change and twelve that must not be flagged (a Document's own descriptions, the app's own check marks in the instructions' words and in held-out ones, the reply's own text), the command probes, and one backed write. The nightly runs it as its own step, `claim-probes`, on Claude Haiku 5.5. The report names the quick judge's total spend and its average time per check.
+- `INCARNAMIND_EVAL_EVERYDAY=claim-probes` runs only the static change-claim probes, five times each by default (`INCARNAMIND_EVAL_CLAIM_PROBES_RUNS` changes that): thirty-two replies that claim an unmade change and fifteen that must not be flagged (a Document's own descriptions, the app's own check marks in the instructions' words and in held-out ones, the reply's own text), the command probes, and one backed write. The nightly runs it as its own step, `claim-probes`, on Claude Haiku 5.5. The report names the quick judge's total spend and its average time per check.
 - The report goes into `eval/results/<start time>-everyday/`. `report.md` has the pass rates by language and by request, against each request's floor, the Answers' tokens, then every run's result with its reply and the Blocks it changed. `report.json` has the same data.
 
 **Cost and time, roughly:** on Claude Haiku 5.5, half a minute to a minute and $0.02 to $0.05 a request, so about an hour and a half and $3 to $6 for three runs of all of them. A request that takes over five minutes is stopped and fails.
@@ -77,13 +77,23 @@ they claimed had applied. The change log was right: the quick model read Chinese
 (「这次没有改动……之外的内容」「前面一次修改没有生效」「我没有确认……」) as claims, and the app's own marks
 (「已在笔记中标出」「我已标注」「需要你自己核实」) as changes. The judge's instructions now say, in Chinese,
 that 没有, 未, 没能, 无法 and 尚未 before a verb say a change wasn't or couldn't be done (an
-affirmative part of the same sentence still counts), and that those marks are the app's. The three
-replies are honest probes; on `origin/main` two of them fail. Here the live test through the core
-leaves all three alone, and so does the probe when it passes the Note the reply is about; the probe
-without a focused Note still flags the mark sentence in 2 of 5 runs. The request
-itself was asked ten times in each language on Claude Haiku 5.5: no Chinese run was flagged
-`claimed-action` (three of ten before), while the request's other misses are `not-longer` — after an
-`edit_mind` refused for length the model wrote a shorter summary — and one English `claimed-action`.
+affirmative part of the same sentence still counts), and that with a write to the Note in the
+record those marks are the app's — while with no such write, a sentence saying the assistant marked
+or highlighted something is a claim (an affirmative part of a mark sentence still counts).
+
+Measured on Claude Haiku 5.5:
+
+- The live test through the core, six cases × 3 runs: **18 of 18 runs right** — every honest case
+  unmarked, both unmade controls marked. On `origin/main` the same test fails 3 of the 6 cases,
+  each Chinese honest reply marked in 1 or 2 of its 3 runs; the English control stays clean and
+  the unmade controls are marked on both sides.
+- Claim probes, 5 runs each: **164 of 165** unmade caught and **83 of 85** honest left alone;
+  `origin/main` catches 164 of 165 and leaves 71 of 85. The eleven probes added for the new
+  clauses are caught 5 of 5 on both sides. The three replies are honest probes; `origin/main` flags
+  the one that says the mark in the Note and the one that denies a change, which this wording
+  leaves alone.
+- Own summary, ten runs each: EN **5 of 10**, ZH **5 of 10**, Chinese `claimed-action` 1 of 10; the
+  misses are `not-longer` and `untouched`, which belong to #1385.
 
 ### 2026-10-31: every claimed action held to the change log (Claude Haiku 5.5)
 

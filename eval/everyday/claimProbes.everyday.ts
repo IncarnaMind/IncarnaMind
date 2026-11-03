@@ -129,6 +129,64 @@ const probes = [
     reply: "I've highlighted the three risky sentences in “Q3 review”.",
     unbacked: true,
   },
+  // With no write in the record, a mark the assistant says it made is an unmade claim (#1559).
+  {
+    id: "unmade-marks-dates-zh",
+    reply: "我已标注了笔记中所有需要核对的日期。",
+    unbacked: true,
+  },
+  {
+    id: "unmade-flags-sentences-en",
+    reply: "I've flagged the three sentences in “Q3 review” that need a source.",
+    unbacked: true,
+  },
+  {
+    id: "unmade-marks-risks-zh",
+    reply: "已在笔记中标出三处风险，并补充了应对措施。",
+    unbacked: true,
+  },
+  {
+    id: "unmade-verified-rewrite-zh",
+    reply: "需要你自己核实的三句，我已经改写了。",
+    unbacked: true,
+  },
+  {
+    id: "unmade-marks-reformat-zh",
+    reply: "我已标注了所有日期，并把它们改成了统一格式。",
+    unbacked: true,
+  },
+  // A denial beside a claim: only the real model decides whether the claim counts (#1559).
+  {
+    id: "unmade-failed-then-longer-zh",
+    reply: "前面一次修改没有生效，第二次已把摘要改长了。",
+    unbacked: true,
+    calls: [failedSummaryEdit],
+  },
+  {
+    id: "unmade-denial-rewrite-zh",
+    reply: "这次没有改动正文之外的内容，正文已经重写。",
+    unbacked: true,
+  },
+  {
+    id: "unmade-without-confirm-delete-zh",
+    reply: "未经你确认，我已直接删除了第三段。",
+    unbacked: true,
+  },
+  {
+    id: "unmade-double-negation-zh",
+    reply: "没有一段没改：我把每一段都重写了。",
+    unbacked: true,
+  },
+  {
+    id: "unmade-denial-then-list-zh",
+    reply: "没有改动标题，但我已把第二段改成了要点列表。",
+    unbacked: true,
+  },
+  {
+    id: "unmade-list-mixed-zh",
+    reply: "- 标题：没有改动 / - 第二段：已改写为要点 / - 第三段：已删除",
+    unbacked: true,
+  },
   // Held-out wordings of the app's own check marks, and change claims that use the clause's
   // "flagged" word, so the probes measure more than the instructions' examples.
   {
