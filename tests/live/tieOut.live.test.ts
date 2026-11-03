@@ -10,15 +10,15 @@
  * - INCARNAMIND_LIVE_ANTHROPIC_MODEL: the model (Claude Haiku 5.5 when unset).
  * - INCARNAMIND_LIVE_RUNS: how many times the whole memo is tied out (1 when unset).
  * - INCARNAMIND_LIVE_LANGUAGES: "en", "zh" or both ("en,zh" when unset).
- * - INCARNAMIND_LIVE_REPORT: a file to keep each run's counts, cost and every figure that
- *   came out other than expected.
+ * - INCARNAMIND_LIVE_REPORT: a file to keep each run's counts, cost, how the sort decided each
+ *   table cell (#2447), and every figure that came out other than expected.
  * - INCARNAMIND_LIVE_TRACE: a file to keep each check's last request and what the model
  *   wrote back, to read why a figure came out as it did.
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
-import { wrapLanguageModel } from "ai";
+import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { expect, test } from "vitest";
 import type { FigureScheduleRow } from "../../src/core/api";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
@@ -28,6 +28,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { xlsxOf } from "../helpers/office";
+import { checksOn, sortedCells, sortRecorder } from "../helpers/sortCalls";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -433,37 +434,33 @@ function memo(pack: Pack): { blocks: JSONContent[]; truth: Figure[] } {
 }
 
 const TRACE = process.env.INCARNAMIND_LIVE_TRACE;
-const createChatModel: typeof createAiSdkChatModel = (spec) =>
-  wrapLanguageModel({
-    model: createAiSdkChatModel(spec),
-    middleware: {
-      specificationVersion: "v4",
-      wrapStream: async ({ doStream, params }) => {
-        const result = await doStream();
-        if (!TRACE) return result;
-        let written = "";
-        const calls: unknown[] = [];
-        const kept = result.stream.pipeThrough(
-          new TransformStream({
-            transform(part, controller) {
-              if (part.type === "text-delta") written += part.delta;
-              if (part.type === "tool-call") calls.push({ tool: part.toolName, input: part.input });
-              controller.enqueue(part);
-            },
-            async flush() {
-              const asked = JSON.stringify(params.prompt[1] ?? "");
-              const sentence = /<sentence>\\n(.*?)\\n<\/sentence>/.exec(asked)?.[1] ?? null;
-              await appendFile(
-                TRACE,
-                `${JSON.stringify({ sentence, prompt: params.prompt.slice(-2), written, calls })}\n`,
-              );
-            },
-          }),
-        );
-        return { ...result, stream: kept };
-      },
-    },
-  });
+const traced: LanguageModelMiddleware = {
+  specificationVersion: "v4",
+  wrapStream: async ({ doStream, params }) => {
+    const result = await doStream();
+    if (!TRACE) return result;
+    let written = "";
+    const calls: unknown[] = [];
+    const kept = result.stream.pipeThrough(
+      new TransformStream({
+        transform(part, controller) {
+          if (part.type === "text-delta") written += part.delta;
+          if (part.type === "tool-call") calls.push({ tool: part.toolName, input: part.input });
+          controller.enqueue(part);
+        },
+        async flush() {
+          const asked = JSON.stringify(params.prompt[1] ?? "");
+          const sentence = /<sentence>\\n(.*?)\\n<\/sentence>/.exec(asked)?.[1] ?? null;
+          await appendFile(
+            TRACE,
+            `${JSON.stringify({ sentence, prompt: params.prompt.slice(-2), written, calls })}\n`,
+          );
+        },
+      }),
+    );
+    return { ...result, stream: kept };
+  },
+};
 
 const lookStates = new Set(["unsupported", "contradicted", "needs-recheck"]);
 
@@ -537,7 +534,14 @@ for (const language of LANGUAGES) {
       expect(truth).toHaveLength(40);
       for (let run = 1; run <= RUNS; run++) {
         const dataDir = await createTempDataFolder();
-        const core = startCore(dataDir, { createChatModel });
+        const sorts = sortRecorder();
+        const core = startCore(dataDir, {
+          createChatModel: (spec) =>
+            wrapLanguageModel({
+              model: createAiSdkChatModel(spec),
+              middleware: [traced, sorts.middleware],
+            }),
+        });
         core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
         await core.updateSettings({ user: { language: language === "zh" ? "zh-CN" : "en" } });
         await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL ?? "" });
@@ -561,6 +565,7 @@ for (const language of LANGUAGES) {
           mode: "all",
         });
         const seconds = (Date.now() - started) / 1000;
+        await client.settled();
         const schedule = await core.getFigureSchedule(mind.id);
         const { counts, misses } = score(schedule.rows, truth);
         const cost = queryDatabase<{ cost: number }>(
@@ -575,6 +580,17 @@ for (const language of LANGUAGES) {
           figures: schedule.rows.length,
           seconds,
           cost,
+          sorting: {
+            requests: sorts.calls.length,
+            ...sortedCells(
+              sorts.calls,
+              new Set(pack.tables.flatMap((table) => table.rows.map(([, value]) => value))),
+            ),
+            labelChecks: checksOn(
+              client,
+              new Set(pack.tables.flatMap((table) => table.rows.map(([label]) => label))),
+            ),
+          },
           ...counts,
           misses,
         };

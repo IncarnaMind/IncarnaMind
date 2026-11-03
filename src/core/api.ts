@@ -6933,7 +6933,9 @@ export interface MindCheckRun {
   skipped: string[];
   /**
    * The sentences the model decided nothing about, even asked twice (#1682), by `sentenceKey`:
-   * not examined, so they stay to check and a later run asks about them again.
+   * they couldn't be sorted, so they stay to check and a later run asks about them again. One with
+   * a figure, a Citation, a record cite or a court decision is never among them: it is checked all
+   * the same (#2447).
    */
   unexamined: string[];
 }
