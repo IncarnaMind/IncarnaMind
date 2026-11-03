@@ -212,6 +212,10 @@ function Slides({
           const was = ask?.style.visibility ?? "";
           if (ask) ask.style.visibility = "hidden";
           try {
+            // Let the hidden button be painted before the picture is taken, as the area path waits.
+            await new Promise<void>((done) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => done())),
+            );
             const bytes = await files.captureArea({
               x: visible.left,
               y: visible.top,

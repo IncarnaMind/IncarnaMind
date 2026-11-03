@@ -226,6 +226,7 @@ export function AreaOverlay({
   const t = useT();
   const [drawn, setDrawn] = useState<DOMRect | null>(null);
   const [reading, setReading] = useState<DOMRect | null>(null);
+  const [taking, setTaking] = useState(false);
   const drag = useRef<{ unit: Unit; startX: number; startY: number; box: DOMRect } | null>(null);
   const keyboard = useRef<{ unit: Unit; rect: DOMRect } | null>(null);
   const busy = useRef(false);
@@ -311,6 +312,7 @@ export function AreaOverlay({
       } finally {
         busy.current = false;
         setReading(null);
+        setTaking(false);
       }
     },
     [doc, mode, visibleRegion],
@@ -320,12 +322,24 @@ export function AreaOverlay({
   const finish = useCallback(
     (picked: Picked) => {
       setDrawn(null);
+      // The pick shows it is being read at once: a cursor is never in the picture, so it can start
+      // before the capture (#118).
+      setTaking(true);
       drag.current = null;
       keyboard.current = null;
       requestAnimationFrame(() => requestAnimationFrame(() => void take(picked)));
     },
     [take],
   );
+
+  useEffect(() => {
+    if (!section || !taking) return;
+    const was = section.style.cursor;
+    section.style.cursor = "progress";
+    return () => {
+      section.style.cursor = was;
+    };
+  }, [section, taking]);
 
   useEffect(() => {
     if (!section) return;

@@ -140,7 +140,7 @@ describe("A range of cells in a sheet (#118)", () => {
     const overTwo = rangeParts(range({ fromRow: 1, toRow: 150 }), three);
     expect(overTwo.map((part) => part.unit)).toEqual([1, 2]);
     expect(overTwo[1]?.text).toBe(
-      "\tQ1\tQ2\n" + Array.from({ length: 50 }, (_, at) => `row ${101 + at}`).join("\n"),
+      `\tQ1\tQ2\n${Array.from({ length: 50 }, (_, at) => `row ${101 + at}`).join("\n")}`,
     );
   });
 

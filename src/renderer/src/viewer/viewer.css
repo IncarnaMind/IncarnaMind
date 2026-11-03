@@ -73,7 +73,7 @@
       outline-offset: 0;
     }
   }
-  @container viewer (width < 400px) {
+  @container viewer (width < 600px) {
     .viewer-keep > span {
       @apply sr-only;
     }
@@ -145,15 +145,23 @@
   @container viewer (width < 660px) {
     .viewer-header--area .viewer-zoom-level {
       @apply sr-only;
+      min-width: 0;
     }
   }
   /* In a narrow viewer the labels give way first (still read out), then the dividers. */
   @container viewer (width < 520px) {
     .viewer-zoom-level {
       @apply sr-only;
+      min-width: 0;
     }
   }
-  @container viewer (width < 460px) {
+  @container viewer (width < 520px) {
+    .viewer-header {
+      @apply gap-px;
+    }
+    .viewer-name-area {
+      @apply min-w-18;
+    }
     .viewer-page-count {
       @apply sr-only;
     }
@@ -936,6 +944,12 @@
   @container viewer (width < 560px) {
     .viewer-tags [data-testid="tag-chip"],
     .viewer-tags [data-testid="tag-chip-more"] {
+      @apply hidden;
+    }
+  }
+  /* Tags stay in the Document's menu, where the room is. */
+  @container viewer (width < 520px) {
+    .viewer-header .viewer-tags {
       @apply hidden;
     }
   }

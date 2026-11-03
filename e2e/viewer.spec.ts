@@ -953,7 +953,7 @@ test("a Document's tab has one 36px toolbar under its group's strip, holding eve
   if (opened) await rm(dirname(opened), { recursive: true, force: true });
 });
 
-test("below 560 px a Document tab's toolbar hides its Tag chips and keeps the Tags button, in English and Chinese", async () => {
+test("below 560 px a Document tab's toolbar hides its Tag chips, and below 520 px the Tags button makes way for the Document's menu, in English and Chinese", async () => {
   const notes = join(sources, "Notes.txt");
   await writeFile(notes, "Notes on the quarter.\n");
   const { app, window } = await launchApp(dataDir);
@@ -1001,6 +1001,11 @@ test("below 560 px a Document tab's toolbar hides its Tag chips and keeps the Ta
     await expect(picker.getByTestId("tag-token")).toHaveCount(3);
     await window.keyboard.press("Escape");
     await expect(picker).toBeHidden();
+
+    // Narrower still, the button gives way: the Document's menu is where the Tags are.
+    await setViewerWidth(window, 500);
+    await expect(tagsButton).toBeHidden();
+    expect((await boxOf(header)).height).toBe(36);
   }
   await app.close();
 });

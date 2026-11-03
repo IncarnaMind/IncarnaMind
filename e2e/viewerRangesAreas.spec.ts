@@ -353,6 +353,38 @@ test("a slide with no words is asked about as its picture", async () => {
   const scale = shot.width / shot.density / sheet.width;
   expect(shot.height / shot.density).toBeCloseTo(sheet.height * scale, 0);
   expect(article.height).toBeGreaterThan(sheet.height + 8);
+  // The hover button is not in the picture: its corner of the slide is blank, though it sat there.
+  const button = await slide.getByTestId("viewer-slide-ask").boundingBox();
+  if (!button) throw new Error("The slide's Ask button isn't in view.");
+  const dark = await thumbnail.evaluate(
+    (image, { button: at, sheet: box }) => {
+      const picture = image as HTMLImageElement;
+      const ratio = picture.naturalWidth / box.width;
+      const canvas = document.createElement("canvas");
+      canvas.width = picture.naturalWidth;
+      canvas.height = picture.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) return -1;
+      context.drawImage(picture, 0, 0);
+      const x = Math.max(0, Math.floor((at.x - box.x) * ratio));
+      const y = Math.max(0, Math.floor((at.y - box.y) * ratio));
+      const width = Math.max(1, Math.ceil(at.width * ratio));
+      const height = Math.max(1, Math.ceil(at.height * ratio));
+      if (x + width > canvas.width || y + height > canvas.height) return -2;
+      const pixels = context.getImageData(x, y, width, height).data;
+      let dark = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        const luminance =
+          0.2126 * (pixels[index] ?? 0) +
+          0.7152 * (pixels[index + 1] ?? 0) +
+          0.0722 * (pixels[index + 2] ?? 0);
+        if (luminance < 200) dark += 1;
+      }
+      return dark;
+    },
+    { button, sheet },
+  );
+  expect(dark).toBe(0);
 
   await window.keyboard.type("What is on this slide?");
   await window.keyboard.press("Enter");
@@ -404,6 +436,16 @@ test("an area over a chart's words is found, and its picture goes into the compo
   });
   await openDocument(window, /Chart/);
   await expect(window.getByTestId("viewer").locator(".textLayer")).toContainText("Northwind");
+  // A pick answers as the mouse is released: its cursor changes while the picture is taken, and
+  // goes back when the chip arrives.
+  await window.getByTestId("viewer").evaluate((viewer) => {
+    const seen: string[] = [];
+    (globalThis as unknown as { cursorStyles: string[] }).cursorStyles = seen;
+    new MutationObserver(() => seen.push((viewer as HTMLElement).style.cursor)).observe(viewer, {
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+  });
   await dragArea(window, 1, { x: 0.1, y: 0.15 }, { x: 0.9, y: 0.55 });
 
   await expect(areaChip(window).getByTestId("composer-area-chip-show")).toHaveText("Figure · p. 1");
@@ -414,6 +456,21 @@ test("an area over a chart's words is found, and its picture goes into the compo
   );
   await expect(window.getByTestId("composer-area-thumbnail")).toBeVisible();
   await expect(window.getByTestId("viewer-area-select")).toHaveAttribute("aria-pressed", "false");
+  const cursors = await window.evaluate(
+    () => (globalThis as unknown as { cursorStyles: string[] }).cursorStyles,
+  );
+  expect(cursors).toContain("progress");
+  expect(cursors.at(-1)).toBe("");
+
+  // With a Note beside it, the viewer is 425px wide: every control still fits, the last of them
+  // inside the header's edge rather than scrolled out of it.
+  const header = await window.getByTestId("viewer-header").boundingBox();
+  const menu = await window
+    .getByTestId("viewer-header")
+    .getByTestId("document-file-menu")
+    .boundingBox();
+  if (!header || !menu) throw new Error("The viewer's header isn't in view.");
+  expect(menu.x + menu.width).toBeLessThanOrEqual(header.x + header.width);
 });
 
 test("an area over a picture can't be checked, and says Picture, not checked", async () => {
