@@ -29,6 +29,7 @@ const DONE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "document.moveTo": ["commands.done.moveTo.document.one", "commands.done.moveTo.document"],
   "mind.moveTo": ["commands.done.moveTo.mind.one", "commands.done.moveTo.mind"],
   "document.tags": ["commands.done.tags.one", "commands.done.tags"],
+  "tag.merge": ["commands.done.merge.one", "commands.done.merge"],
   "document.delete": ["commands.done.delete.document.one", "commands.done.delete.document"],
   "mind.delete": ["commands.done.delete.mind.one", "commands.done.delete.mind"],
   "documents.addFromFolder": ["commands.done.add.one", "commands.done.add"],
@@ -54,6 +55,7 @@ const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
   "document.moveTo": "commands.running.moveTo",
   "mind.moveTo": "commands.running.moveTo",
   "document.tags": "commands.running.tags",
+  "tag.merge": "commands.running.merge",
   "document.delete": "commands.running.delete",
   "mind.delete": "commands.running.delete",
   "folder.delete": "commands.running.delete",
@@ -299,8 +301,17 @@ export function doneText(
     });
   }
   if (count === 0) return t("commands.done.none");
+  // A merge into more than one Tag names no single Tag, so it says how many merged.
+  if (done.command === "tag.merge" && !done.into) {
+    return t("commands.done.mergeGroups", { count });
+  }
   const into = done.into?.name ?? "";
-  const params: MessageParams = { count, folder: into, tag: into };
+  const params: MessageParams = {
+    count,
+    name: done.items[0]?.name ?? "",
+    folder: into,
+    tag: into,
+  };
   const made =
     done.into?.made && done.into.kind === "folder" ? MADE_AND_MOVED[done.command] : undefined;
   const words = made ?? DONE[done.command];

@@ -66,6 +66,19 @@ export function askOf(checked: CheckedCommand, context: CommandContext): Command
     return { kind: "listen", command };
   }
   if (checked.final) return { kind: "final", command, items: items() };
+  // Organize and a Tag merge ask in place, as the app's own ask first (#2252).
+  if (checked.confirm) {
+    return {
+      kind: "change",
+      command,
+      reason: checked.confirm,
+      count: checked.items.length,
+      items: items(),
+      into: checked.into,
+      ...(checked.merges && checked.merges.length > 1 && { merges: checked.merges }),
+      changed: context.changed,
+    };
+  }
   const reason = checked.deletes
     ? "delete"
     : checked.changes && context.changed + checked.items.length > COMMAND_AT_ONCE

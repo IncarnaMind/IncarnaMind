@@ -156,6 +156,8 @@ interface Library {
   documents: string[];
   /** Each Document's Tags: adding an existing Tag to a Document changes none of the fields above. */
   documentTags: { id: string; tags: string[] }[];
+  /** Every Tag on every Document, by name, for a merge's Undo. */
+  tagLinks: { document: string; tag: string }[];
   folders: Record<string, string[]>;
   userFiled: string[];
   tags: string[];
@@ -183,6 +185,14 @@ async function libraryOf(core: Core, mindId: string): Promise<Library> {
     documentTags: documents
       .map((each) => ({ id: each.id, tags: each.tags.map((tag) => tag.tagId).sort() }))
       .sort((a, b) => a.id.localeCompare(b.id)),
+    tagLinks: documents
+      .flatMap((each) =>
+        each.tags.flatMap((tag) => {
+          const name = tags.find((one) => one.id === tag.tagId)?.name;
+          return name ? [{ document: each.name, tag: name }] : [];
+        }),
+      )
+      .sort((a, b) => `${a.document} ${a.tag}`.localeCompare(`${b.document} ${b.tag}`)),
     folders: Object.fromEntries(
       library.groups.map((group) => [
         group.name,
@@ -238,10 +248,45 @@ const openedBeside =
 const checked: Check = (seen) =>
   expect(windowRan(seen, "mind.check", "mind.checkEverySentence")).toBe(true);
 
+/**
+ * "Re organise the files": Organize runs, the Documents are filed as the User's choice (not left
+ * as suggestions), and the reply names a Folder that holds what moved. Nothing it says is flagged.
+ */
 const organized: Check = (seen) => {
   expect(ran(seen).some((done) => done.command === "documents.organize")).toBe(true);
-  // Organize only suggests: nothing is filed as the User's choice.
-  expect(seen.after.userFiled).toEqual(seen.before.userFiled);
+  expect(seen.after.userFiled.length).toBeGreaterThan(seen.before.userFiled.length);
+  const made = Object.entries(seen.after.folders)
+    .filter(([name, documents]) => documents.length > 0 && !(name in seen.before.folders))
+    .map(([name]) => name);
+  expect(made.some((name) => seen.answer.text.includes(name))).toBe(true);
+  expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
+  expect(seen.answer.steps?.unbackedClaims ?? []).toEqual([]);
+};
+
+/** After "Re organise the files" is taken back once: the Library is as it was. */
+const organizedUndone = (seen: Seen, undone: Library) => {
+  expect(undone.userFiled).toEqual(seen.before.userFiled);
+  expect(undone.folders).toEqual(seen.before.folders);
+};
+
+/**
+ * "Reduce the number of tags": Tags merge, the reply names a Tag that went, and nothing it says is
+ * flagged. One Undo brings every Tag and link back.
+ */
+const merged: Check = (seen) => {
+  expect(ran(seen).some((done) => done.command === "tag.merge")).toBe(true);
+  const gone = seen.before.tags.filter((name) => !seen.after.tags.includes(name));
+  expect(gone.length).toBeGreaterThan(0);
+  expect(gone.some((name) => seen.answer.text.includes(name))).toBe(true);
+  expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
+  expect(seen.after.tagLinks).toEqual(
+    seen.after.tagLinks.filter((link) => !gone.includes(link.tag)),
+  );
+};
+
+const mergedUndone = (seen: Seen, undone: Library) => {
+  expect(undone.tags).toEqual(seen.before.tags);
+  expect(undone.tagLinks).toEqual(seen.before.tagLinks);
 };
 
 const refused = (seen: Seen, what: Yours) => {
@@ -394,7 +439,14 @@ const renamedOnceBack =
     }
   };
 
-const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = [
+const REQUESTS: {
+  id: string;
+  text: string;
+  check: Check;
+  choose?: Choose;
+  /** What one Undo leaves, for a request that changes the Library. */
+  undone?: (seen: Seen, undone: Library) => void;
+}[] = [
   {
     id: "folder-en",
     text: "Create a folder named Tenancies and file both lease documents in it",
@@ -415,6 +467,31 @@ const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = 
     id: "gather-en",
     text: "Gather everything that talks about rent into one place",
     check: organized,
+  },
+  // #2252's own two lines: the request reorganises the files, or merges the Tags.
+  {
+    id: "reorganise-files-en",
+    text: "Re organise the files",
+    check: organized,
+    undone: organizedUndone,
+  },
+  {
+    id: "reorganise-files-zh",
+    text: "重新整理一下这些文件",
+    check: organized,
+    undone: organizedUndone,
+  },
+  {
+    id: "reduce-tags-en",
+    text: "Reduce the number of tags",
+    check: merged,
+    undone: mergedUndone,
+  },
+  {
+    id: "reduce-tags-zh",
+    text: "减少标签的数量",
+    check: merged,
+    undone: mergedUndone,
   },
   {
     id: "privacy-en",
@@ -719,7 +796,13 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose) {
   const asked: ApprovalRequest[] = [];
   core.on("approval.requested", (request) => {
     asked.push(request);
-    void core.respondToApproval(request.requestId, "deny");
+    // The User asked for the files to be sorted or the Tags merged, so they allow that once; every
+    // other card is declined, as a User who wasn't asked would leave it.
+    const own =
+      "ask" in request &&
+      request.ask.kind === "change" &&
+      (request.ask.reason === "organize" || request.ask.reason === "merge");
+    void core.respondToApproval(request.requestId, own ? "allow-once" : "deny");
   });
   const questions: Seen["questions"] = [];
   core.on("question.asked", (request) => {
@@ -815,6 +898,12 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
           try {
             request.check(seen);
             ranOnce(seen);
+            if (request.undone) {
+              const run = ran(seen)[0]?.run;
+              if (!run) throw new Error("No command ran, so there is nothing to undo.");
+              await core.undoCommands(run);
+              request.undone(seen, await libraryOf(core, mind.id));
+            }
             passed++;
             line = `${line}\n  pass`;
           } catch (error) {

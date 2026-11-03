@@ -1804,6 +1804,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
+    organizeAtOnce: (ids, signal) => library.organizeAtOnce(ids, signal),
     allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
       const refuse = () => {

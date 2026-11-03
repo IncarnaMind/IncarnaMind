@@ -32,7 +32,7 @@ import type {
 } from "../../api";
 import { RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
-import { InvalidInputError, NotFoundError } from "../../errors";
+import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
 import type { Language } from "../../language";
 import type { Findable } from "./find";
 import type { CommandStep } from "./steps";
@@ -66,6 +66,9 @@ export type CommandsCore = Pick<
   | "updateLibraryGroup"
   | "updateTag"
   | "classifyDocuments"
+  | "acceptAssignments"
+  | "proposeFolders"
+  | "mergeTags"
   | "getMindCitationStyle"
   | "setMindCitationStyle"
   | "listCitationStyles"
@@ -96,6 +99,11 @@ export type MarkingSettled = ExportMarking;
 
 export interface CommandsHost {
   core: CommandsCore;
+  /**
+   * Organizes these Documents now and waits for the model, inside the turn that asked (#2252):
+   * the Library's Organize, which the background queue can't run while an Answer is written.
+   */
+  organizeAtOnce(ids: readonly string[], signal: AbortSignal): Promise<{ failed: unknown | null }>;
   /**
    * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
    * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.
@@ -152,6 +160,8 @@ export interface CommandInput {
   size: string | null;
   setting: string | null;
   value: string | null;
+  /** A Tag merge's groups, instead of ids and tag, when more than one Tag stays (#2252). */
+  merges: { ids: string[]; tag: string | null }[];
 }
 
 /** What a command changed, how to take it back, and what the model is told. */
@@ -184,6 +194,10 @@ export interface CheckedCommand {
   recording: CommandRecording | null;
   /** Never the assistant's (#1421): it runs nothing, and the User is told where they change it. */
   yours: Yours | null;
+  /** It asks the User before it runs, on the card for this change (#2252); null: no such ask. */
+  confirm: "organize" | "merge" | null;
+  /** A Tag merge's pairs, by name, which its card lists when one call merges into more than one. */
+  merges?: readonly { from: string; into: string }[];
   run(asking: CommandAsking, signal: AbortSignal): Promise<Ran>;
 }
 
@@ -212,6 +226,11 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
     size: text(input.size),
     setting: text(input.setting),
     value: text(input.value),
+    merges: Array.isArray(input.merges)
+      ? input.merges.flatMap((each) =>
+          isRecord(each) ? [{ ids: texts(each.ids), tag: text(each.tag) }] : [],
+        )
+      : [],
   };
 }
 
@@ -357,6 +376,7 @@ const OUTSIDE_IT = {
   final: false,
   recording: null,
   yours: null,
+  confirm: null,
 } as const;
 
 /** A change inside IncarnaMind that Undo takes back: it asks only past the Answer's limit. */
@@ -364,7 +384,8 @@ export const inApp = (
   command: CommandId,
   items: CommandItem[],
   into: string | null,
-  run: (asking: CommandAsking) => Promise<Ran>,
+  run: (asking: CommandAsking, signal: AbortSignal) => Promise<Ran>,
+  confirm: "organize" | "merge" | null = null,
 ): CheckedCommand => ({
   command,
   effects: IN_APP,
@@ -376,6 +397,7 @@ export const inApp = (
   final: false,
   recording: null,
   yours: null,
+  confirm,
   run,
 });
 

@@ -3303,7 +3303,7 @@ export function createAnswers(options: AnswersOptions) {
               shownUpTo,
               // A command that only acted on the window, or that is the User's alone, ends the
               // turn: its card is the reply (#1421), and a refusal's line follows it
-              // (`refusalSuffix`).
+              // (`appSuffix`).
               mayEndBlank: () =>
                 changedAMind() ||
                 [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
@@ -3342,13 +3342,56 @@ export function createAnswers(options: AnswersOptions) {
         // Every Answer, in the assistant or a Note, ends with its refusal lines after the model's
         // reply, after none, and after a reply asked again that then failed, so the reply and the
         // card never disagree and the card keeps only its button (#2252).
-        refusalSuffix: (reply) => {
+        appSuffix: (reply) => {
           const language = answerLanguage(context.question);
+          // What a command changed, in the app's own words, so the reply and the card agree
+          // (#2252): the Folders Organize filed the Documents into, and the Tags merged.
+          const resultLines: ((each: Language) => string)[] = [];
+          for (const done of commandsDone.values()) {
+            const folders = done.folders;
+            if (done.command === "documents.organize" && folders && folders.length > 0) {
+              const count = folders.reduce((sum, folder) => sum + folder.count, 0);
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "library.review.summary.one" : "library.review.summary",
+                  {
+                    count,
+                    parts: folders
+                      .map((folder) =>
+                        translate(each, "library.review.part", {
+                          count: folder.count,
+                          folder: folder.name,
+                        }),
+                      )
+                      .join(translate(each, "library.review.separator")),
+                  },
+                ),
+              );
+            }
+            const merges = done.merges;
+            if (done.command === "tag.merge" && merges && merges.length > 0) {
+              resultLines.push((each) =>
+                translate(each, "answer.commands.merged", {
+                  parts: merges
+                    .map((pair) =>
+                      translate(each, "answer.commands.mergePart", {
+                        from: pair.from,
+                        into: pair.into,
+                      }),
+                    )
+                    .join(translate(each, "library.review.separator")),
+                }),
+              );
+            }
+          }
           // Said in either language, a line is said: a reply can copy an earlier Answer's.
-          const lines = refusalLines()
-            .filter((line) => !LANGUAGES.some((each) => reply.includes(line(each))))
-            .map((line) => line(language));
-          return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
+          const lines = [...resultLines, ...refusalLines()].filter(
+            (line) => !LANGUAGES.some((each) => reply.includes(line(each))),
+          );
+          return lines.length === 0
+            ? null
+            : lines.map((line) => line(language)).join(language === "zh-CN" ? "" : " ");
         },
         signal: controller.signal,
       })) {

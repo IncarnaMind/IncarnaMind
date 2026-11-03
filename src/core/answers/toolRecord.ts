@@ -294,6 +294,17 @@ function commandLine(call: AnswerToolCall): string {
     )
     .join(", ");
   const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
+  // A Tag merge's pairs and Organize's Folders, when a call does more than one (#2252).
+  const merges = done.merges?.length
+    ? `; merged ${done.merges
+        .map((pair) => `${quoted(pair.from)} into ${quoted(pair.into)}`)
+        .join(", ")}`
+    : "";
+  const folders = done.folders?.length
+    ? `; filed ${done.folders
+        .map((folder) => `${counted(folder.count, "item")} in the folder ${quoted(folder.name)}`)
+        .join(", ")}`
+    : "";
   const where = done.inOutputLocation === false ? "" : "the Output location, ";
   const file = done.file
     ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
@@ -304,7 +315,7 @@ function commandLine(call: AnswerToolCall): string {
   const what =
     setting && done.items.length === 0
       ? setting
-      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}${setting && `, ${setting}`}`;
+      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${merges}${folders}${file}${setting && `, ${setting}`}`;
   const window = done.window
     ? done.window.running
       ? ", started in the window and still going on"

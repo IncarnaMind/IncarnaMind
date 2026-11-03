@@ -295,7 +295,7 @@ export function commandTools(options: CommandToolsOptions): {
     description: [
       `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Notes: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
       `${COMMAND_TOOLS.list} gives the others for what it found, and with kind "window" those for the window in front; run them by id the same way.`,
-      `A change inside IncarnaMind runs at once and the User can undo it. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
+      `A change inside IncarnaMind runs at once and the User can undo it, except Organize and a Tag merge, which the User allows once. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
       YOURS_RULE,
       "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command or a refusal with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
     ].join(" "),
@@ -324,6 +324,20 @@ export function commandTools(options: CommandToolsOptions): {
         size: { type: "string" },
         setting: { type: "string", enum: SETTING_NAMES },
         value: { type: "string" },
+        merges: {
+          type: "array",
+          description:
+            "For tag.merge into more than one Tag: every merge, each with the Tags to merge away and the Tag kept, instead of ids and tag. Every merge in this one call is confirmed once.",
+          items: {
+            type: "object",
+            properties: {
+              ids: { type: "array", items: { type: "string" } },
+              tag: { type: "string" },
+            },
+            required: ["ids", "tag"],
+            additionalProperties: false,
+          },
+        },
         done: {
           type: "boolean",
           description:

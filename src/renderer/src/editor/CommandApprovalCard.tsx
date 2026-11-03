@@ -39,6 +39,8 @@ const CHANGE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "mind.delete": ["commands.ask.change.mind.delete", "commands.ask.change.mind.delete.one"],
   "folder.delete": ["commands.ask.change.folder.delete", "commands.ask.change.folder.delete.one"],
   "tag.delete": ["commands.ask.change.tag.delete", "commands.ask.change.tag.delete.one"],
+  "documents.organize": ["commands.ask.change.organize", "commands.ask.change.organize.one"],
+  "tag.merge": ["commands.ask.change.tag.merge", "commands.ask.change.tag.merge.one"],
 };
 
 function labelIn(t: Translate, id: CommandId): string {
@@ -51,6 +53,12 @@ function whyOf(t: Translate, ask: Change): string {
     return t(ask.count === 1 ? "commands.ask.why.delete.one" : "commands.ask.why.delete", {
       days: RECENTLY_DELETED_DAYS,
     });
+  }
+  if (ask.reason === "organize") return t("commands.ask.why.organize");
+  if (ask.reason === "merge") {
+    return ask.merges && ask.merges.length > 1
+      ? t("commands.ask.why.merge.groups")
+      : t("commands.ask.why.merge", { tag: ask.into ?? "" });
   }
   return t(ask.changed > 0 ? "commands.ask.why.many.changed" : "commands.ask.why.many", {
     max: COMMAND_AT_ONCE,
@@ -123,19 +131,24 @@ function wordsOf(
       const into = ask.into ?? "";
       const [first] = ask.items;
       const more = ask.count - ask.items.length;
+      // A merge into more than one Tag lists the pairs, each once, under one title.
+      const merges = ask.merges && ask.merges.length > 1 ? ask.merges : null;
       return {
-        title: t(ask.count === 1 ? one : many, {
-          count: ask.count,
-          name: first?.name ?? "",
-          folder: into,
-          tag: into,
-          command: labelIn(t, ask.command),
-        }),
+        title: merges
+          ? t("commands.ask.change.tag.merge.groups", { count: ask.count })
+          : t(ask.count === 1 ? one : many, {
+              count: ask.count,
+              name: first?.name ?? "",
+              folder: into,
+              tag: into,
+              command: labelIn(t, ask.command),
+            }),
         why: whyOf(t, ask),
         path: null,
         // One thing is named in the title, unless the Conversation renamed it.
-        names:
-          ask.count === 1 && first?.renamed === undefined
+        names: merges
+          ? merges.map((pair) => `${pair.from} → ${pair.into}`)
+          : ask.count === 1 && first?.renamed === undefined
             ? []
             : [
                 ...ask.items.map((item) => itemLine(t, item)),
@@ -168,7 +181,10 @@ export function CommandApprovalCard({
   const { ask } = request;
   const { title, why, path, names } = wordsOf(t, ask);
   const deletes = ask.kind === "change" && ask.reason === "delete";
-  const allow = t(deletes ? "commands.ask.delete" : "commands.ask.allow");
+  const merges = ask.kind === "change" && ask.reason === "merge";
+  const allow = t(
+    merges ? "commands.ask.merge" : deletes ? "commands.ask.delete" : "commands.ask.allow",
+  );
   const read = request.tainted || (request.thirdParty?.length ?? 0) > 0;
   const readLine = request.readText ? readTextLine(t, request.readText, gap) : null;
   return (

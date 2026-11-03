@@ -522,10 +522,11 @@ export interface AnswerRequest {
    */
   blankReply?(): string | null;
   /**
-   * What to append after the reply when a Tool refused the request, without replacing it: the
-   * lines `reply` doesn't already hold. Null: none.
+   * What to append after the reply, without replacing it: the app's own words — a refusal's
+   * sentence, or what a command changed (#2252) — the lines `reply` doesn't already hold.
+   * Null: none.
    */
-  refusalSuffix?(reply: string): string | null;
+  appSuffix?(reply: string): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -1944,7 +1945,7 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
-    const suffix = request.refusalSuffix?.(keptText) ?? null;
+    const suffix = request.appSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;

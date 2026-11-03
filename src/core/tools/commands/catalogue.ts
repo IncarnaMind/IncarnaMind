@@ -79,7 +79,7 @@ export const CORE_COMMANDS = {
     on: "document",
     does: "app",
     takes:
-      "ids: the Documents to sort, or none for every Document in no Folder; folder: the Folder the request is about, made if there is none; about: what belongs in it, in the User's words. Organize reads what each Document says and suggests a Folder; its suggestions wait in To review for the User to accept, and nothing moves before that",
+      "ids: the Documents to sort, or none for every Document in no Folder; folder: the Folder the request is about, made if there is none, or none when it names no Folder; about: what belongs in it, in the User's words. Organize reads what each Document says and files it in the Folder that fits: the User allows it once, and Undo puts them back",
     check: organizeChecker,
   },
   "mind.rename": {
@@ -150,6 +150,13 @@ export const CORE_COMMANDS = {
     does: "app",
     takes: "ids: one Tag; name: its new name",
     check: FOLDER_CHECKERS["tag.rename"],
+  },
+  "tag.merge": {
+    on: "tag",
+    does: "app",
+    takes:
+      "ids: the Tags to merge away, by id or name; tag: the Tag they merge into, which stays, by id or name. merges: every merge, each ids and tag, instead of ids and tag, when more than one Tag stays. Put every merge in one call: the User allows them all once, and one Undo brings them back",
+    check: FOLDER_CHECKERS["tag.merge"],
   },
   "tag.delete": {
     deletes: true,

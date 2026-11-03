@@ -1259,6 +1259,10 @@ export interface CommandDone {
   folder?: { id: string; name: string };
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
   setting?: { name: string; from: string; to: string };
+  /** Organize: the Folders it filed the Documents into, most first (#2252). */
+  folders?: readonly { name: string; count: number }[];
+  /** A Tag merge: what went into what, by name (#2252). */
+  merges?: readonly { from: string; into: string }[];
 }
 
 /** Why a call of `run_command` changed nothing (#1110). */
@@ -9343,9 +9347,11 @@ export interface ToolApprovalRequest extends ApprovalRequestBase {
 
 /**
  * Why a change inside IncarnaMind waits for the User (#1110): it would take the Answer's changes
- * past `COMMAND_AT_ONCE`, or it deletes, which the assistant never does without asking.
+ * past `COMMAND_AT_ONCE`, it deletes, which the assistant never does without asking; Organize
+ * files what the User asked to have sorted (#2252); or a Tag merge is proposed, every merge in
+ * the one call.
  */
-export type CommandAskReason = "many" | "delete";
+export type CommandAskReason = "many" | "delete" | "organize" | "merge";
 
 /** How many things one Answer's commands may change before the next change asks the User first (#1110). */
 export const COMMAND_AT_ONCE = 20;
@@ -9368,6 +9374,8 @@ export type CommandAsk =
       items: CommandItem[];
       /** The Folder or Tag it would put them in, by name. */
       into: string | null;
+      /** A Tag merge's pairs, by name, when one call merges into more than one Tag (#2252). */
+      merges?: readonly { from: string; into: string }[];
       /** How many things the Answer changed without asking before this call. */
       changed: number;
     }

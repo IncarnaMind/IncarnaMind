@@ -462,6 +462,8 @@ export const folderCommands: readonly Command[] = [
       folderDocumentIds(ctx).length > 0 ? true : { reason: "folder.organize.empty" },
     // Suggestions are reviewed and taken back from the Library.
     reversible: true,
+    // The assistant's Organize is documents.organize, which files them at once with one Undo (#2252).
+    assistant: false,
     async run(ctx) {
       if (!store().library?.settings.classifier) return store().openSettings("models", "tagging");
       await core.classifyDocuments(folderDocumentIds(ctx));
