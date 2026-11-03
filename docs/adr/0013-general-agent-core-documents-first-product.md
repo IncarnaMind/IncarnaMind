@@ -62,7 +62,7 @@ The owner asked why we write our own harness rather than use Claude Code's, Code
 - We never bundle an agent's proprietary binary.
 - Codex, Goose, OpenCode, and Gemini CLI on a paid key are hosted first.
 - Claude Code and Claude Desktop connect through the MCP server above, on the User's own sign-in. The User's own Claude Code can also run on their Claude plan, as an opt-in (#385).
-- Signing in with a Claude or GitHub Copilot plan is an experimental sign-in route (ADR-0019): off until the User signs in, never preselected. With either plan, the setup and Settings say that Answers count toward the plan's usage limits.
+- Signing in with a Claude plan is an experimental sign-in route (ADR-0019): off until the User signs in, never preselected. The GitHub Copilot plan signs in through IncarnaMind's own GitHub OAuth App, a regular route that is also off until the User signs in and never preselected; only Copilot's editor profile is experimental (ADR-0019, amended by #876). With either plan, the setup and Settings say that Answers count toward the plan's usage limits.
 
 **Considered options.**
 - **Run the User's harness as our engine.** Rejected for the reasons above.

@@ -332,6 +332,21 @@ describe("IncarnaMind's own GitHub OAuth App (#876)", () => {
     }
   });
 
+  test("shows no plan tier: GitHub documents no call that gives one, and the account's own plan is not it", async () => {
+    const { core, fake } = await withOwnApp();
+    const { result } = await codeShown(core);
+    fake.approve();
+
+    expect(await result).toMatchObject({
+      ok: true,
+      status: { account: { state: "signed-in", profile: "own", login: LOGIN, plan: null } },
+    });
+    const paths = fake.requests.map((request) => request.path);
+    expect(paths).toContain("/user");
+    expect(paths).not.toContain("/copilot_internal/v2/token");
+    expect((await core.getCopilot()).account).toMatchObject({ plan: null });
+  });
+
   test("refused by Copilot, it says GitHub didn't let IncarnaMind, and the experimental way still works", async () => {
     const setup = await withOwnApp();
     await signedIn("own", setup);

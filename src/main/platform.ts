@@ -682,6 +682,11 @@ function claudeStandIn(): CoreAdapters["claudeAccount"] {
   };
 }
 
+/**
+ * Test-only launch flag: a local server standing in for GitHub and Copilot, at this origin. Each
+ * profile this build offers keeps its client ID, scopes and headers; only its endpoints move, so
+ * the smoke tests reach neither GitHub nor Copilot. Only a test build honours it.
+ */
 function copilotStandIn(): CoreAdapters["copilotProfiles"] {
   const origin = import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_COPILOT : undefined;
   if (!origin) return undefined;

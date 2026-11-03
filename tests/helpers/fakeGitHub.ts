@@ -15,6 +15,8 @@ export const USER_CODE = "WDJB-MJHT";
 export const EDITOR_HEADER = "test-editor/1";
 /** The GitHub account the fake signs in. */
 export const LOGIN = "priya-shah";
+/** The GitHub account's own plan, which GitHub's account response carries and which is not the Copilot plan. */
+const ACCOUNT_PLAN = "enterprise";
 /** GitHub asks for five seconds between polls; the fake asks for a moment, so tests needn't wait. */
 const POLL_SECONDS = 0.01;
 
@@ -374,7 +376,7 @@ export async function createFakeGitHub(): Promise<FakeGitHub> {
           if (!live.has(bearer(request)))
             return sendJson(response, 401, { message: "Bad credentials" });
           if (fake.userStatus) return sendJson(response, fake.userStatus, { message: "Error" });
-          return sendJson(response, 200, { login: LOGIN, id: 1 });
+          return sendJson(response, 200, { login: LOGIN, id: 1, plan: { name: ACCOUNT_PLAN } });
         }
         if (request.method === "GET" && path === "/models") {
           if (!live.has(bearer(request)))

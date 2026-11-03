@@ -183,7 +183,7 @@ test("first run: declining GitHub approval offers retry and an API key, in Engli
   await app.close();
 });
 
-test("Settings › Models: the Copilot plan opens its notice before signing in, then names the plan and account, with Sign out", async () => {
+test("Settings › Models: the Copilot plan opens its notice before signing in, then shows the account with no plan tier, with Sign out", async () => {
   const { app, window } = await launchApp(dataDir, {
     fakeChat: true,
     copilot: github.origin,
