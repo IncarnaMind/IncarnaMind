@@ -123,6 +123,7 @@ async function runModel(
       const scoped = [...library.documents.values()].map((document) => ({
         id: document.id,
         name: document.name,
+        title: document.title,
       }));
       for (const each of wanted.flatMap((each) => Array.from({ length: runs }, () => each))) {
         log(`${model} · ${each.id}: ${each.request}`);
@@ -153,7 +154,7 @@ async function runModel(
             error: error instanceof Error ? error.message : String(error),
             usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0 },
             droppedMarkers: 0,
-            asks: { again: 0, citations: 0 },
+            asks: { again: 0, coverage: 0, citations: 0 },
             support: null,
             claims: null,
           };
@@ -192,6 +193,7 @@ function asksByGroup(results: readonly CaseResult[]) {
       language: string;
       answers: number;
       again: number;
+      coverage: number;
       citations: number;
       unseen: number;
     }
@@ -203,11 +205,13 @@ function asksByGroup(results: readonly CaseResult[]) {
       language: each.language,
       answers: 0,
       again: 0,
+      coverage: 0,
       citations: 0,
       unseen: 0,
     };
     group.answers++;
     if (each.asks.again > 0) group.again++;
+    if (each.asks.coverage > 0) group.coverage++;
     if (each.asks.citations > 0) group.citations++;
     if (each.failures.some((failure) => failure.kind === "unseen-attempt")) group.unseen++;
     groups.set(key, group);
@@ -392,13 +396,13 @@ function report(
     "",
     "## Asked again inside the turn",
     "",
-    "The app asks the model again when a reply claims a change no Tool made or a request to write wrote nothing, and once for the Citations of an Answer. The User reads none of those tries: the Answer says nothing of an earlier try. The `reask-` requests put a reply of their own in place of the model's first, so each of them is asked again.",
+    "The app asks the model again inside the turn when a reply claims a change no Tool made or a request to write wrote nothing, when a capped summary's reply leaves out Documents the next summary takes, and once for the Citations of an Answer. The User reads none of those tries: the Answer says nothing of an earlier try. The `reask-` requests put a reply of their own in place of the model's first, so each of them is asked again.",
     "",
-    "| Model | Language | Answers | Asked again | Asked for Citations | Asked again, and say something of an earlier try |",
-    "|---|---|---|---|---|---|",
+    "| Model | Language | Answers | Asked again | Asked to name left-out Documents | Asked for Citations | Asked again, and say something of an earlier try |",
+    "|---|---|---|---|---|---|---|",
     ...asksByGroup(results).map(
       (group) =>
-        `| ${group.model} | ${group.language} | ${group.answers} | ${group.again} | ${group.citations} | ${group.unseen} |`,
+        `| ${group.model} | ${group.language} | ${group.answers} | ${group.again} | ${group.coverage} | ${group.citations} | ${group.unseen} |`,
     ),
     "",
     "## Each run",

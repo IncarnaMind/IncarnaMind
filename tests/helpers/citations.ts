@@ -1,3 +1,4 @@
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MockLanguageModelV4 } from "ai/test";
 import { expect, vi } from "vitest";
 import type {
@@ -15,7 +16,7 @@ import { createTempDataFolder, startCore } from "./core";
 import { addAndProcess, writeSourceFile } from "./documents";
 import { turnOnEmbeddings } from "./embedding";
 import { connectToMind, type MindClient } from "./mindClient";
-import { answerIn, editMind, question, writeMind } from "./minds";
+import { answerIn, editMind, question, readMind, writeMind } from "./minds";
 import {
   lastAnswerCall,
   type ModelCall,
@@ -285,14 +286,9 @@ export async function askAndFinish(
   return { answerId, finished: ended.payload };
 }
 
-/**
- * The Citation nodes in an Answer, in order, as the editor reads them: their
- * Citation's attributes, without the `proposal` attribute every inline node
- * has (null where no Proposal adds or removes it).
- */
-export function citationsIn(client: MindClient, answerId: string): CitationAttributes[] {
+function citationsUnder(root: ProseMirrorNode): CitationAttributes[] {
   const found: CitationAttributes[] = [];
-  answerIn(client, answerId).descendants((node) => {
+  root.descendants((node) => {
     if (node.type.name !== "citation") return;
     const { proposal: _proposal, ...attributes } = node.attrs;
     found.push(attributes as CitationAttributes);
@@ -300,11 +296,25 @@ export function citationsIn(client: MindClient, answerId: string): CitationAttri
   return found;
 }
 
+/**
+ * The Citation nodes in an Answer, in order, as the editor reads them: their
+ * Citation's attributes, without the `proposal` attribute every inline node
+ * has (null where no Proposal adds or removes it).
+ */
+export function citationsIn(client: MindClient, answerId: string): CitationAttributes[] {
+  return citationsUnder(answerIn(client, answerId));
+}
+
 /** Asserts there is exactly one Citation in the Answer and returns it. */
 export function onlyCitation(client: MindClient, answerId: string): CitationAttributes {
   const citations = citationsIn(client, answerId);
   expect(citations).toHaveLength(1);
   return citations[0] as CitationAttributes;
+}
+
+/** The Citation nodes anywhere in a Mind's Blocks, in reading order, as the editor reads them. */
+export function mindCitations(client: MindClient): CitationAttributes[] {
+  return citationsUnder(readMind(client));
 }
 
 /** A re-check that read its Document: one kept inside a wall fails the test that expected a read. */
