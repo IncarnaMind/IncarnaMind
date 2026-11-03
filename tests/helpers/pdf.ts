@@ -45,6 +45,8 @@ export interface PdfPage {
    * STSong-Light when a line has characters beyond Latin-1.
    */
   printed?: readonly { text: string; size?: number }[];
+  /** Draws its text invisibly, as a recognizer's searchable layer does over a scan's picture. */
+  invisibleText?: boolean;
   /** The degrees `printed` and `chineseLines` are set at, as a stamp up a margin is. */
   tilt?: number;
   /** Text drawn where each says, in Helvetica at 10 points: a table's cells. */
@@ -378,6 +380,7 @@ function contentStream(page: PdfPage, symbols: readonly PdfSymbol[]): string {
     }
   }
   let y = TOP;
+  if (page.invisibleText) parts.push("3 Tr");
   const place = (x: number) => {
     if (page.tilt === undefined) return `${x} ${y} Td`;
     const radians = (page.tilt * Math.PI) / 180;
