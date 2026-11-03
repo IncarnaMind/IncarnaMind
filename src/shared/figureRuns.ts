@@ -5,11 +5,9 @@ import {
   type AnswerAnalysisInput,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigureAttributes,
-  CHART_NODE,
   type Citation,
   type ConversationAnswer,
   type FigureInput,
-  MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
   type RetainedFigureValue,
@@ -28,8 +26,6 @@ import {
   readFigureCitation,
   readFigureInput,
 } from "./calculatedFigures";
-import { readChart } from "./charts";
-import { perBlock } from "./memo";
 
 const text = (value: unknown): value is string => typeof value === "string";
 const count = (value: unknown): value is number =>
@@ -393,57 +389,6 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
   }
   // Independent value keys let concurrent figures keep different results of the same run (#1932).
   for (const [key, value] of planned) runs.set(key, value);
-}
-
-const figuresOfBlock = perBlock((block) => {
-  const found: Record<string, unknown>[] = [];
-  if (block.nodeName === CHART_NODE) {
-    // A chart of a table whose cells are Analysis figures names them too, in its data.
-    const chart = readChart(block.getAttributes());
-    for (const row of [...chart.data.rows, ...chart.data.cutRows])
-      for (const value of row.values) if (value?.figure) found.push({ ...value.figure });
-  }
-  const visit = (element: Y.XmlElement) => {
-    if (element.nodeName === CALCULATED_FIGURE_NODE) found.push(element.getAttributes());
-    for (const node of element.toArray()) if (node instanceof Y.XmlElement) visit(node);
-  };
-  visit(block);
-  return found;
-});
-
-/** An Analysis figure a write or an edit took away: the Analysis it named and the result it was. */
-export interface DroppedFigureUse {
-  analysisId: string;
-  result: string;
-}
-
-/**
- * Removes the records of the figures `dropped` names, and only those: a record another figure
- * still names stays, and so does one a write left while the figure it names is out of the Note,
- * which that write's Undo brings back (#2378). Call it in the transaction that dropped them.
- */
-export function pruneFigureRuns(doc: Y.Doc, dropped: readonly DroppedFigureUse[]): void {
-  if (doc.store.pendingStructs !== null || doc.store.pendingDs !== null) return;
-  const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
-  if (runs.size === 0 || dropped.length === 0) return;
-  const needed: FigureUses = new Map();
-  for (const node of doc.getXmlFragment(MIND_CONTENT_FIELD).toArray()) {
-    if (!(node instanceof Y.XmlElement)) continue;
-    for (const attributes of figuresOfBlock(node)) if (!collectUse(attributes, needed)) return;
-  }
-  const staleRuns = new Set(dropped.map((use) => use.analysisId));
-  const staleValues = new Set(dropped.map((use) => valueKey(use.analysisId, use.result)));
-  for (const [id, names] of needed) {
-    staleRuns.delete(id);
-    for (const name of names.keys()) staleValues.delete(valueKey(id, name));
-  }
-  for (const key of staleValues) runs.delete(key);
-  // A run's record goes only once no value of it remains: a value no figure in the Note names
-  // yet may be the one a write's Undo brings a figure back for (#2378).
-  for (const id of staleRuns) {
-    const prefix = `${runKey(id).slice(0, -1)},`;
-    if (![...runs.keys()].some((key) => key.startsWith(prefix))) runs.delete(runKey(id));
-  }
 }
 
 export interface CalculatedSources {

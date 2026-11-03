@@ -1270,9 +1270,11 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     const chart = chartOf(grid);
     if (!chart) throw new Error("The table drew no chart.");
     const value = chart.data.rows[0]?.values[0];
-    expect(value?.citation).toEqual(orders);
-    expect(value?.citations).toEqual([orders, regions]);
-    expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 2 });
+    // The Analysis's inputs are kept apart; the cell's own Citation stays the value's own text's.
+    expect(value?.citation).toEqual(own);
+    expect(value?.inputs).toEqual([orders, regions]);
+    expect(value && valueCitations(value)).toEqual([orders, regions, own]);
+    expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 3 });
   });
 
   test("counts every Citation a value carries, so an export names each Document", () => {

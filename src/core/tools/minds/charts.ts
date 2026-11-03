@@ -135,6 +135,8 @@ export function chartOfTable(
           (value) =>
             value?.value != null &&
             !value.citation &&
+            !value.citations &&
+            !value.inputs &&
             !(value.from.kind === "cell" && calculated(value.from.row, value.from.column)),
         ).length
     : 0;

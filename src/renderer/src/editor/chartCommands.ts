@@ -179,37 +179,37 @@ export function tableUpdate(
 /**
  * The drawn values a chart's table still shows as they were: the assistant draws a chart from an
  * Analysis's own values, which the table's text only rounds, so a cell whose words are unchanged
- * keeps the Analysis's number and inputs (#2378). Its own Citation, unit and scale are read again,
- * and a row is known by its label and series, so a deleted row moves no value to its neighbour.
+ * keeps the Analysis's number and inputs (#2378). Its own Citation, unit and scale are read again;
+ * a cell is known by its row's label, the series' name, its index and which of that row's cells it
+ * is, so a deleted or repeated row moves no value to its neighbour.
  */
 function keepingStoredValues(fresh: ChartData, stored: ChartData): ChartData {
-  const key = (label: string, series: string) => JSON.stringify([label, series]);
-  const before = new Map<string, ChartValue>();
+  const key = (label: string, series: string, seriesIndex: number) =>
+    JSON.stringify([label, series, seriesIndex]);
+  const before = new Map<string, ChartValue[]>();
   for (const row of [...stored.rows, ...stored.cutRows]) {
     row.values.forEach((value, series) => {
-      if (value?.fromAnalysis) before.set(key(row.label, stored.series[series] ?? ""), value);
+      if (!value?.fromAnalysis) return;
+      const name = key(row.label, stored.series[series] ?? "", series);
+      before.set(name, [...(before.get(name) ?? []), value]);
     });
   }
+  const seen = new Map<string, number>();
   const kept = (rows: ChartData["rows"]) =>
     rows.map((row) => ({
       ...row,
       values: row.values.map((value, series) => {
-        const old = value ? before.get(key(row.label, fresh.series[series] ?? "")) : undefined;
-        if (!value || !old || value.shown !== old.shown) return value;
-        const citations = [
-          ...(old.citations ?? []),
-          ...(value.citations ?? []),
-          ...(value.citation ? [value.citation] : []),
-        ].filter(
-          (citation, at, all) =>
-            all.findIndex((each) => JSON.stringify(each) === JSON.stringify(citation)) === at,
-        );
+        if (!value) return value;
+        const name = key(row.label, fresh.series[series] ?? "", series);
+        const occurrence = seen.get(name) ?? 0;
+        seen.set(name, occurrence + 1);
+        const old = before.get(name)?.[occurrence];
+        if (!old || value.shown !== old.shown) return value;
         return {
           ...value,
           value: old.value,
-          citation: old.citation ?? value.citation,
+          ...(old.inputs && { inputs: old.inputs }),
           ...(old.figure && { figure: old.figure }),
-          ...(citations.length > 0 && { citations }),
           fromAnalysis: true as const,
         };
       }),

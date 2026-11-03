@@ -67,7 +67,12 @@ function citedPlaces(block: NodeJSON): Set<string> {
       const name = node.attrs?.documentId ?? node.attrs?.documentName;
       if (typeof name === "string" && name !== "")
         places.add(
-          JSON.stringify([name, node.attrs?.location === undefined ? null : node.attrs.location]),
+          JSON.stringify([
+            name,
+            node.attrs?.location === undefined ? null : node.attrs.location,
+            node.attrs?.contentHash === undefined ? null : node.attrs.contentHash,
+            node.attrs?.passageId === undefined ? null : node.attrs.passageId,
+          ]),
         );
     }
     for (const child of node.content ?? []) visit(child);
@@ -148,7 +153,14 @@ export function analysisTableFor(
       table.citations.some((citation) => {
         const name = citation.documentId || citation.documentName || "";
         if (name === "") return false;
-        return !cited.has(JSON.stringify([name, citation.location ?? null]));
+        return !cited.has(
+          JSON.stringify([
+            name,
+            citation.location ?? null,
+            citation.contentHash ?? null,
+            citation.passageId ?? null,
+          ]),
+        );
       })
     )
       return false;

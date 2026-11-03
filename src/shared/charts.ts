@@ -54,10 +54,14 @@ export interface ChartValue {
   /** The Citation that was with it, as its node held it; null: it had none, or it is calculated. */
   citation: CitationAttributes | null;
   /**
-   * Every Citation the value rests on, when more than one does: an Analysis's own value cites all
-   * the inputs it read (#2378). `citation` is the first of them.
+   * Every Citation the value rests on, when more than one does, as its own text held them.
    */
   citations?: CitationAttributes[];
+  /**
+   * Each input the Analysis read for this value, kept apart from the cell's own Citation so an
+   * Update can read that one fresh and keep these (#2378).
+   */
+  inputs?: CitationAttributes[];
   /**
    * The calculated figure it is, as its node held it: its formula and every
    * Input with its own Citation (#2307). Absent for a value quoted or written.
@@ -138,6 +142,9 @@ function readValue(value: unknown): ChartValue | null {
   const citations = Array.isArray(value.citations)
     ? (value.citations.filter(isRecord) as unknown as CitationAttributes[])
     : [];
+  const inputs = Array.isArray(value.inputs)
+    ? (value.inputs.filter(isRecord) as unknown as CitationAttributes[])
+    : [];
   return {
     shown: text(value.shown),
     value: number,
@@ -151,6 +158,7 @@ function readValue(value: unknown): ChartValue | null {
         : null,
     citation: isRecord(value.citation) ? (value.citation as unknown as CitationAttributes) : null,
     ...(citations.length > 0 && { citations }),
+    ...(inputs.length > 0 && { inputs }),
     ...figureOf(value.figure),
     ...(value.fromAnalysis === true && { fromAnalysis: true as const }),
     from,
@@ -508,7 +516,12 @@ export function valueCitations(value: ChartValue): CitationAttributes[] {
       ...(input.unitStatement ? [input.unitStatement.citation] : []),
     ]);
   const seen = new Set<string>();
-  const citations = [...(value.citation ? [value.citation] : []), ...(value.citations ?? [])];
+  // The Analysis's inputs first, then the cell's own: an Analysis value rests on both (#2378).
+  const citations = [
+    ...(value.inputs ?? []),
+    ...(value.citation ? [value.citation] : []),
+    ...(value.citations ?? []),
+  ];
   return citations.filter((citation) => {
     const key = JSON.stringify(citation);
     if (seen.has(key)) return false;
@@ -611,10 +624,11 @@ export function chartSources(
       figures.push(value.figure);
       continue;
     }
-    if (!value.citation && !value.citations) {
+    if (!value.citation && !value.citations && !value.inputs) {
       uncitedCells.push({ row, series });
       continue;
     }
+    for (const each of value.inputs ?? []) quoted.add(each);
     if (value.citation) quoted.add(value.citation);
     for (const each of value.citations ?? []) quoted.add(each);
   }
@@ -648,6 +662,8 @@ export interface SourceCell extends SourceLine {
   continued?: boolean;
   /** The number it holds where something knows it better than its text: an Analysis's own value (#2378). */
   number?: number;
+  /** Each input the Analysis read for that value, apart from the cell's own Citation (#2378). */
+  inputs?: CitationAttributes[];
 }
 
 /** A table laid out on its grid, row by row: a cell in each slot, or null where none is. */
@@ -940,6 +956,7 @@ export function chartFromTable(
       scale: read ? read.figure.scale : null,
       citation: calculated.figure ? null : cell.citation,
       ...(cell.citations && !calculated.figure && { citations: cell.citations }),
+      ...(cell.inputs && !calculated.figure && { inputs: cell.inputs }),
       ...(cell.number !== undefined && !calculated.figure && { fromAnalysis: true as const }),
       ...calculated,
       from: { kind: "cell", row, column },
@@ -1161,8 +1178,8 @@ export function withAnalysisValues(grid: SourceGrid, match: AnalysisTableMatch):
       if (!cell || at === 0) return cell;
       const value = match.value(at - 1, column);
       if (value === null) return cell;
-      // The number is the Analysis's, so its inputs are the value's Citations; the cell's own,
-      // for the text it held, are read fresh when the chart is updated (#2378).
+      // The number is the Analysis's; its inputs are kept apart from the cell's own Citation, which
+      // an Update reads fresh (#2378).
       const unique = citations.filter(
         (citation, index) =>
           citations.findIndex((each) => JSON.stringify(each) === JSON.stringify(citation)) ===
@@ -1171,8 +1188,7 @@ export function withAnalysisValues(grid: SourceGrid, match: AnalysisTableMatch):
       return {
         ...cell,
         number: value,
-        citation: unique[0] ?? null,
-        ...(unique.length > 0 && { citations: unique }),
+        ...(unique.length > 0 && { inputs: unique }),
       };
     }),
   );

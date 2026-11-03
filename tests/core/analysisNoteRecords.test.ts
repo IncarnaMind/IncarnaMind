@@ -398,7 +398,7 @@ describe("an Analysis's figures in a Note (#2378)", () => {
       expect(drawn.data.rows.map((row) => row.values[0]?.value)).toEqual(TOTALS);
       expect(drawn.source).toEqual({ kind: "table", blockId: table?.attrs?.id });
       for (const row of drawn.data.rows) {
-        expect(row.values[0]?.citation).toMatchObject({
+        expect(row.values[0]?.inputs?.[0]).toMatchObject({
           documentId: orders.id,
           documentName: orders.name,
           location: { kind: "rows", sheet: null, from: 1, to: 5 },
@@ -422,8 +422,8 @@ describe("an Analysis's figures in a Note (#2378)", () => {
       if (!chart?.attrs) throw new Error("The Note has no chart.");
       const drawn = readChart(chart.attrs);
       const value = drawn.data.rows[0]?.values[0];
-      expect(value?.citation).toMatchObject({ documentId: orders.id });
-      expect(value?.citations?.map((each) => each.documentId).sort()).toEqual(
+      expect(value?.inputs?.[0]).toMatchObject({ documentId: orders.id });
+      expect(value?.inputs?.map((each) => each.documentId).sort()).toEqual(
         [orders.id, regions.id].sort(),
       );
 
@@ -503,7 +503,7 @@ describe("an Analysis's figures in a Note (#2378)", () => {
       if (!chart?.attrs) throw new Error("The follow-up drew no chart.");
       const drawn = readChart(chart.attrs);
       expect(drawn.data.rows.map((row) => row.values[0]?.value)).toEqual(TOTALS);
-      expect(drawn.data.rows[0]?.values[0]?.citation).toMatchObject({
+      expect(drawn.data.rows[0]?.values[0]?.inputs?.[0]).toMatchObject({
         documentId: orders.id,
         location: { kind: "rows", sheet: null, from: 1, to: 5 },
         check: "found",
