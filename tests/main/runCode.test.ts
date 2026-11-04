@@ -642,6 +642,34 @@ by_region.to_csv("out/by_region.csv", index=False)
       15 * 60_000,
     );
 
+    test("a plot font that can't be found stops only a run that draws, which says so; once it is there, plots draw with it", async () => {
+      if (!python) throw new Error("No runtime.");
+      const fonts = join(root, "fonts-later");
+      const missing = join(fonts, PLOT_FONT);
+      const { call, analyses } = tool({ P1: await sales() }, undefined, {
+        python,
+        where: folders(),
+        font: missing,
+      });
+      const draws = [
+        "import matplotlib.pyplot as plt",
+        'df = read_table("sales.csv")',
+        'df.plot(kind="bar", x="region", y="revenue", title="收入")',
+      ].join("\n");
+
+      await call("python", 'figure("rows", read_table("sales.csv")["revenue"], "count", "Rows")', [
+        "P1",
+      ]);
+      await call("python", draws, ["P1"]);
+      await mkdir(fonts);
+      await copyFile(font, missing);
+      await call("python", draws, ["P1"]);
+
+      expect(analyses.map((each) => each.end.kind)).toEqual(["done", "error", "done"]);
+      expect(analyses[1]?.end).toMatchObject({ message: expect.stringContaining(PLOT_FONT) });
+      expect(analyses[2]?.markers.pictures).toEqual([1]);
+    }, 180_000);
+
     test("n_jobs runs in threads of the run, and a process in a session of its own ends with it", async () => {
       const { call, analyses } = tool({});
       await call(

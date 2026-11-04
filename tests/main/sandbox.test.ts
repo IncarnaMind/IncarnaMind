@@ -761,6 +761,48 @@ console.log(JSON.stringify(results));
       });
     });
 
+    test.each([
+      ["a plain python3 in ~/.local/bin", [".local"]],
+      ["a pyenv Python, a plain file", [".pyenv", "versions", "3.12"]],
+    ])(
+      "%s runs and reads its prefix's bin and lib, and nothing else of the prefix",
+      async (_what, parts) => {
+        const { root, home, data } = await setUp();
+        const prefix = join(home, ...parts);
+        const stdlib = join(prefix, "lib", "python3.12");
+        await mkdir(join(prefix, "bin"), { recursive: true });
+        await mkdir(stdlib, { recursive: true });
+        await mkdir(join(prefix, "share", "keyrings"), { recursive: true });
+        await writeFile(join(prefix, "bin", "python3"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
+          mode: 0o755,
+        });
+        await writeFile(join(stdlib, "os.py"), "STDLIB\n");
+        await writeFile(join(prefix, "share", "keyrings", "login.keyring"), "KEYRING SECRET");
+        const executor = osExecutor({
+          env: { PATH: `${join(prefix, "bin")}:/usr/bin:/bin` },
+          tempDir: join(root, "temp"),
+          denyRead: deniedFor(home, data),
+          interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+        });
+
+        const run = await executor.run({
+          ...shell(
+            [
+              "echo started",
+              `cat '${join(stdlib, "os.py")}' 2>/dev/null || echo denied`,
+              `cat '${join(prefix, "share", "keyrings", "login.keyring")}' 2>/dev/null || echo denied`,
+            ].join("; "),
+          ),
+          command: "python3",
+        });
+
+        expect({ exitCode: run.exitCode, stdout: run.stdout }).toEqual({
+          exitCode: 0,
+          stdout: "started\nSTDLIB\ndenied\n",
+        });
+      },
+    );
+
     test("a venv's python in a home runs with its site-packages, and the project beside the venv stays unread", async () => {
       const { root, home, data } = await setUp();
       const project = join(home, "project");
