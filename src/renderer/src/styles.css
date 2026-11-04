@@ -1853,6 +1853,16 @@
     margin: 0;
     padding: 0 8px 6px;
   }
+  /* The run's price, under the rows and in the card's text column (#1941). */
+  .check-card-estimate {
+    padding: 2px 8px 4px;
+
+    /* A part that begins a wrapped line begins with its dot: the line clips it at its start. */
+    & .meta-line {
+      margin: 0;
+      padding-left: 0;
+    }
+  }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
@@ -1881,7 +1891,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 4px 12px;
-    padding: 2px;
+    padding: 2px 8px;
   }
   .check-card-link {
     padding: 2px 4px;
@@ -6950,6 +6960,95 @@
   .scope-picker-empty {
     padding: 4px 8px;
     font-size: 13px;
+    color: var(--color-ink-meta);
+  }
+  /* Cite… (#281): the search of the Mind's Search scope at the caret, and its Passages. */
+  .cite-menu {
+    width: min(420px, calc(100vw - 32px));
+    padding: 0;
+    overflow: hidden;
+  }
+  .cite-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    background: none;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+    outline: none;
+
+    &::placeholder {
+      color: var(--color-ink-placeholder);
+    }
+  }
+  .cite-scope {
+    padding: 6px 12px 2px;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .cite-list {
+    max-height: 320px;
+    padding: 4px;
+    overflow-y: auto;
+  }
+  .cite-result {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    text-align: left;
+
+    &[aria-selected="true"] {
+      background: var(--color-hover);
+    }
+  }
+  .cite-result-icon {
+    flex: none;
+    margin-top: 2px;
+    color: var(--color-ink-meta);
+  }
+  .cite-result-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .cite-result-head {
+    overflow: hidden;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    & b {
+      font-weight: 600;
+      color: var(--color-ink);
+    }
+  }
+  /* Two lines of the Passage, as the results show it. */
+  .cite-result-text {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+
+    & b {
+      font-weight: 600;
+    }
+  }
+  .cite-note {
+    padding: 8px;
+    font-size: 13px;
+    line-height: 18px;
     color: var(--color-ink-meta);
   }
 

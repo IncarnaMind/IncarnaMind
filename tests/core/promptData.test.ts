@@ -229,6 +229,7 @@ describe("Every judge's and second request's prompt keeps its blocks (#2423)", (
         pageTo: null,
         location: null,
         text,
+        quote: text,
         notCited: false,
         relevance: null,
         matches: [],

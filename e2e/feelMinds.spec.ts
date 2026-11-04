@@ -96,13 +96,12 @@ test("first open, a Question, its Citation, and the Mind checked", async () => {
       window,
       window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first(),
     );
-    const card = window.getByTestId("check-card");
-    const ask = card.getByTestId("mind-check-ask").getByTestId("mind-check-check");
-    const done = card.getByTestId("health-checked-all");
-    // A model on this computer may ask first, with the claims it named.
-    await expect(ask.or(done)).toBeVisible({ timeout: 30_000 });
-    if (await ask.isVisible()) await pointAndClick(window, ask);
-    await expect(done).toBeVisible({ timeout: 30_000 });
+    // The one Check runs from its one press; its card opens when it is done.
+    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 30_000 });
+    await pointAndClick(window, window.getByTestId("check-badge-open").first());
+    await expect(window.getByTestId("check-card").getByTestId("health-checked-all")).toBeVisible({
+      timeout: 30_000,
+    });
   });
 
   await endFeel(run);

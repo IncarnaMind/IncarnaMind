@@ -19,11 +19,11 @@ import {
 } from "./app";
 
 /*
- * The card's one summary (#1941): what a check found and what is left, from the same counts its
- * rows show, in D276's words, under the one noun for a claim. "Everything checked" shows only
- * when nothing is left; a sentence with no Citation among what is left. A claim not checked yet
- * has no mark on the page and opens from the badge's row for it or from ⇧⌘K. The checks are
- * written into the page, so no model is involved.
+ * The card's summary (#1941): the supported claims its rows don't count, from the same counts the
+ * rows show, under the one noun for a claim; what is left is each a row a click moves to (#2313).
+ * "Everything checked" shows only when nothing is left; a sentence with no Citation among what is
+ * left. A claim not checked yet has no mark on the page and opens from the badge's row for it or
+ * from ⇧⌘K. The checks are written into the page, so no model is involved.
  */
 
 const TIDES = buildPdf([
@@ -34,13 +34,13 @@ const WORDS = {
   en: {
     label: "Claims and Citations",
     allChecked: "Everything checked",
-    citedOnly: "4 claims supported · 3 claims with no Citation",
-    look: "5 claims supported · 2 claims need a look: 1 contradicted, 1 Citation not found · 3 claims with no Citation",
-    lookAndToCheck:
-      "5 claims supported · 2 claims need a look: 1 contradicted, 1 Citation not found · 1 claim not checked yet · 3 claims with no Citation",
-    lookOnly: "2 claims supported · 1 claim needs a look: 1 unsupported",
+    citedOnly: "4 claims supported",
+    look: "5 claims supported",
+    lookAndToCheck: "5 claims supported",
+    lookOnly: "2 claims supported",
     noCitationRow: "3 claims with no Citation",
     needLookRow: "1 claim needs a look",
+    toCheck: "1 claim not checked yet",
     sentences: {
       cited: "Harbours publish the times of high water every 12 months.",
       uncited: [
@@ -58,13 +58,13 @@ const WORDS = {
   "zh-CN": {
     label: "说法和引用",
     allChecked: "已全部核对",
-    citedOnly: "4 条说法有依据 · 3 条说法没有引用",
-    look: "5 条说法有依据 · 2 条说法需要留意：1 条与文档矛盾、1 处引用未找到 · 3 条说法没有引用",
-    lookAndToCheck:
-      "5 条说法有依据 · 2 条说法需要留意：1 条与文档矛盾、1 处引用未找到 · 1 条说法待核对 · 3 条说法没有引用",
-    lookOnly: "2 条说法有依据 · 1 条说法需要留意：1 条无依据",
+    citedOnly: "4 条说法有依据",
+    look: "5 条说法有依据",
+    lookAndToCheck: "5 条说法有依据",
+    lookOnly: "2 条说法有依据",
     noCitationRow: "3 条说法没有引用",
     needLookRow: "1 条说法需要留意",
+    toCheck: "1 条说法待核对",
     sentences: {
       cited: "港口每 12 个月公布一次高潮时间。",
       uncited: ["春潮每天涨两次。", "海鸥天亮时飞往内陆。", "码头六点开门。"],
@@ -191,6 +191,9 @@ for (const language of ["en", "zh-CN"] as const) {
       paragraph(checked("check-7", "not-checked", sentences.notChecked, { reason: "refused" })),
     ]);
     await expect(card.getByTestId("health-summary")).toHaveText(words.lookAndToCheck);
+    // Each count shows once in the card: the row names the one not checked yet, the summary does not repeat it (#2313).
+    await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
+    await expect(card.getByText(words.toCheck, { exact: true })).toHaveCount(1);
     const unseen = window.locator('[data-testid="claim-mark"][data-claim="check-7"]');
     await expect(unseen).toBeHidden();
     await expect(unseen.locator("svg")).toHaveCount(0);
@@ -277,7 +280,7 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("the card keeps one height while a claim is being checked and as its result lands", async () => {
+test("the card keeps one height as a result lands, its body taking what it needs", async () => {
   test.setTimeout(120_000);
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -314,20 +317,24 @@ test("the card keeps one height while a claim is being checked and as its result
   await expect(space).toHaveCount(1);
   await expect(space).toHaveText("");
   const running = await card.boundingBox();
-  const spaceLine = await space.boundingBox();
 
   await write("contradicted", {
     says: "The agreement says the facilities end on 14 February 2029.",
   });
-  await expect(card.getByTestId("health-summary")).toBeVisible();
+  // The result lands in the same card: the card keeps the height it opened with, so it does not
+  // jump; its body holds what the result needs and scrolls if that is more (#2313).
+  const summary = card.locator(".mind-health-summary");
+  await expect(summary).toHaveCount(0);
+  await expect(card.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
   const done = await card.boundingBox();
   expect(running).not.toBeNull();
   expect(done).not.toBeNull();
   if (running && done) {
-    expect(done.y).toBe(running.y);
-    expect(done.height).toBe(running.height);
+    expect(done.y).toBeCloseTo(running.y, 0);
+    expect(done.height).toBeCloseTo(running.height, 0);
   }
-  const summaryLine = await card.getByTestId("health-summary").boundingBox();
-  expect(summaryLine?.height).toBe(spaceLine?.height);
+  const body = card.locator(".check-card-body");
+  await expect(body).toHaveCount(1);
+  expect(await body.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
   await app.close();
 });

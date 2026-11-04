@@ -2,19 +2,35 @@ import { flip, offset, shift, size } from "@floating-ui/dom";
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
-import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
+import { MetaLine } from "../components/MetaLine";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useContradictions } from "../contradictions";
 import { correctableCount, correctContradictions } from "../correctionFixes";
+import type { EstimateLine } from "../cost";
 import { useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
-import { startCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
+import {
+  type Planned,
+  startCheck,
+  startCheckUnpriced,
+  useMindCheck,
+  useMindCheckRun,
+} from "../mindCheck";
 import { useFade } from "../motion";
 import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
@@ -24,7 +40,8 @@ import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
-import { checkTitle, useCheckThisMindPlan } from "./changedSentences";
+import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
+import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
@@ -117,6 +134,22 @@ function MindBadge({
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
+  const place = useCardPlace(mindId);
+  const open = useChecks((state) => state.cardOpen[place] === true);
+  // Planned only while the card is open: the estimate is what the card shows before a press.
+  const planned = useCheckThisMindPlan(doc, mindId, running !== undefined || !open);
+  const { line: estimate, state: estimateState } = useCheckEstimate(mindId, open ? planned : null);
+  // The card's height holds only once its content is settled: a question, a problem or an
+  // estimate on its way sizes to its content, and a run's verdicts land in the held room.
+  const askingNow = askingMind || askingContradictions || problem;
+  const ready = !askingNow && (running !== undefined || estimateState !== "pending");
+  const [heldOnce, setHeldOnce] = useState(false);
+  useEffect(() => {
+    if (!open) setHeldOnce(false);
+  }, [open]);
+  useLayoutEffect(() => {
+    if (open && ready && !heldOnce) setHeldOnce(true);
+  }, [open, ready, heldOnce]);
   const state = noteStateOf(health, unread.length, narrowUnread.length);
   const input: BadgeInput = {
     marks: {
@@ -140,6 +173,7 @@ function MindBadge({
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
+      holds={!askingNow && (ready || heldOnce)}
     >
       <p className="check-card-title">{t("health.label")}</p>
       <HealthCard
@@ -152,7 +186,15 @@ function MindBadge({
       />
       <ContradictionLine doc={doc} mindId={mindId} />
       <div className="check-card-sep" />
-      <CheckActions editor={editor} doc={doc} mindId={mindId} askingMind={askingMind} />
+      <CheckActions
+        editor={editor}
+        doc={doc}
+        mindId={mindId}
+        askingMind={askingMind}
+        planned={planned}
+        estimate={estimate}
+        estimateState={estimateState}
+      />
     </BadgeFrame>
   );
 }
@@ -162,16 +204,21 @@ function CheckActions({
   doc,
   mindId,
   askingMind,
+  planned,
+  estimate,
+  estimateState,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   askingMind: boolean;
+  planned: Planned | null;
+  estimate: EstimateLine | null;
+  estimateState: CheckEstimateView["state"];
 }) {
   const t = useT();
   const running = useChecks((state) => state.running[mindId] !== undefined);
   const editing = useEdits((state) => state.pending[mindId] !== undefined);
-  const planned = useCheckThisMindPlan(doc, mindId, running);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
@@ -186,6 +233,11 @@ function CheckActions({
     <>
       {unchanged && planned?.plan.kind === "unchanged" && (
         <MindUnchanged mindId={mindId} since={planned.plan.since} />
+      )}
+      {estimate && !running && (
+        <div className="check-card-estimate">
+          <MetaLine data-testid="check-estimate" parts={estimate.parts} title={estimate.title} />
+        </div>
       )}
       <div className="check-card-actions">
         {correctable > 0 && (
@@ -213,7 +265,11 @@ function CheckActions({
           disabled={running}
           title={planned === null ? undefined : checkTitle(t, planned)}
           className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
-          onClick={() => void startCheck(mindId)}
+          onClick={() =>
+            void (checkPressOf(estimateState) === "ask"
+              ? startCheckUnpriced(mindId)
+              : startCheck(mindId, planned ?? undefined))
+          }
         >
           {t("mindCheck.command")}
         </button>
@@ -314,6 +370,7 @@ function BadgeFrame({
   running,
   onStop,
   foot,
+  holds = true,
   children,
 }: {
   mindId: string;
@@ -324,6 +381,11 @@ function BadgeFrame({
   running: ReactNode;
   onStop(): void;
   foot?: ReactNode;
+  /**
+   * Whether the card holds its opening height. False while its content is still on its way (a
+   * question, a problem, an estimate), so the price line and the press show in full.
+   */
+  holds?: boolean;
   children: ReactNode;
 }) {
   const t = useT();
@@ -336,6 +398,20 @@ function BadgeFrame({
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  // Once its content is settled, the card keeps the height it opened with, so rows and verdicts
+  // landing do not make it jump; content that needs more room scrolls, and the next open fits
+  // the result (#2313).
+  const [heldHeight, setHeldHeight] = useState<number | null>(null);
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!open || !holds) {
+      setHeldHeight(null);
+      return;
+    }
+    if (heldHeight !== null) return;
+    const element = body.current;
+    if (element) setHeldHeight(element.offsetHeight);
+  }, [open, holds, heldHeight]);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);
@@ -376,13 +452,19 @@ function BadgeFrame({
           onDismiss={(how) => close(how === "escape")}
           onKeyDown={stepThroughCard}
         >
-          {children}
-          {foot && (
-            <>
-              <div className="check-card-sep" />
-              <div className="check-card-foot">{foot}</div>
-            </>
-          )}
+          <div
+            ref={body}
+            className="check-card-body"
+            style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
+          >
+            {children}
+            {foot && (
+              <>
+                <div className="check-card-sep" />
+                <div className="check-card-foot">{foot}</div>
+              </>
+            )}
+          </div>
         </Popover>
       )}
     </div>

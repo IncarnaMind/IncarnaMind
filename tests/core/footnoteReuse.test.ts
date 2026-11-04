@@ -1,12 +1,27 @@
-import type { JSONContent } from "@tiptap/core";
+import { getSchema, type JSONContent } from "@tiptap/core";
+import { EditorState } from "@tiptap/pm/state";
 import { describe, expect, test } from "vitest";
-import { type CitationPlace, type CitedWork, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
+import {
+  type CalculatedFigure,
+  CITATION_NODE,
+  type Citation,
+  type CitationAttributes,
+  type CitationPlace,
+  type CitedWork,
+  PROPOSAL_ATTRIBUTE,
+} from "../../src/core/api";
+import { withFigureNotes } from "../../src/core/exports/citations";
 import { renderDocx } from "../../src/core/exports/docx";
 import { exportLabels } from "../../src/core/exports/labels";
+import { renderMarkdown } from "../../src/core/exports/markdown";
 import { renderPrintHtml } from "../../src/core/exports/printHtml";
+import { numberCitations } from "../../src/core/exports/sourcePack";
 import { type Block, type Footnote, type Inline, NO_MARKS } from "../../src/core/mindText";
 import { numberFootnotes } from "../../src/renderer/src/editor/citationNumbers";
 import { citationsIn, noteNumbers } from "../../src/renderer/src/editor/copyNotes";
+import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { checkWellFormed, footnotesOf, part, unzip } from "../helpers/docx";
@@ -806,4 +821,142 @@ describe("the Note, Word, the PDF and Copy with Citations number one way (#2292)
     // though the note itself is printed after the Citations' (#2292).
     expect(pdfBody).toContain('</ins><sup class="note-ref change-note" data-note="6">,6</sup>');
   });
+});
+
+describe("one numbering series on the Note, Word, the PDF, Markdown and the Source Pack (#2313)", () => {
+  const schema = getSchema(noteExtensions());
+  const words = (text: string): Inline => ({ kind: "text", text, marks: NO_MARKS });
+  const paragraph = (...content: Inline[]): Block => ({ kind: "paragraph", content });
+  const footnoteOne: Footnote = { source: "One, p. 1", unverified: false };
+  const footnoteTwo: Footnote = { source: "Two, p. 2", unverified: false };
+  const workOne: CitedWork = {
+    documentId: "one",
+    documentName: "One",
+    location: { kind: "page", from: 1, to: 1 },
+  };
+  const workTwo: CitedWork = {
+    documentId: "two",
+    documentName: "Two",
+    location: { kind: "page", from: 2, to: 2 },
+  };
+  const sourceCitation: Citation = {
+    passageId: "passage-1",
+    documentId: "one",
+    documentName: "One",
+    contentHash: "hash-1",
+    pageFrom: 1,
+    pageTo: 1,
+    location: { kind: "page", from: 1, to: 1 },
+    quote: "Revenue was 1,482.6.",
+    check: "found",
+    checkReason: null,
+  };
+  const figure = (language: "en" | "zh-CN"): CalculatedFigure => ({
+    label: language === "en" ? "Growth" : "增幅",
+    formula: "",
+    inputs: [],
+    value: 0.2,
+    unit: { kind: "percent" },
+    approximate: false,
+    shown: "20.0%",
+    show: { language, as: "percent", decimals: 1, scale: null },
+    literals: [],
+    engine: FORMULA_VERSION,
+    written: null,
+    analysis: { analysis: 1, result: "growth" },
+  });
+  const citationInline = (footnote: Footnote, work: CitedWork): Inline => ({
+    kind: "citation",
+    footnote,
+    work,
+  });
+  const source = (documentId: string, page: number): JSONContent => ({
+    type: CITATION_NODE,
+    attrs: { documentId, documentName: documentId, check: "found", pageFrom: page, pageTo: page },
+  });
+
+  test.each(["en", "zh-CN"] as const)(
+    "a Citation, a figure and a Citation read 1, 2, 3 on every surface in %s",
+    (language) => {
+      const labels = exportLabels(language);
+      const blocks: Block[] = [
+        paragraph(
+          words(language === "en" ? "Revenue was " : "收入为 "),
+          citationInline(footnoteOne, workOne),
+          words(language === "en" ? " and the growth " : "，增幅为 "),
+          {
+            kind: "figure",
+            figure: figure(language),
+            sources: [{ label: "Growth", citation: sourceCitation, work: workOne }],
+            analysis: null,
+          },
+          words(language === "en" ? " as well " : "，另外 "),
+          citationInline(footnoteTwo, workTwo),
+        ),
+      ];
+
+      // The Note: a figure takes the next number in the same series as the Citations.
+      const state = EditorState.create({
+        doc: schema.nodeFromJSON({
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              attrs: { id: "block-1" },
+              content: [
+                source("one", 1),
+                { type: "text", text: language === "en" ? " and the growth " : "，增幅为 " },
+                calculatedFigureNode(figure(language), "figure-1", "run-1"),
+                { type: "text", text: language === "en" ? " as well " : "，另外 " },
+                source("two", 2),
+              ],
+            },
+          ],
+        }),
+      });
+      const note = numberFootnotes(state.doc);
+      expect(note.citations.map((each) => each.number)).toEqual([1, 3]);
+      expect(note.figures.map((each) => each.number)).toEqual([2]);
+
+      // Every export writes the figure's note where the figure is: its note is 2.
+      const written = withFigureNotes(blocks, {
+        footnote: () => footnoteOne,
+        labels,
+      });
+      const word = renderDocx(written, {
+        title: "",
+        labels,
+        language: language === "zh-CN" ? "zh-CN" : "en-US",
+        paper: "a4",
+        created: "2026-11-03T00:00:00.000Z",
+        font: null,
+        lineSpacing: null,
+      });
+      const files = unzip(word.data);
+      expect(shownMarks(part(files, "word/document.xml")).map((each) => each.shows)).toEqual([
+        1, 2, 3,
+      ]);
+
+      const pdf = renderPrintHtml(written, labels);
+      expect(
+        [...pdf.body.matchAll(/<sup class="note-ref" data-note="(\d+)"/g)].map((found) =>
+          Number(found[1]),
+        ),
+      ).toEqual([1, 2, 3]);
+
+      const markdown = renderMarkdown("", written, labels);
+      expect(
+        [...markdown.text.matchAll(/\[\^(\d+)\](?!:)/g)].map((found) => Number(found[1])),
+      ).toEqual([1, 2, 3]);
+
+      // The Source Pack moves the cited ordinal past the figure too: the Citations read 1 and 3.
+      const attributesOf = new Map<Footnote, Partial<CitationAttributes>>([
+        [footnoteOne, { documentId: "one", location: { kind: "page", from: 1, to: 1 } }],
+        [footnoteTwo, { documentId: "two", location: { kind: "page", from: 2, to: 2 } }],
+      ]);
+      expect(numberCitations(blocks, "numbered", attributesOf).map((each) => each.number)).toEqual([
+        1, 3,
+      ]);
+    },
+  );
 });

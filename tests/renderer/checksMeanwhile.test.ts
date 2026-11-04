@@ -40,8 +40,8 @@ const perToken: RunEstimate = {
   calls: 12,
   tokens: 24_000,
   cost: { amount: 0.36, currency: "USD" },
-  cap: null,
-  spentTowardCap: null,
+  cap: { amount: 20, currency: "USD" },
+  spentTowardCap: { amount: 1, currency: "USD" },
   setAsideTowardCap: null,
 };
 const twelveSentences: MindCheckPlan = {

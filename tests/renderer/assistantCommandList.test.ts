@@ -381,6 +381,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         model: null,
       }));
       answers.set("planContradictionCheck", async () => ({ kind: "no-folder" }));
+      answers.set("estimateRun", async () => ({ billing: "free" }));
       answers.set("checkMind", async () => ({ kind: "running" }));
       const second = window.startForAssistant({
         requestId: "request-2",
