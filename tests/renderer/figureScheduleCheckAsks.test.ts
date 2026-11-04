@@ -13,12 +13,14 @@ import type { FigureSchedule } from "../../src/core/api";
 
 const started = vi.hoisted(() => ({
   figures: vi.fn(async () => null),
+  changed: vi.fn(async () => null),
   note: vi.fn(async () => null),
   direct: vi.fn(),
   change: vi.fn(() => null),
 }));
 vi.mock("../../src/renderer/src/mindCheck", () => ({
   startFigureCheckAsking: started.figures,
+  startChangedCheckAsking: started.changed,
   startCheckAsking: started.note,
   checkMind: started.direct,
 }));
@@ -140,6 +142,7 @@ beforeEach(async () => {
   document.body.append(container);
   root = createRoot(container);
   started.figures.mockClear();
+  started.changed.mockClear();
   started.note.mockClear();
   started.direct.mockClear();
   const modulePath = "../../src/renderer/src/components/figures/FigureScheduleTab.tsx";
@@ -175,11 +178,12 @@ test("Check again on chosen figures asks before it checks them", async () => {
   expect(started.direct).not.toHaveBeenCalled();
 });
 
-// protects=#2313: the re-check after Change to the source's figure asks too; fails_when=it runs the changed check directly with no price question; no_claim=the figures it changes.
-test("the re-check after Change to the source's figure asks too", async () => {
+// protects=#2313: the re-check after Change to the source's figure asks, and checks only what changed with no Folder watch; fails_when=it runs the changed check directly with no price question, or the one Check brings the Folder watch back; no_claim=the figures it changes.
+test("the re-check after Change to the source's figure asks, with no Folder watch", async () => {
   await render();
   await click("view-change-source");
 
-  expect(started.note).toHaveBeenCalledWith("mind");
+  expect(started.changed).toHaveBeenCalledWith("mind");
+  expect(started.note).not.toHaveBeenCalled();
   expect(started.direct).not.toHaveBeenCalled();
 });

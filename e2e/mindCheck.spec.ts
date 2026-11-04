@@ -12,6 +12,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  focusSettled,
   launchApp,
   mindWrittenBefore,
   motionSettled,
@@ -391,24 +392,14 @@ test("A price line that lands after the card opened makes room for itself and th
   const press = health.getByTestId("badge-check-mind");
   expect(await inside(press, health)).toBe(true);
 
-  // Seven more sentences take the plan past $1 on Claude Opus 5.5's price; the card plans
-  // again from them, and its price line lands in the card already open.
-  await editor.evaluate(
-    (dom, nodes) => {
-      const current = (dom as unknown as { editor: Editor }).editor;
-      current.commands.insertContentAt(current.state.doc.content.size, nodes);
-    },
-    [
-      {
-        type: "paragraph",
-        content: [
-          {
-            type: "text",
-            text: "Four claims here. Five claims here. Six claims here. Seven claims here. Eight claims here. Nine claims here. Ten claims here.",
-          },
-        ],
-      },
-    ],
+  // Seven more sentences, typed while the card is open, take the plan past $1 on Claude Opus
+  // 5.5's price: the card plans again from them, and its price line lands in the card already open.
+  await editor.evaluate((dom) => {
+    (dom as unknown as { editor: Editor }).editor.commands.focus("end");
+  });
+  await focusSettled(window, editor);
+  await window.keyboard.type(
+    " Four claims here. Five claims here. Six claims here. Seven claims here. Eight claims here. Nine claims here. Ten claims here.",
   );
   await expect(press).toHaveAttribute("title", "10 sentences to check", { timeout: 15_000 });
   await expect(health.getByTestId("check-estimate")).toContainText("About $");
@@ -417,6 +408,37 @@ test("A price line that lands after the card opened makes room for itself and th
   expect(await inside(press, health)).toBe(true);
   await app.close();
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`after a capped run the held card keeps the Check in view at 900 and 1,440 px (${language})`, async () => {
+    test.setTimeout(120_000);
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    await useCloudChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 900, 900);
+    await addDocuments(window, [join(sources, "Tides.pdf")]);
+    await harbourNotes(window);
+
+    const health = await checkCard(window);
+    const press = health.getByTestId("badge-check-mind");
+    await expect(health.getByTestId("check-estimate")).toContainText(
+      language === "en" ? "About $" : "约 $",
+    );
+    expect(await inside(press, health)).toBe(true);
+
+    await pointAndClick(window, press);
+    await mindCheckFinished(window, 15);
+    // The verdicts need more room than the body holds, so it scrolls: the Check stays in the
+    // card's fixed foot, never scrolled away with them.
+    expect(await inside(press, health)).toBe(true);
+    await setWindowSize(app, window, 1440, 900);
+    expect(await inside(press, health)).toBe(true);
+    await app.close();
+  });
+}
 
 test("In Chinese and a narrow window, from the Mind's tab menu: a model on this computer checks at once with no price; a Folder that holds too little offers all Documents; Check checks a sentence written since", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);

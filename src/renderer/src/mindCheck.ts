@@ -235,7 +235,7 @@ async function checkMindNow(
     else if (result.kind !== "cancelled" && result.kind !== "running")
       setCheckProblem(
         mindId,
-        withCheckAll(result, () => void startMindCheck(mindId, mode, { allDocuments: true })),
+        withCheckAll(result, () => checkAllDocuments(mindId, mode, figureIds)),
       );
     return result;
   } catch (error) {
@@ -477,20 +477,47 @@ export const startCheckAsking = (mindId: string): Promise<CheckOutcome> =>
 /**
  * The Figure schedule's Check again: the figures the User chose, checked as every other way in
  * asks — its price above $1 or with a spending cap, and the couldn't-estimate line when the
- * estimate fails (#2313).
+ * estimate fails (#2313). With `allDocuments`, Check all Documents widens the same figures to
+ * every Document, never to the whole Note.
  */
 export const startFigureCheckAsking = (
   mindId: string,
   figureIds: string[],
+  allDocuments = false,
 ): Promise<CheckOutcome> =>
   start(
     mindId,
     async (): Promise<Planned> => ({
       mode: "all",
-      allDocuments: false,
-      plan: await core.planMindCheck(mindId, "all", false, figureIds),
+      allDocuments,
+      plan: await core.planMindCheck(mindId, "all", allDocuments, figureIds),
       watch: null,
       figureIds,
+    }),
+  );
+
+/**
+ * Check all Documents for a run that found none in its Folder: a run of chosen figures plans
+ * and asks again for those figures, so widening never turns it into a whole-Note Check (#2313).
+ */
+function checkAllDocuments(mindId: string, mode: CheckMindMode, figureIds?: string[]): void {
+  if (figureIds) void startFigureCheckAsking(mindId, figureIds, true);
+  else void startMindCheck(mindId, mode, { allDocuments: true });
+}
+
+/**
+ * The re-check after Change to the source's figure: only what changed since the last check,
+ * with no Folder watch, asked as every other way in asks — its price above $1 or with a
+ * spending cap, and the couldn't-estimate line when the estimate fails (#2313).
+ */
+export const startChangedCheckAsking = (mindId: string): Promise<CheckOutcome> =>
+  start(
+    mindId,
+    async (): Promise<Planned> => ({
+      mode: "changed",
+      allDocuments: false,
+      plan: await core.planMindCheck(mindId, "changed", false),
+      watch: null,
     }),
   );
 
@@ -657,11 +684,13 @@ async function askOrCheck(
       mindId,
       plan.kind === "nothing"
         ? { kind: "no-claims" }
-        : withCheckAll(plan, () => void startMindCheck(mindId, run.mode, { allDocuments: true })),
+        : withCheckAll(plan, () => checkAllDocuments(mindId, run.mode, run.figureIds)),
     );
     return null;
   }
   // No price arrived at the card's press: the question asks with the couldn't-estimate line.
+  // Only the card's whole-Note press forces a question; a figures run asks with its price or
+  // the couldn't-estimate line, so no figure ids reach this branch.
   if (forceAsk) {
     clearAsk(mindId);
     dismissCheckProblem(mindId);
@@ -678,7 +707,6 @@ async function askOrCheck(
           watch: run.watch,
           estimate: null,
           unestimated: true,
-          ...(run.figureIds && { figureIds: run.figureIds }),
         },
       },
     }));

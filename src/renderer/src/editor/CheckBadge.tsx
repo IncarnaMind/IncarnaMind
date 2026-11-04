@@ -174,7 +174,17 @@ function MindBadge({
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
       holds={!askingNow && (ready || heldOnce)}
-      priceLine={estimate !== null && running === undefined}
+      actions={
+        <CheckActions
+          editor={editor}
+          doc={doc}
+          mindId={mindId}
+          askingMind={askingMind}
+          planned={planned}
+          estimate={estimate}
+          estimateState={estimateState}
+        />
+      }
     >
       <p className="check-card-title">{t("health.label")}</p>
       <HealthCard
@@ -186,16 +196,6 @@ function MindBadge({
         figures={figures}
       />
       <ContradictionLine doc={doc} mindId={mindId} />
-      <div className="check-card-sep" />
-      <CheckActions
-        editor={editor}
-        doc={doc}
-        mindId={mindId}
-        askingMind={askingMind}
-        planned={planned}
-        estimate={estimate}
-        estimateState={estimateState}
-      />
     </BadgeFrame>
   );
 }
@@ -372,7 +372,7 @@ function BadgeFrame({
   onStop,
   foot,
   holds = true,
-  priceLine = false,
+  actions,
   children,
 }: {
   mindId: string;
@@ -385,11 +385,11 @@ function BadgeFrame({
   foot?: ReactNode;
   /**
    * Whether the card holds its opening height. False while its content is still on its way (a
-   * question, a problem, an estimate), so the price line and the press show in full.
+   * question, a problem, an estimate).
    */
   holds?: boolean;
-  /** The price line is shown and no run is on: a line that lands later needs room. */
-  priceLine?: boolean;
+  /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -407,18 +407,6 @@ function BadgeFrame({
   // the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
-  const showedPrice = useRef(false);
-  useLayoutEffect(() => {
-    // A price line that lands after the card opened needs its own room, not the scroll of a
-    // height measured without it (#2313).
-    if (!open || !priceLine) {
-      showedPrice.current = false;
-      return;
-    }
-    if (showedPrice.current) return;
-    showedPrice.current = true;
-    setHeldHeight(null);
-  }, [open, priceLine]);
   useLayoutEffect(() => {
     if (!open || !holds) {
       setHeldHeight(null);
@@ -481,6 +469,12 @@ function BadgeFrame({
               </>
             )}
           </div>
+          {actions && (
+            <>
+              <div className="check-card-sep" />
+              {actions}
+            </>
+          )}
         </Popover>
       )}
     </div>
