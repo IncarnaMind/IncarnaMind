@@ -41,6 +41,7 @@ export const OUTPUT_LIMITS = {
   "skill-draft": { most: 900 },
   edit: { most: 16_000 },
   "connection-test": { most: 64 },
+  "quick-check": { most: 64 },
 } as const satisfies Record<string, { most: number; each?: number }>;
 
 export type ModelCallKind = keyof typeof OUTPUT_LIMITS;

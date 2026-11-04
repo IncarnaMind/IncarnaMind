@@ -57,7 +57,7 @@ import { createLoginShellProcesses } from "./processes";
 import { createUtilityProcessCrossEncoder } from "./reranker";
 import { createCodeHost } from "./runCode/host";
 import { readPythonManifest, runtimePlatform } from "./runCode/manifest";
-import { loadOsSandbox, readDeniedFolders } from "./sandbox";
+import { interpreterRoots, loadOsSandbox, readDeniedFolders } from "./sandbox";
 import { createUtilityProcessTextRecognizer } from "./scanReader";
 import { createFileKeychain, SECRETS_FILE, type SecretCipher } from "./secretsFile";
 import { createUtilityProcessSeparator } from "./speakerSeparator";
@@ -227,6 +227,7 @@ export async function chooseExecutor(
         temporaryFolder: tmpdir(),
         uid: typeof process.getuid === "function" ? process.getuid() : undefined,
       }),
+      interpreterRoots: interpreterRoots({ platform: process.platform, home: app.getPath("home") }),
       reportError: (error) => console.error(error),
       runRecords: join(app.getPath("userData"), "runs"),
       log,

@@ -739,8 +739,9 @@ export function createLibrary(options: {
       "UPDATE documents SET tagging_status = 'stopped', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
       [now(), id],
     );
-    options.tagged([id]);
+    // Its Folder before the Document itself, as for any Document filed while it is added (#1741).
     announce([id]);
+    options.tagged([id]);
   };
   const write = (
     doc: DocumentRow,

@@ -167,6 +167,15 @@ export interface StatedUnit {
 
 // The text as the reader reads it ------------------------------------------
 
+let steps = 0;
+
+/**
+ * How many steps the figure reader has taken in this process: each place in a text it moves to,
+ * each character it lexes, each group of digits it reads and each character of a line it scans. A
+ * test bounds the reader's work by them (#2510).
+ */
+export const figureReadingSteps = (): number => steps;
+
 /** A footnote mark or a circled number, which NFKC would otherwise turn into a digit beside the figure. */
 const MARK = "\ue000";
 /** A no-break or thin space: nobody puts one between two separate numbers, so it always groups. */
@@ -196,6 +205,8 @@ interface Prepared {
   spaced: ReadonlySet<number>;
   /** Characters of `s` that follow a tab in the original text, which the normaliser removes beside a Chinese character. */
   tabbed: ReadonlySet<number>;
+  breaks: readonly number[];
+  lines: Map<number, Line>;
 }
 
 /**
@@ -215,6 +226,7 @@ function prepare(text: string, midLine = false): Prepared {
   const lineStarts = new Set<number>(midLine ? [] : [0]);
   const spaced = new Set<number>();
   const tabbed = new Set<number>();
+  const breaks: number[] = [];
   let previousEnd = 0;
   for (const unit of units) {
     if (unit.removed) continue;
@@ -252,12 +264,37 @@ function prepare(text: string, midLine = false): Prepared {
     } else {
       char = SIMPLIFIED.get(char) ?? char;
     }
-    if (char === "\n") lineStarts.add(s.length + 1);
+    if (char === "\n") {
+      lineStarts.add(s.length + 1);
+      breaks.push(s.length);
+    }
     s += char;
     from.push(unit.start);
     to.push(unit.end);
   }
-  return { s, from, to, lineStarts, spaced, tabbed };
+  return { s, from, to, lineStarts, spaced, tabbed, breaks, lines: new Map() };
+}
+
+function countBefore(positions: readonly number[], at: number): number {
+  let low = 0;
+  let high = positions.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((positions[middle] as number) < at) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+/** Where the line that `at` ends or is in starts: just after the last line break before `at`. */
+function lineStart({ breaks }: Prepared, at: number): number {
+  const before = countBefore(breaks, at);
+  return before === 0 ? 0 : (breaks[before - 1] as number) + 1;
+}
+
+/** Where the line goes on to from `at`: the first line break at `at` or after it, or the text's end. */
+function lineEnd({ s, breaks }: Prepared, at: number): number {
+  return breaks[countBefore(breaks, at)] ?? s.length;
 }
 
 const isDigit = (char: string | undefined): boolean =>
@@ -922,16 +959,51 @@ const CURRENCY_ANYWHERE = new RegExp(
 );
 const AMOUNT_ENDS = /[\d%亿万千]$|(?:\d|\b)(?:million|billion|trillion|thousand|bn|mn|[mkb])$/i;
 
-function amountBefore(s: string, at: number, settled: Settled): string[] | null {
-  const line = s.slice(s.lastIndexOf("\n", at - 1) + 1, at).trimEnd();
-  const last = [...line.matchAll(CURRENCY_ANYWHERE)].at(-1);
-  if (!last || !(AMOUNT_ENDS.test(line) || last.index + last[0].length === line.length))
+// Longer than any currency word CURRENCY_ANYWHERE matches ("Australian dollars" with its space is
+// 19) and the letter after it: a match that starts further back than this from where a line is cut
+// is the same in the cut line as in the whole line.
+const CURRENCY_REACH = 32;
+
+/** The last currency word in the line before `at`, if the words before `at` end in an amount. */
+function amountBefore(prepared: Prepared, at: number, settled: Settled): string[] | null {
+  const { s } = prepared;
+  const end = lineEnd(prepared, at);
+  const line = lineEnding(prepared, end);
+  let cut = at;
+  while (cut > line.start && /\s/.test(s[cut - 1] as string)) cut--;
+  const lead = s.slice(line.start, cut);
+  if (!line.currencies) {
+    const found = [...s.slice(line.start, end).matchAll(CURRENCY_ANYWHERE)];
+    line.currencies = {
+      starts: found.map((match) => match.index),
+      words: found.map((match) => match[0]),
+    };
+    steps += end - line.start;
+  }
+  const { starts, words } = line.currencies;
+  const same = countBefore(starts, lead.length - CURRENCY_REACH + 1);
+  let last = same > 0 ? { at: starts[same - 1] as number, word: words[same - 1] as string } : null;
+  // Only the last few characters before the cut can read otherwise, so only they are read again.
+  const tail = new RegExp(CURRENCY_ANYWHERE.source, "g");
+  tail.lastIndex = Math.max(
+    last ? last.at + last.word.length : 0,
+    lead.length - CURRENCY_REACH + 1,
+    0,
+  );
+  steps += lead.length - tail.lastIndex + 1;
+  for (let match = tail.exec(lead); match; match = tail.exec(lead))
+    last = { at: match.index, word: match[0] };
+  if (!last || !(AMOUNT_ENDS.test(lead.slice(-16)) || last.at + last.word.length === lead.length))
     return null;
-  return currencyCodes(last[0], settled);
+  return currencyCodes(last.word, settled);
 }
 
-const AMOUNTS_ONLY =
-  /^(?:[\s|.,;()（）%‰+\-–—−\d万亿千元圆\ue000]|\p{Sc}|(?:CR|DR|Cr|Dr)(?![A-Za-z])|(?:thousand|million|billion|trillion|tn|bn|mn|[kKmMbB])(?![A-Za-z]))*$/u;
+/**
+ * One thing a row of amounts holds besides its figures: a space, a bracket, a sign, a currency, a
+ * scale. At most one of them can start at any place, so the line is read once, from its end.
+ */
+const AMOUNT_PART =
+  /[\s|.,;()（）%‰+\-–—−\d万亿千元圆\ue000]|\p{Sc}|(?:CR|DR|Cr|Dr)(?![A-Za-z])|(?:thousand|million|billion|trillion|tn|bn|mn|[kKmMbB])(?![A-Za-z])/uy;
 const LABEL_START = /^(?:\p{Lu}|\p{Script=Han})/u;
 const PROSE_START =
   /^(?:The|A|An|This|That|These|Those|Our|Its|Their|It|We|They|In|On|At|For|Of|To|By|With|As|If|When|While) /;
@@ -945,38 +1017,114 @@ const COUNT_LABEL =
 const MONEY_FOR_PEOPLE =
   /\b(?:of|to|for|from|per|by|with|among|between|towards?|against|owed|paid)\b|[给向每付欠借对为]/i;
 
+/**
+ * What the reader finds of a line once, however many figures the line holds: read again for each
+ * one, a long line of them took time that grew with its square (#2510).
+ */
+interface Line {
+  start: number;
+  delimited?: boolean;
+  /** Whether only amounts follow each place of the line to its end, from the line's start. */
+  amountsOnly?: Uint8Array;
+  /** Where a digit, a bracket or a currency sign first comes in the line, as a label stops. */
+  labelEnd?: number;
+  /** Where a digit, a "(" or a currency sign first comes in the line, as a count's label stops. */
+  countLabelEnd?: number;
+  /** Where each currency word CURRENCY_ANYWHERE finds in it starts, and the word. */
+  currencies?: { starts: number[]; words: string[] };
+  /** Whether its label, as long as it was read, makes the line prose. */
+  prose: Map<number, boolean>;
+}
+
+function lineEnding(prepared: Prepared, end: number): Line {
+  const known = prepared.lines.get(end);
+  if (known) return known;
+  const line: Line = { start: lineStart(prepared, end), prose: new Map() };
+  prepared.lines.set(end, line);
+  return line;
+}
+
+function firstIn(s: string, pattern: RegExp, from: number, to: number): number {
+  steps += to - from;
+  const found = pattern.exec(s.slice(from, to));
+  return found ? from + found.index : to;
+}
+
+function amountsOnlyFrom(prepared: Prepared, to: number, end: number): boolean {
+  const { s } = prepared;
+  const line = lineEnding(prepared, end);
+  if (!line.amountsOnly) {
+    const amountsOnly = new Uint8Array(end - line.start + 1);
+    amountsOnly[end - line.start] = 1;
+    for (let at = end - 1; at >= line.start; at--) {
+      AMOUNT_PART.lastIndex = at;
+      const part = AMOUNT_PART.exec(s);
+      const next = part && at + part[0].length <= end ? at + part[0].length : null;
+      amountsOnly[at - line.start] = next === null ? 0 : (amountsOnly[next - line.start] as number);
+    }
+    steps += end - line.start;
+    line.amountsOnly = amountsOnly;
+  }
+  return line.amountsOnly[to - line.start] === 1;
+}
+
 function namesCount(prepared: Prepared, at: number): boolean {
   const { s } = prepared;
-  const lead = s.slice(s.lastIndexOf("\n", at - 1) + 1, at);
-  const label = /^[^\d(\p{Sc}]*/u.exec(lead)?.[0] ?? "";
+  const end = lineEnd(prepared, at);
+  const line = lineEnding(prepared, end);
+  line.countLabelEnd ??= firstIn(s, /[\d(\p{Sc}]/u, line.start, end);
+  const lead = s.slice(line.start, at);
+  const label = s.slice(line.start, Math.min(at, line.countLabelEnd));
   return [label, lead].some((words) => {
     const end = words.slice(-100).replace(/[\s|]+$/, "");
     return COUNT_LABEL.test(end) && !MONEY_FOR_PEOPLE.test(end.replace(/\bnumbers? of\b/gi, ""));
   });
 }
 
-function rowOf(prepared: Prepared, from: number, to: number): "table" | "statement" | null {
+function delimitedBetween(prepared: Prepared, start: number, end: number): boolean {
   const { s, tabbed } = prepared;
-  const start = s.lastIndexOf("\n", from - 1) + 1;
-  const stop = s.indexOf("\n", to);
-  const end = stop < 0 ? s.length : stop;
-  if (!AMOUNTS_ONLY.test(s.slice(to, end))) return null;
-  let cell = from;
-  while (s[cell - 1] === " " && cell - 1 >= start) cell--;
-  const startsCell =
-    cell === start || s[cell - 1] === "\t" || s[cell - 1] === "|" || tabbed.has(cell);
+  steps += end - start;
   let delimited = /[\t|]/.test(s.slice(start, end));
   for (let at = start + 1; !delimited && at <= end; at++) delimited = tabbed.has(at);
-  if (startsCell && delimited) return "table";
-  const lead = s.slice(start, from);
-  const label = (/^[^\d(（\p{Sc}]*/u.exec(lead)?.[0] ?? "").replace(/^[\s|]+|[\s|]+$/g, "");
-  const prose =
+  return delimited;
+}
+
+function proseLabel(prepared: Prepared, start: number, end: number): boolean {
+  const label = prepared.s.slice(start, end).replace(/^[\s|]+|[\s|]+$/g, "");
+  steps += end - start;
+  return (
     label === "" ||
     label.length > 60 ||
     !LABEL_START.test(label) ||
     PROSE_START.test(label) ||
     /[,，;；。]|\. /.test(label) ||
-    LABEL_REFERENCE.test(label);
+    LABEL_REFERENCE.test(label)
+  );
+}
+
+function rowOf(prepared: Prepared, from: number, to: number): "table" | "statement" | null {
+  const { s, tabbed } = prepared;
+  steps++;
+  const start = lineStart(prepared, from);
+  const end = lineEnd(prepared, to);
+  if (!amountsOnlyFrom(prepared, to, end)) return null;
+  let cell = from;
+  while (s[cell - 1] === " " && cell - 1 >= start) cell--;
+  const startsCell =
+    cell === start || s[cell - 1] === "\t" || s[cell - 1] === "|" || tabbed.has(cell);
+  // A bracket that starts on an earlier line than it ends is read over all its lines, apart from
+  // the line kept.
+  const kept = lineEnding(prepared, end);
+  const line: Line = kept.start === start ? kept : { start, prose: new Map() };
+  line.delimited ??= delimitedBetween(prepared, start, end);
+  if (startsCell && line.delimited) return "table";
+  line.labelEnd ??= firstIn(s, /[\d(（\p{Sc}]/u, start, end);
+  const labelEnd = Math.min(from, line.labelEnd);
+  let prose = line.prose.get(labelEnd);
+  if (prose === undefined) {
+    prose = proseLabel(prepared, start, labelEnd);
+    line.prose.set(labelEnd, prose);
+  }
   return prose ? null : "statement";
 }
 
@@ -1028,9 +1176,21 @@ const LOOSE_REFERENCE_BEFORE = /[表图注]$/;
 // Dates, periods and statements ----------------------------------------------
 
 const CN_NUMERAL_CHARS = "〇零一二三四五六七八九十两";
-const CNN = `[${CN_NUMERAL_CHARS}]+`;
+// A numeral matches from its first character only: tried from each character of a long run, the
+// date patterns read the rest of the run again each time (#2510).
+const CNN = `(?<![${CN_NUMERAL_CHARS}])[${CN_NUMERAL_CHARS}]+`;
 const MONTH =
   "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
+
+const NUMBER = "(?<!\\d)\\d+(?:\\.\\d+)?";
+const YEARS = new RegExp(
+  `(?:(?:${NUMBER}|${CNN}) ?[-~至到] ?)?(?:${NUMBER}|${CNN})年(?:度|代|底|初|末|中)?`,
+  "g",
+);
+const PERIODS = new RegExp(
+  `(?:(?:${NUMBER}|${CNN}) ?[-~至到] ?)?(?:${NUMBER}|${CNN}) ?(?:个月|个季度|季度|个?星期|周|天|小时|分钟|秒钟?|个工作日|工作日)`,
+  "g",
+);
 
 /** When something happened, not how much: not figures unless asked for. */
 const DATES: readonly RegExp[] = [
@@ -1038,19 +1198,13 @@ const DATES: readonly RegExp[] = [
   /(?<![\d.,])\d{1,2}[-/.]\d{1,2}[-/.](?:\d{4}|\d{2})(?![\d.])/g,
   /(?<![\d.,])(?:19|20)\d{2} ?[-/~至到] ?(?:(?:19|20)\d{2}|\d{1,2})(?![\d.,%])/g,
   /(?<![\d.,])\d{1,4}\/\d{1,4}(?![\d.,])/g,
-  new RegExp(
-    `(?:(?:\\d+(?:\\.\\d+)?|${CNN}) ?[-~至到] ?)?(?:\\d+(?:\\.\\d+)?|${CNN})年(?:度|代|底|初|末|中)?`,
-    "g",
-  ),
+  YEARS,
   new RegExp(
     `(?:\\d{1,2}|${CNN}) ?(?:[-~至到] ?(?:\\d{1,2}|${CNN}) ?)?月(?:份)?(?:(?:\\d{1,2}|${CNN})[日号])?`,
     "g",
   ),
   new RegExp(`(?:\\d{1,2}|${CNN})[日号](?![元圆])`, "g"),
-  new RegExp(
-    `(?:(?:\\d+(?:\\.\\d+)?|${CNN}) ?[-~至到] ?)?(?:\\d+(?:\\.\\d+)?|${CNN}) ?(?:个月|个季度|季度|个?星期|周|天|小时|分钟|秒钟?|个工作日|工作日)`,
-    "g",
-  ),
+  PERIODS,
   /(?:\d|[一二三四]) ?(?:[-~至到] ?(?:\d|[一二三四]) ?)?季度/g,
   // "7点30分", "11点至12点半", "凌晨5点"; "17点目标" (17 goals) has no time word.
   /(?<![\d.,])\d{1,2}[点时](?:\d{1,2}分|半|整|钟|前|后|之前|以后|左右|至|到|-)/g,
@@ -1074,13 +1228,52 @@ interface Span {
   to: number;
 }
 
+const FROM_RUN_STARTS = new Map(
+  [YEARS, PERIODS].map((pattern) => [pattern, new RegExp(pattern.source, "y")]),
+);
+
 /** Where dates and periods are, in positions of the prepared text. */
 function datesIn(s: string): Span[] {
   const spans: Span[] = [];
   for (const pattern of DATES) {
-    for (const match of s.matchAll(pattern)) {
-      spans.push({ from: match.index, to: match.index + match[0].length });
+    const sticky = FROM_RUN_STARTS.get(pattern);
+    if (sticky) for (const span of fromRunStarts(s, sticky)) spans.push(span);
+    else
+      for (const match of s.matchAll(pattern))
+        spans.push({ from: match.index, to: match.index + match[0].length });
+  }
+  return spans;
+}
+
+const runKind = (char: string | undefined) =>
+  isDigit(char)
+    ? "digit"
+    : char !== undefined && CN_NUMERAL_CHARS.includes(char)
+      ? "numeral"
+      : null;
+
+/**
+ * Where a pattern that opens with a number matches, tried from the first character of each run of
+ * digits or of Chinese numerals: tried from each character, a long run was read again from each,
+ * so 64 KB of digits before a 年 took 10 seconds (#2510).
+ */
+function fromRunStarts(s: string, sticky: RegExp): Span[] {
+  const spans: Span[] = [];
+  for (let at = 0; at < s.length; ) {
+    const kind = runKind(s[at]);
+    if (kind === null) {
+      at++;
+      continue;
     }
+    let end = at + 1;
+    while (runKind(s[end]) === kind) end++;
+    steps += end - at;
+    sticky.lastIndex = at;
+    const match = sticky.exec(s);
+    if (match) {
+      spans.push({ from: at, to: at + match[0].length });
+      at += match[0].length;
+    } else at = end;
   }
   return spans;
 }
@@ -1760,7 +1953,7 @@ interface Lexeme {
   at: number[];
 }
 
-function lexArabic(s: string, start: number): Lexeme {
+function lexArabic(s: string, start: number, settled: Settled): Lexeme {
   const digitsEnd = (from: number) => {
     let end = from;
     while (isDigit(s[end])) end++;
@@ -1771,12 +1964,16 @@ function lexArabic(s: string, start: number): Lexeme {
   for (;;) {
     const separator = s[end];
     if (separator === undefined || !",.' \u00a0".includes(separator) || !isDigit(s[end + 1])) break;
+    // A plain space groups only where the Document's numbers group with spaces: elsewhere "12 345"
+    // is two cells, and the next is lexed from its own start.
+    if (separator === " " && !settled.spaceGroups) break;
     const groupEnd = digitsEnd(end + 1);
     lexeme.separators.push(separator === NBSP ? " " : separator);
     lexeme.groups.push(s.slice(end + 1, groupEnd));
     lexeme.at.push(end + 1);
     end = groupEnd;
   }
+  steps += end - start;
   return lexeme;
 }
 
@@ -1797,23 +1994,100 @@ function grouped(groups: readonly string[], separator: string): boolean {
   );
 }
 
-/**
- * Reads the separators of a run of digits. A separator is decided by the
- * number itself where it can be ("1,234.5", "1.234.567"), then by the
- * context; where neither decides, both readings are kept.
- */
-function readLexeme(s: string, lexeme: Lexeme, settled: Settled): Core[] {
-  const { groups, at } = lexeme;
-  // A plain space groups only where the Document's numbers group with spaces: elsewhere "12 345" is two cells.
-  const cut = lexeme.separators.findIndex(
-    (separator, index) =>
-      separator === " " && !settled.spaceGroups && s[(at[index + 1] as number) - 1] !== NBSP,
-  );
-  const count = cut < 0 ? lexeme.separators.length : cut;
-  return readGroups(s, groups.slice(0, count + 1), lexeme.separators.slice(0, count), at, settled);
+const eachAlone = (groups: readonly string[], at: readonly number[]): Core[] =>
+  groups.map((group, index) => {
+    const from = at[index] as number;
+    return core({ from, to: from + group.length }, integer(group));
+  });
+
+/** From each index, how many in a row `holds` is true for; one more entry, 0, past the end. */
+function runsFrom(length: number, holds: (index: number) => boolean): number[] {
+  const runs = new Array<number>(length + 1).fill(0);
+  for (let index = length - 1; index >= 0; index--)
+    runs[index] = holds(index) ? (runs[index + 1] as number) + 1 : 0;
+  return runs;
 }
 
-function readGroups(
+/**
+ * Reads the separators of a run of digits. A separator is decided by the number itself where it
+ * can be ("1,234.5", "1.234.567"), then by the context; where neither decides, both readings are
+ * kept. Separators of mixed kinds that aren't one number read as the longest start that is one,
+ * then the rest the same way, in one pass: trying each start in turn read a short garbled run in
+ * time that doubled with each separator (#2510).
+ */
+function readGroups(s: string, lexeme: Lexeme, settled: Settled): Core[] {
+  const { groups, separators, at } = lexeme;
+  const count = separators.length;
+  const repeats = runsFrom(count, (index) => separators[index] === separators[index + 1]);
+  const threes = runsFrom(groups.length, (index) => groups[index]?.length === 3);
+  const twos = runsFrom(groups.length, (index) => groups[index]?.length === 2);
+  steps += groups.length;
+  const same = (from: number) => (repeats[from] as number) + 1;
+  /** `grouped` over the `last` + 1 groups from `from`, with `separator` between them. */
+  const groupedFrom = (from: number, last: number, separator: string) => {
+    const first = groups[from] as string;
+    if (first.length > 3 || first.startsWith("0")) return false;
+    if (last <= (threes[from + 1] as number)) return true;
+    return (
+      separator === "," &&
+      first.length <= 2 &&
+      last >= 2 &&
+      last - 1 <= (twos[from + 1] as number) &&
+      groups[from + last]?.length === 3
+    );
+  };
+  /** Whether the separators from `from` to the end are mixed: neither one kind nor two that settle each other. */
+  const mixedFrom = (from: number) => {
+    const left = count - from;
+    if (left === 0 || same(from) >= left) return false;
+    const last = separators[count - 1];
+    return !(
+      same(from) === left - 1 &&
+      (last === "," || last === ".") &&
+      groupedFrom(from, left - 1, separators[from] as string)
+    );
+  };
+  /** How many separators the longest start from `from` that is one number spans; 0 when none is. */
+  const longestFrom = (from: number) => {
+    const run = same(from);
+    const separator = separators[from] as string;
+    const next = separators[from + run];
+    if (
+      from + run + 1 < count &&
+      (next === "," || next === ".") &&
+      groupedFrom(from, run, separator)
+    )
+      return run + 1;
+    let longest = separator === "," || separator === "." ? 1 : 0;
+    const first = groups[from] as string;
+    if (first.length <= 3 && !first.startsWith("0")) {
+      longest = Math.max(longest, Math.min(threes[from + 1] as number, run));
+      const lakhs = (twos[from + 1] as number) + 1;
+      if (lakhs <= run && groupedFrom(from, lakhs, separator)) longest = Math.max(longest, lakhs);
+    }
+    return longest;
+  };
+  const numberFrom = (from: number, last: number) =>
+    readNumber(
+      s,
+      groups.slice(from, from + last + 1),
+      separators.slice(from, from + last),
+      at.slice(from, from + last + 1),
+      settled,
+    );
+  const cores: Core[] = [];
+  let from = 0;
+  while (mixedFrom(from)) {
+    const longest = longestFrom(from);
+    if (longest === 0) return [...cores, ...eachAlone(groups.slice(from), at.slice(from))];
+    cores.push(...numberFrom(from, longest));
+    from += longest + 1;
+  }
+  return [...cores, ...numberFrom(from, count - from)];
+}
+
+/** Groups of digits with one kind of separator between them, or two kinds that settle each other. */
+function readNumber(
   s: string,
   groups: readonly string[],
   separators: readonly string[],
@@ -1824,6 +2098,7 @@ function readGroups(
   const end = (index: number) => (at[index] as number) + (groups[index] as string).length;
   const span = (last: number): Span => ({ from: at[0] as number, to: end(last) });
   const all = groups.join("");
+  steps += groups.length;
   if (separators.length === 0) return [core(span(0), integer(first))];
 
   const last = separators.at(-1) as string;
@@ -1875,29 +2150,9 @@ function readGroups(
     // "1.2.3": a version, a section or an address, not one number nor several.
     if (separator === ".") return [];
     // "1,2,3", or numbers that only look grouped: each stands alone.
-    return groups.map((group, index) =>
-      core({ from: at[index] as number, to: end(index) }, integer(group)),
-    );
+    return eachAlone(groups, at);
   }
-  // Mixed and not one number: the longest start that is one, then the rest.
-  for (let count = separators.length - 1; count >= 1; count--) {
-    const head = readGroups(s, groups.slice(0, count + 1), separators.slice(0, count), at, settled);
-    if (head.length === 1 && head[0]?.to === end(count)) {
-      return [
-        ...head,
-        ...readGroups(
-          s,
-          groups.slice(count + 1),
-          separators.slice(count + 1),
-          at.slice(count + 1),
-          settled,
-        ),
-      ];
-    }
-  }
-  return groups.map((group, index) =>
-    core({ from: at[index] as number, to: end(index) }, integer(group)),
-  );
+  throw new Error("Separators of mixed kinds reached the reading of one number.");
 }
 
 /** Chinese digits and their financial capitals; 〇 and 零 are zero, 两 is two, 参 is 參 simplified. */
@@ -2108,7 +2363,7 @@ function coreAt(s: string, at: number, settled: Settled): Core[] | null {
     if (isLatin(before) && !CURRENCY_BEFORE.test(s.slice(Math.max(0, at - 6), at))) return null;
     if ((before === "-" && isLatin(s[at - 2])) || before === "_") return null;
     if ((before === "," || before === "." || before === "'") && isDigit(s[at - 2])) return null;
-    const cores = readLexeme(s, lexArabic(s, at), settled);
+    const cores = readGroups(s, lexArabic(s, at, settled), settled);
     // ".5": a decimal written without its leading zero.
     const first = cores[0];
     if (
@@ -2132,7 +2387,7 @@ function coreAt(s: string, at: number, settled: Settled): Core[] | null {
     const exponent = percent[1] === "百" ? -2 : percent[1] === "千" ? -3 : -4;
     const after = at + 3;
     let inner: Core | null = null;
-    if (isDigit(s[after])) inner = readLexeme(s, lexArabic(s, after), settled)[0] ?? null;
+    if (isDigit(s[after])) inner = readGroups(s, lexArabic(s, after, settled), settled)[0] ?? null;
     else if (s.startsWith("百", after) && !isCnNumeral(s[after + 1])) {
       inner = core({ from: after, to: after + 1 }, integer("100"), { chinese: true });
     } else if (isCnNumeral(s[after])) inner = lexChinese(s, after);
@@ -2493,7 +2748,8 @@ function readAround(
     ) {
       // "(US$170 million)" after an amount in another currency restates it; in a cell of its own, or in accounts beside a statement's label ("Impairment (£1.2m)"), it is a minus.
       const codes = outer?.codes ?? draft.currencies;
-      const before = codes.length > 0 ? amountBefore(s, outer?.from ?? bracket, settled) : null;
+      const before =
+        codes.length > 0 ? amountBefore(prepared, outer?.from ?? bracket, settled) : null;
       if (!before?.length || before.some((code) => codes.includes(code))) negate();
     }
   }
@@ -2520,6 +2776,24 @@ const RANGE = / ?(?:-|~|〜) ?|至|到| to /y;
 const CHANGE_BEFORE =
   /(?:(?<![A-Za-z])(?:from|by|rose|risen|rises|rising|increased|increases|grew|grown|grows|fell|fallen|falls|decreased|declined|dropped|climbed|jumped|cut|reduced|raised|improved|widened|narrowed|went|moved|changed|up|down) |从|由)$/i;
 
+// Asked of each range: looking through every span each time took time that grew with ranges × dates.
+const reaches = new WeakMap<readonly Span[], { starts: number[]; reach: number[] }>();
+
+/** Whether one of `blocked`, sorted by where each starts, holds `at`. */
+function covers(blocked: readonly Span[], at: number): boolean {
+  let known = reaches.get(blocked);
+  if (!known) {
+    const reach: number[] = [];
+    for (const span of blocked) reach.push(Math.max(reach.at(-1) ?? 0, span.to));
+    known = { starts: blocked.map((span) => span.from), reach };
+    reaches.set(blocked, known);
+    steps += blocked.length;
+  }
+  steps++;
+  const before = countBefore(known.starts, at + 1);
+  return before > 0 && (known.reach[before - 1] as number) > at;
+}
+
 /** The other end of a range after `left` ("2–3%", "1.2亿至1.5亿", "$1.2–1.5bn"), merged into it; null if none. */
 function rangeAfter(
   prepared: Prepared,
@@ -2541,7 +2815,7 @@ function rangeAfter(
   let at = start;
   while (at < s.length && at - start < 4 && !isDigit(s[at]) && !isCnDigit(s[at]) && s[at] !== "十")
     at++;
-  if (blocked.some((span) => span.from <= at && at < span.to)) return null;
+  if (covers(blocked, at)) return null;
   const found = coreAt(s, at, settled)?.[0];
   if (!found) return null;
   const right = readAround(prepared, found, start, settled);
@@ -2745,12 +3019,37 @@ function dateFigures(s: string, span: Span): Draft[] {
   return drafts;
 }
 
+/** The reader couldn't read a text: which figures it holds is unknown, which is never none (#2510). */
+export class FiguresNotRead extends Error {
+  readonly #text: string;
+
+  constructor(text: string, cause: unknown) {
+    super("The figures in a text couldn't be read.", { cause });
+    this.name = "FiguresNotRead";
+    this.#text = text;
+  }
+
+  /** The text it couldn't read, off the error's own fields so that a log of it shows none of a Document's words. */
+  get text(): string {
+    return this.#text;
+  }
+}
+
 /**
  * Every figure in `text`, in order. `context` says what the text alone
  * can't: the Document's language and separators, what its "¥" is, and a
- * header whose stated scale applies.
+ * header whose stated scale applies. Throws `FiguresNotRead` when the text
+ * can't be read.
  */
 export function readFigures(text: string, context: FigureContext = {}): Figure[] {
+  try {
+    return figuresIn(text, context);
+  } catch (error) {
+    throw new FiguresNotRead(text, error);
+  }
+}
+
+function figuresIn(text: string, context: FigureContext): Figure[] {
   const prepared = prepare(text, context.midLine);
   const { s } = prepared;
   const plain = settle(context);
@@ -2766,8 +3065,19 @@ export function readFigures(text: string, context: FigureContext = {}): Figure[]
   const drafts: Draft[] = [];
   let floor = 0;
   let at = 0;
+  // `at` only moves on, so a span that ends at it or before is never looked at again.
+  let open = 0;
+  const blockedAt = () => {
+    while ((blocked[open]?.to ?? Number.POSITIVE_INFINITY) <= at) {
+      open++;
+      steps++;
+    }
+    const span = blocked[open];
+    return span && span.from <= at ? span : undefined;
+  };
   while (at < s.length) {
-    const span = blocked.find((each) => each.from <= at && at < each.to);
+    steps++;
+    const span = blockedAt();
     if (span) {
       if (context.dates && dates.has(span) && span.from >= floor) {
         drafts.push(...dateFigures(s, span));
@@ -2805,7 +3115,8 @@ export function readFigures(text: string, context: FigureContext = {}): Figure[]
     }
     at = next;
   }
-  return drafts.map((draft) => finish(draft, prepared, text, [...statements, ...header]));
+  const stated = [...statements, ...header];
+  return drafts.map((draft) => finish(draft, prepared, text, stated));
 }
 
 /** Each way a figure can be read: as written, and each reading of what isn't settled. */
