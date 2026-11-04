@@ -367,6 +367,24 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     );
   });
 
+  // protects=a Check that asks on the note says it waits for the User's OK as its whole line, in English and Chinese (#2252); fails_when=it reads "Didn't run:" before the waiting sentence; no_claim=when it asks.
+  test("a Check that asks says it waits for the User's OK on the note", () => {
+    const asking = {
+      id: "call",
+      tool: "run_command",
+      source: "commands",
+      input: {},
+      status: "failed",
+      commandProblem: {
+        command: "mind.check",
+        message: "",
+        wording: { key: "mindCheck.waitingForOk", values: {} },
+      },
+    } as unknown as Parameters<typeof commandCallText>[1];
+    expect(commandCallText(en, asking)).toBe("The check starts when you confirm it on the note.");
+    expect(commandCallText(zh, asking)).toBe("在笔记里确认后，核对才会开始。");
+  });
+
   // protects=what came back from Recently deleted says so, in both languages, and Undo can take it back; fails_when=it reads as a delete or offers no Undo; no_claim=which items.
   test("what came back from Recently deleted says so", () => {
     const restored = done({
@@ -379,6 +397,13 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(doneText(zh, done({ command: "deleted.deletePermanently", yours: "permanent" }))).toBe(
       "彻底删除只能由你来做，我不能做。在“回收站”里。",
     );
+    // The refusal says where, and its button takes the User there (#2252).
+    expect(doneText(en, done({ command: "deleted.deletePermanently", yours: "permanent" }))).toBe(
+      "Deleting for good is yours to do, not mine. It’s in Recently deleted.",
+    );
+    expect(yoursWordsOf("permanent").open).toBe("commands.yours.openDeleted");
+    expect(en("commands.yours.openDeleted")).toBe("Open Recently deleted");
+    expect(zh("commands.yours.openDeleted")).toBe("打开回收站");
   });
 
   // protects=a setting changed names the setting and its value as Settings shows them; fails_when=it shows the raw names; no_claim=every setting.

@@ -132,6 +132,7 @@ const WHOLE_LINES = new Set<MessageKey>([
   "commands.window.closed",
   "commands.window.unfinished",
   "commands.window.alreadyChecking",
+  "mindCheck.waitingForOk",
   "mindCheck.nothingToCheck",
   "run.stopped.cancelled",
   "checks.problem.no-claims",
