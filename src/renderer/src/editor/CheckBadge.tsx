@@ -317,47 +317,40 @@ export function CheckActions({
             {t("mindCheck.command")}
           </button>
           {running && (
-            <>
-              <MetaLine
-                as="div"
-                data-testid="card-foot-progress"
-                className="check-card-progress"
-                parts={[
-                  <RunningText
-                    key="words"
-                    editor={editor}
-                    mindId={mindId}
-                    testId="card-progress"
-                  />,
-                  <button
-                    key="stop"
-                    ref={stopPress}
-                    type="button"
-                    data-testid="card-foot-stop"
-                    className="check-badge-stop"
-                    onClick={() => stopCheck(mindId)}
-                  >
-                    {t("checks.stop")}
-                  </button>,
-                ]}
-              />
-              {runWords.map((words) => (
-                <MetaLine
-                  key={words}
-                  as="div"
-                  className="check-card-progress"
-                  data-hidden=""
-                  aria-hidden="true"
-                  parts={[
-                    words,
-                    <span key="stop" className="check-badge-stop">
-                      {t("checks.stop")}
-                    </span>,
-                  ]}
-                />
-              ))}
-            </>
+            <MetaLine
+              as="div"
+              data-testid="card-foot-progress"
+              className="check-card-progress"
+              parts={[
+                <RunningText key="words" editor={editor} mindId={mindId} testId="card-progress" />,
+                <button
+                  key="stop"
+                  ref={stopPress}
+                  type="button"
+                  data-testid="card-foot-stop"
+                  className="check-badge-stop"
+                  onClick={() => stopCheck(mindId)}
+                >
+                  {t("checks.stop")}
+                </button>,
+              ]}
+            />
           )}
+          {runWords.map((words) => (
+            <MetaLine
+              key={words}
+              as="div"
+              className="check-card-progress"
+              data-hidden=""
+              aria-hidden="true"
+              parts={[
+                words,
+                <span key="stop" className="check-badge-stop">
+                  {t("checks.stop")}
+                </span>,
+              ]}
+            />
+          ))}
         </div>
       </div>
     </>

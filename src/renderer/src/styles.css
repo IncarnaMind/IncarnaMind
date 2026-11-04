@@ -1880,6 +1880,7 @@
      every wording a run can show keeps its room in that row (#2313). */
   .check-card-press {
     display: grid;
+    justify-items: end;
     margin-left: auto;
 
     & > * {
