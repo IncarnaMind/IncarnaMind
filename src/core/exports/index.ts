@@ -325,9 +325,12 @@ export function createExports(deps: ExportsDependencies) {
       commentsNow !== null ? { ...parsed, commentFailedChecks: commentsNow } : parsed;
     // The User's own comments and replies, and the assistant's replies written for them, which
     // someone else's file leaves out unless asked (#328).
-    const userMessage = (message: CommentMessage) => message.author === null;
+    // Only messages made here: an imported message keeps the file's own place, author and date,
+    // even when the file names no author, and is never the User's (#328).
+    const userMessage = (message: CommentMessage) =>
+      message.word === undefined && message.author === null;
     const mine = (message: CommentMessage) =>
-      userMessage(message) || message.author === INCARNAMIND;
+      message.word === undefined && (message.author === null || message.author === INCARNAMIND);
     const myComments = comments
       .flatMap((root) => [root, ...root.replies])
       .filter(userMessage).length;

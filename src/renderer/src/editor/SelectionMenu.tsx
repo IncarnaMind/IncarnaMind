@@ -693,7 +693,7 @@ export function SelectionMenu({
                 role="menuitem"
                 data-testid="selection-comment"
                 title={`${t("comments.add")} (${comment.keys})`}
-                aria-label={t("comments.add")}
+                aria-label={`${t("comments.add")} (${comment.keys})`}
                 aria-keyshortcuts={comment.keys}
                 onMouseDown={keepSelection}
                 onClick={() => {

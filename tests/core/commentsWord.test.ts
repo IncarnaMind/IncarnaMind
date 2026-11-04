@@ -31,10 +31,15 @@ const OPEN_PARA = "1A2B3C4F";
 
 /** A Word file whose first paragraph carries a resolved comment with a reply, its second an open one. */
 function commentedFile(): Buffer {
-  // Word's own layout for a reply: its range and reference wrap its parent's, on the same words.
-  const root = commented(0, "Dana Kim", "Check this number.", run("Revenue grew 12%."));
+  // Word's own layout for a reply: the parent's range starts first, then the reply's, and the
+  // reply's ends last, so the reply's words are the parent's (#328).
+  const words = run("Revenue grew 12%.");
   const replyRange =
-    `<w:commentRangeStart w:id="1"/>${root.inline}<w:commentRangeEnd w:id="1"/>` +
+    '<w:commentRangeStart w:id="0"/><w:commentRangeStart w:id="1"/>' +
+    words +
+    '<w:commentRangeEnd w:id="0"/>' +
+    '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="0"/></w:r>' +
+    '<w:commentRangeEnd w:id="1"/>' +
     '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="1"/></w:r>';
   const open = commented(2, "Luis Ortega", "Looks right.", run("Costs fell 3%."));
   const comments = [
@@ -404,6 +409,86 @@ describe("comments in Word, in and out (#328)", () => {
     core.close();
   });
 
+  test("an empty comment's text is never written, and leaves no reference in the file", async () => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind({ title: "Empty comment" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Draft.", marks: [{ type: "comment", attrs: { id: "empty" } }] },
+        ],
+      },
+    ]);
+    client.doc.getMap(MIND_COMMENTS_FIELD).set("empty", {
+      id: "empty",
+      author: null,
+      createdAt: "2026-10-03T09:00:00Z",
+      text: "   ",
+      resolvedAt: null,
+      replies: [],
+    });
+    await client.settled();
+    const result = await core.exportMind(mind.id, { format: "docx" });
+    const files = unzip(result.data);
+    const document = files.get("word/document.xml")?.toString("utf8") ?? "";
+    const comments = files.get("word/comments.xml")?.toString("utf8") ?? "";
+    checkWellFormed(document);
+    if (comments) checkWellFormed(comments);
+    expect(document).not.toMatch(/<w:commentRange(?:Start|End) /);
+    expect(document).not.toContain("<w:commentReference");
+    expect(comments).not.toContain("<w:comment ");
+    expect(result.word?.notKept ?? []).toEqual([]);
+    core.close();
+  });
+
+  test("a file's comment with no author is the file's, not the User's (#328)", async () => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind({ title: "Their comment" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Mine.", marks: [{ type: "comment", attrs: { id: "u" } }] },
+          { type: "text", text: " " },
+          {
+            type: "text",
+            text: "The file's.",
+            marks: [{ type: "comment", attrs: { id: "i" } }],
+          },
+        ],
+      },
+    ]);
+    const map = client.doc.getMap(MIND_COMMENTS_FIELD);
+    map.set("u", {
+      id: "u",
+      author: null,
+      createdAt: "2026-10-03T09:00:00Z",
+      text: "Mine.",
+      resolvedAt: null,
+      replies: [],
+    });
+    map.set("i", {
+      id: "i",
+      author: null,
+      createdAt: "2026-10-02T09:00:00Z",
+      text: "The file's.",
+      resolvedAt: null,
+      replies: [],
+      word: { id: 5, paraId: "1A2B3C4D" },
+    });
+    await client.settled();
+    const result = await core.exportMind(mind.id, { format: "docx", includeMyComments: false });
+    expect(result.myComments).toBe(1);
+    expect(result.myCommentsShown).toBe(false);
+    const comments = unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "";
+    expect(comments).toContain("The file's.");
+    expect(comments).not.toContain("Mine.");
+    core.close();
+  });
+
   test("a new Mind's comments export as Word comments, with a reply linked to its comment", async () => {
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind({ title: "Comments" });
@@ -470,6 +555,8 @@ describe("comments in Word, in and out (#328)", () => {
     expect(comments).toContain("Is this the audited figure?");
     expect(comments).toContain("Yes, audited.");
     expect(comments).not.toContain("This comment has no words.");
+    // A new comment's date is UTC, as Word writes it (#328).
+    expect(comments).toMatch(/w:date="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"/);
     // The reply has a range and reference of its own around the comment's words (#328).
     const replyId = [
       ...comments.matchAll(/<w:comment w:id="(\d+)"[^>]*>([\s\S]*?)<\/w:comment>/g),

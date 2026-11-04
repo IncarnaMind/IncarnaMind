@@ -37,7 +37,10 @@ const MODEL =
 
 const commentId = "comment-live";
 
-const COMMENT = "Say how high the water rises at spring tides.";
+const COMMENTS = {
+  en: "Say how high the water rises at spring tides.",
+  "zh-CN": "说明春潮时水位有多高。",
+} as const;
 
 /** The paragraph's text, a Citation as ⟨its check⟩. */
 function shown(client: MindClient): string {
@@ -63,84 +66,92 @@ function citationChecks(client: MindClient): string[] {
 }
 
 describe("Address with the assistant, live", () => {
-  test.skipIf(KEY === undefined)(
-    "Anthropic: the comment's instruction edits the words it is on, and the Citation stays",
-    { timeout: 600_000 },
-    async () => {
-      const dataDir = await createTempDataFolder();
-      const sources = await createTempDataFolder();
-      const core: Core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
-      core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-      await core.saveChatProvider({ kind: "anthropic", apiKey: KEY as string, modelId: MODEL });
-      const [tides] = await addAndProcess(core, [
-        await writeSourceFile(sources, TIDES.name, TIDES.contents),
-      ]);
-      const mind = await core.createMind({ title: "Tides" });
-      const client = await connectToMind(core, mind.id);
-      const blockId = "commented";
-      const words = "Spring tides happen at new moon and at full moon";
-      writeMind(client, [
-        {
-          type: "paragraph",
-          attrs: { id: blockId },
-          content: [
-            { type: "text", text: words },
+  for (const language of ["en", "zh-CN"] as const) {
+    for (const run of [1, 2] as const) {
+      test.skipIf(KEY === undefined)(
+        `Anthropic (${language}, run ${run}): the comment's instruction edits the words it is on, and the Citation stays`,
+        { timeout: 600_000 },
+        async () => {
+          const dataDir = await createTempDataFolder();
+          const sources = await createTempDataFolder();
+          const core: Core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
+          core.on(
+            "consent.requested",
+            (asked) => void core.respondToConsent(asked.requestId, true),
+          );
+          await core.saveChatProvider({ kind: "anthropic", apiKey: KEY as string, modelId: MODEL });
+          const [tides] = await addAndProcess(core, [
+            await writeSourceFile(sources, TIDES.name, TIDES.contents),
+          ]);
+          const mind = await core.createMind({ title: "Tides" });
+          const client = await connectToMind(core, mind.id);
+          const blockId = "commented";
+          const words = "Spring tides happen at new moon and at full moon";
+          writeMind(client, [
             {
-              type: CITATION_NODE,
-              attrs: {
-                passageId: "passage",
-                documentId: (tides as Document).id,
-                documentName: (tides as Document).name,
-                contentHash: (tides as Document).contentHash,
-                quote: words,
-                check: "found",
-              },
+              type: "paragraph",
+              attrs: { id: blockId },
+              content: [
+                { type: "text", text: words },
+                {
+                  type: CITATION_NODE,
+                  attrs: {
+                    passageId: "passage",
+                    documentId: (tides as Document).id,
+                    documentName: (tides as Document).name,
+                    contentHash: (tides as Document).contentHash,
+                    quote: words,
+                    check: "found",
+                  },
+                },
+                { type: "text", text: ", when their pull adds up." },
+              ],
             },
-            { type: "text", text: ", when their pull adds up." },
-          ],
-        },
-      ]);
-      // The comment a User typed, on the words its range names.
-      client.doc.getMap("comments").set(commentId, {
-        id: commentId,
-        author: null,
-        createdAt: new Date().toISOString(),
-        text: COMMENT,
-        resolvedAt: null,
-        replies: [],
-      });
-      await client.settled();
+          ]);
+          const comment = COMMENTS[language];
+          // The comment a User typed, on the words its range names.
+          client.doc.getMap("comments").set(commentId, {
+            id: commentId,
+            author: null,
+            createdAt: new Date().toISOString(),
+            text: comment,
+            resolvedAt: null,
+            replies: [],
+          });
+          await client.settled();
 
-      const instruction = translate("en", "comments.assistant.instruction", {
-        comment: COMMENT,
-        quote: words,
-      });
-      const result = await core.editWithAi({
-        requestId: crypto.randomUUID(),
-        mindId: mind.id,
-        from: { blockId, offset: 0 },
-        to: { blockId, offset: words.length + 1 },
-        text: `${words}￼`,
-        action: "instruction",
-        instruction,
-      });
-      expect(result.kind, result.kind === "failed" ? result.error.kind : result.kind).toBe(
-        "proposed",
+          const instruction = translate(language, "comments.assistant.instruction", {
+            comment,
+            quote: words,
+          });
+          const result = await core.editWithAi({
+            requestId: crypto.randomUUID(),
+            mindId: mind.id,
+            from: { blockId, offset: 0 },
+            to: { blockId, offset: words.length + 1 },
+            text: `${words}￼`,
+            action: "instruction",
+            instruction,
+          });
+          expect(result.kind, result.kind === "failed" ? result.error.kind : result.kind).toBe(
+            "proposed",
+          );
+          expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
+          client.doc.transact(() => {
+            resolveProposals(client.blocks as Y.XmlFragment, () => true, "accept");
+          }, "editor");
+          await client.settled();
+          const edited = shown(client);
+          expect(edited).not.toBe(
+            "Spring tides happen at new moon and at full moon⟨found⟩, when their pull adds up.",
+          );
+          expect(edited).toContain("⟨found⟩");
+          // The comment asks for a height the source doesn't state: the edit says what it can without inventing one.
+          expect(edited).not.toMatch(/\d/u);
+          expect(citationChecks(client)).toEqual(["found"]);
+          core.close();
+        },
       );
-      expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
-      client.doc.transact(() => {
-        resolveProposals(client.blocks as Y.XmlFragment, () => true, "accept");
-      }, "editor");
-      await client.settled();
-      const edited = shown(client);
-      expect(edited).not.toBe(
-        "Spring tides happen at new moon and at full moon⟨found⟩, when their pull adds up.",
-      );
-      expect(edited).toContain("⟨found⟩");
-      // The comment asks for a height the source doesn't state: the edit says what it can without inventing one.
-      expect(edited).not.toMatch(/\d/u);
-      expect(citationChecks(client)).toEqual(["found"]);
-      core.close();
-    },
-  );
+    }
+  }
 });
