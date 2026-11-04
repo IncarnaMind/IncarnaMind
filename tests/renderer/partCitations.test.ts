@@ -215,7 +215,15 @@ for (const example of CASES)
 
       expect(addPartCitations(editor, claim(), [parts[0] as ClaimCheckPart])).toBe("added");
       expect(written()).toBe(`${first}[first]${between}${second}${end}`);
-      expect(claim().check.parts).toEqual(parts);
+      // Each part keeps the model and time of the check that judged it: adding a Citation asks none.
+      expect(claim().check.parts).toEqual(
+        parts.map((part) => ({
+          ...part,
+          providerId: null,
+          modelId: null,
+          checkedAt: "2026-10-29T12:00:00.000Z",
+        })),
+      );
       expect(claim().shown).toEqual({ state: "supported" });
       expect(decisions()).toEqual([["already"], ["add"]]);
 

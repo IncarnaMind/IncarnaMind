@@ -1045,6 +1045,9 @@ export const zhCN = {
   "claim.card.label": "句子核对：{state}。{sentence}",
   "claim.showCard": "查看这句话的核对结果",
   "claim.sentence": "“{sentence}”",
+  "claim.checkedWith": "由 {model} 核对，{when}",
+  "list.and": "{first} 和 {last}",
+  "list.separator": "、",
   "claim.recordCites.label": "这句话中的记录引用",
   "claim.recordCites.partly": "部分有依据",
   "claim.recordCites.choose": "选择文档",
@@ -1236,6 +1239,10 @@ export const zhCN = {
   "claim.reason.workbook-unsupported": "它用到了 IncarnaMind 无法计算的公式，因此无法核对这个数。",
   "claim.reason.workbook-changed":
     "按工作簿现在的单元格，已得不出这个数。请重新提问，按工作簿现在的内容再算一次。",
+  "claim.reason.figures-not-read": "无法读取“{document}”{location}中的数字。",
+  "claim.reason.figures-not-read.whole": "无法读取“{document}”中的数字。",
+  "claim.reason.figures-not-read.unknown": "无法读取某个文档中的数字。",
+  "claim.reason.sentence-figures-not-read": "无法读取这句话中的数字。",
   "claim.readBudget.continue": "继续",
   "claim.recheck.edited": "核对之后，这句话改过了。",
   "claim.recheck.new-version": "核对时用到的文档有了新版本。",
@@ -4179,7 +4186,6 @@ export const zhCN = {
     "这台电脑上无法启动用于数据分析和脚本的沙盒：请安装 {packages}，然后重启 IncarnaMind。在此之前，无法对整个文件运行数据分析，脚本也不在沙盒中运行；除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
   "scripts.settings.problem.sandboxStart":
     "这台电脑不允许 IncarnaMind 启动用于数据分析和脚本的沙盒，因此无法对整个文件运行数据分析，脚本也不在沙盒中运行；除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
-  "scripts.settings.sandboxPackages.and": "{first} 和 {last}",
   "scripts.settings.timeout": "脚本运行超过此时长即停止：",
   "scripts.settings.seconds": "秒",
 
