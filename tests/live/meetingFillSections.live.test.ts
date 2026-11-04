@@ -45,6 +45,7 @@ interface Fact {
   pattern: RegExp | RegExp[];
   /** The turns that say it, counted from 0: a Citation of any of them is right. */
   said: number[];
+  underLine?: string;
 }
 
 interface Call {
@@ -897,6 +898,97 @@ const CALLS: Call[] = [
 ];
 
 const FINAL_CALLS: Call[] = [
+  {
+    id: "in-place-en-ticket-launch",
+    language: "en",
+    requireSections: true,
+    notes: [note("launch date"), note("UK fee")],
+    turns: [
+      me("Let's settle the launch date and UK fee for the ticket booking service."),
+      them("We agree to launch on the twenty-second of May. That is the final date."),
+      me("Agreed. The UK fee will be seven pounds per booking. That is our decision."),
+      them("Lena will email the launch notice by Thursday."),
+      me("I will update the fee page tomorrow."),
+      them("Owen will run the checkout test on Friday."),
+    ],
+    facts: [
+      {
+        name: "launch on 22 May",
+        kind: "decision",
+        pattern: [/May/i, /22|twenty-second/i],
+        said: [1],
+        underLine: "launch date",
+      },
+      {
+        name: "UK fee £7 per booking",
+        kind: "decision",
+        pattern: [/UK/i, /seven|£\s*7\b|7\s*pounds/i, /booking/i],
+        said: [2],
+        underLine: "UK fee",
+      },
+      {
+        name: "Lena emails notice by Thursday",
+        kind: "action",
+        pattern: [/Lena/i, /notice/i, /Thursday/i],
+        said: [3],
+      },
+      {
+        name: "Me updates fee page tomorrow",
+        kind: "action",
+        pattern: [/\b(?:Me|I)\b/i, /fee/i, /page/i, /tomorrow/i],
+        said: [4],
+      },
+      {
+        name: "Owen tests checkout on Friday",
+        kind: "action",
+        pattern: [/Owen/i, /checkout/i, /Friday/i],
+        said: [5],
+      },
+    ],
+  },
+  {
+    id: "in-place-zh-ticket-launch",
+    language: "zh-CN",
+    requireSections: true,
+    notes: [note("上线日期"), note("英国费用")],
+    turns: [
+      me("今天确定订票服务的上线日期和英国每单的费用。"),
+      them("我们同意五月二十二日上线，这是最后定下的日期。"),
+      me("同意。英国每笔订单收七英镑，就这样定了。"),
+      them("小林周四前发上线通知。"),
+      me("我明天更新费用页面。"),
+      them("小欧周五测试结账流程。"),
+    ],
+    facts: [
+      {
+        name: "五月二十二日上线",
+        kind: "decision",
+        pattern: [/五月二十二|5\s*月\s*22/, /上线/],
+        said: [1],
+        underLine: "上线日期",
+      },
+      {
+        name: "英国每单七英镑",
+        kind: "decision",
+        pattern: [/英国/, /七\s*英镑|7\s*英镑|£\s*7/, /订单|每单/],
+        said: [2],
+        underLine: "英国费用",
+      },
+      { name: "小林周四发通知", kind: "action", pattern: [/小林/, /通知/, /周四/], said: [3] },
+      {
+        name: "我明天更新费用页面",
+        kind: "action",
+        pattern: [/我/, /明天/, /费用/, /页面/],
+        said: [4],
+      },
+      {
+        name: "小欧周五测试结账",
+        kind: "action",
+        pattern: [/小欧/, /周五/, /测试/, /结账/],
+        said: [5],
+      },
+    ],
+  },
   ...(
     [
       {
@@ -1231,6 +1323,7 @@ interface Unit {
   text: string;
   ai: boolean;
   section: string | null;
+  afterLine: string | null;
   citations: {
     quote: string;
     speaker: string | null;
@@ -1243,6 +1336,7 @@ interface Unit {
 function unitsOf(doc: ProseMirrorNode): Unit[] {
   const units: Unit[] = [];
   let section: string | null = null;
+  let afterLine: string | null = null;
   const unit = (node: ProseMirrorNode) => {
     let ai = false;
     const citations: Unit["citations"] = [];
@@ -1267,11 +1361,13 @@ function unitsOf(doc: ProseMirrorNode): Unit[] {
       }
       return true;
     });
-    units.push({ text: node.textContent, ai, section, citations });
+    units.push({ text: node.textContent, ai, section, afterLine, citations });
+    if (!ai) afterLine = node.textContent;
   };
   doc.forEach((block) => {
     if (block.type.name === "heading") {
       section = block.textContent;
+      afterLine = null;
       return;
     }
     if (block.type.name === "bulletList" || block.type.name === "orderedList") {
@@ -1380,7 +1476,13 @@ test.each(["en", "zh-CN"] as const)(
       to: 2_000,
       check: "found",
     };
-    const unit: Unit = { text: estimate, ai: true, section: null, citations: [citation] };
+    const unit: Unit = {
+      text: estimate,
+      ai: true,
+      section: null,
+      afterLine: null,
+      citations: [citation],
+    };
     expect(citesRightly(unit, fact, call, cues)).toBe(false);
     const selected = { ...citation, from: 7_000, to: 8_000 };
     expect(citesRightly({ ...unit, citations: [selected] }, fact, call, cues)).toBe(true);
@@ -1512,6 +1614,8 @@ async function run(call: Call) {
       fact,
       count: found.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
       inClaims: inClaims.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
+      inPlace:
+        fact.underLine === undefined || found.some((unit) => unit.afterLine === fact.underLine),
       cited: found.length > 0 && found.every((each) => citesRightly(each, fact, call, cues)),
     };
   });
@@ -1607,14 +1711,17 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
         decisionsSection: decisions.length,
         undone,
         decisionsInSection: call.facts.filter(
-          (fact) => fact.kind === "decision" && decisions.some((unit) => says(fact, unit.text)),
+          (fact) =>
+            fact.kind === "decision" &&
+            decisions.some((unit) => citesRightly(unit, fact, call, cues)),
         ).length,
+        inPlace: scored.filter((each) => each.fact.underLine && each.inPlace).length,
       };
       if (REPORT) {
         const rows = scored
           .map(
-            ({ fact, count, inClaims, cited }) =>
-              `| ${fact.kind} | ${fact.name} | ${count} | ${cited ? "yes" : "no"} | ${inClaims} |`,
+            ({ fact, count, inClaims, cited, inPlace }) =>
+              `| ${fact.kind} | ${fact.name} | ${count} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} |`,
           )
           .join("\n");
         await appendFile(
@@ -1625,11 +1732,11 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
             `Once and cited rightly: ${once} of ${call.facts.length}. AI parts without a Citation: ${uncited}. Fill: ${fill.state}${fill.problem ? ` (${fill.problem.message})` : ""}.`,
             `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
             `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
-            `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-v2", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
+            `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-placement-v3", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
             `Transcript cues: ${JSON.stringify(cues)}`,
             "",
-            "| Kind | Fact | Times in the note | Cited rightly | In the claims list |",
-            "|---|---|---|---|---|",
+            "| Kind | Fact | Times in the note | Cited rightly | In the claims list | In place |",
+            "|---|---|---|---|---|---|",
             rows,
             "",
             "```",
@@ -1657,6 +1764,10 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
       // The User's own lines, as typed, in their order.
       expect(units.filter((each) => !each.ai).map((each) => each.text)).toEqual(typed);
       expect(scored.filter((each) => each.count === 0).map((each) => each.fact.name)).toEqual([]);
+      expect(
+        scored.filter((each) => !each.inPlace).map((each) => each.fact.name),
+        "Agreed facts fill out their typed lines in place",
+      ).toEqual([]);
       if (call.requireSections) {
         expect(undone).toBe(true);
         expect(summary.length, "Summary is present").toBeGreaterThan(0);
