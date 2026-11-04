@@ -116,6 +116,23 @@ export interface PairedGroup {
 
 export type GroupOptions = Omit<LibraryOptions, "name" | "documents">;
 
+/**
+ * The group's library opened once for each arm, each a core on its own data folder: in one core,
+ * the second arm found the first arm's Note of the same title and wrote into it.
+ */
+export async function openForArms(
+  group: Pick<PairedGroup, "open">,
+  options: (which: 0 | 1) => GroupOptions,
+): Promise<[OpenedGroup, OpenedGroup]> {
+  const first = await group.open(options(0));
+  try {
+    return [first, await group.open(options(1))];
+  } catch (error) {
+    await first.close();
+    throw error;
+  }
+}
+
 const languageOf = (language: "en" | "zh" | "zh-CN"): Language =>
   language === "en" ? "en" : "zh-CN";
 

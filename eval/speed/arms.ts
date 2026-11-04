@@ -1,9 +1,9 @@
 /**
- * The two paths a paired run compares (README.md › Paired runs), each an arm. Both run in one
- * core, item after item, so an arm changes what the core does only through what a run can switch
- * between two items: the settings it saves, as the User saves them, each model request as it is
- * sent (a prompt's wording, a provider option), and which Answer paths a model takes instead of
- * the lists beside the catalog (src/core/providers/catalog/answerPaths).
+ * The two paths a paired run compares (README.md › Paired runs), each an arm. Each runs in a core
+ * of its own, opened the same way, so an arm changes what its core does only through the settings
+ * it saves, as the User saves them, each model request as it is sent (a prompt's wording, a
+ * provider option), and which Answer paths a model takes instead of the lists beside the catalog
+ * (src/core/providers/catalog/answerPaths).
  */
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";

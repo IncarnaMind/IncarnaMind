@@ -5,14 +5,16 @@
 import { generateText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import { openLibrary } from "../../eval/lib/library";
 import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
-import type { ArmRun } from "../../eval/speed/paired";
+import { type ArmRun, type GroupOptions, openForArms } from "../../eval/speed/paired";
 import {
   guards,
   newFalseSupported,
   type PairedRow,
   pairedSection,
 } from "../../eval/speed/pairedReport";
+import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import {
   type AnswerPathsOverride,
   retrievesFirst,
@@ -101,6 +103,37 @@ describe("the guards", () => {
     const rows = [row({}, { status: "failed", error: "overloaded", cited: null })];
     expect(named(rows, "Expected Passages cited")).toBeUndefined();
     expect(named(rows, "Failed to run")).toMatchObject({ baseline: 0, candidate: 1, holds: false });
+  });
+});
+
+describe("the arms' cores", () => {
+  test("two arms writing a Note of the same title each see only their own", async () => {
+    const group = {
+      async open(options: GroupOptions) {
+        const library = await openLibrary({ ...options, name: "paired-notes", documents: [] });
+        return { library, close: () => library.close() };
+      },
+    };
+    const opened = await openForArms(group, () => ({
+      embedder: createFakeEmbedder(),
+      keep: false,
+      log: () => undefined,
+      embeddings: false,
+    }));
+    try {
+      for (const { library } of opened) {
+        await library.core.createMind({ title: "Library summary" });
+      }
+      for (const { library } of opened) {
+        const titled = (await library.core.listMinds()).filter(
+          (mind) => mind.title === "Library summary",
+        );
+        expect(titled).toHaveLength(1);
+      }
+      expect(opened[0].library.dataDir).not.toBe(opened[1].library.dataDir);
+    } finally {
+      await Promise.all(opened.map((each) => each.close()));
+    }
   });
 });
 
