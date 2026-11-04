@@ -1229,7 +1229,7 @@ export function createAnswers(options: AnswersOptions) {
      * does: at the provider's default effort, the thinking alone filled their replies' limits
      * (#2306).
      */
-    thinking?: "answer";
+    thinking?: "answer" | "summary";
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
     checkScales?: boolean;
     /**
@@ -4849,6 +4849,8 @@ export function createAnswers(options: AnswersOptions) {
           consentNeeded: false,
           outside: true,
           task: true,
+          // A Research step keeps its provider's default effort: no quality set measures it yet (#1631).
+          thinking: "summary",
           web: input.web,
           onCall: input.onCall,
         });

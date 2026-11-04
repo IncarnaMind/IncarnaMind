@@ -137,8 +137,8 @@ export interface RequestQuirks {
    * How hard a model thinks for each kind of call that thinks (#1631): the provider options each
    * kind adds, each chosen on paired runs against the provider's default effort (eval/speed). A
    * kind left out adds none, so it thinks at the provider's default. They go where the reasoning
-   * summary goes, or for a provider without one, to every model the catalog doesn't know not to
-   * reason; the small calls skip thinking instead (`thinkingOff`).
+   * summary goes, or for a provider without one, to the models the catalog knows reason; the
+   * small calls skip thinking instead (`thinkingOff`).
    */
   effort?: {
     kinds: Partial<Record<ThinkingKind, ProviderOptions>>;
@@ -151,8 +151,7 @@ export interface RequestQuirks {
  * The kinds of call that think before they write, for their effort (`RequestQuirks.effort`):
  * - "answer": an Answer to a Question, a write or an edit in the assistant, and a Meeting's notes;
  * - "careful": an Answer to a Question that asks to check or calculate;
- * - "task": an Answer a Task writes, kept in no conversation: a comparison table's cell, a
- *   Research step and its draft.
+ * - "task": a comparison table's cell, and a Research Task's draft, which is written as one.
  */
 export type ThinkingKind = "answer" | "careful" | "task";
 

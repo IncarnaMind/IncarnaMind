@@ -264,14 +264,14 @@ describe("An Answer's request to a model that thinks", () => {
                 type: "invalid_request_error",
               },
             },
-            { status: 400 },
+            { status: 422 },
           );
         }
         return Response.json({
           id: "c1",
           object: "chat.completion",
           created: 1_790_000_000,
-          model: "deepseek-next-1",
+          model: "deepseek-v4-pro",
           choices: [
             { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
           ],
@@ -279,11 +279,11 @@ describe("An Answer's request to a model that thinks", () => {
         });
       }),
     );
-    const model = modelOf("deepseek", "deepseek-next-1", "answer");
+    const model = modelOf("deepseek", "deepseek-v4-pro", "answer");
     expect((await generateText({ model, prompt: "OK?", maxRetries: 0 })).text).toBe("OK");
     expect(bodies.map((body) => body.reasoning_effort)).toEqual(["low", undefined]);
     bodies.length = 0;
-    await generateText({ model: modelOf("deepseek", "deepseek-next-1", "task"), prompt: "OK?" });
+    await generateText({ model: modelOf("deepseek", "deepseek-v4-pro", "task"), prompt: "OK?" });
     expect(bodies.map((body) => body.reasoning_effort)).toEqual([undefined]);
   });
 
@@ -336,8 +336,13 @@ describe("An Answer's request to a model that thinks", () => {
       }),
     );
     await generateText({ model: modelOf("deepseek", "deepseek-chat", "summary"), prompt: "OK?" });
-    expect(Object.keys(deepseek[0] ?? {})).not.toEqual(
-      expect.arrayContaining(["thinking", "reasoning", "reasoning_effort"]),
-    );
+    // A model the catalog doesn't know to reason gets no effort either: it could turn thinking on.
+    await generateText({ model: modelOf("deepseek", "deepseek-chat", "answer"), prompt: "OK?" });
+    expect(deepseek).toHaveLength(2);
+    for (const body of deepseek) {
+      expect(body.thinking).toBeUndefined();
+      expect(body.reasoning).toBeUndefined();
+      expect(body.reasoning_effort).toBeUndefined();
+    }
   });
 });

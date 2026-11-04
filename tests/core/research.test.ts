@@ -20,6 +20,7 @@ import {
   type StartResearchInput,
   type Task,
 } from "../../src/core";
+import type { ChatModelSpec } from "../../src/core/providers/models";
 import { CostCapError } from "../../src/core/providers/providerErrors";
 import { openDatabase } from "../../src/core/storage";
 import { cutTitle } from "../../src/shared/naming";
@@ -165,7 +166,15 @@ async function setUp(
   });
   const dataDir = await createTempDataFolder();
   const keychain = createMemoryKeychain();
-  const core = startCore(dataDir, { createChatModel: () => model, keychain, ...web.adapters });
+  const thinking: ChatModelSpec["thinking"][] = [];
+  const core = startCore(dataDir, {
+    createChatModel: (spec) => {
+      thinking.push(spec.thinking);
+      return model;
+    },
+    keychain,
+    ...web.adapters,
+  });
   const provider = await core.saveChatProvider({
     kind: "anthropic",
     apiKey: "sk-ant-test",
@@ -196,7 +205,19 @@ async function setUp(
   if (!report) throw new Error("The report was added.");
   await core.moveToFolder({ documentIds: [report.id], folderId: folder.id });
   const mind = await core.createMind({ title: "Credit memo", folderId: folder.id });
-  return { core, dataDir, web, searches, provider, folder, mind, report, keychain, asked };
+  return {
+    core,
+    dataDir,
+    web,
+    searches,
+    provider,
+    folder,
+    mind,
+    report,
+    keychain,
+    asked,
+    thinking,
+  };
 }
 
 const startInput = (
@@ -520,7 +541,7 @@ describe("Research", { timeout: 30_000 }, () => {
 
   test("each step searches the Library and the web as an Answer, then it files the pages it saved into a new Folder with Tags and writes a cited draft as changes", async () => {
     const seen: ModelCall[] = [];
-    const { core, dataDir, folder, mind, web, report } = await setUp(researcher(seen));
+    const { core, dataDir, folder, mind, web, report, thinking } = await setUp(researcher(seen));
 
     const task = await started(core, startInput(mind.id, folder.id));
     expect(task).toMatchObject({
@@ -610,6 +631,9 @@ describe("Research", { timeout: 30_000 }, () => {
       [task.id],
     );
     expect(JSON.parse(row?.result ?? "{}").documents).toEqual(expect.arrayContaining([page?.id]));
+    // The draft thinks as a comparison cell does; the two steps at their provider's default (#1631).
+    expect(thinking.filter((each) => each === "task")).toHaveLength(1);
+    expect(thinking.filter((each) => each === "answer" || each === "careful")).toEqual([]);
   });
 
   test("going on after a quit in the middle of writing, it neither asks the model again nor proposes its draft twice, and a new Mind it made is made once", async () => {

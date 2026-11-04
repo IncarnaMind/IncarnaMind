@@ -14,7 +14,6 @@ import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
 import { citationAttributesOf } from "../../src/shared/citations";
 import { comparisonCellOf } from "../../src/shared/comparisons";
-import { compare } from "../../tests/helpers/comparisons";
 import { queryDatabase } from "../../tests/helpers/core";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { readMind } from "../../tests/helpers/minds";
@@ -91,6 +90,8 @@ export interface ItemContext {
   arm: string;
   grade(expected: Expectation, answer: string): Promise<Grade>;
   claimsJudge: Parameters<typeof runCase>[2];
+  /** For an item with no Answer whose end the core announces: its end, before what it reads afterwards (a grade). */
+  ended?(): void;
 }
 
 export interface PairedItem {
@@ -274,24 +275,40 @@ export function cellsSet(root: string, timeoutMs: number): PairedGroup[] {
         kind: groupOfQuestion(question),
         language: languageOf(question.language),
         words: "events",
-        async run({ library, grade, arm }) {
+        async run({ library, grade, arm, ended }) {
           const document = library.documents.get(key);
           if (!document) throw new Error(`No Document ${key} in the library.`);
           const { core } = library;
           const mind = await core.createMind({ title: `${question.id} (${arm})` });
           const client = await connectToMind(core, mind.id);
+          // A cell is an Answer no window hears of: its table's fill ending is its end.
+          const fillEnded = new Promise<void>((resolve) => {
+            const stop = core.on("comparison.filling", (event) => {
+              if (event.mindId !== mind.id || event.filling) return;
+              stop();
+              resolve();
+            });
+          });
           library.timings?.begin();
+          const started = await core.compareDocuments({
+            mindId: mind.id,
+            documentIds: [document.id],
+            questions: [question.question],
+          });
+          if (!started.started)
+            throw new Error(`The table wasn't made: ${JSON.stringify(started)}`);
           let timer: ReturnType<typeof setTimeout> | undefined;
-          await Promise.race([
-            compare(core, client, {
-              mindId: mind.id,
-              documentIds: [document.id],
-              questions: [question.question],
-            }),
-            new Promise((_, reject) => {
-              timer = setTimeout(() => reject(new Error("The cell took too long.")), timeoutMs);
-            }),
-          ]).finally(() => clearTimeout(timer));
+          const late = new Promise<"late">((resolve) => {
+            timer = setTimeout(() => resolve("late"), timeoutMs);
+          });
+          const end = await Promise.race([fillEnded, late]).finally(() => clearTimeout(timer));
+          if (end === "late") {
+            // Stopped, so its calls don't run on into the other arm's.
+            await core.stopComparisonTable({ mindId: mind.id, tableId: started.tableId });
+            throw new Error("The cell took too long.");
+          }
+          ended?.();
+          await client.settled();
           let cell: ProseMirrorNode | null = null;
           readMind(client).descendants((node) => {
             if (node.type.name === COMPARISON_CELL_NODE) cell ??= node;
@@ -557,7 +574,13 @@ export async function runOnArm(
   };
   let measured: Measured;
   try {
-    measured = await item.run({ ...context, library: { ...context.library, timings } });
+    measured = await item.run({
+      ...context,
+      library: { ...context.library, timings },
+      ended() {
+        if (begun !== null) ended = performance.now() - begun;
+      },
+    });
   } catch (error) {
     measured = {
       ...NOTHING,

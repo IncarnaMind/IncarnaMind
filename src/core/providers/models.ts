@@ -184,11 +184,17 @@ function thinkingOptions(
 ): ProviderOptions | null {
   if (spec.thinking === undefined || spec.thinking === "off") return null;
   const set = modelsProviderOfKind(spec.kind, spec.endpoint, spec.catalogId);
-  if (catalogFacts(set, spec.modelId)?.reasoning === false) return null;
+  const reasons = catalogFacts(set, spec.modelId)?.reasoning;
+  if (reasons === false) return null;
   const quirks = thinkingQuirks(spec.kind);
   const summary = quirks?.reasoningSummary;
   if (summary?.only && !summary.only.some((prefix) => spec.modelId.startsWith(prefix))) return null;
-  const effort = spec.thinking === "summary" ? undefined : quirks?.effort?.kinds[spec.thinking];
+  // With no summary's list of the models that think by default, only one the catalog knows to
+  // reason is sent an effort: on another, an effort could turn thinking on.
+  const effort =
+    spec.thinking === "summary" || (!summary && reasons !== true)
+      ? undefined
+      : quirks?.effort?.kinds[spec.thinking];
   if (!summary && !effort) return null;
   return withOptionsOver({ providerOptions: summary?.options ?? {} }, effort ?? {}).providerOptions;
 }
@@ -213,7 +219,10 @@ function refusedForm(
   error: unknown,
   refused: readonly { names: string; options: ProviderOptions }[] | undefined,
 ): ProviderOptions | undefined {
-  if (!APICallError.isInstance(error) || error.statusCode !== 400) return undefined;
+  // DeepSeek answers a parameter it doesn't take with 422 (its error codes page), Anthropic with 400.
+  if (!APICallError.isInstance(error) || (error.statusCode !== 400 && error.statusCode !== 422)) {
+    return undefined;
+  }
   const said = `${error.message} ${error.responseBody ?? ""}`;
   return refused?.find((each) => said.includes(each.names))?.options;
 }
