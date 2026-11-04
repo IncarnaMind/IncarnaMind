@@ -182,6 +182,7 @@ function expectedLocation(
     }
     return requested;
   }
+  if (requested.kind === "properties") return requested;
   const units = document.units;
   const first = units[0];
   const last = units.at(-1);

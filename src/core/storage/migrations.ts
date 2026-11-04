@@ -2265,6 +2265,18 @@ export const migrations: readonly Migration[] = [
   {
     version: 126,
     description:
+      "A Document keeps what its file records about itself, so a check can cite its own dates and author (#2458)",
+    sql: `
+      -- JSON of src/core/api.ts FileProperties, read from the file of the version content_hash
+      -- names (an Office file's core properties and a workbook's sheet list, a PDF's Info and
+      -- XMP), so it syncs with the Document; NULL until a metadata read sets it, which
+      -- METADATA_VERSION 5 asks of every Document, and when the file's can't be read.
+      ALTER TABLE documents ADD COLUMN file_properties TEXT;
+    `,
+  },
+  {
+    version: 127,
+    description:
       "A Document keeps its highlights and notes, with their quote and Location, ready to sync (#327)",
     sql: `
       -- A highlight on a Document, with the note the User wrote under it: the quote, its

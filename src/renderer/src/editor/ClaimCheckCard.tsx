@@ -91,6 +91,7 @@ import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { MindIdContext } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
+import { PropertySource } from "./PropertySource";
 import { isQuietFocus } from "./quietFocus";
 import { RecordCiteResults } from "./RecordCiteResults";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
@@ -698,8 +699,10 @@ export function ClaimCard({
         )
       : [];
   const location = evidence ? citationLocation(evidence) : null;
+  // A file's properties decided it (#2458): its row names the property and opens the info panel.
+  const property = location?.kind === "properties" ? location : null;
   const already = decision.kind === "already" ? decision.citation : null;
-  const citedQuote = already?.attributes.quote ? already.attributes : evidence;
+  const citedQuote = already?.attributes.quote ? already.attributes : property ? null : evidence;
   const quote = useReadableQuote(citedQuote);
   const where = location ? formatLocation(location, t) : null;
   const decisionUnchecked = partRows
@@ -906,7 +909,16 @@ export function ClaimCard({
                 })}
               </p>
             )}
-            {evidence && (
+            {evidence && property && (
+              <PropertySource
+                citation={evidence}
+                location={property}
+                className="citation-card-source claim-property"
+                testId="claim-property"
+                onOpen={onOpen}
+              />
+            )}
+            {evidence && !property && (
               <p data-testid="claim-source" className="citation-card-source">
                 {[shownDocumentName(evidence, documents), where].filter(Boolean).join(" · ")}
               </p>
@@ -1185,7 +1197,7 @@ export function ClaimCard({
             {t("claim.useFigure", { figure: calculation.figure.shown })}
           </button>
         )}
-        {!partRows && evidence?.documentId && (
+        {!partRows && !property && evidence?.documentId && (
           <button
             type="button"
             data-testid="claim-open"

@@ -2486,7 +2486,13 @@ export type CitationLocation =
       paragraphs?: { from: number; to: number };
       /** A web page's picture the quote was read from, numbered in the page from 1. */
       figure?: number;
-    } & MaybeArea);
+    } & MaybeArea)
+  /**
+   * The file's own properties, not its text (#2458): a check's evidence for a sentence about the
+   * file itself. `value` is the property as the file gives it: an ISO 8601 date, the author, a
+   * count, the size in bytes, or the name.
+   */
+  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea);
 
 /** A stretch of words, and whether the Document has it where the Answer's quoted words were looked for. */
 export interface QuotedPiece {
@@ -3341,6 +3347,11 @@ export interface WindowLayout {
   focusedGroupId: string;
   /** How many closed tabs ⇧⌘T can reopen, most recent first. */
   reopenable: number;
+  /**
+   * The conversation the assistant shows; null for a New chat. Kept so a quit and reopening, or
+   * a reload of the page, shows it again (#258).
+   */
+  conversationId: string | null;
   /** Where the window's one assistant sits, outside the groups, and its sizes. */
   assistant: AssistantPlace;
 }
@@ -3454,7 +3465,9 @@ export type LayoutChange =
   /** Every group as wide as the others. */
   | { type: "equalize" }
   /** Moves, resizes, folds or unfolds the assistant: what is given changes, the rest stays. */
-  | { type: "assistant"; place: Partial<AssistantPlace> };
+  | { type: "assistant"; place: Partial<AssistantPlace> }
+  /** The conversation the assistant shows; null for a New chat (#258). */
+  | { type: "conversation"; conversationId: string | null };
 
 /**
  * The kinds of Document (ADR-0011): files of PDF, plain text, Markdown, Word
@@ -3730,6 +3743,19 @@ export interface Document {
    */
   modifiedAt: string | null;
   /**
+   * When the file was created, as the file system says on this computer: copying or downloading
+   * a file changes it. ISO 8601, UTC. Null where the file system gives none, and until a scan has
+   * seen the file.
+   */
+  fileCreatedAt: string | null;
+  /**
+   * What the file records about itself (#2458): its own dates and author, as distinct from what
+   * the Document's text says and from the times this computer keeps. Null until the file has
+   * been read for them, when they couldn't be read, and for a file IncarnaMind keeps itself (a
+   * web page, a Transcript).
+   */
+  properties: FileProperties | null;
+  /**
    * The Document's own title (#213), for when its file name is machine-made
    * (a UUID, "Untitled"): the title in its properties, else its first
    * heading, else its first line. Null if it has none, or until it is read.
@@ -3772,6 +3798,38 @@ export interface Document {
   /** ISO 8601, UTC. */
   updatedAt: string;
 }
+
+/**
+ * A file's own properties as it records them (#2458), each null when it records none or what it
+ * records can't be read: a date software writes when it has none (1 January 1980) counts as none.
+ * Dates are ISO 8601 at the precision and with the offset the file gives.
+ */
+export interface FileProperties {
+  /** An Office file's dcterms:created; a PDF's CreationDate, from its Info dictionary, else its XMP. */
+  created: string | null;
+  /** An Office file's dcterms:modified; a PDF's ModDate, from its Info dictionary, else its XMP. */
+  modified: string | null;
+  /** An Office file's dc:creator; a PDF's Author, from its Info dictionary, else its XMP. */
+  author: string | null;
+  /**
+   * A workbook's sheets as its xl/workbook.xml lists them, the hidden ones among them: a sheet
+   * with nothing in it has no Units, so the Units can't count them. Null for any other kind.
+   */
+  sheets: { count: number; hidden: number } | null;
+}
+
+/** A Document property a check can cite (#2458). */
+export const filePropertyNames = [
+  "created",
+  "modified",
+  "author",
+  "pages",
+  "slides",
+  "sheets",
+  "size",
+  "name",
+] as const;
+export type FilePropertyName = (typeof filePropertyNames)[number];
 
 /** What IncarnaMind writes that checks leave out of their evidence (#80): a Mind's export, or a source pack. */
 export const ownFileKinds = ["export", "source-pack"] as const;

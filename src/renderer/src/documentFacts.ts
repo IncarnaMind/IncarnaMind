@@ -34,6 +34,9 @@ export function useUnitCount(document: Document | null): UnitCount | null {
       current = false;
     };
   }, [id, kind, contentHash]);
+  // An empty sheet has no text to count it by: the workbook's own list does, as a check cites it (#2458).
+  const listed = kind === "xlsx" ? document?.properties?.sheets?.count : undefined;
+  if (listed) return { key: "info.sheets", count: listed };
   if (count === null || count === 0) return null;
   return { key: kind === "pptx" ? "info.slides" : "info.sheets", count };
 }
