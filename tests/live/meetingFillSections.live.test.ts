@@ -49,12 +49,156 @@ interface Call {
   notes: JSONContent[];
   turns: { side: "me" | "them"; text: string }[];
   facts: Fact[];
+  microphoneOnly?: boolean;
+  requireSections?: boolean;
+  notDecided?: RegExp[];
 }
 
 const me = (text: string) => ({ side: "me" as const, text });
 const them = (text: string) => ({ side: "them" as const, text });
 
 const CALLS: Call[] = [
+  {
+    id: "sections-en-museum",
+    language: "en",
+    microphoneOnly: true,
+    requireSections: true,
+    notes: [note("Museum call with Nia and Ellis: agree the display opening and next steps.")],
+    turns: [
+      me("Nia here. We need to settle the museum display opening and share the work."),
+      me(
+        "Ellis speaking. Could we open on April the fourth? The lighting inspection is still pending.",
+      ),
+      me("Nia again. The inspection finishes on the eighth, so the fourth is out."),
+      me("Ellis here. Then we agree to open on April the nineteenth. That is the decision."),
+      me("Nia here. I will send the invitation draft by Wednesday."),
+      me("Ellis here. I will book the lighting inspector tomorrow."),
+      me("Nia again. Jo will deliver the display labels on Friday."),
+      me("Ellis here. Whether we need an evening security guard is still open."),
+    ],
+    facts: [
+      {
+        name: "open on 19 April",
+        kind: "decision",
+        pattern: [/April/i, /19|nineteenth/i],
+        said: [3],
+      },
+      {
+        name: "invitation draft by Wednesday",
+        kind: "action",
+        pattern: [/invitation/i, /Wednesday/i],
+        said: [4],
+      },
+      {
+        name: "book the lighting inspector",
+        kind: "action",
+        pattern: [/book/i, /inspect/i],
+        said: [5],
+      },
+      {
+        name: "Jo delivers the labels on Friday",
+        kind: "action",
+        pattern: [/label/i, /Friday/i],
+        said: [6],
+      },
+    ],
+    notDecided: [/April (?:the )?(?:4|fourth)\b/i],
+  },
+  {
+    id: "sections-zh-museum",
+    language: "zh-CN",
+    microphoneOnly: true,
+    requireSections: true,
+    notes: [note("博物馆会议，和小倪、老易：定开幕日期，分好工。")],
+    turns: [
+      me("我是小倪，今天定展览开幕的日期，再分一下工。"),
+      me("我是老易。四月四日能开幕吗？灯光验收还没结束。"),
+      me("我是小倪。验收八号才结束，四号来不及。"),
+      me("我是老易，那就定四月十九日开幕，这是我们的决定。"),
+      me("我是小倪，我周三前发邀请函初稿。"),
+      me("我是老易，我明天预约灯光验收人员。"),
+      me("小倪再补充一下，小乔周五送展签。"),
+      me("我是老易，晚上要不要增加保安，还没有定。"),
+    ],
+    facts: [
+      {
+        name: "四月十九日开幕",
+        kind: "decision",
+        pattern: [/4\s*月\s*19|四月十九|十九日/, /开幕/],
+        said: [3],
+      },
+      { name: "周三发邀请函初稿", kind: "action", pattern: [/邀请/, /周三/], said: [4] },
+      { name: "预约灯光验收人员", kind: "action", pattern: [/预约/, /验收/], said: [5] },
+      { name: "小乔周五送展签", kind: "action", pattern: [/展签/, /周五/], said: [6] },
+    ],
+    notDecided: [/四月四日|4\s*月\s*4\s*日/],
+  },
+  {
+    id: "sections-en-workshop",
+    language: "en",
+    requireSections: true,
+    notes: [note("workshop venue"), heading(2, "Action items")],
+    turns: [
+      me("Let's choose the venue for the repair workshop."),
+      them("The library room costs ninety pounds. The school room is free, but has no benches."),
+      me("We choose the library room for ninety pounds. Let's go ahead with that."),
+      them("Agreed. It has space for twelve people."),
+      me("Ravi will send the sign-up form on Monday."),
+      them("I will collect the spare tools on Tuesday."),
+      me("Mina will print the safety sheets on Thursday."),
+      them("We still need to decide whether to provide lunch."),
+    ],
+    facts: [
+      {
+        name: "library room for £90",
+        kind: "decision",
+        pattern: [/library/i, /90|ninety/i],
+        said: [1, 2],
+      },
+      {
+        name: "Ravi sends the sign-up form on Monday",
+        kind: "action",
+        pattern: [/form/i, /Monday/i],
+        said: [4],
+      },
+      {
+        name: "collect spare tools on Tuesday",
+        kind: "action",
+        pattern: [/tools/i, /Tuesday/i],
+        said: [5],
+      },
+      {
+        name: "Mina prints safety sheets on Thursday",
+        kind: "action",
+        pattern: [/safety/i, /Thursday/i],
+        said: [6],
+      },
+    ],
+    notDecided: [/school room/i, /provide lunch/i],
+  },
+  {
+    id: "sections-zh-workshop",
+    language: "zh-CN",
+    requireSections: true,
+    notes: [note("维修课场地"), heading(2, "待办")],
+    turns: [
+      me("今天定维修课的场地。"),
+      them("图书馆的教室要九百元，学校教室免费，但是没有工作台。"),
+      me("那就选图书馆的教室，九百元，就这么定了。"),
+      them("同意，能坐十二个人。"),
+      me("小罗周一发报名表。"),
+      them("我周二去取备用工具。"),
+      me("小米周四印安全说明。"),
+      them("要不要准备午饭，还没有定。"),
+    ],
+    facts: [
+      { name: "图书馆教室九百元", kind: "decision", pattern: [/图书馆/, /900|九百/], said: [1, 2] },
+      { name: "小罗周一发报名表", kind: "action", pattern: [/报名/, /周一/], said: [4] },
+      { name: "周二取备用工具", kind: "action", pattern: [/工具/, /周二/], said: [5] },
+      { name: "小米周四印安全说明", kind: "action", pattern: [/安全/, /周四/], said: [6] },
+    ],
+    notDecided: [/学校教室/, /准备午饭/],
+  },
   {
     id: "en-print",
     language: "en",
@@ -870,7 +1014,12 @@ function citesRightly(unit: Unit, fact: Fact, call: Call): boolean {
       const line = plain(turn.text);
       const speaker = citation.speaker?.toLowerCase() ?? "";
       const said = line.includes(quote) || quote.includes(line);
-      return said && SPEAKERS[turn.side].some((each) => each === speaker);
+      return (
+        said &&
+        (call.microphoneOnly
+          ? speaker !== ""
+          : SPEAKERS[turn.side].some((each) => each === speaker))
+      );
     });
   });
 }
@@ -902,7 +1051,12 @@ async function run(call: Call) {
   // The first line of each side goes with the moment both sources start, so they share a clock.
   const { core, record } = await transcribingCore(dataDir, {
     engine: {
-      lines: ["", ...call.turns.filter((turn) => turn.side === "me").map((turn) => turn.text)],
+      lines: [
+        "",
+        ...call.turns
+          .filter((turn) => call.microphoneOnly || turn.side === "me")
+          .map((turn) => turn.text),
+      ],
       theirLines: [
         "",
         ...call.turns.filter((turn) => turn.side === "them").map((turn) => turn.text),
@@ -910,17 +1064,19 @@ async function run(call: Call) {
     },
     createChatModel: countedModels(usage),
   });
-  await core.updateSettings({ user: { language: call.language } });
+  await core.updateSettings({
+    user: { language: call.language, monthlyCap: { amount: 0.25, currency: "USD" } },
+  });
   await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
   if (call.notes.length > 0) writeMind(client, call.notes);
   await client.settled();
   const typed = unitsOf(readMind(client)).map((each) => each.text);
-  await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+  await core.startMeeting({ meetingId: meeting.id, systemAudio: !call.microphoneOnly });
   record(20);
   for (const turn of call.turns) {
-    record(2_000, [turn.side === "me" ? "microphone" : "system"]);
+    record(2_000, [call.microphoneOnly || turn.side === "me" ? "microphone" : "system"]);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   await core.stopMeeting(meeting.id);
@@ -998,6 +1154,20 @@ describe.skipIf(!KEY)(
     test.each(chosen)("$id", async (call) => {
       const { fill, doc, typed, units, scored, uncited, usage } = await run(call);
       const once = scored.filter((each) => each.count === 1 && each.cited).length;
+      const title = (section: "summary" | "decisions" | "actions") =>
+        translate(call.language, `meetings.fill.section.${section}`);
+      const summary = units.filter((each) => each.ai && each.section === title("summary"));
+      const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
+      const counts = {
+        decisions: scored.filter((each) => each.fact.kind === "decision" && each.count > 0).length,
+        actions: scored.filter((each) => each.fact.kind === "action" && each.count > 0).length,
+        duplicates: scored.reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
+        invented: decisions.filter((each) =>
+          call.notDecided?.some((pattern) => pattern.test(each.text)),
+        ).length,
+        summary: summary.length,
+        decisionsSection: decisions.length,
+      };
       if (REPORT) {
         const rows = scored
           .map(
@@ -1013,6 +1183,7 @@ describe.skipIf(!KEY)(
             `Once and cited rightly: ${once} of ${call.facts.length}. AI parts without a Citation: ${uncited}. Fill: ${fill.state}${fill.problem ? ` (${fill.problem.message})` : ""}.`,
             `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
             `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
+            `Counts: ${JSON.stringify({ call: call.id, model: MODEL, dollars: usage.dollars, once, total: call.facts.length, ...counts })}`,
             "",
             "| Kind | Fact | Times in the note | Cited rightly | In the claims list |",
             "|---|---|---|---|---|",
@@ -1027,7 +1198,7 @@ describe.skipIf(!KEY)(
               : usage.replies.flatMap((reply, index) => [
                   `Reply ${index + 1}: ${reply.output} tokens out, ${reply.reasoning} reasoning, Tools: ${reply.tools.join(", ") || "none"}.`,
                   "```",
-                  reply.text.slice(0, 3000),
+                  reply.text,
                   "```",
                   "",
                 ])),
@@ -1038,6 +1209,11 @@ describe.skipIf(!KEY)(
       // The User's own lines, as typed, in their order.
       expect(units.filter((each) => !each.ai).map((each) => each.text)).toEqual(typed);
       expect(scored.filter((each) => each.count === 0).map((each) => each.fact.name)).toEqual([]);
+      if (call.requireSections) {
+        expect(summary.length, "Summary is present").toBeGreaterThan(0);
+        expect(decisions.length, "Decisions is present").toBeGreaterThan(0);
+        expect(counts.invented).toBe(0);
+      }
     });
   },
 );
