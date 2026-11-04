@@ -469,6 +469,87 @@ test("an untouched note the file replaces on its page follows the file", async (
   db.close();
 });
 
+test("a note group counts its live rows first, so missing rows do not pile up", async () => {
+  const { document, store, read, db } = await harness();
+  const note = (page: number): FileAnnotation => ({
+    page,
+    kind: "note",
+    quote: "",
+    note: "Check.",
+    colour: "yellow",
+    author: "Priya Raman",
+  });
+  read("version-a", [note(1), note(2), note(3)]);
+  for (const row of store.list(document.id))
+    store.update(row.id, { note: `Mine ${row.pageFrom}.` });
+  // A page inserted after page 1 moves two notes and leaves one: no single shift pairs them.
+  read("version-b", [note(1), note(3), note(4)]);
+  expect(store.list(document.id)).toHaveLength(6);
+  // Only an end page added: the live rows pair in place and no empty rows are added.
+  read("version-c", [note(1), note(3), note(4)]);
+  expect(store.list(document.id)).toHaveLength(6);
+  expect(store.list(document.id).filter((row) => row.note?.startsWith("Mine"))).toHaveLength(3);
+  db.close();
+});
+
+test("a re-read of the same version changes nothing", async () => {
+  const { document, store, read, db } = await harness();
+  const rows = [highlight("The first line of the note.")];
+  read("version-a", rows);
+  const [before] = store.list(document.id);
+  if (!before) throw new Error("The highlight wasn't read.");
+  read("version-a", rows);
+  const [after] = store.list(document.id);
+  expect(after?.updatedAt).toBe(before.updatedAt);
+  expect(after?.id).toBe(before.id);
+  db.close();
+});
+
+test("a note of the same version on its page is carried when the group cannot pair", async () => {
+  const { document, store, read, db } = await harness();
+  const note = (page: number): FileAnnotation => ({
+    page,
+    kind: "note",
+    quote: "",
+    note: "Check.",
+    colour: "yellow",
+    author: "Priya Raman",
+  });
+  read("version-a", [note(1), note(2)]);
+  const second = store.list(document.id).find((row) => row.pageFrom === 2);
+  if (!second) throw new Error("The page-2 note wasn't read.");
+  store.update(second.id, { note: "Mine." });
+
+  read("version-a", [note(2)]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === second.id)).toMatchObject({
+    note: "Mine.",
+    pageFrom: 2,
+    missing: false,
+  });
+  expect(rows.find((row) => row.id !== second.id)?.missing).toBe(true);
+  db.close();
+});
+
+test("two untouched notes on a page are not handed one new note's row", async () => {
+  const { document, store, read, db } = await harness();
+  const note = (said: string): FileAnnotation => ({
+    page: 1,
+    kind: "note",
+    quote: "",
+    note: said,
+    colour: "yellow",
+    author: "Priya Raman",
+  });
+  read("version-a", [note("X."), note("Y.")]);
+  read("version-b", [note("Z.")]);
+  const rows = store.list(document.id);
+  expect(rows).toHaveLength(3);
+  expect(rows.filter((row) => row.missing)).toHaveLength(2);
+  expect(rows.find((row) => row.note === "Z.")?.missing).toBe(false);
+  db.close();
+});
+
 test("a deleted file highlight stays deleted when a new version still has its words", async () => {
   const { document, store, read, db } = await harness();
   const row = highlight("The first line of the note.");
