@@ -15,6 +15,33 @@ export function inAnalysisTable(state: EditorState): boolean {
   return table !== null && readTableBinding(table.node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null;
 }
 
+/** The position of the marker on the caption of the Analysis table at the cursor; null without one. */
+function markerOf(state: EditorState): number | null {
+  const table = tableAround(state);
+  const binding = table && readTableBinding(table.node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
+  if (!table || !binding) return null;
+  let found: number | null = null;
+  state.doc.descendants((node, pos) => {
+    if (pos >= table.pos) return false;
+    const named =
+      node.type.name === ANALYSIS_TABLE_NODE
+        ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE])
+        : null;
+    if (named && sameBinding(named, binding)) found = pos;
+    return true;
+  });
+  return found;
+}
+
+/** Opens the card of the Analysis table at the cursor, as its marker does (#2378). */
+export function openAnalysisTableCard(editor: Editor): boolean {
+  const at = markerOf(editor.state);
+  const marker = at === null ? null : editor.view.nodeDOM(at);
+  const button = marker instanceof HTMLElement ? marker.querySelector("button") : null;
+  button?.click();
+  return button !== null;
+}
+
 /**
  * Convert to text, in the table's menu (#2378): the table at the cursor becomes a table the User
  * typed, its cells then checked as any are, and its caption's marker goes; its caption's words stay.
@@ -23,20 +50,10 @@ export function convertAnalysisTable(editor: Editor): boolean {
   const table = tableAround(editor.state);
   const binding = table && readTableBinding(table.node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
   if (!table || !binding) return false;
+  const marker = markerOf(editor.state);
   return editor.commands.command(({ tr }) => {
     tr.setNodeAttribute(table.pos, ANALYSIS_TABLE_ATTRIBUTE, null);
-    const markers: number[] = [];
-    tr.doc.descendants((node, pos) => {
-      if (pos >= table.pos) return false;
-      const named =
-        node.type.name === ANALYSIS_TABLE_NODE
-          ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE])
-          : null;
-      if (named && sameBinding(named, binding)) markers.push(pos);
-      return true;
-    });
-    const last = markers.at(-1);
-    if (last !== undefined) tr.delete(last, last + 1);
+    if (marker !== null) tr.delete(marker, marker + 1);
     tr.setMeta(CONVERTING, true);
     return true;
   });

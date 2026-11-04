@@ -31,7 +31,8 @@ export const tableCommands: readonly Command[] = [
       when: (ctx) => {
         const editor = tableNote(ctx);
         // Only an Analysis's own table has a calculation to convert to text (#2378).
-        return editor !== null && (action.id !== "convertToText" || inAnalysisTable(editor.state));
+        const analysisOnly = action.id === "convertToText" || action.id === "openCalculation";
+        return editor !== null && (!analysisOnly || inAnalysisTable(editor.state));
       },
       enabled(ctx) {
         const editor = tableNote(ctx);

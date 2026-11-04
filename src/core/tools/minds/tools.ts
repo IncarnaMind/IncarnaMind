@@ -1676,8 +1676,16 @@ export function mindTools(options: MindToolsOptions): {
     const markdown = typeof given === "string" ? alone.markdown : null;
     const content =
       typeof given === "string" ? options.blocksOf(alone.markdown) : answerContent(given.blocks);
-    const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, chartsPlaced, ...notes } =
-      content;
+    const {
+      blocks,
+      cited,
+      notFound,
+      unrecorded,
+      searchTalk,
+      analysisTables,
+      chartsPlaced,
+      ...notes
+    } = content;
     // A chart's marker asks for its chart, beneath its table, as `chart` does (#2378).
     const chart = chartGiven ?? chartsPlaced?.[0] ?? null;
     let writer = stream?.writer ?? null;

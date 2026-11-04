@@ -87,7 +87,7 @@ const priced = (each: Billed) =>
     : 0;
 const spent = () => billed.reduce((total, each) => total + priced(each), 0);
 const tokens = () =>
-  billed.reduce(
+  billed.reduce<Billed & { requests: number }>(
     (total, each) => ({
       requests: total.requests + 1,
       input: total.input + each.input,

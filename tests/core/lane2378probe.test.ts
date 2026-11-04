@@ -1,0 +1,303 @@
+/**
+ * The 11-04 walk's Analysis flow (#2378), through the core as the app drives it: Orders.csv, the
+ * request, the Note the Answer writes, the User's Accept, then Check. The Analysis's own table is
+ * one calculated object, judged from the run the Note keeps and never against the Documents' text;
+ * a sentence whose figure the Analysis gave is judged by that figure's run; the chart keeps the
+ * Analysis's values and inputs once the write is checked; and the table goes in once.
+ */
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
+import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
+import { CHART_NODE, CLAIM_CHECK_MARK } from "../../src/core/api";
+import { noAnalysisOutput } from "../../src/shared/analysis";
+import type { NodeJSON } from "../../src/shared/blockJson";
+import { chartSources, readChart } from "../../src/shared/charts";
+import { readClaimCheck } from "../../src/shared/claimChecks";
+import { askAssistant } from "../helpers/assistant";
+import { checkGenerate, checkReply, isCheckRun, listedSentences } from "../helpers/checks";
+import { shownPassages } from "../helpers/citations";
+import { createTempDataFolder, startCore } from "../helpers/core";
+import { addAndProcess } from "../helpers/documents";
+import { footnotesOf, part, unzip } from "../helpers/docx";
+import { connectToMind, type MindClient } from "../helpers/mindClient";
+import { resolveChanges } from "../helpers/minds";
+import {
+  type GenerateCall,
+  type ModelCall,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
+import { fakePrinter } from "../helpers/printer";
+
+type Language = "en" | "zh-CN";
+
+const ORDERS = join(process.cwd(), "tests/fixtures/formats/Orders.csv");
+
+/** The fixture's 40 orders summed by region, as pandas gives them. */
+const TOTALS: [string, number][] = [
+  ["Central", 8325],
+  ["North", 9450],
+  ["South", 8700],
+  ["West", 9075],
+];
+
+const ANALYSIS = (heading: string): FakeAnswer => ({
+  output: {
+    ...noAnalysisOutput(),
+    results: [
+      {
+        kind: "table",
+        name: "region_totals",
+        label: heading,
+        unit: "",
+        table: {
+          columns: ["region", "amount"],
+          rows: TOTALS,
+          rowCount: 4,
+          columnCount: 2,
+        },
+      },
+      {
+        kind: "figure",
+        name: "slope",
+        label: "Slope of amount on order date (per day)",
+        unit: "",
+        value: 6.550218340611387,
+      },
+    ],
+    charts: [
+      {
+        kind: "bar",
+        title: heading,
+        x: "region",
+        y: ["amount"],
+        table: { columns: ["region", "amount"], rows: TOTALS, rowCount: 4, columnCount: 2 },
+      },
+    ],
+  },
+});
+
+const WORDS = {
+  en: {
+    question:
+      "Using Orders.csv: total the amount by region, fit a linear trend of the amount against the order date and give its slope per day, and make a bar chart of the totals by region. Write the table and the chart into a new note called Orders analysis.",
+    title: "Orders analysis",
+    caption: "Total amount by region",
+    slope: "A linear fit of amount against order date gives a slope of [=1] per day.",
+    chart: "Total amount by region",
+    note: "Calculated by the Analysis “Orders by region” from 40 rows of Orders.",
+    column: "amount: sum of 40 rows · recalculated",
+    differs: "North: 9,999 in the Note, 9,450 in the Analysis",
+  },
+  "zh-CN": {
+    question:
+      "用 Orders.csv：按地区汇总金额，对金额和下单日期做线性趋势拟合并给出每天的斜率，再画一张各地区合计的柱状图。把表格和图表写进名为「订单分析」的新笔记。",
+    title: "订单分析",
+    caption: "各地区金额合计",
+    slope: "金额对下单日期的线性拟合斜率为每天 [=1]。",
+    chart: "各地区金额合计",
+    note: "由数据分析“按地区汇总订单”根据“Orders”的 40 行计算得出。",
+    column: "amount：40 行的合计 · 已重新计算",
+    differs: "North：笔记中为 9,999，数据分析中为 9,450",
+  },
+} as const;
+
+/** A sort and check model that keeps every sentence it is sent, and finds none in the Documents. */
+function writingModel(language: Language, content: string, sent: string[], asksChart: boolean) {
+  const words = WORDS[language];
+  return scriptedModel(
+    (call: ModelCall) => {
+      if (isCheckRun(call)) return checkReply(call, {});
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search) return { calls: [{ tool: "search_documents", input: { query: "Central" } }] };
+      if (!call.results.some((result) => result.tool === "run_analysis")) {
+        const orders = shownPassages(search.text).find((each) =>
+          each.document.startsWith("Orders"),
+        );
+        return {
+          calls: [
+            {
+              tool: "run_analysis",
+              input: {
+                title: language === "en" ? "Orders by region" : "按地区汇总订单",
+                inputs: [{ name: "orders", passage: orders?.id ?? "" }],
+                code: "pass",
+              },
+            },
+          ],
+        };
+      }
+      if (!call.results.some((result) => result.tool === "create_mind"))
+        return {
+          calls: [
+            {
+              tool: "create_mind",
+              streamInput: true,
+              input: {
+                title: words.title,
+                content,
+                ...(asksChart && { chart: { kind: "bar", title: words.chart } }),
+              },
+            },
+          ],
+        };
+      return { text: language === "en" ? "Written." : "已写入。" };
+    },
+    {
+      generate: (call: GenerateCall) => {
+        if (call.system.startsWith("You sort the sentences")) {
+          const listed = listedSentences(call.prompt);
+          sent.push(...listed.map((each) => each.text));
+          return {
+            text: JSON.stringify({
+              sentences: listed.map(({ number, text }) => ({
+                number,
+                parts: [{ kind: "fact", text }],
+              })),
+            }),
+          };
+        }
+        return checkGenerate({})(call);
+      },
+    },
+  );
+}
+
+async function walked(language: Language, content: string, asksChart = true) {
+  const sent: string[] = [];
+  const model = writingModel(language, content, sent, asksChart);
+  const printer = fakePrinter();
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    printer: printer.printer,
+    analysisRuntime: createFakeAnalysisRuntime({
+      answer: () => ANALYSIS(WORDS[language].caption),
+    }),
+  });
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    apiKey: "sk-ant-test",
+    modelId: "claude-haiku-5-5",
+  });
+  if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+  if (language === "zh-CN") await core.updateSettings({ user: { language } });
+  await addAndProcess(core, [ORDERS]);
+  const answer = await askAssistant(core, {
+    text: WORDS[language].question,
+    mindId: (await core.createMind({ title: "Questions" })).id,
+    analyse: true,
+  });
+  const madeId = answer.toolCalls.find((call) => call.tool === "create_mind")?.mindChange?.mindId;
+  if (!madeId) throw new Error("The Answer made no Note.");
+  const client = await connectToMind(core, madeId);
+  await client.settled();
+  await resolveChanges(client, "accept");
+  return { core, answer, madeId, client, sent, printer };
+}
+
+const blocksOf = (client: MindClient): NodeJSON[] => topLevelBlocks(client.blocks).map(nodeOf);
+
+/** Every claim check's mark in the Note, by the words it marks. */
+function marks(client: MindClient): { text: string; state: string; failure?: string }[] {
+  const found: { text: string; state: string }[] = [];
+  const visit = (node: NodeJSON) => {
+    for (const mark of node.marks ?? []) {
+      if (mark.type !== CLAIM_CHECK_MARK) continue;
+      const check = readClaimCheck(mark.attrs);
+      if (check) found.push({ text: node.text ?? "", state: check.state });
+    }
+    for (const child of node.content ?? []) visit(child);
+  };
+  for (const block of blocksOf(client)) visit(block);
+  return found;
+}
+
+const tableOf = (client: MindClient) => blocksOf(client).find((block) => block.type === "table");
+
+const cellTexts = (table: NodeJSON | undefined) =>
+  (table?.content ?? []).slice(1).map((row) => JSON.stringify(row));
+
+const CONTENT = (language: Language) =>
+  [`# ${WORDS[language].title}`, "", "[=table 1]", "", WORDS[language].slope].join("\n");
+
+describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", (language) => {
+  test("Check never sends the table's cells to the Documents, and the schedule gives the table one row, recalculated", async () => {
+    const { core, madeId, client, sent } = await walked(language, CONTENT(language));
+    sent.length = 0;
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    for (const [, total] of TOTALS)
+      expect(sent.some((each) => each.includes(new Intl.NumberFormat("en").format(total)))).toBe(
+        false,
+      );
+    expect(marks(client).filter((mark) => /\d,\d{3}$/.test(mark.text))).toEqual([]);
+    const schedule = await core.getFigureSchedule(madeId);
+    expect(schedule.counts.needsLook).toBe(0);
+    core.close();
+  });
+
+  test("the slope sentence is judged by its figure's run, never Unsupported against the text", async () => {
+    const { core, madeId, client } = await walked(language, CONTENT(language));
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    const slope = marks(client).filter((mark) => mark.text.length > 6);
+    expect(slope.length).toBeGreaterThan(0);
+    expect(slope.map((mark) => mark.state)).not.toContain("unsupported");
+    expect(new Set(slope.map((mark) => mark.state))).toEqual(new Set(["not-checked"]));
+    core.close();
+  });
+
+  test("the chart keeps the Analysis's values and inputs once the write is checked", async () => {
+    const { core, answer, client } = await walked(language, CONTENT(language));
+    const created = answer.toolCalls.find((call) => call.tool === "create_mind");
+    expect(created?.mindChange?.chartNotDrawn).toBeUndefined();
+    const chart = blocksOf(client).find((block) => block.type === CHART_NODE);
+    if (!chart?.attrs) throw new Error("No chart.");
+    const drawn = readChart(chart.attrs);
+    expect(drawn.data.rows.map((row) => row.values[0]?.value)).toEqual(
+      TOTALS.map(([, total]) => total),
+    );
+    const sources = chartSources(drawn);
+    expect(sources.uncited).toBe(0);
+    expect(sources.places.map((place) => place.citation.documentName)).toEqual(["Orders"]);
+    core.close();
+  });
+
+  test("a chart marker whose table is there, and a table marker written twice, give one table", async () => {
+    const content = [
+      `# ${WORDS[language].title}`,
+      "",
+      "[=table 1]",
+      "",
+      "[=chart 1]",
+      "",
+      "[=table 1]",
+      "",
+      WORDS[language].slope,
+    ].join("\n");
+    const { core, client } = await walked(language, content);
+    expect(blocksOf(client).filter((block) => block.type === "table")).toHaveLength(1);
+    expect(cellTexts(tableOf(client))).toHaveLength(4);
+    core.close();
+  });
+
+  test("a chart's marker in the content draws its chart beneath its one table, as the chart option does", async () => {
+    const content = [`# ${WORDS[language].title}`, "", "[=chart 1]", "", WORDS[language].slope].join("\n");
+    const { core, answer, client } = await walked(language, content, false);
+    const blocks = blocksOf(client);
+    expect(blocks.map((block) => block.type)).toEqual([
+      "heading",
+      "paragraph",
+      "table",
+      CHART_NODE,
+      "paragraph",
+    ]);
+    const created = answer.toolCalls.find((call) => call.tool === "create_mind");
+    expect(created?.mindChange?.charts).toBe(1);
+    expect(created?.mindChange?.chartNotDrawn).toBeUndefined();
+    core.close();
+  });
+});

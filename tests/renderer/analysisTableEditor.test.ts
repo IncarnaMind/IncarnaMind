@@ -75,6 +75,11 @@ Object.defineProperty(page, "styleSheets", { value: [] });
 Object.assign(globalThis, {
   window: page.defaultView,
   document: page,
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
   requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
   cancelAnimationFrame: (id: number) => clearTimeout(id),
   getComputedStyle: () => ({ fontStyle: "", fontWeight: "", fontSize: "", fontFamily: "" }),

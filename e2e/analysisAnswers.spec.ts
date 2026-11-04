@@ -18,6 +18,7 @@ import {
   pointAndClick,
   pointAt,
   removeDataFolder,
+  runCommand,
   setWindowSize,
 } from "./app";
 
@@ -316,8 +317,8 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`${language}: [=table 1] writes the Analysis's own table into a Note, its figures cited to the rows it read`, async () => {
-    test.setTimeout(180_000);
+  test(`${language}: [=table 1] writes the Analysis's own table into a Note as one calculated object, which Check leaves to its run`, async () => {
+    test.setTimeout(240_000);
     const { app, window } = await launchWithSheets(language, 1200);
     try {
       await askInAssistant(
@@ -334,17 +335,30 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(table).toContainText("270.5");
       await expect(table).toContainText("South");
       await expect(editor).not.toContainText("[=table");
-      // The table's figures cite the rows the Analysis read, not text typed again.
-      const citation = table.locator("tr").first().locator("th").nth(1).getByTestId("citation");
-      await expect(citation).toHaveCount(1);
-      await expect(citation).toHaveAttribute("data-check", "found");
-      // A heading cell names its column; it is no claim, so the Note has nothing needing a look.
+      // One calculated object: its caption ends with one marker, and no heading cites on its own.
+      const marker = editor.getByTestId("analysis-table-marker");
+      await expect(marker).toHaveCount(1);
+      await expect(marker).toHaveAttribute("data-state", "supported");
+      await expect(table.getByTestId("citation")).toHaveCount(0);
+
+      // Check, as the User presses it: the totals are the Analysis's, never claims to look for.
+      await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
       const badge = window.getByTestId("check-badge");
       await expect(badge).toBeVisible({ timeout: 30_000 });
+      await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
       await expect(badge).not.toHaveAttribute("data-state", "needs-look");
-      await expect(badge.locator(".check-badge-words")).not.toContainText(
-        language === "en" ? "needs a look" : "需要留意",
-      );
+      await expect(table.locator(".claim-wash")).toHaveCount(0);
+      await expect(marker).toHaveAttribute("data-state", "supported");
+
+      // Its card says how each column was worked out, in the figure card's words.
+      await pointAndClick(window, marker.locator("button"));
+      const card = window.locator(".calculated-figure-card");
+      await expect(card).toBeVisible();
+      await expect(card.getByTestId("analysis-table-column")).toHaveText([
+        language === "en"
+          ? "Revenue: sum of 5 rows · recalculated"
+          : "Revenue：5 行的合计 · 已重新计算",
+      ]);
       const evidence = process.env.INCARNAMIND_ANALYSIS_EVIDENCE_DIR;
       if (evidence) await window.screenshot({ path: join(evidence, `${language}-note-table.png`) });
     } finally {

@@ -11,7 +11,11 @@ import {
 import type { CommandId, Keys } from "../../../shared/commands";
 import { labelRole } from "../../../shared/figureFooting";
 import type { MessageKey } from "../../../shared/i18n";
-import { convertAnalysisTable, inAnalysisTable } from "./analysisTableCommands";
+import {
+  convertAnalysisTable,
+  inAnalysisTable,
+  openAnalysisTableCard,
+} from "./analysisTableCommands";
 import { setTableRoles } from "./figureTableRoles";
 import { asOwnUndoStep } from "./selectionCommands";
 
@@ -26,6 +30,7 @@ export type TableActionId =
   | "deleteRow"
   | "deleteColumn"
   | "deleteTable"
+  | "openCalculation"
   | "convertToText";
 
 export interface TableAction {
@@ -84,6 +89,12 @@ export const TABLE_ACTIONS: readonly TableAction[] = [
     command: "table.totalColumn",
     label: "figures.totalColumn",
     run: (editor) => toggleTotal(editor, "column"),
+  },
+  {
+    id: "openCalculation",
+    command: "table.openCalculation",
+    label: "figures.inline.open",
+    run: (editor) => openAnalysisTableCard(editor),
   },
   {
     id: "convertToText",
