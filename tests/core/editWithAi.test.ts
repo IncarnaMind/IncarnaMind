@@ -5130,7 +5130,7 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     );
   });
 
-  // protects=a new line of a reply without names with the same amount as one of the User's lines takes no line's place either: "Internet is 30 a month." beside "Water is 30 a month." shares the amount, not what the line is about, so it is added and the water line stays; after the line before it, after the first line, and alone; English and Chinese (#2356, part 4 of #2333); fails_when=the water line is written over; no_claim=how often a model leaves its names out.
+  // protects=a new line of a reply without names with the same amount as one of the User's lines takes no line's place either: "Internet is 30 a month." beside "Water is 30 a month." shares the amount, not what the line is about, so it is added and the water line stays; after the line before it, after the first line, and alone; English and Chinese, the amount in digits or in Chinese numerals (#2356, part 4 of #2333); fails_when=the water line is written over; no_claim=how often a model leaves its names out.
   test.each([
     {
       lines: COSTS.en,
@@ -5167,6 +5167,12 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       asked: "在停车后面加一行网费，每月30元。",
       reply: "网费每月30元。",
       added: null,
+    },
+    {
+      lines: ["房租每月一千二百元。", "停车每月一百元。", "水费每月三十元。"],
+      asked: "在停车后面加一行网费，每月三十元。",
+      reply: "停车每月一百元。\n\n网费每月三十元。",
+      added: "网费每月三十元。",
     },
   ])("a new line with the same amount as another takes no line's place: $reply", async (each) => {
     const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
