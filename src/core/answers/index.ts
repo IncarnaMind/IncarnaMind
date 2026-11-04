@@ -1226,7 +1226,8 @@ export function createAnswers(options: AnswersOptions) {
     outputKind?: ModelCallKind;
     /**
      * How much it thinks first, when not as its kind does. A Meeting's notes think as an Answer
-     * does: at the provider's default effort the thinking alone filled their replies' limits (#2306).
+     * does: at the provider's default effort, the thinking alone filled their replies' limits
+     * (#2306).
      */
     thinking?: "answer";
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
