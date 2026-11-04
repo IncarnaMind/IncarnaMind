@@ -37,6 +37,7 @@ import { saidInLine } from "../../src/renderer/src/lineNames";
 import { useNotices } from "../../src/renderer/src/notices";
 import type { Translate } from "../../src/renderer/src/objects";
 import { nextToRedo, useUndo } from "../../src/renderer/src/undo";
+import { offersFixes } from "../../src/renderer/src/unsupportedFixes";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { checkWithParts } from "../../src/shared/claimParts";
 import { readFigures } from "../../src/shared/figures";
@@ -731,6 +732,55 @@ describe("Correct a contradiction from the Documents", () => {
     expect(generatedText(editor)).toEqual([]);
     expect(citationsOf(editor)).toEqual([]);
   });
+
+  test.each([
+    {
+      language: "en",
+      text: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      first: "Customer churn fell to 3.9 per cent",
+      timing: "after the onboarding redesign",
+      from: "3.9 per cent",
+      to: "4.2 per cent",
+      fixed: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+    },
+    {
+      language: "zh-CN",
+      text: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
+      first: "客户流失率降至 3.9%",
+      timing: "时点在引导流程重新设计之后",
+      from: "3.9%",
+      to: "4.2%",
+      fixed: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
+    },
+  ])(
+    "the walk's sentence ends Supported after the one press, never Cut, in $language (#2313)",
+    ({ text, first, timing, from, to, fixed }) => {
+      // The check the fixed judge writes: the figure's part contradicted, the part that says when
+      // it happened Supported on the Document's own words.
+      const deck = evidence("deck", fixed);
+      const attrs = checkWithParts(basis("one", text), [
+        contradictedPart(0, first.length, from, [{ wording: to, evidence: deck }]),
+        part(text.indexOf(timing), text.indexOf(timing) + timing.length, "supported", {
+          evidence: [deck],
+        }),
+      ]);
+      const { editor } = editorWith([{ type: "paragraph", content: [marked(text, attrs)] }]);
+      const shown = claim(editor, "one");
+      expect(shown.shown.state).toBe("contradicted");
+      expect(shown.check.parts?.[1]?.verdict).toBe("supported");
+
+      expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+
+      expect(textOf(editor)).toBe(`${fixed.slice(0, -1)}${INLINE_NODE}${fixed.slice(-1)}`);
+      const corrected = claim(editor, "one");
+      expect(corrected.shown.state).toBe("supported");
+      expect(corrected.check.parts?.map((each) => each.verdict)).toEqual([
+        "supported",
+        "supported",
+      ]);
+      expect(offersFixes(editor, corrected)).toBe(false);
+    },
+  );
 
   test("corrects each contradicted part of a two-part sentence on its own, then the other", () => {
     const text = "The break fee is $75,000, and the deposit is returned within 60 days.";

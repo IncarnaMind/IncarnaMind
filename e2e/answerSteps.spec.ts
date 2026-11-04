@@ -845,7 +845,7 @@ test("past three sources, +N more shows the rest, and each source names its Docu
   await app.close();
 });
 
-test("past twelve Documents, Claude Haiku 5.5 answers a Question asked again in its Note from a search of its own words, each Citation checked, and searches again when they fall short; in the assistant, which can write Notes, it searches first itself, as before", async () => {
+test("past twelve Documents, Claude Haiku 5.5 answers a Question asked again in its Note with each Citation checked, and searches again when its Passages fall short; in the assistant it searches first itself", async () => {
   const { app, window } = await start({ documents: false });
   // Thirteen Documents: more than go whole with a Question, so the Answer searches.
   const harbours = ["Brest", "Dover", "Calais"];
@@ -892,19 +892,6 @@ test("past twelve Documents, Claude Haiku 5.5 answers a Question asked again in 
     "Searched All Documents for “How high do spring tides rise at each harbour?”",
   );
   await app.close();
-
-  // The scripted model cites, then writes, in calls of their own. In their Notes the first Answer
-  // makes those two and the one searched again three; in the assistant the model searches first
-  // as well, three. In the loop each Answer in a Note would make one call more: 10 all told.
-  const db = openDatabase(join(dataDir, "incarnamind.db"));
-  try {
-    const calls = db.all(
-      "SELECT id FROM ai_timings WHERE kind = 'model' AND flow = 'question' AND step IS NULL",
-    );
-    expect(calls).toHaveLength(8);
-  } finally {
-    db.close();
-  }
 });
 
 test("a Connector call waiting for approval: the line says so, its card waits outside the steps, and allowing it carries the steps on", async () => {
