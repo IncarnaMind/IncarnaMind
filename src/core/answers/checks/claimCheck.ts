@@ -1778,7 +1778,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       // A part whose quote states it on its own, and whose own Roles, Time and Scope agree: the
       // reply's contradiction was about words outside the part, as a sentence's figure is for a
       // part about when it happened (#2313).
-      const part = request.originalClaim;
+      const sentence = request.originalClaim;
       if (
         confirmation.kind === "states" &&
         !unit &&
@@ -1786,8 +1786,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         verdict.roles !== "differs" &&
         verdict.time !== "differs" &&
         verdict.scope !== "wider" &&
-        part !== undefined &&
-        isPartOf(part, request.claim) &&
+        !comparesOtherWords(
+          { ...verdict, verdict: "supported" },
+          request.claim,
+          askedForOwnWords,
+        ) &&
+        sentence !== undefined &&
+        isPartOf(sentence, request.claim) &&
         evidence !== null &&
         quoteStatesDetail(request.claim, evidence.quote)
       )
@@ -2114,8 +2119,10 @@ const DETAIL_LINKS = new Set([
  * year" the same, and the part read Supported (#2313).
  */
 function quoteStatesDetail(claim: string, quote: string): boolean {
+  const words = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const stated = new Set(words(quote));
   const text = quote.toLowerCase();
-  for (const word of claim.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
+  for (const word of words(claim)) {
     if (/^\p{Script=Han}+$/u.test(word)) {
       for (const character of word) if (!text.includes(character)) return false;
       continue;
@@ -2124,7 +2131,8 @@ function quoteStatesDetail(claim: string, quote: string): boolean {
     // the part's own, and the figure rules compare them.
     if (/\p{L}/u.test(word) && /\p{N}/u.test(word)) continue;
     if (word.length < 2 || DETAIL_LINKS.has(word)) continue;
-    if (!text.includes(word)) return false;
+    // Whole words only: "week" isn't stated by "weekday"; a negation must be there too.
+    if (!stated.has(word)) return false;
   }
   return true;
 }
