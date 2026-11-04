@@ -72,16 +72,8 @@ const PROVIDERS = [
         ],
       },
       // Claude 5 models think by default, and return only an empty block unless asked for the summary.
-      // At the default effort, a summary of three Documents took 30 to 85 seconds to start (#899).
       reasoningSummary: {
         options: { anthropic: { thinking: { type: "adaptive", display: "summarized" } } },
-        answer: {
-          anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "low" },
-        },
-        careful: {
-          anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
-        },
-        refused: [{ names: "effort", options: { anthropic: { effort: undefined } } }],
         only: [
           "claude-fable-5",
           "claude-mythos-5",
@@ -89,6 +81,17 @@ const PROVIDERS = [
           "claude-sonnet-5",
           "claude-haiku-5",
         ],
+      },
+      // At the default effort, a summary of three Documents took 30 to 85 seconds to start (#899).
+      // A change of effort between a conversation's requests keeps their prompt cached on Claude
+      // Haiku 5.5 and Sonnet 5.5, the earlier turns included (measured 2026-11-04, #1631).
+      effort: {
+        kinds: {
+          answer: { anthropic: { effort: "low" } },
+          careful: { anthropic: { effort: "high" } },
+          task: { anthropic: { effort: "low" } },
+        },
+        refused: [{ names: "effort", options: { anthropic: { effort: undefined } } }],
       },
     },
     roles: {
@@ -406,7 +409,19 @@ const PROVIDERS = [
       },
     ],
     docsUrl: "https://api-docs.deepseek.com/quick_start/pricing",
-    request: { thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } } },
+    request: {
+      thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } },
+      // DeepSeek V4 thinks by default at effort high; low and max are its others.
+      effort: {
+        kinds: {
+          answer: { deepseek: { reasoningEffort: "low" } },
+          task: { deepseek: { reasoningEffort: "low" } },
+        },
+        refused: [
+          { names: "reasoning_effort", options: { deepseek: { reasoningEffort: undefined } } },
+        ],
+      },
+    },
     roles: {
       answers: "deepseek-flash",
       strongest: "deepseek-v4-pro",

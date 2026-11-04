@@ -198,7 +198,7 @@ async function answer(
 }
 
 describe("An Answer's request to a model that thinks", () => {
-  // protects=Claude 5 models are asked for their summarized thinking, at the default effort for a call that isn't an Answer, a modest one for an Answer and a larger one for an Answer that checks or calculates, and older ones get no thinking turned on; fails_when=a call that isn't an Answer carries an effort, an Answer lacks its effort, or Claude 4.8's carries thinking; no_claim=the fake API doesn't check what Anthropic accepts.
+  // protects=Claude 5 models are asked for their summarized thinking, at the default effort for a call of no kind, low for an Answer and a Task's, and high for an Answer that checks or calculates, and older ones get no thinking turned on; fails_when=a call of no kind carries an effort, an Answer or a Task's lacks its effort, or Claude 4.8's carries thinking; no_claim=the fake API doesn't check what Anthropic accepts.
   test.each([
     ["claude-sonnet-5-5", "summary", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-sonnet-5-5", "answer", { type: "adaptive", display: "summarized" }, { effort: "low" }],
@@ -210,8 +210,11 @@ describe("An Answer's request to a model that thinks", () => {
       { type: "adaptive", display: "summarized" },
       { effort: "high" },
     ],
+    ["claude-sonnet-5-5", "task", { type: "adaptive", display: "summarized" }, { effort: "low" }],
+    ["claude-haiku-5-5", "task", { type: "adaptive", display: "summarized" }, { effort: "low" }],
     ["claude-opus-4-8", "answer", undefined, undefined],
     ["claude-opus-4-8", "careful", undefined, undefined],
+    ["claude-opus-4-8", "task", undefined, undefined],
   ] as const)(
     "Anthropic's %s, %s: thinking %j, %j",
     async (modelId, thinking, expected, outputConfig) => {
@@ -220,6 +223,69 @@ describe("An Answer's request to a model that thinks", () => {
       expect(body.output_config).toEqual(outputConfig);
     },
   );
+
+  // protects=DeepSeek's thinking models are asked for low effort on an Answer and a Task's, and for none (its default) on a careful Answer or a call of no kind, while its reasoning stays raw (no summary); fails_when=an Answer or a Task's lacks reasoning_effort low, or a careful Answer carries one; no_claim=the fake API doesn't check what DeepSeek accepts.
+  test.each([
+    ["answer", "low"],
+    ["task", "low"],
+    ["careful", undefined],
+    ["summary", undefined],
+  ] as const)("DeepSeek Flash, %s: reasoning_effort %s", async (thinking, effort) => {
+    const bodies = fakeApi(() =>
+      Response.json({
+        id: "c1",
+        object: "chat.completion",
+        created: 1_790_000_000,
+        model: "deepseek-flash",
+        choices: [
+          { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    );
+    await generateText({ model: modelOf("deepseek", "deepseek-flash", thinking), prompt: "OK?" });
+    expect(bodies[0]?.reasoning_effort).toBe(effort);
+    expect(bodies[0]?.thinking).toBeUndefined();
+  });
+
+  // protects=a DeepSeek model that refuses reasoning_effort still answers, asked again once without it, and its later calls leave it out from the start; fails_when=the call fails with the refusal, or a later call sends reasoning_effort again; no_claim=the refusal's wording is a stand-in, not DeepSeek's recorded one.
+  test("a DeepSeek model that refuses the effort is asked again without it, and then from the start", async () => {
+    const bodies: Json[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as Json;
+        bodies.push(body);
+        if (body.reasoning_effort !== undefined) {
+          return Response.json(
+            {
+              error: {
+                message: "Unknown parameter: reasoning_effort",
+                type: "invalid_request_error",
+              },
+            },
+            { status: 400 },
+          );
+        }
+        return Response.json({
+          id: "c1",
+          object: "chat.completion",
+          created: 1_790_000_000,
+          model: "deepseek-next-1",
+          choices: [
+            { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        });
+      }),
+    );
+    const model = modelOf("deepseek", "deepseek-next-1", "answer");
+    expect((await generateText({ model, prompt: "OK?", maxRetries: 0 })).text).toBe("OK");
+    expect(bodies.map((body) => body.reasoning_effort)).toEqual(["low", undefined]);
+    bodies.length = 0;
+    await generateText({ model: modelOf("deepseek", "deepseek-next-1", "task"), prompt: "OK?" });
+    expect(bodies.map((body) => body.reasoning_effort)).toEqual([undefined]);
+  });
 
   // protects=OpenAI's reasoning models are asked for a reasoning summary, others for none; fails_when=gpt-6-luna lacks reasoning.summary or gpt-4.1 carries reasoning; no_claim=the fake API doesn't check what OpenAI accepts.
   test("OpenAI's reasoning models are asked for a reasoning summary; a model that doesn't reason, for none", async () => {

@@ -131,15 +131,31 @@ export interface RequestQuirks {
    */
   reasoningSummary?: {
     options: ProviderOptions;
-    /** The same with a modest thinking budget, for an Answer. */
-    answer?: ProviderOptions;
-    /** The same with a larger thinking budget, for an Answer to a Question that asks to check or calculate. */
-    careful?: ProviderOptions;
-    /** What to leave out when a refusal names `names`, for a model that takes no budget: an option set to undefined. */
-    refused?: readonly { names: string; options: ProviderOptions }[];
     only?: readonly string[];
   };
+  /**
+   * How hard a model thinks for each kind of call that thinks (#1631): the provider options each
+   * kind adds, each chosen on paired runs against the provider's default effort (eval/speed). A
+   * kind left out adds none, so it thinks at the provider's default. They go where the reasoning
+   * summary goes, or for a provider without one, to the models whose id starts with one of
+   * `only`; the small calls skip thinking instead (`thinkingOff`).
+   */
+  effort?: {
+    kinds: Partial<Record<ThinkingKind, ProviderOptions>>;
+    only?: readonly string[];
+    /** What to leave out when a refusal names `names`, for a model that takes no effort: an option set to undefined. */
+    refused?: readonly { names: string; options: ProviderOptions }[];
+  };
 }
+
+/**
+ * The kinds of call that think before they write, for their effort (`RequestQuirks.effort`):
+ * - "answer": an Answer to a Question, a write or an edit in the assistant, and a Meeting's notes;
+ * - "careful": an Answer to a Question that asks to check or calculate;
+ * - "task": an Answer a Task writes, kept in no conversation: a comparison table's cell, a
+ *   Research step and its draft.
+ */
+export type ThinkingKind = "answer" | "careful" | "task";
 
 /**
  * How far IncarnaMind stands behind a provider (ADR-0019). A first-class one is
