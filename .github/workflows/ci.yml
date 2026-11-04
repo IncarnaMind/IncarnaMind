@@ -395,7 +395,7 @@ jobs:
         run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts
       - name: Check the packaged connection on Windows
         if: runner.os == 'Windows'
-        run: npm run test:packaged -- agentConnection.packaged.ts
+        run: npm run test:packaged -- agentConnection.packaged.ts secrets.packaged.ts
       # After the connection, so that a change to either still hears about both.
       - if: ${{ !cancelled() && runner.os == 'Linux' }}
         uses: ./.github/actions/packaged-engines

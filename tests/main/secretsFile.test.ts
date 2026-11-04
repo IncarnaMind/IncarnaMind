@@ -32,6 +32,7 @@ describe("The secrets file behind the Keychain adapter", () => {
   });
 
   test("a secret the previous, synchronous cipher stored still opens", async () => {
+    // The fake stands in for the real cipher, whose keychain is per machine; the real old bytes are checked in e2e/secretsAcrossApis.spec.ts.
     const file = join(await createTempDataFolder(), SECRETS_FILE);
     const legacy = createLegacyCipher();
     await writeFile(file, JSON.stringify({ token: legacy.encrypt(SECRET).toString("base64") }), {

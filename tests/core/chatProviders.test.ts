@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { type Core, InvalidInputError } from "../../src/core";
 import { createFileKeychain, SECRETS_FILE } from "../../src/main/secretsFile";
 import { createFakeCipher } from "../helpers/cipher";
@@ -315,15 +315,24 @@ describe("Chat providers", () => {
       },
     });
     const after = startCore(dataDir, { keychain });
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      logged.push(args.map(String).join(" "));
+    });
 
-    expect(await after.listChatProviders()).toEqual([{ ...provider, hasApiKey: false }]);
+    const unreadable = { ...provider, hasApiKey: false, apiKeyUnreadable: true };
+    expect(await after.listChatProviders()).toEqual([unreadable]);
     expect(await after.getChatReadiness()).toEqual({
       ready: false,
-      reason: "missing-api-key",
-      provider: { ...provider, hasApiKey: false },
+      reason: "api-key-unreadable",
+      provider: unreadable,
       modelId: "gpt-5.4-mini",
     });
     expect((await readFile(secretsFile)).equals(stored)).toBe(true);
+    // The failure is logged, and the log never holds the key.
+    expect(logged.join("\n")).toContain(provider.id);
+    expect(logged.join("\n")).not.toContain(OPENAI_KEY);
+    spy.mockRestore();
 
     // Entering the key again is what replaces the stored value, and only then.
     await after.saveChatProvider({
@@ -331,6 +340,11 @@ describe("Chat providers", () => {
       apiKey: OPENAI_KEY,
       modelId: "gpt-5.4-mini",
     });
+    after.close();
+    const recovered = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, createFakeCipher()),
+    });
+    expect(await recovered.listChatProviders()).toEqual([{ ...provider, hasApiKey: true }]);
     expect(
       await createFileKeychain(secretsFile, createFakeCipher()).get(
         `chat-provider:${provider.id}:api-key`,
