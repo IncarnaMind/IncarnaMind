@@ -52,7 +52,7 @@ import {
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
 import { foldRadicals, nameKey } from "../../shared/text";
-import { sameRun } from "../../shared/units";
+import { parseCueTarget, sameRun } from "../../shared/units";
 import {
   type AskedQuote,
   type ChangedQuote,
@@ -188,8 +188,9 @@ const asPage = (value: unknown): number | null =>
 /** What a record cites: its Units, the rows or lines it named, and whether its Location named nothing there. */
 interface Cited {
   range: PageRange;
-  /** Rows or lines the record named more narrowly than its Units: the label's fallback. */
+  /** Rows, lines or times the record named more narrowly than its Units: the label's fallback. */
   requested: RowsOrLines | null;
+  time?: RowsOrLines;
   /** The record named a Location the Passage doesn't have. */
   unresolved: boolean;
 }
@@ -217,15 +218,24 @@ function citedUnits(
   const kind = units[0]?.kind ?? "page";
   const requested =
     typeof record.location === "string" ? parseRequestedLocation(record.location) : null;
+  if (
+    kind === "cues" &&
+    typeof record.location === "string" &&
+    record.location.trim() &&
+    !requested
+  ) {
+    return { range: own, requested: null, unresolved: true };
+  }
   if (requested) {
     const resolved = resolveRequested(requested, units);
     if (!resolved) return { range: own, requested: null, unresolved: true };
     return {
       range: { pageFrom: resolved.from, pageTo: resolved.to },
       requested:
-        requested.kind === "rows" || requested.kind === "lines"
+        requested.kind === "rows" || requested.kind === "lines" || requested.kind === "time"
           ? { from: requested.from, to: requested.to }
           : null,
+      ...(requested.kind === "time" && { time: requested }),
       unresolved: false,
     };
   }
@@ -294,11 +304,56 @@ export function quotePlaceProblem(
   quote: string,
   units: readonly PageText[],
   matching: Matching = {},
+  time?: RowsOrLines,
 ): string | null {
-  return quoteInUnits(units, quote, matching) &&
-    !quoteInUnits(units, quote, { ...matching, unique: true })
+  const find = (unique: boolean) =>
+    time
+      ? quoteInCues(units, quote, time, { ...matching, unique })
+      : quoteInUnits(units, quote, { ...matching, unique });
+  return find(false) && !find(true)
     ? "the quote occurs more than once in its cited Units; quote enough surrounding words to identify one place."
     : null;
+}
+
+function quoteInCues(
+  units: readonly PageText[],
+  quote: string,
+  time: RowsOrLines,
+  matching: Matching & { unique?: boolean },
+): TextRange[] | null {
+  const { text, starts } = joinUnits(units);
+  const spans: TextRange[] = [];
+  // Cue marks round down, so a named second includes cues that start within it.
+  const until = time.from === time.to ? time.from + 1000 : time.to;
+  units.forEach((unit, index) => {
+    if (unit.kind !== "cues") return;
+    for (const anchor of unit.anchors ?? []) {
+      const cue = parseCueTarget(anchor.target);
+      if (!cue) continue;
+      const selected = cue.startMs < until && cue.endMs > time.from;
+      if (!selected) continue;
+      const start = (starts[index] ?? 0) + anchor.start;
+      const end = (starts[index] ?? 0) + anchor.end;
+      const previous = spans.at(-1);
+      if (previous && text.slice(previous.end, start).trim() === "") previous.end = end;
+      else spans.push({ start, end });
+    }
+  });
+  let found: TextRange[] | null = null;
+  for (const span of spans) {
+    const part = text.slice(span.start, span.end);
+    const ranges = findQuote(part, quote, { ...matching, unique: false });
+    if (!ranges) continue;
+    if (matching.unique && (found || !findQuote(part, quote, { ...matching, unique: true }))) {
+      return null;
+    }
+    found = ranges.map((range) => ({
+      start: span.start + range.start,
+      end: span.start + range.end,
+    }));
+    if (!matching.unique) return found;
+  }
+  return found;
 }
 
 /**
@@ -1343,6 +1398,7 @@ interface Accepted {
   given: Pick<CitationRecordInput, "location" | "pageFrom" | "pageTo">;
   range: PageRange;
   requested: RowsOrLines | null;
+  time?: RowsOrLines;
   unresolved: boolean;
   quote: string;
   /** Where it points, for its label, worked out once when the record is taken. */
@@ -1544,15 +1600,21 @@ export function createCitationSession(
    */
   const check = (record: Accepted) => {
     const now = documents.citationSource(record.source.passageId);
-    return checkCitation({
+    const pages = citedText(record);
+    const result = checkCitation({
       quote: record.quote,
       range: record.range,
       passage: record.source,
       documentDeleted: !now || now.documentDeleted,
-      pages: citedText(record),
+      pages,
       unresolved: record.unresolved,
       ...matchingFor(record.source),
     });
+    return result.check === "found" &&
+      record.time &&
+      !quoteInCues(pages, record.quote, record.time, matchingFor(record.source))
+      ? NOT_ON_PAGES
+      : result;
   };
 
   /** Where a record points, for its label: narrowed to its quote when the quote is there. */
@@ -1567,7 +1629,11 @@ export function createCitationSession(
     const usable = record.unresolved || units.length > MAX_CITED_PAGES ? null : units;
     return locationOf(
       units,
-      usable ? quoteInUnits(usable, record.quote, matchingFor(record.source)) : null,
+      usable
+        ? record.time
+          ? quoteInCues(usable, record.quote, record.time, matchingFor(record.source))
+          : quoteInUnits(usable, record.quote, matchingFor(record.source))
+        : null,
       record.requested,
     );
   };
@@ -1618,8 +1684,13 @@ export function createCitationSession(
     const taken = takeQuote(input, marker, options);
     if (taken.ok && !taken.record.kept) {
       const problem =
-        quotePlaceProblem(taken.record.quote, citedText(taken.record), matchingFor(taken.source)) ??
-        (check(taken.record).check === "not-found"
+        quotePlaceProblem(
+          taken.record.quote,
+          citedText(taken.record),
+          matchingFor(taken.source),
+          taken.record.time,
+        ) ??
+        (!taken.record.time && check(taken.record).check === "not-found"
           ? quotePlaceProblem(taken.record.quote, taken.passageUnits, matchingFor(taken.source))
           : null);
       if (problem) {
@@ -1681,7 +1752,7 @@ export function createCitationSession(
       source.pageTo,
     );
     const quote = quoteAsIn(passageUnits, written, matchingFor(source));
-    const { range, requested, unresolved } = citedUnits(
+    const { range, requested, time, unresolved } = citedUnits(
       { ...input, quote },
       source,
       passageUnits,
@@ -1694,6 +1765,7 @@ export function createCitationSession(
       given: { location: input.location, pageFrom: input.pageFrom, pageTo: input.pageTo },
       range,
       requested,
+      time,
       unresolved,
       quote,
       result: null,
@@ -1701,7 +1773,11 @@ export function createCitationSession(
     let record: Accepted = { ...taken, location: locationFor(taken) };
     // A quote that isn't where it names is cited where it uniquely occurs in its Passage,
     // never outside it, and the check still reads it there.
-    if (relocate && quote && check(record).check === "not-found") {
+    const selectedTime =
+      source.documentKind === "transcript" &&
+      typeof input.location === "string" &&
+      input.location.trim();
+    if (relocate && !selectedTime && quote && check(record).check === "not-found") {
       const placedAt = locateQuote(passageUnits, quote, matchingFor(source));
       if (placedAt) {
         const placed = { ...taken, range: placedAt, requested: null, unresolved: false };
@@ -2399,7 +2475,14 @@ export function createCitationSession(
             : [];
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
-        if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        if (
+          cited.some(({ record, units, matching }) =>
+            record.time
+              ? quoteInCues(units, words, record.time, matching)
+              : quoteInUnits(units, words, matching),
+          )
+        )
+          continue;
         const runsOn = cited.flatMap(({ record, matching }) => {
           const next = runsOnToNextPage(record, words, matching);
           return next ? [{ record, next }] : [];
