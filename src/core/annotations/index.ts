@@ -633,37 +633,73 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           taken.add(row.id);
           pairs.push({ mark, row });
         };
-        // A sticky note is known by its page and the file's own words; two on one page pair one to one.
+        // A sticky note is known by the file's own words and, in page order, by one shift; a
+        // leftover is carried only where the User has not written over it.
         const marked = new Set<Mark>();
         const noteRows = existing.filter((row) => row.quote === "");
         const noteMarks = marks.filter((mark) => mark.annotation.kind === "note");
-        const notePages = new Set([
-          ...noteRows.map((row) => row.page_from ?? 0),
-          ...noteMarks.map((mark) => mark.annotation.page),
-        ]);
-        for (const page of notePages) {
-          const onPage = noteRows.filter(
-            (row) => !taken.has(row.id) && (row.page_from ?? 0) === page,
+        const noteRowGroups = new Map<string, Row[]>();
+        for (const row of noteRows) {
+          const key = collapsed(row.file_note ?? "");
+          noteRowGroups.set(key, [...(noteRowGroups.get(key) ?? []), row]);
+        }
+        const noteMarkGroups = new Map<string, Mark[]>();
+        for (const mark of noteMarks) {
+          const key = collapsed(mark.annotation.note ?? "");
+          noteMarkGroups.set(key, [...(noteMarkGroups.get(key) ?? []), mark]);
+        }
+        const notePages = new Set<number>();
+        for (const [text, group] of noteMarkGroups) {
+          const rows = (noteRowGroups.get(text) ?? []).filter((row) => !taken.has(row.id));
+          const byPageRows = [...rows].sort((a, b) => (a.page_from ?? 0) - (b.page_from ?? 0));
+          const byPageMarks = [...group].sort((a, b) => a.annotation.page - b.annotation.page);
+          const shifts = byPageMarks.map(
+            (mark, index) => mark.annotation.page - (byPageRows[index]?.page_from ?? 0),
           );
-          const marksOn = noteMarks.filter(
-            (mark) => !marked.has(mark) && mark.annotation.page === page,
-          );
-          for (const mark of marksOn) {
-            const row = onPage.find(
+          if (
+            byPageRows.length === byPageMarks.length &&
+            byPageRows.length > 0 &&
+            shifts.every((shift) => shift === shifts[0])
+          ) {
+            for (const [index, mark] of byPageMarks.entries()) {
+              const row = byPageRows[index];
+              if (row) {
+                pair(mark, row);
+                marked.add(mark);
+              }
+            }
+            continue;
+          }
+          for (const mark of byPageMarks) {
+            const row = rows.find(
               (each) =>
-                !taken.has(each.id) && (each.file_note ?? "") === (mark.annotation.note ?? ""),
+                !taken.has(each.id) &&
+                each.content_hash === contentHash &&
+                each.page_from === mark.annotation.page,
             );
             if (row) {
               pair(mark, row);
               marked.add(mark);
             }
           }
-          const rowsLeft = onPage.filter((row) => !taken.has(row.id));
-          const marksLeft = marksOn.filter((mark) => !marked.has(mark));
+        }
+        // A page's only other note takes a leftover only when the User hasn't rewritten it.
+        for (const mark of noteMarks) {
+          if (marked.has(mark)) continue;
+          notePages.add(mark.annotation.page);
+        }
+        for (const row of noteRows) if (!taken.has(row.id)) notePages.add(row.page_from ?? 0);
+        for (const page of notePages) {
+          const rowsLeft = noteRows.filter(
+            (row) => !taken.has(row.id) && (row.page_from ?? 0) === page,
+          );
+          const marksLeft = noteMarks.filter(
+            (mark) => !marked.has(mark) && mark.annotation.page === page,
+          );
           if (rowsLeft.length === 1 && marksLeft.length === 1) {
             const [row] = rowsLeft;
             const [mark] = marksLeft;
-            if (row && mark) {
+            if (row && mark && row.note === row.file_note) {
               pair(mark, row);
               marked.add(mark);
             }

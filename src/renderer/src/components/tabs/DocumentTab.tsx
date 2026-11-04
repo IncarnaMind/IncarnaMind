@@ -185,7 +185,8 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const [viewerWidth, setViewerWidth] = useState(0);
   const setRoom = useAnnotations((state) => state.setRoom);
   const setListInPlace = useAnnotations((state) => state.setListInPlace);
-  const panelOpen = useAnnotations((state) => state.panelOpen[document?.id ?? ""] === true);
+  const viewerId = document?.id ?? "";
+  const panelOpen = useAnnotations((state) => state.panelOpen[viewerId] === true);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const loadAnnotations = useAnnotations((state) => state.load);
   const shownDocumentId = document?.id;
@@ -209,9 +210,13 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
     const measure = () => {
       const width = section.clientWidth;
       setViewerWidth(width);
-      setRoom(document.id, width >= LEAST_VIEWER_WITH_LIST);
-      if (useAnnotations.getState().panelOpen && wide.current && width < LIST_BESIDE_FROM) {
-        useAnnotations.getState().togglePanel(false, document.id);
+      setRoom(viewerId, width >= LEAST_VIEWER_WITH_LIST);
+      if (
+        useAnnotations.getState().panelOpen[viewerId] &&
+        wide.current &&
+        width < LIST_BESIDE_FROM
+      ) {
+        useAnnotations.getState().togglePanel(false, viewerId);
       }
       wide.current = width >= LIST_BESIDE_FROM;
     };
@@ -219,7 +224,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
     const observer = new ResizeObserver(measure);
     observer.observe(section);
     return () => observer.disconnect();
-  }, [section, document, setRoom]);
+  }, [section, document, setRoom, viewerId]);
   const areaMode = useMemo(
     () => ({
       active: areaActive,
@@ -254,10 +259,10 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   useViewerHandle("area", areaCommand, tab.id);
   const inPlace = panelOpen && viewerWidth > 0 && viewerWidth < LIST_BESIDE_FROM;
   useEffect(() => {
-    if (document) setListInPlace(document.id, inPlace);
-  }, [document, inPlace, setListInPlace]);
+    setListInPlace(viewerId, inPlace);
+  }, [inPlace, setListInPlace, viewerId]);
   const closeList = () => {
-    togglePanel(false, documentId);
+    togglePanel(false, viewerId);
     requestAnimationFrame(() => {
       const toggle = section?.querySelector<HTMLElement>(
         '[data-testid="viewer-annotations-toggle"]',
@@ -268,7 +273,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
     });
   };
   const showPage = () => {
-    togglePanel(false, documentId);
+    togglePanel(false, viewerId);
     requestAnimationFrame(() => section?.focus());
   };
 

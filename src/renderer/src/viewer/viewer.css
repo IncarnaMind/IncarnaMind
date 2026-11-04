@@ -1125,7 +1125,7 @@
   }
 
   /* The list takes the page's place below 760px: the toolbar keeps its height, its page controls dimmed. */
-  .viewer-header--list-only [inert] {
+  .viewer-header--list-only [inert] > * {
     @apply opacity-40;
   }
   /* A Document tab's list beside the page, which gives way; in place of the page when it must. */

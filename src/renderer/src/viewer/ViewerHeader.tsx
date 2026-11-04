@@ -147,7 +147,7 @@ export function ViewerHeader({
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
   const panelOpen = useAnnotations((state) => state.panelOpen[document?.id ?? ""] === true);
-  const room = useAnnotations((state) => (document ? (state.room[document.id] ?? true) : true));
+  const room = useAnnotations((state) => state.room[document?.id ?? ""] ?? true);
   const listInPlace = useAnnotations((state) => state.listInPlace[document?.id ?? ""] === true);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const areaMode = useContext(AreaModeContext);
