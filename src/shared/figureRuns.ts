@@ -16,6 +16,7 @@ import {
 import { isRecord } from "../core/errors";
 import {
   ANALYSIS_LIMITS,
+  type AnalysisLanguage,
   type AnalysisRecalculation,
   type AnalysisVersions,
   readFigureRows,
@@ -27,6 +28,7 @@ import {
   readFigureCitation,
   readFigureInput,
 } from "./calculatedFigures";
+import { printedValue } from "./printedFigures";
 
 const text = (value: unknown): value is string => typeof value === "string";
 const count = (value: unknown): value is number =>
@@ -115,10 +117,14 @@ function readInput(value: unknown): AnswerAnalysisInput | null {
   };
 }
 
+const languageOf = (value: unknown): AnalysisLanguage | null =>
+  value === "python" || value === "bash" ? value : null;
+
 function readVersions(value: unknown): AnalysisVersions | null {
+  const language = isRecord(value) ? languageOf(value.language) : null;
   if (
     !isRecord(value) ||
-    value.language !== "python" ||
+    !language ||
     !text(value.languageVersion) ||
     !text(value.runtime) ||
     !text(value.helper) ||
@@ -132,7 +138,7 @@ function readVersions(value: unknown): AnalysisVersions | null {
     if (text(version)) Object.defineProperty(packages, name, { value: version, enumerable: true });
   }
   return {
-    language: "python",
+    language,
     languageVersion: value.languageVersion,
     runtime: value.runtime,
     packages,
@@ -154,12 +160,13 @@ function readRecalculation(value: unknown): AnalysisRecalculation | null {
 
 /** Reads provenance only; a clipboard record is not proof that its code ran. */
 export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
+  const language = isRecord(value) ? languageOf(value.language) : null;
   if (
     !isRecord(value) ||
     !text(value.id) ||
     !value.id ||
     !text(value.title) ||
-    value.language !== "python" ||
+    !language ||
     !text(value.code) ||
     !text(value.codeSha256) ||
     !text(value.ranAt) ||
@@ -209,7 +216,7 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
   return {
     id: value.id,
     title: value.title,
-    language: "python",
+    language,
     code: value.code,
     inputs,
     versions,
@@ -252,13 +259,18 @@ export function retainFigureAnalysis(
   id: string,
   figures: readonly Omit<CalculatedFigureAttributes, "id">[],
 ): RetainedFigureAnalysis | null {
-  if (analysis.end.kind !== "done") return null;
   const uses = figures.filter(
     (node) => node.analysisId === id && node.figure.analysis?.analysis === analysis.number,
   );
   if (uses.length === 0) return null;
   const checks = new Map((analysis.recalculations ?? []).map((each) => [each.result, each.check]));
-  const results: RetainedFigureValue[] = analysis.output.results.flatMap((result) => {
+  // A run that didn't finish gives no results, but what it printed before it ended was printed.
+  const names = new Set(uses.flatMap((node) => node.figure.analysis?.result ?? []));
+  const given = [
+    ...(analysis.end.kind === "done" ? analysis.output.results : []),
+    ...[...names].flatMap((name) => printedValue(analysis, name) ?? []),
+  ];
+  const results: RetainedFigureValue[] = given.flatMap((result) => {
     if (result.kind !== "figure") return [];
     if (!uses.some((node) => node.figure.analysis?.result === result.name)) return [];
     const check = checks.get(result.name);

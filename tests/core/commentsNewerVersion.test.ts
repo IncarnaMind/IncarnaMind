@@ -22,7 +22,7 @@ vi.mock("../../src/core/api", async (importOriginal) => ({
 }));
 
 /** The version comments came with: what a Mind written since records. */
-const COMMENTS = 49;
+const COMMENTS = 50;
 
 const COMMENT = {
   id: "comment-1",

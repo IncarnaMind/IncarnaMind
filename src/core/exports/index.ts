@@ -10,7 +10,7 @@ import { layoutChart } from "../../shared/chartLayout";
 import { chartSvg } from "../../shared/chartSvg";
 import { seriesName } from "../../shared/charts";
 import type { ResolvedCitationStyle } from "../../shared/citationStyles";
-import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
+import { citationState, citedLocation, citedName, shownDocumentName } from "../../shared/citations";
 import type { DrawnPage } from "../../shared/citedPage";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { formatDate } from "../../shared/dates";
@@ -463,7 +463,13 @@ export function createExports(deps: ExportsDependencies) {
     }[] = [];
     for (const footnote of footnotesIn(blocks, { inFootnotes: false })) {
       const attributes = prepared.attributesOf.get(footnote) ?? {};
-      const card = citationCard(attributes, { documents, kept, units: deps.citedUnits, t });
+      const card = citationCard(attributes, {
+        language,
+        documents,
+        kept,
+        units: deps.citedUnits,
+        t,
+      });
       // A picture Document's page is the picture itself, not a page to draw.
       const pictured = !(card.content.kind === "quote" && card.content.from === "picture");
       const key =
@@ -599,7 +605,14 @@ export function createExports(deps: ExportsDependencies) {
         const attributes = prepared.attributesOf.get(footnote) ?? {};
         shared = {
           documentId,
-          name: shownDocumentName(attributes, prepared.documents) || unnamed,
+          name: citedName(
+            {
+              ...attributes,
+              documentName: shownDocumentName(attributes, prepared.documents) || unnamed,
+            },
+            (key, params) => translate(prepared.language, key, params),
+            prepared.language,
+          ),
           quotes: 0,
           pictures: 0,
           pictureBytes: 0,
@@ -1105,7 +1118,12 @@ export function footnoteOf(
   { readableQuote }: Pick<ExportsDependencies, "readableQuote">,
 ): Footnote {
   const t: Translate = (key, params) => translate(language, key, params);
-  const document = shownDocumentName(attributes, documents) || t("export.unnamedDocument");
+  const document =
+    citedName(
+      { ...attributes, documentName: shownDocumentName(attributes, documents) },
+      t,
+      language,
+    ) || t("export.unnamedDocument");
   const location = citedLocation(attributes, t);
   const state = citationState(attributes, documents, kept);
   const unverified = state.check !== "found";

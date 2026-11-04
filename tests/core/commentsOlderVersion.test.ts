@@ -1,7 +1,7 @@
 /**
  * The content schema bump for comments (#328, #216): a Mind written before
  * comments, at version 48, opens and edits as it did, and nothing rewrites
- * it until the User changes it; a change records version 49.
+ * it until the User changes it; a change records version 50.
  */
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -49,7 +49,7 @@ const versionOf = (state: Uint8Array): unknown => {
 };
 
 test("a Mind written before comments opens to edit, and opening it alone rewrites nothing", async () => {
-  expect(CONTENT_SCHEMA_VERSION).toBe(49);
+  expect(CONTENT_SCHEMA_VERSION).toBe(50);
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Older" });
@@ -75,7 +75,7 @@ test("a change to an older Mind records this version", async () => {
   const updates = editInDocument(opened.state);
   await core.applyMindUpdate(mind.id, updates);
   const stored = await core.openMind(mind.id);
-  expect(versionOf(stored.state)).toBe(49);
+  expect(versionOf(stored.state)).toBe(50);
   core.close();
 });
 

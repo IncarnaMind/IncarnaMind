@@ -100,6 +100,7 @@ function citationAttributesOf(cited: CitedSelection, document: Document): Citati
     quote: cited.quote,
     check: cited.check,
     checkReason: cited.checkReason,
+    ...(cited.yourNoteAt && { yourNoteAt: cited.yourNoteAt }),
     ...(cited.unsure && cited.unsure.length > 0 && { unsure: cited.unsure }),
   };
 }

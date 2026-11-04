@@ -71,7 +71,12 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
 );
-const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
+const EXCLUSIONS: readonly EvidenceExclusion[] = [
+  "own-file",
+  "own-workings",
+  "own-note",
+  "checked-document",
+];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
   "quote-not-on-pages",
   "quoted-words-not-on-pages",
@@ -209,6 +214,7 @@ function citationOf(value: unknown): CitationAttributes | null {
     pageTo: read.pageTo ?? null,
     location: value.location === null ? null : (read.location ?? null),
     quote: read.quote ?? null,
+    ...(read.yourNoteAt && { yourNoteAt: read.yourNoteAt }),
     check,
     checkReason,
     ...(typeof value.id === "string" && value.id && { id: value.id }),

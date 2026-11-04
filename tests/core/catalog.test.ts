@@ -385,7 +385,7 @@ describe("The provider catalog", () => {
     },
   );
 
-  test("run_code is offered to no model yet: none has the fact on, so none is offered it", () => {
+  test("run_code is offered only to Claude Haiku 5.5 and Sonnet 5.5, where it was measured", () => {
     const models = providersWithModels().flatMap((provider) =>
       catalogModels(provider).map((model) => ({ provider, id: model.id })),
     );
@@ -397,13 +397,14 @@ describe("The provider catalog", () => {
         offersCode(resolveCapabilities({ catalog: catalogFacts(provider, id) })),
       )
       .map(({ provider, id }) => `${provider}/${id}`);
-    expect([on, offered]).toEqual([[], []]);
+    const measured = ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5"];
+    expect([on, offered]).toEqual([measured, measured]);
     // What a test turns on is enough to offer it, where the model has the Analysis Tool.
     expect(
       offersCode(
         resolveCapabilities({
           user: { codeTool: true },
-          catalog: catalogFacts("anthropic", "claude-haiku-5-5"),
+          catalog: catalogFacts("openai", "gpt-5.5"),
         }),
       ),
     ).toBe(true);

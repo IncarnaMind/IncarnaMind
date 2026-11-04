@@ -62,6 +62,8 @@ export interface AnswerCheckInput {
   figures: readonly MarkedFigure[];
   /** The Citations to judge: their sentences are checked with them, and with every found quote beside them. */
   waiting: ReadonlySet<number>;
+  /** The Mind the Answer was asked in, whose own snapshot is never its evidence; null: none. */
+  mindId: string | null;
   /** The Documents of the Answer's Search scope; null: every Document. */
   documentIds: readonly string[] | null;
   model: ChatModelChoice;
@@ -78,7 +80,7 @@ export interface AnswerCheckInput {
 export interface AnswerCheckOptions {
   /** The model that answered, as the Answer's own request used it; null when it can't be used now. */
   prepare(choice: ChatModelChoice): Promise<PreparedChatModel | null>;
-  scope(documentIds: readonly string[] | null): EvidenceScope;
+  scope(mindId: string | null, documentIds: readonly string[] | null): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
   /** What the Citations quote, each Document named as it is now. */
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
@@ -199,7 +201,7 @@ const CACHED = { anthropic: { cacheControl: { type: "ephemeral" } } };
 export function createAnswerCheck(options: AnswerCheckOptions) {
   /** The sentences to judge, each with what it cites and the Passages those quotes are on. */
   function asked(input: Omit<AnswerCheckInput, "model" | "signal">) {
-    const scope = options.scope(input.documentIds);
+    const scope = options.scope(input.mindId, input.documentIds);
     return sentencesToCheck(input).map((sentence) => {
       const cited = options.citedNow(sentence.found);
       return {
@@ -239,7 +241,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       input.onStop?.("small-model");
       return null;
     }
-    const scope = options.scope(input.documentIds);
+    const scope = options.scope(input.mindId, input.documentIds);
     if (options.searchableCount(scope.documentIds) === 0) return null;
     const judged = asked(input);
 
