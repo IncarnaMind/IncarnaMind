@@ -5362,6 +5362,24 @@ export function createCore(adapters: CoreAdapters): Core {
         ...(documentIds !== null && { documentIds }),
       });
     },
+    findPassages: async (input) => {
+      if (!isRecord(input) || typeof input.text !== "string") {
+        throw new InvalidInputError({ key: "error.cite.words" });
+      }
+      const scope = parseSearchScope(input.scope);
+      const mindId = typeof input.mindId === "string" && input.mindId !== "" ? input.mindId : null;
+      const found = await citing.findPassages(input.text, scopeDocuments(scope, mindId));
+      // The User's own workings are never offered to cite: no row of theirs, no Citation.
+      return found.filter((passage) => !passage.notCited);
+    },
+    citePassage: async (input) => {
+      if (!isRecord(input) || typeof input.passageId !== "string" || input.passageId === "") {
+        throw new InvalidInputError({ key: "error.cite.passage" });
+      }
+      const text = typeof input.text === "string" ? input.text : "";
+      const quote = citing.quoteFor(input.passageId, text);
+      return quote === null ? null : citing.citeQuote(input.passageId, quote);
+    },
     searchEvidence: async (query, options) => {
       if (typeof query !== "string") throw new InvalidInputError("A search query must be text.");
       if (options !== undefined && !isRecord(options)) {

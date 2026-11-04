@@ -44,6 +44,7 @@ import { ChartView } from "../editor/ChartView";
 import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
+import { CiteSearch } from "../editor/CiteSearch";
 import { CodeBlockView } from "../editor/CodeBlockView";
 import { AskedComment, CommentLayer, CommentsButton, DraftComment } from "../editor/CommentLayer";
 import { comparisonCellView } from "../editor/ComparisonCellView";
@@ -53,6 +54,7 @@ import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
 import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
+import { type CitePlace, offerCite } from "../editor/citeRequest";
 import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
 import { commentDecorations } from "../editor/commentSchema";
@@ -112,7 +114,12 @@ import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
 import { ShiftClickSelection } from "../editor/shiftClickSelection";
 import { useSignOffs } from "../editor/signOffActions";
-import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
+import {
+  citeWhileWritingItems,
+  compareSlashItem,
+  noteSlashItems,
+  skillSlashItems,
+} from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
 import { TableOfContentsView } from "../editor/TableOfContentsView";
@@ -385,6 +392,7 @@ function MindEditorView({
         : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
+  const [cite, setCite] = useState<CitePlace | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
   const importing = useWordFile(doc).progress !== null;
   /** The Mind's citation style, followed as it changes (#289). */
@@ -485,7 +493,13 @@ function MindEditorView({
             const compare = compareSlashItem(
               (afterBlockId) => void startCompareDocuments(mindId, afterBlockId),
             );
-            return place === "question" ? skills : [...noteSlashItems, compare, ...skills];
+            const writing = citeWhileWritingItems(
+              translateNow("editor.slash.citeHint"),
+              (current, range) => setCite({ editor: current, from: range.from, to: range.to }),
+            );
+            return place === "question"
+              ? skills
+              : [...writing, ...noteSlashItems, compare, ...skills];
           },
         }),
         ScopePicker,
@@ -899,6 +913,15 @@ function MindEditorView({
   );
   const reviewing = !readOnly && slots.reviewShown !== "closed";
   useEffect(() => followMindStyle(mindId, doc), [mindId, doc]);
+  // ⌘K reaches Cite… as the "/" menu does.
+  useEffect(() => (readOnly ? undefined : offerCite(editor, setCite)), [editor, readOnly]);
+  // Another Mind's document is another editor: a Cite… open in the one before is gone.
+  const citeDoc = useRef(doc);
+  useEffect(() => {
+    if (citeDoc.current === doc) return;
+    citeDoc.current = doc;
+    setCite(null);
+  }, [doc]);
 
   return (
     <MindIdContext.Provider value={mindId}>
@@ -1000,6 +1023,15 @@ function MindEditorView({
               keys: keysHere({ mac: "Cmd+Alt+M", other: "Ctrl+Alt+M" }),
               run: (current) => commentOnSelection(current, mindId, doc),
             }}
+          />
+        )}
+        {!readOnly && cite && (
+          <CiteSearch
+            key={`${cite.from}:${cite.to}`}
+            place={cite}
+            mindId={mindId}
+            doc={doc}
+            onDone={() => setCite(null)}
           />
         )}
         <AskedComment
