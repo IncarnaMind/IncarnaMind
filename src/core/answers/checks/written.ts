@@ -173,8 +173,8 @@ interface Sentence {
   cited: CitedQuote[];
   /** Its Citations as they are written, for the quick model's first look (./fastPaths). */
   citations: Partial<CitationAttributes>[];
-  /** The paragraph or heading before its own in what was written, for what its words refer to. */
-  before: string | null;
+  /** Where it is in what was written, for whether the quick model may look first (./fastPaths). */
+  place: FirstLook["place"];
   /** In a table's cell, whose words are a figure, not a clause a cut could take out. */
   inCell: boolean;
 }
@@ -215,7 +215,8 @@ function projectedContent(content: readonly NodeJSON[]) {
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
 function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
-  let before: string | null = null;
+  // Before the write's first Block: the Note's start, when the write begins the Note.
+  let after: FirstLook["place"]["after"] = { kind: "start" };
   const visit = (
     nodes: readonly NodeJSON[],
     path: number[],
@@ -223,8 +224,14 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
     inHeader: boolean,
   ) => {
     nodes.forEach((node, index) => {
-      if (node.type === "heading") before = projectedContent(node.content ?? []).projection.text;
-      if (UNCHECKED.has(node.type)) return;
+      if (node.type === "heading") {
+        after = { kind: "heading", text: projectedContent(node.content ?? []).projection.text };
+        return;
+      }
+      if (UNCHECKED.has(node.type)) {
+        after = { kind: "paragraph" };
+        return;
+      }
       const here = [...path, index];
       const content = node.content ?? [];
       if (node.type !== "paragraph") {
@@ -241,7 +248,8 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
       const rawContext = paragraphText(content);
       const layout = inlineLayout(content);
       const { pieces, projection: whole } = projectedContent(content);
-      for (const span of sentenceSpans(rawContext)) {
+      const spans = sentenceSpans(rawContext);
+      for (const span of spans) {
         let from = span.from;
         let to = span.to;
         while (pieces.some((piece) => piece.kind === "citation" && piece.from === from)) from++;
@@ -270,11 +278,11 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
           projection,
           cited,
           citations,
-          before,
+          place: { opens: span === spans[0], after },
           inCell,
         });
       }
-      before = whole.text;
+      after = { kind: "paragraph" };
     });
   };
   visit(blocks, [], false, false);
@@ -803,6 +811,16 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const startedAt = options.now().toISOString();
     const limit = slots(claimsAtOnce(prepared));
     const quick = await options.quickModel(prepared);
+    // What the Note holds just before the write: its first paragraph follows that.
+    const beforeWrite = options.read(mindId, (note): FirstLook["place"]["after"] => {
+      const top = topLevelBlocks(note);
+      const at = top.findIndex((each) => each.getAttribute(BLOCK_ID_ATTRIBUTE) === input.ids[0]);
+      const previous = at > 0 ? top[at - 1] : undefined;
+      if (at === 0) return { kind: "start" };
+      return previous?.nodeName === "heading"
+        ? { kind: "heading", text: paragraphText(inlineOf(previous)).replaceAll(INLINE_NODE, "") }
+        : { kind: "unknown" };
+    });
     const { outcomes, stop } = await runItems(
       sending,
       async (sentence): Promise<Checked> => {
@@ -813,7 +831,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             claim: read.claim,
             figures: read.figures?.length ?? 0,
             inCell: sentence.inCell,
-            before: sentence.before,
+            place:
+              sentence.place.after.kind === "start"
+                ? { ...sentence.place, after: beforeWrite }
+                : sentence.place,
             paragraph: sentence.context,
             citations: sentence.citations,
             scope: scope.scope,

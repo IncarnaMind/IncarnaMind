@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { CheckPathsOverride, ClaimCheckAttributes, Core } from "../../src/core";
+import type { NodeJSON } from "../../src/core/answers/blocks";
 import {
   createFastPaths,
   type FastPathDependencies,
@@ -18,7 +19,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { recordRows } from "../helpers/csv";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { readMind } from "../helpers/minds";
+import { readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 /**
@@ -53,6 +54,8 @@ interface Writing {
   /** What the quick model replies to its first look; absent: it never replies. */
   quick?: string;
   checkPaths?: CheckPathsOverride;
+  /** Written into a Note holding these Blocks, after them, rather than into a new one. */
+  into?: readonly NodeJSON[];
   /** How long a sentence's check may take; its first look has a tenth of it. */
   timeLimitMs?: number;
   /** Before the write: the core, the saved provider's id. */
@@ -83,10 +86,16 @@ async function write(writing: Writing) {
         const citations = [{ marker: 1, passage: passage?.id, quote: writing.quote }];
         return { calls: [{ tool: "cite", input: { citations } }] };
       }
-      if (!call.results.some((result) => result.tool === "create_mind"))
+      const tool = writing.into ? "add_to_mind" : "create_mind";
+      if (!call.results.some((result) => result.tool === tool))
         return {
           calls: [
-            { tool: "create_mind", input: { title: "Hire notes", content: writing.content } },
+            {
+              tool,
+              input: writing.into
+                ? { content: writing.content }
+                : { title: "Hire notes", content: writing.content },
+            },
           ],
         };
       return { text: "Wrote it from your Documents." };
@@ -128,8 +137,19 @@ async function write(writing: Writing) {
   );
   const folder = await core.createLibraryGroup({ name: "Hire", description: "" });
   await core.moveToFolder({ documentIds: documents.map((each) => each.id), folderId: folder.id });
+  const into = writing.into
+    ? await core.createMind({ title: "Hire notes", folderId: folder.id })
+    : null;
+  if (into && writing.into) {
+    const page = await connectToMind(core, into.id);
+    writeMind(page, [...writing.into]);
+    await page.settled();
+  }
   const answer = await askAssistant(core, {
-    text: "Summarise these Documents into a new note",
+    text: into
+      ? "Add a short note on delivery to this Mind"
+      : "Summarise these Documents into a new note",
+    ...(into && { mindId: into.id }),
     scope: { folderIds: [folder.id], tagIds: [], documentIds: [] },
   });
   const change = answer.toolCalls.find((each) => each.mindChange)?.mindChange;
@@ -145,7 +165,7 @@ async function write(writing: Writing) {
 }
 
 describe("the quick model's first look", () => {
-  // protects=under a listed Answers model, the same provider's quick-tasks model looks first, shown the sentence, the paragraph before its own, the quote and its Passage, and a plain yes lands Supported with no check Run, its mark and the record of AI use naming the quick model, in English and Chinese (#1667); fails_when=the quick model isn't asked, its yes still runs the check, or the Answers model is named; no_claim=none beyond protects.
+  // protects=under a listed Answers model, the same provider's quick-tasks model looks first, shown the sentence, the heading above it, the quote and its Passage, and a plain yes lands Supported with no check Run, its mark and the record of AI use naming the quick model, in English and Chinese (#1667); fails_when=the quick model isn't asked, its yes still runs the check, or the Answers model is named; no_claim=none beyond protects.
   test.each([
     { language: "en", heading: "Notes", sentence: PARAPHRASE, quote: DELIVERY, terms: TERMS },
     {
@@ -165,7 +185,7 @@ describe("the quick model's first look", () => {
     });
 
     expect(quickCalls).toHaveLength(1);
-    expect(quickCalls[0]).toContain(`<paragraph-before>${each.heading}</paragraph-before>`);
+    expect(quickCalls[0]).toContain(`<heading>${each.heading}</heading>`);
     expect(quickCalls[0]).toContain(`<sentence>${each.sentence}</sentence>`);
     expect(quickCalls[0]).toContain(`<quote>${each.quote}</quote>`);
     expect(checkRuns).toBe(0);
@@ -255,6 +275,45 @@ describe("the quick model's first look", () => {
 
     expect(quickCalls).toHaveLength(0);
     expect(checkRuns).toBe(1);
+  });
+
+  // protects=the first look only at a sentence that opens its paragraph, after a heading or at the start of the Note the write makes, never after another sentence or paragraph, which it may lean on (#1667); fails_when=a sentence after another, or a paragraph after another, is looked at first, or a Note's first paragraph isn't; no_claim=none beyond protects.
+  test.each([
+    { name: "a Note's first paragraph", content: `${PARAPHRASE}[^1]`, asked: 1 },
+    {
+      name: "a sentence after another",
+      content: `## Notes\n\nThe Hirer looks after the equipment. ${PARAPHRASE}[^1]`,
+      asked: 0,
+    },
+    {
+      name: "a paragraph after another",
+      content: `## Notes\n\nThe Hirer looks after the equipment.\n\n${PARAPHRASE}[^1]`,
+      asked: 0,
+    },
+    {
+      name: "a paragraph written after a Note's own paragraph",
+      content: `${PARAPHRASE}[^1]`,
+      into: [{ type: "paragraph", content: [{ type: "text", text: "The Hirer looks after it." }] }],
+      asked: 0,
+    },
+    {
+      name: "a paragraph written after a Note's own heading",
+      content: `${PARAPHRASE}[^1]`,
+      into: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Delivery" }] },
+      ],
+      asked: 1,
+    },
+  ])("$name: asked $asked times", async ({ content, into, asked }) => {
+    const { quickCalls } = await write({
+      content,
+      quote: DELIVERY,
+      quick: "no",
+      checkPaths: LISTED,
+      ...(into && { into }),
+    });
+
+    expect(quickCalls).toHaveLength(asked);
   });
 
   // protects=the guards a write's Library decides: a figure the check reads, and another Document with half the sentence's words, and only those, not a Document sharing a word or an identical copy of the file (#1667); fails_when=a guard is removed and the quick model is asked, or a harmless Document stops it; no_claim=none beyond protects.
@@ -364,7 +423,7 @@ describe("which sentences and Citations the quick model may look at", () => {
     claim: PARAPHRASE,
     figures: 0,
     inCell: false,
-    before: null,
+    place: { opens: true, after: { kind: "heading", text: "Notes" } },
     paragraph: PARAPHRASE,
     citations: [CITATION],
     scope: { documentIds: null, excluded: new Map() },
@@ -375,6 +434,13 @@ describe("which sentences and Citations the quick model may look at", () => {
 
   // protects=every guard on the sentence and its Citation: one Citation, not in a cell, no figure, time or record cite, a Document still there, cited, not a Note's snapshot, a quote not found elsewhere, read for sure, of the version cited and current, outside any wall, in the check's scope, its quote on its page, and no other Document with its words (#1667); fails_when=any guard is removed and the quick model is asked; no_claim=none beyond protects.
   test.each<[string, Partial<FastPathDependencies>, Partial<FirstLook>]>([
+    [
+      "after a sentence",
+      {},
+      { place: { opens: false, after: { kind: "heading", text: "Notes" } } },
+    ],
+    ["after a paragraph", {}, { place: { opens: true, after: { kind: "paragraph" } } }],
+    ["after what it can't see", {}, { place: { opens: true, after: { kind: "unknown" } } }],
     ["two Citations", {}, { citations: [CITATION, CITATION] }],
     ["in a table's cell", {}, { inCell: true }],
     ["a figure the check reads", {}, { figures: 1 }],
