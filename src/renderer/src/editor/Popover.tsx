@@ -71,6 +71,8 @@ export function Popover({
   ...props
 }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
+  // It grows from its anchor once: a new anchor, as a selection is read again, only moves it.
+  const entered = useRef(false);
   const dismiss = useRef(onDismiss);
   dismiss.current = onDismiss;
   const focusFirst = useRef(initialFocus);
@@ -93,7 +95,7 @@ export function Popover({
     const element = ref.current;
     if (!element) return;
     element.showPopover();
-    let shown = false;
+    let shown = entered.current;
     const place = () => {
       void computePosition(anchor, element, {
         placement,
@@ -118,6 +120,7 @@ export function Popover({
           focusFirst.current?.current?.focus();
         }
         shown = true;
+        entered.current = true;
       });
     };
     const stopFollowing = autoUpdate(anchor, element, place);
