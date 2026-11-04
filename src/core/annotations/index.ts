@@ -705,7 +705,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         // A page's only other note takes a leftover only when the User hasn't rewritten it.
         const freeRowsByPage = new Map<number, Row[]>();
         for (const row of noteRows) {
-          if (taken.has(row.id) || row.note !== row.file_note) continue;
+          if (taken.has(row.id) || row.paired_hash === null || row.note !== row.file_note) continue;
           const page = row.page_from ?? 0;
           freeRowsByPage.set(page, [...(freeRowsByPage.get(page) ?? []), row]);
         }
@@ -845,7 +845,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         }
 
         for (const row of existing) {
-          if (taken.has(row.id) || row.missing === 1) continue;
+          if (
+            taken.has(row.id) ||
+            (row.missing === 1 && row.paired_hash === null && row.content_hash === contentHash)
+          ) {
+            continue;
+          }
           db.run(
             `UPDATE document_annotations
                SET content_hash = ?, passage_id = NULL, paired_hash = NULL,

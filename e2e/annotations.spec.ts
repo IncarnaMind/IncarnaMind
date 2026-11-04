@@ -737,6 +737,13 @@ test("with a Note open, a ⌘K highlight and the Document's menu open the list",
   const words = "4% is held";
   await highlight(window, viewer, words);
 
+  // Close the Document's tab and work from the Note: ⌘K's highlight result must open both.
+  await pointAndClick(window, viewer.getByTestId("viewer-header"));
+  await window.keyboard.press("ControlOrMeta+w");
+  await expect(window.getByTestId("viewer")).toHaveCount(0);
+  await expect(window.getByTestId("mind-editor")).toBeVisible();
+  await pointAndClick(window, window.getByTestId("mind-editor"));
+
   // ⌘K finds the highlight; choosing it opens the Document beside the Note with its list.
   await window.keyboard.press("ControlOrMeta+k");
   await window.getByTestId("palette-search").fill(words);

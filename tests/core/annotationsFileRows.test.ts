@@ -505,6 +505,17 @@ test("a re-read of the same version changes nothing", async () => {
   db.close();
 });
 
+test("a second re-read writes no database change", async () => {
+  const { store, read, db } = await harness();
+  const rows = [highlight("Same.", 1), highlight("Same.", 2)];
+  read("version-a", rows);
+  const changes = () => db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0;
+  const before = changes();
+  read("version-a", rows);
+  expect(changes()).toBe(before);
+  db.close();
+});
+
 test("a note of the same version on its page is carried when the group cannot pair", async () => {
   const { document, store, read, db } = await harness();
   const note = (page: number): FileAnnotation => ({
