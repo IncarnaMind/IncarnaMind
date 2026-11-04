@@ -30,6 +30,7 @@ import { useT } from "../i18n";
 import { type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
 import { takeTypedTrigger } from "./documentPicker";
+import { asOneStep } from "./editorUndo";
 
 const DOCUMENTS_ONLY: readonly ScopeKind[] = ["document"];
 
@@ -75,14 +76,17 @@ function inNote(state: EditorState, pos: number): boolean {
  */
 function addToScope(editor: Editor, range: Range, choice: ScopeChoice): void {
   if (!isQuestion(editor.state, range.from)) {
-    editor
-      .chain()
-      .focus()
-      .insertContentAt(range, [
-        { type: DOCUMENT_CHIP_NODE, attrs: { documentId: choice.id, name: choice.name } },
-        { type: "text", text: " " },
-      ])
-      .run();
+    // One step of the Note's Undo, so ⌘Z takes back the chip and nothing else typed before it.
+    asOneStep(editor, () =>
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(range, [
+          { type: DOCUMENT_CHIP_NODE, attrs: { documentId: choice.id, name: choice.name } },
+          { type: "text", text: " " },
+        ])
+        .run(),
+    );
     return;
   }
   editor
@@ -145,10 +149,10 @@ export const ScopePicker = Extension.create({
             onKeyDown({ event }) {
               return renderer?.ref?.onKeyDown(event) ?? false;
             },
-            onExit() {
-              // An "@" a command typed for the User goes with the picker, unless a choice
-              // already took it out for its chip.
-              takeTypedTrigger();
+            onExit(props) {
+              // An "@" a command typed for the User goes with the picker, and the words typed
+              // after it, unless a choice already took them out for its chip.
+              takeTypedTrigger(props.range.to);
               unmount?.();
               renderer?.destroy();
               renderer = null;

@@ -8,6 +8,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  mindWrittenBefore,
   motionSettled,
   newMind,
   pointAndClick,
@@ -559,6 +560,40 @@ test("⌘K reaches Cite… and Link a Document", async () => {
     await expect(window.getByTestId("scope-picker")).toHaveCount(0);
     await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides flood.");
 
+    // The words typed after the command's "@" go with it too: nothing is left glued to the sentence.
+    await window.keyboard.press("ControlOrMeta+k");
+    await palette.getByTestId("palette-search").fill(">link a document");
+    await expect(link).toBeVisible();
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("scope-picker")).toBeVisible();
+    await window.keyboard.type("tid");
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("scope-picker")).toHaveCount(0);
+    await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides flood.");
+
+    // A pick keeps its chip, and Esc after it takes nothing away.
+    await window.keyboard.press("ControlOrMeta+k");
+    await palette.getByTestId("palette-search").fill(">link a document");
+    await expect(link).toBeVisible();
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("tid");
+    await window.keyboard.press("Enter");
+    const chips = editor.getByTestId("document-chip");
+    await expect(chips).toHaveCount(1);
+    await expect(chips).toHaveText("Tides");
+    await expect(editor.locator(":scope > p").first()).toContainText("Spring tides flood.");
+    await expect(editor.locator(":scope > p").first()).not.toContainText("@");
+    await window.keyboard.press("Escape");
+    await expect(chips).toHaveCount(1);
+
+    // ⌘Z takes back the chip in one step, and the words that were typed come back as they were;
+    // Esc after that deletes nothing more.
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(chips).toHaveCount(0);
+    await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides flood. @tid");
+    await window.keyboard.press("Escape");
+    await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides flood. @tid");
+
     // Neither command is offered where the Note's own text isn't: a code block's caret.
     await pointAndClick(window, editor.locator(":scope > p").first());
     await window.keyboard.press("End");
@@ -574,6 +609,87 @@ test("⌘K reaches Cite… and Link a Document", async () => {
     ).toHaveCount(0);
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("cite-search")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a second ⌘K Cite… at another place is a fresh panel with that place's sentence", async () => {
+  const { app, window, editor } = await started();
+  try {
+    await window.keyboard.type("The Moon raises two bulges.");
+    const palette = window.getByTestId("palette");
+    const search = window.getByTestId("cite-search");
+    const openCite = async () => {
+      await window.keyboard.press("ControlOrMeta+k");
+      await palette.getByTestId("palette-search").fill(">cite a passage");
+      await window.keyboard.press("Enter");
+      await expect(search).toBeVisible();
+    };
+
+    await openCite();
+    await expect(search.getByTestId("cite-query")).toHaveValue("The Moon raises two bulges.");
+    await window.keyboard.press("Escape");
+    await expect(search).toHaveCount(0);
+    await expect(editor).toBeFocused();
+
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("Spring tides flood.");
+    await openCite();
+    await expect(search.getByTestId("cite-query")).toHaveValue("Spring tides flood.");
+  } finally {
+    await app.close();
+  }
+});
+
+test("⌘K's Cite… and Link a Document are not offered with the caret in a Question or an Answer", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await setLanguage(window, "en");
+    await setWindowSize(app, window, 1600, 760);
+    await mindWrittenBefore(window, "Spring tides", [
+      { note: "Spring tides flood." },
+      { question: "What are spring tides?", answer: "They happen at new moon." },
+    ]);
+    await window.getByTestId("mind-list-item").filter({ hasText: "Spring tides" }).click();
+    const editor = window.getByTestId("mind-editor");
+    const palette = window.getByTestId("palette");
+    const asked = async (words: string) => {
+      await window.keyboard.press("ControlOrMeta+k");
+      await palette.getByTestId("palette-search").fill(words);
+    };
+    const rows = (label: string) => palette.getByTestId("palette-item").filter({ hasText: label });
+
+    // A Question line keeps the Note's own text out of reach of both commands.
+    await pointAndClick(window, editor.getByTestId("question").locator(".question-text"));
+    await asked(">cite a passage");
+    await expect(rows("Cite a passage…")).toHaveCount(0);
+    await palette.getByTestId("palette-search").fill(">link a document");
+    await expect(rows("Link a Document…")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+
+    // An Answer's text takes the caret, and neither command is offered there either.
+    const answer = editor.getByTestId("answer");
+    await pointAndClick(window, answer.locator(".answer-content p").first());
+    await window.keyboard.press("End");
+    await window.keyboard.type("!");
+    await expect(answer.locator(".answer-content p").first()).toContainText("new moon.!");
+    await asked(">cite a passage");
+    await expect(rows("Cite a passage…")).toHaveCount(0);
+    await palette.getByTestId("palette-search").fill(">link a document");
+    await expect(rows("Link a Document…")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+
+    // In the Note's own text they are offered: the absence above is the caret's place.
+    const note = editor.locator(":scope > p").first();
+    await pointAndClick(window, note);
+    await window.keyboard.press("End");
+    await window.keyboard.type(" Here.");
+    await expect(note).toHaveText("Spring tides flood. Here.");
+    await asked(">cite a passage");
+    await expect(rows("Cite a passage…")).toHaveCount(1);
+    await window.keyboard.press("Escape");
   } finally {
     await app.close();
   }

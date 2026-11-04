@@ -37,15 +37,16 @@ export function openDocumentPicker(
 }
 
 /**
- * The picker closed: a trigger a command typed comes out with it, unless the picker's choice
- * already took it out for its chip.
+ * The picker closed: a trigger a command typed comes out with it, and the words typed after it
+ * (up to the picker's `to`), unless the picker's choice already took them out for its chip.
  */
-export function takeTypedTrigger(): void {
+export function takeTypedTrigger(to: number): void {
   const waiting = typed;
   typed = null;
   const editor = waiting?.editor;
   if (!waiting || !editor || editor.isDestroyed) return;
-  if (waiting.to > editor.state.doc.content.size) return;
-  if (editor.state.doc.textBetween(waiting.from, waiting.to) !== waiting.text) return;
-  editor.chain().focus().deleteRange({ from: waiting.from, to: waiting.to }).run();
+  const end = Math.min(Math.max(to, waiting.to), editor.state.doc.content.size);
+  if (end < waiting.to) return;
+  if (!editor.state.doc.textBetween(waiting.from, end).startsWith(waiting.text)) return;
+  editor.chain().focus().deleteRange({ from: waiting.from, to: end }).run();
 }
