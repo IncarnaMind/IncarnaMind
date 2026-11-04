@@ -318,7 +318,7 @@ export function quotePlaceProblem(
 function quoteInCues(
   units: readonly PageText[],
   quote: string,
-  time: RowsOrLines,
+  time: RowsOrLines & { speaker?: string },
   matching: Matching & { unique?: boolean },
 ): TextRange[] | null {
   const { text, starts } = joinUnits(units);
@@ -327,9 +327,10 @@ function quoteInCues(
   const until = time.from === time.to ? time.from + 1000 : time.to;
   units.forEach((unit, index) => {
     if (unit.kind !== "cues") return;
-    for (const anchor of unit.anchors ?? []) {
+    for (const [at, anchor] of (unit.anchors ?? []).entries()) {
       const cue = parseCueTarget(anchor.target);
       if (!cue) continue;
+      if (time.speaker && unit.label?.speakers?.[at] !== time.speaker) continue;
       const selected = cue.startMs < until && cue.endMs > time.from;
       if (!selected) continue;
       const start = (starts[index] ?? 0) + anchor.start;
@@ -554,6 +555,7 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
     range: PageRange,
     quote: string,
     found?: readonly TextRange[],
+    location?: CitationLocation | null,
   ): CitationRecheck => {
     const covered = inRange(range);
     // A scan's unsure word was still found: its place is where the quote is (#535).
@@ -566,15 +568,40 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
       ...(yourNoteAt && { yourNoteAt }),
       ...range,
       location:
-        range.pageFrom === null || range.pageTo === null
-          ? null
-          : locationOf(covered, held ? (found ?? quoteInUnits(covered, quote, matching)) : null),
+        !held && location?.kind === "time"
+          ? location
+          : (range.pageFrom === null || range.pageTo === null) && location?.kind !== "time"
+            ? null
+            : locationOf(covered, held ? (found ?? quoteInUnits(covered, quote, matching)) : null),
     };
   };
   return { units, matching, inRange, result };
 }
 
-type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
+type Rechecked = Pick<
+  CitationToRecheck,
+  "documentId" | "quote" | "pageFrom" | "pageTo" | "location"
+>;
+
+function quoteForRecheck(
+  units: readonly PageText[],
+  quote: string,
+  matching: Matching,
+  location: CitationLocation | null | undefined,
+): TextRange[] | null {
+  if (!location || !units.some((unit) => unit.kind === "cues")) {
+    return quoteInUnits(units, quote, matching);
+  }
+  if (location.kind !== "time") return null;
+  const found = quoteInCues(units, quote, location, { ...matching, unique: true });
+  const at = found ? locationOf(units, found) : null;
+  return at?.kind === "time" &&
+    at.from === location.from &&
+    at.to === location.to &&
+    (!location.speaker || at.speaker === location.speaker)
+    ? found
+    : null;
+}
 
 /**
  * A found check made not found again when the words the Answer quoted (#483), which the
@@ -585,6 +612,7 @@ function withQuotedWords(
   documentId: string,
   contentHash: string,
   range: PageRange,
+  location: CitationLocation | null | undefined,
   asked: QuotedWordsCheck | null | undefined,
   check: CheckResult,
 ): CheckResult {
@@ -592,9 +620,11 @@ function withQuotedWords(
   const words = asked.answer.map((piece) => piece.text).join("");
   const units = documents.pageTexts(documentId, contentHash, null, null);
   const cited = documents.pageTexts(documentId, contentHash, range.pageFrom, range.pageTo);
-  return quoteInUnits(cited, words, matchingOf(units))
-    ? check
-    : { check: "not-found", checkReason: "quoted-words-not-on-pages" };
+  const found =
+    location?.kind === "time"
+      ? quoteInCues(cited, words, location, matchingOf(units))
+      : quoteInUnits(cited, words, matchingOf(units));
+  return found ? check : { check: "not-found", checkReason: "quoted-words-not-on-pages" };
 }
 
 /**
@@ -620,6 +650,7 @@ export function recheckCitation(
             input.documentId,
             quoteOnly.contentHash,
             quoteOnly,
+            input.location,
             input.quotedWords,
             quoteOnly,
           ),
@@ -631,7 +662,15 @@ export function recheckCitation(
     ...now,
     inQuotedVersion:
       inQuoted &&
-      withQuotedWords(documents, input.documentId, quoted, input, input.quotedWords, inQuoted),
+      withQuotedWords(
+        documents,
+        input.documentId,
+        quoted,
+        input,
+        input.location,
+        input.quotedWords,
+        inQuoted,
+      ),
     changed:
       quoteOnly.check === "not-found"
         ? changedQuote(documents, input, quoted, now.contentHash)
@@ -648,14 +687,20 @@ function checkInVersion(
   // That version's text is no longer kept: the check made when it was cited stands.
   if (version.units.length === 0) return null;
   const range = { pageFrom: input.pageFrom, pageTo: input.pageTo };
-  return checkCitation({
-    quote: cleanQuote(input.quote),
+  const quote = cleanQuote(input.quote);
+  const pages = version.inRange(range);
+  const result = checkCitation({
+    quote,
     range,
     passage: range,
     documentDeleted: false,
-    pages: version.inRange(range),
+    pages,
     lostLigatures: version.matching.lostLigatures ?? false,
   });
+  return result.check === "found" &&
+    !quoteForRecheck(pages, quote, version.matching, input.location)
+    ? NOT_ON_PAGES
+    : result;
 }
 
 const holdsWord = (token: string) => /[\p{L}\p{N}]/u.test(token);
@@ -672,7 +717,7 @@ function changedQuote(
 ): ChangedQuote | null {
   const before = versionOf(documents, input.documentId, version);
   const cited = before.inRange(input);
-  const found = quoteInUnits(cited, cleanQuote(input.quote), before.matching);
+  const found = quoteForRecheck(cited, cleanQuote(input.quote), before.matching, input.location);
   const start = found?.[0]?.start;
   const end = found?.at(-1)?.end;
   if (start === undefined || end === undefined) return null;
@@ -803,7 +848,12 @@ function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): Citati
   const quote = cleanQuote(input.quote);
   const version = versionOf(documents, input.documentId, contentHash);
   const { units, matching, inRange } = version;
-  const result = (check: CheckResult, range: PageRange) => version.result(check, range, quote);
+  const location =
+    input.location?.kind === "time" && units.some((unit) => unit.kind === "cues")
+      ? input.location
+      : undefined;
+  const result = (check: CheckResult, range: PageRange, found?: readonly TextRange[]) =>
+    version.result(check, range, quote, found, location);
   if (units.every((unit) => unit.text.trim() === "")) {
     return result({ check: "cant-check", checkReason: "no-text" }, cited);
   }
@@ -815,12 +865,13 @@ function recheckInCurrent(documents: RecheckDocuments, input: Rechecked): Citati
     (whole || (range.length <= MAX_CITED_PAGES && (!first || !second || sameRun(first, second)))) &&
     quote !== ""
   ) {
-    const found = quoteInUnits(range, quote, matching);
+    const found = quoteForRecheck(range, quote, matching, input.location);
     if (found) {
       const unsure = unsureWordsCovered(range, found);
       return result(
         unsure.length > 0 ? { check: "cant-check", checkReason: "unsure-word", unsure } : FOUND,
         cited,
+        found,
       );
     }
   }
@@ -1220,6 +1271,7 @@ export function recheckKept(
     pageFrom: page(attributes.pageFrom),
     pageTo: page(attributes.pageTo) ?? page(attributes.pageFrom),
     quotedWords: parseQuotedWords(quotedWords),
+    location: parseLocation(attributes.location),
   });
   if (now.check !== "found") return null;
   if (attributes.check === "found" && attributes.contentHash === now.contentHash) return null;

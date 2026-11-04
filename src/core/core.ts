@@ -13,7 +13,7 @@ import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { parseCitedArea } from "../shared/locations";
+import { parseCitedArea, parseLocation } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
 import {
   HEARD_FROM,
@@ -5530,6 +5530,7 @@ export function createCore(adapters: CoreAdapters): Core {
         pageTo: page(input.pageTo) ?? page(input.pageFrom),
         contentHash: typeof input.contentHash === "string" ? input.contentHash : null,
         quotedWords: parseQuotedWords(input.quotedWords),
+        ...(input.location !== undefined && { location: parseLocation(input.location) }),
         mindId: input.mindId,
       });
     },

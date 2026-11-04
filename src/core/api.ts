@@ -2289,6 +2289,8 @@ export interface CitationToRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   quote: string;
+  /** The stored Location: a Transcript recheck stays at these cues, not repeated words elsewhere. */
+  location?: CitationLocation | null;
   /**
    * The version the Citation quotes. When the Document has a newer one, the result also says
    * how the Citation stands in this version (`inQuotedVersion`) and how its words changed

@@ -9,10 +9,10 @@ import { core } from "./core";
  * there is nothing to check.
  */
 export function useCitationRecheck(
-  citation: Pick<
-    CitationAttributes,
-    "documentId" | "contentHash" | "pageFrom" | "pageTo" | "quote"
-  > | null,
+  citation:
+    | (Pick<CitationAttributes, "documentId" | "contentHash" | "pageFrom" | "pageTo" | "quote"> &
+        Partial<Pick<CitationAttributes, "location">>)
+    | null,
   changed: boolean,
   currentVersion: string | null | undefined,
   /** The Note the Citation is in; null for one in no Note (`RecheckCitationInput.mindId`). */
@@ -23,6 +23,7 @@ export function useCitationRecheck(
   const pageFrom = citation?.pageFrom ?? null;
   const pageTo = citation?.pageTo ?? null;
   const version = citation?.contentHash ?? null;
+  const location = citation?.location;
   const [recheck, setRecheck] = useState<RecheckResult | "failed" | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: checked again when the Document changes again.
   useEffect(() => {
@@ -30,7 +31,15 @@ export function useCitationRecheck(
     if (!changed || documentId === null || quote === "") return;
     let current = true;
     core
-      .recheckCitation({ documentId, quote, pageFrom, pageTo, contentHash: version, mindId })
+      .recheckCitation({
+        documentId,
+        quote,
+        pageFrom,
+        pageTo,
+        contentHash: version,
+        mindId,
+        location,
+      })
       .then(
         (result) => {
           if (current) setRecheck(result);
@@ -46,6 +55,6 @@ export function useCitationRecheck(
     return () => {
       current = false;
     };
-  }, [changed, documentId, quote, pageFrom, pageTo, version, currentVersion, mindId]);
+  }, [changed, documentId, quote, pageFrom, pageTo, version, currentVersion, mindId, location]);
   return recheck;
 }

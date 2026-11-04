@@ -1,14 +1,20 @@
+import { writeFile } from "node:fs/promises";
 import { expect, test } from "vitest";
-import { writeVtt } from "../../src/core/documents/formats/vtt";
+import { recheckKept } from "../../src/core/answers/citations";
+import { readVtt, transcriptUnits, writeVtt } from "../../src/core/documents/formats/vtt";
 import {
   askAndFinish,
+  checkedResult,
   citationsIn,
   citeFeedback,
   citingModel,
+  mindCitations,
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
+import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { isAnswer, messagesOf, QWEN35, setUpLocalModel } from "../helpers/localModels";
+import { connectToMind } from "../helpers/mindClient";
 import { scriptedModel } from "../helpers/models";
 import { startOllamaServer } from "../helpers/ollama";
 
@@ -41,11 +47,194 @@ for (const language of ["en", "zh-CN"] as const) {
       setup.mind.id,
       language === "en" ? "What was said in the review?" : "审阅时说了什么？",
     );
-    return { citations: citationsIn(setup.client, answerId), finished };
+    return { ...setup, citations: citationsIn(setup.client, answerId), finished };
   };
+  const selectSecond = () =>
+    ask(
+      citingModel({
+        query: "Review",
+        records: (passages) => [
+          { marker: 1, passage: passages[0]?.id, location: "0:07", quote: repeated },
+        ],
+        answer,
+      }),
+    );
+
+  test.each([false, true])(
+    `an unchanged Transcript recheck preserves the selected second cue with whole=%s, ${language}`,
+    async (whole) => {
+      const { core, citations } = await selectSecond();
+      const citation = citations[0];
+      if (!citation?.documentId) throw new Error("No Citation");
+      const checked = checkedResult(
+        await core.recheckCitation({
+          ...citation,
+          documentId: citation.documentId,
+          quote: repeated,
+          mindId: null,
+          pageFrom: whole ? null : citation.pageFrom,
+          pageTo: whole ? null : citation.pageTo,
+        }),
+      );
+      expect(checked).toMatchObject({
+        check: "found",
+        location: { kind: "time", from: 7000, to: 10_000, speaker: second },
+      });
+      expect(checked.contentHash).toBe(citation.contentHash);
+    },
+  );
+
+  test(`a Transcript recheck without a stored Location preserves legacy behavior, ${language}`, async () => {
+    const { core, citations } = await selectSecond();
+    const citation = citations[0];
+    if (!citation?.documentId) throw new Error("No Citation");
+    const { location: _location, ...legacy } = citation;
+    expect(
+      checkedResult(
+        await core.recheckCitation({
+          ...legacy,
+          documentId: citation.documentId,
+          quote: repeated,
+          mindId: null,
+        }),
+      ),
+    ).toMatchObject({
+      check: "found",
+      location: { kind: "time", from: 0, to: 2000, speaker: first },
+    });
+  });
+
+  test(`copying a Transcript Citation into other Notes preserves its occurrence, ${language}`, async () => {
+    const { core, citations } = await selectSecond();
+    let citation = citations[0];
+    if (!citation) throw new Error("No Citation");
+    for (let copy = 0; copy < 2; copy++) {
+      const note = await core.createMind({ title: "Review copy" });
+      await core.addToNote({
+        mindId: note.id,
+        origin: null,
+        model: null,
+        blocks: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: answer.replace("[^1]", "") },
+              { type: "citation", attrs: citation },
+            ],
+          },
+        ],
+      });
+      const copied = mindCitations(await connectToMind(core, note.id));
+      expect(copied).toHaveLength(1);
+      expect(copied[0]).toMatchObject({
+        quote: repeated,
+        check: "found",
+        contentHash: citation.contentHash,
+        location: { kind: "time", from: 7000, to: 10_000, speaker: second },
+      });
+      citation = copied[0];
+      if (!citation) throw new Error("No copied Citation");
+    }
+  });
+
+  test.each(["wrong cue", "wrong speaker", "wrong bounds"])(
+    `a Transcript recheck with the %s never chooses another occurrence, ${language}`,
+    async (wrong) => {
+      const { core, citations } = await selectSecond();
+      const citation = citations[0];
+      if (!citation?.documentId) throw new Error("No Citation");
+      const location = {
+        kind: "time" as const,
+        from: wrong === "wrong cue" ? 4000 : 7000,
+        to: wrong === "wrong cue" ? 6000 : wrong === "wrong bounds" ? 13_000 : 10_000,
+        speaker: wrong === "wrong bounds" ? second : first,
+      };
+      expect(
+        checkedResult(
+          await core.recheckCitation({
+            ...citation,
+            documentId: citation.documentId,
+            quote: repeated,
+            mindId: null,
+            location,
+          }),
+        ),
+      ).toMatchObject({
+        check: "not-found",
+        checkReason: "quote-not-on-pages",
+        location,
+      });
+    },
+  );
+
+  test(`a Citation kept by an edit is rechecked at its stored Transcript occurrence, ${language}`, async () => {
+    const { citations } = await selectSecond();
+    const citation = citations[0];
+    if (!citation) throw new Error("No Citation");
+    const units = transcriptUnits(readVtt(file.contents));
+    const documents = {
+      currentVersion: () => citation.contentHash,
+      pageTexts: () => units,
+      passagesCovering: () => [
+        { id: citation.passageId ?? "review", text: units.map((unit) => unit.text).join("\n") },
+      ],
+    };
+    expect(recheckKept(documents, { ...citation, check: "not-found" })).toMatchObject({
+      check: "found",
+      location: { kind: "time", from: 7000, to: 10_000, speaker: second },
+    });
+  });
+
+  test.each(["edited", "removed", "ambiguous"])(
+    `a selected Transcript cue that is %s cannot recheck at the first duplicate, ${language}`,
+    async (change) => {
+      const { core, citations, documents } = await selectSecond();
+      const citation = citations[0];
+      const document = documents[0];
+      if (!citation || !document?.path) throw new Error("No Citation Document");
+      const edited = language === "en" ? "We agreed to reject the plan." : "我们同意重新修改计划。";
+      const transcript = readVtt(file.contents);
+      const contents = writeVtt({
+        ...transcript,
+        cues: transcript.cues.flatMap((cue) =>
+          cue.startMs !== 7000
+            ? [cue]
+            : change === "removed"
+              ? []
+              : [{ ...cue, text: change === "ambiguous" ? `${repeated} ${repeated}` : edited }],
+        ),
+      });
+      await writeFile(document.path, contents);
+      await core.reconcileDocuments();
+      await waitForDocuments(core, (listed) =>
+        expect(listed.find((each) => each.id === document.id)?.contentHash).toBe(sha256(contents)),
+      );
+      await waitForProcessing(core, [document.id]);
+      const checked = checkedResult(
+        await core.recheckCitation({
+          ...citation,
+          documentId: document.id,
+          quote: repeated,
+          mindId: null,
+        }),
+      );
+      expect(checked).toMatchObject({
+        check: "not-found",
+        location: { kind: "time", from: 7000, to: 10_000, speaker: second },
+        inQuotedVersion: { check: "found" },
+      });
+      if (change === "edited") {
+        expect(checked.changed?.now).toMatchObject({
+          quote: edited,
+          check: "found",
+          location: { kind: "time", from: 7000, to: 10_000, speaker: second },
+        });
+      } else expect(checked.changed).toBeNull();
+    },
+  );
 
   test(`unique Transcript quotes keep their cue time and stored speaker, ${language}`, async () => {
-    const { citations } = await ask(
+    const { core, citations } = await ask(
       citingModel({
         query: "Review",
         records: (passages) => [
@@ -71,6 +260,19 @@ for (const language of ["en", "zh-CN"] as const) {
         location: { kind: "time", from: 11_750, to: 13_000, speaker: second },
       },
     ]);
+    for (const citation of citations) {
+      if (!citation.documentId) throw new Error("No Citation Document");
+      expect(
+        checkedResult(
+          await core.recheckCitation({
+            ...citation,
+            documentId: citation.documentId,
+            quote: citation.quote ?? "",
+            mindId: null,
+          }),
+        ),
+      ).toMatchObject({ check: "found", location: citation.location });
+    }
   });
 
   test.each([undefined, "0:00–0:10"])(

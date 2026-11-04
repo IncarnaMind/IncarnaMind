@@ -114,6 +114,7 @@ export function ViewerHeader({
           pageFrom: cited.pageFrom ?? target.pageFrom ?? null,
           pageTo: cited.pageTo ?? target.pageTo ?? null,
           quote: target.quote,
+          location: cited.location,
         }
       : null,
     changedState,
