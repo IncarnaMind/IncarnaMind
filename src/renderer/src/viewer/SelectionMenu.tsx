@@ -46,11 +46,9 @@ interface Held {
 const typesInField = (element: Element | null) =>
   element instanceof HTMLInputElement ||
   element instanceof HTMLTextAreaElement ||
-  // ⌘K's dialog takes the page's selection before its field has the focus.
-  (element?.closest("dialog[open]") ?? null) !== null ||
-  // A modal dialog holds the body's focus for the moment before it focuses its field.
-  ((element === null || element === window.document.body) &&
-    window.document.querySelector("dialog[open]") !== null);
+  // ⌘K's dialog takes the page's selection before its field has the focus, and a modal blocks
+  // the page, so whatever moved the selection, the words selected in the page still hold.
+  window.document.querySelector("dialog[open]") !== null;
 
 const inPopover = (target: EventTarget | null) =>
   target instanceof Element && target.closest(".editor-popover") !== null;
@@ -59,6 +57,14 @@ const HELD = "viewer-held-selection";
 
 // Shift and the arrows change a selection a key at a time: it is read once they stop.
 const SETTLE_MS = 120;
+
+const sameRange = (a: Range | null | undefined, b: Range): boolean =>
+  a !== null &&
+  a !== undefined &&
+  a.startContainer === b.startContainer &&
+  a.startOffset === b.startOffset &&
+  a.endContainer === b.endContainer &&
+  a.endOffset === b.endOffset;
 
 function rangeIn(section: HTMLElement): Range | null {
   const selection = window.getSelection();
@@ -98,6 +104,10 @@ export function SelectionMenu({
   const t = useT();
   const settingUp = useSettingUp();
   const [held, setHeld] = useState<Held | null>(null);
+  // The range the menu holds now: a selection change to the same words, as closing the menu moves
+  // the focus, is not a new selection and must not open it again.
+  const heldRange = useRef<Range | null>(null);
+  heldRange.current = held?.range ?? null;
   const [asked, setAsked] = useState<AskedQuote | null>(null);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -153,7 +163,7 @@ export function SelectionMenu({
       if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
         if (section.contains(selection.getRangeAt(0).commonAncestorContainer)) {
           // After a drag the focus is on the page's body, which no key event of the viewer reaches.
-          if (!pressed) {
+          if (!pressed && !sameRange(heldRange.current, selection.getRangeAt(0))) {
             clearTimeout(settling);
             settling = setTimeout(read, SETTLE_MS);
           }
