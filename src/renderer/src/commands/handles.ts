@@ -27,6 +27,12 @@ export const citationHandle: Handle<{
 /** The open Mind's find bar: what "Find next" and "Find previous" do. */
 export const findHandle: Handle<{ next(): void; previous(): void }> = { current: null };
 
+/**
+ * The command palette is open, or opening: its dialog takes the page's selection a frame after
+ * ⌘K, so a viewer keeps the words selected until it has.
+ */
+export const paletteOpen = { current: false };
+
 /** One version a Citation was made from, open in a viewer: what "Open the current version" opens (#2159). */
 export interface CitedVersionAction {
   openCurrent(): void;

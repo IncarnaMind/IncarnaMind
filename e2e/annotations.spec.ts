@@ -224,6 +224,7 @@ test("by the keyboard: ⌘K highlights the selection and finds a highlight's wor
   await slideSelect(window, paragraph(viewer, words), words);
   await window.keyboard.press("Escape");
   await slideSelect(window, paragraph(viewer, words), words);
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
   await runCommand(window, "viewer.selection.highlight", "Highlight the selected text");
   await expect(viewer.locator("[data-annotation-id]").first()).toContainText(words);
 

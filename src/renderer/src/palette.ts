@@ -25,7 +25,7 @@ import { mindName } from "../../shared/naming";
 import { useAnnotations } from "./annotations";
 import { focusComposer } from "./commands/assistant";
 import { placeAt } from "./commands/edit";
-import { citationHandle } from "./commands/handles";
+import { citationHandle, paletteOpen } from "./commands/handles";
 import { placeHere } from "./commands/here";
 import { menuKeysLabel, objectAt } from "./commands/keymap";
 import {
@@ -123,8 +123,15 @@ interface PaletteState {
 export const usePalette = create<PaletteState>()((set) => ({
   open: false,
   context: NOTHING,
-  show: () => set({ open: true, context: contextAt(document.activeElement) }),
-  hide: () => set({ open: false }),
+  show: () => {
+    // Before the dialog shows: a viewer keeps its page selection from the moment ⌘K is pressed.
+    paletteOpen.current = true;
+    set({ open: true, context: contextAt(document.activeElement) });
+  },
+  hide: () => {
+    paletteOpen.current = false;
+    set({ open: false });
+  },
 }));
 
 export type PaletteItem =

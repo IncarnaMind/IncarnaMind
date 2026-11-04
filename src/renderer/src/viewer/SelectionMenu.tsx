@@ -15,7 +15,7 @@ import { ANNOTATION_COLOUR_LABELS } from "../../../shared/annotationColours";
 import { highlightSelection } from "../annotationActions";
 import { useNoteEditor } from "../annotationNote";
 import { useAnnotations } from "../annotations";
-import { useViewerHandle } from "../commands/handles";
+import { paletteOpen, useViewerHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
 import { ChatLineIcon, CopyLineIcon, NoteLineIcon, PlusLineIcon } from "../components/lineIcons";
@@ -46,8 +46,9 @@ interface Held {
 const typesInField = (element: Element | null) =>
   element instanceof HTMLInputElement ||
   element instanceof HTMLTextAreaElement ||
-  // ⌘K's dialog takes the page's selection before its field has the focus, and a modal blocks
-  // the page, so whatever moved the selection, the words selected in the page still hold.
+  // ⌘K takes the page's selection before its dialog has the focus, and a modal blocks the page:
+  // whatever moved the selection, the words selected in the page still hold.
+  paletteOpen.current ||
   window.document.querySelector("dialog[open]") !== null;
 
 const inPopover = (target: EventTarget | null) =>
