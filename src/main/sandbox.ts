@@ -413,13 +413,17 @@ export async function installFolders(
       () => false,
     );
   // A prefix's bin or lib may be a link: read where it really is, with its name to follow there,
-  // only when that place is inside the prefix. One that links anywhere else opens nothing.
+  // only when that place is itself a bin or lib folder of the prefix (lib-3.12, lib64). One that
+  // links anywhere else, the prefix itself or its share folder among them, opens nothing.
   const linkedFolders = async (folders: readonly string[]) =>
     (
       await Promise.all(
         folders.map(async (each) => {
           const real = await canonicalPath(each);
-          return isInside(real, dirname(each)) ? [real, ...(real === each ? [] : [each])] : [];
+          return dirname(real) === dirname(each) &&
+            /^(bin|lib)([-._]?\d[\w.]*)?$/.test(basename(real))
+            ? [real, ...(real === each ? [] : [each])]
+            : [];
         }),
       )
     ).flat();
