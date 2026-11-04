@@ -1939,11 +1939,11 @@
     /* A Chinese question would otherwise leave "句子？" alone on its last line, at 900 and 1,440 px alike (#1554). */
     text-wrap: balance;
   }
-  /* Over the page while a sentence waits for its Citation (#1554). */
+  /* At the top of the page, under the viewer's 36px toolbar, while a sentence waits for its Citation (#1554). */
   .citation-pick-line {
     position: absolute;
     left: 50%;
-    bottom: 24px;
+    top: 48px;
     z-index: 8;
     display: flex;
     flex-direction: column;

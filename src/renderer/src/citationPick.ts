@@ -9,7 +9,7 @@
  */
 import type { Editor } from "@tiptap/core";
 import { create } from "zustand";
-import { CITATION_NODE, type CitedSelection, type Document } from "../../core/api";
+import { CITATION_NODE, type Citation, type CitedSelection, type Document } from "../../core/api";
 import { checkAgain, citationClosingLength } from "./checks";
 import { citationAttributesOf } from "./citedSelection";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
@@ -46,15 +46,26 @@ export const usePickIn = (documentId: string): CitationPick | null =>
 
 export const dropCitationPick = () => useCitationPick.setState({ pick: null });
 
-/** Opens the Document beside the Note, at `page` when given, with the sentence waiting for its Citation. */
-export function chooseCitationIn(pick: CitationPick, page?: number): void {
+/**
+ * Opens the Document beside the Note, with the sentence waiting for its Citation: at the Passage
+ * `at`, when given, its words shown, else at its start.
+ */
+export function chooseCitationIn(
+  pick: CitationPick,
+  at?: Pick<Citation, "pageFrom" | "pageTo" | "quote">,
+): void {
   useCitationPick.setState({ pick });
-  useAppStore
-    .getState()
-    .openDocument(
-      { documentId: pick.documentId, ...(page !== undefined && { pageFrom: page, pageTo: page }) },
-      { as: "citation", keep: true },
-    );
+  useAppStore.getState().openDocument(
+    {
+      documentId: pick.documentId,
+      ...(at && {
+        pageFrom: at.pageFrom ?? undefined,
+        pageTo: at.pageTo ?? undefined,
+        quote: at.quote,
+      }),
+    },
+    { as: "citation", keep: true },
+  );
 }
 
 const showError = (message: string) => useNotices.getState().showError(new Error(message));

@@ -1137,6 +1137,7 @@ export const en = {
   "claim.chooseCitation": "Choose the Citation…",
   "claim.chooseCitation.keywords": "point to the source cite select words",
   "claim.chooseCitation.hint": "Select the words that say this",
+  "claim.chooseCitation.other": "Choose another Document…",
   "claim.chooseCitation.cancel": "Cancel",
   "claim.chooseCitationInDocument": "Choose the Citation in this Document",
   "claim.useAsCitation": "Use as Citation",

@@ -9,9 +9,9 @@ import type { ShownClaim } from "./claimChecks";
 
 /**
  * Choose the Citation… (#1554) on the card of a sentence the check didn't find: the Document of the
- * close Passage its check found, or one from the shared picker, found by its name, pinyin or
- * initials, opens beside the Note, where the User selects the words to cite. `onChosen`: the card
- * goes, as for Open.
+ * close Passage its check found opens beside the Note at that Passage, or, with none, one chosen
+ * in the shared picker, where the User selects the words to cite. `onChosen`: the card goes, as
+ * for Open.
  */
 export function ChooseCitationAction({
   mindId,
@@ -23,22 +23,20 @@ export function ChooseCitationAction({
   onChosen(): void;
 }) {
   const t = useT();
-  const wall = useTurnWall({ mindId, conversationId: null });
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const [picking, setPicking] = useState(false);
   const running = useChecks((state) => state.running[mindId] !== undefined);
   const asked = useCitationPick((state) => state.asked === claim.check.id);
-  const choose = (documentId: string, page?: number) => {
-    chooseCitationIn(
-      { mindId, checkId: claim.check.id, documentId, sentence: claim.sentence.text },
-      page,
-    );
+  const pick = { mindId, checkId: claim.check.id, sentence: claim.sentence.text };
+  const close = checkedCitation(claim.check.evidence ?? undefined);
+  const start = () => {
+    if (!close) {
+      setPicking(true);
+      return;
+    }
+    chooseCitationIn({ ...pick, documentId: close.documentId }, close);
     onChosen();
   };
-  // A sentence whose check found a close Passage opens that Passage's Document at its page.
-  const close = checkedCitation(claim.check.evidence ?? undefined);
-  const start = () =>
-    close ? choose(close.documentId, close.pageFrom ?? undefined) : setPicking(true);
   const startNow = useRef(start);
   startNow.current = start;
   useEffect(() => {
@@ -58,25 +56,57 @@ export function ChooseCitationAction({
       >
         {t("claim.chooseCitation")}
       </button>
-      {picking && button && wall !== undefined && !running && (
-        <DocumentOrFolderPicker
+      {picking && button && !running && (
+        <CitationDocumentPicker
           anchor={button}
-          wall={wall}
-          documentsOnly
-          labels={{
-            title: t("claim.chooseCitation"),
-            search: t("scope.picker.label"),
-            noMatch: t("scope.picker.empty"),
-          }}
-          testId="citation-document"
-          onChoose={(scope) => {
+          mindId={mindId}
+          onChoose={(documentId) => {
             setPicking(false);
-            const [documentId] = scope.documentIds;
-            if (documentId) choose(documentId);
+            chooseCitationIn({ ...pick, documentId });
+            onChosen();
           }}
           onClose={() => setPicking(false)}
         />
       )}
     </>
+  );
+}
+
+/**
+ * The shared picker of Check against a Document… for the one Document to choose a Citation in,
+ * found by its name, pinyin or initials, on the Note's side of a Folder wall.
+ */
+export function CitationDocumentPicker({
+  anchor,
+  mindId,
+  onChoose,
+  onClose,
+}: {
+  anchor: HTMLElement;
+  mindId: string;
+  onChoose(documentId: string): void;
+  onClose(): void;
+}) {
+  const t = useT();
+  const wall = useTurnWall({ mindId, conversationId: null });
+  if (wall === undefined) return null;
+  return (
+    <DocumentOrFolderPicker
+      anchor={anchor}
+      wall={wall}
+      documentsOnly
+      labels={{
+        title: t("claim.chooseCitation"),
+        search: t("scope.picker.label"),
+        noMatch: t("scope.picker.empty"),
+      }}
+      testId="citation-document"
+      onChoose={(scope) => {
+        const [documentId] = scope.documentIds;
+        if (documentId) onChoose(documentId);
+        else onClose();
+      }}
+      onClose={onClose}
+    />
   );
 }

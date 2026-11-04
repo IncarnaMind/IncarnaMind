@@ -1107,6 +1107,7 @@ export const zhCN = {
   "claim.chooseCitation": "选择引用…",
   "claim.chooseCitation.keywords": "指定出处 引用 选择 文字",
   "claim.chooseCitation.hint": "选中能支持这句话的文字",
+  "claim.chooseCitation.other": "选择其他文档…",
   "claim.chooseCitation.cancel": "取消",
   "claim.chooseCitationInDocument": "在此文档中选择引用",
   "claim.useAsCitation": "用作引用",

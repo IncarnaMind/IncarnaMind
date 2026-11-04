@@ -171,6 +171,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(viewer).toBeVisible();
       const line = viewer.getByTestId("citation-pick-line");
       await expect(line).toContainText(t("claim.chooseCitation.hint"));
+      await expect(line.getByTestId("citation-pick-other")).toHaveText(
+        t("claim.chooseCitation.other"),
+      );
       await expect(line).toContainText(OWN);
       await selectOwn(window);
       const menu = window.getByTestId("viewer-selection-menu");
@@ -241,6 +244,57 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("citation-pick-line")).toHaveCount(0);
     await selectOwn(window);
     await expect(window.getByTestId("viewer-selection-cite")).toHaveCount(0);
+    await app.close();
+  });
+
+  test(`with a close Passage, Choose the Citation… opens its Document at it, and another Document is one click away (${language})`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, editor } = await launchNote(language);
+    const card = await checkSentence(window, editor, DIFFERENT);
+    await expect(card.getByTestId("claim-differs")).toBeVisible();
+    await pointAndClick(window, card.getByTestId("claim-choose-citation"));
+    // No picker: the close Passage's Document opens at the Passage, its words shown.
+    const viewer = window.getByTestId("viewer").filter({ visible: true });
+    await expect(viewer.getByTestId("viewer-header")).toContainText("Harbour times");
+    await expect(viewer.locator("[data-quote-highlight]")).toContainText("12 months");
+    await expect(window.getByTestId("citation-document-picker")).toHaveCount(0);
+    const line = window.getByTestId("citation-pick-line");
+    await expect(line).toContainText(t("claim.chooseCitation.hint"));
+    await expect(line).toContainText(DIFFERENT);
+    await expect(line.getByTestId("citation-pick-cancel")).toHaveText(
+      t("claim.chooseCitation.cancel"),
+    );
+    // At the top of the page, just under the viewer's toolbar.
+    const [top, toolbar] = [
+      await line.boundingBox(),
+      await viewer.getByTestId("viewer-header").boundingBox(),
+    ];
+    if (!top || !toolbar) throw new Error("The waiting line isn't laid out.");
+    expect(top.y).toBeGreaterThan(toolbar.y + toolbar.height);
+    expect(top.y).toBeLessThan(toolbar.y + toolbar.height + 24);
+    await capture(window, `after-choose-waiting-${language}-1440`);
+
+    // Choose another Document… opens the shared picker; the sentence waits in the one chosen.
+    await pointAndClick(window, line.getByTestId("citation-pick-other"));
+    const picker = window.getByTestId("citation-document-picker");
+    await expect(picker).toBeVisible();
+    await expect(picker.getByTestId("citation-document-section")).toHaveCount(1);
+    // Esc closes the picker first, and the sentence still waits.
+    await window.keyboard.press("Escape");
+    await expect(picker).toHaveCount(0);
+    await expect(line).toBeVisible();
+    await pointAndClick(window, line.getByTestId("citation-pick-other"));
+    await window.getByTestId("citation-document-search").fill("Seabirds");
+    await pointAndClick(window, picker.getByText("Seabirds", { exact: true }));
+    await expect(viewer.getByTestId("viewer-header")).toContainText("Seabirds");
+    await expect(viewer).toContainText("Penguins nest");
+    await expect(line).toContainText(DIFFERENT);
+    await setWindowSize(app, window, 900, 900);
+    await capture(window, `after-choose-another-${language}-900`);
+    // Then Esc ends the wait.
+    await window.keyboard.press("Escape");
+    await expect(line).toHaveCount(0);
+    await expect.poll(() => noteText(editor)).toBe(DIFFERENT);
     await app.close();
   });
 
