@@ -468,7 +468,7 @@ export interface AnswerRequest {
   writeThenCite?: boolean;
   /**
    * In the Tool loop, search the Question's own words before the first call, so the model can
-   * answer from those Passages in one call; it searches on when they aren't enough.
+   * answer from those Passages without searching; it searches on when they aren't enough.
    */
   retrieveFirst?: boolean;
   /** False: the model is known to give no structured output, so it isn't tried. */
@@ -1318,7 +1318,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         try {
           if (support === "tools") {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
-            // the Question's own search and answers in one call unless it needs more. Not while
+            // the Question's own search and answers from it unless it needs more. Not while
             // there is nothing to search yet (web search on, or only unread Documents).
             const presearched =
               request.retrieveFirst && request.documents.documentCount > 0

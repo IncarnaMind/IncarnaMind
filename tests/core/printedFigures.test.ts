@@ -8,13 +8,9 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import type { ConversationAnswer, Core } from "../../src/core";
-import type { Executor } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { nodeOf } from "../../src/core/answers/blocks";
 import { CALCULATED_FIGURE_NODE } from "../../src/core/api";
-import { createLocalExecutor } from "../../src/core/execution";
-import { createProcessLauncher } from "../../src/main/processes";
-import { programMeter } from "../../src/main/programMeter";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { type AnalysisEnd, type AnalysisOutput, noAnalysisOutput } from "../../src/shared/analysis";
 import { answerBlocks } from "../../src/shared/answerBlocks";
@@ -26,6 +22,7 @@ import {
 } from "../../src/shared/figureRuns";
 import { askAssistant } from "../helpers/assistant";
 import { type ShownPassage, shownPassages } from "../helpers/citations";
+import { localExecutorAt } from "../helpers/codeRunner";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -67,24 +64,12 @@ function replyingModel(calls: readonly Call[], reply: (passages: ShownPassage[])
   );
 }
 
-async function executor(): Promise<Executor> {
-  const local = createLocalExecutor({
-    processes: createProcessLauncher(async () => ({ PATH: process.env.PATH ?? "/usr/bin:/bin" })),
-    tempDir: await createTempDataFolder(),
-    reportError: (error) => {
-      throw error;
-    },
-    meter: programMeter,
-  });
-  return { level: "os", run: (request) => local.run(request) };
-}
-
 async function setUp(model: MockLanguageModelV4, language: Language, analysis?: FakeAnswer) {
   const core: Core = startCore(await createTempDataFolder(), {
     ...codeToolOn(),
     createChatModel: scriptedModels(model).createChatModel,
     analysisRuntime: createFakeAnalysisRuntime({ answer: () => analysis ?? {} }),
-    executor: await executor(),
+    executor: await localExecutorAt(),
     codeRuntime: createCodeHost({ python: null, font: null, appVersion: "0.0.0-test" }),
   });
   const saved = await core.saveChatProvider({
