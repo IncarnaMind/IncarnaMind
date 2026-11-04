@@ -42,9 +42,15 @@ export function moveDocumentsBeside(
   });
 }
 
-/** The focus follows a Document moved to its row in the section it went to, if that shows it. */
-function focusRowOf(documentId: string | undefined): void {
+/**
+ * The focus follows a Document moved to its row in the section it went to, if that shows it. The
+ * move lands a round trip after the choice: a place the User has given the focus since, outside
+ * the row Move to… opened from, keeps it (#1741).
+ */
+function focusRowOf(documentId: string | undefined, from: Element): void {
   if (!documentId) return;
+  const focused = document.activeElement;
+  if (focused && focused !== document.body && !from.contains(focused)) return;
   document
     .querySelector<HTMLElement>(
       `[data-surface="library"] [data-document-id="${CSS.escape(documentId)}"] [data-row-main]`,
@@ -77,9 +83,9 @@ export function DocumentMoveTo() {
       current={folders.size === 1 ? (current ?? null) : undefined}
       onChoose={(folderId) => {
         // From a row, the focus goes with what it moved; from the selection's bar, it stays there.
-        const fromRow = request.anchor.closest("[data-document-id]") != null && !request.keepFocus;
+        const fromRow = request.keepFocus ? null : request.anchor.closest("[data-document-id]");
         void moveIntoFolder({ documentIds: [...ids] }, folderId).then(() => {
-          if (fromRow) requestAnimationFrame(() => focusRowOf(only));
+          if (fromRow) requestAnimationFrame(() => focusRowOf(only, fromRow));
         });
       }}
       onCreate={(name) => void useAppStore.getState().createFolder({ documentIds: [...ids] }, name)}
