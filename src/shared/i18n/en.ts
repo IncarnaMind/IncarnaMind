@@ -4993,9 +4993,9 @@ export const en = {
   "unexpectedEnd.session.one":
     "When Windows shut down or signed out, 1 change hadn’t been saved yet. Everything else was kept.",
   "unexpectedEnd.session.note":
-    "When Windows shut down or signed out, {count} changes to “{note}” hadn’t been saved yet. Everything else was kept.",
+    "When Windows shut down or signed out, {count} changes to “{name}” hadn’t been saved yet. Everything else was kept.",
   "unexpectedEnd.session.note.one":
-    "When Windows shut down or signed out, 1 change to “{note}” hadn’t been saved yet. Everything else was kept.",
+    "When Windows shut down or signed out, 1 change to “{name}” hadn’t been saved yet. Everything else was kept.",
   "quit.unsaved.title": "{count} changes aren’t saved",
   "quit.unsaved.title.one": "1 change isn’t saved",
   "quit.unsaved.quit": "Quit anyway",

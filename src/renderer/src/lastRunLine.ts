@@ -32,7 +32,7 @@ export function lastRunLine({
     if (note) {
       return {
         key: count === 1 ? "unexpectedEnd.session.note.one" : "unexpectedEnd.session.note",
-        params: { count, note: note.name },
+        params: { count, name: note.name },
         open: note.mindId,
       };
     }

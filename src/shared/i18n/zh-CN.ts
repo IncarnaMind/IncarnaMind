@@ -4757,9 +4757,9 @@ export const zhCN = {
   "unexpectedEnd.session": "Windows 关机或注销时，有 {count} 处改动尚未保存，其余内容都已保留。",
   "unexpectedEnd.session.one": "Windows 关机或注销时，有 1 处改动尚未保存，其余内容都已保留。",
   "unexpectedEnd.session.note":
-    "Windows 关机或注销时，“{note}”有 {count} 处改动尚未保存，其余内容都已保留。",
+    "Windows 关机或注销时，“{name}”有 {count} 处改动尚未保存，其余内容都已保留。",
   "unexpectedEnd.session.note.one":
-    "Windows 关机或注销时，“{note}”有 1 处改动尚未保存，其余内容都已保留。",
+    "Windows 关机或注销时，“{name}”有 1 处改动尚未保存，其余内容都已保留。",
   "quit.unsaved.title": "有 {count} 处改动尚未保存",
   "quit.unsaved.title.one": "有 1 处改动尚未保存",
   "quit.unsaved.quit": "仍然退出",
