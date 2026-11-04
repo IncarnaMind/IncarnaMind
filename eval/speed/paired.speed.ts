@@ -23,6 +23,7 @@ import { armNamed, armSwitch } from "./arms";
 import { gradeAnswer } from "./judge";
 import {
   type ArmRun,
+  cellsSet,
   checksSet,
   everydaySet,
   gatingSet,
@@ -107,6 +108,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return everydaySet(ROOT, cacheDir);
     case "checks":
       return checksSet(ROOT);
+    case "cells":
+      return cellsSet(ROOT, ANSWER_TIMEOUT_MS);
   }
 }
 
