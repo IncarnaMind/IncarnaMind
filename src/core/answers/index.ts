@@ -1068,9 +1068,13 @@ export function createAnswers(options: AnswersOptions) {
         : options.resolveScope(NO_SCOPE, mindId);
 
   /** An Answer's Search scope as it had it, resolved as regenerating it does, for its judgement. */
-  const judgedScope = (question: ConversationQuestion): string[] | null => {
+  const judgedMind = (question: ConversationQuestion): string | null => {
     const from = question.askedFrom;
-    const mindId = from && !from.deleted ? from.mindId : null;
+    return from && !from.deleted ? from.mindId : null;
+  };
+
+  const judgedScope = (question: ConversationQuestion): string[] | null => {
+    const mindId = judgedMind(question);
     const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
     return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
   };
@@ -1099,6 +1103,7 @@ export function createAnswers(options: AnswersOptions) {
    */
   async function judgeAnswer(
     answer: ConversationAnswer,
+    mindId: string | null,
     documentIds: readonly string[] | null,
     limit: Money = ANSWER_CHECKING_LIMIT,
   ) {
@@ -1145,6 +1150,7 @@ export function createAnswers(options: AnswersOptions) {
             citations: answer.citations,
             figures: answer.figures,
             waiting,
+            mindId,
             documentIds,
             model,
             signal: controller.signal,
@@ -1889,7 +1895,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       if (judging && written && waitingAs === "checking" && waiting.size > 0) {
         const stored = options.conversations.answer(answerId);
-        if (stored) void judgeAnswer(stored, input.documentIds);
+        if (stored) void judgeAnswer(stored, place.mindId, input.documentIds);
       }
     };
 
@@ -4478,7 +4484,12 @@ export function createAnswers(options: AnswersOptions) {
           citation.check === "not-checked" ? { ...citation, check: "checking" } : citation,
       );
       if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
-      await judgeAnswer({ ...answer, citations: waiting }, documentIds, limit ?? undefined);
+      await judgeAnswer(
+        { ...answer, citations: waiting },
+        judgedMind(question),
+        documentIds,
+        limit ?? undefined,
+      );
     },
 
     /**
@@ -4499,6 +4510,7 @@ export function createAnswers(options: AnswersOptions) {
           citations: answer.citations,
           figures: answer.figures,
           waiting,
+          mindId: judgedMind(question),
           documentIds: judgedScope(question),
           model: answer.model,
         }) ?? null;
