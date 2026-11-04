@@ -754,7 +754,8 @@
     @apply shrink-0 border-t border-rule bg-frame px-3 py-1.5 text-[12px] leading-5 text-ink-meta;
   }
   .viewer-sheet-tabs {
-    @apply flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-t border-rule bg-frame px-2;
+    @apply flex shrink-0 items-center gap-1 overflow-x-auto border-t border-rule bg-frame px-2;
+    height: var(--sheet-tabs-height);
     scrollbar-width: none;
   }
   /* A sheet's own tab colour, if the workbook gives it one, is a bar along the tab's foot. */

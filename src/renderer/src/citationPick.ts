@@ -14,6 +14,7 @@ import {
   type Citation,
   type CitedSelection,
   type Document,
+  type TabItem,
   type WindowLayout,
 } from "../../core/api";
 import { checkAgain, citationClosingLength } from "./checks";
@@ -52,17 +53,20 @@ export const usePickIn = (documentId: string): CitationPick | null =>
 
 export const dropCitationPick = () => useCitationPick.setState({ pick: null });
 
-const holdsDocument = (layout: WindowLayout | null, documentId: string): boolean =>
-  (layout?.groups ?? []).some((group) =>
-    group.tabs.some((tab) => tab.item.kind === "document" && tab.item.documentId === documentId),
-  );
+const holds = (layout: WindowLayout | null, held: (item: TabItem) => boolean): boolean =>
+  (layout?.groups ?? []).some((group) => group.tabs.some((tab) => held(tab.item)));
 
 let stopWatching: (() => void) | null = null;
 
-/** Ends the wait once no tab holds the Document it waits in, as closing that tab does. */
+/**
+ * Ends the wait once no tab holds the Document it waits in, or the Note its sentence is in, as
+ * closing either tab does; only after a tab has held it, as the Document's opens once the wait has
+ * begun.
+ */
 function watchPickTab(): void {
   if (stopWatching) return;
-  let held: string | null = null;
+  let heldDocument: string | null = null;
+  let heldNote: string | null = null;
   const look = () => {
     const { pick } = useCitationPick.getState();
     if (!pick) {
@@ -70,8 +74,18 @@ function watchPickTab(): void {
       stopWatching = null;
       return;
     }
-    if (holdsDocument(useAppStore.getState().layout, pick.documentId)) held = pick.documentId;
-    else if (held === pick.documentId) dropCitationPick();
+    const { layout } = useAppStore.getState();
+    const { documentId, mindId } = pick;
+    const documentInTab = holds(
+      layout,
+      (item) => item.kind === "document" && item.documentId === documentId,
+    );
+    const noteInTab = holds(layout, (item) => item.kind === "mind" && item.mindId === mindId);
+    if (documentInTab) heldDocument = documentId;
+    if (noteInTab) heldNote = mindId;
+    if ((!documentInTab && heldDocument === documentId) || (!noteInTab && heldNote === mindId)) {
+      dropCitationPick();
+    }
   };
   const fromLayout = useAppStore.subscribe(look);
   const fromPick = useCitationPick.subscribe(look);
@@ -79,6 +93,7 @@ function watchPickTab(): void {
     fromLayout();
     fromPick();
   };
+  look();
 }
 
 /**

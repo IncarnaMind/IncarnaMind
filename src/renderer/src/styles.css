@@ -148,6 +148,8 @@
    */
   --meeting-bar-row: 28px;
   --meeting-bar-height: calc(var(--meeting-bar-row) + 14px);
+  /* A sheet's tab strip, along the viewer's foot, which a line floating there stays above. */
+  --sheet-tabs-height: 36px;
 }
 
 /*
@@ -1948,6 +1950,9 @@
     z-index: 10;
     display: flex;
     justify-content: center;
+  }
+  .viewer-pane:has(.viewer-sheet-tabs) .citation-pick-line-place {
+    bottom: calc(24px + var(--sheet-tabs-height));
   }
   .citation-pick-line {
     pointer-events: auto;
