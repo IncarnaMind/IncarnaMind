@@ -211,9 +211,9 @@ describe("A rewrite changes only the value that differs", () => {
     ],
     [
       "a company's short name, in Chinese",
-      "承租方为华润。",
-      "Change 1: 华润\nTo 1: 万科",
-      "承租方为万科。",
+      "承租方为宏远。",
+      "Change 1: 宏远\nTo 1: 启明",
+      "承租方为启明。",
     ],
     [
       "a name of more than 8 words",
@@ -224,8 +224,8 @@ describe("A rewrite changes only the value that differs", () => {
     [
       "a name with a word in capitals that isn't a company's",
       "The Landlord is Northgate Holdings.",
-      "Change 1: Northgate Holdings\nTo 1: Westmarch Limited UNLESS Terminated",
-      "The Landlord is Westmarch Limited UNLESS Terminated.",
+      "Change 1: Northgate Holdings\nTo 1: Examplegate Lettings UNLESS Ended",
+      "The Landlord is Examplegate Lettings UNLESS Ended.",
     ],
     [
       "a Chinese name and others",
