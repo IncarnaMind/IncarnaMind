@@ -215,10 +215,13 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
-    log(
-      `The arms' libraries: ${opened[0].library.passageCount} and ${opened[1].library.passageCount} Passages`,
-    );
     try {
+      const [first, second] = opened.map(({ library }) => library.passageCount);
+      // Two libraries processed differently would make every pair unequal.
+      if (first !== second) {
+        stopped = `Stopped at ${group.name}: the arms' libraries hold ${first} and ${second} Passages.`;
+        break run;
+      }
       const recorders = [recorderOf(opened[0].library), recorderOf(opened[1].library)] as const;
       for (const { library } of opened) {
         const { core } = library;

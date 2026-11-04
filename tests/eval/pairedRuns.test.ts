@@ -192,6 +192,7 @@ describe("the report", () => {
       ["loop", "retrieve-first"],
     );
     expect(section).not.toContain("Searched more than once");
+    expect(section).toContain("| Answered in one call | 0 of 1 | 0 of 1 | |");
   });
 });
 
