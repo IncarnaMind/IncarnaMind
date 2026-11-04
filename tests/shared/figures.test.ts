@@ -1826,6 +1826,46 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("$4,000.00", 4000, { unit: "USD" })],
     ],
     [
+      "Acme had a negative result. Acme Inc. paid a fee of ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "The result was negative. Acme Ltd. paid ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "The outlook was negative. Mr. Smith paid ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "The balance was negative. Account 5 then held ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("5", 5), f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "The rate was negative. Approx. ninety-five thousand dollars ($95,000.00) was paid.",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "The balance was negative (see Note 5). The fee was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "The balance was negative... The fee was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "前景为负．租金为人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
       "There was a negative outlook. The rent is sixty-two thousand dollars ($62,000.00).",
       EN,
       [f("$62,000.00", 62000, { unit: "USD" })],
@@ -2236,6 +2276,56 @@ describe("a bracket right after an amount (#2341)", () => {
       "| Less | Four Thousand Dollars ($4,000.00) |",
       EN,
       [f("($4,000.00)", -4000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance owed by Acme Inc. was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance of Acme Ltd. stood at ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance due to Mr. Smith was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance due to Mrs. Smith was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance due to Ms. Smith was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance due to Dr. Smith was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance in Account No. 5 was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance was approx. ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance (see Note 5.) was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative balance... was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
       "Despite a negative outlook, the rent is sixty-two thousand dollars ($62,000.00).",
