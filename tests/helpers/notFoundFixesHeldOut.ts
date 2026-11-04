@@ -22,7 +22,7 @@ export const HELD_OUT_DOCUMENTS: readonly HeldOutDocument[] = [
       "",
       "3. Either party may end this lease by giving 90 days' written notice.",
       "",
-      "4. The Landlord is Westmarch Commercial Property Investments Limited.",
+      "4. The Landlord is Sampleford Commercial Property Investments Limited.",
       "",
       "5. The lease term starts on 1 March 2026 and runs for five years.",
     ].join("\n"),
@@ -95,7 +95,7 @@ export const CHOSEN_CITATION_CASES: readonly ChosenCitationCase[] = [
   {
     id: "landlord-wrong-words",
     language: "en",
-    sentence: "The Landlord is Westmarch Commercial Property Investments Limited.",
+    sentence: "The Landlord is Sampleford Commercial Property Investments Limited.",
     document: "Office lease.md",
     words: "The lease term starts on 1 March 2026 and runs for five years.",
     supported: false,

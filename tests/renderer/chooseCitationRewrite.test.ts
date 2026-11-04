@@ -247,6 +247,32 @@ describe("Rewrite with what the Documents say", () => {
     expect(offersRewrite(cited.editor, cited.doc, claim(cited.editor))).toBe(false);
   });
 
+  test("is not offered where the close Passage's line can't give the sentence a figure or a name", () => {
+    const about = (text: string, quote: string) => {
+      const check = unsupported({ text, evidence: { ...evidence, quote } });
+      const { editor, doc } = editorWith([marked(text, check)]);
+      return offersRewrite(editor, doc, claim(editor));
+    };
+    // Another thing: the sentence's words before its figure are not the line's.
+    expect(
+      about(
+        "Harbours forecast tides for 6 months.",
+        "Harbours publish the times of high water every 12 months.",
+      ),
+    ).toBe(false);
+    // A bound only the line says.
+    expect(about("Rent is 1100 dollars.", "Rent is at most 1250 dollars.")).toBe(false);
+    // Two figures in the line, and no name that differs.
+    expect(
+      about("Rent is 1100 dollars.", "Rent is 1250 dollars and the deposit 3000 dollars."),
+    ).toBe(false);
+    // The same thing's figure, and the same party's name.
+    expect(about("Rent is 1100 dollars.", "Rent is 1250 dollars.")).toBe(true);
+    expect(
+      about("The Landlord is Exampleton Holdings.", "The Landlord is Sampleford Limited."),
+    ).toBe(true);
+  });
+
   test("is not offered in a Note made to verify someone else's file, whose words it keeps", () => {
     const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
     expect(offersRewrite(editor, doc, claim(editor))).toBe(true);

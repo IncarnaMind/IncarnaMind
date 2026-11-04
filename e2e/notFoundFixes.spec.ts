@@ -300,6 +300,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window, editor } = await launchNote(language);
     const card = await checkSentence(window, editor, DIFFERENT);
     await expect(card.getByTestId("claim-differs")).toBeVisible();
+    // Its words before the figure aren't the line's, so no rewrite could keep to the rules.
+    await expect(card.getByTestId("claim-rewrite")).toHaveCount(0);
     await pointAndClick(window, card.getByTestId("claim-choose-citation"));
     // No picker: the close Passage's Document opens at the Passage, its words shown.
     const viewer = window.getByTestId("viewer").filter({ visible: true });
@@ -468,13 +470,13 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-const LOW_WATER = "Harbours publish the times of low water every 12 months.";
+const EVERY_12_WEEKS = "Harbours publish the times of high water every 12 weeks.";
 
 /**
  * Two sentences whose checks found the line `OWN` and called them unsupported, as a real model may
  * where the scripted one never does: one that gives the line's figure of what the line gives it
- * for, and one of something else with the same figure. The scripted rewrite finds nothing to
- * change in either.
+ * for, and one with the same figure in another unit, which a rewrite could still reach. The
+ * scripted rewrite finds nothing to change in either.
  */
 async function writeChecksOnTheLine(window: Page, editor: Locator): Promise<void> {
   const evidence = await window.evaluate(async (quote) => {
@@ -522,7 +524,7 @@ async function writeChecksOnTheLine(window: Page, editor: Locator): Promise<void
     (dom, content) => {
       (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
     },
-    [paragraph("check-same", OWN), paragraph("check-low", LOW_WATER)],
+    [paragraph("check-same", OWN), paragraph("check-weeks", EVERY_12_WEEKS)],
   );
   await motionSettled(window);
 }
@@ -561,15 +563,16 @@ for (const [language, same, none] of [
     await writeChecksOnTheLine(window, editor);
     const card = window.getByTestId("claim-card");
     for (const [words, said] of [
-      ["high water", same],
-      ["low water", none],
+      ["12 months", same],
+      ["12 weeks", none],
     ] as const) {
       await openCardAt(window, editor, words);
       await expect(card.getByTestId("claim-sentence")).toContainText(words);
       await pointAndClick(window, card.getByTestId("claim-rewrite"));
       await expect(window.getByTestId("copied-line")).toHaveText(said);
+      await capture(window, `after-rewrite-${said === same ? "same" : "none"}-${language}-1440`);
       await expect(window.getByTestId("error-notice-message")).toHaveCount(0);
-      expect(await noteText(editor)).toBe(`${OWN}\n${LOW_WATER}`);
+      expect(await noteText(editor)).toBe(`${OWN}\n${EVERY_12_WEEKS}`);
       await openCardAt(window, editor, words);
       await expect(card.getByTestId("claim-choose-citation")).toBeVisible();
       await window.keyboard.press("Escape");
@@ -654,6 +657,12 @@ test("closing the Document's tab ends the wait: opened again, it offers no Use a
   await app.close();
 });
 
+/** A sheet past the 20,000 rows the viewer reads, so it says it stopped there, above its tabs. */
+const PORT_ROWS = `Port,Ships\nNorth,12\nSouth,8\n${Array.from(
+  { length: 20_003 },
+  (_, row) => `Berth ${row + 1},1`,
+).join("\n")}\n`;
+
 /** Whether two laid-out boxes share any point. */
 const overlap = (
   one: { x: number; y: number; width: number; height: number },
@@ -672,23 +681,32 @@ for (const [language, cells] of [
     test.setTimeout(240_000);
     const { app, window, editor } = await launchNote(language, 1440, "Seabirds", [
       ...FILES,
-      { name: "Ports.csv", contents: "Port,Ships\nNorth,12\nSouth,8\n" },
+      { name: "Ports.csv", contents: PORT_ROWS },
     ]);
     const card = await checkSentence(window, editor, OWN);
     await chooseIn(window, card, "Ports");
     const line = window.getByTestId("citation-pick-line");
     await expect(line.getByRole("status")).toHaveText(cells);
     const tabs = window.getByTestId("viewer-sheet-tabs").filter({ visible: true });
+    const cut = window.getByTestId("viewer-sheet-truncated").filter({ visible: true });
     for (const width of [1440, 900]) {
       await setWindowSize(app, window, width, 900);
       // One group under 1,000 px: the sheet's tab is brought to the front, as a person would.
       await pointAndClick(window, window.getByTestId("document-tab").filter({ hasText: "Ports" }));
       await expect(line).toBeVisible();
       await motionSettled(window);
-      const [lineBox, tabsBox] = [await line.boundingBox(), await tabs.boundingBox()];
-      if (!lineBox || !tabsBox) throw new Error("The line or the sheet's tabs aren't laid out.");
-      expect(overlap(lineBox, tabsBox), `${width} px`).toBe(false);
-      expect(lineBox.y + lineBox.height, `${width} px`).toBeLessThanOrEqual(tabsBox.y);
+      const [lineBox, tabsBox, cutBox] = [
+        await line.boundingBox(),
+        await tabs.boundingBox(),
+        await cut.boundingBox(),
+      ];
+      if (!lineBox || !tabsBox || !cutBox) throw new Error("The sheet's foot isn't laid out.");
+      // Above everything along the sheet's foot: its row-limit line, then its tabs.
+      for (const under of [cutBox, tabsBox]) {
+        expect(overlap(lineBox, under), `${width} px`).toBe(false);
+        expect(lineBox.y + lineBox.height, `${width} px`).toBeLessThanOrEqual(under.y);
+      }
+      await capture(window, `after-sheet-line-${language}-${width}`);
     }
     await pointAndClick(window, window.getByTestId("viewer-grid").locator('td[data-ref="B2"]'));
     await window.keyboard.press("Shift+ArrowDown");

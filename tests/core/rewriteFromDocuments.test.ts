@@ -113,18 +113,18 @@ describe("A rewrite is refused, and the sentence kept", () => {
   });
 
   test("when the words it writes are a name the quote doesn't hold", () => {
-    const quote = "The Landlord is Westmarch Commercial Property Investments Limited.";
+    const quote = "The Landlord is Sampleford Commercial Property Investments Limited.";
     expect(
       rewritten(
-        "The Landlord is Northgate Holdings.",
-        "Change 1: Northgate Holdings\nTo 1: Eastgate Holdings",
+        "The Landlord is Exampleton Holdings.",
+        "Change 1: Exampleton Holdings\nTo 1: Testbury Holdings",
         quote,
       ),
     ).toEqual({ kind: "kept" });
     expect(
       rewritten(
-        "The Landlord is Northgate Holdings.",
-        "Change 1: Northgate Holdings\nTo 1: Westmarch Commercial Property Investments Limited",
+        "The Landlord is Exampleton Holdings.",
+        "Change 1: Exampleton Holdings\nTo 1: Sampleford Commercial Property Investments Limited",
         quote,
       ),
     ).toMatchObject({ kind: "rewritten" });
@@ -170,11 +170,32 @@ describe("A reply that names nothing to change", () => {
     ],
     [
       "no figure",
-      "The Landlord is Northgate Holdings.",
-      "The Landlord is Westmarch Commercial Property Investments Limited.",
+      "The Landlord is Exampleton Holdings.",
+      "The Landlord is Sampleford Commercial Property Investments Limited.",
     ],
   ])("is the model's alone for %s, and the sentence stays", (_, sentence, quote) => {
     expect(rewritten(sentence, NONE, quote)).toEqual({ kind: "none" });
+  });
+});
+
+describe("Nothing to change is the same value only by the code's own reading", () => {
+  const NONE = "Change 1: none\nTo 1: none";
+
+  test.each([
+    ["a rate only the sentence names", "Rent is $14,250, paid monthly.", "Rent is $14,250."],
+    ["another currency", "The rent is €14,250.", "The rent is $14,250."],
+    ["a negation only the quote says", "The rent is $14,250.", "The rent is not $14,250."],
+    ["a bound only the quote says", "租金为15万元。", "租金不超过15万元。"],
+    ["another thing in a label", "Rent: $14,250.", "Deposit: $14,250."],
+  ])("is the model's alone against %s", (_, sentence, quote) => {
+    expect(rewritten(sentence, NONE, quote)).toEqual({ kind: "none" });
+    expect(rewritten(quote, NONE, quote)).toEqual({ kind: "same" });
+  });
+
+  test("is the same value where the quote gives that one among others", () => {
+    expect(
+      rewritten("The deposit is $42,750.", NONE, "The rent is $14,250 and the deposit is $42,750."),
+    ).toEqual({ kind: "same" });
   });
 });
 
@@ -303,28 +324,144 @@ describe("A rewritten figure keeps the words before it", () => {
   });
 });
 
+describe("A rewritten figure keeps every word before it that the quote says", () => {
+  test.each([
+    [
+      "a bound only the quote has",
+      "The rent is $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "The rent is at most $14,250.",
+      "The rent is at most $12,500.",
+    ],
+    [
+      "a negation only the quote has",
+      "The rent is $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "The rent is not $14,250.",
+      "The rent is not $12,500.",
+    ],
+    [
+      "a negation in short only the quote has",
+      "The rent is $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "The rent isn't $14,250.",
+      "The rent isn't $12,500.",
+    ],
+    [
+      "an expectation only the quote has",
+      "The rent is $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "The rent is expected to be $14,250.",
+      "The rent is expected to be $12,500.",
+    ],
+    [
+      "a cap only the quote has",
+      "Interest is 6%.",
+      "Change 1: 6%\nTo 1: 8%",
+      "Interest is capped at 8%.",
+      "Interest is capped at 6%.",
+    ],
+    [
+      "an earlier period in the quote's first clause",
+      "The rent is $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "Before the amendment, the rent was $14,250.",
+      "Before the amendment, the rent was $12,500.",
+    ],
+    [
+      "another thing in a label",
+      "Rent: $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "Deposit: $14,250.",
+      "Deposit: $12,500.",
+    ],
+    [
+      "another lease in the first clause",
+      "Under the new lease, the rent is $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "Under the old lease, the rent is $14,250.",
+      "Under the old lease, the rent is $12,500.",
+    ],
+    [
+      "不超过 only the quote has",
+      "租金为12000元。",
+      "Change 1: 12000\nTo 1: 14250",
+      "租金不超过14250元。",
+      "租金不超过12000元。",
+    ],
+    [
+      "不是 only the quote has",
+      "租金是12万元。",
+      "Change 1: 12万元\nTo 1: 15万元",
+      "租金不是15万元。",
+      "租金不是12万元。",
+    ],
+    [
+      "预计 only the quote has",
+      "租金为12000元。",
+      "Change 1: 12000\nTo 1: 14250",
+      "预计租金为14250元。",
+      "预计租金为12000元。",
+    ],
+    [
+      "最长 only the quote has",
+      "工期为40天。",
+      "Change 1: 40\nTo 1: 45",
+      "工期最长为45天。",
+      "工期最长为40天。",
+    ],
+    [
+      "another thing in a Chinese label",
+      "租金：12000元。",
+      "Change 1: 12000\nTo 1: 14250",
+      "押金：14250元。",
+      "押金：12000元。",
+    ],
+    [
+      "another lease in the first Chinese clause",
+      "新租约下，租金为12000元。",
+      "Change 1: 12000\nTo 1: 14250",
+      "旧租约下，租金为14250元。",
+      "旧租约下，租金为12000元。",
+    ],
+  ])("refuses %s, and rewrites a sentence that says it too", (_, sentence, reply, quote, same) => {
+    expect(rewritten(sentence, reply, quote)).toEqual({ kind: "kept" });
+    expect(rewritten(same, reply, quote)).toMatchObject({ kind: "rewritten" });
+  });
+
+  test("rewrites a Chinese figure where only the sentence says 为", () => {
+    expect(
+      rewritten(
+        "公司去年营收为1.2亿元。",
+        "Change 1: 1.2亿元\nTo 1: 1.5亿元",
+        "公司去年营收 1.5亿元。",
+      ),
+    ).toMatchObject({ kind: "rewritten", correction: { choices: [{ wording: "1.5亿元" }] } });
+  });
+});
+
 describe("A rewritten name keeps whose name it is", () => {
   test("refuses the other party's name, told by the words after it", () => {
     expect(
       rewritten(
-        "Northgate Holdings is the Landlord.",
-        "Change 1: Northgate Holdings\nTo 1: Westmarch Limited",
-        "Westmarch Limited is the Tenant.",
+        "Exampleton Holdings is the Landlord.",
+        "Change 1: Exampleton Holdings\nTo 1: Sampleford Limited",
+        "Sampleford Limited is the Tenant.",
       ),
     ).toEqual({ kind: "kept" });
-    const reply = "Change 1: Northgate Holdings\nTo 1: Westmarch Limited";
+    const reply = "Change 1: Exampleton Holdings\nTo 1: Sampleford Limited";
     expect(
       rewritten(
-        "The lease is signed by Northgate Holdings as the Landlord.",
+        "The lease is signed by Exampleton Holdings as the Landlord.",
         reply,
-        "The lease is signed by Westmarch Limited as the Tenant.",
+        "The lease is signed by Sampleford Limited as the Tenant.",
       ),
     ).toEqual({ kind: "kept" });
     expect(
       rewritten(
-        "The lease is signed by Northgate Holdings as the Landlord.",
+        "The lease is signed by Exampleton Holdings as the Landlord.",
         reply,
-        "The lease is signed by Westmarch Limited as the Landlord.",
+        "The lease is signed by Sampleford Limited as the Landlord.",
       ),
     ).toMatchObject({ kind: "rewritten" });
   });
@@ -335,9 +472,9 @@ describe("A rewritten name keeps whose name it is", () => {
     ).toEqual({ kind: "kept" });
     expect(
       rewritten(
-        "The rent is paid to Northgate Holdings.",
-        "Change 1: Northgate Holdings\nTo 1: Westmarch Limited",
-        "The rent is paid to Westmarch Limited.",
+        "The rent is paid to Exampleton Holdings.",
+        "Change 1: Exampleton Holdings\nTo 1: Sampleford Limited",
+        "The rent is paid to Sampleford Limited.",
       ),
     ).toMatchObject({ kind: "rewritten" });
   });
@@ -345,18 +482,60 @@ describe("A rewritten name keeps whose name it is", () => {
   test.each([
     ["王先生", "项目负责人为王先生。"],
     ["王女士", "项目负责人为王女士。"],
+    ["王博士", "项目负责人为王博士。"],
+    ["王教授", "项目负责人为王教授。"],
+    ["王主任", "项目负责人为王主任。"],
+    ["王董", "项目负责人为王董。"],
+    ["王工", "项目负责人为王工。"],
+    ["张医生", "项目负责人为张医生。"],
+    ["李太太", "项目负责人为李太太。"],
+    ["王某", "项目负责人为王某。"],
   ])("refuses %s in Chinese: a surname and a title", (name, quote) => {
-    expect(rewritten("项目负责人为李明。", `Change 1: 李明\nTo 1: ${name}`, quote)).toEqual({
+    expect(rewritten("项目负责人为李乙。", `Change 1: 李乙\nTo 1: ${name}`, quote)).toEqual({
+      kind: "kept",
+    });
+  });
+
+  test.each([
+    ["a Chinese label", "出租人：张甲。", "承租人：李乙。", "出租人：李乙。"],
+    [
+      "a Chinese clause",
+      "出租人，张甲，签署本合同。",
+      "承租人，李乙，签署本合同。",
+      "出租人，李乙，签署本合同。",
+    ],
+  ])(
+    "refuses the other party's name through %s, and writes the same party's",
+    (_, sentence, other, same) => {
+      const reply = "Change 1: 张甲\nTo 1: 李乙";
+      expect(rewritten(sentence, reply, other)).toEqual({ kind: "kept" });
+      expect(rewritten(sentence, reply, same)).toMatchObject({ kind: "rewritten" });
+    },
+  );
+
+  test("refuses the other party's name through an English clause, and writes the same party's", () => {
+    const sentence = "For the Tenant, the signatory is Exampleton Holdings.";
+    const reply = "Change 1: Exampleton Holdings\nTo 1: Sampleford Limited";
+    expect(
+      rewritten(sentence, reply, "For the Landlord, the signatory is Sampleford Limited."),
+    ).toEqual({ kind: "kept" });
+    expect(
+      rewritten(sentence, reply, "For the Tenant, the signatory is Sampleford Limited."),
+    ).toMatchObject({ kind: "rewritten" });
+  });
+
+  test("refuses a place for a place in Chinese", () => {
+    expect(rewritten("地点为王府。", "Change 1: 王府\nTo 1: 张家", "地点为张家。")).toEqual({
       kind: "kept",
     });
   });
 
   test("writes one of two Chinese names, the other kept", () => {
     expect(
-      rewritten("签字人为张伟和李明。", "Change 1: 张伟\nTo 1: 王芳", "签字人为王芳和李明。"),
+      rewritten("签字人为张甲和李乙。", "Change 1: 张甲\nTo 1: 王丙", "签字人为王丙和李乙。"),
     ).toMatchObject({
       kind: "rewritten",
-      correction: { from: "张伟", choices: [{ wording: "王芳" }] },
+      correction: { from: "张甲", choices: [{ wording: "王丙" }] },
     });
   });
 });
@@ -389,9 +568,9 @@ describe("A rewrite changes only the value that differs", () => {
     ],
     [
       "a condition after a Chinese name",
-      "项目负责人为李明。",
-      "Change 1: 李明\nTo 1: 王芳但须经董事会批准",
-      "项目负责人为王芳但须经董事会批准。",
+      "项目负责人为李乙。",
+      "Change 1: 李乙\nTo 1: 王丙但须经董事会批准",
+      "项目负责人为王丙但须经董事会批准。",
     ],
     [
       "a negation",
@@ -408,44 +587,44 @@ describe("A rewrite changes only the value that differs", () => {
     ["a role in Chinese", "合同由董事签署。", "Change 1: 董事\nTo 1: 经理", "合同由经理签署。"],
     [
       "a name with a title, in Chinese",
-      "合同由李明签署。",
-      "Change 1: 李明\nTo 1: 张经理",
+      "合同由李乙签署。",
+      "Change 1: 李乙\nTo 1: 张经理",
       "合同由张经理签署。",
     ],
     [
       "a name with words after it, in Chinese",
-      "项目负责人为李明。",
-      "Change 1: 李明\nTo 1: 王芳女士",
-      "项目负责人为王芳女士。",
+      "项目负责人为李乙。",
+      "Change 1: 李乙\nTo 1: 王丙女士",
+      "项目负责人为王丙女士。",
     ],
     [
-      "a company's short name, in Chinese",
-      "承租方为宏远。",
-      "Change 1: 宏远\nTo 1: 启明",
-      "承租方为启明。",
+      "a company's name, in Chinese",
+      "承租方为示例甲。",
+      "Change 1: 示例甲\nTo 1: 示例乙",
+      "承租方为示例乙。",
     ],
     [
       "a name of more than 8 words",
-      "The Landlord is Northgate Holdings.",
-      "Change 1: Northgate Holdings\nTo 1: Westmarch Commercial Property Investments Limited Trading As Westmarch Lettings",
-      "The Landlord is Westmarch Commercial Property Investments Limited Trading As Westmarch Lettings.",
+      "The Landlord is Exampleton Holdings.",
+      "Change 1: Exampleton Holdings\nTo 1: Sampleford Commercial Property Investments Limited Trading As Sampleford Lettings",
+      "The Landlord is Sampleford Commercial Property Investments Limited Trading As Sampleford Lettings.",
     ],
     [
       "a name with a word in capitals that isn't a company's",
-      "The Landlord is Northgate Holdings.",
-      "Change 1: Northgate Holdings\nTo 1: Examplegate Lettings UNLESS Ended",
+      "The Landlord is Exampleton Holdings.",
+      "Change 1: Exampleton Holdings\nTo 1: Examplegate Lettings UNLESS Ended",
       "The Landlord is Examplegate Lettings UNLESS Ended.",
     ],
     [
       "a Chinese name and others",
-      "项目负责人为李明。",
-      "Change 1: 李明\nTo 1: 王芳等",
-      "项目负责人为王芳等。",
+      "项目负责人为李乙。",
+      "Change 1: 李乙\nTo 1: 王丙等",
+      "项目负责人为王丙等。",
     ],
     [
       "a Chinese surname and title",
-      "项目负责人为李明。",
-      "Change 1: 李明\nTo 1: 王总",
+      "项目负责人为李乙。",
+      "Change 1: 李乙\nTo 1: 王总",
       "项目负责人为王总。",
     ],
     [
@@ -511,9 +690,9 @@ describe("A rewrite changes only the value that differs", () => {
     ],
     [
       "the other party's name, in Chinese",
-      "出租人为张伟。",
-      "Change 1: 张伟\nTo 1: 李明",
-      "出租人为王芳，承租人为李明。",
+      "出租人为张甲。",
+      "Change 1: 张甲\nTo 1: 李乙",
+      "出租人为王丙，承租人为李乙。",
     ],
   ])("refuses %s, from the words beside the value", (_, sentence, reply, quote) => {
     expect(rewritten(sentence, reply, quote)).toEqual({ kind: "kept" });
@@ -534,16 +713,16 @@ describe("A rewrite changes only the value that differs", () => {
     ],
     [
       "a name",
-      "The Landlord is Northgate Holdings.",
-      "Change 1: Northgate Holdings\nTo 1: Westmarch Commercial Property Investments Limited",
-      "The Landlord is Westmarch Commercial Property Investments Limited.",
+      "The Landlord is Exampleton Holdings.",
+      "Change 1: Exampleton Holdings\nTo 1: Sampleford Commercial Property Investments Limited",
+      "The Landlord is Sampleford Commercial Property Investments Limited.",
     ],
-    ["a Chinese name", "项目负责人为李明。", "Change 1: 李明\nTo 1: 王芳", "项目负责人为王芳。"],
+    ["a Chinese name", "项目负责人为李乙。", "Change 1: 李乙\nTo 1: 王丙", "项目负责人为王丙。"],
     [
       "a Chinese name of the same surname",
-      "项目负责人为李明。",
-      "Change 1: 李明\nTo 1: 李华",
-      "项目负责人为李华。",
+      "项目负责人为李乙。",
+      "Change 1: 李乙\nTo 1: 李丁",
+      "项目负责人为李丁。",
     ],
     [
       "a figure from a numbered clause, whose number is no figure of it",
@@ -831,5 +1010,21 @@ describe("A Citation chosen in a Document's viewer", () => {
     expect(await core.citeSelection({ documentId, parts, mindId: inside.id })).toMatchObject({
       quote: LINE,
     });
+  });
+
+  test("is refused while its Document is in Recently deleted, behind a wall or not", async () => {
+    const { core, mindId, documentId } = await noteWithCheck(() => ({ text: "" }));
+    const parts = [{ unit: null, text: LINE }];
+    await core.deleteDocument(documentId);
+    await expect(core.citeSelection({ documentId, parts, mindId })).rejects.toThrow(
+      "That Document no longer exists.",
+    );
+    await core.restore([{ kind: "document", id: documentId }]);
+    expect(await core.citeSelection({ documentId, parts, mindId })).toMatchObject({ quote: LINE });
+    await wallOff(core, documentId);
+    await core.deleteDocument(documentId);
+    await expect(core.citeSelection({ documentId, parts, mindId })).rejects.toThrow(
+      "That Document no longer exists.",
+    );
   });
 });
