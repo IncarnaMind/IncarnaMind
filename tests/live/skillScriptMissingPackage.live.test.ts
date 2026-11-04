@@ -10,7 +10,8 @@
  *
  * Held out: written and committed before any run; no case is a sentence of the Answer's
  * instructions or of the Skill tests. The second set (FRESH) was written and committed before the
- * Tool result's sentence on installing the package, which the first set's replies led to.
+ * Tool result's sentence on installing the package, which the first set's replies led to; after
+ * that, only the glossary case's question changed, to name the draft its script is given.
  *
  * INCARNAMIND_LIVE_ANTHROPIC_KEY runs it, on INCARNAMIND_LIVE_ANTHROPIC_MODEL (the catalog's model
  * for Answers by default), each reply judged by Claude Sonnet 5.5. INCARNAMIND_LIVE_SETS picks the
@@ -142,8 +143,8 @@ const FRESH: Case[] = [
     script: "scripts/check_terms.py",
     module: "termbank.lookup",
     asked: {
-      en: "Use the glossary check Skill to list the terms in my contract draft that break our style guide.",
-      "zh-CN": "用术语检查技能列出我合同草稿里不符合我们风格指南的术语。",
+      en: "Use the glossary check Skill on my draft “Hollin Street supply agreement” and list the terms that break our style guide.",
+      "zh-CN": "用术语检查技能检查我的草稿“霍林街供货协议”，列出不符合我们风格指南的术语。",
     },
   },
 ];
