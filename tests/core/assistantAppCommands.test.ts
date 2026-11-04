@@ -3756,6 +3756,33 @@ describe("A refusal is said, and the commands a request names are within reach (
     },
   );
 
+  // protects=a reply that copies the refusal's sentence with straight quotes, as a model may, is read as saying it: the app adds no second line, so the reply and the card say the refusal once; fails_when=the app's line follows the copy; no_claim=how often a real model copies it.
+  test.each([
+    {
+      text: "Turn on Local mode, then open Harbour Street beside my note",
+      language: "en" as const,
+    },
+    { text: "打开本地模式，再在旁边打开 Harbour Street", language: "zh-CN" as const },
+  ])("“$text”: a refusal copied with straight quotes is said once", async ({ text, language }) => {
+    const said = translate(language, "commands.yours.privacy");
+    const copied = said.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    const model = callingThen(
+      `${copied} Harbour Street is open beside your note.`,
+      run("settings.change", { setting: "localMode", value: "on" }, false),
+      find("Harbour Street"),
+      run("document.openBeside"),
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    windowOf(core, () => ({ ran: true, changed: false }));
+
+    const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+    expect(answer.text).toBe(`${copied} Harbour Street is open beside your note.`);
+    expect(answer.text.includes(said)).toBe(false);
+    expect(answer.steps?.unbackedCommands ?? []).toEqual([]);
+    core.close();
+  });
+
   // protects=a refusal marked done in the same step as another call doesn't end the turn: only a step whose every call ended it does, so what the request asked for after it still runs; fails_when=the open never runs because one call of the step was marked done; no_claim=that a real model marks a refusal done early.
   test("a refusal marked done beside another call doesn't end the turn", async () => {
     const model = scriptedModel((call) => {

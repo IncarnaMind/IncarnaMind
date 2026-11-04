@@ -13,6 +13,7 @@ import { LANGUAGES } from "../../core/language";
 import {
   type CommandId,
   isCommandId,
+  sameWords,
   type Yours,
   yoursLine,
   yoursWordsOf,
@@ -101,10 +102,13 @@ export function refusalsOf(
 
 /**
  * Whether the reply already says this refusal's sentence, in either language, as the core writes
- * it after the reply (#2252): the card then shows only its button.
+ * it after the reply (#2252): the card then shows only its button. A copy with straight quotes
+ * counts (#2470).
  */
 export const saidInReply = (text: string, what: Yours, folder: CommandDone["folder"]): boolean =>
-  LANGUAGES.some((language) => text.includes(yoursLine(language, what, folder)));
+  LANGUAGES.some((language) =>
+    sameWords(text).includes(sameWords(yoursLine(language, what, folder))),
+  );
 
 /** Whether the reply is only its refusals' sentences: nothing in it to keep in a note. */
 export function repliesOnlyRefusals(
@@ -114,7 +118,11 @@ export function repliesOnlyRefusals(
     LANGUAGES.map((language) => yoursLine(language, what, folder)),
   );
   if (lines.length === 0) return false;
-  return lines.reduce((rest, line) => rest.split(line).join(""), answer.text).trim() === "";
+  const rest = lines.reduce(
+    (text, line) => text.split(sameWords(line)).join(""),
+    sameWords(answer.text),
+  );
+  return rest.trim() === "";
 }
 
 /** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */

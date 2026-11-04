@@ -56,7 +56,7 @@ import { appliedAsAsked } from "../../shared/askedChanges";
 import { PICTURE_DATA_URL, quoteKey } from "../../shared/askedQuote";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
-import { yoursLine } from "../../shared/commands";
+import { sameWords, yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
 import { readFigures } from "../../shared/figures";
@@ -3174,10 +3174,11 @@ export function createAnswers(options: AnswersOptions) {
               {
                 name: "claimed-change",
                 check: async (text: string) => {
-                  // A refusal's own line says what wasn't done: never read as a claim (#2407).
+                  // A refusal's own line says what wasn't done: never read as a claim (#2407),
+                  // also copied with straight quotes (#2470).
                   const reply = refusalLines()
                     .flatMap((line) => LANGUAGES.map(line))
-                    .reduce((rest, line) => rest.split(line).join(""), text);
+                    .reduce((rest, line) => rest.split(sameWords(line)).join(""), sameWords(text));
                   if (reply.trim() === "") return null;
                   activity = "checking-claims";
                   showPhase();
@@ -3576,9 +3577,11 @@ export function createAnswers(options: AnswersOptions) {
               );
             }
           }
-          // Said in either language, a line is said: a reply can copy an earlier Answer's.
+          // Said in either language, a line is said: a reply can copy an earlier Answer's, with
+          // straight quotes too (#2470).
+          const words = sameWords(reply);
           const lines = [...resultLines, ...refusalLines()].filter(
-            (line) => !LANGUAGES.some((each) => reply.includes(line(each))),
+            (line) => !LANGUAGES.some((each) => words.includes(sameWords(line(each)))),
           );
           return lines.length === 0
             ? null

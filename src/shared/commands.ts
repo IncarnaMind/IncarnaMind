@@ -103,6 +103,9 @@ export const yoursLine = (
   folder?: { name: string } | null,
 ): string => translate(language, yoursWordsOf(what, folder).said, { folder: folder?.name ?? "" });
 
+/** The same words, with a model's straight quotes read as the app's typographic ones (#2470). */
+export const sameWords = (text: string): string => text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+
 /** The switch of a Folder's wall (#1934): the User's alone, never offered to the assistant. */
 export const WALL_SWITCH = "folder.keepInside" satisfies CommandId;
 
