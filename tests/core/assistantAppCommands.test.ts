@@ -21,6 +21,7 @@ import { logFileIn, testProcesses, tideServer, waitForState } from "../helpers/c
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { type ModelCall, scriptedModel } from "../helpers/models";
+import { fakePrinter } from "../helpers/printer";
 import { transcribingCore, until } from "../helpers/transcription";
 import { startWeb, webSearchingModel } from "../helpers/web";
 
@@ -2687,7 +2688,10 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
   // protects=a source pack of a Note that cites nothing is refused in plain words and saves nothing, rather than another format; fails_when=a file is saved, or the call is refused for its format; no_claim=a source pack's pages.
   test("a source pack of a Note with no Citations says why and saves nothing", async () => {
     const model = calling(run("mind.export", { format: "source-pack" }, false));
-    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    // The app's printer, so the refusal is the pack's own, not that no PDF can be made here.
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS, {
+      printer: fakePrinter().printer,
+    });
     const output = await createTempDataFolder();
     await core.setOutputLocation(output);
 
