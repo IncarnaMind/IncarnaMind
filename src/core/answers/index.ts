@@ -3125,6 +3125,19 @@ export function createAnswers(options: AnswersOptions) {
           ),
         ];
       };
+      /**
+       * `text` with each refusal line cut where it stands (#2407): a copy with straight quotes is
+       * found after `sameWords`, and the words around it stay as they were written, so the judge
+       * reads the model's own text (#2252). `sameWords` swaps each quote for one character, so an
+       * offset found in the compared text is the same offset in the original.
+       */
+      const withoutRefusals = (text: string) =>
+        refusalLines()
+          .flatMap((line) => LANGUAGES.map(line))
+          .reduce((rest, line) => {
+            const at = sameWords(rest).indexOf(sameWords(line));
+            return at < 0 ? rest : rest.slice(0, at) + rest.slice(at + line.length);
+          }, text);
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // After a command that was refused, failed or not allowed, the reply shows only once it is
       // checked: what it says of that command could be untrue, and a Stop meanwhile would leave it
@@ -3175,10 +3188,8 @@ export function createAnswers(options: AnswersOptions) {
                 name: "claimed-change",
                 check: async (text: string) => {
                   // A refusal's own line says what wasn't done: never read as a claim (#2407),
-                  // also copied with straight quotes (#2470).
-                  const reply = refusalLines()
-                    .flatMap((line) => LANGUAGES.map(line))
-                    .reduce((rest, line) => rest.split(sameWords(line)).join(""), sameWords(text));
+                  // also copied with straight quotes (#2252).
+                  const reply = withoutRefusals(text);
                   if (reply.trim() === "") return null;
                   activity = "checking-claims";
                   showPhase();
@@ -3492,27 +3503,32 @@ export function createAnswers(options: AnswersOptions) {
         // card never disagree and the card keeps only its button (#2252).
         appSuffix: (reply) => {
           const language = answerLanguage(context.question);
+          // Whether the reply says `text` or names it: a letter, mark or digit right before it is
+          // another number or word, so "13 Documents couldn't be sorted." doesn't say
+          // "3 Documents couldn't be sorted."; a name also takes none right after it, so
+          // "Rental" doesn't name "Rent" (#2252). Quotes may be straight where the app writes
+          // them typographic.
+          const words = sameWords(reply);
+          const holds = (text: string, ends: boolean) => {
+            if (text === "") return false;
+            const escaped = sameWords(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const after = ends ? "(?![\\p{L}\\p{M}\\p{N}])" : "";
+            return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])${escaped}${after}`, "u").test(words);
+          };
+          const says = (line: string) => holds(line, false);
+          const saysName = (name: string) => holds(name, true);
           // What a command changed, in the app's own words, so the reply and the card agree
           // (#2252): the Folders Organize filed the Documents into, and the Tags merged.
           const resultLines: ((each: Language) => string)[] = [];
           for (const done of commandsDone.values()) {
             const folders = done.folders;
             // The model's own sentence may already name every Folder: the app adds its line only
-            // when the reply doesn't (#2252), so the reply never says the same thing twice. A name
-            // inside a longer word is not named: "Rental" alone doesn't say "Rent".
-            const mentions = (name: string) => {
-              if (name === "") return false;
-              const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              return new RegExp(
-                `(?<![\\p{L}\\p{M}\\p{N}])${escaped}(?![\\p{L}\\p{M}\\p{N}])`,
-                "u",
-              ).test(reply);
-            };
+            // when the reply doesn't (#2252), so the reply never says the same thing twice.
             if (
               done.command === "documents.organize" &&
               folders &&
               folders.length > 0 &&
-              !folders.every((folder) => mentions(folder.name))
+              !folders.every((folder) => saysName(folder.name))
             ) {
               const count = folders.reduce((sum, folder) => sum + folder.count, 0);
               resultLines.push((each) => {
@@ -3561,7 +3577,7 @@ export function createAnswers(options: AnswersOptions) {
               done.command === "tag.merge" &&
               merges &&
               merges.length > 0 &&
-              !merges.every((pair) => mentions(pair.from) && mentions(pair.into))
+              !merges.every((pair) => saysName(pair.from) && saysName(pair.into))
             ) {
               resultLines.push((each) =>
                 translate(each, "answer.commands.merged", {
@@ -3578,10 +3594,9 @@ export function createAnswers(options: AnswersOptions) {
             }
           }
           // Said in either language, a line is said: a reply can copy an earlier Answer's, with
-          // straight quotes too (#2470).
-          const words = sameWords(reply);
+          // straight quotes too (#2252).
           const lines = [...resultLines, ...refusalLines()].filter(
-            (line) => !LANGUAGES.some((each) => words.includes(sameWords(line(each)))),
+            (line) => !LANGUAGES.some((each) => says(line(each))),
           );
           return lines.length === 0
             ? null

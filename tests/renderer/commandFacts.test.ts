@@ -424,10 +424,14 @@ describe("A refusal the reply says is said once (#2252)", () => {
     expect(repliesOnlyRefusals({ text: `${spending}${privacy}`, toolCalls })).toBe(true);
     expect(repliesOnlyRefusals({ text: `${privacy} I opened the lease.`, toolCalls })).toBe(false);
     expect(repliesOnlyRefusals({ text: "Opened it.", toolCalls: [opened] })).toBe(false);
-    // A model may straighten the sentence's quotes when copying it (#2470).
+    // A model may straighten the sentence's quotes when copying it (#2252).
     const straight = privacy.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
     expect(saidInReply(straight, "privacy", undefined)).toBe(true);
     expect(repliesOnlyRefusals({ text: straight, toolCalls: [refusal("privacy")] })).toBe(true);
+    // A near miss isn't the sentence, so the card says it.
+    expect(
+      saidInReply(straight.replace("this computer", "your computer"), "privacy", undefined),
+    ).toBe(false);
   });
 
   // protects=a Folder's wall refusal names its Folder in the reply as on the card; fails_when=the named sentence isn't known as said; no_claim=the Folder menu.

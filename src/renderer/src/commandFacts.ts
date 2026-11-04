@@ -103,7 +103,7 @@ export function refusalsOf(
 /**
  * Whether the reply already says this refusal's sentence, in either language, as the core writes
  * it after the reply (#2252): the card then shows only its button. A copy with straight quotes
- * counts (#2470).
+ * counts (#2252).
  */
 export const saidInReply = (text: string, what: Yours, folder: CommandDone["folder"]): boolean =>
   LANGUAGES.some((language) =>

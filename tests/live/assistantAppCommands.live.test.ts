@@ -26,7 +26,7 @@ import {
   type UserQuestionRequest,
   type WindowCommandRequest,
 } from "../../src/core";
-import type { Language } from "../../src/core/language";
+import { LANGUAGES, type Language } from "../../src/core/language";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import {
@@ -350,8 +350,10 @@ const refusedThen =
     expect(seen.answer.text.trim()).not.toBe("");
     const says = SAYS_REFUSED[what];
     if (says) expect(seen.answer.text).toMatch(says);
-    const said = sameWords(yoursLine(language, what));
-    expect(sameWords(seen.answer.text).split(said)).toHaveLength(2);
+    const words = sameWords(seen.answer.text);
+    const other = LANGUAGES.find((each) => each !== language) ?? "en";
+    expect(words.split(sameWords(yoursLine(language, what)))).toHaveLength(2);
+    expect(words.split(sameWords(yoursLine(other, what)))).toHaveLength(1);
   };
 
 /** "The budget", when two Documents have that name: it asks which one before opening either, not on a guess. */
