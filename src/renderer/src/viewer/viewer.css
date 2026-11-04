@@ -1131,13 +1131,15 @@
     box-shadow: var(--shadow-popover);
   }
   .annotations-panel-head {
-    @apply flex shrink-0 items-center gap-2 border-b border-rule px-3 py-2;
+    @apply grid shrink-0 items-center gap-x-1 gap-y-0.5 border-b border-rule px-3 py-2;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
   .annotations-panel-title {
-    @apply min-w-0 flex-1 truncate text-[13px] font-semibold text-ink;
+    @apply min-w-0 text-[13px] leading-4 font-semibold text-ink;
+    grid-column: 1 / -1;
   }
   .annotations-panel-count {
-    @apply shrink-0 text-[12px] text-ink-meta tabular-nums;
+    @apply min-w-0 text-[12px] leading-4 text-ink-meta tabular-nums;
   }
   .annotations-panel-empty,
   .annotations-panel-problem {
