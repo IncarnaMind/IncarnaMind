@@ -599,8 +599,8 @@ describe.skipIf(process.platform === "win32")("what a reply's numbers are not", 
   });
 
   test.each<[Language, string]>([
-    ["en", "Run `wc -l` for `30`, or see [30](http://x/30); the code counted 4 rows."],
-    ["zh-CN", "运行 `wc -l` 得到 `30`，或见 [30](http://x/30)；代码数出 4 行。"],
+    ["en", "Its code was `total = 30`, or see [30](http://x/30); the code counted 4 rows."],
+    ["zh-CN", "代码是 `total = 30`，或见 [30](http://x/30)；代码数出 4 行。"],
   ])("%s: code and links keep their numbers", async (language, reply) => {
     const { answer } = await answered(
       language,
@@ -608,27 +608,28 @@ describe.skipIf(process.platform === "win32")("what a reply's numbers are not", 
       () => reply,
     );
     expect(values(answer)).toEqual([4]);
-    expect(answer.text).toContain("`30`");
+    expect(answer.text).toContain("`total = 30`");
     expect(answer.text).toContain("[30](http://x/30)");
   });
 
   test.each<[Language, string]>([
-    ["en", "The total is 1,234.5 [=1] over 2 rows."],
-    ["zh-CN", "合计 1,234.5 [=1]，共 2 行。"],
+    ["en", "The total is 1,234.5 [=7] over 2 rows."],
+    ["zh-CN", "合计 1,234.5 [=7]，共 2 行。"],
   ])(
-    "%s: a number written before its own figure's marker is that figure",
+    "%s: a number written before a figure marker stays what the Answer wrote there",
     async (language, reply) => {
-      const { answer } = await answered(language, [pyodide], () => reply, {
-        analysis: printing("total 1234.5\nrows 2\n", {
-          results: [{ kind: "figure", name: "total", label: "Total", unit: null, value: 1234.5 }],
-        }),
-      });
-      expect(answer.figures.map((figure) => figure.analysis?.result)).toEqual([
-        "total",
-        "printed@18",
-      ]);
-      // The figure placement reads the typed number as its own figure's, written twice.
-      expect(answer.text).toContain("1,234.5 [=1]");
+      const { answer } = await answered(
+        language,
+        [bash("printf 'total 1234.5\\nrows 2\\n'")],
+        () => reply,
+      );
+      // The marker has no figure: the Answer's end counts it, with the number written before it.
+      expect(values(answer)).toEqual([2]);
+      expect(
+        answer.toolCalls
+          .flatMap((call) => call.uncalculatedFigures ?? [])
+          .map((each) => each.written),
+      ).toEqual(["1,234.5"]);
     },
   );
 
