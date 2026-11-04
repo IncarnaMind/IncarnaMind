@@ -2,8 +2,8 @@
  * A Note's figure written with a ledger side ("1,234.56元 DR") under a stated unit that reads it as
  * written ("单位：元") had a scale question beside its sign question, so its check marked it
  * unread. With the scale question gone (#2512) it asks the sign question alone: the model names
- * the reading and the figure gets a verdict. Each case checks one Note figure against its own
- * Document only. A figure whose side the Document contradicts must never be Supported. Runs only
+ * the reading and the figure gets a verdict. Each case checks its Note in a core that holds its
+ * own Document only. A figure whose side the Document contradicts must never be Supported. Runs only
  * with INCARNAMIND_LIVE_ANTHROPIC_KEY (the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku 5.5 by
  * default); INCARNAMIND_LIVE_REPORT keeps each case's reading, verdict and the spend.
  */
@@ -14,8 +14,11 @@ import { createAiSdkChatModel } from "../../src/core";
 import { createElement } from "../../src/core/answers/blocks";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind, writeMind } from "../helpers/minds";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -122,50 +125,57 @@ function noteFigures({ unit, sentence }: Case) {
 
 test.skipIf(KEY === undefined)(
   "a ledger figure asked its sign alone is never Supported against the other side",
-  { timeout: 900_000 },
+  { timeout: 1_800_000 },
   async () => {
-    const core = startCore(await createTempDataFolder(), {
-      createChatModel: createAiSdkChatModel,
-    });
-    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-    await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
-    const sources = await createTempDataFolder();
     const results = [];
+    const spent: unknown[] = [];
     for (const each of CASES) {
-      const figures = noteFigures(each);
-      expect(figures.map((figure) => figure.reading.ambiguous.map((one) => one.kind))).toEqual([
-        ["sign"],
-      ]);
-      const path = await writeSourceFile(sources, each.document.name, each.document.contents);
-      const [document] = await addAndProcess(core, [path]);
-      const result = await core.checkClaim({
-        claim: each.sentence,
-        figures,
-        context: `${each.unit}${each.sentence}`,
-        scope: { folderIds: [], tagIds: [], documentIds: [document?.id ?? ""] },
+      expect(
+        noteFigures(each).map((figure) => figure.reading.ambiguous.map((one) => one.kind)),
+      ).toEqual([["sign"]]);
+      // Its own core, so the Note's check searches this case's Document alone.
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: createAiSdkChatModel,
       });
-      const figure = result.figures?.[0];
+      core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+      await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
+      const sources = await createTempDataFolder();
+      await addAndProcess(core, [
+        await writeSourceFile(sources, each.document.name, each.document.contents),
+      ]);
+      const mind = await core.createMind({ title: each.name });
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [
+        { type: "paragraph", content: [{ type: "text", text: `${each.unit}${each.sentence}` }] },
+      ]);
+      await client.settled();
+      await core.checkMind({ requestId: each.name, mindId: mind.id, mode: "all" });
+      await client.settled();
+      const checked = claimSpans(readMind(client)).find(({ sentence }) =>
+        sentence.text.includes(each.sentence.trim().slice(0, 12)),
+      );
+      const figure = checked?.check.figures?.[0];
       results.push({
         case: each.name,
         agrees: each.agrees,
-        verdict: result.verdict,
-        figureVerdict: figure?.result.verdict ?? null,
-        reason: figure?.result.verdict === "not-checked" ? figure.result.reason : null,
+        sentence: checked?.check.state ?? "missing",
+        figure: figure?.state ?? null,
+        reason: figure?.reason ?? null,
         reading: figure?.reading.value ?? null,
         source: figure?.sourceInput?.number.value ?? null,
         quote: figure?.sourceInput?.citation.quote ?? null,
         deciding: each.deciding,
       });
+      spent.push(...(await core.getCostSummary()).spent);
     }
-    const { spent } = await core.getCostSummary();
     if (process.env.INCARNAMIND_LIVE_REPORT)
       await appendFile(
         process.env.INCARNAMIND_LIVE_REPORT,
         `${JSON.stringify({ model: MODEL, results, spent }, null, 2)}\n`,
       );
     for (const each of results.filter((one) => !one.agrees)) {
-      expect(each.figureVerdict, each.case).not.toBe("supported");
-      expect(each.verdict, each.case).not.toBe("supported");
+      expect(each.figure, each.case).not.toBe("supported");
+      expect(each.sentence, each.case).not.toBe("supported");
     }
   },
 );
