@@ -1,19 +1,8 @@
 /**
- * A number an Answer types that its Analyses' code printed (#2351) becomes the figure it is:
- * calculated by code and not checked, as a `result()` figure is, never a recalculated one. The
- * model reads what code prints and copies its numbers, and the model never types a number
- * (ADR-0025 decision 3). The Answer reads the same: the number's own characters are the
- * figure's shown text, and one that would read differently as a figure stays as it is.
- *
- * A number matches a printed one as the figure check matches a sentence's number to a
- * calculated figure (./checks/calculated): the same unit, scale, percent and sign, at the
- * Answer's own rounding, so "12.3" is the 12.345 code printed. A whole number written plainly
- * matches only the same number printed: rounded to a whole, every count and id in a reply would
- * match a printed decimal. Where the printed numbers it matches differ, one printed exactly as
- * written decides; else it matches none. A number its sentence's Citation quotes is the
- * Citation's, one a `figure()` figure whose cells came to another number also matches is never
- * made a figure, and one that matches nothing stays as typed, for the checks every typed number
- * goes through.
+ * A number an Answer types that its Analyses' code printed becomes the figure it is, calculated
+ * by code and not checked (#2351, ADR-0025 decision 3): models copy what code prints. It matches
+ * as the figure check matches a sentence's number to a calculated figure, and the Answer reads
+ * the same, the number's own characters being the figure's shown text.
  */
 import { ANALYSIS_LIMITS } from "../../shared/analysis";
 import { FENCE, paragraphsOf } from "../../shared/answerSentences";
@@ -26,12 +15,15 @@ import type { AnswerAnalysis, CalculatedFigure } from "../api";
 import type { Language } from "../language";
 import { agreesAtShownPrecision } from "./checks/calculated";
 
-/** Lines that hold no figure of the Answer's own: headings, footnote definitions and rules. */
-const SKIPPED_LINE = /^\s*(?:#{1,6}\s|\[\^\d{1,4}\]:|(?:-{3,}|\*{3,}|_{3,})\s*$)/;
+/** A heading names what follows: its numbers are no figures of the Answer's own. */
+const HEADING = /^\s*#{1,6}\s/;
 const MATH_FENCE = /^\s*\$\$\s*$/;
-/** What a number inside is no figure the Answer gives: code, markers, links and addresses. */
+/**
+ * What a number inside is no figure the Answer gives: code, markers, links and addresses; and
+ * scientific notation ("1.5e+10"), which the figure reader would read as two numbers.
+ */
 const NOT_PROSE =
-  /`[^`\n]*`|\[\^\d{1,4}\]|\[=[^\]\n]*\]|\[[^\]\n]*\](?:\([^)\n]*\)|\[[^\]\n]*\])|<[^>\n]*>|\bhttps?:\/\/\S+/g;
+  /`[^`\n]*`|\[\^\d{1,4}\]|\[=[^\]\n]*\]|\[[^\]\n]*\](?:\([^)\n]*\)|\[[^\]\n]*\])|<[^>\n]*>|\bhttps?:\/\/\S+|\d[\d.]*[eE][+-]?\d+/g;
 const CITATION = /\[\^(\d{1,4})\]/g;
 const FIGURE_MARKER = /\[=(\d{1,4})\]/g;
 /** Emphasis around a number, which a footnote mark's reading would take in: "**12.3**". */
@@ -40,8 +32,6 @@ const WORD = /[\p{L}\p{N}_/.-]+/gu;
 const FIGURE_AFTER = /^\s*\[=\d{1,4}\]/;
 /** Stands for the figure being tried while its text is compared: no figure has it. */
 const TRIED = 0;
-const PLAIN = { kind: "plain" } as const;
-const PERCENT = { kind: "percent" } as const;
 
 interface Candidate extends PrintedValue {
   analysis: number;
@@ -78,7 +68,7 @@ function proseFigures(text: string, language: Language): Figure[] {
     const mathFence = !fenced && MATH_FENCE.test(line);
     if (fence) fenced = !fenced;
     if (mathFence) math = !math;
-    if (fence || mathFence || fenced || math || SKIPPED_LINE.test(line)) return;
+    if (fence || mathFence || fenced || math || HEADING.test(line)) return;
     table = tableStart(lines, at)
       ? "head"
       : table === "head"
@@ -99,23 +89,25 @@ function proseFigures(text: string, language: Language): Figure[] {
   return found;
 }
 
-/** The sentence or table cell `at` is in: what a Citation beside it cites. */
+/** The sentence or table row `at` is in: what a Citation beside it cites. */
 function claimAround(text: string, sentences: readonly Span[], at: number): Span {
   const sentence = sentences.find((span) => span.start <= at && at < span.end);
   if (sentence) return sentence;
   const from = text.lastIndexOf("\n", at - 1) + 1;
   const to = text.indexOf("\n", at);
-  const line = text.slice(from, to < 0 ? undefined : to);
-  const cell = tableCellRanges(line).find(
-    (span) => from + span.start <= at && at < from + span.end,
-  );
-  return cell
-    ? { start: from + cell.start, end: from + cell.end }
-    : { start: from, end: from + line.length };
+  return { start: from, end: to < 0 ? text.length : to };
 }
 
+const significantDigits = (value: number) =>
+  String(Math.abs(Math.round(value))).replace(/0+$/, "").length;
+
+// "about 40" or "below 100" is as loose as its zeros: rounded that far, a count or a threshold
+// would match some printed decimal ("mean 41.6", "74.5").
 const wholeAsWritten = (stated: Figure) =>
-  stated.decimals === 0 && !stated.approximate && stated.rangeTo === null && !stated.scaleWord;
+  stated.decimals === 0 &&
+  stated.rangeTo === null &&
+  !stated.scaleWord &&
+  (!stated.approximate || significantDigits(stated.value) <= 2);
 
 function agrees(stated: Figure, reading: Pick<Figure, "value" | "unit">): boolean {
   if (wholeAsWritten(stated) && !sameNumber(reading.value, stated.value)) return false;
@@ -234,7 +226,7 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
       (analysis.recalculations ?? []).flatMap(({ result, check }) => {
         const figure = analysis.output.results.find((each) => each.name === result);
         if (check.kind !== "differs" || figure?.kind !== "figure") return [];
-        return [{ value: figure.value, unit: figure.unit === "%" ? PERCENT : PLAIN }];
+        return [figure.value];
       }),
     );
     // A marker the model wrote with no figure stays one: a printed figure never takes its number.
@@ -261,7 +253,10 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
       if (stated.ambiguous.length > 0 || FIGURE_AFTER.test(text.slice(stated.end))) continue;
       if (cited(stated, claimAround(text, sentences, stated.start))) continue;
       // At the reply's own rounding even for a whole number: a mismatch is never shown as a figure.
-      if (refused.some((value) => agreesAtShownPrecision(stated, asCalculated(value)))) continue;
+      // In the stated number's own unit: a figure()'s unit is the code's word for it ("%", "percent").
+      const refuses = (value: number) =>
+        agreesAtShownPrecision(stated, asCalculated({ value, unit: stated.unit }));
+      if (refused.some(refuses)) continue;
       const group = matched(stated, groups);
       const from = marked.lastIndexOf("\n", stated.start - 1) + 1;
       const to = marked.indexOf("\n", stated.end);

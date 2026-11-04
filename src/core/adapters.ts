@@ -955,7 +955,8 @@ export interface CoreAdapters {
   codeRuntime?: CodeHost;
   /**
    * Facts laid over every source's for a model, `provider` as the catalog names it: a test's, to
-   * turn on a Tool the catalog offers no model yet (`codeTool`, #2351). The app passes none.
+   * turn on a Tool for a model the catalog doesn't offer it to (`codeTool`, #2351). The app passes
+   * none.
    */
   modelFacts?(provider: string, modelId: string): ModelFactsLayer | undefined;
   /**

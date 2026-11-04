@@ -452,3 +452,223 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
     ]);
   });
 });
+
+/** A Pyodide Analysis over the sales sheet, which gives `analysis`. */
+const pyodide: Call = (passage) => ({
+  tool: "run_analysis",
+  input: {
+    title: "Revenue",
+    inputs: [{ name: "sales", passage: passage("sales") }],
+    code: "pass",
+  },
+});
+
+const printing = (printed: string, results: FakeAnswer["output"] = {}): FakeAnswer => ({
+  output: { ...noAnalysisOutput(), printed, ...results },
+});
+
+const values = (answer: ConversationAnswer) => answer.figures.map((figure) => figure.value);
+
+describe.skipIf(process.platform === "win32")("numbers code never printed, in the Answer", () => {
+  test.each<[Language, string]>([
+    ["en", "The total is 12,345 over 7 rows."],
+    ["zh-CN", "合计 12,345，共 7 行。"],
+  ])(
+    "%s: a number cut where the printed output ends was never printed",
+    async (language, reply) => {
+      const { answer } = await answered(
+        language,
+        [
+          bash(
+            "printf 'rows 7\\n'; head -c 19987 /dev/zero | tr '\\\\0' x; printf ' 1234567.89\\n'",
+          ),
+        ],
+        () => reply,
+      );
+      expect(answer.analyses[0]?.output.printed.endsWith(" 12345")).toBe(true);
+      expect(values(answer)).toEqual([7]);
+      expect(answer.text).toContain("12,345");
+    },
+  );
+
+  test.each<[Language, string]>([
+    ["en", "The file's total is 12,345 over 7 rows."],
+    ["zh-CN", "文件合计 12,345，共 7 行。"],
+  ])(
+    "%s: a number cut where an out/ file's preview ends was never printed",
+    async (language, reply) => {
+      const { answer } = await answered(
+        language,
+        [
+          bash(
+            "mkdir -p out; { head -c 1994 /dev/zero | tr '\\\\0' x; printf ' 1234567.89\\n'; } > out/t.txt; printf 'rows 7\\n'",
+          ),
+        ],
+        () => reply,
+      );
+      expect(answer.analyses[0]?.outFiles?.files[0]?.text?.endsWith(" 12345")).toBe(true);
+      expect(values(answer)).toEqual([7]);
+    },
+  );
+
+  test.each<[Language, string, string]>([
+    ["en", "%", "The share is 99.9% of 2 rows."],
+    ["en", "percent", "The share is 99.9% of 2 rows."],
+    ["zh-CN", "%", "占比 99.9%，共 2 行。"],
+    ["zh-CN", "percent", "占比 99.9%，共 2 行。"],
+  ])(
+    "%s: a printed copy of a figure() in %s whose cells differ is refused",
+    async (language, unit, reply) => {
+      const { answer } = await answered(language, [pyodide], () => reply, {
+        analysis: printing("share 99.9%\nrows 2\n", {
+          results: [
+            {
+              kind: "figure",
+              name: "share",
+              label: "Share",
+              unit,
+              value: 0.999,
+              of: { input: "sales", columns: ["Revenue"], rows: [[2, 3]], count: 2, how: "mean" },
+            },
+          ],
+        }),
+      });
+      expect(answer.analyses[0]?.recalculations?.[0]?.check.kind).toBe("differs");
+      expect(values(answer)).toEqual([2]);
+      expect(answer.text).toContain("99.9%");
+    },
+  );
+
+  test.each<[Language, string]>([
+    ["en", "The 3 largest regions are North, South and East; West has 42.7."],
+    ["zh-CN", "收入最高的 3 个地区是北区、南区和东区；西区为 42.7。"],
+  ])("%s: a printed table's index is no number of the code's", async (language, reply) => {
+    const { answer } = await answered(
+      language,
+      [
+        bash(
+          "printf '  region  amount\\n0  North  1234.5\\n1  South  567.2\\n2  East  88.1\\n3  West  42.7\\n'",
+        ),
+      ],
+      () => reply,
+    );
+    expect(values(answer)).toEqual([42.7]);
+  });
+
+  test.each<[Language, string]>([
+    ["en", "The scale is 1.5e+10 over 10 rows."],
+    ["zh-CN", "规模为 1.5e+10，共 10 行。"],
+  ])("%s: a number in scientific notation in the reply is one number", async (language, reply) => {
+    const { answer } = await answered(
+      language,
+      [bash("printf 'scale %s\\nrows %s\\n' 1.5e+10 10")],
+      () => reply,
+    );
+    expect(values(answer)).toEqual([10]);
+    expect(answer.text).toContain("1.5e+10");
+    expect(readText(answerBlocks(answer))).toBe(reply);
+  });
+
+  test.each<[Language, string]>([
+    ["en", "Orders below 100 average about 635, and roughly 40 customers churned."],
+    ["zh-CN", "低于 100 的订单平均约 635，约 40 位客户流失。"],
+  ])(
+    "%s: an approximate number as loose as its zeros matches only itself",
+    async (language, reply) => {
+      const { answer } = await answered(
+        language,
+        [bash("printf 'small %s\\nmean %s\\nchurn %s\\n' 74.5 634.5 41.6")],
+        () => reply,
+      );
+      expect(values(answer)).toEqual([634.5]);
+    },
+  );
+});
+
+describe.skipIf(process.platform === "win32")("what a reply's numbers are not", () => {
+  test.each<[Language, string]>([
+    ["en", "| Total of 3 runs | Value |\n| --- | --- |\n| North | 1,234.5 |"],
+    ["zh-CN", "| 3 次运行合计 | 数值 |\n| --- | --- |\n| 北区 | 1,234.5 |"],
+  ])("%s: a table's headings name its columns", async (language, reply) => {
+    const { answer } = await answered(
+      language,
+      [bash("printf 'runs 3\\nNorth 1234.5\\n'")],
+      () => reply,
+    );
+    expect(values(answer)).toEqual([1234.5]);
+  });
+
+  test.each<[Language, string]>([
+    ["en", "Run `wc -l` for `30`, or see [30](http://x/30); the code counted 4 rows."],
+    ["zh-CN", "运行 `wc -l` 得到 `30`，或见 [30](http://x/30)；代码数出 4 行。"],
+  ])("%s: code and links keep their numbers", async (language, reply) => {
+    const { answer } = await answered(
+      language,
+      [bash("printf 'count 30\\nrows 4\\n'")],
+      () => reply,
+    );
+    expect(values(answer)).toEqual([4]);
+    expect(answer.text).toContain("`30`");
+    expect(answer.text).toContain("[30](http://x/30)");
+  });
+
+  test.each<[Language, string]>([
+    ["en", "The total is 1,234.5 [=1] over 2 rows."],
+    ["zh-CN", "合计 1,234.5 [=1]，共 2 行。"],
+  ])(
+    "%s: a number written before its own figure's marker is that figure",
+    async (language, reply) => {
+      const { answer } = await answered(language, [pyodide], () => reply, {
+        analysis: printing("total 1234.5\nrows 2\n", {
+          results: [{ kind: "figure", name: "total", label: "Total", unit: null, value: 1234.5 }],
+        }),
+      });
+      expect(answer.figures.map((figure) => figure.analysis?.result)).toEqual([
+        "total",
+        "printed@18",
+      ]);
+      // The figure placement reads the typed number as its own figure's, written twice.
+      expect(answer.text).toContain("1,234.5 [=1]");
+    },
+  );
+
+  test.each<[Language, string]>([
+    ["en", "## 3 findings\n\nThe code found 3 issues in 5 rows."],
+    ["zh-CN", "## 3 项发现\n\n代码在 5 行中发现 3 个问题。"],
+  ])("%s: a heading names what follows", async (language, reply) => {
+    const { answer } = await answered(
+      language,
+      [bash("printf 'found 3\\nrows 5\\n'")],
+      () => reply,
+    );
+    expect(answer.text.split("\n")[0]).not.toContain("[=");
+    expect(answer.text.match(/\[=\d+\]/g)).toHaveLength(2);
+  });
+
+  test.each<[Language, string]>([
+    ["en", "The values are"],
+    ["zh-CN", "数值为"],
+  ])(
+    "%s: the cap on a run's printed figures counts its own result() figures",
+    async (language, lead) => {
+      const printed = Array.from({ length: 100 }, (_, at) => 1001 + at);
+      const { answer } = await answered(
+        language,
+        [pyodide],
+        () => `${lead} ${printed.join("; ")}.`,
+        {
+          analysis: printing(`${printed.join("\n")}\n`, {
+            results: Array.from({ length: 10 }, (_, at) => ({
+              kind: "figure" as const,
+              name: `r${at}`,
+              label: `Result ${at}`,
+              unit: null,
+              value: 0.5 + at,
+            })),
+          }),
+        },
+      );
+      expect(answer.figures).toHaveLength(90);
+    },
+  );
+});
