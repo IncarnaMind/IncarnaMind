@@ -1876,22 +1876,24 @@
       visibility: hidden;
     }
   }
-  /* The run's words take Check's row; the hidden Check keeps the row's height under them, and
-     every wording a run can show keeps its room in that row (#2313). */
+  /* The run's words take Check's row: they lie over the hidden Check, to its left, so the row
+     keeps the Check's own size and the words' length never moves it (#2313). */
   .check-card-press {
-    display: grid;
-    justify-items: end;
+    position: relative;
+    display: flex;
+    align-items: center;
     margin-left: auto;
 
-    & > * {
-      grid-area: 1 / 1;
-    }
     & > [data-hidden] {
       visibility: hidden;
     }
   }
   .check-card-progress {
-    align-self: center;
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    flex-wrap: nowrap;
     font-variant-numeric: tabular-nums;
     margin: 0;
     padding-left: 0;

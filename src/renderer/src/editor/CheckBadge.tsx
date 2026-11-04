@@ -233,14 +233,6 @@ export function CheckActions({
   }, [estimate, running]);
   const price = estimate ?? lastPrice;
   const priceShown = estimate !== null && !running;
-  // Every wording a run can show keeps its room in Check's row, so the finding step and a longer
-  // wording never move the foot; the row's Check button keeps the row's height under the line.
-  const runWords = [
-    t("verify.finding"),
-    t("checks.running.check-against-documents"),
-    t("checks.running.check-against-document"),
-    t("checks.running.contradiction-watch"),
-  ];
   // The press disables Check and focus falls away: it goes to Stop, so a keyboard User can stop
   // the run, and back to Check when the run ends.
   const checkPress = useRef<HTMLButtonElement>(null);
@@ -336,21 +328,6 @@ export function CheckActions({
               ]}
             />
           )}
-          {runWords.map((words) => (
-            <MetaLine
-              key={words}
-              as="div"
-              className="check-card-progress"
-              data-hidden=""
-              aria-hidden="true"
-              parts={[
-                words,
-                <span key="stop" className="check-badge-stop">
-                  {t("checks.stop")}
-                </span>,
-              ]}
-            />
-          ))}
         </div>
       </div>
     </>
