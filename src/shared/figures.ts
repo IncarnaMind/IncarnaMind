@@ -2266,10 +2266,13 @@ const SIGN_BEFORE =
 const NEGATIVE_WORD =
   /(?<![A-Za-z])(?:minus|negative(?! pledge))(?![A-Za-z])|(?<!自)负(?![责担债面])/i;
 /**
- * A sentence's end, which a sign word before it doesn't reach past. A comma is none ("a negative
- * balance, after all adjustments, of …"), nor the stop inside a number or after one letter ("U.S.").
+ * A sentence's end, which a sign word before it doesn't reach past: a stop before a capital or a
+ * Chinese character, a semicolon or 。. A comma is none ("a negative balance, after all adjustments,
+ * of …"), nor a stop inside a number, after one letter ("U.S."), after a title ("Mr."), or before
+ * a lowercase word or a bracket ("Acme Inc. was", "approx. ninety", "(see Note 5.)").
  */
-const CLAUSE_MARK = /(?<!\b[A-Za-z])(?:(?<!\d)\.|\.(?!\d))|[;；。]/g;
+const CLAUSE_MARK =
+  /(?<!\b[A-Za-z]|\b(?:Mrs?|Ms|Dr))\.(?=[ \u00a0]+[A-Z]|\p{Script=Han})|[;；。]/gu;
 
 /** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …", a table's "Less" cell. */
 const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*(?:[:：]|\t|\|)/i;
