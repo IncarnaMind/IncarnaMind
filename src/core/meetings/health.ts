@@ -174,7 +174,7 @@ export function createCaptureHealth(options: CaptureHealthOptions) {
       });
     },
 
-    /** The Meeting's Mind was deleted: its record goes with it. */
+    /** The Meeting is gone for good: its record goes with it. */
     forget(meetingId: string): void {
       kept.delete(meetingId);
       rmSync(pathOf(meetingId), { force: true });

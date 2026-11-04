@@ -400,6 +400,7 @@ test("turning embeddings on files nothing: a Document added before the first Fol
       await core.saveLibrarySettings({
         classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "main-chat" } },
         automatic: true,
+        turnOn: true,
       });
     });
     await window.evaluate(() => {
@@ -602,6 +603,7 @@ test("a Document waiting for Ollama says why in the interface language, in its i
       core.saveLibrarySettings({
         classifier: { kind: "auto", baseUrl: "http://127.0.0.1:9" },
         automatic: true,
+        turnOn: true,
       }),
     );
     await window.evaluate(async () =>
@@ -816,6 +818,7 @@ test("organized folders remain separate from source locations and follow changes
           choice: { providerId: provider.id, modelId: "small-classifier" },
         },
         automatic: true,
+        turnOn: true,
       });
       await core.addLinkedFolder(sources);
     }, sources);
@@ -1092,6 +1095,7 @@ test("a scan with no text waits for its page images to be allowed with a cloud m
           choice: { providerId: provider.id, modelId: "claude-sonnet-5-5" },
         },
         automatic: true,
+        turnOn: true,
       });
     });
     const scan = join(sources, "Scanned receipt.pdf");

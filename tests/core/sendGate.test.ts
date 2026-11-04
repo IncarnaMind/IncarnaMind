@@ -8,7 +8,7 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import type { Consent } from "../../src/core/consent";
-import { LocalModeError } from "../../src/core/errors";
+import { ConsentNeededError, LocalModeError } from "../../src/core/errors";
 import { createSendGate } from "../../src/core/sendGate";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, startCore } from "../helpers/core";
@@ -153,6 +153,35 @@ describe("Turning off the chat flow while an Answer is written (#1114)", () => {
 
     expect(await answerEnded(core, asked.answerId)).toMatchObject({ event: "finished" });
     expect(model.doStreamCalls).toHaveLength(2);
+  });
+});
+
+describe("A run permit at the gate", () => {
+  const prompt = [{ role: "user" as const, content: [{ type: "text" as const, text: "Hi" }] }];
+  const declined = {
+    onThisComputer: () => false,
+    allows: () => false,
+    dataFlow: () => ({ id: "classification", service: { id: OPENAI, name: "OpenAI" }, sends: [] }),
+    isBackground: () => true,
+  } as unknown as Consent;
+  const anthropic = { id: "https://api.anthropic.com", name: "Anthropic" };
+
+  test("a permit for one service never sends to another", async () => {
+    const gate = createSendGate(declined, () => false);
+    const model = replyingModel();
+    const foreign = gate.model(model, "classification", anthropic, {
+      flow: "classification",
+      serviceId: OPENAI,
+    });
+    await expect(foreign.doGenerate({ prompt })).rejects.toThrow(ConsentNeededError);
+    expect(model.doGenerateCalls).toHaveLength(0);
+
+    const matching = gate.model(model, "classification", anthropic, {
+      flow: "classification",
+      serviceId: anthropic.id,
+    });
+    await matching.doGenerate({ prompt });
+    expect(model.doGenerateCalls).toHaveLength(1);
   });
 });
 

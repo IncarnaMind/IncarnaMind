@@ -1,9 +1,17 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { describe, expect, test } from "vitest";
 import type { RecognizedLine } from "../../src/core";
 import { stripBoilerplate } from "../../src/core/documents/boilerplate";
 import { convexHull, minAreaRect, textBoxes } from "../../src/core/documents/scan/detect";
-import { readingOrder, scannedUnit, unsureWords } from "../../src/core/documents/scan/layout";
+import {
+  mixedNumberWord,
+  readingOrder,
+  scannedUnit,
+  unsureSpansIn,
+  unsureWords,
+} from "../../src/core/documents/scan/layout";
 import { onnxMetadata } from "../../src/core/documents/scan/onnxMetadata";
 import { pictureShare } from "../../src/core/documents/scan/pages";
 import { decodeLine, lineFrame } from "../../src/core/documents/scan/recognize";
@@ -147,6 +155,173 @@ describe("Reading a scanned page's lines (#397)", () => {
     const second = chinese.characters[1];
     if (second) second.confidence = 0.3;
     expect(unsureWords(chinese)).toEqual([[1, 2]]);
+  });
+
+  test("a number-shaped word mixing digits with letters or stray marks is always unsure, whatever the score (#535)", () => {
+    for (const word of [
+      "2o25",
+      "7a;45o",
+      "1O%",
+      "l2,000",
+      "3S.6",
+      "74;450",
+      "1O0",
+      "(6O)",
+      "1o.",
+      "1T5",
+      "8D0",
+      "1q9",
+      "6E0",
+      "4H0",
+      "１T５",
+      "3H25",
+      "2024H3",
+      "5Q99",
+      "1e6x",
+    ]) {
+      const read = line(word, [0, 0, 100, 10]);
+      expect(unsureWords(read), word).toEqual([[0, word.length]]);
+    }
+    // Codes, ordinals, and numbers whose letters follow their digits as a unit or
+    // scale does, follow the recognizer's score: sure here, unsure of at 0.4.
+    for (const word of [
+      "Q3",
+      "A4",
+      "H2O",
+      "FY2025",
+      "No.7",
+      "1st",
+      "2nd",
+      "5bn",
+      "2.5bn",
+      "10bps",
+      "1990s",
+      "10am",
+      "50kg",
+      "100ml",
+      "4GB",
+      "5G",
+      "12b",
+      "9.Termination",
+      "10bps-20bps",
+      "10am-12pm",
+      "1990s-2000s",
+      "3Q24",
+      "1H25",
+      "2H24",
+      "2024Q3",
+      "2024H2",
+      "4x4",
+      "1e6",
+      "10:30",
+      "１０：３０",
+      "01/03/2024",
+      "2024/3/1",
+      "1/2",
+      "24/7",
+      "3:1",
+      "3×4",
+      "10:30am",
+      "3:30pm",
+      "1/2kg",
+      "3x4m",
+      "3/4ths",
+      "10h30",
+    ]) {
+      expect(unsureWords(line(word, [0, 0, 100, 10])), word).toEqual([]);
+      expect(unsureWords(line(word, [0, 0, 100, 10], 0.4)), word).toEqual([[0, word.length]]);
+    }
+  });
+
+  test("a page read before the word-shape rule still marks its misread numbers, once each (#535)", () => {
+    const read = scannedUnit(
+      1,
+      [line("The gauge read 2o25 on 14 May.", [100, 120, 600, 150])],
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    // As an older reader left it: its label holds no unsure words, and the shape still says so.
+    const page: TextUnit = { ...read, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    expect(page.label?.scan?.unsure).toBeUndefined();
+    expect(unsureSpansIn(page).map(([from, to]) => page.text.slice(from, to))).toEqual(["2o25"]);
+    // A word stored as unsure, and one the shape finds, are both returned, once.
+    const stored = {
+      ...page,
+      label: { scan: { reader: "PP-OCRv5 mobile/1", unsure: [[0, 3]] as [number, number][] } },
+    };
+    expect(unsureSpansIn(stored).map(([from, to]) => page.text.slice(from, to))).toEqual([
+      "The",
+      "2o25",
+    ]);
+  });
+
+  test("on the scan fixtures only the real misreads are doubtful (#535)", () => {
+    const read = JSON.parse(
+      readFileSync(join(import.meta.dirname, "../fixtures/scans/read.json"), "utf8"),
+    ) as { pages: Record<string, { lines: { text: string }[] }> };
+    const doubtful = Object.values(read.pages).flatMap((page) =>
+      page.lines.flatMap((line) => line.text.split(/\s+/u)).filter((word) => mixedNumberWord(word)),
+    );
+    expect(doubtful).toEqual(["(6O)", "1o."]);
+  });
+
+  test("an everyday number shape on a clean finance scan follows the score (#535)", () => {
+    const finance = [
+      "Trading opened at 10:30 on 01/03/2024 and closed at 15:45.",
+      "The ratio was 3:1 and the split 1/2 of 3×4 units.",
+      "The review on 2024/3/1 kept a 24/7 shift.",
+      "Revenue rose 1万2千 and costs 3亿5000万.",
+      "The shift starts at 10:30am, ends at 3:30pm, with 1/2kg loads on a 3x4m deck.",
+      "About 3/4ths of it moves in 10h30.",
+    ];
+    const page = scannedUnit(
+      1,
+      finance.map((text, index) => line(text, [100, 100 + index * 30, 900, 120 + index * 30])),
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    const clean: TextUnit = { ...page, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    expect(unsureSpansIn(clean)).toEqual([]);
+  });
+
+  test("a Chinese numeral between a number's digits is a digit the scan may have misread (#535)", () => {
+    expect(mixedNumberWord("2〇25")).toBe(true);
+    expect(mixedNumberWord("2一5")).toBe(true);
+    expect(mixedNumberWord("第2二阶段")).toBe(false);
+  });
+
+  test("a Chinese line's numbers are judged on their own, so clean ones stay sure and a misread one is found (#535)", () => {
+    const clean = scannedUnit(
+      1,
+      [line("2025年3月，租金调整为74,450元。", [100, 120, 600, 150])],
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    const cleanPage: TextUnit = { ...clean, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    expect(unsureSpansIn(cleanPage)).toEqual([]);
+    const old = scannedUnit(
+      1,
+      [line("租金为2o25元。", [100, 120, 600, 150])],
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    const oldPage: TextUnit = { ...old, label: { scan: { reader: "PP-OCRv5 mobile/1" } } };
+    expect(unsureSpansIn(oldPage).map(([from, to]) => oldPage.text.slice(from, to))).toEqual([
+      "2o25",
+    ]);
+    const numeral = scannedUnit(
+      1,
+      [line("租金为2〇25元。", [100, 120, 600, 150])],
+      { width: 1000, height: 2000 },
+      "PP-OCRv5 mobile/1",
+    );
+    const numeralPage: TextUnit = {
+      ...numeral,
+      label: { scan: { reader: "PP-OCRv5 mobile/1" } },
+    };
+    expect(
+      unsureSpansIn(numeralPage).map(([from, to]) => numeralPage.text.slice(from, to)),
+    ).toEqual(["2〇25"]);
   });
 
   test("taking a running header off a scanned page keeps its anchors and unsure words in step", () => {

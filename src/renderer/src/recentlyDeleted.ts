@@ -1,11 +1,14 @@
 import { create } from "zustand";
-import type { DeletedItem } from "../../core/api";
+import type { DeletedItem, LibrarySnapshot, RestoreResult } from "../../core/api";
+import { expiredKey } from "./changes";
 import { core } from "./core";
+import { folderPathLabel } from "./folders";
 import { languageNow, translateNow as t } from "./i18n";
 import type { Words, WordsInLine } from "./lineNames";
 import { formatCount } from "./linkedFolders";
 import { useAppStore } from "./store";
 import { sayWhileSlow, useUndo } from "./undo";
+import { wallLines } from "./walls";
 
 /**
  * Recently deleted (CONTEXT.md) as the Library shows it: what the core lists,
@@ -47,37 +50,104 @@ async function deleteAgain(items: readonly DeletedItem[]): Promise<void> {
   await core.deleteAgain(items.map(({ kind, id, deletedAt }) => ({ kind, id, deletedAt })));
 }
 
-/** What the undo line says a restore did: where one item went back to, if it was in a Folder still there. */
-function restoredMessage(items: readonly DeletedItem[]): WordsInLine {
+/**
+ * What the undo line says a restore did: where one item went back to, if it was in a Folder still
+ * there, and when a Meeting came back without its audio, and why (#1253), as `audio` says.
+ */
+function restoredMessage(items: readonly DeletedItem[], audio: () => RestoreResult): WordsInLine {
+  const without = () => {
+    const { audioLost, audioExpired } = audio();
+    return audioLost.length > 0 ? "lost" : audioExpired.length > 0 ? "expired" : null;
+  };
+  const expiredOf = () => audio().audioExpired[0];
   const [only] = items;
-  if (!only || items.length > 1)
-    return (t) => t("object.restored.count", { count: formatCount(items.length, languageNow()) });
+  if (!only || items.length > 1) {
+    return (t) => {
+      const count = formatCount(items.length, languageNow());
+      const why = without();
+      return t(
+        why === "lost"
+          ? "meetings.audio.someNotRestored"
+          : why === "expired"
+            ? "meetings.audio.someExpired"
+            : "object.restored.count",
+        { count },
+      );
+    };
+  }
   const folder = useAppStore.getState().library?.groups.find((group) => group.id === only.groupId);
   return (t) => {
     const name = deletedName(only);
+    const why = without();
+    if (why === "lost") return t("meetings.audio.notRestored", { name });
+    const expired = expiredOf();
+    if (expired) return t(expiredKey(expired), { name });
     return folder
       ? t("object.restoredTo", { name, folder: folder.name })
       : t("object.restored", { name });
   };
 }
 
+/** The walled Folder `id` is behind, by the path Move to… shows, reading Recently deleted too. */
+function wallIn(library: LibrarySnapshot | null | undefined, id: string): string | null {
+  if (!library) return null;
+  const folders = [...library.groups, ...library.deletedGroups];
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const seen = new Set<string>();
+  let at: string | null = id;
+  let wall: string | null = null;
+  while (at !== null && !seen.has(at)) {
+    seen.add(at);
+    const folder = byId.get(at);
+    if (!folder) return null;
+    if (folder.keepInside) {
+      wall = folder.id;
+      break;
+    }
+    at = folder.parentId;
+  }
+  // A Folder that keeps its own work inside it is still behind itself at the top level: nothing left.
+  return wall === null || wall === id ? null : folderPathLabel(folders, wall);
+}
+
 /** Puts each back where it was, and says so; Undo deletes them again. */
 export async function restoreItems(items: readonly DeletedItem[]): Promise<void> {
   if (items.length === 0) return;
+  // A Folder restored to the top level, its parent still in Recently deleted, may leave a wall.
+  const wallsBefore = new Map(
+    items.flatMap((item) =>
+      item.kind === "folder"
+        ? [[item.id, wallIn(useAppStore.getState().library, item.id)] as const]
+        : [],
+    ),
+  );
+  const leftWalls = (result: RestoreResult) => [
+    ...new Set(
+      (result.toTopLevel ?? []).flatMap((id) => {
+        const wall = wallsBefore.get(id);
+        return wall ? [wall] : [];
+      }),
+    ),
+  ];
   const count = () => formatCount(items.length, languageNow());
   const slow = (said: Words, work: () => Promise<void>) =>
     items.length > 1 ? sayWhileSlow(said, work) : work();
+  let audio: RestoreResult = { audioLost: [], audioExpired: [] };
   const restore = () =>
     slow(
       (t) => t("object.restoring.count", { count: count() }),
       async () => {
-        await core.restore(refsOf(items));
+        audio = await core.restore(refsOf(items));
         await refresh();
       },
     );
   await restore();
   useUndo.getState().push({
-    said: restoredMessage(items),
+    said: (t, cut) => {
+      const message = restoredMessage(items, () => audio)(t, cut);
+      const suffix = wallLines(t, null, leftWalls(audio));
+      return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
+    },
     name: (t) => t("undo.name.restore"),
     undo: () =>
       slow(
@@ -94,8 +164,12 @@ export async function restoreItems(items: readonly DeletedItem[]): Promise<void>
 /** Drops what each holds for good: they can't be restored afterwards. */
 export async function deleteItemsPermanently(items: readonly DeletedItem[]): Promise<void> {
   if (items.length === 0) return;
-  await core.deletePermanently(refsOf(items));
-  await refresh();
+  try {
+    await core.deletePermanently(refsOf(items));
+  } finally {
+    // Gone even when a file of theirs couldn't be removed yet, which the problem then says.
+    await refresh();
+  }
 }
 
 /** The events and changes that may add to or take from the list. */

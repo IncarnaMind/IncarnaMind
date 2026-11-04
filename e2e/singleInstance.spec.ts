@@ -9,7 +9,6 @@ import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "@playwright/test";
 import { isRecord } from "../src/core/errors";
-import { MAPPED_WAL_RETRY_MS } from "../src/core/storage/node-sqlite";
 import { heldByAnotherCopy } from "../src/main/instanceLock";
 import {
   coreOf,
@@ -279,14 +278,6 @@ try {
       .map((line): unknown => JSON.parse(line))
       .filter(isRecord)
       .filter((event) => event.pid === successorPid);
-    const at = (name: string) => {
-      const event = traced.find((each) => each.event === name);
-      if (typeof event?.monotonic !== "string")
-        throw new Error(`The replacement app never traced ${name}.`);
-      return BigInt(event.monotonic);
-    };
-    const givenUpMs = Number((at("before-quit") - at("sqlite-open")) / 1_000_000n);
-    expect(givenUpMs).toBeLessThan(MAPPED_WAL_RETRY_MS + 1_000);
     expect(
       traced.filter(
         (event) =>
@@ -303,7 +294,7 @@ try {
       {
         title: "IncarnaMind couldn’t start",
         content:
-          "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\ndisk I/O error",
+          "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
         ready: true,
       },
     ]);
@@ -320,6 +311,11 @@ try {
     expect(walOpen.at(-1)).toMatch(
       new RegExp(`WARN +storage\\.walOpen\\.gaveUp attempts=${walOpen.length - 1} elapsedMs=\\d+$`),
     );
+    const elapsed = walOpen.map((line) => Number(/ elapsedMs=(\d+)/.exec(line)?.[1]));
+    // Each try is stamped when it ends, and one native call can't be cut short: only the last
+    // try may end past the five-second window.
+    expect(elapsed.slice(0, -2).filter((ms) => !(ms <= 5_000))).toEqual([]);
+    expect(elapsed.at(-1)).toBeGreaterThanOrEqual(5_000);
     expect(copiesWith(tag)).toEqual([]);
     expect(
       heldByAnotherCopy(dataDir, (what, error) => {
@@ -596,8 +592,18 @@ async function startWhileQuitting(
     windows: (await Promise.all(ports.map(windowsOf))).reduce((sum, each) => sum + each, 0),
   });
   try {
+    const logged = existsSync(join(dataDir, "logs", "incarnamind.log"))
+      ? (await logOf(dataDir)).length
+      : 0;
     await start({ INCARNAMIND_TEST_QUIT_MARK: mark, INCARNAMIND_TEST_QUIT_ON_START: how });
     await expect.poll(() => windowsOf(ports[0] as number), { timeout: 60_000 }).toBe(1);
+    // The window is up before the core has started (#2104), and a start that arrives while the
+    // core holds the thread is handed this window before the quit it should come during.
+    await expect
+      .poll(async () => (await logOf(dataDir)).slice(logged).includes(" app.startup.hostReady"), {
+        timeout: 60_000,
+      })
+      .toBe(true);
     if (late) {
       await inCopyWindow(ports[0], async (window) => {
         await (await coreOf(window)).evaluate((api) =>

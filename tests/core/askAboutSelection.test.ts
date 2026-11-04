@@ -9,7 +9,7 @@ import type { AskedQuote, AskInConversationInput, Core } from "../../src/core";
 import { InvalidInputError } from "../../src/core/errors";
 import { answerEnded, setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { waitForProcessing } from "../helpers/documents";
-import { promptOf, scriptedModel } from "../helpers/models";
+import { answerRequestIndex, promptOf, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const REPEATED = "Margins recover within two quarters of each cut.";
@@ -104,9 +104,9 @@ describe("Asking about words selected in a Document", { timeout: 30_000 }, () =>
       /<\/selected-text>\n\nThe User's Notes: "Tides"\n\nWhat does this mean\?$/,
     );
     const answer = await answerOf(core, asked.conversation.id, asked.answerId);
-    expect(answer.citations).toMatchObject([
-      { check: "found", pageFrom: 2, pageTo: 2, quote: REPEATED },
-    ]);
+    // Found where it was selected; its sentence's judgement is tests/core/answerSupport.test.ts's.
+    expect(answer.citations[0]?.check).not.toBe("not-found");
+    expect(answer.citations).toMatchObject([{ pageFrom: 2, pageTo: 2, quote: REPEATED }]);
     expect(asked).not.toHaveProperty("leftOut");
   });
 
@@ -136,10 +136,13 @@ describe("Asking about words selected in a Document", { timeout: 30_000 }, () =>
     expect(messages.find((message) => message.kind === "question")).toMatchObject({
       quotes: [quote],
     });
-    const calls = model.doStreamCalls.length;
-    const regenerated = promptOf(model, 2).map((message) => message.text);
+    const regenerated = promptOf(model, answerRequestIndex(model, 2)).map(
+      (message) => message.text,
+    );
     expect(regenerated.at(-1)).toContain('<selected document="Rate cuts" location="p. 2">');
-    const followUp = promptOf(model, calls - 1).filter((message) => message.role === "user");
+    const followUp = promptOf(model, answerRequestIndex(model, -1)).filter(
+      (message) => message.role === "user",
+    );
     expect(followUp.at(0)?.text).toMatch(
       /(?:^|\n\n)<selected document="Rate cuts">\nMargins recover within two quarters of each cut\.\n<\/selected>\n\nWhat does this mean\?$/,
     );
@@ -285,7 +288,8 @@ describe("Asking about words selected in a Document", { timeout: 30_000 }, () =>
 
     expect(asked).not.toHaveProperty("leftOut");
     const answer = await answerOf(core, asked.conversation.id, asked.answerId);
-    expect(answer.citations).toMatchObject([{ check: "found", documentId: saved.document.id }]);
+    expect(answer.citations[0]?.check).not.toBe("not-found");
+    expect(answer.citations).toMatchObject([{ documentId: saved.document.id }]);
     expect(answer.textOrigin).toBe("web-page");
   });
 

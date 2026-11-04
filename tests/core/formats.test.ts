@@ -55,7 +55,19 @@ describe("Word", () => {
       { path: [], beforeHeading: true },
       { path: ["1 Introduction"] },
       { path: ["1 Introduction", "1.1 Scope"] },
-      { path: ["2 Results"] },
+      {
+        path: ["2 Results"],
+        tables: [
+          {
+            headings: ["Estuary", "Sites", "Median rise (mm/yr)", "Risk"],
+            rows: [
+              ["Northern", "5", "4.1", "High"],
+              ["Central", "4", "3.2", "Medium"],
+              ["Southern", "3", "2.7", "Low"],
+            ],
+          },
+        ],
+      },
       { path: ["2 Results", "2.1 Sensitivity"] },
       { path: ["3 Discussion"] },
       { path: ["3 Discussion", "3.1 Limitations"] },
@@ -187,6 +199,49 @@ describe("Word", () => {
       "comment1",
     ]);
   });
+
+  // protects=#2365; fails_when=a scale stated only in a Word header or footer is lost, lands in the Unit's searchable text, or is given to a Unit of another Word section.
+  test("keeps each Word section's header and footer beside its Units' text, the next section keeping the footer it doesn't replace", async () => {
+    const units = await extractUnits(
+      "docx",
+      docxOf(
+        [
+          { text: "Group accounts", heading: 1 },
+          { text: "Revenue 1,200" },
+          {
+            text: "Costs 300",
+            endsSection: { header: "Holdings Ltd (£'000)", footer: "Confidential" },
+          },
+          { text: "子公司", heading: 1 },
+          { text: "收入 1,200" },
+        ],
+        { header: "金额单位：万元" },
+      ),
+    );
+
+    expect(units.map((unit) => [unit.text, unit.runningText])).toEqual([
+      ["Group accounts\nRevenue 1,200\nCosts 300", "Holdings Ltd (£'000)\nConfidential"],
+      ["子公司\n收入 1,200", "金额单位：万元\nConfidential"],
+    ]);
+    expect(
+      (await extractUnits("docx", docxOf([{ text: "No header here." }])))[0],
+    ).not.toHaveProperty("runningText");
+  });
+
+  // protects=#2365; fails_when=a Word file whose header, footer or relationships part is damaged can't be read at all, where its body could be read before headers were.
+  test.each(["word/header1.xml", "word/_rels/document.xml.rels"])(
+    "reads the body of a Word file whose %s is damaged, with no header",
+    async (part) => {
+      const units = await extractUnits(
+        "docx",
+        docxOf([{ text: "Revenue 1,200" }], { header: "Amounts in £'000", broken: [part] }),
+      );
+
+      expect(units.map((unit) => [unit.text, unit.runningText])).toEqual([
+        ["Revenue 1,200", undefined],
+      ]);
+    },
+  );
 
   test("reads the comment of a real Word file into its first section", async () => {
     const { units } = await extractDocx(fixture("Field Report.docx"));

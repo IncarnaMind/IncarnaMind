@@ -1,10 +1,10 @@
 /**
- * Whether a note is done (D266, #1915), one rule for the corner badge, Home's Recent row and
- * the Export menu: "Not checked" while a claim has no check (none yet, one that failed, or
- * one that no longer holds), "{n} need a look" while a check found a problem, and "Checked
- * {time}" once every claim is covered, naming the files the checks couldn't read. It reads
- * `noteHealth`, the one count (#1909). A sentence kept as the User's view counts as handled
- * and is named in the card.
+ * Whether a note is done (#1915), one rule for the corner badge, Home's Recent row and
+ * the Export menu: "Claims not checked" while a claim has no check (none yet, or one this Note has
+ * never had checked), "{n} need a look" while a check found a problem, and "Checked {time}"
+ * once every claim is covered, naming the files the checks couldn't read and the sentences a
+ * check couldn't settle or a change made need one. It reads `noteHealth`, the one count
+ * (#1909). A sentence kept as the User's view counts as handled and is named in the card.
  */
 
 import { getSchema } from "@tiptap/core";
@@ -49,21 +49,33 @@ export interface NoteState {
   mark: NoteStateMark;
   /** The newest check among the claims that now hold (ISO 8601): the green's time. */
   checkedAt: string | null;
-  /** The files to name: the narrow-scope ones that keep it amber, or, in green, every file its checks couldn't read (#740, D261). */
+  /**
+   * The files the check badge's card names (#740): a narrow-scope check's unread files when one
+   * could hold the evidence, else every file the checks couldn't read. The Saved line counts
+   * this same list.
+   */
   unread: number;
   /** Whether a file the checks couldn't read could hold evidence they looked for: one of them searched a scope narrower than all Documents. */
   unreadMatters: boolean;
   /** The claims a check reads: with none, there is nothing to say. */
   checkable: number;
+  /** Sentences whose check couldn't settle them, named after the time: something is left, not the whole Note. */
+  cantCheck: number;
+  /** Sentences a change made since their check, named after the time while the rest holds. */
+  needsCheck: number;
 }
 
 /**
  * The state from `noteHealth` alone. Null when a check reads nothing: a note of headings, or
- * one whose every sentence is kept as the User's view, has nothing to show. A claim a check
- * failed, that no longer holds, or is checking right now is "Not checked": nothing has checked
- * it since its last edit, and a run in flight is never done. Unread files that could hold the
- * evidence — a check searched a scope narrower than all Documents — keep the state amber and are
- * named; files only a search of all Documents couldn't read stay in the green's count.
+ * one whose every sentence is kept as the User's view, has nothing to show. "Claims not checked" while a
+ * claim has no check a run could not settle: none yet, one that failed in a way a retry can, one
+ * whose Sentence or Document changed, or one a run is checking right now. When at least one claim
+ * a check covered holds, and all that is left is a result a re-run cannot settle or a change to a
+ * checked sentence, the state is Checked and names what is left after its time; with nothing
+ * covered it stays Not checked. Unread files that could hold the evidence — a check searched a
+ * scope narrower than all Documents — keep the state amber and are named, even beside the green's
+ * caveats; files only a search of all Documents couldn't read stay in the green's count, and the
+ * card and the Saved line name them in every state.
  */
 export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): NoteState | null {
   const unreadMatters = narrowUnread > 0;
@@ -71,9 +83,11 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
   const look = health.lookClaims.length;
   const base = {
     checkedAt: health.checkedAt,
-    unread: 0,
-    unreadMatters: false,
+    unread: unreadMatters ? narrowUnread : unread,
+    unreadMatters,
     checkable: health.checkable,
+    cantCheck: 0,
+    needsCheck: 0,
   };
   if (health.contradicted.length > 0) {
     return {
@@ -82,8 +96,6 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       look,
       tone: "error",
       mark: "contradicted",
-      unread: narrowUnread,
-      unreadMatters,
     };
   }
   if (look > 0) {
@@ -94,11 +106,37 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       look,
       tone: "warning",
       mark,
-      unread: narrowUnread,
-      unreadMatters,
     };
   }
-  if (health.checking.length > 0 || health.toCheck.length > 0) {
+  if (health.checking.length > 0) {
+    const mark: NoteStateMark = health.recheck.length > 0 ? "recheck" : "notChecked";
+    return { ...base, kind: "not-checked", look: 0, tone: "neutral", mark };
+  }
+  if (health.toCheck.length > 0) {
+    // A claim a check covered holds; what a check could not settle, or a change made need one,
+    // is named beside it rather than turning the whole Note back to Not checked (#2313).
+    const settled = health.uncheckable.length + health.edited.length;
+    if (health.supported > 0 && settled === health.toCheck.length) {
+      // A file a narrow check couldn't read could hold the evidence: the unread reading keeps the Note amber.
+      if (unreadMatters) {
+        return {
+          ...base,
+          kind: "needs-look",
+          look: 0,
+          tone: "warning",
+          mark: "notChecked",
+        };
+      }
+      return {
+        ...base,
+        kind: "checked",
+        look: 0,
+        tone: "success",
+        mark: "checked",
+        cantCheck: health.uncheckable.length,
+        needsCheck: health.edited.length,
+      };
+    }
     const mark: NoteStateMark = health.recheck.length > 0 ? "recheck" : "notChecked";
     return { ...base, kind: "not-checked", look: 0, tone: "neutral", mark };
   }
@@ -109,11 +147,20 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       look: 0,
       tone: "warning",
       mark: "notChecked",
-      unread: narrowUnread,
-      unreadMatters,
     };
   }
-  return { ...base, kind: "checked", look: 0, tone: "success", mark: "checked", unread };
+  return { ...base, kind: "checked", look: 0, tone: "success", mark: "checked" };
+}
+
+/**
+ * Whether the state's own line names its unread files: in green, every one, or in amber only
+ * those a narrow check missed (#740). The Saved line always counts them when there are any.
+ */
+export function noteStateShowsUnread(state: NoteState): boolean {
+  return (
+    state.unread > 0 &&
+    (state.kind === "checked" || (state.kind === "needs-look" && state.unreadMatters))
+  );
 }
 
 /** The checks that looked in a scope narrower than all Documents: a Folder, a Tag, or Documents the User picked. */
@@ -152,8 +199,7 @@ export function noteStateParts(
   now?: Date,
 ): readonly string[] {
   const count = (value: number) => new Intl.NumberFormat(language).format(value);
-  const unreadWords = () =>
-    t(state.unread === 1 ? "unread.count.one" : "unread.count", { count: count(state.unread) });
+  const unread = noteStateShowsUnread(state) ? noteStateUnreadWords(state, t, language) : null;
   if (state.kind === "not-checked") return [t("health.state.notChecked")];
   if (state.kind === "needs-look") {
     const parts: string[] = [];
@@ -164,14 +210,45 @@ export function noteStateParts(
         }),
       );
     }
-    if (state.unreadMatters && state.unread > 0) parts.push(unreadWords());
+    if (unread !== null) parts.push(unread);
     return parts;
   }
   const time =
     state.checkedAt === null ? "" : formatDateTime(state.checkedAt, language, now ? { now } : {});
   const said = time === "" ? t("health.state.checked.noTime") : t("health.state.checked", { time });
-  if (state.unread === 0) return [said];
-  return [said, unreadWords()];
+  return [
+    said,
+    ...(unread === null ? [] : [unread]),
+    ...(state.cantCheck > 0
+      ? [
+          t(state.cantCheck === 1 ? "health.state.cantCheck.one" : "health.state.cantCheck", {
+            count: count(state.cantCheck),
+          }),
+        ]
+      : []),
+    ...(state.needsCheck > 0
+      ? [
+          t(state.needsCheck === 1 ? "health.state.needsCheck.one" : "health.state.needsCheck", {
+            count: count(state.needsCheck),
+          }),
+        ]
+      : []),
+  ];
+}
+
+/**
+ * "3 files couldn't be read": the check badge's card list, which the Saved line counts (#740);
+ * null when it names none. Every state counts them, so a Note that needs a look or is Not
+ * checked still says what the card names.
+ */
+export function noteStateUnreadWords(
+  state: NoteState,
+  t: Translate,
+  language: Language,
+): string | null {
+  if (state.unread === 0) return null;
+  const count = new Intl.NumberFormat(language).format(state.unread);
+  return t(state.unread === 1 ? "unread.count.one" : "unread.count", { count });
 }
 
 let schema: ReturnType<typeof getSchema> | undefined;

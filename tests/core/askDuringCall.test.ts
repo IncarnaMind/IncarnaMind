@@ -38,23 +38,26 @@ const userText = (call: ModelCall) =>
 
 /** A model that cites the transcript's newest line it was given, without searching. */
 function listeningModel(calls: ModelCall[]) {
-  return scriptedModel((call) => {
-    calls.push(call);
-    const passages = transcriptIn(userText(call));
-    const newest = passages?.find((passage) => passage.text.includes(NEWEST));
-    if (!newest) return { text: "I heard nothing of the call." };
-    if (!call.results.some((result) => result.tool === "cite")) {
-      return {
-        calls: [
-          {
-            tool: "cite",
-            input: { citations: [{ marker: 1, passage: newest.id, quote: NEWEST }] },
-          },
-        ],
-      };
-    }
-    return { text: "They'll confirm with the payment provider by Friday [^1]." };
-  });
+  return scriptedModel(
+    (call) => {
+      calls.push(call);
+      const passages = transcriptIn(userText(call));
+      const newest = passages?.find((passage) => passage.text.includes(NEWEST));
+      if (!newest) return { text: "I heard nothing of the call." };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: { citations: [{ marker: 1, passage: newest.id, quote: NEWEST }] },
+            },
+          ],
+        };
+      }
+      return { text: "They'll confirm with the payment provider by Friday [^1]." };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 async function setUp(model: MockLanguageModelV4) {

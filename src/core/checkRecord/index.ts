@@ -97,6 +97,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
     const { sentences, citations, recordCites, unread } = deps.read(mind.id, (fragment) => {
       const record = readRecord({
         fragment,
+        language,
         documents: deps.documents(),
         kept: deps.keptCitationTexts(),
         folderId: mind.folderId,

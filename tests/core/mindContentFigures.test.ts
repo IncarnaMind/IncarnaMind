@@ -140,7 +140,7 @@ function input(documentId: string): FigureInput {
 afterEach(() => vi.restoreAllMocks());
 
 describe("core ownership of calculated figures", () => {
-  test("deleting figures through the core drops unused values and the last run", async () => {
+  test("a figure the editor deletes leaves the records as they were", async () => {
     const core = startCore(await createTempDataFolder());
     const mind = await core.createMind();
     const client = await connectToMind(core, mind.id);
@@ -150,18 +150,23 @@ describe("core ownership of calculated figures", () => {
       installFigureRuns(client.doc, [run(["a", "b"])]);
     });
     await client.settled();
-    client.blocks.delete(0, 1);
+    // No edit removes a record: a change's Undo may bring the figure back (#2378).
+    client.doc.transact(() => {
+      client.blocks.delete(0, 1);
+    });
     await client.settled();
     expect(kept(client.doc)[0]?.values.map((value) => value.name)).toEqual(["b"]);
-    expect(client.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
-    client.blocks.delete(0, 1);
+    expect(client.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(3);
+    client.doc.transact(() => {
+      client.blocks.delete(0, 1);
+    });
     await client.settled();
-    expect(client.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
+    expect(client.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(3);
     const reopened = await connectToMind(core, mind.id);
-    expect(reopened.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
+    expect(reopened.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(3);
   });
 
-  test("core edit, Undo and Redo move the last figure and its run in one update", () => {
+  test("a core edit that takes a figure away leaves its record for the Undo that brings it back", () => {
     const db = openDatabase(":memory:");
     migrate(db);
     const changed = vi.fn();
@@ -176,21 +181,24 @@ describe("core ownership of calculated figures", () => {
     changed.mockClear();
     content.edit("mind", (value) => value.delete(0, 1), "edit");
     expect(changed).toHaveBeenCalledTimes(1);
-    expect(runs.size).toBe(0);
+    // A write that leaves the figure out for a moment is no removal: its record stays, so the
+    // Undo that brings the figure back finds it (#2378).
+    expect(kept(doc)).toEqual([]);
+    expect(runs.size).toBe(2);
     undo.undo();
     content.edit("mind", () => undefined);
     expect(kept(doc)[0]?.values.map((value) => value.name)).toEqual(["a"]);
     undo.redo();
     content.edit("mind", () => undefined);
     expect(blocks.length).toBe(0);
-    expect(runs.size).toBe(0);
+    expect(runs.size).toBe(2);
     undo.destroy();
     content.closeAll();
     source.destroy();
     db.close();
   });
 
-  test("a core edit that throws still stores its deletion and removes the orphan run", () => {
+  test("a core edit that throws still stores its deletion, and the record it leaves is inert", () => {
     const db = openDatabase(":memory:");
     migrate(db);
     const content = createMindContent(
@@ -211,7 +219,8 @@ describe("core ownership of calculated figures", () => {
     const loaded = new Y.Doc();
     Y.applyUpdate(loaded, content.state("mind"));
     expect(loaded.getXmlFragment(MIND_CONTENT_FIELD).length).toBe(0);
-    expect(loaded.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(0);
+    expect(loaded.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
+    expect(figureRunsFor(loaded, [])).toEqual([]);
     content.closeAll();
     loaded.destroy();
     source.destroy();
@@ -284,7 +293,9 @@ describe("core ownership of calculated figures", () => {
     await first.settled();
     const second = await connectToMind(core, mind.id);
     second.goOffline();
-    first.blocks.delete(0, 1);
+    first.doc.transact(() => {
+      first.blocks.delete(0, 1);
+    });
     await first.settled();
     second.doc.transact(() => {
       append(second.doc, "b");
@@ -294,7 +305,8 @@ describe("core ownership of calculated figures", () => {
     expect(first.blocks.length).toBe(1);
     expect(kept(first.doc)[0]?.values.map((value) => value.name)).toEqual(["b"]);
     expect(kept(second.doc)).toEqual(kept(first.doc));
-    expect(first.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
+    // Neither value is pruned: the run keeps a's and the new figure's, and b reads its own.
+    expect(first.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(3);
   });
 
   test("History restores only its figures' dependencies while keeping current settings", async () => {
@@ -318,7 +330,7 @@ describe("core ownership of calculated figures", () => {
     const { before } = await core.restoreCheckpoint(mind.id, saved.id);
     await client.settled();
     expect(kept(client.doc)).toEqual([run(["a"])]);
-    expect(client.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(2);
+    expect(client.doc.getMap(MIND_FIGURE_RUNS_FIELD).size).toBe(4);
     expect(client.doc.getMap(MIND_SETTINGS_FIELD).get("model")).toBe("new-model");
     await core.restoreCheckpoint(mind.id, before.id);
     await client.settled();
@@ -326,7 +338,7 @@ describe("core ownership of calculated figures", () => {
     expect(client.doc.getMap(MIND_SETTINGS_FIELD).get("model")).toBe("new-model");
   });
 
-  test("History validates a missing saved run before changing content or saving another checkpoint", async () => {
+  test("History restores a checkpoint whose saved run is missing as its value, and keeps working", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);
     const mind = await core.createMind();
@@ -356,11 +368,18 @@ describe("core ownership of calculated figures", () => {
       installFigureRuns(client.doc, [run(["b"], "another-run")]);
     });
     await client.settled();
-    const before = (await core.openMind(mind.id)).state;
-    const checkpoints = (await core.listCheckpoints(mind.id)).checkpoints;
-    await expect(core.restoreCheckpoint(mind.id, incomplete.id)).rejects.toThrow();
-    expect((await core.openMind(mind.id)).state).toEqual(before);
-    expect((await core.listCheckpoints(mind.id)).checkpoints).toEqual(checkpoints);
+    const restored = await core.restoreCheckpoint(mind.id, incomplete.id);
+    await client.settled();
+    // The figure names a record the checkpoint no longer keeps: it reads as its value (#2378).
+    const schedule = await core.getFigureSchedule(mind.id);
+    expect(schedule.rows.filter((row) => row.calculated).map((row) => row.shown.state)).toEqual([
+      "not-checked",
+    ]);
+    await expect(core.openMind(mind.id)).resolves.toHaveProperty("access", "edit");
+    expect((await core.listCheckpoints(mind.id)).checkpoints.map((each) => each.id)).toContain(
+      restored.before.id,
+    );
+    expect(await core.saveCheckpoint(mind.id, "idle")).toMatchObject({ mindId: mind.id });
   });
 
   test("a Note retains its figures' input, unit and Analysis range versions and heals its projection", async () => {
@@ -402,7 +421,9 @@ describe("core ownership of calculated figures", () => {
     core.retention.release("note-figure", mind.id);
     await core.openMind(mind.id);
     expect(retained()).toEqual(expected);
-    client.blocks.delete(0, client.blocks.length);
+    client.doc.transact(() => {
+      client.blocks.delete(0, client.blocks.length);
+    });
     await client.settled();
     expect(retained()).toEqual([]);
   });
@@ -422,17 +443,38 @@ describe("core ownership of calculated figures", () => {
     await client.settled();
     const before = core.retention.retainedBy("note-figure", mind.id);
     expect(before).toHaveLength(2);
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     client.doc.getMap(MIND_FIGURE_RUNS_FIELD).clear();
     await client.settled();
     expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
-    expect(logged).toHaveBeenCalled();
     await expect(core.openMind(mind.id)).resolves.toHaveProperty("access", "edit");
     client.doc.getMap(MIND_SETTINGS_FIELD).set("schemaVersion", CONTENT_SCHEMA_VERSION + 1);
     await client.settled();
     const state = (await core.openMind(mind.id)).state;
     expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
     expect((await core.openMind(mind.id)).state).toEqual(state);
+  });
+
+  test("a missing Analysis record is logged once per Note, however often its changes are stored", async () => {
+    const core = startCore(await createTempDataFolder());
+    const mind = await core.createMind();
+    const client = await connectToMind(core, mind.id);
+    const analysis = run(["a"]);
+    client.doc.transact(() => {
+      append(client.doc, "a");
+      installFigureRuns(client.doc, [analysis]);
+    });
+    await client.settled();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    client.doc.getMap(MIND_FIGURE_RUNS_FIELD).clear();
+    await client.settled();
+    client.doc.transact(() => append(client.doc, "b"));
+    await client.settled();
+    await core.openMind(mind.id);
+    const missing = logged.mock.calls.filter(([message]) =>
+      String(message).includes("calculated figure's Analysis record is missing"),
+    );
+    expect(missing).toHaveLength(1);
+    core.close();
   });
 
   test("a deleted Note retains its source versions until it is permanently purged", async () => {
@@ -475,7 +517,9 @@ describe("core ownership of calculated figures", () => {
     const restore = refuseWrites(dataDir);
     expect(before).toHaveLength(2);
     try {
-      client.blocks.delete(0, client.blocks.length);
+      client.doc.transact(() => {
+        client.blocks.delete(0, client.blocks.length);
+      });
       await client.settled();
       expect(await core.unsavedChanges()).toMatchObject({ mindIds: [mind.id] });
       expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
@@ -520,7 +564,9 @@ describe("core ownership of calculated figures", () => {
     await expect(
       core.compareCheckpoints({ mindId: mind.id, from: alias, to: null }),
     ).rejects.toThrow();
-    client.blocks.delete(0, client.blocks.length);
+    client.doc.transact(() => {
+      client.blocks.delete(0, client.blocks.length);
+    });
     await client.settled();
     expect(core.retention.retainedBy("checkpoint", alias)).toEqual([]);
     expect(core.retention.retainedBy("checkpoint", checkpoint.id)).toEqual(own);
@@ -561,7 +607,9 @@ describe("core ownership of calculated figures", () => {
       );
       vi.spyOn(console, "error").mockImplementation(() => {});
       try {
-        client.blocks.delete(0, client.blocks.length);
+        client.doc.transact(() => {
+          client.blocks.delete(0, client.blocks.length);
+        });
         await client.settled();
         expect(await core.unsavedChanges()).toMatchObject({ mindIds: [mind.id] });
         expect(core.retention.retainedBy("note-figure", mind.id)).toEqual(before);
@@ -703,7 +751,9 @@ describe("core ownership of calculated figures", () => {
     const fourth = startCore(dataDir);
     const complete = await connectToMind(fourth, mind.id);
     expect(versions(other.id)).toEqual([sha256(firstText), sha256(nextText)].sort());
-    complete.blocks.delete(0, complete.blocks.length);
+    complete.doc.transact(() => {
+      complete.blocks.delete(0, complete.blocks.length);
+    });
     await complete.settled();
     expect(fourth.retention.retainedBy("note-figure", mind.id)).toEqual([]);
     fourth.close();

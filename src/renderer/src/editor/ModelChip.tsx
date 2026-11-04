@@ -229,7 +229,8 @@ export function ModelChip({
         onFocus={loadModels}
         className="composer-chip composer-model"
       >
-        <span className="truncate">{chipText}</span>
+        {/* A stand-in's words carry the reset time, so they wrap rather than being cut (#400). */}
+        <span className={answering?.until ? "min-w-0 break-words" : "truncate"}>{chipText}</span>
         <ChevronDownSmallIcon className="composer-model-chevron" />
       </button>
       <div

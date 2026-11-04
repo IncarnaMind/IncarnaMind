@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import {
   type AnalysisRangeInput,
+  type AnalysisTableRows,
   type AnswerAnalysis,
   type AnswerAnalysisInput,
   CALCULATED_FIGURE_NODE,
@@ -8,12 +9,18 @@ import {
   type Citation,
   type ConversationAnswer,
   type FigureInput,
-  MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   type RetainedFigureAnalysis,
+  type RetainedFigureValue,
 } from "../core/api";
-import { InvalidInputError, isRecord } from "../core/errors";
-import { ANALYSIS_LIMITS, type AnalysisVersions } from "./analysis";
+import { isRecord } from "../core/errors";
+import {
+  ANALYSIS_LIMITS,
+  type AnalysisLanguage,
+  type AnalysisRecalculation,
+  type AnalysisVersions,
+  readFigureRows,
+} from "./analysis";
 import type { NodeJSON } from "./blockJson";
 import {
   calculatedFigureNode,
@@ -21,7 +28,7 @@ import {
   readFigureCitation,
   readFigureInput,
 } from "./calculatedFigures";
-import { perBlock } from "./memo";
+import { printedValue } from "./printedFigures";
 
 const text = (value: unknown): value is string => typeof value === "string";
 const count = (value: unknown): value is number =>
@@ -59,6 +66,23 @@ export function figureRunsOfAnswer(
   });
 }
 
+/** A Document table's rows as a Note keeps them (#448); undefined for a sheet's range or one that doesn't read. */
+function readTableRows(value: unknown): AnalysisTableRows | undefined {
+  if (!isRecord(value) || !count(value.number) || !Array.isArray(value.rows)) return undefined;
+  const rows: AnalysisTableRows["rows"] = [];
+  for (const row of value.rows) {
+    if (!isRecord(row) || !count(row.row) || !count(row.unit)) return undefined;
+    if (row.quote !== null && !text(row.quote)) return undefined;
+    rows.push({ row: row.row, unit: row.unit, quote: row.quote });
+  }
+  return {
+    number: value.number,
+    rows,
+    ...(value.scan === true && { scan: true as const }),
+    ...(count(value.marks) && value.marks > 0 && { marks: value.marks }),
+  };
+}
+
 function readInput(value: unknown): AnswerAnalysisInput | null {
   if (!isRecord(value) || !text(value.name) || !value.name || !text(value.sha256)) return null;
   if (value.kind === "figure") {
@@ -67,6 +91,7 @@ function readInput(value: unknown): AnswerAnalysisInput | null {
   }
   if (value.kind !== "range") return null;
   const citation = readFigureCitation(value.citation);
+  const table = readTableRows(value.table);
   if (
     !citation ||
     !text(value.range) ||
@@ -88,13 +113,18 @@ function readInput(value: unknown): AnswerAnalysisInput | null {
     rowCount: value.rowCount,
     cut: value.cut,
     sha256: value.sha256,
+    ...(table && { table }),
   };
 }
 
+const languageOf = (value: unknown): AnalysisLanguage | null =>
+  value === "python" || value === "bash" ? value : null;
+
 function readVersions(value: unknown): AnalysisVersions | null {
+  const language = isRecord(value) ? languageOf(value.language) : null;
   if (
     !isRecord(value) ||
-    value.language !== "python" ||
+    !language ||
     !text(value.languageVersion) ||
     !text(value.runtime) ||
     !text(value.helper) ||
@@ -108,7 +138,7 @@ function readVersions(value: unknown): AnalysisVersions | null {
     if (text(version)) Object.defineProperty(packages, name, { value: version, enumerable: true });
   }
   return {
-    language: "python",
+    language,
     languageVersion: value.languageVersion,
     runtime: value.runtime,
     packages,
@@ -117,14 +147,26 @@ function readVersions(value: unknown): AnalysisVersions | null {
   };
 }
 
+/** What IncarnaMind made of a kept figure when its Analysis ran; null for a record that isn't one. */
+function readRecalculation(value: unknown): AnalysisRecalculation | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "unchecked")
+    return text(value.reason) ? { kind: "unchecked", reason: value.reason } : null;
+  if (value.kind !== "same" && value.kind !== "differs") return null;
+  return typeof value.value === "number" && Number.isFinite(value.value)
+    ? { kind: value.kind, value: value.value }
+    : null;
+}
+
 /** Reads provenance only; a clipboard record is not proof that its code ran. */
 export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
+  const language = isRecord(value) ? languageOf(value.language) : null;
   if (
     !isRecord(value) ||
     !text(value.id) ||
     !value.id ||
     !text(value.title) ||
-    value.language !== "python" ||
+    !language ||
     !text(value.code) ||
     !text(value.codeSha256) ||
     !text(value.ranAt) ||
@@ -154,6 +196,10 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
       !Number.isFinite(result.value)
     )
       return null;
+    const of = result.of === undefined ? undefined : readFigureRows(result.of);
+    if (of === null) return null;
+    const check = result.check == null ? undefined : readRecalculation(result.check);
+    if (result.check != null && check === null) return null;
     names.add(result.name);
     values.push({
       kind: "figure",
@@ -161,6 +207,8 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
       label: result.label,
       unit: result.unit,
       value: result.value,
+      ...(of && { of }),
+      ...(check && { check }),
     });
   }
   const versions = value.versions === null ? null : readVersions(value.versions);
@@ -168,7 +216,7 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
   return {
     id: value.id,
     title: value.title,
-    language: "python",
+    language,
     code: value.code,
     inputs,
     versions,
@@ -178,20 +226,56 @@ export function readFigureRun(value: unknown): RetainedFigureAnalysis | null {
   };
 }
 
+/**
+ * The records a clipboard gives, without a check: only a record this app keeps of an Analysis it ran
+ * proves what the core made of its figure, and a clipboard's can say anything (#2378).
+ */
+export function withoutChecks(records: unknown): unknown {
+  if (!Array.isArray(records)) return records;
+  return records.map((record) => {
+    if (!isRecord(record) || !Array.isArray(record.values)) return record;
+    return {
+      ...record,
+      values: record.values.map((value) => {
+        if (!isRecord(value)) return value;
+        const copy: Record<string, unknown> = { ...value };
+        delete copy.check;
+        return copy;
+      }),
+    };
+  });
+}
+
+/** A kept value without what the core made of it: what a clipboard record and the Note's own must share. */
+function withoutCheck(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const copy: Record<string, unknown> = { ...value };
+  delete copy.check;
+  return copy;
+}
+
 export function retainFigureAnalysis(
   analysis: AnswerAnalysis,
   id: string,
   figures: readonly Omit<CalculatedFigureAttributes, "id">[],
 ): RetainedFigureAnalysis | null {
-  if (analysis.end.kind !== "done") return null;
   const uses = figures.filter(
     (node) => node.analysisId === id && node.figure.analysis?.analysis === analysis.number,
   );
   if (uses.length === 0) return null;
-  const results = analysis.output.results.filter(
-    (result) =>
-      result.kind === "figure" && uses.some((node) => node.figure.analysis?.result === result.name),
-  );
+  const checks = new Map((analysis.recalculations ?? []).map((each) => [each.result, each.check]));
+  // A run that didn't finish gives no results, but what it printed before it ended was printed.
+  const names = new Set(uses.flatMap((node) => node.figure.analysis?.result ?? []));
+  const given = [
+    ...(analysis.end.kind === "done" ? analysis.output.results : []),
+    ...[...names].flatMap((name) => printedValue(analysis, name) ?? []),
+  ];
+  const results: RetainedFigureValue[] = given.flatMap((result) => {
+    if (result.kind !== "figure") return [];
+    if (!uses.some((node) => node.figure.analysis?.result === result.name)) return [];
+    const check = checks.get(result.name);
+    return [check ? { ...result, check } : result];
+  });
   if (
     uses.some(
       (node) =>
@@ -242,28 +326,35 @@ function usesIn(blocks: readonly NodeJSON[]): FigureUses {
 const runKey = (id: string) => JSON.stringify([id]);
 const valueKey = (id: string, name: string) => JSON.stringify([id, name]);
 
+/**
+ * The records `blocks`' figures name, as many as the Note still keeps: a figure whose record is
+ * missing or isn't the one it shows reads as its value and Not checked, never as an error. An
+ * earlier build could leave one behind, and a Note must open and export whatever it holds (#2378).
+ */
 export function figureRunsFor(doc: Y.Doc, blocks: readonly NodeJSON[]): RetainedFigureAnalysis[] {
   const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
-  return [...usesIn(blocks)].map(([id, names]) => {
+  const found: RetainedFigureAnalysis[] = [];
+  for (const [id, names] of usesIn(blocks)) {
     const metadata = runs.get(runKey(id));
-    if (!isRecord(metadata) || metadata.id !== id)
-      throw new Error("The calculated figure's Analysis record is missing.");
+    if (!isRecord(metadata) || metadata.id !== id) continue;
+    // Each value the Note still keeps and shows as it was is read; one the Note lost takes only
+    // its own figure's check, never the Analysis's other values (#2378).
     const values = [...names.keys()].flatMap((name) => {
       const value = runs.get(valueKey(id, name));
-      return value === undefined ? [] : [value];
+      if (value === undefined || !isRecord(value)) return [];
+      const expected = names.get(name);
+      if (
+        expected?.size !== 1 ||
+        (typeof value.value !== "number" && typeof value.value !== "boolean")
+      )
+        return [];
+      return expected.has(value.value) ? [value] : [];
     });
+    if (values.length === 0) continue;
     const run = readFigureRun({ ...metadata, values });
-    if (
-      !run ||
-      run.values.length !== names.size ||
-      run.values.some((value) => {
-        const expected = names.get(value.name);
-        return expected?.size !== 1 || !expected.has(value.value);
-      })
-    )
-      throw new Error("The calculated figure's value is not in its Analysis record.");
-    return run;
-  });
+    if (run) found.push(run);
+  }
+  return found;
 }
 
 export function readFigureRunClosure(
@@ -274,7 +365,18 @@ export function readFigureRunClosure(
   const doc = new Y.Doc();
   try {
     installFigureRuns(doc, records);
-    return figureRunsFor(doc, blocks);
+    const runs = figureRunsFor(doc, blocks);
+    // A clipboard that names an Analysis must carry the whole record its figures read from: a
+    // paste that would leave one unread is refused, unlike a Note an earlier build left behind.
+    const kept = new Map(
+      runs.map((run) => [run.id, new Set(run.values.map((value) => value.name))]),
+    );
+    const missing = [...usesIn(blocks)].some(([id, names]) => {
+      const values = kept.get(id);
+      return !values || [...names.keys()].some((name) => !values.has(name));
+    });
+    if (missing) throw new Error("The calculated figure's Analysis record is missing.");
+    return runs;
   } finally {
     doc.destroy();
   }
@@ -300,8 +402,14 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
     for (const value of values) {
       const key = valueKey(next.id, value.name);
       const old = planned.get(key) ?? runs.get(key);
-      if (old !== undefined && JSON.stringify(old) !== JSON.stringify(value))
-        throw new Error("The calculated figures name different values from the same Analysis.");
+      if (old !== undefined && JSON.stringify(old) !== JSON.stringify(value)) {
+        // A clipboard record carries no check (#2378): the Note's own record of the same value keeps its own.
+        if (JSON.stringify(withoutCheck(old)) !== JSON.stringify(withoutCheck(value)))
+          throw new Error("The calculated figures name different values from the same Analysis.");
+        if (isRecord(old) && old.check !== undefined && value.check !== undefined)
+          throw new Error("The calculated figures name different values from the same Analysis.");
+        if (value.check === undefined) continue;
+      }
       planned.set(key, value);
     }
     const prefix = `${key.slice(0, -1)},`;
@@ -313,36 +421,6 @@ export function installFigureRuns(doc: Y.Doc, records: readonly unknown[]): void
   }
   // Independent value keys let concurrent figures keep different results of the same run (#1932).
   for (const [key, value] of planned) runs.set(key, value);
-}
-
-const figuresOfBlock = perBlock((block) => {
-  const found: Record<string, unknown>[] = [];
-  const visit = (element: Y.XmlElement) => {
-    if (element.nodeName === CALCULATED_FIGURE_NODE) found.push(element.getAttributes());
-    for (const node of element.toArray()) if (node instanceof Y.XmlElement) visit(node);
-  };
-  visit(block);
-  return found;
-});
-
-/** Prune inside the same transaction as the content change, before its Undo item is captured. */
-export function pruneFigureRuns(doc: Y.Doc): void {
-  if (doc.store.pendingStructs !== null || doc.store.pendingDs !== null) return;
-  const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
-  if (runs.size === 0) return;
-  const needed: FigureUses = new Map();
-  for (const node of doc.getXmlFragment(MIND_CONTENT_FIELD).toArray()) {
-    if (!(node instanceof Y.XmlElement)) continue;
-    for (const attributes of figuresOfBlock(node)) if (!collectUse(attributes, needed)) return;
-  }
-  const keys = new Set<string>();
-  for (const [id, names] of needed) {
-    keys.add(runKey(id));
-    for (const name of names.keys()) keys.add(valueKey(id, name));
-  }
-  for (const key of runs.keys()) {
-    if (!keys.has(key)) runs.delete(key);
-  }
 }
 
 export interface CalculatedSources {
@@ -359,13 +437,15 @@ export function calculatedSources(
   const ranges: AnalysisRangeInput[] = [];
   let analysis: RetainedFigureAnalysis | null = null;
   if (attributes.figure.analysis) {
-    if (!doc) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
     analysis =
-      figureRunsFor(doc, [
-        calculatedFigureNode(attributes.figure, attributes.id, attributes.analysisId),
-      ])[0] ?? null;
-    if (!analysis) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
-    for (const input of analysis.inputs) {
+      (doc
+        ? figureRunsFor(doc, [
+            calculatedFigureNode(attributes.figure, attributes.id, attributes.analysisId),
+          ])[0]
+        : null) ?? null;
+    // A record the Note no longer keeps leaves the figure reading as its value, with only the
+    // inputs its own text names (#2378).
+    for (const input of analysis?.inputs ?? []) {
       if (input.kind === "figure") inputs.push(input.input);
       else ranges.push(input);
     }
@@ -391,3 +471,12 @@ export function labelledCitations(
 
 export const calculatedCitations = (sources: CalculatedSources): Citation[] =>
   labelledCitations(sources).map(({ citation }) => citation);
+
+/** What IncarnaMind made of a kept figure when the Analysis ran; null when the Note kept no check. */
+export function retainedCheck(
+  sources: CalculatedSources | null,
+  result: string | undefined,
+): AnalysisRecalculation | null {
+  if (!sources?.analysis || result === undefined) return null;
+  return sources.analysis.values.find((value) => value.name === result)?.check ?? null;
+}

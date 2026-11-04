@@ -13,7 +13,9 @@
  */
 import { createHash } from "node:crypto";
 import * as Y from "yjs";
+import { PICTURE_DATA_URL } from "../../shared/askedQuote";
 import { type LiveDocument, liveDocumentOf } from "../../shared/citations";
+import { pendingProposals, proposalRequestOf, readProposalAttribute } from "../../shared/proposals";
 import { parseThirdPartySource } from "../../shared/textOrigins";
 import {
   ANSWER_BLOCK,
@@ -23,6 +25,7 @@ import {
   MIND_TEXT_ORIGINS_FIELD,
   type MindFocus,
   PICTURE_NODE,
+  PROPOSAL_ATTRIBUTE,
   QUESTION_BLOCK,
   type ThirdPartySource,
 } from "../api";
@@ -202,17 +205,33 @@ export interface QuestionContextWithOrigins {
 
 /**
  * The third-party sources recorded for a Block and the Blocks nested in it
- * (a quote added inside a list, say), each once, in the order found.
+ * (a quote added inside a list, say), each once, in the order found. Read
+ * with its changes waiting (`review`), what an outside agent proposed there
+ * counts too: its text is marked only once accepted (#352).
  */
-function originsIn(block: Y.XmlElement, origins: Y.Map<unknown>): ThirdPartySource[] {
+function originsIn(
+  block: Y.XmlElement,
+  origins: Y.Map<unknown> | null,
+  review?: ReviewReading,
+): ThirdPartySource[] {
   const found = new Set<ThirdPartySource>();
   const visit = (element: Y.XmlElement) => {
     const id = textAttribute(element, BLOCK_ID_ATTRIBUTE);
-    const source = id === null ? null : parseThirdPartySource(origins.get(id));
+    const source = id === null || !origins ? null : parseThirdPartySource(origins.get(id));
     if (source) found.add(source);
     for (const child of element.toArray()) if (child instanceof Y.XmlElement) visit(child);
   };
   visit(block);
+  const { doc } = block;
+  if (review && doc) {
+    // A Block it adds whole carries its change on itself, which `pendingProposals` doesn't read.
+    const own = readProposalAttribute(block.getAttribute(PROPOSAL_ATTRIBUTE));
+    const fromAgent = [...(own ? [own] : []), ...pendingProposals(block)].some(
+      (ref) =>
+        !review.skips(ref.id) && proposalRequestOf(doc, ref.request)?.source === "outside-agent",
+    );
+    if (fromAgent) found.add("outside-agent");
+  }
   return [...found];
 }
 
@@ -389,7 +408,7 @@ export function readMind(
     read.push({
       text: readText(block, piece),
       heading: block.nodeName === "heading",
-      origins: recorded ? originsIn(block, recorded) : [],
+      origins: originsIn(block, recorded, review),
     });
   }
   const placed = (focus?.blockIds ?? []).map((id) => byId.get(id));
@@ -431,8 +450,6 @@ export function readMind(
       ),
   };
 }
-
-const PICTURE_DATA_URL = /^data:(image\/(?:png|jpeg|gif|webp));base64,([\s\S]+)$/;
 
 /** A picture Block as a model takes it, or null when it holds no picture a model reads. */
 function askedPictureOf(block: Y.XmlElement): AskedPicture | null {
@@ -659,6 +676,8 @@ interface ConversationContextOptions {
   /** The names of the Documents open on screen, the focused group's first. */
   onScreen?: readonly string[];
   ids?: ContextCitations;
+  /** The pictures the User picked on pages to ask about (#118), sent with the Question. */
+  pictures?: readonly AskedPicture[];
 }
 
 /**
@@ -679,6 +698,7 @@ export function conversationContextOf(
     changeStates,
     onScreen = [],
     ids,
+    pictures = [],
   }: ConversationContextOptions = {},
 ): QuestionContextWithOrigins {
   const pieces: Piece[] = earlier.flatMap((message): Piece[] => {
@@ -716,8 +736,17 @@ export function conversationContextOf(
   });
   const asked = askedText(onScreen, mind?.selection ?? "", question);
   const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(asked));
+  const withPictures = [...(mind?.pictures ?? []), ...pictures];
   return {
-    context: { messages: withMind(mind?.text ?? "", kept, asked, mind?.pictures), question },
+    context: {
+      messages: withMind(
+        mind?.text ?? "",
+        kept,
+        asked,
+        withPictures.length > 0 ? withPictures : undefined,
+      ),
+      question,
+    },
     origins: originsOf(kept),
   };
 }
@@ -889,6 +918,8 @@ export function fitQuestionContext(
   onCut?: (kept: MindCut) => void,
 ): AnswerMessage[] | null {
   const above = piecesOf(messages);
+  // The Question's own pictures, and the Mind's, are kept with the Question as it is cut.
+  const pictures = messages.at(-1)?.pictures;
   const first = above[0];
   const withText = !!mind?.text && first?.role === "user" && first.text.startsWith(mind.text);
   if (withText && first && mind) {
@@ -930,7 +961,7 @@ export function fitQuestionContext(
     if (kept.selection) asked = `${kept.selection}\n\n${asked}`;
     remaining -= estimateTokens(kept.text) + estimateTokens(kept.selection) + 2;
   }
-  return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked, mind?.pictures);
+  return withMind(mindText, keptWithinBudget(above.reverse(), remaining), asked, pictures);
 }
 
 /** Messages as pieces, the records of earlier Answers' Tool calls and a Document's whole text apart from the messages that hold them. */

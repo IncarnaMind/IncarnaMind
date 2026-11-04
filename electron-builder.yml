@@ -53,8 +53,9 @@ extraResources:
     to: citation-styles
     filter:
       - "**/*"
-  # What Analyses run with (ADR-0023): Pyodide's files, unmodified, and the wheels of numpy, pandas
-  # and what they depend on, which the build fetches into resources/python
+  # What Analyses run with (ADR-0023, ADR-0025): Pyodide's files, unmodified, and the wheels of
+  # numpy, pandas, scipy, statsmodels, scikit-learn, matplotlib and what they depend on, which the
+  # build fetches into resources/python
   # (scripts/pythonRuntime.ts), each checked against Pyodide's lock file. Their licences are in
   # notices/python.txt.
   - from: resources/python
@@ -107,6 +108,12 @@ mac:
       to: zh_CN.lproj
     - from: build/icon/Assets.car
       to: Assets.car
+    # Where run_code's Python is downloaded from on first use, with its size and SHA-256
+    # (ADR-0025), written by `npm run python:native`. The archive itself never ships in the app.
+    - from: resources/python-native
+      to: python-native
+      filter:
+        - runtime.json
   # electron-builder's default entitlements, and the microphone, which a hardened-runtime build
   # can't open without it.
   entitlements: build/entitlements.mac.plist
@@ -169,6 +176,12 @@ linux:
     - "!**/node_modules/**/coverage/**"
     - "!**/node_modules/onnxruntime-node/bin/napi-v*/{darwin,win32}{,/**}"
     - "!**/node_modules/onnxruntime-node/bin/napi-v*/linux/!(${arch}){,/**}"
+  # As on macOS: the runtime.json run_code's Python is downloaded with, never the archive.
+  extraResources:
+    - from: resources/python-native
+      to: python-native
+      filter:
+        - runtime.json
   # The .deb needs a maintainer with an address; this one reaches no one's inbox.
   maintainer: IncarnaMind <noreply@users.noreply.github.com>
   # On Ubuntu 24.04 and later an AppImage runs without Chromium's sandbox: its AppRun script

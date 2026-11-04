@@ -1,10 +1,9 @@
 /**
- * The Conversation each Mind came from (#1940), by Mind id, for History to name a
- * Conversation under its note's title while the note is closed. The link itself
- * is the one each Block added from an Answer keeps (shared/blockOrigins), read
- * from what is stored for the Mind, so a note made before this version counts
- * too. Nothing is stored for the index: a Mind is read again after its Blocks
- * change, which is when a link appears, is taken back, or moves.
+ * The Conversation each Mind came from (#1940), by Mind id, kept while the note is closed. The
+ * link itself is the one each Block added from an Answer keeps (shared/blockOrigins), read from
+ * what is stored for the Mind, so a note made before this version counts too. Nothing is stored
+ * for the index: a Mind is read again after its Blocks change, which is when a link appears, is
+ * taken back, or moves.
  */
 import { allOrigins, conversationOrigin } from "../shared/blockOrigins";
 import type { NoteConversation } from "./api";

@@ -41,9 +41,19 @@ export function ModelSetupCard() {
   const ready = useModelSetup((state) => state.ready);
   const t = useT();
   // Step 2's rows depend on whether a cloud service has a key, so the steps open only on a list
-  // that was read, and never redraw as a later read lands (#2147).
+  // that was read, and never redraw as a later read lands (#2147). While the read goes, the card
+  // says it is reading, rather than offering the key form of step 1 again (#2310).
   const services = useTranscriptionServicesRead(ready, true);
-  if (!ready || services.state === "loading") return <ChooseAnAi />;
+  if (!ready) return <ChooseAnAi />;
+  if (services.state === "loading") {
+    return (
+      <SetupCard>
+        <p data-testid="setup-services-reading" role="status" className={hintClass}>
+          {t("setup.services.reading")}
+        </p>
+      </SetupCard>
+    );
+  }
   if (services.state === "ready") return <SetupSteps />;
   return (
     <SetupCard>

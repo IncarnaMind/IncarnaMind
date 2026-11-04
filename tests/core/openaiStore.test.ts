@@ -126,6 +126,7 @@ describe("Requests to OpenAI say not to store", () => {
           id: "g-reports",
           name: "Reports",
           description: "Reports",
+          parentId: null,
           countsOwnFiles: false,
           keepInside: false,
           createdAt: "",
@@ -137,7 +138,7 @@ describe("Requests to OpenAI say not to store", () => {
       signal,
     );
 
-    expect(tagged.map((tag) => tag.tagId)).toEqual(["t-report"]);
+    expect(tagged.decisions.map((tag) => tag.tagId)).toEqual(["t-report"]);
     expect(organized.groupId).toBe("g-reports");
     expectNoneStored(requests, 2);
   });

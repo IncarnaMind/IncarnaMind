@@ -1,5 +1,6 @@
 import type {
   AnalysisRangeInput,
+  CalculatedFigure,
   Citation,
   FigureFinding,
   FigureInput,
@@ -319,7 +320,8 @@ export function quotedSourceText(figure: FigureFinding): string | null {
 
 /** A row's source value in the note's terms, or null when there is none. */
 export function sourceValueText(row: FigureScheduleRow): string | null {
-  if (row.sourceValue === null) return null;
+  // A what-if is no Document's number (#2347), whatever an older row kept as its source value.
+  if (row.sourceValue === null || row.calculated?.figure.workbook?.change) return null;
   if (!row.sourceInput) return row.sourceShown;
   return writtenLike(row.reading, row.sourceValue, sourceDecimals(row));
 }
@@ -428,8 +430,42 @@ export function checkedByText(row: Pick<FigureScheduleRow, "signOff">, language:
 export const notCheckedYet = (row: FigureScheduleRow): boolean =>
   row.shown.state === "not-checked" || row.shown.state === "checking";
 
+/**
+ * A workbook figure's formula (#2347), naming a what-if's change so it never reads as the
+ * workbook's own figure: "What-if: DCF!E5 = E4*Margin, with Revenue growth at 3.0% (5.0% in the
+ * workbook)". Null for any other figure.
+ */
+export function workbookFormulaText(figure: CalculatedFigure, language: Language): string | null {
+  const book = figure.workbook;
+  if (!book) return null;
+  const cell = `${book.cell.sheet}!${book.cell.ref}`;
+  const changed = book.change
+    ? figure.inputs.find((input) => input.name === book.change?.input)
+    : undefined;
+  if (!book.change || !changed) return `${cell} = ${book.cell.formula}`;
+  return translate(language, "figures.workbook.whatIfFormula", {
+    cell,
+    formula: book.cell.formula,
+    input: changed.label,
+    from: changed.number.chars,
+    to: book.change.shown,
+  });
+}
+
 export function lineShows(line: ScheduleLine, language: Language): LineShows {
   const { parent } = line;
+  const change = parent.calculated?.figure.workbook?.change;
+  if (line.input && change?.input === line.input.name) {
+    // A what-if's changed input: the value it was given, never the cell's as if it were found.
+    return {
+      name: line.input.label,
+      value: change.shown,
+      citation: line.input.citation,
+      formula: null,
+      difference: null,
+      status: { glyph: "not-checked", word: "figures.workbook.whatIfInput", why: null },
+    };
+  }
   if (line.input) {
     return {
       name: line.input.label,
@@ -479,15 +515,17 @@ export function lineShows(line: ScheduleLine, language: Language): LineShows {
       unchecked || parent.calculated
         ? null
         : (parent.sourceInput?.citation ?? parent.source ?? null),
-    formula: parent.calculated
-      ? formulaText(
-          parent.calculated.figure.formula,
-          (name) =>
-            parent.calculated?.figure.inputs.find(
-              (each) => each.name.toLowerCase() === name.toLowerCase(),
-            )?.label ?? null,
-        )
-      : null,
+    formula: parent.calculated?.figure.workbook
+      ? workbookFormulaText(parent.calculated.figure, language)
+      : parent.calculated
+        ? formulaText(
+            parent.calculated.figure.formula,
+            (name) =>
+              parent.calculated?.figure.inputs.find(
+                (each) => each.name.toLowerCase() === name.toLowerCase(),
+              )?.label ?? null,
+          )
+        : null,
     difference: unchecked ? null : differenceText(parent, language),
     status: {
       glyph,

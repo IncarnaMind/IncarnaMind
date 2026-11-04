@@ -68,8 +68,30 @@ import {
   type TextPlace,
 } from "../api";
 import { MOST_OF_IT, mapsOnto } from "../edits/applies";
-import { readRemovals } from "../edits/prompt";
+import {
+  escapeNames,
+  NAME_AT_LINE,
+  NAME_LINE,
+  namesRemoval,
+  type ParagraphName,
+  paragraphName,
+  readName,
+  readRemovals,
+  strayName,
+  unescapeNames,
+  unnameRemovals,
+} from "../edits/prompt";
 import { diffSteps, hunksOf, type Step, splitWords } from "./diff";
+import {
+  CITING,
+  type CitingNodes,
+  citingKey,
+  nodeKey,
+  splitCiting,
+  tally,
+  type Unplaced,
+  unplacedSince,
+} from "./placed";
 
 /** The Blocks whose text can be edited: Notes' and Answers' paragraphs and headings. */
 const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
@@ -139,6 +161,8 @@ interface Segment {
   /** Where those tokens start and end (`from`..`to` with the spaces left out). */
   start: number;
   end: number;
+  /** How many characters of it the selection shows: what `Selection.characters` counts. */
+  characters: number;
   /**
    * The kind of Block the model was shown it as (`blockMarker`): its own,
    * when the selection starts at the Block's start; a plain paragraph's
@@ -228,6 +252,8 @@ export interface Selection {
    * (`escapeMarkers`).
    */
   text: string;
+  /** `text` with each paragraph's name before it (`paragraphName`), and typed text that reads as one escaped (#2356). */
+  named: string;
   /** Some paragraph of `text` has a kind's marker: the model's paragraphs are read with theirs. */
   marked: boolean;
   /** The whole paragraphs it is in, the same way. */
@@ -397,6 +423,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       tokens: kept,
       start: kept[0]?.from ?? start,
       end: kept.at(-1)?.to ?? start,
+      characters: shownText.length,
       kind,
     });
     plain.push(tokens.map((token) => token.text ?? NODE_CHARACTER).join(""));
@@ -407,6 +434,12 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
   const firstBlock = chosen[0]?.element;
   const lastBlock = chosen.at(-1)?.element;
   const marked = segments.some((segment) => segment.shown && segment.kind !== "paragraph");
+  const paragraphs = text
+    .map((shown, index) => {
+      const kind = segments[index]?.kind ?? "paragraph";
+      return shown === "" || !marked ? shown : `${blockMarker(kind)}${escapeMarkers(shown, kind)}`;
+    })
+    .filter((each) => each !== "");
   return {
     ok: true,
     selection: {
@@ -415,14 +448,9 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       citedElements,
       footnotes,
       plain: plain.join("\n"),
-      text: text
-        .map((shown, index) => {
-          const kind = segments[index]?.kind ?? "paragraph";
-          return shown === "" || !marked
-            ? shown
-            : `${blockMarker(kind)}${escapeMarkers(shown, kind)}`;
-        })
-        .filter((each) => each !== "")
+      text: paragraphs.join("\n\n"),
+      named: paragraphs
+        .map((each, index) => `${paragraphName(index)} ${escapeNames(each)}`)
         .join("\n\n"),
       marked,
       context: context.join("\n\n"),
@@ -430,6 +458,142 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       after: lastBlock ? nearWords(blockText(lastBlock, to.offset), "after") : "",
       characters,
     },
+  };
+}
+
+/** A stretch of a Mind's text as `readSelection` takes it: one part of an edit made in parts (#2348). */
+export interface PartPlace {
+  from: TextPlace;
+  to: TextPlace;
+}
+
+/** A selection edited in parts, at the boundaries between its Blocks. */
+export type PartsResult =
+  | { ok: true; parts: (PartPlace & { plain: string })[] }
+  /**
+   * `block`: one Block alone is more than the model takes at once, `part` being it.
+   * `changed`: the text can't be read now.
+   */
+  | { ok: false; reason: "block"; part: Selection }
+  | { ok: false; reason: "changed" };
+
+/**
+ * The Block a text segment is part of, as a part may end between it and the next: a table is
+ * one Block however many cells it has, and so is each list item — the nearest one, so an item
+ * of a nested list is a Block of its own.
+ */
+function blockOf(segment: Segment, blocks: Y.XmlFragment): unknown {
+  let block: Y.XmlElement | null = null;
+  for (let at: unknown = segment.element; at instanceof Y.XmlElement; at = at.parent) {
+    if (at.nodeName === "table") return at;
+    if (at.nodeName === "listItem" && block === null) block = at;
+    // An XmlElement is an XmlFragment too: only the Mind's own fragment is the top.
+    if (at.parent === blocks) return block ?? segment.element;
+  }
+  return block ?? segment.element;
+}
+
+/**
+ * The parts a selection too long for the model is edited in (#2348): each a run of whole
+ * Blocks that `fits`, in order, and no part left out. A Block that alone doesn't fit is
+ * the whole answer: a Block can't be split. A Block the selection has no text of, such as
+ * an empty line at its edge, is in no part: there is nothing in it to edit.
+ */
+export function selectionParts(
+  blocks: Y.XmlFragment,
+  selection: Selection,
+  fits: (part: Selection) => boolean,
+): PartsResult {
+  const placeOf = (segment: Segment, edge: "from" | "to"): TextPlace | null => {
+    const blockId = segment.element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (typeof blockId !== "string" || blockId === "") return null;
+    return { blockId, offset: edge === "from" ? segment.from : segment.to };
+  };
+  const read = (first: Segment, last: Segment): Selection | null => {
+    const from = placeOf(first, "from");
+    const to = placeOf(last, "to");
+    if (!from || !to) return null;
+    const result = readSelection(blocks, from, to);
+    return result.ok ? result.selection : null;
+  };
+  // The runs of segments inside one Block: a part is whole ones of these.
+  const runs: { first: Segment; last: Segment }[] = [];
+  for (const segment of selection.segments) {
+    const last = runs.at(-1);
+    if (last && blockOf(last.first, blocks) === blockOf(segment, blocks)) last.last = segment;
+    else runs.push({ first: segment, last: segment });
+  }
+  const editable = runs.filter((run) => (read(run.first, run.last)?.text ?? "") !== "");
+  const parts: (PartPlace & { plain: string })[] = [];
+  let start = 0;
+  while (start < editable.length) {
+    const first = editable[start];
+    if (!first) return { ok: false, reason: "changed" };
+    const alone = read(first.first, first.last);
+    if (!alone) return { ok: false, reason: "changed" };
+    if (!fits(alone)) return { ok: false, reason: "block", part: alone };
+    let end = start;
+    for (;;) {
+      const next = editable[end + 1];
+      if (!next) break;
+      const more = read(first.first, next.last);
+      if (!more) return { ok: false, reason: "changed" };
+      if (!fits(more)) break;
+      end += 1;
+    }
+    const to = editable[end];
+    const from = placeOf(first.first, "from");
+    const place = to && placeOf(to.last, "to");
+    const plain = to && read(first.first, to.last)?.plain;
+    if (!from || !place || plain === undefined) return { ok: false, reason: "changed" };
+    parts.push({ from, to: place, plain });
+    start = end + 1;
+  }
+  // Nothing the model could edit: the selection is empty lines.
+  if (parts.length === 0) return { ok: false, reason: "changed" };
+  return { ok: true, parts };
+}
+
+/** About how much of the Block before and after a part the model reads: meaning, not the passage. */
+const AROUND_CHARACTERS = 600;
+
+/** The end of `text` nearest the part, `characters` of it at most, cut at a word's edge. */
+function endingWith(text: string, characters: number): string {
+  if (text.length <= characters) return text;
+  const cut = text.slice(text.length - characters);
+  const space = cut.search(/\s/);
+  return space < 0 ? cut : cut.slice(space + 1);
+}
+
+/** The start of `text` nearest the part, `characters` of it at most, cut at a word's edge. */
+function startingWith(text: string, characters: number): string {
+  if (text.length <= characters) return text;
+  const cut = text.slice(0, characters);
+  const space = cut.search(/\s\S*$/);
+  return space < 0 ? cut : cut.slice(0, space);
+}
+
+/**
+ * `selection` with the Blocks just before and after it added to its context (#2348): a part is
+ * read with the text around it, as the whole selection is, and never changes those Blocks.
+ */
+export function withBlocksAround(blocks: Y.XmlFragment, selection: Selection): Selection {
+  const all = textBlocks(blocks).map((each) => each.element);
+  const first = selection.segments[0]?.element;
+  const last = selection.segments.at(-1)?.element;
+  const from = first ? all.indexOf(first) : -1;
+  const to = last ? all.indexOf(last) : -1;
+  if (from < 0 || to < from) return selection;
+  const before =
+    from > 0 ? endingWith(blockText(all[from - 1] as Y.XmlElement), AROUND_CHARACTERS) : "";
+  const after =
+    to < all.length - 1
+      ? startingWith(blockText(all[to + 1] as Y.XmlElement), AROUND_CHARACTERS)
+      : "";
+  if (before === "" && after === "") return selection;
+  return {
+    ...selection,
+    context: [before, selection.context, after].filter((each) => each !== "").join("\n\n"),
   };
 }
 
@@ -483,6 +647,14 @@ function withEmphasis(
   flush();
   return out;
 }
+
+/** The words of these Blocks' paragraphs and headings, a line each, as the Mind holds them once `request`'s changes are accepted. */
+export const acceptedText = (elements: readonly Y.XmlElement[], request: string): string =>
+  elements
+    .flatMap((block) =>
+      textBlocksOf(block).flatMap(({ element }) => viewOf(element, request, true) ?? []),
+    )
+    .join("\n");
 
 /** A text Block's words as the Mind holds them without `request`'s changes, or once they are accepted; null for a Block that isn't there in that view. */
 function viewOf(element: Y.XmlElement, request: string, accepted: boolean): string | null {
@@ -653,13 +825,39 @@ const MARKER = /\[\^(\d+)\]|\[(\d+)\]|\$([^$\n]+)\$|\n/g;
  */
 type NewParagraph = NewText | NewTable;
 
+/**
+ * The Citations and footnotes a reply's paragraphs place, as they were read: what it may add. A
+ * footnote it moves brings the Citations in it.
+ */
+function placedBy(paragraphs: readonly NewParagraph[]): CitingNodes {
+  const placed: CitingNodes = new Map();
+  for (const { tokens } of paragraphs) {
+    for (const { node } of tokens) {
+      if (!node || !CITING.has(node.name)) continue;
+      if (!node.source) {
+        tally(placed, nodeKey(node.name, node.attributes), 1);
+        continue;
+      }
+      tally(placed, citingKey(node.source), 1);
+      for (const [key, n] of splitCiting(node.source, "").others) tally(placed, key, n);
+    }
+  }
+  return placed;
+}
+
 interface NewText {
   kind: BlockKind | null;
   tokens: NewToken[];
+  /** What its name says it is (#2356): the passage's paragraph it replaces, by place from 1, or a new one. */
+  name?: ParagraphName;
   table?: undefined;
   open?: undefined;
   /** It holds lines that read as a table's rows but make no table. */
   unmade?: true;
+  /** Written as a heading, list item or quote in a passage of plain paragraphs, though read as one. */
+  asOther?: true;
+  /** Its words name a paragraph, as the Note's own text never does (a typed one was shown escaped): the model talking about the passage (#2356). */
+  namesOne?: true;
   notes: Notes;
 }
 
@@ -667,11 +865,14 @@ interface NewTable {
   kind: "table";
   /** All its cells' words and inline nodes. */
   tokens: NewToken[];
+  name?: ParagraphName;
   /** Each row's cells' tokens, the heading row first, and its columns' alignment. */
   table: { align: TableAlign[]; rows: NewToken[][][] };
   /** Its next row may still be coming: the line after it is the last, and has no "|" yet. */
   open?: true;
   unmade?: undefined;
+  asOther?: undefined;
+  namesOne?: undefined;
   notes: Notes;
 }
 
@@ -693,7 +894,8 @@ export const someNotes = ({ unmatchedMarkers, unlinkedSources, extraCells }: Not
   ...(extraCells > 0 && { extraCells }),
 });
 
-const addNotes = (to: Notes, from: Notes): void => {
+/** Adds one request's notes to another's: the notes of all the parts of an edit (#2348). */
+export const addNotes = (to: Notes, from: Notes): void => {
   to.unmatchedMarkers += from.unmatchedMarkers;
   to.unlinkedSources += from.unlinkedSources;
   to.extraCells += from.extraCells;
@@ -751,12 +953,16 @@ function tablesApart(text: string): (string | TableText)[] {
  * A formula the selection had is kept; another stays text. When the
  * selection was shown with its Blocks' markers, each paragraph's marker is
  * read off as its kind, and the escapes of text that looks like one are
- * taken off. A table is one paragraph of kind "table".
+ * taken off. A table is one paragraph of kind "table". `named`: the passage
+ * was shown with its paragraphs' names, and each paragraph's name, before or
+ * just after its marker, is read off (#2356); a line that starts with one
+ * starts a paragraph, and a name alone names the paragraph after it.
  */
 function newParagraphs(
   text: string,
   selection: Selection,
   fresh: ReadonlyMap<number, Attributes>,
+  named = false,
 ): NewParagraph[] {
   const formulas = new Set(
     selection.segments.flatMap((segment) =>
@@ -837,10 +1043,15 @@ function newParagraphs(
     words(paragraph.slice(at), at);
     return tokens;
   };
-  // A line that starts with a Block's mark starts a paragraph, even after a single line break.
-  const apart = selection.marked
-    ? new RegExp(String.raw`\n[ \t]*\n+|\n(?=${BLOCK_MARKER})`)
-    : /\n[ \t]*\n+/;
+  // A line that starts with a Block's mark, or with a name, starts a paragraph, even after a
+  // single line break.
+  const apart = new RegExp(
+    [
+      String.raw`\n[ \t]*\n+`,
+      ...(selection.marked ? [String.raw`\n(?=${BLOCK_MARKER})`] : []),
+      ...(named ? [String.raw`\n(?=${NAME_LINE})`] : []),
+    ].join("|"),
+  );
   // Pipe lines the passage already had are the User's text, not a table that failed.
   const had = new Set(selection.text.split("\n").map((line) => line.trim()));
   const unmade = (paragraph: string) =>
@@ -849,8 +1060,31 @@ function newParagraphs(
     const index = selection.citations.findIndex((citation) => citesSource(citation, source));
     return index < 0 ? null : `[${index + 1}]`;
   };
-  type Part = TableText | { marker: ReturnType<typeof readBlockMarker>; paragraph: string };
-  const parts = tablesApart(text).flatMap((part): Part[] =>
+  /** A name off the start of a paragraph, when the passage was shown with names. */
+  const nameOff = (written: string): { name: ParagraphName | null; rest: string } =>
+    named ? readName(written) : { name: null, rest: written };
+  /** No name read, but a ¶ where the paragraph starts: a name written wrong, refused. */
+  const strayOf = (rest: string): { name?: ParagraphName } => {
+    const stray = named ? strayName(rest) : null;
+    return stray === null ? {} : { name: { unclear: stray } };
+  };
+  /** A paragraph's words with the names the passage showed escaped made words again. */
+  const unescaped = (paragraph: string) => (named ? unescapeNames(paragraph) : paragraph);
+  type Part = { name?: ParagraphName } & (
+    | TableText
+    | {
+        marker: ReturnType<typeof readBlockMarker>;
+        paragraph: string;
+        asOther?: boolean;
+        namesOne?: boolean;
+      }
+  );
+  // One the User typed in the selection is their words, though the reply drops its escape.
+  const typedNames = new Set(selection.text.match(NAMES_IN_WORDS) ?? []);
+  const namesOne = (words: string) =>
+    named && (words.match(NAMES_IN_WORDS) ?? []).some((each) => !typedNames.has(each));
+  const source = named ? tableRowsUnnamed(text) : text;
+  const read = tablesApart(source).flatMap((part): Part[] =>
     typeof part !== "string"
       ? [part]
       : part
@@ -858,20 +1092,46 @@ function newParagraphs(
           .map((paragraph) => paragraph.trim())
           .filter((paragraph) => paragraph !== "")
           .map((written) => {
-            if (!selection.marked) return { marker: null, paragraph: written };
-            const marker = readBlockMarker(written);
+            const first = nameOff(written);
+            const name = first.name === null ? strayOf(first.rest) : { name: first.name };
+            if (!selection.marked) {
+              return {
+                ...name,
+                marker: null,
+                paragraph: unescaped(first.rest),
+                asOther: readBlockMarker(first.rest) !== null,
+                namesOne: namesOne(first.rest),
+              };
+            }
+            const marker = readBlockMarker(first.rest);
+            const after = marker ? first.rest.slice(marker.length) : first.rest;
+            // A name written after the paragraph's mark, as in "- ¶3 …".
+            const second = first.name === null ? nameOff(after) : { name: null, rest: after };
             return {
+              ...(first.name === null ? {} : name),
+              ...(first.name === null && second.name === null && strayOf(second.rest)),
+              ...(second.name !== null && { name: second.name }),
               marker,
-              paragraph: unescapeMarkers(
-                marker ? written.slice(marker.length) : written,
-                marker !== null,
-              ),
+              paragraph: unescaped(unescapeMarkers(second.rest, marker !== null)),
+              namesOne: namesOne(second.rest),
             };
           }),
   );
+  // A name alone names the paragraph after it, as when it stands on the line before a table.
+  const parts: Part[] = [];
+  for (const [index, part] of read.entries()) {
+    const following = read[index + 1];
+    const lone = "paragraph" in part && part.name !== undefined && part.paragraph === "";
+    if (lone && following && following.name === undefined) {
+      following.name = part.name;
+      continue;
+    }
+    parts.push(part);
+  }
   const anyMarker = parts.some((part) => "marker" in part && part.marker !== null);
   return parts.map((part): NewParagraph => {
     const notes = noNotes();
+    const name = part.name === undefined ? {} : { name: part.name };
     if ("rows" in part) {
       notes.extraCells = part.extraCells;
       const rows = part.rows.map((row) =>
@@ -884,6 +1144,7 @@ function newParagraphs(
       return {
         kind: "table",
         tokens: rows.flat(2),
+        ...name,
         table: { align: part.align, rows },
         ...(part.open && { open: true }),
         notes,
@@ -893,10 +1154,33 @@ function newParagraphs(
     return {
       kind: marker?.kind ?? (selection.marked && !anyMarker ? null : "paragraph"),
       tokens: tokensOf(paragraph, notes),
+      ...name,
       ...(unmade(paragraph) && { unmade: true }),
+      ...(part.asOther && { asOther: true }),
+      ...(part.namesOne && { namesOne: true }),
       notes,
     };
   });
+}
+
+/**
+ * A reply's text with the names on its tables' lines moved off them, as a table's first line is a
+ * table's only at a line's start: a name before its first row goes on a line of its own, and one
+ * before each row after it goes, since a row is no paragraph (Claude Haiku 5.5 names every row).
+ */
+function tableRowsUnnamed(text: string): string {
+  let inTable = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      const name = NAME_AT_LINE.exec(line)?.[0] ?? "";
+      const rest = line.slice(name.length);
+      const row = rest.trimStart().startsWith("|");
+      const out = !row || name === "" ? line : inTable ? rest : `${name.trim()}\n${rest}`;
+      inTable = row;
+      return out;
+    })
+    .join("\n");
 }
 
 /**
@@ -904,8 +1188,12 @@ function newParagraphs(
  * selection's it is: a line each, as a model may run a section's paragraphs together, and a
  * cell each of a table.
  */
-function quotedRuns(quote: string, selection: Selection): { text: string; chars: string }[] {
-  return newParagraphs(quote, selection, new Map())
+function quotedRuns(
+  quote: string,
+  selection: Selection,
+  named: boolean,
+): { text: string; chars: string }[] {
+  return newParagraphs(quote, selection, new Map(), named)
     .flatMap((paragraph) => {
       if (paragraph.table) return paragraph.table.rows.flat(1);
       const runs: NewToken[][] = [[]];
@@ -921,7 +1209,7 @@ function quotedRuns(quote: string, selection: Selection): { text: string; chars:
         .map((token) => token.text ?? "")
         .join("")
         .trim(),
-      chars: quoteChars(run),
+      chars: newCharsOf(run).chars,
     }));
 }
 
@@ -937,6 +1225,29 @@ export interface Written {
   unmadeTable?: true;
   /** Text it quotes as taken out that is in none of the paragraphs it left out word for word, once (#2180). */
   unplaced?: string[];
+  /**
+   * A paragraph of it named one of the passage's twice, one the passage hasn't, or one with no
+   * words for it: nothing from there on was written (#2356).
+   */
+  misnamed?: true;
+  /**
+   * A paragraph of it rewrote one of the selection's without a <removed> the User typed there:
+   * nothing from there on was written, for the edit to be refused (#2356).
+   */
+  droppedTypedTag?: true;
+  /**
+   * In a passage shown with names, the text's own words: its paragraphs with no name in a text
+   * that names others, which are never written; or all of it, when it names none and would only
+   * add lines (`onlyAside`). For the panel, when nothing else changes (#2356).
+   */
+  aside?: string[];
+  /** The text names no paragraph, writes over none and takes none out: what it would add is only `aside`. */
+  onlyAside?: true;
+  /**
+   * What it wrote changed a Citation, footnote or figure that was there, or added one its text
+   * doesn't place (#2424): the change is refused.
+   */
+  notPlaced?: true;
   /** What the paragraphs written had that they don't hold as it was written. */
   notes: Notes;
 }
@@ -1631,12 +1942,15 @@ function counterpart(segment: Segment, alike: number, translating: boolean): boo
  * place stand in for, between the same two pairs: one for one when there are
  * as many of each, else those the new ones share any words with, most alike
  * first. An edit that keeps what it left out still takes these out, so an
- * item reworded or replaced is never there twice.
+ * item reworded or replaced is never there twice. With `readsAs`, in a reply
+ * that has left paragraphs out, a new one's place says nothing: only those it
+ * reads as (#2333).
  */
 function replacedIn(
   between: readonly Segment[],
   held: readonly NewParagraph[],
   paired: readonly (number | null)[],
+  readsAs: ((segment: Segment, paragraph: NewParagraph) => boolean) | null = null,
 ): Segment[] {
   const replaced: Segment[] = [];
   let oldFrom = 0;
@@ -1651,7 +1965,7 @@ function replacedIn(
         if (covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL) replaced.push(segment);
       }
     }
-    if (olds.length === news.length) {
+    if (!readsAs && olds.length === news.length) {
       replaced.push(...olds);
       return;
     }
@@ -1659,7 +1973,9 @@ function replacedIn(
       .flatMap((segment, i) =>
         news.map((paragraph, j) => ({ i, j, alike: placeLikeness(segment, paragraph) })),
       )
-      .filter((each) => each.alike > 0)
+      .filter(({ i, j, alike }) =>
+        readsAs ? readsAs(olds[i] as Segment, news[j] as NewParagraph) : alike > 0,
+      )
       .sort((a, b) => b.alike - a.alike);
     const usedOld = new Set<number>();
     const usedNew = new Set<number>();
@@ -1683,10 +1999,22 @@ function replacedIn(
 /** How alike a new paragraph of unknown kind must be to one of the selection's to take its kind. */
 const MOVED_LIKENESS = 0.5;
 /**
+ * How much more like one of the selection's paragraphs than like any other a new one of a reply
+ * that leaves some out must be to take its place: a new line on the pattern of several (a cost,
+ * a term) is as like each of them, and is added beside them (#2333).
+ */
+const CLEARLY_MORE = 0.1;
+/**
  * How much of a paragraph the reply leaves out another must say for it to go unmarked, moved or
  * made into a table: nearly all of its words, so a new line that only reads like it takes nothing (#2180).
  */
 const NEARLY_ALL = 0.9;
+
+/**
+ * The fewest words with which a new line says, by its words alone, which paragraph it rewrites: a
+ * shorter one, such as "Changed to:" or "Done.", may have only words of a paragraph and name none.
+ */
+const TELLING_WORDS = 4;
 
 /** A paragraph's words and signs as compared with a quote: no spaces, any case, each character where it is in its Block. */
 function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
@@ -1705,16 +2033,30 @@ function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
   return { chars, at };
 }
 
-const quoteChars = (tokens: readonly NewToken[]) =>
-  tokens
-    .map((token) => token.text ?? "")
-    .join("")
-    .replace(/\s+/g, "")
-    .toLowerCase();
+/** New text's words and signs as `charsOf` reads a paragraph's, each character where it is in that text. */
+function newCharsOf(tokens: readonly NewToken[]): { chars: string; at: number[] } {
+  const text = tokens.map((token) => token.text ?? "").join("");
+  let chars = "";
+  const at: number[] = [];
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index] as string;
+    if (/\s/.test(char)) continue;
+    const lower = char.toLowerCase();
+    chars += lower;
+    for (let unit = 0; unit < lower.length; unit++) at.push(index);
+  }
+  return { chars, at };
+}
 
 /** A letter or digit of a word that runs on without spaces, unlike a Chinese character. */
 const IN_WORD = /^[\p{L}\p{N}]$/u;
 const HAN_CHAR = /^\p{Script=Han}$/u;
+/** A sentence or clause mark, a closing bracket or quote: it closes onto the word before it. */
+const CLOSING = /^[.,;:!?…)\]}»”’"'。，、；：！？）】》」』]$/u;
+/** An opening bracket or quote: the word after it starts there. */
+const OPENING = /^[([{«“‘"'（【《「『]$/u;
+/** Where a table's text sits: removals never leave one with no Block, so the table keeps its shape. */
+const CELLS: ReadonlySet<string> = new Set(["tableCell", "tableHeader"]);
 
 /**
  * Where a quote's words are in a paragraph, as characters of `charsOf` (#2180): the one place
@@ -1724,7 +2066,16 @@ function placeQuote(
   paragraph: { chars: string; at: number[] },
   quote: string,
 ): { first: number; end: number } | null {
-  if (quote === "") return null;
+  const places = placesOf(paragraph, quote);
+  const [only] = places;
+  return places.length === 1 && only !== undefined
+    ? { first: only, end: only + quote.length }
+    : null;
+}
+
+/** Every place a quote's words are in a paragraph, word for word, never cutting a word: "draft" isn't in "drafts". */
+function placesOf(paragraph: { chars: string; at: number[] }, quote: string): number[] {
+  if (quote === "") return [];
   const places: number[] = [];
   for (
     let at = paragraph.chars.indexOf(quote);
@@ -1744,10 +2095,7 @@ function placeQuote(
     if (end < paragraph.chars.length && runsOn(end - 1, end)) continue;
     places.push(at);
   }
-  const [only] = places;
-  return places.length === 1 && only !== undefined
-    ? { first: only, end: only + quote.length }
-    : null;
+  return places;
 }
 
 /**
@@ -1779,6 +2127,7 @@ function pairUp(
   segments: readonly Segment[],
   paragraphs: readonly NewParagraph[],
   translating: boolean,
+  may: (segment: Segment, paragraph: NewParagraph) => boolean = () => true,
 ): (number | null)[] {
   const weight = (i: number, j: number): number | null => {
     const segment = segments[i] as Segment;
@@ -1787,7 +2136,7 @@ function pairUp(
     const alike = placeLikeness(segment, paragraph);
     // Of unknown kind, only a paragraph like it can take a Block's place.
     if (paragraph.kind === null && alike < UNKNOWN_KIND_LIKENESS) return null;
-    if (!counterpart(segment, alike, translating)) return null;
+    if (!counterpart(segment, alike, translating) || !may(segment, paragraph)) return null;
     return 1 + 2 * alike;
   };
   return bestPairing(segments.length, paragraphs.length, weight);
@@ -1854,12 +2203,39 @@ export function proposeRewrite(
   request: string,
   newId: () => string,
   fresh: ReadonlyMap<number, Attributes> = new Map(),
+  { named = false }: { named?: boolean } = {},
 ): Written {
-  const rewrite = createRewriteStream(selection, request, newId, () => fresh);
+  const rewrite = createRewriteStream(selection, request, newId, () => fresh, { named });
   rewrite.write(text, true);
   rewrite.finish();
-  return rewrite.written();
+  const written = rewrite.written();
+  return rewrite.unplaced() === null ? written : { ...written, notPlaced: true };
 }
+
+/** A <removed> tag as the User may type it, in any of the shapes a model writes the mark. */
+const TYPED_TAG = /<\/?removed(?=[\s/>])[^<>]*?\/?>/gi;
+
+const typedTagsIn = (tokens: readonly { text?: string }[]) =>
+  tokens
+    .map((token) => token.text ?? "")
+    .join("")
+    .match(TYPED_TAG)?.length ?? 0;
+
+/** Paragraphs' names among a line's words, not escaped as the passage shows one the User typed. */
+const NAMES_IN_WORDS = /(?<!\\)¶(?:\d+|\+)/g;
+
+/** A line of plain words, as a model talks: no table, list item, heading or quote. */
+const isPlain = (paragraph: NewParagraph) =>
+  !paragraph.table &&
+  !paragraph.asOther &&
+  (paragraph.kind === null || paragraph.kind === "paragraph");
+
+/** A paragraph's words as written, without its inline nodes. */
+const plainWords = (tokens: readonly { text?: string }[]) =>
+  tokens
+    .map((token) => token.text ?? "")
+    .join("")
+    .trim();
 
 /** How many of the selection's paragraphs a new one may pass over to pair with one much like it: those it passes go. */
 const LOOKAHEAD = 2;
@@ -1877,22 +2253,115 @@ export type RewritePlace = { over: Y.XmlElement } | { after: Y.XmlElement };
  * middle is added, not written over the one after it, and one moved up is
  * added where it now goes. When two are like none of the selection's before
  * any is much like one (a translation), each pairs in order as it comes.
- * `finish` takes out the selection's paragraphs the text never reached, or with
- * `leftOut: "keep"` keeps them unless the text quotes them between <removed>
- * and </removed> (#2180); a request stopped before leaves them. Call each in a
+ * With `leftOut: "keep"` the text may leave paragraphs out, and a paragraph it
+ * doesn't name is never written over or taken out (#2333): a new one pairs by
+ * its place only between two the text pairs with, or in a text that rewrites
+ * every paragraph, known once it ends; else only with one it reads as
+ * (`readsAs`), and otherwise it is added. `finish` takes out the selection's
+ * paragraphs the text never reached, or with `leftOut: "keep"` keeps them
+ * unless the text quotes them between <removed> and </removed> (#2180); a request stopped before leaves them. Call each in a
  * Yjs transaction on the document `selection` was read from.
+ *
+ * With `named`, the passage was shown with its paragraphs' names (`Selection.named`), and a text
+ * that names any of its paragraphs says which paragraph each of its own replaces (#2356): each is
+ * written into the paragraph it names, one named after a later one moves there, and one named ¶+
+ * is new, after the one before it in the text or, first, before the next it names. A plain line
+ * with no name is the text's own words (`aside`), never written; a table, list item or heading
+ * with none is new. A paragraph it doesn't name is never written over or taken out, nor counted
+ * as left out: only a quote takes one out. A name twice, one the passage hasn't, or one with no
+ * words after it is `misnamed`: nothing more is written, for the edit to be refused. A text that
+ * names none is paired as above, and is `onlyAside` when it would only add plain lines. Which
+ * way a text is read is told by its first paragraph that has a name or reads much like one of the
+ * selection's; nothing is written before it. A rewrite that leaves out a <removed> the
+ * User typed is `droppedTypedTag`, refused too.
  */
 export function createRewriteStream(
   selection: Selection,
   request: string,
   newId: () => string,
   fresh: (text: string) => ReadonlyMap<number, Attributes>,
-  { leftOut: onLeftOut = "remove" }: { leftOut?: "keep" | "remove" } = {},
+  {
+    leftOut: onLeftOut = "remove",
+    named = false,
+  }: { leftOut?: "keep" | "remove"; named?: boolean } = {},
 ) {
   const { proposals, next } = proposalsOf(request, newId);
   const notes = notesOf();
   // Only the paragraphs the model was shown: an empty one between two isn't in its text.
   const segments = selection.segments.filter((segment) => segment.shown);
+  const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
+  const citingBefore = blocks && splitCiting(blocks, request);
+  /** The text may leave paragraphs out, which stay: where a new one stands may say nothing of which it is (#2333). */
+  const keeps = onLeftOut === "keep";
+  const wordsIn = segments.map((segment) => new Set(wordsOf(segment.tokens)));
+  /** Each paragraph's words that none of the selection's others has. */
+  const ownWords = new Map(
+    segments.map((segment, index) => [
+      segment,
+      new Set(
+        [...(wordsIn[index] ?? [])].filter((word) =>
+          wordsIn.every((words, other) => other === index || !words.has(word)),
+        ),
+      ),
+    ]),
+  );
+  const indexOf = new Map(segments.map((segment, index) => [segment, index]));
+  const sameAs = segments.map((segment) => charsOf(segment.tokens).chars);
+  /**
+   * How alike a new paragraph is to each of the selection's, whether it says words of that one's
+   * own, how much of it is that one's words, and how many words it has.
+   */
+  const nearness = new WeakMap<
+    NewParagraph,
+    { alike: number[]; own: boolean[]; cover: number[]; words: number }
+  >();
+  const nearnessOf = (paragraph: NewParagraph) => {
+    const known = nearness.get(paragraph);
+    if (known) return known;
+    const words = wordsOf(paragraph.tokens);
+    const found = {
+      alike: segments.map((segment) => placeLikeness(segment, paragraph)),
+      own: segments.map((segment) => words.some((word) => ownWords.get(segment)?.has(word))),
+      cover: segments.map((segment) => covered(paragraph.tokens, segment.tokens)),
+      words: words.length,
+    };
+    nearness.set(paragraph, found);
+    return found;
+  };
+  /** Much like one of the selection's paragraphs, whichever it is. */
+  const resembles = (paragraph: NewParagraph) =>
+    nearnessOf(paragraph).alike.some((alike) => alike >= MOVED_LIKENESS);
+  /**
+   * A new paragraph reads as this one of the selection's: much like it, and clearly more like it
+   * than like any other of whatever kind (a line more like a bullet than a paragraph is no
+   * rewrite of the paragraph); or, as a summary of it is, made of nearly all its words and of no
+   * other's, in at least `TELLING_WORDS` of them (#2333). One that would `standIn` for a Block
+   * of another kind, which it can't pair with, must also say no word only another paragraph has:
+   * a summary, or a table, that names several takes none of them out.
+   */
+  const readsAs = (
+    segment: Segment,
+    paragraph: NewParagraph,
+    { standIn = false, least = MOVED_LIKENESS }: { standIn?: boolean; least?: number } = {},
+  ) => {
+    const { alike, own, cover, words } = nearnessOf(paragraph);
+    const index = indexOf.get(segment) ?? -1;
+    const mine = alike[index] ?? 0;
+    const rivals = (beaten: (at: number) => boolean) =>
+      segments.every(
+        (_, at) =>
+          at === index ||
+          // Two that read the same lose nothing whichever of them it takes.
+          sameAs[at] === sameAs[index] ||
+          (beaten(at) && (!standIn || own[at] !== true)),
+      );
+    return (
+      (mine >= least && rivals((at) => (alike[at] ?? 0) <= mine - CLEARLY_MORE)) ||
+      (words >= TELLING_WORDS &&
+        (cover[index] ?? 0) >= NEARLY_ALL &&
+        rivals((at) => (cover[at] ?? 0) < NEARLY_ALL))
+    );
+  };
   const first = segments[0];
   let place: Place | null = first
     ? { element: first.element, kind: first.kind, side: "before" }
@@ -1905,6 +2374,10 @@ export function createRewriteStream(
   const held: NewParagraph[] = [];
   /** A paragraph much like one of the selection's was paired: the text is mostly kept. */
   let anchored = false;
+  /** How many of the new text's paragraphs were paired with the selection's. */
+  let pairedSoFar = 0;
+  /** A new paragraph was written, paired or added: where the next goes follows it. */
+  let placedAny = false;
   /** Paragraphs like none of the selection's at all, before any was much like one. */
   let unlike = 0;
   /** Two were like none: the text is written anew, and each pairs in order. */
@@ -1924,16 +2397,51 @@ export function createRewriteStream(
   /** A finished paragraph reads as a table's rows but makes none: nothing more is written. */
   let unmade = false;
   const notesWritten = noNotes();
+  /** The text names the paragraph each of its own replaces: null until its first paragraph is read. */
+  let byName: boolean | null = named ? null : false;
+  /** The selection's paragraphs the text names, by index. */
+  const namedSoFar = new Set<number>();
+  /** Those it names with their words as they were, which it leaves as they are. */
+  const unchangedNamed = new Set<Segment>();
+  /** The last of the selection's paragraphs written in its place: one named before it has moved. */
+  let lastInPlace = -1;
+  /** New paragraphs before any the text names: they go just before the first it names. */
+  const comingFirst: NewParagraph[] = [];
+  /** Where the next new paragraph the text names as following one of the selection's goes: after those before it. */
+  const following = new Map<Segment, Place>();
+  let misnamed = false;
+  let droppedTypedTag = false;
+  const aside: string[] = [];
+  let onlyAside = false;
+  /** Finished paragraphs before any that names or reads as one of the selection's: none is written until one does, or the text ends. */
+  let waiting: NewParagraph[] = [];
+  let waited = false;
+  /** The name of the paragraph being written now. */
+  let writingName: ParagraphName | undefined;
 
   const remove = (gone: readonly Segment[]) => {
     const blocks: Y.XmlElement[] = [];
+    const strike = (segment: Segment) =>
+      markRemoved(segment.element, segment.start, segment.end, next(targetOf(segment.tokens)));
     for (const segment of gone) {
       if (segment.whole) blocks.push(removedWith(segment.element));
-      else markRemoved(segment.element, segment.start, segment.end, next(targetOf(segment.tokens)));
+      else strike(segment);
       for (const token of segment.tokens) noteCitation(notes.removed, token);
       notes.characters.removed += lengthOf(segment.tokens);
     }
-    for (const removed of wholeWrappers(blocks)) {
+    const units = wholeWrappers(blocks);
+    for (const removed of units) {
+      // A table cell left with no Block is dropped by the editor beyond Undo's reach (#2180):
+      // what it holds keeps its shape, and its text is struck.
+      const cell = removed.parent;
+      const empties =
+        cell instanceof Y.XmlElement &&
+        CELLS.has(cell.nodeName) &&
+        cell.toArray().every((child) => !(child instanceof Y.XmlElement) || units.includes(child));
+      if (empties) {
+        for (const segment of gone) if (isInside(segment.element, removed)) strike(segment);
+        continue;
+      }
       setProposal(removed, { ...refOf(next(targetText(removed))), kind: "delete" });
     }
   };
@@ -1956,20 +2464,30 @@ export function createRewriteStream(
   let quotedOut = 0;
   /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
+  /** The selection's paragraphs the text wrote over or moved, each with its new words as a quote is compared. */
+  const writtenOver = new Map<Segment, { chars: string; at: number[] }>();
 
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
-    if (!segment) return;
+    if (!segment || droppedTypedTag) return;
+    if (dropsTypedTag(segment, paragraph)) {
+      droppedTypedTag = true;
+      return;
+    }
     addNotes(notesWritten, paragraph.notes);
     notes.characters.written += lengthOf(paragraph.tokens);
     removeUpTo(index);
+    writtenOver.set(segment, newCharsOf(paragraph.tokens));
     writeHunks(segment, paragraph.tokens, next, newId, notes);
     place = { element: segment.element, kind: segment.kind, side: "after" };
     at = index + 1;
+    pairedSoFar++;
+    placedAny = true;
   };
 
   const addNew = (paragraph: NewParagraph) => {
     if (!place) return;
+    placedAny = true;
     addedAnew.push(paragraph);
     addNotes(notesWritten, paragraph.notes);
     for (const token of paragraph.tokens) noteCitation(notes.added, token);
@@ -1988,13 +2506,48 @@ export function createRewriteStream(
     place = { element: added, kind, side: "after" };
   };
 
-  /** The paragraphs held, written: paired with the selection's from `at` to `to` as `pairUp` pairs them. */
-  const writeHeld = (to: number) => {
+  /**
+   * The paragraphs held, written: paired with the selection's from `at` to `to` as `pairUp`
+   * pairs them. `bounded`: the text pairs a paragraph with the selection's at `to` next.
+   */
+  const writeHeld = (to: number, bounded = false) => {
     const from = at;
     const between = segments.slice(from, to);
     const whole = translating();
+    // Where the text may leave paragraphs out, a paragraph it doesn't name is never written over
+    // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
+    // old, each written as their kind. Between two places the text holds, where it pairs with
+    // the selection's paragraphs or starts as the selection does, that is one in the place of
+    // one, or several each more than half like the one in its place, since a stray line such as
+    // "Changed to:" beside a new one names none. After the last (a partial text stops early, so
+    // its end holds no place), each must also say in its words which it is: `TELLING_WORDS` of
+    // them, somewhat like it and clearly more than like any other. So does a text that rewrites
+    // every paragraph, none of its own much like one of the selection's (a translation). Any
+    // other pairs only with one it reads as, and is added when it reads as none.
+    const byTheirPlace =
+      held.length === between.length &&
+      held.every((paragraph) => !paragraph.asOther) &&
+      (bounded
+        ? held.length === 1 ||
+          held.every(
+            (paragraph, index) =>
+              placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
+          )
+        : held.every(
+            (paragraph, index) =>
+              nearnessOf(paragraph).words >= TELLING_WORDS &&
+              readsAs(between[index] as Segment, paragraph, { least: COUNTERPART_LIKENESS }),
+          ));
+    const rewritesAll =
+      keeps &&
+      pairedSoFar === 0 &&
+      from === 0 &&
+      held.length === segments.length &&
+      !seen.some(resembles);
+    const placed = !keeps || byTheirPlace || rewritesAll;
     // As many new paragraphs as old ones between two that held their place: each rewrites its own.
     const inPlace =
+      placed &&
       between.length === held.length &&
       held.every((paragraph, index) => {
         const segment = between[index];
@@ -2004,9 +2557,48 @@ export function createRewriteStream(
           counterpart(segment, likeness(segment.tokens, paragraph.tokens), whole)
         );
       });
-    const paired = inPlace ? held.map((_, index) => index) : pairUp(between, held, whole);
-    for (const segment of replacedIn(between, held, paired)) replaced.add(segment);
+    const paired = inPlace
+      ? held.map((_, index) => index)
+      : pairUp(
+          between,
+          held,
+          whole,
+          placed ? undefined : (segment, paragraph) => readsAs(segment, paragraph),
+        );
+    // A new Block in the place of one of its own kind, in a stretch its place says, takes that
+    // one's place, as an item about something else does between two kept items (#1028). A Block
+    // of another kind takes a paragraph's place by its place only in a text that rewrites every
+    // paragraph: a heading or a table between two kept ones is new text.
+    const takesPlace = (segment: Segment, paragraph: NewParagraph) =>
+      (byTheirPlace &&
+        paragraph.kind === segment.kind &&
+        between.indexOf(segment) === held.indexOf(paragraph)) ||
+      (!paragraph.table && readsAs(segment, paragraph, { standIn: true }));
+    const byPlace = !keeps || rewritesAll;
+    const standsIn = replacedIn(between, held, paired, byPlace ? null : takesPlace);
+    const rewritten = new Set([
+      ...standsIn,
+      ...paired.flatMap((pair) => (pair === null || pair === undefined ? [] : [between[pair]])),
+    ]);
+    // What takes the place of the User's paragraphs keeps each <removed> they typed there (#2356).
+    if (
+      typedTagsIn([...rewritten].flatMap((segment) => segment?.tokens ?? [])) >
+      typedTagsIn(held.flatMap((paragraph) => paragraph.tokens))
+    ) {
+      droppedTypedTag = true;
+      held.length = 0;
+      return;
+    }
+    for (const segment of standsIn) replaced.add(segment);
+    // Nothing written yet: what is added goes before the paragraph the text pairs with next, or
+    // with none, after the selection's last, never in place of the first.
+    if (keeps && !placed && !placedAny) {
+      const anchor = bounded ? segments[to] : segments.at(-1);
+      if (anchor)
+        place = { element: anchor.element, kind: anchor.kind, side: bounded ? "before" : "after" };
+    }
     for (const [index, paragraph] of held.entries()) {
+      if (droppedTypedTag) break;
       const pair = paired[index];
       if (pair === null || pair === undefined) addNew(paragraph);
       else pairWith(paragraph, from + pair);
@@ -2031,27 +2623,149 @@ export function createRewriteStream(
   };
 
   const take = (paragraph: NewParagraph) => {
-    const like = muchLike(paragraph);
+    const near = muchLike(paragraph);
+    // Much like several on their pattern, it reads as none of them in particular (#2333).
+    const like =
+      near !== null && keeps && !readsAs(segments[near] as Segment, paragraph) ? null : near;
     if (like !== null && like - at <= LOOKAHEAD + held.length) {
-      writeHeld(like);
+      writeHeld(like, true);
       pairWith(paragraph, like);
       anchored = true;
       return;
     }
     held.push(paragraph);
-    if (like === null && !anchored) unlike++;
-    if (unlike >= 2) anew = true;
+    if (near === null && !anchored) unlike++;
+    // Where paragraphs may be left out, whether the text is written anew is known only at its end.
+    if (unlike >= 2 && !keeps) anew = true;
     if (at >= segments.length) writeHeld(at);
     else if (anew) writeHeld(Math.min(segments.length, at + held.length + LOOKAHEAD));
   };
 
   /**
+   * Whether a rewrite of `segment` leaves out a <removed> the User typed there, which the passage
+   * showed escaped: Claude Haiku 5.5 rewrote one as a quoted word when asked to be formal (#2356).
+   */
+  const dropsTypedTag = (segment: Segment, paragraph: NewParagraph) =>
+    typedTagsIn(paragraph.tokens) < typedTagsIn(segment.tokens);
+
+  /**
+   * A name the paragraph's own words contradict: they read clearly more as another paragraph the
+   * text hasn't named than as the one it names. A model can miscount (Claude Haiku 5.5 named ¶7
+   * for a rewrite of ¶6, #2356), and that paragraph would be written over; this refuses, and pairs
+   * nothing.
+   */
+  const namesAnother = (paragraph: NewParagraph, index: number): boolean =>
+    segments.some(
+      (other, at) =>
+        at !== index &&
+        !namedSoFar.has(at) &&
+        readsAs(other, paragraph, { least: COUNTERPART_LIKENESS }),
+    );
+
+  /** A heading named and written as something else: a model's own sentence about it, as "¶1 is a heading…" (#2356). */
+  const headingLost = (segment: Segment, paragraph: NewParagraph) =>
+    segment.kind.startsWith("heading") && !paragraph.kind?.startsWith("heading");
+
+  /** A paragraph of a text that names the one each replaces (#2356), written where its name says. */
+  const takeNamed = (paragraph: NewParagraph) => {
+    // A line with no name, or one whose words name a paragraph ("¶+ after ¶7:"), is the text's own
+    // words, never the Note's; a table, list item or heading with no name is new text after the
+    // one before it.
+    if ((paragraph.name === undefined || paragraph.namesOne) && isPlain(paragraph)) {
+      const words = plainWords(paragraph.tokens);
+      if (words !== "") aside.push(words);
+      return;
+    }
+    const written = paragraph.name ?? { follows: null };
+    // A name just past the last paragraph names none it could write over: the reply numbered a
+    // new one (Claude Haiku 5.5 writes ¶16 for a sixteenth), which goes after the last.
+    const name =
+      "replaces" in written && written.replaces === segments.length + 1
+        ? { follows: written.replaces }
+        : written;
+    const words = paragraph.tokens.some((token) => token.node || token.text?.trim());
+    if ("unclear" in name) {
+      misnamed = true;
+      return;
+    }
+    const named = "replaces" in name ? name.replaces : name.follows;
+    if (named === null) {
+      if (!words) return;
+      if (placedAny) addNew(paragraph);
+      else comingFirst.push(paragraph);
+      return;
+    }
+    const index = "follows" in name && named === segments.length + 1 ? named - 2 : named - 1;
+    const segment = segments[index];
+    if (!segment || !words || ("replaces" in name && namedSoFar.has(index))) {
+      misnamed = true;
+      return;
+    }
+    if ("follows" in name) {
+      place = following.get(segment) ?? {
+        element: segment.element,
+        kind: segment.kind,
+        side: "after",
+      };
+      for (const each of comingFirst.splice(0)) addNew(each);
+      addNew(paragraph);
+      if (place) following.set(segment, place);
+      return;
+    }
+    if (namesAnother(paragraph, index) || headingLost(segment, paragraph)) {
+      misnamed = true;
+      return;
+    }
+    if (dropsTypedTag(segment, paragraph)) {
+      droppedTypedTag = true;
+      return;
+    }
+    namedSoFar.add(index);
+    const moved = index < lastInPlace;
+    if (!moved) place = { element: segment.element, kind: segment.kind, side: "before" };
+    for (const each of comingFirst.splice(0)) addNew(each);
+    if (
+      !moved &&
+      !paragraph.table &&
+      (paragraph.kind === null || paragraph.kind === segment.kind)
+    ) {
+      addNotes(notesWritten, paragraph.notes);
+      notes.characters.written += lengthOf(paragraph.tokens);
+      const before = proposals.length;
+      writeHunks(segment, paragraph.tokens, next, newId, notes);
+      // Named with its words as they were, it is left as it is, and a quote may still take it out.
+      if (proposals.length === before) unchangedNamed.add(segment);
+      else writtenOver.set(segment, newCharsOf(paragraph.tokens));
+      place = { element: segment.element, kind: segment.kind, side: "after" };
+      placedAny = true;
+      lastInPlace = index;
+      return;
+    }
+    // Moved, or written as a Block of another kind: it goes where the text has it, and the paragraph it names goes.
+    writtenOver.set(segment, newCharsOf(paragraph.tokens));
+    addNew(paragraph);
+    remove([segment]);
+    if (!moved) lastInPlace = index;
+  };
+
+  /** New paragraphs that came before any the text names, when it names none: after the selection's last. */
+  const placeComingFirst = () => {
+    const last = segments.at(-1);
+    if (comingFirst.length === 0 || !last) return;
+    place = { element: last.element, kind: last.kind, side: "after" };
+    for (const each of comingFirst.splice(0)) addNew(each);
+  };
+
+  /**
    * Of the paragraphs left out and kept, those the text says again were moved, and the words it
    * quotes as taken out go: a whole paragraph when the quotes say all of it, else only the words
-   * quoted. A quote that is in none of them exactly once takes nothing out.
+   * quoted. A quote the text's own writing already took out is that writing's; any other that
+   * isn't in one kept paragraph exactly once, or is only part of one while the text wrote the
+   * same words again elsewhere, takes nothing out, and the edit is refused.
    */
   const settleLeftOut = () => {
-    const said = [...addedAnew];
+    // A text that names its paragraphs says which moved: none it doesn't name is taken for moved.
+    const said = byName ? [] : [...addedAnew];
     const moved: Segment[] = [];
     for (const segment of [...kept]) {
       const again = said.findIndex(
@@ -2061,31 +2775,42 @@ export function createRewriteStream(
           covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL,
       );
       if (again < 0) continue;
-      said.splice(again, 1);
+      const [movedTo] = said.splice(again, 1);
+      if (movedTo) writtenOver.set(segment, newCharsOf(movedTo.tokens));
       moved.push(...kept.splice(kept.indexOf(segment), 1));
     }
     const read = new Map(segments.map((segment) => [segment, charsOf(segment.tokens)] as const));
-    const stretches = new Map<Segment, { first: number; end: number }[]>();
+    const stretches = new Map<Segment, { first: number; end: number; quote: string }[]>();
+    const none = { chars: "", at: [] };
     for (const quote of quotes) {
+      const holds = (segment: Segment) =>
+        placesOf(read.get(segment) ?? none, quote.chars).length > 0;
+      const stillHolds = (segment: Segment) =>
+        placesOf(writtenOver.get(segment) ?? none, quote.chars).length > 0;
+      // Words a paragraph the text wrote over, moved or let go held and no longer holds are the
+      // ones quoted: the same words in a kept paragraph stay (#2180).
+      const dropped = segments.some(
+        (segment) => !kept.includes(segment) && holds(segment) && !stillHolds(segment),
+      );
+      if (dropped) continue;
+      const holding = kept.filter(holds);
       // A quote that is all of a paragraph is that paragraph, though its words are in others too.
-      const all = kept.filter((segment) => read.get(segment)?.chars === quote.chars);
-      const places =
-        all.length > 0
-          ? all.map((segment) => ({ segment, place: { first: 0, end: quote.chars.length } }))
-          : kept.flatMap((segment) => {
-              const place = placeQuote(read.get(segment) ?? { chars: "", at: [] }, quote.chars);
-              return place ? [{ segment, place }] : [];
-            });
-      const [only] = places;
-      if (places.length === 1 && only) {
-        stretches.set(only.segment, [...(stretches.get(only.segment) ?? []), only.place]);
+      const exact = holding.filter((segment) => read.get(segment)?.chars === quote.chars);
+      // Words the text wrote again as they were weren't taken out there, so which of their
+      // places a part quote means can't be told.
+      const writtenAgain = segments.some((segment) => holds(segment) && stillHolds(segment));
+      const [target] =
+        exact.length === 1 ? exact : holding.length === 1 && !writtenAgain ? holding : [];
+      const place = !target
+        ? null
+        : exact.length === 1
+          ? { first: 0, end: quote.chars.length }
+          : placeQuote(read.get(target) ?? none, quote.chars);
+      if (!target || !place) {
+        unplaced.push(quote.text);
         continue;
       }
-      // Words of a paragraph the text writes itself are that paragraph's new text's to keep or drop.
-      const written = segments.some(
-        (segment) => !kept.includes(segment) && read.get(segment)?.chars.includes(quote.chars),
-      );
-      if (!written || places.length > 1) unplaced.push(quote.text);
+      stretches.set(target, [...(stretches.get(target) ?? []), { ...place, quote: quote.text }]);
     }
     const whole: Segment[] = [];
     for (const [segment, places] of stretches) {
@@ -2100,8 +2825,16 @@ export function createRewriteStream(
         let end = first;
         while (taken[end]) end++;
         const from = at[first] ?? segment.start;
-        const to = (at[end - 1] ?? from) + 1;
-        removePart(segment, from, to);
+        const part = partOf(segment, from, (at[end - 1] ?? from) + 1);
+        if (part) removePart(segment, part);
+        else {
+          const start = first;
+          unplaced.push(
+            ...places
+              .filter((place) => place.first < end && place.end > start)
+              .map((each) => each.quote),
+          );
+        }
         first = end;
       }
     }
@@ -2111,28 +2844,76 @@ export function createRewriteStream(
   };
 
   /**
-   * Takes the quoted words from `from` to `to` out of a paragraph left out, with the markers
-   * right after them and the spaces that would be left over: those after them, or at the
-   * paragraph's end those before them.
+   * What taking the quoted words from `quotedFrom` to `quotedTo` out of a paragraph takes (#2180):
+   * those words, the Citation markers right after them, and one space beside them: the one after
+   * them when nothing but a space, an opening mark or the paragraph's start is before them, or
+   * the one before them at the paragraph's end or before a closing mark. Null when the words
+   * start or end inside a word of text other than Chinese, hold a formula, a line break or a
+   * footnote, or have a footnote right after them: the User's own words or what else would go
+   * can't be told.
    */
-  const removePart = (segment: Segment, quotedFrom: number, quotedTo: number) => {
+  const partOf = (
+    segment: Segment,
+    quotedFrom: number,
+    quotedTo: number,
+  ): { from: number; to: number } | null => {
     const { tokens } = segment;
-    const blank = (token: OldToken | undefined) =>
-      token !== undefined && (token.text === undefined || /^\s+$/.test(token.text));
+    const charAt = (position: number): string | undefined => {
+      const token = tokens.find(
+        (each) => each.text !== undefined && each.from <= position && position < each.to,
+      );
+      return token?.text?.[position - token.from];
+    };
+    const citation = (token: OldToken | undefined) => token?.node?.name === CITATION_NODE;
+    const insideWord = (position: number) => {
+      const before = charAt(position - 1);
+      const after = charAt(position);
+      return (
+        before !== undefined &&
+        after !== undefined &&
+        !HAN_CHAR.test(before) &&
+        !HAN_CHAR.test(after) &&
+        tokens.some((each) => each.text !== undefined && each.from < position && position < each.to)
+      );
+    };
+    if (insideWord(quotedFrom) || insideWord(quotedTo)) return null;
+    const holdsNode = tokens.some(
+      (each) =>
+        each.text === undefined &&
+        each.from >= quotedFrom &&
+        each.from < quotedTo &&
+        !citation(each),
+    );
+    if (holdsNode) return null;
     let to = quotedTo;
-    let after = tokens.findIndex((token) => token.from >= to);
-    while (after >= 0 && after < tokens.length && blank(tokens[after])) {
-      to = tokens[after]?.to ?? to;
-      after++;
+    for (
+      let token = tokens.find((each) => each.from === to);
+      token?.text === undefined && token?.node;
+      token = tokens.find((each) => each.from === to)
+    ) {
+      if (!citation(token))
+        return token.node.name === FOOTNOTE_NODE ? null : { from: quotedFrom, to };
+      to = token.to;
     }
-    let from = quotedFrom;
-    if (after < 0 || after >= tokens.length) {
-      let previous = tokens.findLastIndex((token) => token.to <= from);
-      while (previous >= 0 && tokens[previous]?.text !== undefined && blank(tokens[previous])) {
-        from = tokens[previous]?.from ?? from;
-        previous--;
-      }
+    const next = charAt(to);
+    const before = charAt(quotedFrom - 1);
+    const startsWord =
+      before === undefined
+        ? !tokens.some((each) => each.to <= quotedFrom)
+        : /\s/.test(before) || OPENING.test(before);
+    if (next !== undefined && /\s/.test(next)) {
+      return startsWord ? { from: quotedFrom, to: to + 1 } : { from: quotedFrom, to };
     }
+    const closes =
+      next === undefined ? !tokens.some((each) => each.from >= to) : CLOSING.test(next);
+    return closes && before !== undefined && /\s/.test(before)
+      ? { from: quotedFrom - 1, to }
+      : { from: quotedFrom, to };
+  };
+
+  /** Takes what `partOf` found out of a paragraph left out. */
+  const removePart = (segment: Segment, { from, to }: { from: number; to: number }) => {
+    const { tokens } = segment;
     const touched = tokens.filter((token) => token.to > from && token.from < to);
     const target = touched
       .map((token) =>
@@ -2159,12 +2940,20 @@ export function createRewriteStream(
   const wrote = (write: () => void): boolean => {
     const before = proposals.length;
     write();
-    const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
     if (blocks) settleCitedIds(selection, blocks, newId);
     return proposals.length > before;
   };
 
   return {
+    /**
+     * What it wrote that changes a Citation, footnote or figure that was there, or adds one the
+     * text didn't place as it was read, or more often (#2424); null when it wrote neither.
+     */
+    unplaced: (): Unplaced | null =>
+      blocks === undefined || citingBefore === undefined
+        ? { changed: {}, added: { unread: 1 } }
+        : unplacedSince(citingBefore, blocks, request, placedBy(seen)),
+
     /**
      * The model's text so far: the paragraphs it has finished (all but the
      * last, or all of them once `done`) are written, or held until their
@@ -2173,10 +2962,10 @@ export function createRewriteStream(
      */
     write: (text: string, done = false): boolean =>
       wrote(() => {
-        if (unmade) return;
-        const { text: said, quoted } = readRemovals(text, done);
-        const paragraphs = newParagraphs(said, selection, fresh(said));
-        if (done) quotes = quoted.flatMap((quote) => quotedRuns(quote, selection));
+        if (unmade || misnamed || droppedTypedTag) return;
+        const { text: said, quoted } = readRemovals(named ? unnameRemovals(text) : text, done);
+        const paragraphs = newParagraphs(said, selection, fresh(said), named);
+        if (done) quotes = quoted.flatMap((quote) => quotedRuns(quote, selection, named));
         const open = paragraphs.findIndex((paragraph) => paragraph.open);
         const finished = done
           ? paragraphs.length
@@ -2186,7 +2975,41 @@ export function createRewriteStream(
           unmade = true;
           return;
         }
-        if (done && taken === 0) {
+        // A name written wrong says no paragraph: which one the text replaces can't be told.
+        if (
+          paragraphs
+            .slice(taken, finished)
+            .some((paragraph) => paragraph.name && "unclear" in paragraph.name)
+        ) {
+          misnamed = true;
+          return;
+        }
+        // The first paragraph that names one of the selection's or reads much like one says how
+        // the text is read, else a removal it names; lines before, like none ("Here is the
+        // text:"), wait for it.
+        if (byName === null) {
+          const telling = paragraphs
+            .slice(0, finished)
+            .find((paragraph) => paragraph.name !== undefined || resembles(paragraph));
+          if (telling) byName = telling.name !== undefined;
+          else if (namesRemoval(text)) byName = true;
+          else if (done) byName = false;
+          else {
+            waiting = paragraphs.slice(0, finished);
+            waited ||= finished > 0;
+            return;
+          }
+        }
+        if (byName) {
+          for (; taken < finished && !misnamed && !droppedTypedTag; taken++) {
+            const paragraph = paragraphs[taken];
+            if (paragraph) takeNamed(paragraph);
+          }
+          writingName = paragraphs[finished]?.name;
+          return;
+        }
+        // A text written at once pairs all at once; one held for a name pairs as it came.
+        if (done && taken === 0 && !waited) {
           held.push(...paragraphs);
           taken = paragraphs.length;
         }
@@ -2205,12 +3028,21 @@ export function createRewriteStream(
      */
     stop: (): boolean =>
       wrote(() => {
+        if (misnamed || droppedTypedTag) return;
+        if (byName === null) {
+          byName = false;
+          for (const paragraph of waiting.slice(taken)) take(paragraph);
+        }
+        placeComingFirst();
         for (const paragraph of held) {
           const segment = segments[at];
           const alike =
             segment !== undefined &&
             (paragraph.kind === null || paragraph.kind === segment.kind) &&
-            placeLikeness(segment, paragraph) >= MOVED_LIKENESS;
+            !dropsTypedTag(segment, paragraph) &&
+            (keeps
+              ? readsAs(segment, paragraph)
+              : placeLikeness(segment, paragraph) >= MOVED_LIKENESS);
           if (!alike) {
             addNew(paragraph);
             continue;
@@ -2227,10 +3059,37 @@ export function createRewriteStream(
     /** The model is done: the selection's paragraphs it never reached go, and those it quotes as taken out. */
     finish: (): boolean =>
       wrote(() => {
-        if (unmade) return;
-        writeHeld(segments.length);
-        removeUpTo(segments.length);
+        if (unmade || misnamed || droppedTypedTag) return;
+        if (byName) {
+          placeComingFirst();
+          kept.push(
+            ...segments.filter(
+              (segment, index) =>
+                (!namedSoFar.has(index) || unchangedNamed.has(segment)) &&
+                segment.tokens.length > 0,
+            ),
+          );
+        } else {
+          writeHeld(segments.length);
+          removeUpTo(segments.length);
+        }
         settleLeftOut();
+        // Shown names, a text that names none, writes in no paragraph's place, quotes none and
+        // would add only plain lines is talking: "I found no typos." is its words, never the
+        // Note's (#2356).
+        const talks =
+          named &&
+          byName === false &&
+          pairedSoFar === 0 &&
+          replaced.size === 0 &&
+          quotes.length === 0 &&
+          notes.characters.removed === 0 &&
+          addedAnew.length > 0 &&
+          addedAnew.every(isPlain);
+        if (talks) {
+          onlyAside = true;
+          aside.push(...addedAnew.map((paragraph) => plainWords(paragraph.tokens)));
+        }
       }),
 
     /** The Proposals written so far. */
@@ -2239,6 +3098,10 @@ export function createRewriteStream(
       droppedCitations: droppedOf(notes),
       ...(unmade && { unmadeTable: true }),
       ...(unplaced.length > 0 && { unplaced: [...unplaced] }),
+      ...(misnamed && { misnamed: true }),
+      ...(droppedTypedTag && { droppedTypedTag: true }),
+      ...(aside.length > 0 && { aside: [...aside] }),
+      ...(onlyAside && { onlyAside: true }),
       notes: { ...notesWritten },
     }),
 
@@ -2249,8 +3112,9 @@ export function createRewriteStream(
       added: notes.characters.added,
     }),
 
+    /** The paragraphs the text left out and are kept; none for a text that names its own, which leaves the others as they are. */
     leftOut: (): LeftOutPart[] =>
-      kept.flatMap((segment) => {
+      (byName ? [] : kept).flatMap((segment) => {
         const blockId = segment.element.getAttribute(BLOCK_ID_ATTRIBUTE);
         return typeof blockId === "string"
           ? [
@@ -2267,6 +3131,12 @@ export function createRewriteStream(
 
     /** Where the next paragraph goes; null with no place for any. */
     writingAt(): RewritePlace | null {
+      if (byName) {
+        const index = writingName && "replaces" in writingName ? writingName.replaces - 1 : -1;
+        const over = segments[index];
+        if (over && !namedSoFar.has(index)) return { over: over.element };
+        return placedAny && place ? { after: place.element } : null;
+      }
       const ahead = segments[at];
       if (ahead) return { over: ahead.element };
       return place ? { after: place.element } : null;
@@ -2578,6 +3448,7 @@ function writeBlocks(
         tokens,
         start: 0,
         end: size,
+        characters: size,
         kind: kindOf(element),
       };
       writeHunks(segment, jsonTokens(node.content ?? []), writer.next, writer.newId, writer.notes);

@@ -53,6 +53,15 @@ describe("a Document's year", () => {
     expect(documentYear({ creationDate: "2019" })).toBe("2019");
   });
 
+  test("is the year on this computer's clock for one written in UTC, as its info panel shows it", () => {
+    const late = { creationDate: "2026-12-31T20:00:00Z" };
+    expect(documentYear(late, { timeZone: "Asia/Shanghai" })).toBe("2027");
+    expect(documentYear(late, { timeZone: "America/New_York" })).toBe("2026");
+    expect(
+      documentYear({ creationDate: "2026-12-31T20:00:00-08:00" }, { timeZone: "Asia/Shanghai" }),
+    ).toBe("2026");
+  });
+
   test("without a creation date (or with one that isn't a date) it has none", () => {
     expect(documentYear({ creationDate: null })).toBe(NO_DATE);
     expect(documentYear({ creationDate: "" })).toBe(NO_DATE);

@@ -5,18 +5,16 @@
  * change it first). Utilities follow the names: bg-sheet, bg-frame,
  * border-rule, text-ink, text-ink-meta, bg-success-wash, text-body, …
  *
- * Fonts are bundled (fonts.css) for Latin and Greek. Chinese falls through to
- * the system's Simplified Chinese fonts, named before the generic ones so a
- * font with Japanese-style Han glyphs (Windows in Japanese) isn't picked:
- * with the serif, Songti SC / STSong on macOS, SimSun on Windows, Noto Serif
- * CJK SC (Source Han Serif SC) on Linux; with the sans, PingFang SC and
- * Hiragino Sans GB on macOS, Microsoft YaHei on Windows, Noto Sans CJK SC
- * (Source Han Sans SC) on Linux.
+ * The app and a Mind's writing use the system's font (DESIGN.md, Typography);
+ * Source Serif 4, JetBrains Mono, Carlito and Caladea are the fonts bundled
+ * with it (fonts.css). Chinese is named before the generic families so a font
+ * with Japanese-style Han glyphs (Windows in Japanese) isn't picked: the
+ * system's Simplified Chinese sans here, and its serif with the Serif style.
  */
 @theme {
   --font-sans:
-    "Source Sans 3", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
-    "Source Han Sans SC", ui-sans-serif, system-ui, sans-serif;
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
   --font-serif:
     "Source Serif 4", "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC",
     ui-serif, Georgia, serif;
@@ -43,6 +41,9 @@
   --color-accent: #2a5bd7;
   --color-accent-strong: #1e46b0;
   --color-accent-wash: #e7edfb;
+  /* The cells a User selected in a sheet, drawn as the system's selection is (#118). */
+  --selection-wash: color-mix(in srgb, AccentColor, transparent 88%);
+  --selection-overlay: color-mix(in srgb, AccentColor, transparent 88%);
   /* A selection in a field that has lost the focus, as macOS draws one in a window not in front. */
   --color-selection-inactive: #dde1e7;
   /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state (D266). */
@@ -107,8 +108,8 @@
   --text-display--line-height: 42px;
   --text-heading: 22px;
   --text-heading--line-height: 30px;
-  --text-body: 17px;
-  --text-body--line-height: 28px;
+  --text-body: 16px;
+  --text-body--line-height: 26px;
   --text-note: 15px;
   --text-note--line-height: 24px;
   --text-question: 16px;
@@ -135,9 +136,8 @@
   --font-cjk-sans:
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC";
   --font-cjk-serif: "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC";
-  --font-system:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", var(--font-cjk-sans), system-ui,
-    sans-serif;
+  /* The writing's name for the app's font, which its page names from script. */
+  --font-system: var(--font-sans);
   --font-mono-writing:
     "JetBrains Mono", var(--font-cjk-sans), ui-monospace, "SFMono-Regular", Menlo, Consolas,
     monospace;
@@ -1123,7 +1123,7 @@
   }
   .mind-measure {
     width: 680px;
-    margin-left: calc((100% - 784px) / 2 + 56px);
+    margin-left: calc((100% - 784px) / 2 + 56px - var(--comment-shift, 0px));
   }
 
   /* How far a Word import has got (#104), at the top of the page while it goes on. */
@@ -1141,7 +1141,6 @@
   .mind-word-problem {
     margin: 0 0 16px;
   }
-
   /*
    * Parts joined by middle dots wrap only between parts, and no line starts or
    * ends with a dot (#684): each part draws the dot in the gap before it, and
@@ -1492,10 +1491,6 @@
   }
   .review-card-what {
     color: var(--color-ink-meta);
-  }
-  .review-card-comment {
-    color: var(--color-ink-secondary);
-    white-space: pre-line;
   }
   /* "Changes (3)" at the page's top right, while the pane is folded or over the page. */
   .review-fold {
@@ -1858,6 +1853,16 @@
     margin: 0;
     padding: 0 8px 6px;
   }
+  /* The run's price, under the rows and in the card's text column (#1941). */
+  .check-card-estimate {
+    padding: 2px 8px 4px;
+
+    /* A part that begins a wrapped line begins with its dot: the line clips it at its start. */
+    & .meta-line {
+      margin: 0;
+      padding-left: 0;
+    }
+  }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
@@ -1886,7 +1891,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 4px 12px;
-    padding: 2px;
+    padding: 2px 8px;
   }
   .check-card-link {
     padding: 2px 4px;
@@ -2595,6 +2600,20 @@
     min-width: 22px;
     max-width: max-content;
   }
+  /* The stand-in's words carry the reset time, longer than a model's name: the chip takes the room
+     the scope gave up and wraps to a second line rather than the cap cutting the time off, so the
+     row grows as it needs; the chip still shrinks last (#400). */
+  .composer-controls:has([data-stand-in]) {
+    height: auto;
+    min-height: 28px;
+  }
+  .composer-controls:has([data-stand-in]) .composer-model {
+    max-width: none;
+    height: auto;
+    min-height: 22px;
+    padding-block: 3px;
+    white-space: normal;
+  }
   .composer-model-anchor {
     display: flex;
     min-width: 0;
@@ -2832,7 +2851,7 @@
     pointer-events: none;
   }
 
-  /* The Mind editor's content (Tiptap): your writing in Source Serif 4, 17/28. */
+  /* The Mind editor's content (Tiptap): the writing's font, 16/26 in the Default style. */
   .mind-editor {
     /* The handle's 20px target, its right edge `--edge-gap` before the text (the column's rule). */
     --handle-gap: var(--edge-gap);
@@ -2914,7 +2933,7 @@
       font-size: var(--text-display);
       line-height: var(--text-display--line-height);
       font-variation-settings: "opsz" 48;
-      letter-spacing: -0.01em;
+      letter-spacing: -0.02em;
     }
     h2 {
       font-size: var(--text-heading);
@@ -3325,7 +3344,7 @@
   }
 
   /*
-   * A Question (DESIGN.md, Question): one quiet line in Source Sans 3 14/20,
+   * A Question (DESIGN.md, Question): one quiet line in the system's font 14/20,
    * ink-meta, at the Mind's text edge. No band and no box: its spark and fold
    * chevron sit in the left margin, and its meta (model, Search scope, a
    * Skill) fills the rest of the line, shown on hover or focus. The meta never
@@ -4033,17 +4052,17 @@
       color: var(--color-ink);
     }
   }
-  /* In the assistant's narrower column the choices take less room, so Deny keeps its place at their row's end. */
+  /* In the assistant's narrower column the choices take less room; when they don't fit beside the text, a narrow tray or a wide system font wraps them under it, Deny last (#400). */
   .assistant-answer .approval-actions {
     gap: 4px;
     padding-right: 8px;
   }
+  .assistant-answer .approval-button {
+    padding: 0 10px;
+  }
   /* Deny has no frame: its padding is only its hit area, and the others need the room. */
   .assistant-answer .approval-button--ghost {
     padding-inline: 8px;
-  }
-  .assistant-answer .approval-button {
-    padding: 0 10px;
   }
   .assistant-answer .approval-button--primary {
     padding: 0 12px;
@@ -4719,6 +4738,23 @@
     text-overflow: ellipsis;
     color: var(--color-ink-secondary);
   }
+  /* An outside agent's sentences with no Citation (#352): quiet, as a chart's "1 with no Citation". */
+  .change-bar-uncited {
+    flex-shrink: 0;
+    border-radius: 2px;
+    color: var(--color-ink-meta);
+    text-decoration: underline;
+    text-decoration-color: var(--color-rule-strong);
+    text-underline-offset: 3px;
+
+    &:hover {
+      color: var(--color-ink-secondary);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+  }
   /* What the AI is working on: the dot the Answer being written has. */
   .edit-pending-dot {
     display: inline-block;
@@ -4777,6 +4813,73 @@
   }
   .composer-row > .quote-chip--where-first {
     max-width: 100%;
+  }
+  /* A sheet range's chip: its preview, on hover, shows the cells with their header row (#118). */
+  .composer-quote--rows {
+    position: relative;
+    max-width: 100%;
+    padding-left: 4px;
+  }
+  .composer-table-preview {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    max-width: 340px;
+    max-height: 240px;
+    overflow: auto;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    color: var(--color-ink);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+
+    table {
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th,
+    td {
+      padding: 2px 6px;
+      border-bottom: 1px solid var(--color-rule);
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      background: var(--color-frame);
+      font-weight: 600;
+    }
+  }
+  .composer-quote--rows:hover .composer-table-preview,
+  .composer-quote--rows:focus-within .composer-table-preview {
+    display: block;
+  }
+  .composer-table-preview-title {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+  }
+  /* An area of a page: its thumbnail, then "Figure · p. 7" (#118). */
+  .composer-quote--area {
+    height: 26px;
+    max-width: 100%;
+    padding-left: 3px;
+  }
+  .composer-quote-thumb {
+    display: block;
+    width: 32px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: 3px;
+    object-fit: cover;
+  }
+  .composer-quote-thumb--none {
+    background: var(--color-frame);
+    box-shadow: inset 0 0 0 1px var(--color-rule);
   }
 
   /*
@@ -4843,6 +4946,9 @@
     .citation-marker-icon {
       display: block;
     }
+  }
+  .citation-marker[data-judging] {
+    padding: 0 4px;
   }
   /* A Citation whose Document changed where it quotes carries ↻, needs re-check (#99). */
   .citation-marker[data-recheck] {
@@ -5374,8 +5480,8 @@
     --check-wash: none;
   }
   .margin-check[data-check="checking"],
-  .citation-marker[data-check="checking"],
-  .citation-card--checking {
+  .citation-marker:is([data-check="checking"], [data-check="not-checked"]),
+  .citation-card:is(.citation-card--checking, .citation-card--not-checked) {
     --check-ink: var(--color-ink-meta);
     --check-wash: var(--color-chip);
   }
@@ -5387,6 +5493,10 @@
     &[data-check="supported"] {
       --check-wash: none;
       color: var(--color-success);
+    }
+    /* Supported by the User's own notes alone: the ticked box in the meta ink, not the green tick (#335). */
+    &[data-check="supported"][data-own-note] {
+      color: var(--color-ink-meta);
     }
     /* Contradicted is outlined, so it reads without its colour. */
     &[data-check="contradicted"] {
@@ -5479,6 +5589,10 @@
     white-space: nowrap;
     color: var(--color-ink-meta);
   }
+  /* A scan's Document and place in full: its place is what Open the page leads to (#535). */
+  .citation-card-source--scan {
+    white-space: normal;
+  }
   .citation-card-quote {
     margin: 0;
     padding-left: 22px;
@@ -5538,6 +5652,68 @@
     text-decoration-thickness: 1px;
     text-underline-offset: 3px;
   }
+  /* The page a scanned Citation quotes (#535): cropped around its quote, the quote washed. */
+  .citation-scan-picture {
+    position: relative;
+    margin-left: 22px;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--color-chip);
+  }
+  .citation-scan-picture img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: none;
+    height: auto;
+  }
+  .citation-scan-marks {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .citation-scan-quote {
+    fill: var(--check-wash);
+    opacity: 0.7;
+  }
+  /* Each word that may be misread, outlined in amber: what the User compares with the picture. */
+  .citation-scan-unsure {
+    fill: none;
+    stroke: var(--color-attention);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 2;
+  }
+  /* A figure read from a scan's unsure word (#535): the quiet unchecked-figure wash, as an unquoted figure. */
+  .unchecked-figure-wash {
+    padding: 1px 2px;
+    border-radius: 3px;
+    background: var(--color-chip);
+  }
+  .unchecked-figure-mark {
+    margin-left: 3px;
+    padding: 0 2px;
+    border: 0;
+    background: none;
+    color: var(--color-ink-meta);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: super;
+    cursor: pointer;
+  }
+  .unchecked-figure-mark:hover,
+  .unchecked-figure-mark:focus-visible {
+    color: var(--color-ink);
+  }
+  .unchecked-figure-card {
+    position: fixed;
+    z-index: 60;
+  }
+  .unchecked-figure-heading {
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+  }
   /* A Citation's verdict, the one line a claim check adds. */
   .citation-card-verdict {
     padding-left: 22px;
@@ -5560,7 +5736,8 @@
     border-radius: 4px;
     pointer-events: none;
   }
-  .citation-card--parts {
+  /* A claim card fits the room its place measured: a list of record cites in it scrolls in what is left. */
+  .claim-card {
     max-height: min(calc(100vh - 16px), var(--card-room, 100vh));
     overflow-y: auto;
   }
@@ -5615,6 +5792,15 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  /* A file's property says its date or count in full, so its row wraps (#2458). */
+  .claim-property {
+    display: block;
+    width: 100%;
+    text-align: start;
+    white-space: normal;
+    overflow: visible;
+    border-radius: 4px;
   }
   .claim-part-menu {
     position: absolute;
@@ -6100,6 +6286,8 @@
   }
   .selection-menu {
     width: 280px;
+    /* The padding is part of the room: a taller menu's field stays inside the view. */
+    box-sizing: border-box;
     max-height: max(var(--selection-menu-room, 100vh), 140px);
     padding: 4px;
     border-radius: 10px;
@@ -6119,7 +6307,7 @@
   }
   .selection-formats {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 2px;
     padding: 2px 4px;
   }
@@ -6653,6 +6841,13 @@
       cursor: default;
     }
   }
+  /* A menu's own line above its items: a range's size (DESIGN.md › Viewer). */
+  .editor-menu-note {
+    padding: 4px 8px 2px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+    white-space: nowrap;
+  }
   /* Numbering ›: each scheme as its first levels draw it, its name after (#1419). */
   .numbering-menu {
     width: 272px;
@@ -6767,6 +6962,95 @@
     font-size: 13px;
     color: var(--color-ink-meta);
   }
+  /* Cite… (#281): the search of the Mind's Search scope at the caret, and its Passages. */
+  .cite-menu {
+    width: min(420px, calc(100vw - 32px));
+    padding: 0;
+    overflow: hidden;
+  }
+  .cite-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    background: none;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+    outline: none;
+
+    &::placeholder {
+      color: var(--color-ink-placeholder);
+    }
+  }
+  .cite-scope {
+    padding: 6px 12px 2px;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .cite-list {
+    max-height: 320px;
+    padding: 4px;
+    overflow-y: auto;
+  }
+  .cite-result {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    text-align: left;
+
+    &[aria-selected="true"] {
+      background: var(--color-hover);
+    }
+  }
+  .cite-result-icon {
+    flex: none;
+    margin-top: 2px;
+    color: var(--color-ink-meta);
+  }
+  .cite-result-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .cite-result-head {
+    overflow: hidden;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    & b {
+      font-weight: 600;
+      color: var(--color-ink);
+    }
+  }
+  /* Two lines of the Passage, as the results show it. */
+  .cite-result-text {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+
+    & b {
+      font-weight: 600;
+    }
+  }
+  .cite-note {
+    padding: 8px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
 
   /* The LaTeX field of a formula. */
   .math-editor {
@@ -6803,7 +7087,7 @@
   /* The margins narrow, from 56px and 48px to 40px each at 760px, with the measure kept at 680px. */
   @container mind (width < 784px) {
     .mind-measure {
-      margin-left: calc(40px + (100% - 760px) * 2 / 3);
+      margin-left: calc(40px + (100% - 760px) * 2 / 3 - var(--comment-shift, 0px));
     }
     .margin-checks {
       width: 40px;
@@ -7843,6 +8127,20 @@
     min-width: 0;
     margin: 0;
   }
+  /* The waiting row and the applied row in one cell: the head is as tall as the taller of the two,
+     and neither word change nor name can move what is under it. The one not shown is hidden from
+     sight and from the accessibility tree. */
+  .mind-changes-rows {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+  }
+  .mind-changes-rows > .mind-changes-line {
+    grid-area: 1 / 1;
+  }
+  .mind-changes-rows > .mind-changes-line[data-shown="false"] {
+    visibility: hidden;
+  }
   .mind-changes-name {
     min-width: 0;
     overflow: hidden;
@@ -8479,8 +8777,15 @@
   .answer-step-check[data-check="found"] {
     color: var(--color-success);
   }
-  .answer-step-check[data-check="not-found"] {
+  .answer-step-check[data-check="not-found"],
+  .answer-step-check[data-check="unsupported"] {
     color: var(--color-warning);
+  }
+  .answer-step-check[data-check="not-checked"] {
+    color: var(--color-ink-meta);
+  }
+  .answer-step-check[data-check="contradicted"] {
+    color: var(--color-danger);
   }
   .assistant-answer .answer-step-problem {
     font-size: var(--text-ui);
@@ -8661,8 +8966,9 @@
     padding: 0 var(--edge) 10px;
 
     /*
-     * The card keeps the height its step needs while the Answer above it grows, and scrolls past
-     * the room it leaves the thread (#2147).
+     * The card above keeps the height its step needs while the Answer above it grows, and scrolls
+     * past the room it leaves the thread, with the line and the composer kept whole below it
+     * (#2147, #2310).
      */
     &[data-setup] {
       display: flex;
@@ -8672,9 +8978,31 @@
       max-height: max(60%, calc(100% - 10rem));
     }
 
+    /* The card above scrolls in its room; the line and the composer keep theirs (#2310). */
+    &[data-setup] > .composer,
+    &[data-setup] > .assistant-setup-line {
+      flex: none;
+    }
+
     &:empty {
       display: none;
     }
+  }
+  /*
+   * Steps 2 and 3 still to do wait as one line here, above the composer (#2310): Set up opens the
+   * next step above it, and ✕ keeps them in Settings › Models.
+   */
+  .assistant-setup-line {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+    padding: 0 0 6px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-secondary);
   }
   /*
    * The title and a form's action row stay in view as the short setup card scrolls. Their
@@ -9397,15 +9725,26 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    width: 100%;
     min-height: 28px;
     padding: 4px 8px;
+    border: 0;
     border-radius: 6px;
+    background: none;
     font-size: 13px;
     line-height: 20px;
     color: var(--color-ink);
+    text-align: left;
 
     > time {
       font-size: 12px;
+    }
+
+    &:hover {
+      background: var(--color-hover);
+    }
+    &:focus-visible {
+      outline-offset: -2px;
     }
   }
   .assistant-history-empty {
@@ -11264,4 +11603,235 @@ body.assistant-dragging * {
 :root[data-motion="off"] *::after {
   animation: none;
   transition: none;
+}
+
+/*
+ * Comments on selected text (#328): each card stands beside its words, to the
+ * right of the Citation checks' 48px gutter, so it never covers a check. The
+ * marks are the cards' own; a comment whose words are gone has none. Under a
+ * narrow Mind the cards fold into the count in the page's corner.
+ */
+.comments-layer {
+  position: absolute;
+  inset: 0;
+  font-family: var(--font-sans);
+  pointer-events: none;
+}
+
+.comment-card-place {
+  position: absolute;
+  left: calc(100% + 64px);
+  width: 264px;
+  pointer-events: auto;
+}
+
+.comment-card-place--asked {
+  position: static;
+  width: 260px;
+}
+
+.comment-card {
+  padding: 10px 12px 8px;
+  border-radius: 8px;
+  background: var(--color-sheet);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.comment-card--resolved {
+  opacity: 0.72;
+}
+
+.comment-message + .comment-message {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-rule);
+}
+
+.comment-message-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--color-ink-meta);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.comment-author {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comment-message-head time {
+  flex: none;
+  margin-left: auto;
+}
+
+.comment-resolved {
+  flex: none;
+  color: var(--color-ink-meta);
+  font-size: 11px;
+}
+
+.comment-text {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.comment-actions,
+.comment-message-actions,
+.comment-compose-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.comment-quiet {
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--color-ink-meta);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.comment-quiet:hover,
+.comment-quiet:focus-visible {
+  background: var(--color-chip);
+  color: var(--color-ink);
+}
+
+.comment-send {
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--color-accent);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.comment-send:disabled {
+  opacity: 0.5;
+}
+
+.comment-field {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.comment-menu {
+  min-width: 180px;
+  padding: 4px;
+}
+
+.comment-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: start;
+}
+
+.comment-menu-item:hover:not(:disabled) {
+  background: var(--color-chip);
+}
+
+.comment-menu-item:disabled {
+  color: var(--color-ink-meta);
+}
+
+.comments-count {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--color-ink-meta);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.comments-count:hover,
+.comments-count[aria-expanded="true"] {
+  background: var(--color-chip);
+  color: var(--color-ink);
+}
+
+.comments-list {
+  width: 300px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 4px;
+  font-family: var(--font-sans);
+}
+
+.comments-list-head {
+  padding: 6px 8px;
+  color: var(--color-ink-meta);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.comments-list-row {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  text-align: start;
+}
+
+.comments-list-row:hover,
+.comments-list-row:focus-visible {
+  background: var(--color-frame);
+}
+
+.comments-list-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.comments-list-text {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* The quiet underline of the words a live comment is on: Word's and Google Docs' affordance. */
+.comment-mark {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-accent) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* The card a click on its words lit, while it stands beside them. */
+.comment-card-place[data-highlight] .comment-card {
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    var(--shadow-popover);
 }

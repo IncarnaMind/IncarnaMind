@@ -64,6 +64,30 @@ const REGIONS: AnalysisInput = {
   ],
 };
 
+/**
+ * A test workbook's sheet of monthly ad spend and revenue from row 2: revenue grows with spend
+ * and with time, and one revenue isn't a number.
+ */
+const MARKETING: AnalysisInput = {
+  kind: "table",
+  name: "marketing",
+  columns: ["Month", "Region", "AdSpend", "Revenue"],
+  firstRow: 2,
+  rows: Array.from({ length: 24 }, (_, at) => {
+    const spend = 10 + (at % 7) * 2.5;
+    const revenue = Math.round((50 + 3.2 * spend + 4 * Math.sin(at / 2) + at * 0.8) * 100) / 100;
+    return [
+      `${2024 + Math.floor(at / 12)}-${String((at % 12) + 1).padStart(2, "0")}`,
+      ["North", "South", "East"][at % 3] ?? "",
+      spend,
+      at === 5 ? "n/a" : revenue,
+    ];
+  }),
+};
+
+/** Every package Analyses bring beyond numpy and pandas, imported as code imports them. */
+const SCIENCE = "import scipy.stats, statsmodels.api, sklearn.cluster, matplotlib.pyplot";
+
 let dataDir: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
@@ -356,4 +380,281 @@ test("with Chromium's sandbox off for the app, no job runs: each ends as unavail
   expect(ran.result.end).toMatchObject({ kind: "unavailable", reason: "no-sandbox" });
   expect(ran.result.output.results).toEqual([]);
   await app.close();
+});
+
+test("a regression, a forecast and a clustering run offline with scipy, statsmodels, scikit-learn and matplotlib, each figure traced to the rows it used, each plot a picture", async () => {
+  test.setTimeout(300_000);
+  const { app } = await launchApp(dataDir, { sandboxed: true });
+
+  const regression = await run(
+    app,
+    python(
+      [
+        "import statsmodels.formula.api as smf",
+        "import matplotlib.pyplot as plt",
+        'df = inputs["marketing"].dropna(subset=["Revenue"])',
+        'fit = smf.ols("Revenue ~ AdSpend", data=df).fit()',
+        'used = df[["AdSpend", "Revenue"]]',
+        'result("slope", fit.params["AdSpend"], "Revenue per unit of ad spend", of=used)',
+        'result("p", fit.pvalues["AdSpend"], "p-value", of=used)',
+        'figure("total", df["Revenue"], "sum", "Total revenue")',
+        "fig, ax = plt.subplots()",
+        'ax.scatter(df["AdSpend"], df["Revenue"])',
+        'ax.set_title("Revenue against ad spend")',
+        "plt.savefig('fit.png')",
+        "plt.close(fig)",
+        "plt.figure()",
+        // A less common character of GB2312 (level 2), which the bundled font keeps.
+        'plt.bar(["北区", "南区"], [3, 1])',
+        'plt.title("各地区收入（鄞州）")',
+        "plt.figure()",
+        'plt.bar(["서울", "부산"], [3, 1])',
+        'plt.title("매출 지역별")',
+        "for n in range(1, 6):",
+        "    plt.figure()",
+        '    plt.bar(["서울"], [n])',
+        '    plt.title(f"매출 {n}")',
+      ].join("\n"),
+      [MARKETING],
+    ),
+  );
+  expect(regression.result.end).toEqual({ kind: "done" });
+  // savefig() in the code itself prints nothing for the model to read past.
+  expect(regression.result.output.printed).toBe("");
+  expect(regression.versions?.packages).toMatchObject({
+    scipy: "1.18.0",
+    statsmodels: "0.14.6",
+    "scikit-learn": "1.8.0",
+    matplotlib: "3.10.8",
+  });
+  const [slope, p, total] = regression.result.output.results;
+  const fitted = {
+    input: "marketing",
+    rows: [
+      [2, 6],
+      [8, 25],
+    ],
+    count: 23,
+  };
+  expect(slope).toMatchObject({ kind: "figure", name: "slope", of: { ...fitted, how: null } });
+  expect(slope?.kind === "figure" && slope.value).toBeCloseTo(3.3649, 3);
+  expect(slope?.kind === "figure" && slope.of?.columns).toEqual(["AdSpend", "Revenue"]);
+  expect(p?.kind === "figure" && p.value).toBeLessThan(0.001);
+  expect(total).toMatchObject({
+    kind: "figure",
+    of: { ...fitted, columns: ["Revenue"], how: "sum" },
+  });
+  // pandas' own sum, which IncarnaMind works out again to Excel's 15 digits.
+  expect(total?.kind === "figure" && total.value).toBeCloseTo(2590.7, 9);
+  // Closed after it was saved, the plot still comes back, and so does one in Chinese, drawn with
+  // the bundled font; those in Korean, which no font here has, don't.
+  expect(regression.result.output.pictures).toEqual([
+    expect.objectContaining({ title: "Revenue against ad spend" }),
+    expect.objectContaining({ title: "各地区收入（鄞州）" }),
+  ]);
+  // Five titles are listed, and the sixth plot left out is counted.
+  expect(regression.result.output.withoutGlyphs).toEqual([
+    "매출 지역별",
+    "매출 1",
+    "매출 2",
+    "매출 3",
+    "매출 4",
+  ]);
+  expect(regression.result.output.cut.withoutGlyphs).toBe(1);
+  const [picture] = regression.result.output.pictures ?? [];
+  expect(picture?.png.startsWith("iVBORw0KGgo")).toBe(true);
+  expect(Math.max(picture?.width ?? 0, picture?.height ?? 0)).toBeLessThanOrEqual(1600);
+  expect(picture?.width).toBeGreaterThan(600);
+
+  const forecast = await run(
+    app,
+    python(
+      [
+        "from statsmodels.tsa.holtwinters import ExponentialSmoothing",
+        'df = inputs["marketing"]',
+        'fit = ExponentialSmoothing(df["Revenue"].interpolate().to_numpy(), trend="add").fit()',
+        "for month, value in enumerate(fit.forecast(3), start=1):",
+        '    result(f"month_{month}", value, f"Forecast, month {month} ahead", of=df[["Revenue"]])',
+      ].join("\n"),
+      [MARKETING],
+    ),
+  );
+  expect(forecast.result.end).toEqual({ kind: "done" });
+  const values = forecast.result.output.results.map((each) =>
+    each.kind === "figure" ? each.value : null,
+  );
+  expect(values).toHaveLength(3);
+  expect(values[1]).toBeGreaterThan(values[0] ?? Number.POSITIVE_INFINITY);
+  expect(forecast.result.output.results[0]).toMatchObject({
+    of: { input: "marketing", columns: ["Revenue"], rows: [[2, 25]], count: 24, how: null },
+  });
+
+  const clusters = await run(
+    app,
+    python(
+      [
+        "from sklearn.cluster import KMeans",
+        'df = inputs["marketing"].dropna(subset=["Revenue"])',
+        'X = df[["AdSpend", "Revenue"]]',
+        "km = KMeans(n_clusters=3, n_init=10, random_state=0).fit(X)",
+        'result("sizes", df.assign(cluster=km.labels_).groupby("cluster").size())',
+        'result("inertia", km.inertia_, "Within-cluster sum of squares", of=X)',
+        'df.plot.scatter(x="AdSpend", y="Revenue", c=km.labels_, title="Clusters")',
+      ].join("\n"),
+      [MARKETING],
+    ),
+  );
+  expect(clusters.result.end).toEqual({ kind: "done" });
+  const [sizes, inertia] = clusters.result.output.results;
+  expect(
+    sizes?.kind === "table" && sizes.table.rows.reduce((n, row) => n + Number(row[1]), 0),
+  ).toBe(23);
+  expect(inertia).toMatchObject({ of: { count: 23, how: null } });
+  expect(clusters.result.output.pictures?.map((each) => each.title)).toEqual(["Clusters"]);
+  expect(clusters.result.output.printed).toBe("");
+  await app.close();
+});
+
+test("a job loads only the packages its code uses: one that needs only pandas loads none of the others", async () => {
+  test.setTimeout(240_000);
+  const { app } = await launchApp(dataDir, { sandboxed: true });
+  const loaded =
+    'import sys\nprint(sorted(name for name in ("scipy", "statsmodels", "sklearn", "matplotlib") if name in sys.modules))';
+
+  const pandasOnly = await run(
+    app,
+    python(`${loaded}\nresult("n", len(inputs["sales"]))`, [SALES]),
+  );
+  expect(pandasOnly.result.output.printed).toBe("[]\n");
+  expect(pandasOnly.result.output.results).toEqual([
+    { kind: "figure", name: "n", label: "n", unit: null, value: 7 },
+  ]);
+
+  const correlation = await run(
+    app,
+    python(
+      `r = inputs["sales"]["Revenue"].rank().corr(inputs["sales"]["Revenue"], method="spearman")\n${loaded}`,
+      [SALES],
+    ),
+  );
+  expect(correlation.result.end).toEqual({ kind: "done" });
+  expect(correlation.result.output.printed).toBe("['scipy']\n");
+
+  // Rows keep their row number in the sheet: a position taken for one says to use .iloc.
+  const position = await run(app, python('inputs["sales"].loc[0, "Revenue"]', [SALES]));
+  expect(position.result.end.kind === "error" && position.result.end.message).toContain(
+    "An input's rows are indexed by their row number in the sheet, from row 2: take a row by its position with .iloc.",
+  );
+  const row = await run(app, python('result("first", inputs["sales"].loc[2, "Revenue"])', [SALES]));
+  expect(row.result.output.results).toEqual([
+    { kind: "figure", name: "first", label: "first", unit: null, value: 120 },
+  ]);
+
+  // Two names the same once cut to a label's length are one result, the later.
+  const long = "x".repeat(250);
+  const cut = await run(app, python(`result("${long}a", 1)\nresult("${long}b", 2)`));
+  expect(cut.result.output.results).toEqual([
+    expect.objectContaining({ kind: "figure", value: 2 }),
+  ]);
+
+  // A library's own import the code can't show: the error says how to load it.
+  const hidden = await run(app, python('import importlib\nimportlib.import_module("scipy")'));
+  expect(hidden.result.end).toMatchObject({ kind: "error" });
+  expect(hidden.result.end.kind === "error" && hidden.result.end.message).toContain(
+    "scipy comes with Analyses, but this run didn't load it: import it at the top of the code (import scipy)",
+  );
+  await app.close();
+});
+
+test("with scipy, statsmodels, scikit-learn and matplotlib loaded, nothing leaves the sandbox and nothing carries from one job to the next", async () => {
+  test.setTimeout(240_000);
+  const heard: string[] = [];
+  const server = createServer((request, response) => {
+    heard.push(`${request.method} ${request.url}`);
+    response.end("reached");
+  });
+  server.on("upgrade", (request, socket) => {
+    heard.push(`upgrade ${request.url}`);
+    socket.destroy();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  const url = `http://127.0.0.1:${port}`;
+  const secretFolder = join(tmpdir(), `incarnamind-analysis-${randomUUID()}`);
+  await mkdir(secretFolder, { recursive: true });
+  const secret = join(secretFolder, "secret.txt");
+  await writeFile(secret, "kept on the computer");
+  const { app } = await launchApp(dataDir, { sandboxed: true });
+
+  // The spike's probes, with every package loaded: each must fail, and the network hear nothing.
+  const probes = [
+    `import urllib.request\nurllib.request.urlopen("${url}/urllib", timeout=5).read()`,
+    `import socket\nsocket.create_connection(("127.0.0.1", ${port}), 3).sendall(b"GET /socket HTTP/1.0\\r\\n\\r\\n")`,
+    `from pyodide.http import open_url\nopen_url("${url}/open-url").read()`,
+    `import js\nx = js.XMLHttpRequest.new()\nx.open("GET", "${url}/xhr", False)\nx.send()`,
+    `import js\njs.fetch("${url}/fetch")\nraise RuntimeError("fetch was only started")`,
+    `import js\njs.WebSocket.new("ws://127.0.0.1:${port}/socket")\nraise RuntimeError("the socket was only started")`,
+    `import js\njs.importScripts("${url}/script.js")`,
+    `import js\njs.eval("1 + 1")`,
+    `import js\njs.Function.new("return 1")()`,
+    `open(${JSON.stringify(secret)}).read()`,
+    `import os\nos.listdir(${JSON.stringify(secretFolder)})`,
+    "import micropip",
+    'import subprocess\nsubprocess.run(["ls"])',
+    // matplotlib reads a font or an image by its path; pandas and scipy a data file or a URL.
+    `import matplotlib.image\nmatplotlib.image.imread(${JSON.stringify(secret)})`,
+    `import pandas as pd\npd.read_csv(${JSON.stringify(secret)})`,
+    `import pandas as pd\npd.read_csv("${url}/data.csv")`,
+    `import scipy.io\nscipy.io.loadmat(${JSON.stringify(secret)})`,
+  ];
+  const probed = await run(
+    app,
+    python(
+      [
+        SCIENCE,
+        `probes = ${JSON.stringify(probes)}`,
+        "refused = []",
+        "for probe in probes:",
+        "    try:",
+        "        exec(probe, {})",
+        "    except Exception:",
+        "        refused.append(probe)",
+        "print(len(probes), [probe for probe in probes if probe not in refused])",
+      ].join("\n"),
+    ),
+  );
+  expect(probed.result.end).toEqual({ kind: "done" });
+  expect(probed.result.output.printed).toBe(`${probes.length} []\n`);
+  const first = await run(
+    app,
+    python(
+      [
+        SCIENCE,
+        "import matplotlib, builtins",
+        'matplotlib.rcParams["lines.linewidth"] = 9',
+        "builtins.kept = statsmodels.api",
+        'open("/tmp/left.txt", "w").write("left by a job")',
+        "matplotlib.pyplot.plot([1, 2])",
+      ].join("\n"),
+    ),
+  );
+  expect(first.result.end).toEqual({ kind: "done" });
+  expect(first.result.output.pictures).toHaveLength(1);
+  const next = await run(
+    app,
+    python(
+      [
+        SCIENCE,
+        "import matplotlib, builtins, os",
+        'print(matplotlib.rcParams["lines.linewidth"], hasattr(builtins, "kept"), os.path.exists("/tmp/left.txt"))',
+      ].join("\n"),
+    ),
+  );
+  expect(next.result.output.printed).toBe("1.5 False False\n");
+  expect(next.result.output.pictures).toEqual([]);
+
+  expect(heard).toEqual([]);
+  await app.close();
+  server.close();
+  await rm(secretFolder, { recursive: true, force: true });
 });

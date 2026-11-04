@@ -6,6 +6,8 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { DocumentKind } from "../../src/core/api";
+import { DOCUMENT_EXTENSIONS } from "../../src/core/documents/files";
 
 export type EvalLanguage = "en" | "zh";
 
@@ -66,8 +68,13 @@ export const isGating = (question: Pick<EvalQuestion, "crossLingual" | "paraphra
 
 export interface EvalDocument {
   key: string;
-  /** Absolute. */
+  /** Absolute: the file, or a Web page's HTML, which the evaluation serves to `saveWebPage`. */
   path: string;
+  /**
+   * A Web page's: "web", since it is saved by its address and has no file
+   * kind (#155). Left out: the kind of the file at `path`.
+   */
+  kind?: DocumentKind;
 }
 
 export interface EvaluationSet {
@@ -90,6 +97,29 @@ interface RawSet {
   hitRule?: unknown;
   documents?: unknown;
   questions?: unknown;
+}
+
+/**
+ * A Document as the set names it: its file's path, or for a Web page an
+ * object giving the HTML's path and its kind, since the served address is
+ * the evaluation's to choose.
+ */
+function readDocument(
+  key: string,
+  raw: unknown,
+  fail: (message: string) => never,
+): { path: string; kind?: DocumentKind } {
+  if (typeof raw === "string") return { path: raw };
+  const { path, kind } = (typeof raw === "object" && raw !== null ? raw : {}) as {
+    path?: unknown;
+    kind?: unknown;
+  };
+  if (typeof path !== "string") fail(`${key}: the path must be text.`);
+  if (kind === undefined) return { path };
+  if (typeof kind !== "string" || !(kind in DOCUMENT_EXTENSIONS)) {
+    fail(`${key}: the kind must be one of ${Object.keys(DOCUMENT_EXTENSIONS).join(", ")}.`);
+  }
+  return { path, kind: kind as DocumentKind };
 }
 
 function readQuestion(
@@ -157,11 +187,11 @@ export function loadEvaluationSet(root: string, source = EVALUATION_SET): Evalua
   };
   const raw = JSON.parse(readFileSync(join(root, source), "utf8")) as RawSet;
   if (typeof raw.documents !== "object" || raw.documents === null) fail("no documents.");
-  const documents = Object.entries(raw.documents as Record<string, unknown>).map(([key, path]) => {
-    if (typeof path !== "string") fail(`${key}: the path must be text.`);
+  const documents = Object.entries(raw.documents as Record<string, unknown>).map(([key, entry]) => {
+    const { path, kind } = readDocument(key, entry, fail);
     const absolute = join(root, path);
     if (!existsSync(absolute)) fail(`${key}: ${path} doesn't exist.`);
-    return { key, path: absolute };
+    return { key, path: absolute, ...(kind === undefined ? {} : { kind }) };
   });
   if (!Array.isArray(raw.questions)) fail("no questions.");
   const keys = new Set(documents.map((document) => document.key));

@@ -11,12 +11,16 @@
 import { describe, expect, test } from "vitest";
 import {
   type AmbiguityKind,
+  currencyOnItsFigure,
+  currencyScaleMarker,
   type Figure,
   type FigureContext,
   type FigureUnit,
   figureContextOf,
   readFigures,
   readStatedUnits,
+  statesForWholeDocument,
+  unsettledScales,
 } from "../../src/shared/figures";
 
 /**
@@ -1108,6 +1112,115 @@ describe("stated units", () => {
     expect(stated("100million USD", EN)).toEqual([]);
   });
 
+  test("a line says it holds for the whole Document only in so many words (#2365)", () => {
+    for (const line of [
+      "All amounts in £'000",
+      "All figures are in thousands",
+      "Every amount is stated in millions",
+      "Unless otherwise stated, all amounts are in £m",
+      "所有金额单位：千元",
+      "所有金額單位：千元",
+      "本报告金额单位：万元",
+      "本報告金額單位：萬元",
+      "全文金额均以千元列示",
+      "除另有说明外，金额单位：万元",
+      "Figures throughout this document are in £m",
+      "Amounts throughout this report are in thousands",
+      "All amounts in the consolidated financial statements are in £m",
+      "All amounts are in £m except where stated in the notes",
+      "本文件中所有金额单位均为百万英镑",
+      "本报告所有金额单位：千元",
+      "合并财务报表中所有金额单位：万元",
+      "所有金额单位：万元，但附注另有说明者除外",
+      "All amounts of the Group are in thousands",
+      "All amounts in the Group's financial statements are in thousands",
+      "Unless otherwise stated, all amounts for the year ended 31 December 2024 are in thousands",
+      "All amounts in this document are in £'000",
+      "All amounts in this annual report are in £'000",
+      "All amounts in the Group's financial statements are in £'000",
+      "Unless otherwise stated, all amounts for the period ended 30 June 2024 are in thousands",
+      "All amounts in US dollars are in millions",
+      "All amounts in this annual report are in US$ millions",
+      "All amounts for the Group are in £m",
+      "All amounts in the year ended 31 December 2024 are in £'000",
+      "All amounts in £m unless otherwise stated",
+      "除另有注明外，所有金额单位均为人民币千元",
+    ])
+      expect([line, statesForWholeDocument(line)]).toEqual([line, true]);
+    for (const line of [
+      "Amounts in £'000",
+      "Figures in 000s",
+      "All amounts in this table are in £'000",
+      "All figures in the section below are in thousands",
+      "All figures in Note 5 are in £m",
+      "All amounts in the consolidated financial statements' notes are in £m",
+      "Unless otherwise stated, amounts in the remuneration report are in £'000",
+      "All amounts in the parent company balance sheet are in £'000",
+      "All amounts in segment reporting are in £m",
+      "All figures for 2024 are in thousands",
+      "All amounts in the directors' report are in £'000",
+      "合并财务报表附注金额单位：万元",
+      "合并财务报表中本表金额单位：万元",
+      "金额单位：千元",
+      "金額單位：千元",
+      "本表金额单位：万元",
+      "本表金額單位：萬元",
+      "本报表金额单位：万元",
+      "下列金额单位：万元",
+      "附注五金额单位：万元",
+      "All amounts in this remuneration report are in £'000",
+      "Unless otherwise stated, all amounts in this Directors' Remuneration Report are in £'000",
+      "All amounts in this segment are in £'000",
+      "All amounts in the Group's remuneration report are in £'000",
+      "All amounts on this page are in £'000",
+      "All amounts below are in £'000",
+      "All amounts within this report are in £'000",
+      "All amounts following are in £'000",
+      "所有分部信息金额单位：百万元",
+      "All amounts relating to the parent company are in £'000",
+      "All amounts attributable to discontinued operations are in $ thousands",
+      "All amounts excluding the US business are in £m",
+      "All amounts in £m, apart from the Company balance sheet",
+      "All amounts except those in Note 12 are in £m",
+      "All amounts, other than those of the joint venture, are in £'000",
+      "All amounts in the year ended 31 December 2024 column are in £'000",
+      "所有金额单位：人民币千元，境外子公司除外",
+      "所有金额单位：千元（不含香港业务）",
+      "所有金额单位：千元（附录除外）",
+    ])
+      expect([line, statesForWholeDocument(line)]).toEqual([line, false]);
+  });
+
+  // protects=#2365; fails_when=a bracket's currency is read alone although a scale later in the
+  // bracket states one, so "(in £, thousands)" gives £900 instead of refusing, or "(in £ and $
+  // thousands)" picks one of its two currencies instead of refusing.
+  test("a bracket's tail is read whole: a scale later in it is not a currency alone", () => {
+    for (const line of [
+      "(in £, thousands)",
+      "(in £, '000)",
+      "(in US$, millions)",
+      "(in euros, millions)",
+      "(in $US thousands)",
+      "(in £ and $ thousands)",
+      "(in US dollars millions)",
+      "(in dollars thousands)",
+    ])
+      expect([line, stated(line)]).toEqual([line, []]);
+    expect(stated("(in dollars, in thousands)")).toEqual([
+      {
+        chars: "in thousands",
+        scale: 1000,
+        scaleWord: "thousands",
+        unit: { kind: "plain" },
+      },
+    ]);
+    for (const line of ["(in £ and pence)", "(in £, GBP)", "(in £, see note 3)"])
+      expect([line, stated(line)]).toEqual([
+        line,
+        [{ chars: line, scale: 1, scaleWord: null, unit: { kind: "currency", code: "GBP" } }],
+      ]);
+  });
+
   test("an amount's own compound scale states nothing: “4,979.6百万元” holds “万元” but is a figure", () => {
     expect(stated("营业收入为人民币4,979.6百万元，上年同期为人民币4,860.0百万元。", ZH)).toEqual(
       [],
@@ -1198,6 +1311,70 @@ describe("stated units", () => {
   });
 });
 
+describe("a currency written next to a scale", () => {
+  test.each([
+    "(£'000)",
+    "£000s",
+    "€ Mio.",
+    "Tsd. €",
+    "TEUR",
+    "T€",
+    "k€",
+    "$K",
+    "MEUR",
+    "$MM",
+    "USD MM",
+    "新台幣仟元",
+    "港幣百萬",
+    "金额：人民币万元",
+  ])("is found in %s", (text) => {
+    expect(currencyScaleMarker(text)).not.toBeNull();
+  });
+
+  test.each([
+    "In 2026 the sale completed.",
+    "Unit 4, 12 Mill Lane",
+    "I'm the seller's agent.",
+    "M. Smith",
+    "Room 000",
+    "万科",
+    "一千",
+    "工作单位",
+    "Sale price £385,000.00",
+    "Less: agent's fee (4,620.00)",
+    "Deposit $12,000.00",
+  ])("is not found in %s", (text) => {
+    expect(currencyScaleMarker(text)).toBeNull();
+  });
+});
+
+describe("a currency a line writes on its own figure", () => {
+  test("is the line's statement when no other figure on it writes another", () => {
+    expect(currencyOnItsFigure("Sale price £385,000.00", EN)).toEqual({
+      chars: "£",
+      code: "GBP",
+      at: 11,
+    });
+    expect(currencyOnItsFigure("成交价 ¥3,850,000.00", ZH)).toEqual({
+      chars: "¥",
+      code: "CNY",
+      at: 4,
+    });
+    expect(currencyOnItsFigure("Sale price 385,000.00", EN)).toBeNull();
+    expect(currencyOnItsFigure("Less: agent's fee (4,620.00)", EN)).toBeNull();
+    expect(currencyOnItsFigure("Sale price £385,000.00 deposit $12,000.00", EN)).toBeNull();
+  });
+
+  test("leaves a “¥” the Document doesn't settle unstated", () => {
+    expect(currencyOnItsFigure("Sale price ¥385,000.00", EN)).toBeNull();
+    expect(currencyOnItsFigure("Sale price ¥385,000.00", { language: "ja" })).toEqual({
+      chars: "¥",
+      code: "JPY",
+      at: 11,
+    });
+  });
+});
+
 describe("how a Document writes its numbers", () => {
   test("is read from the numbers that can be read only one way", () => {
     expect(
@@ -1226,6 +1403,17 @@ describe("how a Document writes its numbers", () => {
     expect(figureContextOf("売上高は1,200億円").yen).toBe("JPY");
     expect(figureContextOf("RMB 1.2bn and JPY 3bn").yen).toBeNull();
   });
+
+  // protects=#2226; fails_when=a Chinese Document's ¥ is read as the yen because a line names 日元, or a Japanese one's isn't the yen.
+  // protects=#2226; fails_when=a Chinese Document that names 日元 reads its ¥ as the yuan or the yen, or a Japanese one's ¥ isn't the yen.
+  test("leaves ¥ unsettled when the Document names the other currency", () => {
+    expect(figureContextOf("日本子公司（以日元列示）\n收入 ¥120,000,000", "zh-CN").yen).toBe(
+      "unsure",
+    );
+    expect(figureContextOf("营业成本 1,200", "zh-CN").yen).toBe("CNY");
+    expect(figureContextOf("料金は54,000円。売上高 ¥3,850,000", "ja").yen).toBe("JPY");
+    expect(figureContextOf("Fee is 54,000 yen. Sale price ¥3,850,000", "en").yen).toBe("JPY");
+  });
 });
 
 describe("A number at the start of a quote (#1969)", () => {
@@ -1248,5 +1436,135 @@ describe("A number at the start of a quote (#1969)", () => {
     expect(read("1. Revenue rose 5%", EN)).toEqual([["5%", 0.05]]);
     expect(read("3.1 收入", { ...ZH, midLine: true })).toEqual([["3.1", 3.1]]);
     expect(read("88.0 起（2025年上半年）", { ...ZH, midLine: true })).toEqual([["88.0", 88]]);
+  });
+});
+
+// protects=#2365; fails_when=a Document's scale in a form the reader didn't know ("'000", "000s", "(000 omitted)", "TEUR", "$MM", "金额（万）", "新台幣仟元") is missed, so its figures are read 1,000 or 10,000 times too small, or ordinary text ("order 000123", "1,000s of users", "万一", "(K)") is read as a scale.
+describe("the scale forms a Document states apart from its figures (#2365)", () => {
+  /** [text, what it states as "chars scale unit" (unit: an ISO code, or plain), what it leaves unsettled]. */
+  const CASES: [string, string[], string[]][] = [
+    // Thousands written with zeros.
+    ["£'000", ["£'000 1000 GBP"], []],
+    ["All amounts in '000", ["'000 1000 plain"], []],
+    ["Figures in 000s", ["000s 1000 plain"], []],
+    ["(000 omitted)", ["(000 omitted) 1000 plain"], []],
+    ["(000's omitted)", ["(000's omitted) 1000 plain"], []],
+    ["Dollar amounts, 000 omitted", ["000 omitted 1000 plain"], []],
+    ["(in 000s)", ["000s 1000 plain"], []],
+    ["('000)", ["'000 1000 plain"], []],
+    ["(in 000)", ["(in 000) 1000 plain"], []],
+    ["£000", ["£000 1000 GBP"], []],
+    ["(thousands)", ["thousands 1000 plain"], []],
+    ["Segment\tThousands", ["Thousands 1000 plain"], []],
+    ["Unit: thousand", ["thousand 1000 plain"], []],
+    ["Group £m\t2025", ["£m 1000000 GBP"], []],
+    ["Loans (bn)", ["(bn) 1000000000 plain"], []],
+    ["Loans (mn)", ["(mn) 1000000 plain"], []],
+    ["Loans (bln)", ["(bln) 1000000000 plain"], []],
+    ["Length (m)", [], []],
+    ["Amounts in USD m", ["USD m 1000000 USD"], []],
+    ["Amounts in USD bn", ["USD bn 1000000000 USD"], []],
+    ["Amounts in $B", ["$B 1000000000 USD"], []],
+    // A currency joined to a scale.
+    ["Angaben in TEUR", ["TEUR 1000 EUR"], []],
+    ["T€", ["T€ 1000 EUR"], []],
+    ["k€", ["k€ 1000 EUR"], []],
+    ["kEUR", ["kEUR 1000 EUR"], []],
+    ["MEUR", ["MEUR 1000000 EUR"], []],
+    ["€ Mio.", ["€ Mio. 1000000 EUR"], []],
+    ["Tsd. €", ["Tsd. € 1000 EUR"], []],
+    ["Amounts in $K", ["$K 1000 USD"], []],
+    ["(in $MM)", ["$MM 1000000 USD"], []],
+    ["($ in MM)", ["$ in MM 1000000 USD"], []],
+    ["USD MM", ["USD MM 1000000 USD"], []],
+    ["Rs. in lakhs", ["Rs. in lakhs 100000 INR"], []],
+    // Simplified and Traditional Chinese.
+    ["金额（万）", ["（万） 10000 plain"], []],
+    ["单位：万", ["单位：万 10000 plain"], []],
+    ["單位：新台幣仟元", ["單位：新台幣仟元 1000 TWD"], []],
+    ["（新台幣仟元）", ["（新台幣仟元） 1000 TWD"], []],
+    ["港幣百萬", ["港幣百萬 1000000 HKD"], []],
+    ["（港幣百萬）", ["（港幣百萬） 1000000 HKD"], []],
+    ["金額（億元）", ["（億元） 100000000 CNY"], []],
+    // Not a scale: a figure, a code, a phone number, a clause, a name or a unit of measure.
+    ["Share class USD B Acc", [], []],
+    ["EUR M Dist", [], []],
+    ["USD M&A advisory fees", [], []],
+    ["Series M USD notes", [], []],
+    ["Millions", [], []],
+    ["Thousands", [], []],
+    ["Fees were £19.8\nmillion, paid in 2025", [], []],
+    ["Thousands of 000s of users", [], []],
+    ["Vintage 000s", [], []],
+    ["#000s", [], []],
+    ["£m 2025", [], []],
+    ["美元B类份额", [], []],
+    ["账户尾号000", [], []],
+    ["order 000123", [], []],
+    ["Room 000", [], []],
+    ["(000) 123-4567", [], []],
+    ["1,000s of users", [], []],
+    ["1 000s of users", [], []],
+    ["Thousands of people attended.", [], []],
+    ["1,2 M€", [], []],
+    ["万一", [], []],
+    ["一万人", [], []],
+    ["约3（万）人", [], []],
+    ["人民币千万不要", [], []],
+    ["今欠到吴梅废书款伍拾肆万捌仟元整", [], []],
+    ["他是村里的万元户", [], []],
+    ["(K) the Seller's costs", [], []],
+    ["Temperature (K)", [], []],
+    ["Length (in mm)", [], []],
+    ["Date (DD/MM)", [], []],
+    ["Country B", [], []],
+    ["in M&A", [], []],
+    // A form that reads more than one way is refused, never guessed.
+    ["Revenue (in MM)", [], ["in MM"]],
+    ["(MM)", [], ["(MM)"]],
+    ["Amounts in K", [], ["in K"]],
+    ["Amounts in M", [], ["in M"]],
+    ["Amounts in $T", [], ["$T"]],
+    ["Accounts ending in 000", [], ["in 000"]],
+    ["Call (000)", [], ["(000)"]],
+    ["Revenue (000)", [], ["(000)"]],
+    ["Holdings of TUSD stablecoin", [], ["TUSD"]],
+    ["Fund (USD B)", [], ["USD B"]],
+    ["Ticker GBP M:", [], ["GBP M"]],
+    ["Units held: USD K", [], ["USD K"]],
+    ["We hold Class USD B", [], ["USD B"]],
+  ];
+
+  test.each(CASES)("%s", (text, statements, unsettled) => {
+    expect(
+      readStatedUnits(text).map(
+        ({ chars, scale, unit }) =>
+          `${chars} ${scale} ${unit.kind === "currency" ? unit.code : unit.kind}`,
+      ),
+    ).toEqual(statements);
+    expect(unsettledScales(text)).toEqual(unsettled);
+  });
+
+  test("a scale statement says which figures it leaves out", () => {
+    const except = (text: string) => readStatedUnits(text).map((each) => [each.chars, each.except]);
+    expect(except("Results (in millions, except per share data)")).toEqual([
+      ["in millions", "per-share"],
+    ]);
+    expect(except("(In thousands of dollars, except share and per-share amounts)")).toEqual([
+      ["In thousands of dollars", "shares"],
+    ]);
+    expect(except("单位：千元（除每股数据外）")).toEqual([["单位：千元", "per-share"]]);
+    expect(except("（除股数及每股数据外，单位：百万元）")).toEqual([["单位：百万元", "shares"]]);
+    expect(except("Results (in millions)")).toEqual([["in millions", undefined]]);
+    expect(except("In millions of dollars, except where noted")).toEqual([
+      ["In millions of dollars", "noted"],
+    ]);
+    expect(except("单位：百万元（除另有说明外）")).toEqual([["单位：百万元", "noted"]]);
+  });
+
+  test("a figure written in 仟 is read at its scale, as 萬 and 億 are", () => {
+    expect(readFigures("新台幣5,000仟元").map((each) => [each.value, each.unit])).toEqual([
+      [5_000_000, { kind: "currency", code: "TWD" }],
+    ]);
   });
 });

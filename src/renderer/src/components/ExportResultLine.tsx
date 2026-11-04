@@ -6,7 +6,7 @@ import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
 import { errorMessage } from "../errors";
 import { useDismissOnEscape } from "../escapeDismiss";
-import { checkComments, trackedChanges, unmarkedChecks } from "../exportChecks";
+import { checkComments, myCommentsPart, trackedChanges, unmarkedChecks } from "../exportChecks";
 import { useExportDialog } from "../exportDialog";
 import {
   COMPARISON_EXCEL,
@@ -18,6 +18,7 @@ import {
   exportMind,
   FIGURE_SCHEDULE_EXCEL,
   FORMAT_LABELS,
+  includeMyComments,
   isCheckRecord,
   revealNeedsDetails,
   revealUnverified,
@@ -26,14 +27,15 @@ import {
 import { showFileLabelKey } from "../fileInfo";
 import { useMindNoteStates } from "../home";
 import { useLanguage, useT } from "../i18n";
-import { folderName } from "../linkedFolders";
+import { showCheckCard } from "../mindCheck";
 import { enter } from "../motion";
-import { type NoteState, noteStateParts } from "../noteState";
 import {
-  chooseOutputLocation,
-  defaultFolderLabel,
-  showOutputLocationSetting,
-} from "../outputFiles";
+  type NoteState,
+  noteStateParts,
+  noteStateShowsUnread,
+  noteStateUnreadWords,
+} from "../noteState";
+import { chooseOutputLocation, savedFolderLabel, showOutputLocationSetting } from "../outputFiles";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
 import { ExportChange } from "./ExportChange";
@@ -46,7 +48,14 @@ const SAVED_SHOWN_MS = 10_000;
 
 type SavedResult = Extract<ExportResult, { state: "saved" }>;
 
-type SavedWithFile = readonly { testId: string; text: string }[];
+/** A part of the Saved line after the name: its words, and the one action those words offer. */
+interface SavedPart {
+  testId: string;
+  text: string;
+  action?: { label: string; testId: string; onClick(): void };
+}
+
+type SavedWithFile = readonly SavedPart[];
 
 const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean =>
   result.changing === undefined &&
@@ -55,6 +64,7 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.kept.length === 0 &&
   result.failures.length === 0 &&
   result.sentKept &&
+  (result.myComments === 0 || result.myCommentsShown) &&
   unmarkedChecks(result.checks, t) === null;
 
 const othersWord = (result: SavedResult) => result.format === "docx" && result.othersFile;
@@ -66,18 +76,22 @@ const othersWord = (result: SavedResult) => result.format === "docx" && result.o
  * marked unverified · Show"), or the problem and its one fix. A plain "Saved" goes by itself
  * after a while, and not back when the Mind is opened again after that; a problem stays until
  * it is dismissed, or the next export replaces it. The line also says what the file was written
- * with, and the note's standing, each part after a "·" (#1945); Change there opens the choices
- * that made it, and Esc or ✕ closes them without writing another file.
+ * with, the note's standing, each part after a "·" (#1945); Change there opens the choices that
+ * made it, and Show opens the check card that names the files its checks couldn't read (#740).
+ * Esc or ✕ closes them without writing another file.
  */
 export function ExportResultLine({ mindId }: { mindId: string }) {
   const t = useT();
   const result = useExports((state) => (state.result?.mindId === mindId ? state.result : null));
   const dismiss = useExports((state) => state.dismiss);
   const line = useRef<HTMLDivElement>(null);
-  const expired =
-    result?.state === "saved" &&
-    isPlainSaved(result, t) &&
-    Date.now() - result.at >= SAVED_SHOWN_MS;
+  // Judged when the line mounts, so a line the pointer is on isn't dropped by a later render.
+  const [stale] = useState(() =>
+    result?.state === "saved" && isPlainSaved(result, t) && Date.now() - result.at >= SAVED_SHOWN_MS
+      ? result
+      : null,
+  );
+  const expired = result !== null && result === stale;
   const shown = result !== null && !expired;
   useEffect(() => {
     if (expired) dismiss();
@@ -108,7 +122,7 @@ function ResultBody({
   const t = useT();
   const dismiss = useExports((state) => state.dismiss);
   const [error, setError] = useState<string | null>(null);
-  const held = useHeld(line);
+  const held = useHeld(line, { focusHolds: true });
   // Someone else's Word file with no comments says so quietly, before Change, not as a warning (#110).
   const unmarked =
     result.state === "saved" && !othersWord(result) ? unmarkedChecks(result.checks, t) : null;
@@ -388,15 +402,15 @@ function useExportNoteState(mindId: string | null): NoteState | null {
 }
 
 /**
- * What the file was written with (#1945), how far the note's checks reach (#1915), and how many
- * check comments it holds (#110): the parts after its name in the Saved line, in that order,
- * then Change when either choice can still be made. Everything after the name is one part after
- * another, each after a "·".
+ * What the file was written with (#1945), how far the note's checks reach (#1915), the files
+ * they couldn't read with Show (#740), and how many check comments it holds (#110): the parts
+ * after its name in the Saved line, in that order, then Change when either choice can still be
+ * made. Everything after the name is one part after another, each after a "·".
  */
 function SavedSentence({ result, withFile }: { result: SavedResult; withFile: SavedWithFile }) {
   const t = useT();
   const language = useLanguage();
-  const folder = result.inDefaultFolder ? defaultFolderLabel(t) : folderName(result.folder);
+  const folder = savedFolderLabel(result, t);
   const name = nameInLine(result.name);
   // The check record and the workbooks aren't the note's file: their lines say what they are, not how the note stands.
   const noteExport = !isCheckRecord(result.format) && !isWorkbook(result.format);
@@ -412,16 +426,58 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
           },
     markAiText: result.markAiText,
   });
-  const unchecked =
-    state === null || (state.kind === "checked" && state.unread === 0)
+  const unread = state === null ? null : noteStateUnreadWords(state, t, language);
+  const standing =
+    state === null ||
+    (state.kind === "checked" &&
+      state.unread === 0 &&
+      state.cantCheck === 0 &&
+      state.needsCheck === 0)
       ? []
       : noteStateParts(state, t, language);
+  // The unread count has words of its own at the line's end, in green and in amber for a narrow check; the line keeps its other parts.
+  const beforeUnread =
+    state !== null && noteStateShowsUnread(state) && unread !== null
+      ? standing.filter((part) => part !== unread)
+      : standing;
   const comments = checkComments(result.checks, t, othersWord(result));
+  const mine =
+    result.format === "docx" ? myCommentsPart(result.myComments, result.myCommentsShown, t) : null;
   const parts: SavedWithFile = [
     ...chosen.map((text) => ({ testId: "export-chosen", text })),
     ...withFile,
-    ...unchecked.map((text) => ({ testId: "export-unchecked", text })),
+    ...beforeUnread.map((text) => ({ testId: "export-unchecked", text })),
+    ...(unread === null
+      ? []
+      : [
+          {
+            testId: "export-unread",
+            text: unread,
+            action: {
+              label: t("export.show"),
+              testId: "export-unread-show",
+              onClick: () => showCheckCard(result.mindId),
+            },
+          },
+        ]),
     ...(comments ? [{ testId: "export-comments", text: comments }] : []),
+    ...(mine
+      ? [
+          {
+            testId: "export-my-comments",
+            text: mine,
+            ...(result.myCommentsShown
+              ? {}
+              : {
+                  action: {
+                    label: t("export.myComments.include"),
+                    testId: "export-my-comments-include",
+                    onClick: () => void includeMyComments(result.mindId),
+                  },
+                }),
+          },
+        ]
+      : []),
   ];
   // Only Word and PDF have a choice to change: a Word file always has the marking, a Numbered PDF
   // the place of its Citations. Markdown, HTML, a share page and a source pack have neither.
@@ -487,9 +543,27 @@ function SavedName({
     <span className="block min-w-0 grow overflow-hidden">
       <span className="-ml-4 flex flex-wrap">
         <span className="block max-w-full pl-4">{saved}</span>
-        {withFile.map(({ testId, text }) => (
+        {withFile.map(({ testId, text, action }) => (
           <FilePart key={`${testId}:${text}`} testId={testId}>
             {text}
+            {action && (
+              <>
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-4 text-center text-ink-placeholder"
+                >
+                  ·
+                </span>
+                <button
+                  type="button"
+                  data-testid={action.testId}
+                  onClick={action.onClick}
+                  className="font-semibold text-ink-secondary hover:text-ink hover:underline"
+                >
+                  {action.label}
+                </button>
+              </>
+            )}
           </FilePart>
         ))}
         {children && <FilePart>{children}</FilePart>}
@@ -515,7 +589,7 @@ function ChangePart({ mindId }: { mindId: string }) {
 
 function FilePart({ children, testId }: { children: ReactNode; testId?: string }) {
   return (
-    <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+    <span className="block max-w-full break-words">
       <span aria-hidden="true" className="inline-block w-4 text-center text-ink-placeholder">
         ·
       </span>

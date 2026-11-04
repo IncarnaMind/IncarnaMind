@@ -12,6 +12,7 @@ import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
 import { tagLinks } from "../../../shared/tagLinks";
 import type {
+  CloudReadPermit,
   CommandAsk,
   CommandDone,
   CommandItem,
@@ -19,11 +20,13 @@ import type {
   Document,
   Effect,
   ExportMarking,
+  ExternalService,
   FolderMove,
   LibraryGroup,
   MarkAiTextChoice,
   Mind,
   SavedFile,
+  TagLinkChange,
   UserAnswer,
   UserQuestion,
   WindowCommandEnd,
@@ -32,7 +35,7 @@ import type {
 } from "../../api";
 import { RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
-import { InvalidInputError, NotFoundError } from "../../errors";
+import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
 import type { Language } from "../../language";
 import type { Findable } from "./find";
 import type { CommandStep } from "./steps";
@@ -57,6 +60,7 @@ export type CommandsCore = Pick<
   | "deleteTag"
   | "addTagToDocuments"
   | "revertDocumentTags"
+  | "listDocumentTagDecisions"
   | "deleteDocuments"
   | "deleteMind"
   | "deletePermanently"
@@ -66,6 +70,10 @@ export type CommandsCore = Pick<
   | "updateLibraryGroup"
   | "updateTag"
   | "classifyDocuments"
+  | "acceptAssignments"
+  | "mergeTags"
+  | "getTaggingRoute"
+  | "listDataFlows"
   | "getMindCitationStyle"
   | "setMindCitationStyle"
   | "listCitationStyles"
@@ -96,6 +104,20 @@ export type MarkingSettled = ExportMarking;
 
 export interface CommandsHost {
   core: CommandsCore;
+  /**
+   * Organizes these Documents now and waits for the model, inside the turn that asked (#2252):
+   * the Library's Organize, which the background queue can't run while an Answer is written.
+   */
+  organizeAtOnce(
+    ids: readonly string[],
+    signal: AbortSignal,
+    wall: string | null,
+    permit?: CloudReadPermit,
+  ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
+  /** Suggests Folders for these Documents, with the run's permit when it has one (#2252). */
+  proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<LibraryGroup[]>;
+  /** The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022). */
+  allowCloudRead(service: ExternalService): void;
   /**
    * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
    * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.
@@ -152,6 +174,8 @@ export interface CommandInput {
   size: string | null;
   setting: string | null;
   value: string | null;
+  /** A Tag merge's groups, instead of ids and tag, when more than one Tag stays (#2252). */
+  merges: { ids: string[]; tag: string | null }[];
 }
 
 /** What a command changed, how to take it back, and what the model is told. */
@@ -184,7 +208,15 @@ export interface CheckedCommand {
   recording: CommandRecording | null;
   /** Never the assistant's (#1421): it runs nothing, and the User is told where they change it. */
   yours: Yours | null;
-  run(asking: CommandAsking, signal: AbortSignal): Promise<Ran>;
+  /** It asks the User before it runs, on the card for this change (#2252); null: no such ask. */
+  confirm: "organize" | "merge" | null;
+  /** A Tag merge's pairs, by name, which its card lists when one call merges into more than one. */
+  merges?: readonly { from: string; into: string }[];
+  /** The cloud service that would read these Documents for the first time, before the User allows it (#2252). */
+  cloud?: ExternalService;
+  /** The User said no to sending Documents for sorting before: this Allow is for this request only (#2252). */
+  cloudDeclined?: boolean;
+  run(asking: CommandAsking, signal: AbortSignal, permit?: CloudReadPermit): Promise<Ran>;
 }
 
 export const IN_APP: Effect[] = [{ action: "write", scope: { kind: "library" } }];
@@ -212,6 +244,11 @@ export function parseCommandInput(input: Record<string, unknown>): CommandInput 
     size: text(input.size),
     setting: text(input.setting),
     value: text(input.value),
+    merges: Array.isArray(input.merges)
+      ? input.merges.flatMap((each) =>
+          isRecord(each) ? [{ ids: texts(each.ids), tag: text(each.tag) }] : [],
+        )
+      : [],
   };
 }
 
@@ -357,6 +394,7 @@ const OUTSIDE_IT = {
   final: false,
   recording: null,
   yours: null,
+  confirm: null,
 } as const;
 
 /** A change inside IncarnaMind that Undo takes back: it asks only past the Answer's limit. */
@@ -364,7 +402,8 @@ export const inApp = (
   command: CommandId,
   items: CommandItem[],
   into: string | null,
-  run: (asking: CommandAsking) => Promise<Ran>,
+  run: (asking: CommandAsking, signal: AbortSignal, permit?: CloudReadPermit) => Promise<Ran>,
+  confirm: "organize" | "merge" | null = null,
 ): CheckedCommand => ({
   command,
   effects: IN_APP,
@@ -376,6 +415,7 @@ export const inApp = (
   final: false,
   recording: null,
   yours: null,
+  confirm,
   run,
 });
 
@@ -750,7 +790,9 @@ export const LIBRARY_CHECKERS = {
                     await core.deleteDocuments(refs.map((ref) => ref.id));
                     return null;
                   },
-                  redo: () => core.restore(refs),
+                  redo: async () => {
+                    await core.restore(refs);
+                  },
                 },
           said: `Added ${plural(added.length, "Document")} from ${folder}.${already > 0 ? ` ${plural(already, "was", "were")} in the Library already.` : ""}${result.skipped.length > 0 ? ` ${plural(result.skipped.length, "file")} couldn't be added.` : ""}`,
         };

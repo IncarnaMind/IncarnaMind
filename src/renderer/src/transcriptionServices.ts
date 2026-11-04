@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   CloudTranscriptionRoute,
+  TranscriptionRoute,
   TranscriptionServiceStatus,
   TranscriptionServices,
 } from "../../core/api";
@@ -84,6 +85,13 @@ export function useTranscriptionServicesRead(reads = true, fresh = false): Servi
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+export const ROUTE_LABELS: Record<TranscriptionRoute, MessageKey> = {
+  local: "meetings.route.local",
+  openai: "meetings.route.openai",
+  soniox: "meetings.route.soniox",
+  qwen: "meetings.route.qwen",
+};
+
 /** Where a Meeting's recording stays, said so it holds with a cloud route chosen too. */
 export function useAudioKeptKey(): MessageKey {
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute);
@@ -97,9 +105,10 @@ export function serviceMeta(service: TranscriptionServiceStatus, t: Translate, l
   return joinMeta([
     named ? service.model : "",
     t(named ? "meetings.route.perHour" : "meetings.route.perHourFirst", { price }),
-    t(service.key === "provider" ? "meetings.route.providerKey" : "meetings.route.ownKey", {
-      service: service.name,
+    t(named ? "meetings.route.providerKey" : "meetings.route.ownKey", {
+      provider: t(ROUTE_LABELS[service.route]),
     }),
+    service.region?.[language === "zh-CN" ? "zh" : "en"] ?? "",
     service.liveSpeakers ? t("meetings.route.speakers") : "",
   ]);
 }

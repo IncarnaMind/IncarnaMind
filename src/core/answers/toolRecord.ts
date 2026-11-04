@@ -7,6 +7,7 @@
  * (./claimedChanges). In English, as the rest of the instructions are.
  */
 import type { AnswerToolCall, CommandDone, MindChange, MindProblem } from "../api";
+import { asData } from "../promptData";
 import { COMMAND_TOOLS } from "../tools";
 
 /** A Mind's name now, by its id; null for one deleted or unknown. */
@@ -84,10 +85,18 @@ function whyNot(problem: MindProblem | undefined): string {
       return "its table couldn't be made";
     case "unplaced":
       return "the text it marked to take out isn't there word for word";
+    case "misnamed":
+      return "the rewrite didn't say clearly which paragraph each of its own replaces";
+    case "typed-tag":
+      return "the rewrite left out a <removed> tag the User typed";
+    case "not-placed":
+      return "the rewrite would hold a Citation, footnote or figure its reply didn't place";
     case "new-mind":
       return "the User asked for a new Note: make it with create_mind";
     case "uncited":
       return "its sources were written as text, as markers with no Citation recorded, or not cited at all";
+    case "length":
+      return "the new text wasn't the length the User asked for";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":
@@ -101,13 +110,26 @@ function whyNot(problem: MindProblem | undefined): string {
   }
 }
 
+/** Why a chart the model asked for wasn't drawn, as the record says it (#2378). */
+const CHART_NOT_DRAWN = {
+  several: "it has more than one table, and the User's cursor was in none",
+  noTable: "nothing was written as a table",
+  noNumbers: "the table has no column of numbers",
+  needsTwo: "a scatter chart needs two columns of numbers",
+  uncited: "some of its figures have no Citation",
+} as const;
+
 function detailsOf(change: MindChange): string {
   const tables = change.tables ? `, ${counted(change.tables, "table")} among them` : "";
+  const charts = change.charts ? `, ${counted(change.charts, "chart")} among them` : "";
   const cited = change.cited ? `, with ${counted(change.cited, "Citation")}` : "";
   const left = change.unrecorded
     ? `; ${counted(change.unrecorded, "marker")} had no Citation recorded with cite, so ${change.unrecorded === 1 ? "it was" : "they were"} left out`
     : "";
-  return `${tables}${cited}${left}`;
+  const noChart = change.chartNotDrawn
+    ? `; the chart asked for was not drawn: ${CHART_NOT_DRAWN[change.chartNotDrawn]}`
+    : "";
+  return `${tables}${charts}${cited}${left}${noChart}`;
 }
 
 function mindOf(call: AnswerToolCall, names: MindNames): string {
@@ -220,8 +242,8 @@ function lineOf(call: AnswerToolCall, names: MindNames, states?: ChangeStates): 
       return `${call.tool} ${quoted(field(call, "name") || field(call, "skill"))}: ${done ? "done" : "failed"}`;
     case "analysis": {
       const ran = call.analysis;
-      if (!ran) return `run_analysis ${quoted(field(call, "title"))}: didn't run`;
-      return `run_analysis ${quoted(ran.title)} (Analysis ${ran.number}, over ${ran.documents.map(quoted).join(", ") || "quoted numbers"}): ${ran.end === "done" ? "done" : ran.end}`;
+      if (!ran) return `${call.tool} ${quoted(field(call, "title"))}: didn't run`;
+      return `${call.tool} ${quoted(ran.title)} (Analysis ${ran.number}, over ${ran.documents.map(quoted).join(", ") || "quoted numbers"}): ${ran.end === "done" ? "done" : ran.end}`;
     }
     case "connector":
       if (call.signInRequired) return null;
@@ -263,17 +285,46 @@ function commandLine(call: AnswerToolCall): string {
   if (!done) {
     return `run_command ${field(call, "command")}: ${call.approval === "denied" ? "the User didn't allow it, so nothing changed" : "failed, so nothing changed"}`;
   }
+  if (done.yours) {
+    return `run_command ${done.command}: refused, since only the User changes it, so nothing changed`;
+  }
   const items = done.items
     .map((item) =>
       item.renamed ? `${quoted(item.name)} to ${quoted(item.renamed)}` : quoted(item.name),
     )
     .join(", ");
   const into = done.into ? ` into the ${done.into.kind} ${quoted(done.into.name)}` : "";
+  // A Tag merge's pairs and Organize's Folders, when a call does more than one (#2252).
+  const merges = done.merges?.length
+    ? `; merged ${done.merges
+        .map((pair) => `${quoted(pair.from)} into ${quoted(pair.into)}`)
+        .join(", ")}; the merged Tags are in Recently deleted, where the User can restore them`
+    : "";
+  const folders = done.folders?.length
+    ? `; filed ${done.folders
+        .map((folder) => `${counted(folder.count, "item")} in the folder ${quoted(folder.name)}`)
+        .join(", ")}`
+    : "";
+  const unsorted = done.unsorted ? `; ${counted(done.unsorted, "item")} not sorted` : "";
+  const considered =
+    done.considered !== undefined ? `; read ${counted(done.considered, "item")}` : "";
   const where = done.inOutputLocation === false ? "" : "the Output location, ";
   const file = done.file
     ? `, saved as ${quoted(done.file.name)} in ${where}${done.file.folder}${markingOf(done)}`
     : "";
-  return `run_command ${done.command}: ${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${file}`;
+  const setting = done.setting
+    ? `${done.setting.name} changed from ${quoted(done.setting.from)} to ${quoted(done.setting.to)}`
+    : "";
+  const what =
+    setting && done.items.length === 0
+      ? setting
+      : `${counted(done.items.length, "item")}${items ? ` (${items})` : ""}${into}${merges}${folders}${unsorted}${considered}${file}${setting && `, ${setting}`}`;
+  const window = done.window
+    ? done.window.running
+      ? ", started in the window and still going on"
+      : ", run in the window"
+    : "";
+  return `run_command ${done.command}: ${what}${window}`;
 }
 
 /** What a Word export did about marking the text IncarnaMind wrote, and why, as its result said. */
@@ -301,7 +352,8 @@ export function toolRecordLines(
 ): string[] {
   return calls.flatMap((call) => {
     const line = lineOf(call, names, states);
-    return line ? [`- ${line}`] : [];
+    // A name or a command's input can hold "</tool-record>": the record stays one block (#2423).
+    return line ? [`- ${asData(line, ["tool-record"])}`] : [];
   });
 }
 

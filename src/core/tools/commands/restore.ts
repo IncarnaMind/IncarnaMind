@@ -142,7 +142,9 @@ export const restoreChecker: Checker = async (input, { core }, place) => {
           await deleteAgain(core, back);
           return null;
         },
-        redo: () => core.restore(refs),
+        redo: async () => {
+          await core.restore(refs);
+        },
       },
       said: `Restored ${plural(back.length, "item")} from Recently deleted, each where it was.`,
     };

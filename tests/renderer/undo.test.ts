@@ -10,6 +10,7 @@ import {
   type Undoable,
   UndoRefused,
   undoReady,
+  undoSettled,
   useUndo,
 } from "../../src/renderer/src/undo";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
@@ -372,6 +373,75 @@ describe("what an undo says afterwards", () => {
     expect(lineShownAt(useUndo.getState())).toBe("setup");
     hide();
     expect(lineShownAt(useUndo.getState())).toBeNull();
+  });
+});
+
+describe("what an Undo took away (#2402)", () => {
+  /** A change whose Undo takes away what `took` says, if anything. */
+  const taking = (name: string, log: string[], took: string | null): Undoable => ({
+    ...change(name, log),
+    takenBack: () => (took === null ? null : () => took),
+  });
+  const told = () => {
+    const line = useUndo.getState().line?.told;
+    return line && { says: saidInLine(noWords, line.says).message, action: line.action };
+  };
+
+  test("is said with Redo, which does that change again, and goes once ⇧⌘Z would reach another", async () => {
+    const log: string[] = [];
+    const fix = change("Fix", log);
+    push(fix);
+    push(taking("Add", log, "Removed 7 Documents"));
+    await undo();
+    expect(told()?.says).toBe("Removed 7 Documents");
+    expect(told()?.action?.label(noWords)).toBe("menu.redo");
+    expect(told()?.action?.shortcut).toBe("edit.redo");
+    expect(nextToRedo(useUndo.getState())?.name?.(noWords)).toBe("Add");
+    told()?.action?.run();
+    await undoSettled();
+    expect(log).toEqual(["undo Add", "redo Add"]);
+
+    await undo();
+    expect(told()?.says).toBe("Removed 7 Documents");
+    // The note takes back its own step: ⇧⌘Z would now do it, so the line naming ⇧⌘Z for the add goes.
+    useUndo.getState().follow(fix, "undo");
+    expect(useUndo.getState().line).toBeNull();
+    expect(names(useUndo.getState().undone)).toEqual(["Add", "Fix"]);
+    await redo();
+    expect(log).toEqual(["undo Add", "redo Add", "undo Add", "redo Fix"]);
+  });
+
+  test("a Redo that an edit since has ended takes the line away instead of doing nothing", async () => {
+    const log: string[] = [];
+    push(taking("Add", log, "Removed 7 Documents"));
+    await undo();
+    useUndo.setState({ undone: [] });
+    expect(told()?.says).toBe("Removed 7 Documents");
+    told()?.action?.run();
+    await undoSettled();
+    expect(log).toEqual(["undo Add"]);
+    expect(useUndo.getState().line).toBeNull();
+  });
+
+  test("an Undo that took nothing away, or can't be done again, shows no line", async () => {
+    const log: string[] = [];
+    const moved = change("Move", log);
+    push(moved);
+    await undo();
+    push(taking("Add", log, null));
+    // A change made since ends what could be redone; the add that took nothing leaves no Redo of its own.
+    await undo();
+    expect(log).toEqual(["undo Move", "undo Add"]);
+    expect(useUndo.getState().line).toBeNull();
+    expect(useUndo.getState().undone).toEqual([]);
+    expect(useUndo.getState().done).toEqual([]);
+    await redo();
+    expect(log).toEqual(["undo Move", "undo Add"]);
+
+    push({ ...change("Import", log, { redo: false }), takenBack: () => () => "Removed 2 notes" });
+    await undo();
+    expect(log).toEqual(["undo Move", "undo Add", "undo Import"]);
+    expect(useUndo.getState().line).toBeNull();
   });
 });
 

@@ -1,13 +1,7 @@
-import { type AnalysisInput, type AnalysisValue, noAnalysisOutput } from "../../shared/analysis";
-import { figureText, rawColumn } from "../../shared/figures";
-import {
-  FORMULA_VERSION,
-  type FormulaResult,
-  type ResultUnit,
-  showResult,
-} from "../../shared/formula";
+import { type AnalysisInput, noAnalysisOutput } from "../../shared/analysis";
 import type { UnitText } from "../../shared/units";
 import type { AnalysisRuntime } from "../adapters";
+import { setAsideRowsOf } from "../answers/sheetRows";
 import type {
   AnalysisFigureInput,
   AnalysisRangeInput,
@@ -20,11 +14,18 @@ import type { CitationSource } from "../documents";
 import type { Language } from "../language";
 import { ANALYSIS_TOOLS, type Tool, type ToolProviderInfo } from "../tools";
 import { runAnalysis, sha256 } from ".";
-import { parseRange, readRange, sheetRows, sheetsOf } from "./ranges";
-import { analysisReport } from "./report";
+import { documentTableInput } from "./documentTables";
+import {
+  type AnalysisRecorder,
+  createAnalysisRecorder,
+  MAX_ANALYSES_PER_ANSWER,
+  noMarkers,
+} from "./recorder";
 
-/** The most Analyses one Answer runs: a seventh is refused, so the model answers. */
-export const MAX_ANALYSES_PER_ANSWER = 6;
+export { MAX_ANALYSES_PER_ANSWER };
+
+import { parseRange, type ReadRange, readRange, sheetRows, sheetsOf } from "./ranges";
+import { analysisReport } from "./report";
 
 const ANALYSIS_PROVIDER: ToolProviderInfo = { kind: "analysis", id: "analysis", name: "Analysis" };
 
@@ -41,6 +42,10 @@ export interface AnalysisToolOptions {
   now(): Date;
   /** An Analysis ran, for its Tool call: the record the Answer keeps. */
   ran(toolCallId: string, analysis: AnswerAnalysis): void;
+  /** Numbers its runs and their results, shared with `run_code` in the same Answer. */
+  recorder?: AnalysisRecorder;
+  /** Whether run_code can take a range cut here, at this call: then it is run again there. */
+  codeOffered?: () => boolean;
 }
 
 const fields = (value: unknown): Record<string, unknown> =>
@@ -49,13 +54,6 @@ const fields = (value: unknown): Record<string, unknown> =>
     : {};
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-
-function unitOf(unit: string | null): ResultUnit {
-  if (!unit) return { kind: "plain" };
-  if (/^[A-Z]{3}$/.test(unit)) return { kind: "currency", code: unit };
-  if (unit === "%" || /^percent$/i.test(unit)) return { kind: "percent" };
-  return { kind: "other", word: unit };
-}
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -67,10 +65,116 @@ type Read =
     }
   | { ok: false; problem: string };
 
+type ReadInput = Extract<Read, { ok: true }>;
+
+/**
+ * Two inputs that read the same cells of one sheet or Document table. Every Passage of a sheet
+ * or a table reads the whole of it, so a model that gives each Passage it found as an input, then
+ * joins them, counts each row as often (#2346): such inputs are refused before anything runs.
+ */
+function readTwice(reads: readonly ReadInput[]): string | null {
+  const ranges = reads.flatMap((read) =>
+    read.job.kind === "table" && read.record.kind === "range"
+      ? [{ job: read.job, citation: read.record.citation, table: read.record.table?.number }]
+      : [],
+  );
+  const rowsOf = (job: (typeof ranges)[number]["job"]) =>
+    job.rowNumbers ?? job.rows.map((_, index) => job.firstRow + index);
+  for (const [at, first] of ranges.entries()) {
+    const rows = new Set(rowsOf(first.job));
+    for (const second of ranges.slice(at + 1)) {
+      const sameSheet =
+        first.citation.documentId === second.citation.documentId &&
+        sheetOf(first.citation) === sheetOf(second.citation) &&
+        first.table === second.table;
+      if (!sameSheet) continue;
+      const sharesRows = rowsOf(second.job).some((row) => rows.has(row));
+      const sharesColumns = second.job.columns.some((column) => first.job.columns.includes(column));
+      if (!sharesRows || !sharesColumns) continue;
+      const sheet = sheetOf(first.citation);
+      return `"${first.job.name}" and "${second.job.name}" read the same rows of ${sheet ? `the sheet "${sheet}" in ` : ""}"${first.citation.documentName}", so joined they would count each row twice. ${first.table === undefined ? "Every Passage of a sheet reads the whole sheet: give the sheet once" : `Every Passage of table ${first.table} reads the whole table: give it once`}, as one input, and pick its rows in the code`;
+    }
+  }
+  return null;
+}
+
+/** What the model reads once an Answer has run as many Analyses as it may. */
+export const analysesAtTheLimit = () =>
+  `You have run ${MAX_ANALYSES_PER_ANSWER} analyses for this Question, as many as one Answer may: answer now with their results.`;
+
+const sheetOf = (citation: Citation): string | null =>
+  citation.location?.kind === "rows" ? citation.location.sheet : null;
+
+/**
+ * A range of a sheet as an Analysis reads it: the job's table, its rows numbered as the sheet
+ * numbers them, and the record the Answer keeps, cited to its rows under `source`'s Passage,
+ * quoting the headings. `units` are those its rows were read from.
+ */
+export function rangeInput(
+  name: string,
+  source: CitationSource,
+  units: readonly UnitText[],
+  named: string | null,
+  read: ReadRange,
+): { job: Extract<AnalysisInput, { kind: "table" }>; record: Omit<AnalysisRangeInput, "sha256"> } {
+  const heading = units.find(
+    (unit) =>
+      unit.kind === "rows" &&
+      (unit.label?.sheet ?? null) === named &&
+      unit.label?.rows?.includes(read.headingRow),
+  );
+  const headingLine = heading?.label?.rows?.indexOf(read.headingRow) ?? -1;
+  const citation: Citation = {
+    passageId: source.passageId,
+    documentId: source.documentId,
+    documentName: source.documentName,
+    contentHash: source.contentHash,
+    pageFrom: source.pageFrom,
+    pageTo: source.pageTo,
+    location: {
+      kind: "rows",
+      sheet: named,
+      from: read.headingRow,
+      to: read.rowNumbers.at(-1) ?? read.headingRow,
+    },
+    quote: heading?.text.split("\n")[headingLine] ?? source.text,
+    check: "found",
+    checkReason: null,
+  };
+  // A sum over a sheet that keeps an earlier version of its rows counted both (#1979); a paid
+  // invoice struck through in a tracker is still one to count. The code reads every row, told
+  // which ones the file sets aside.
+  const setAsideHow = setAsideRowsOf(units);
+  const setAside = {
+    struck: read.rowNumbers.filter((row) => setAsideHow(named, row)?.includes("strikes")),
+    hidden: read.rowNumbers.filter((row) => setAsideHow(named, row)?.includes("hides")),
+  };
+  const record: Omit<AnalysisRangeInput, "sha256"> = {
+    kind: "range",
+    name,
+    citation: heading?.page ? { ...citation, pageFrom: heading.page } : citation,
+    range: read.range,
+    rows: read.rows.length,
+    columns: read.columns.length,
+    rowCount: read.rowCount,
+    cut: read.cut,
+    ...(setAside.struck.length + setAside.hidden.length > 0 && { setAside }),
+  };
+  return {
+    job: {
+      kind: "table",
+      name,
+      columns: read.columns,
+      rows: read.rows,
+      firstRow: read.rowNumbers[0] ?? 2,
+      rowNumbers: read.rowNumbers,
+    },
+    record,
+  };
+}
+
 export function analysisTool(options: AnalysisToolOptions): Tool {
-  let runs = 0;
-  let tables = 0;
-  let charts = 0;
+  const recorder = options.recorder ?? createAnalysisRecorder(options);
 
   const readRangeInput = (name: string, given: Record<string, unknown>): Read => {
     const passageId = text(given.passage);
@@ -81,12 +185,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     const parsed = parseRange(text(given.range) || undefined);
     if (!parsed.ok) return { ok: false, problem: parsed.problem };
     const sheets = sheetsOf(units);
-    if (sheets.length === 0) {
-      return {
-        ok: false,
-        problem: `${passageId} is in ${source.documentName}, which has no sheet or CSV rows`,
-      };
-    }
+    if (sheets.length === 0) return documentTableInput(name, given, source, units);
     const own = units.find(
       (unit) => unit.kind === "rows" && unit.page !== null && unit.page === source.pageFrom,
     );
@@ -105,52 +204,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         problem: `the range has no rows under its headings in ${source.documentName}`,
       };
     }
-    const heading = units.find(
-      (unit) =>
-        unit.kind === "rows" &&
-        (unit.label?.sheet ?? null) === named &&
-        unit.label?.rows?.includes(read.headingRow),
-    );
-    const headingLine = heading?.label?.rows?.indexOf(read.headingRow) ?? -1;
-    const citation: Citation = {
-      passageId: source.passageId,
-      documentId: source.documentId,
-      documentName: source.documentName,
-      contentHash: source.contentHash,
-      pageFrom: source.pageFrom,
-      pageTo: source.pageTo,
-      location: {
-        kind: "rows",
-        sheet: named,
-        from: read.headingRow,
-        to: read.rowNumbers.at(-1) ?? read.headingRow,
-      },
-      quote: heading?.text.split("\n")[headingLine] ?? source.text,
-      check: "found",
-      checkReason: null,
-    };
-    const record: Omit<AnalysisRangeInput, "sha256"> = {
-      kind: "range",
-      name,
-      citation: heading?.page ? { ...citation, pageFrom: heading.page } : citation,
-      range: read.range,
-      rows: read.rows.length,
-      columns: read.columns.length,
-      rowCount: read.rowCount,
-      cut: read.cut,
-    };
-    return {
-      ok: true,
-      job: {
-        kind: "table",
-        name,
-        columns: read.columns,
-        rows: read.rows,
-        firstRow: read.rowNumbers[0] ?? 2,
-        rowNumbers: read.rowNumbers,
-      },
-      record,
-    };
+    return { ok: true, ...rangeInput(name, source, units, named, read) };
   };
 
   const readInput = (given: unknown): Read => {
@@ -174,46 +228,12 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     };
   };
 
-  const shownFigure = (result: Extract<AnalysisValue, { kind: "figure" }>, analysis: number) => {
-    const unit = unitOf(result.unit);
-    const worked: FormulaResult = {
-      ok: true,
-      version: FORMULA_VERSION,
-      value: result.value,
-      unit,
-      approximate: false,
-      literals: [],
-      scales: [],
-    };
-    const show = { language: options.language, as: null, decimals: null, scale: null };
-    const shown = showResult(worked, show);
-    const figure: CalculatedFigure = {
-      label: result.label,
-      formula: "",
-      inputs: [],
-      value: result.value,
-      unit,
-      approximate: false,
-      shown: rawColumn(result.label)
-        ? String(result.value)
-        : shown.ok
-          ? shown.shown
-          : figureText(options.language, result.value),
-      show,
-      literals: [],
-      engine: FORMULA_VERSION,
-      written: null,
-      analysis: { analysis, result: result.name },
-    };
-    return options.figure(figure);
-  };
-
   return {
     name: ANALYSIS_TOOLS.run,
     provider: ANALYSIS_PROVIDER,
     providerTool: ANALYSIS_TOOLS.run,
     description:
-      'Run Python with pandas over sheets and CSV files you found, to work out totals, groups, changes and tables. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, reads inputs["sales"] (a DataFrame) and inputs["rate"] (a number), and gives results with result(name, value, label, unit), each a number or a table. For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, and chart(kind, df, x, y, title) a bar, line, pie or scatter chart. The result says each figure\'s marker [=n], each table\'s [=table n] and each chart\'s [=chart n].',
+      'Run Python over sheets, CSV files and the tables of PDF, Word and PowerPoint files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once; it holds the rows the file strikes through or hides too, which the result names: drop such rows by their numbers where they are an earlier version of rows the sheet shows plainly), a table a Passage of a PDF, Word file or deck shows, {"name": "costs", "passage": "P5"} (the whole table, over every page it runs to, its headings row 1; add "table": 2 where the Passage shows more than one), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
     inputSchema: {
       type: "object",
       properties: {
@@ -227,6 +247,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
               passage: { type: "string" },
               range: { type: "string" },
               sheet: { type: "string" },
+              table: { type: "number" },
               citation: { type: "number" },
               location: { type: "string" },
               quote: { type: "string" },
@@ -236,7 +257,11 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
             required: ["name"],
           },
         },
-        code: { type: "string", description: "Python 3 with pandas and numpy." },
+        code: {
+          type: "string",
+          description:
+            "Python 3 with pandas and numpy; scipy, statsmodels, sklearn and matplotlib can be imported.",
+        },
       },
       required: ["title", "inputs", "code"],
     },
@@ -248,9 +273,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     // What the code prints and gives comes from the User's Documents.
     untrustedResult: true,
     async call(input, { toolCallId, signal }) {
-      if (runs >= MAX_ANALYSES_PER_ANSWER) {
-        return `You have run ${MAX_ANALYSES_PER_ANSWER} analyses for this Question, as many as one Answer may: answer now with their results.`;
-      }
+      if (recorder.full()) return analysesAtTheLimit();
       const title = text(input.title) || "Analysis";
       const code = typeof input.code === "string" ? input.code : "";
       if (!code.trim()) return "Give the code to run.";
@@ -260,10 +283,12 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       const names = reads.flatMap((read) => (read.ok ? [read.job.name] : []));
       const twice = names.filter((name, index) => names.indexOf(name) !== index);
       if (twice.length > 0) problems.push(`${twice[0]}: two inputs have this name`);
+      const same = readTwice(reads.flatMap((read) => (read.ok ? [read] : [])));
+      if (same) problems.push(same);
       if (problems.length > 0) {
         return `Nothing ran. Fix the inputs and run it again:\n- ${problems.join("\n- ")}`;
       }
-      const number = ++runs;
+      const number = recorder.next();
       const ok = reads.flatMap((read) => (read.ok ? [read] : []));
       const run = await runAnalysis(
         options.runtime,
@@ -272,17 +297,13 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       );
       const output = run.result.end.kind === "unavailable" ? noAnalysisOutput() : run.result.output;
       const usable = run.result.end.kind === "done";
-      const markers: AnswerAnalysis["markers"] = { figures: [], tables: [], charts: [] };
-      if (usable) {
-        for (const result of output.results) {
-          if (result.kind === "figure") {
-            markers.figures.push({ result: result.name, marker: shownFigure(result, number) });
-          } else {
-            markers.tables.push({ result: result.name, marker: ++tables });
-          }
-        }
-        for (const _chart of output.charts) markers.charts.push(++charts);
-      }
+      const marked = usable
+        ? recorder.mark(
+            number,
+            output,
+            ok.map((read) => read.job),
+          )
+        : { markers: noMarkers() };
       const analysis: AnswerAnalysis = {
         number,
         title,
@@ -305,10 +326,10 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         output,
         ms: run.result.ms,
         ranAt: options.now().toISOString(),
-        markers,
+        ...marked,
       };
       options.ran(toolCallId, analysis);
-      return analysisReport(analysis, options.language);
+      return analysisReport(analysis, options.language, options.codeOffered?.() === true);
     },
   };
 }

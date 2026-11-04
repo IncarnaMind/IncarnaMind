@@ -260,6 +260,7 @@ test("tagging that meets the plan's limit waits: one line says until when, with 
       await core.saveLibrarySettings({
         classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
         automatic: true,
+        turnOn: true,
       });
     }, LUNA);
 
@@ -345,6 +346,7 @@ test("while Organize files new Documents on the plan, its limit has the same one
       await core.saveLibrarySettings({
         classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
         automatic: true,
+        turnOn: true,
       });
     }, LUNA);
 
@@ -397,6 +399,7 @@ test("with no Tag yet, an Organize on the plan still says when its limit resets 
       await core.saveLibrarySettings({
         classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
         automatic: true,
+        turnOn: true,
       });
     }, LUNA);
 
@@ -437,6 +440,7 @@ test("with no Tag and no Folder, a Tagging that meets the plan's limit still say
       await core.saveLibrarySettings({
         classifier: { kind: "chat", choice: { providerId: plan.id, modelId: model } },
         automatic: true,
+        turnOn: true,
       });
     }, LUNA);
 

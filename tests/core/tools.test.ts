@@ -123,11 +123,14 @@ describe("The Tools a Run offers", () => {
       "read_skill_file",
       "read_web_page",
       "run_analysis",
+      "run_code",
       "run_command",
       "run_skill_script",
       "search_documents",
       "search_web",
+      "trace_formulas",
       "use_skill",
+      "what_if",
     ]);
     const impostors = [...RESERVED_TOOL_NAMES].map((name) => connectorTool(name));
     const lookup = connectorTool("tides__lookup_tide");

@@ -7,12 +7,13 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
 import { type ConversationAnswer, NOTE_BLOCK_TYPES } from "../../core/api";
-import { pageBlocks } from "../../shared/answerBlocks";
+import { asQuoteChecked, pageBlocks } from "../../shared/answerBlocks";
 import type { NodeJSON } from "../../shared/blockJson";
-import { unrunToolNotes } from "../../shared/unrunTools";
+import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import { questionOf } from "./conversations";
 import { tablesOf } from "./editor/answerTables";
 import { withoutCitationGlue } from "./editor/citationGlue";
+import { reportCopyNotice, takeCopyNotice } from "./editor/copyCitations";
 import { translateNow } from "./i18n";
 import { useAppStore } from "./store";
 
@@ -106,6 +107,7 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
   const { dom, text } = editor.view.serializeForClipboard(doc.slice(range.from, range.to));
   // The run's mark is how the Answer is drawn, not part of it.
   for (const run of dom.querySelectorAll(".citation-glue")) run.replaceWith(...run.childNodes);
+  const noticed = takeCopyNotice(dom);
   try {
     await navigator.clipboard.write([
       new ClipboardItem({
@@ -113,6 +115,7 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
         "text/plain": new Blob([text.trim()], { type: "text/plain" }),
       }),
     ]);
+    if (noticed) reportCopyNotice();
     return true;
   } catch (error) {
     useAppStore.getState().reportError(error);
@@ -122,9 +125,16 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
 
 /**
  * What Add to note puts in from an Answer: what is selected in it, as it is, or all of it as a
- * page holds it, with the lines saying a Tool it claims didn't run (#1796).
+ * page holds it, with the lines saying a Tool it claims didn't run (#1796) and what it claims in
+ * the app wasn't done (#2407).
  */
-export const notesToAdd = (answer: ConversationAnswer): NodeJSON[] => [
-  ...(selectedNotes(answer.id) ?? pageBlocks(answer, questionOf(answer)?.text ?? "")),
-  ...unrunToolNotes(translateNow, answer.steps),
-];
+export const notesToAdd = (answer: ConversationAnswer): NodeJSON[] => {
+  const selected = selectedNotes(answer.id);
+  return [
+    ...(selected
+      ? asQuoteChecked(selected, answer.status)
+      : pageBlocks(answer, questionOf(answer)?.text ?? "")),
+    ...unrunToolNotes(translateNow, answer.steps),
+    ...unbackedCommandNotes(translateNow, answer.steps),
+  ];
+};

@@ -1,0 +1,10 @@
+{
+  "task": "D06",
+  "inputs": {
+    "en": "6c9d9475da6021f1116c86ac9fff4f803f937e7a9d246bbd03f951488cddc3e7"
+  },
+  "values": {
+    "table_growth": 0.09443725743855103,
+    "claimed_growth": 0.12
+  }
+}

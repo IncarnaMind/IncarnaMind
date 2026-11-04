@@ -36,7 +36,7 @@
  */
 import { graphemeBoundary } from "./graphemes";
 import { SIMPLIFIED } from "./hanVariants";
-import { normaliseWithOffsets } from "./text";
+import { INVISIBLE, normaliseWithOffsets } from "./text";
 
 /** What a figure measures. */
 export type FigureUnit =
@@ -127,8 +127,11 @@ export interface FigureContext {
   language?: string | null;
   /** The separators the Document's other numbers use (see `figureContextOf`). */
   separators?: Separators | null;
-  /** What "¥" stands for in the Document, when its text says. */
-  yen?: "CNY" | "JPY" | null;
+  /**
+   * What "¥" stands for in the Document, when its text says: "unsure" when the text names the
+   * other currency too ("日元" in Chinese text), so the number is refused rather than guessed.
+   */
+  yen?: "CNY" | "JPY" | "unsure" | null;
   /** A table header or caption that applies to the text: the scale or currency it states. */
   header?: string | null;
   /** Read years, dates, quarters and periods as plain figures too. */
@@ -154,6 +157,12 @@ export interface StatedUnit {
   scale: number;
   scaleWord: string | null;
   unit: FigureUnit;
+  /**
+   * Which figures its scale leaves out, as the line goes on to say: "(in millions, except per share
+   * data)", "（除每股数据外）"; with "shares", "except share and per share data" leaves share counts
+   * out too; "noted", "except where noted", leaves out figures it doesn't name.
+   */
+  except?: "per-share" | "shares" | "noted";
 }
 
 // The text as the reader reads it ------------------------------------------
@@ -164,7 +173,8 @@ const MARK = "\ue000";
 const NBSP = "\u00a0";
 
 const LINE_BREAK = /[\n\r\v\f\u0085\u2028\u2029]/;
-const SUPERSCRIPT = /^[\u00b2\u00b3\u00b9\u2070-\u207f\u2460-\u24ff\u2776-\u2793]$/u;
+const SUPERSCRIPT_CHARS = "\\u00b2\\u00b3\\u00b9\\u2070-\\u207f\\u2460-\\u24ff\\u2776-\\u2793";
+const SUPERSCRIPT = new RegExp(`^[${SUPERSCRIPT_CHARS}]$`, "u");
 const SPACE_LIKE = /^[\u00a0\u2007\u2009\u202f]$/;
 const FULL_WIDTH_DIGIT = /^[\uff10-\uff19]$/;
 const LATIN_LETTER = /^[A-Za-z]$/;
@@ -662,10 +672,16 @@ export function figureContextOfFacts(
   }
   const cny = parts.some((part) => part.cny);
   const jpy = parts.some((part) => part.jpy);
+  const tag = language ? tagOf(language) : null;
+  // A Chinese text that names the yen leaves "¥" open, as a Japanese text naming yuan does.
+  const disputed = (tag?.language === "zh" && jpy) || (tag?.language === "ja" && cny);
+  const byLanguage = settle({ language }).yen;
+  const [only] = byLanguage;
+  const settled = byLanguage.length === 1 && (only === "CNY" || only === "JPY") ? only : null;
   return {
     language,
     separators: separatorsFrom(evidence),
-    yen: cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null,
+    yen: disputed ? "unsure" : (settled ?? (cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null)),
     accounts: parts.some((part) => part.accounts),
   };
 }
@@ -729,9 +745,9 @@ function settle(context: FigureContext): Settled {
   // "¥" is yuan in mainland Chinese, yen in Japanese; elsewhere the Document's own words must say.
   const traditional = tag?.script === "Hant" || YUAN[region] !== undefined;
   let yen = ["CNY", "JPY"];
-  if (context.yen) yen = [context.yen];
-  else if (tag?.language === "zh" && !traditional) yen = ["CNY"];
-  else if (tag?.language === "ja") yen = ["JPY"];
+  if (context.yen === "CNY" || context.yen === "JPY") yen = [context.yen];
+  else if (!context.yen && tag?.language === "zh" && !traditional) yen = ["CNY"];
+  else if (!context.yen && tag?.language === "ja") yen = ["JPY"];
   return {
     decimal: separators?.decimal ?? null,
     spaceGroups: separators?.group === " ",
@@ -758,9 +774,11 @@ const CN_SCALES: Readonly<Record<string, number>> = {
   亿: 8,
   万: 4,
   千: 3,
+  // Taiwan's statements write 仟 for 千: "新台幣仟元".
+  仟: 3,
   百: 2,
 };
-const CN_SCALE_AFTER = /万亿|千亿|百亿|十亿|千万|百万|十万|亿|万|千(?![克米瓦帕焦卡])|百(?!分)/y;
+const CN_SCALE_AFTER = /万亿|千亿|百亿|十亿|千万|百万|十万|亿|万|千(?![克米瓦帕焦卡])|仟|百(?!分)/y;
 
 const EN_SCALES: Readonly<Record<string, number>> = {
   trillion: 12,
@@ -768,9 +786,11 @@ const EN_SCALES: Readonly<Record<string, number>> = {
   trn: 12,
   billion: 9,
   bn: 9,
+  bln: 9,
   b: 9,
   million: 6,
   mn: 6,
+  mln: 6,
   mm: 6,
   m: 6,
   thousand: 3,
@@ -880,6 +900,11 @@ const NAMED_CODES = new Map(
     .filter(([word]) => /^[a-z]/.test(word) || /^[A-Za-z.]+(?: [A-Za-z]+)+$/.test(word))
     .map(([word, code]) => [word.toLowerCase(), code]),
 );
+
+/** The currency a word after an amount names: "pounds" is GBP, "欧元" EUR; null for any other word. */
+export function currencyNamed(word: string): string | null {
+  return CURRENCY_CODES[word] ?? NAMED_CODES.get(word.toLowerCase()) ?? null;
+}
 
 const CN_CURRENCY_AFTER =
   /(?:新加坡元|瑞士法郎|新台币|澳门元|澳门币|人民币|美元|港元|港币|欧元|日元|英镑|澳元|加元|韩元|卢布|元|圆|円)(?:人民币)?/y;
@@ -1068,34 +1093,100 @@ interface Statement extends Span {
 }
 
 const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
+const CN_STATED_SCALES = "十亿|亿|千万|百万|万|千|仟";
+// Outside a heading, "十亿元" is a figure: 十 is a numeral.
+const CN_SCALES_AFTER_WORDS = "亿|千万|百万|万|千|仟";
+// "伍拾肆万捌仟元" is a figure in financial capitals, not a statement of 仟元; a "万元户" is a
+// well-off household.
+const BEFORE_CN_SCALE = `${CN_NUMERAL_CHARS}零壹贰叁肆伍陆柒捌玖拾佰\\d.,百千仟万亿`;
+const STATED_CURRENCY =
+  "US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|€|£|¥|₹|Rs\\.?|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF|INR";
+// Where a statement written in a short token ("$m", "'000s") ends: the end of its line, cell or
+// bracket, or the start of an exception that leaves part of it out ("£m except the notes").
+// "USD B Acc" is a share class, "USD M&A" a business and "1,000s of users" a count.
+const ENDS_STATEMENT =
+  "(?=[ \\u00a0]*(?:$|[\\n\\t)）|,;:]|\\.(?!\\d)|(?:except|unless|save|other[ \\u00a0]+than)\\b))";
+// A bracket's currency is read alone only when its whole tail names no scale: "(in £, thousands)"
+// and "(in US$, millions)" state a scale, not just a currency.
+const NO_SCALE_IN_BRACKET =
+  "(?![^()（）\\n]*(?:\\b(?:thousands?|millions?|billions?)\\b|\\b(?:MM|mm|mn|Mn|MN|bn|Bn|BN)\\b|\\b[kKmMbB]\\b|['’]0{3}s?|(?<![\\d'’])0{3}s?(?![\\d'’])))";
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
-    `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
+    `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
     "dg",
   ),
   new RegExp(`币种[:：]?(?<before>${HAN_CURRENCIES})`, "dg"),
   new RegExp(
-    `[(（](?<before>${HAN_CURRENCIES}|RMB|USD|HK\\$)?(?<scale>十亿|亿|千万|百万|万|千)?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
+    `[(（](?<before>${HAN_CURRENCIES}|RMB|USD|HK\\$)?(?<scale>${CN_STATED_SCALES})?(?<unit>${CN_UNIT_WORDS}|股|%)[)）]`,
     "dg",
   ),
+  // A column head's "金额（万）" or "（港币百万）"; "3（万）" is a figure.
+  new RegExp(`(?<!\\d)[(（](?<before>${HAN_CURRENCIES})?(?<scale>${CN_STATED_SCALES})[)）]`, "dg"),
   new RegExp(
-    `(?<![${CN_NUMERAL_CHARS}\\d.,百千万亿])(?<before>人民币|RMB)?(?<scale>亿|千万|百万|万|千)(?<unit>${CN_UNIT_WORDS})`,
+    `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES}|RMB)?(?<scale>${CN_SCALES_AFTER_WORDS})(?<unit>${CN_UNIT_WORDS})(?!户)`,
+    "dg",
+  ),
+  // "港币百万" with no 元 after it; "人民币千万不要" goes on in a sentence.
+  new RegExp(
+    `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES})(?<scale>${CN_SCALES_AFTER_WORDS})(?=$|[\\s)）|,，;；。:：]|计|列)`,
     "dg",
   ),
   /(?<![A-Za-z])in (?<scale>thousands|millions|billions)(?: of (?<cur>U\.?S\.? dollars|US dollars|Hong Kong dollars|HK dollars|dollars|euros|[Rr]enminbi|RMB|yuan|pounds sterling|pounds|yen))?(?![A-Za-z])/dgi,
-  /(?<![\dA-Za-z.,])(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?(?:in )?(?<scale>'000s?|000s|thousands?|millions?|billions?|mn|bn|m|k)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
+  new RegExp(
+    `(?<![\\dA-Za-z.,])(?<cur>${STATED_CURRENCY})[ \\u00a0]?(?:in )?(?<scale>'?000(?:'?s)?|thousands?|millions?|billions?|lakhs?|crores?|Mio\\.?|Mrd\\.?|Tsd\\.?)(?![A-Za-z0-9])(?![ \\u00a0]?[\\d(-])(?![.,]\\d)`,
+    "dg",
+  ),
+  new RegExp(
+    `(?<![\\dA-Za-z.,])(?<cur>${STATED_CURRENCY})(?<scale>MM|mm|mn|Mn|MN|bn|Bn|BN|m|M|k|K|b|B)${ENDS_STATEMENT}`,
+    "dg",
+  ),
+  // Apart from its currency, a capital letter alone is as often a share class ("USD B", "Fund (EUR
+  // M)") as a scale: it is left unsettled.
+  new RegExp(
+    `(?<![\\dA-Za-z.,])(?<cur>${STATED_CURRENCY})[ \\u00a0](?:in )?(?<scale>MM|mm|mn|Mn|MN|bn|Bn|BN|m|k|b)${ENDS_STATEMENT}`,
+    "dg",
+  ),
+  // German reports' "TEUR", "T€", "kEUR", "k€", "MEUR" and "Mio. €"; "1,2 M€" is a figure, and
+  // "Series M USD" a name.
+  /(?<![A-Za-z])(?<![\d.,][ \u00a0]?)(?<scale>Mio\.|Mrd\.|Tsd\.)[ \u00a0]?(?<cur>EUR|€|CHF|USD|GBP|£|\$)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
+  /(?<![\dA-Za-z.,])(?<![\d.,][ \u00a0])(?<scale>k|K|M)(?<cur>EUR|€|CHF|USD|GBP|£|\$)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
+  // "TUSD" is as often a token's name as thousands of dollars: it is left unsettled.
+  /(?<![\dA-Za-z.,])(?<scale>T)(?<cur>EUR|€|CHF)(?![A-Za-z0-9])(?![ \u00a0]?[\d(-])/dg,
+  // "'000" and "000s" heading a column or ending "Figures in"; "Vintage 000s" and "Thousands of
+  // 000s of users" go on as words. A bare "(000)" or "in 000" is left unsettled ("Call (000)").
+  new RegExp(
+    `(?:(?<=(?:^|[\\n\\t(（|])[ \\u00a0]*)|(?<=(?<![A-Za-z])in[ \\u00a0]))(?<scale>'000(?:'?s)?|000'?s)${ENDS_STATEMENT}`,
+    "dg",
+  ),
+  /[(（][ \u00a0]?in[ \u00a0](?<scale>000)[ \u00a0]?[)）]/dg,
+  /[(（][ \u00a0]?(?<scale>'?000(?:'?s)?)[ \u00a0]omitted[ \u00a0]?[)）]/dg,
+  /(?<![\dA-Za-z.,'])(?<scale>'?000(?:'?s)?)[ \u00a0]omitted(?![A-Za-z])/dg,
   /[(（][ \u00a0]?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
+  new RegExp(
+    `[(（][ \\u00a0]?in[ \\u00a0]+(?<cur>US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)${NO_SCALE_IN_BRACKET}[^()（）\\n]{0,40}[)）]`,
+    "dg",
+  ),
+  /[(（][ \u00a0]?(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)[ \u00a0]?[)）]/dgi,
+  new RegExp(
+    `[(（][ \\u00a0]?in[ \\u00a0]+(?<cur>U\\.S\\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)${NO_SCALE_IN_BRACKET}[^()（）\\n]{0,40}[)）]`,
+    "dgi",
+  ),
   // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
   // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
   /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
+  // A scale word alone states one only in a bracket, a cell or after "Unit:": a line of its own may
+  // be a wrapped "£19.8⏎million".
+  /(?<=(?:[\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
   /[(（]%[)）]|(?<![A-Za-z])in (?:%|per cent|percent)(?![A-Za-z])/dg,
+  // A row head's "Loans (bn)"; a bracketed "(m)" may be metres and is left alone.
+  /[(（][ \u00a0]?(?<scale>[Bb]n|[Bb]ln|[Mm]n|[Mm]ln)[ \u00a0]?[)）]/dg,
 ];
 
 /** The power of ten a scale word multiplies by: 8 for "亿", 6 for "million" or "m"; 0 for a word that isn't one. */
 export function scaleExponent(word: string): number {
-  const lower = word.toLowerCase().replace(/s$/, "");
+  const lower = word.toLowerCase().replace(/['’]/g, "").replace(/s$/, "");
   if (CN_SCALES[word] !== undefined) return CN_SCALES[word];
-  if (lower === "'000" || lower === "000") return 3;
+  if (lower === "000") return 3;
   return EN_SCALES[lower] ?? 0;
 }
 
@@ -1108,6 +1199,25 @@ function currencyCodes(word: string, settled: Settled): string[] {
   const code = CURRENCY_CODES[trimmed] ?? NAMED_CODES.get(trimmed.toLowerCase());
   if (code) return [code];
   return /^[A-Z]{3}$/.test(trimmed) ? [trimmed] : [];
+}
+
+/** The bracket `from`–`to` sits in, as written, or null when it is on no one line. */
+function bracketAround(s: string, from: number, to: number): string | null {
+  const open = Math.max(s.lastIndexOf("(", from), s.lastIndexOf("（", from));
+  if (open < 0) return null;
+  const closes = [s.indexOf(")", to), s.indexOf("）", to)].filter((at) => at >= 0);
+  if (closes.length === 0) return null;
+  const content = s.slice(open + 1, Math.min(...closes));
+  return content.includes("\n") ? null : content;
+}
+
+/** The currencies a bracket names, as codes: "(in £ and $ thousands)" names two. */
+function bracketCurrencies(content: string, settled: Settled): Set<string> {
+  const codes = new Set<string>();
+  for (const match of content.normalize("NFKC").matchAll(CURRENCY_ANYWHERE)) {
+    for (const code of currencyCodes(match[0], settled)) codes.add(code);
+  }
+  return codes;
 }
 
 function statementsIn(prepared: Prepared, text: string, settled: Settled): Statement[] {
@@ -1133,10 +1243,14 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
           unit = { kind: "other", word: written(at.unit ?? at.before ?? at.cur) ?? words };
       }
       if (!scale && unit.kind === "plain") continue;
+      // A bracket naming two currencies states neither for its amounts (#2365).
+      const bracket = bracketAround(s, match.index, match.index + match[0].length);
+      if (bracket !== null && bracketCurrencies(bracket, settled).size > 1) continue;
       found.push({
         from: match.index,
         to: match.index + match[0].length,
-        exponent: scale ? scaleExponent(scale) : 0,
+        // "TEUR" is German for thousands of euros; a figure's own "T" is never read as a scale.
+        exponent: scale === "T" ? 3 : scale ? scaleExponent(scale) : 0,
         scaleWord: written(at.scale),
         unit,
       });
@@ -1196,9 +1310,85 @@ export function readStatedUnits(
   const statements = asHeader
     ? headerStatements(text, context, settled)
     : statementsIn(prepared, text, settled);
+  return statedUnitsOf(prepared, text, statements);
+}
+
+// A line states a scale for the whole Document only when its whole text is an opening, an
+// optional scope from a closed list, an optional verb, one unit and an optional conventional
+// exception. Any other word between the opening and the unit names a part, so the line is not the
+// Document's (#2365).
+const EN_WHOLE_SUBJECT =
+  "(?:(?:throughout|across)\\s+(?:this|the)\\s+(?:document|report)\\s+)?" +
+  "(?:all\\s+(?:of\\s+the\\s+)?(?:amounts?|figures?|sums?|values?|numbers?)" +
+  "|every\\s+(?:amount|figure|sum|value|number)" +
+  "|(?:amounts?|figures?|sums?|values?|numbers?)\\s+(?:throughout|across)\\s+(?:this|the)\\s+(?:document|report|(?:consolidated\\s+)?financial\\s+statements?))";
+const EN_WHOLE_SCOPE = [
+  "(?:this|these|the)\\s+(?:consolidated\\s+)?financial\\s+statements?",
+  "(?:this|the)\\s+(?:document|(?:annual\\s+)?report|annual\\s+report\\s+and\\s+accounts)",
+  "(?:the\\s+)?group(?:['’]s\\s+(?:consolidated\\s+)?financial\\s+statements)?",
+  "(?:the\\s+)?(?:financial\\s+|fiscal\\s+)?(?:year|period)\\s+ended\\s+(?:\\d{1,2}\\s+\\p{L}+\\s+\\d{4}|\\p{L}+\\s+\\d{4}|\\d{1,2}[/.]\\d{1,2}[/.]\\d{4}|\\d{4}年\\d{1,2}月\\d{1,2}日|\\d{4}年|\\d{4})",
+  "(?:US\\s+|U\\.S\\.\\s+|Hong\\s+Kong\\s+|HK\\s+|Australian\\s+|Canadian\\s+|Singapore\\s+)?dollars?",
+  "pounds?(?:\\s+sterling)?|euros?|yuan|[Rr]enminbi|sterling|yen",
+  "(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)",
+  "(?:US|HK|A|C|S|NT)?\\$|€|£|¥|₹",
+  "['’]?0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?",
+  "%",
+].join("|");
+const EN_WHOLE_BEFORE = new RegExp(
+  "^\\s*" +
+    EN_WHOLE_SUBJECT +
+    "(?:\\s+(?:in|for|of|on|throughout)\\s+(?:" +
+    EN_WHOLE_SCOPE +
+    ")(?![A-Za-z0-9]))*" +
+    "(?:\\s+(?:are|is|were|was|will|shall|should|must|may|can)\\b(?:\\s+(?:stated|shown|expressed|presented|given|set|quoted|reported|disclosed|prepared))?)?" +
+    "(?:\\s+(?:in|of|for|at))?" +
+    "(?:\\s*[(（])?\\s*$",
+  "iu",
+);
+const EN_WHOLE_AFTER =
+  /^\s*[.;,]?\s*(?:unless\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|except\s+(?:where|as|if|unless)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown|disclosed)(?:\s+in\s+the\s+(?:notes?|financial\s+statements?))?|except\s+per[-\s]share\s+(?:data|amounts?))?[.;]?\s*$/i;
+// A line may open with one of the conventional exceptions only; never any other clause.
+const WHOLE_OPENING =
+  /^\s*(?:unless\s+(?:otherwise\s+)?(?:stated|noted|indicated)|except\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|除(?:另有|特别)(?:说明|注明)外)\s*[,，;；]?\s*/i;
+const ZH_WHOLE_BEFORE =
+  /^\s*(?:本文件|本报告|本報告|本招股(?:说明书|說明書)?|全文|(?:合并|合併)?财务报表|財務報表)?(?:中|内|內)?(?:所有|全部|一切)?(?:金额|金額|货币|貨幣)?(?:单位|單位)?(?:均|一律|都)?(?:以|为|為)?\s*(?:[(（])?\s*$/;
+const ZH_WHOLE_SUBJECT = /所有|全部|一切|本文件|本报告|本報告|本招股|全文|财务报表|財務報表/;
+const ZH_WHOLE_AFTER =
+  /^\s*[)）]?\s*(?:列示|表示)?\s*(?:[。.]|(?:[，,;；]\s*(?:但|惟)?(?:附注|註釋|注释|财务报表)?(?:另有)?(?:说明|注明|指明|列明)者?除外))?\s*$/;
+
+function wholeDocumentLine(line: string): boolean {
+  const hadOpening = WHOLE_OPENING.test(line);
+  const main = hadOpening ? line.replace(WHOLE_OPENING, "") : line;
+  const statement = readStatedUnits(main).at(-1);
+  if (!statement) return false;
+  const before = main.slice(0, statement.start);
+  const after = main.slice(statement.end);
+  if (EN_WHOLE_BEFORE.test(before) && EN_WHOLE_AFTER.test(after)) return true;
+  return (
+    (hadOpening || ZH_WHOLE_SUBJECT.test(before)) &&
+    ZH_WHOLE_BEFORE.test(before) &&
+    ZH_WHOLE_AFTER.test(after)
+  );
+}
+
+/**
+ * Whether a scale line says, in its own words, that it holds for the whole Document ("All amounts
+ * in £'000", "Figures throughout this document are in millions", "所有金额单位：千元",
+ * "除另有说明外…"), rather than naming a note, section or table whose scale it is. Only such a
+ * line may state the scale of a figure outside its own section (#2365).
+ */
+export function statesForWholeDocument(text: string): boolean {
+  const line = text
+    .normalize("NFKC")
+    .replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
+  return wholeDocumentLine(line);
+}
+
+function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]): StatedUnit[] {
   return statements.map((statement) => {
     const start = prepared.from[statement.from] as number;
     const end = prepared.to[statement.to - 1] as number;
+    const except = statement.exponent === 0 ? null : exceptionOf(text, start, end);
     return {
       start,
       end,
@@ -1206,8 +1396,294 @@ export function readStatedUnits(
       scale: 10 ** statement.exponent,
       scaleWord: statement.scaleWord,
       unit: statement.unit,
+      ...(except && { except }),
     };
   });
+}
+
+const EXCEPT_AFTER =
+  /^[^\n]{0,24}?except(?:[ \u00a0]for)?[ \u00a0](?<shares>(?:shares?|share counts?)[ \u00a0]and[ \u00a0])?per[- \u00a0]share/i;
+const EXCEPT_NEAR = /除(?<shares>股数及|股份数及|股数和)?每股[^外\n]{0,6}外|每股[^除\n]{0,6}除外/;
+const EXCEPT_NOTED =
+  /^[^\n]{0,24}?(?:except[ \u00a0](?:where|as|when|if)|unless)[ \u00a0](?:otherwise[ \u00a0])?(?:noted|stated|indicated|shown|disclosed)|除(?:另有|特别)(?:说明|注明|列明|指明)外|另有(?:说明|注明)(?:者)?除外/i;
+
+/** What a scale statement at `start`–`end` of `text` leaves out, as its line says: per-share figures, and share counts too. */
+function exceptionOf(text: string, start: number, end: number): StatedUnit["except"] | null {
+  const after = EXCEPT_AFTER.exec(text.slice(end, end + 80));
+  const near = EXCEPT_NEAR.exec(text.slice(Math.max(0, start - 16), end + 16));
+  const found = after ?? near;
+  if (found) return found.groups?.shares ? "shares" : "per-share";
+  const noted =
+    EXCEPT_NOTED.exec(text.slice(end, end + 80)) ??
+    EXCEPT_NOTED.exec(text.slice(Math.max(0, start - 16), end + 16));
+  return noted ? "noted" : null;
+}
+
+/** A currency a line states on its own first figure, as written, as a code, and where that figure is. */
+export interface StatedCurrency {
+  chars: string;
+  code: string;
+  /** Where the figure starts in the line. */
+  at: number;
+}
+
+/**
+ * The currency a line writes on its own first figure ("Sale price £385,000.00"), as written and
+ * as a code, when no other figure on the line writes another; null when none does, when the
+ * reader leaves it two ways ("¥" outside a Chinese Document), or when the line writes two.
+ * A first figure of 0 is a scale written with a currency ("All figures in £000"), not an amount.
+ */
+export function currencyOnItsFigure(
+  text: string,
+  context: FigureContext = {},
+): StatedCurrency | null {
+  const figures = readFigures(text, { ...context, header: null });
+  const [first] = figures;
+  if (first?.unit.kind !== "currency" || first.currency === null) return null;
+  if (first.value === 0) return null;
+  const codes = new Set(figures.flatMap(currenciesOf));
+  return codes.size === 1
+    ? { chars: first.currency, code: first.unit.code, at: first.start }
+    : null;
+}
+
+// A currency a scale is written with: a sign, an ISO code or a Han currency word.
+const CURRENCY_ANY = `(?:${CURRENCY_ISO_CODES}|CN¥|JP¥|US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|[¥€£₹₩₽₺฿₫₱]|${HAN_CURRENCIES})`;
+// The scale tokens a Document writes next to a currency when it scales its amounts.
+const SCALE_NEAR_CURRENCY =
+  "(?:Mio|Mrd|Tsd|thousands?|millions?|MM|mn|bn|k|K|m|M|B|T|['’]?0{3}s?|千|仟|万|萬|百万|百萬|亿|億)";
+const CURRENCY_SCALE = new RegExp(
+  `${CURRENCY_ANY}[ \\u00a0]?${SCALE_NEAR_CURRENCY}(?![A-Za-z])|(?<![A-Za-z])${SCALE_NEAR_CURRENCY}\\.?[ \\u00a0]?${CURRENCY_ANY}`,
+  "i",
+);
+
+/**
+ * A currency written next to a scale token ("£'000", "€ Mio.", "TEUR", "港幣百萬"), in either
+ * order; null when none is. A Document that writes one, in a title, a column head or a running
+ * header, scales its amounts somewhere, so a currency read from one line can't apply (#1001).
+ */
+export function currencyScaleMarker(text: string): string | null {
+  return CURRENCY_SCALE.exec(prepare(text).s)?.[0] ?? null;
+}
+
+// "in MM" may be millions, millimetres or months, "in K" thousands or kelvin, "in M" millions or
+// metres; "(K)" and "(M)" are a contract's clauses, and "(mm)" millimetres.
+const UNSURE_SCALE =
+  /(?<![A-Za-z])in[ \u00a0](?:MM|K|M)(?![A-Za-z0-9&.'-])|[(]MM[)]|(?<![A-Za-z])in[ \u00a0]000(?![\dA-Za-z.,'])|[(]000[)](?![ \u00a0-]?\d)/dg;
+const SCALE_TOKEN =
+  "(?:Mio|Mrd|Tsd|[Tt]housands?|[Mm]illions?|[Bb]illions?|MM|mm|mn|Mn|bn|Bn|BN|k|K|m|M|b|B|T|'?000s?|千|仟|万|百万|亿)";
+const CURRENCY_SIGN_OR_CODE = `(?:${CURRENCY_ISO_CODES}|CN¥|JP¥|US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$)`;
+const CURRENCY_WORD = `(?:(?<![A-Za-z])${CURRENCY_SIGN_OR_CODE}|\\$|[¥€£₹₩₽₺฿₫₱]|${HAN_CURRENCIES})`;
+// Joined to the scale before it, as in "TUSD".
+const CURRENCY_JOINED = `(?:${CURRENCY_SIGN_OR_CODE}|\\$|[¥€£₹₩₽₺฿₫₱]|${HAN_CURRENCIES})`;
+const CURRENCY_NEXT_TO_SCALE = new RegExp(
+  `${CURRENCY_WORD}[ \\u00a0]?${SCALE_TOKEN}(?![A-Za-z0-9\\u4e00-\\u9fff&])(?![ \\u00a0][A-Za-z&])|(?<![A-Za-z])${SCALE_TOKEN}\\.?${CURRENCY_JOINED}(?![A-Za-z])|(?<![A-Za-z][ \\u00a0])(?<![A-Za-z])${SCALE_TOKEN}\\.?[ \\u00a0]${CURRENCY_WORD}(?![A-Za-z])`,
+  "dg",
+);
+const BEFORE_NUMBER = new RegExp(
+  `(?:\\d[.,' \\u00a0]?|[${CN_NUMERAL_CHARS}零壹贰叁肆伍陆柒捌玖拾佰])$`,
+);
+
+/**
+ * The scale forms `text` writes that `readStatedUnits` can't settle, as written, in order: "in
+ * MM", which may be millions or millimetres, or a currency next to a scale token it doesn't know
+ * ("$T"). A number under one can't be calculated without guessing its scale (#2365).
+ */
+export function unsettledScales(text: string, context: FigureContext = {}): string[] {
+  const prepared = prepare(text);
+  return unsettledIn(prepared, text, statementsIn(prepared, text, settle(context)));
+}
+
+function unsettledIn(prepared: Prepared, text: string, settled: readonly Statement[]): string[] {
+  const { s } = prepared;
+  const found: { from: number; chars: string }[] = [];
+  for (const pattern of [UNSURE_SCALE, CURRENCY_NEXT_TO_SCALE]) {
+    for (const match of s.matchAll(pattern)) {
+      const from = match.index;
+      const to = from + match[0].length;
+      if (settled.some((each) => each.from < to && from < each.to)) continue;
+      if (BEFORE_NUMBER.test(s.slice(Math.max(0, from - 2), from))) continue;
+      if (/^[ \u00a0]?\d/.test(s.slice(to, to + 2))) continue;
+      found.push({ from, chars: text.slice(prepared.from[from], prepared.to[to - 1]) });
+    }
+  }
+  return found.sort((a, b) => a.from - b.from).map((each) => each.chars);
+}
+
+/** Every currency written next to a scale and every statement of a scale in Chinese holds one. */
+const SCALE_HAN: ReadonlySet<string> = (() => {
+  const chars = new Set(["千", "仟", "万", "萬", "百", "亿", "億"]);
+  for (const word of HAN_CURRENCIES.split("|")) chars.add(word.slice(-1));
+  for (const [traditional, simplified] of SIMPLIFIED) {
+    if (chars.has(simplified)) chars.add(traditional);
+  }
+  return chars;
+})();
+
+/**
+ * What a currency next to a scale or a statement of a scale holds in the text before it is
+ * normalised, with the whitespace and the line-break hyphen the normaliser may take out around
+ * it. A form `CURRENCY_SCALE` or `STATEMENTS` learns adds what each of its matches holds here,
+ * or a page stating only that form is never read for it.
+ */
+const SCALE_HINT = [
+  `[${[...SCALE_HAN].join("")}\\u2e80-\\u2eff]`,
+  "[-\\u2010-\\u2015\\u2212]\\s*[\\n\\r\\v\\f\\u2028\\u2029]",
+  `${CURRENCY_ANY}\\s*(?:in\\s+)?${SCALE_NEAR_CURRENCY}(?![A-Za-z])`,
+  `(?<![A-Za-z])${SCALE_NEAR_CURRENCY}\\.?\\s*${CURRENCY_ANY}`,
+  "illion|housand",
+  // #2365's forms: zeros ("'000", "000s", "(000 omitted)", "in 000"), a row head's "(bn)", lakhs and
+  // crores, and the forms that read two ways ("in MM", "in K", "(MM)").
+  "[`']000|000'?s(?![A-Za-z])|000\\s+omitted|in\\s+(?:000|MM|K|M)(?![A-Za-z0-9])",
+  "[(\uff08]\\s*(?:bn|bln|mn|mln|MM|000)\\s*[)\uff09]",
+  "lakh|crore",
+  // Every currency a statement is read with, so "Rs. 000" or "Rs m" is read too.
+  `(?<![A-Za-z])(?:${STATED_CURRENCY})\\s*(?:in\\s+)?${SCALE_NEAR_CURRENCY}(?![A-Za-z])`,
+].join("|");
+const SCALE_HINT_IN = new RegExp(SCALE_HINT, "i");
+// Where the normaliser reads a character as the same character, a hint is found in the text as
+// written; anywhere else, only once the line is roughly normalised.
+const HINT_OR_UNPLAIN = new RegExp(
+  `(?<unplain>[^\\t\\n\\v\\f\\r\\x20-\\x5f\\x61-\\x7e])|${SCALE_HINT}`,
+  "gi",
+);
+const INVISIBLE_CHARS = new RegExp(`[${[...INVISIBLE].join("")}]`, "g");
+const QUOTE_CHARS = /[‘’‚‛′`]/g;
+
+// The reader makes "ⁿ" or "ⓐ" a footnote mark, which NFKC makes a letter: a line holding one is
+// read, since a letter beside "m USD" hides the scale the mark leaves standing.
+const FOOTNOTE_MARK = new RegExp(`[${SUPERSCRIPT_CHARS}]`, "u");
+
+const roughlyNormalised = (text: string): string =>
+  text.normalize("NFKC").replace(INVISIBLE_CHARS, "").replace(QUOTE_CHARS, "'");
+
+const isLineBreak = (code: number): boolean =>
+  (code >= 0x0a && code <= 0x0d) || code === 0x2028 || code === 0x2029;
+const isPrintableAscii = (code: number): boolean => code >= 0x21 && code <= 0x7e;
+const SPACE = /\s/;
+const MARK_CHAR = /\p{M}/u;
+
+interface Run {
+  start: number;
+  end: number;
+}
+
+function spaceRun(text: string, at: number): Run {
+  let start = at;
+  while (start > 0 && SPACE.test(text.charAt(start - 1))) start--;
+  let end = at;
+  while (end < text.length && SPACE.test(text.charAt(end))) end++;
+  return { start, end };
+}
+
+/**
+ * Whether the normaliser makes `run` one line break whatever comes before or after it: it holds a
+ * line break, between two plain ASCII characters that keep it (not a hyphen, which may join the
+ * lines, nor one a mark follows). No statement crosses a line break, so the text on each side
+ * reads alone exactly as it does in the whole.
+ */
+function cuts(text: string, run: Run): boolean {
+  if (run.start === 0 || run.end >= text.length) return false;
+  const before = text.charCodeAt(run.start - 1);
+  if (!isPrintableAscii(before) || before === 0x2d) return false;
+  if (!isPrintableAscii(text.charCodeAt(run.end))) return false;
+  if (MARK_CHAR.test(text.charAt(run.end + 1))) return false;
+  for (let at = run.start; at < run.end; at++) {
+    if (isLineBreak(text.charCodeAt(at))) return true;
+  }
+  return false;
+}
+
+/** The line around `at` between two runs that cut; empty, at the run's end, when `at` is in one. */
+function lineAround(text: string, at: number): Run {
+  if (SPACE.test(text.charAt(at))) {
+    const run = spaceRun(text, at);
+    if (cuts(text, run)) return { start: run.end, end: run.end };
+  }
+  let start = 0;
+  for (let index = at - 1; index >= 0; index--) {
+    if (!isLineBreak(text.charCodeAt(index))) continue;
+    const run = spaceRun(text, index);
+    if (cuts(text, run)) {
+      start = run.end;
+      break;
+    }
+    index = run.start;
+  }
+  let end = text.length;
+  for (let index = at; index < text.length; index++) {
+    if (!isLineBreak(text.charCodeAt(index))) continue;
+    const run = spaceRun(text, index);
+    if (cuts(text, run)) {
+      end = run.start;
+      break;
+    }
+    index = run.end - 1;
+  }
+  return { start, end };
+}
+
+/** The lines of `text` that may state a scale, in order; the others can't. */
+function* linesHintingScales(text: string): Generator<string> {
+  let at = 0;
+  while (at < text.length) {
+    HINT_OR_UNPLAIN.lastIndex = at;
+    const hint = HINT_OR_UNPLAIN.exec(text);
+    if (!hint) return;
+    const line = lineAround(text, hint.index);
+    at = line.end;
+    if (line.start === line.end) continue;
+    const written = text.slice(line.start, line.end);
+    if (
+      hint.groups?.unplain === undefined ||
+      FOOTNOTE_MARK.test(written) ||
+      SCALE_HINT_IN.test(roughlyNormalised(written))
+    ) {
+      yield written;
+    }
+  }
+}
+
+/**
+ * The scale a page states, for its scale marker: what `statedScale` gives, else the first form
+ * that reads more than one way (`unsettledScales`); null when it states neither. Each line that
+ * may state a scale is normalised once for both.
+ */
+export function pageScale(text: string, context: FigureContext = {}): string | null {
+  const settled = settle(context);
+  let stated: string | null = null;
+  let unsettled: string | null = null;
+  for (const line of linesHintingScales(text)) {
+    const prepared = prepare(line);
+    const marker = CURRENCY_SCALE.exec(prepared.s)?.[0];
+    if (marker !== undefined) return marker;
+    const statements = statementsIn(prepared, line, settled);
+    stated ??=
+      statedUnitsOf(prepared, line, statements).find((each) => each.scale !== 1)?.chars ?? null;
+    unsettled ??= unsettledIn(prepared, line, statements)[0] ?? null;
+  }
+  return stated ?? unsettled;
+}
+
+/**
+ * The scale `text` states, as written: the first currency next to a scale token
+ * (`currencyScaleMarker`), else the first statement with a scale (`readStatedUnits`); null when
+ * it states none. Only the lines that may state one are normalised, so a long page that states
+ * none is read in one pass of a regular expression.
+ */
+export function statedScale(text: string, context: FigureContext = {}): string | null {
+  const settled = settle(context);
+  let stated: string | null = null;
+  for (const line of linesHintingScales(text)) {
+    const prepared = prepare(line);
+    const marker = CURRENCY_SCALE.exec(prepared.s)?.[0];
+    if (marker !== undefined) return marker;
+    stated ??=
+      statedUnitsOf(prepared, line, statementsIn(prepared, line, settled)).find(
+        (each) => each.scale !== 1,
+      )?.chars ?? null;
+  }
+  return stated;
 }
 
 // Numerals -------------------------------------------------------------------

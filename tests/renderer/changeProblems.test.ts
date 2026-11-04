@@ -171,7 +171,10 @@ describe("Why a call changed nothing, on its row", () => {
     { kind: "stopped", mindId: "a" },
     { kind: "no-table", mindId: "a" },
     { kind: "unplaced", mindId: "a" },
+    { kind: "misnamed", mindId: "a" },
+    { kind: "typed-tag", mindId: "a" },
     { kind: "uncited", mindId: "a" },
+    { kind: "length", mindId: "a" },
     { kind: "new-mind", mindId: "a" },
     { kind: "local-mode" },
     { kind: "not-ready" },
@@ -243,10 +246,32 @@ describe("Why a call changed nothing, on its row", () => {
   test("text marked to remove that isn't there says nothing changed", () => {
     const problem: MindProblem = { kind: "unplaced", mindId: "a" };
     expect(problemText(en, problem, "Q3 review")).toBe(
-      "The text marked to remove isn’t in “Q3 review” word for word, so nothing changed",
+      "The text marked to remove doesn’t match “Q3 review” word for word in one place, so nothing changed",
     );
     expect(problemText(zh, problem, "Q3 review")).toBe(
-      "标出要删除的文字在“Q3 review”里找不到原文，因此没有改动",
+      "标出要删除的文字在“Q3 review”里找不到唯一一处原文，因此没有改动",
+    );
+  });
+
+  // protects=a rewrite that names a paragraph wrongly says so, and that nothing changed (#2356); fails_when=the line blames the model vaguely or loses the Mind's name; no_claim=none beyond protects.
+  test("a rewrite that names a paragraph wrongly says nothing changed", () => {
+    const problem: MindProblem = { kind: "misnamed", mindId: "a" };
+    expect(problemText(en, problem, "Q3 review")).toBe(
+      "The rewrite didn’t say clearly which paragraph of “Q3 review” each change replaces, so nothing changed",
+    );
+    expect(problemText(zh, problem, "Q3 review")).toBe(
+      "改写没有说清每处修改替换“Q3 review”里的哪一段，因此没有改动",
+    );
+  });
+
+  // protects=a rewrite that left out a <removed> the User typed says so, and that nothing changed (#2356); fails_when=the line blames the model vaguely or loses the Mind's name; no_claim=none beyond protects.
+  test("a rewrite that drops a tag the User typed says nothing changed", () => {
+    const problem: MindProblem = { kind: "typed-tag", mindId: "a" };
+    expect(problemText(en, problem, "Q3 review")).toBe(
+      "The rewrite left out a <removed> tag you typed in “Q3 review”, so nothing changed",
+    );
+    expect(problemText(zh, problem, "Q3 review")).toBe(
+      "改写漏掉了你在“Q3 review”里输入的 <removed> 标记，因此没有改动",
     );
   });
 });

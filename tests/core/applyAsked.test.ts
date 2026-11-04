@@ -4,7 +4,7 @@ import * as Y from "yjs";
 import type { ConversationAnswer, Core } from "../../src/core";
 import { topLevelBlocks } from "../../src/core/answers/blocks";
 import { MIND_CONTENT_FIELD } from "../../src/core/api";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { plainText } from "../../src/core/mindText";
 import { outOfDateProposals, pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, mindCalls } from "../helpers/assistant";
@@ -379,7 +379,7 @@ function rewritingModel(
 }
 
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  [EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 

@@ -12,6 +12,12 @@ export const ANALYSIS_ORIGIN = `${ANALYSIS_SCHEME}://app`;
 /** Where the page finds Pyodide and the packages under its origin. */
 export const PYTHON_PATH = "/python/";
 
+/**
+ * The font a job's plots draw Chinese with, beside the packages: Noto Sans SC, cut to GB2312's
+ * characters (scripts/plotFont.py). Loaded only for a job that draws with matplotlib.
+ */
+export const PLOT_FONT = "NotoSansSC-GB2312.otf";
+
 /** The window's page reaches its preload as `window.incarnamindAnalysis`. */
 export const ANALYSIS_BRIDGE_KEY = "incarnamindAnalysis";
 

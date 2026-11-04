@@ -15,6 +15,8 @@ export const USER_CODE = "WDJB-MJHT";
 export const EDITOR_HEADER = "test-editor/1";
 /** The GitHub account the fake signs in. */
 export const LOGIN = "priya-shah";
+/** The GitHub account's own plan, which GitHub's account response carries and which is not the Copilot plan. */
+const ACCOUNT_PLAN = "enterprise";
 /** GitHub asks for five seconds between polls; the fake asks for a moment, so tests needn't wait. */
 const POLL_SECONDS = 0.01;
 
@@ -86,6 +88,12 @@ export interface FakeGitHub {
   userStatus: number | null;
   /** What Copilot's model list holds. */
   listedModels: unknown[];
+  /** The model list answers this instead of its models, as for an account without Copilot. */
+  modelsRefusal: { status: number; body: unknown } | null;
+  /** The model list answers only once this resolves. */
+  holdModels: Promise<void> | null;
+  /** How many times the model list was asked for. */
+  modelRequests: number;
   /** The token exchange answers only once this resolves. */
   holdExchange: Promise<void> | null;
   /** The next replies of the chat API, then answers. */
@@ -155,7 +163,7 @@ export async function createFakeGitHub(): Promise<FakeGitHub> {
       clientId: id === "own" ? "test-own-app" : "test-editor-app",
       deviceCodeUrl: `${origin}/login/device/code`,
       tokenUrl: `${origin}/login/oauth/access_token`,
-      scopes: id === "own" ? ["read:user", "offline_access"] : ["read:user"],
+      scopes: ["read:user"],
       format: "json",
       apiBaseUrl: origin,
       accountUrl: `${origin}/user`,
@@ -182,7 +190,10 @@ export async function createFakeGitHub(): Promise<FakeGitHub> {
     sku: "plus_monthly_subscriber_quota",
     userStatus: null,
     listedModels: LISTED_MODELS,
+    modelsRefusal: null,
     holdExchange: null,
+    holdModels: null,
+    modelRequests: 0,
     replies: [],
     script: null,
     approve: () => {
@@ -368,11 +379,16 @@ export async function createFakeGitHub(): Promise<FakeGitHub> {
           if (!live.has(bearer(request)))
             return sendJson(response, 401, { message: "Bad credentials" });
           if (fake.userStatus) return sendJson(response, fake.userStatus, { message: "Error" });
-          return sendJson(response, 200, { login: LOGIN, id: 1 });
+          return sendJson(response, 200, { login: LOGIN, id: 1, plan: { name: ACCOUNT_PLAN } });
         }
         if (request.method === "GET" && path === "/models") {
           if (!live.has(bearer(request)))
             return sendJson(response, 401, { message: "Bad credentials" });
+          fake.modelRequests += 1;
+          await fake.holdModels;
+          if (fake.modelsRefusal) {
+            return sendJson(response, fake.modelsRefusal.status, fake.modelsRefusal.body);
+          }
           return sendJson(response, 200, { data: fake.listedModels, object: "list" });
         }
         if (request.method === "POST" && path === "/chat/completions") {

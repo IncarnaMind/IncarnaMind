@@ -48,16 +48,19 @@
  *   and the app's line saying none ran stands only under a reply that does.
  */
 import { changeLogOf } from "../../src/core/answers/claimedChanges";
+import { COVERED_AT_ONCE } from "../../src/core/answers/coverage";
 import { forPage, withoutPointersBack } from "../../src/core/answers/pointersBack";
 import { withoutSearchTalk } from "../../src/core/answers/searchTalk";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import type {
   AskedQuote,
+  ClaimedChange,
   ConversationAnswer,
   MarkedCitation,
   MarkedFigure,
 } from "../../src/core/api";
 import { markersWithoutCitation } from "../../src/shared/answerBlocks";
+import { displayName } from "../../src/shared/documentNames";
 import { declines } from "../lib/declines";
 import { datesNotInText } from "./dates";
 import type { ClaimVerdict } from "./judge";
@@ -85,6 +88,8 @@ export interface Expected {
   only?: number;
   /** It asks to change text already in the Mind: adding a new version beside it fails. */
   inPlace?: true;
+  /** It asks to make the text longer: the Mind reads longer after the request than before it. */
+  longer?: true;
   /** Asked after the example's Answer: its reply, in the panel, says nothing of an earlier Answer. */
   noEarlier?: true;
   /** The report counts the pointers to an earlier Answer left in its reply as Add to note puts it, and in what it writes into a Mind. */
@@ -120,6 +125,8 @@ export interface Expected {
   asks?: "must" | "may";
   /** Its reply never says a calculation or search ran that its record doesn't show (#1796). */
   honestTools?: true;
+  /** Its reply asks about every Document and is a capped summary whose first reply names none of the left ones: the app asks again, and the reply the User reads names them (#894). */
+  leftOutAsk?: true;
   /** With a model offered `calculate`, a Calculated figure matches each (#1796). */
   calculated?: readonly RegExp[];
   /**
@@ -149,8 +156,10 @@ export interface RequestOutcome {
   citedInMinds: readonly string[];
   /** The top-level Blocks of the Mind it was asked from (from 0) that read otherwise once its changes are accepted. */
   changedBlocks: readonly number[];
-  /** The top-level Blocks Add to note put in before the request (from 0): what `inPlace` must change. */
+  /** The top-level Blocks the before step put in before the request (from 0), Add to note or the assistant's write: what `inPlace` must change. */
   addedBlocks?: readonly number[];
+  /** The Mind's text is longer after the request than before it (`Expected.longer`). */
+  longer?: boolean;
   /** Sources the Minds it wrote hold as text, in brackets, as written. */
   sourcesAsText?: readonly string[];
   /** The text of the Blocks it wrote or changed in Minds, once its changes are accepted. */
@@ -161,7 +170,9 @@ export interface RequestOutcome {
   givenToMinds?: readonly GivenToMind[];
   /** The app asked the model again inside the turn, so the User never read its first try. */
   askedAgain?: boolean;
-  scoped: readonly { id: string; name: string }[];
+  /** How many times the app asked again for the Documents a capped summary left out (#894). */
+  coverageAsks?: number;
+  scoped: readonly { id: string; name: string; title?: string | null }[];
   /** The text of the Documents in scope, for `textDates`. */
   texts?: readonly string[];
   /** It asked the User which (ask_user), and the Answer stopped there, waiting for them. */
@@ -176,8 +187,9 @@ export type RequestFailure =
   | { kind: "changed-unasked" }
   /** The piece went elsewhere than `Expected.into`. */
   | { kind: "wrong-place"; wanted: "asked-from" | "new" }
-  /** `flagged`: the app's own net said so under the reply. */
-  | { kind: "unbacked"; sentences: string[]; flagged: boolean }
+  | { kind: "unbacked"; sentences: string[] }
+  /** The app's own check found actions the reply claims that the Mind's change log doesn't back. */
+  | { kind: "claimed-action"; claims: ClaimedChange[] }
   /** `flagged`: the app's own line says under the reply that no calculation or search ran. */
   | { kind: "unbacked-tool"; sentences: string[]; flagged: boolean }
   /** The app's line says no calculation or search ran, under a reply that claims none. */
@@ -186,9 +198,16 @@ export type RequestFailure =
   | { kind: "dead-markers"; markers: number[] }
   | { kind: "tool-text"; blocks: string[] }
   | { kind: "uncovered"; documents: string[] }
+  /** A capped summary's reply named none of the left ones, and the app didn't ask again. */
+  | { kind: "no-left-out-ask" }
+  /** The reply the User reads doesn't name the Documents the next summary takes. */
+  | { kind: "left-out-unnamed"; documents: string[] }
+  /** Asked about every Document in scope, it cited Documents outside it: the example's. */
+  | { kind: "cited-outside"; documents: number }
   | { kind: "outside"; blocks: number[] }
   | { kind: "beside" }
   | { kind: "untouched" }
+  | { kind: "not-longer" }
   | { kind: "as-text"; sources: string[] }
   | { kind: "earlier"; said: string }
   | { kind: "example"; said: string }
@@ -408,13 +427,62 @@ export function givesUpOnCalculating(reply: string): string | null {
   );
 }
 
+// "Left for the next summary" says it wasn't covered as plainly as "not covered" does (#894).
 const NOT_COVERED =
-  /\b(?:couldn't|could not|can't|cannot|didn't|did not|wasn't|weren't|isn't|aren't|not|no|unable|left out|missing|skipped)\b|没有|未能|未|无法|不能|缺少|略去/i;
+  /\b(?:couldn't|could not|can't|cannot|didn't|did not|doesn't|does not|don't|do not|haven't|have not|hasn't|has not|wasn't|weren't|isn't|aren't|not|no|unable|left out|left for|for later|next (?:summary|one|batch|round|time)|missing|skipped)\b|不在|没有|未能|未|无法|不能|缺少|略去|留待|留到|稍后|下次|下一次|下一轮|之后再/i;
+
+const SENTENCE_END = /(?<=[.!?])\s+|(?<=[。！？])/;
+const LIST_ITEM = /^\s*(?:[-*•]\s+|\d+[.)]\s+|\d+、\s*|[①-⑳]\s*)/;
+
+/** The reply's sentences, each list item read with the sentence or heading that leads into it ("These are left for the next summary:"). */
+function sentencesOf(reply: string): string[] {
+  const sentences: string[] = [];
+  let lead = "";
+  for (const line of reply.split("\n")) {
+    if (line.trim() === "") continue;
+    if (LIST_ITEM.test(line)) {
+      sentences.push(`${lead} ${line}`);
+      continue;
+    }
+    const own = line.split(SENTENCE_END);
+    sentences.push(...own);
+    const last = own.at(-1) ?? "";
+    lead = /[:：]\s*$/.test(last) || NOT_COVERED.test(last) ? last : "";
+  }
+  return sentences;
+}
 
 function namedAsUncovered(reply: string, name: string): boolean {
-  return reply
-    .split(/(?<=[.!?])\s+|(?<=[。！？])|\n+/)
-    .some((sentence) => key(sentence).includes(key(name)) && NOT_COVERED.test(sentence));
+  return sentencesOf(reply).some(
+    (sentence) => key(sentence).includes(key(name)) && NOT_COVERED.test(sentence),
+  );
+}
+
+/**
+ * What an Answer did with each Document in scope, by name: cited it (in its reply or a Mind it
+ * wrote), named it in its reply as not covered, or neither (`unsaid`); and how many Documents
+ * outside its scope it cited, the example's when the example is there.
+ */
+export function documentsCovered(outcome: RequestOutcome): {
+  cited: string[];
+  named: string[];
+  unsaid: string[];
+  outside: number;
+} {
+  const cited = new Set([
+    ...outcome.answer.citations.map((citation) => citation.documentId),
+    ...outcome.citedInMinds,
+  ]);
+  const inScope = new Set(outcome.scoped.map((document) => document.id));
+  const covered = outcome.scoped.filter((document) => cited.has(document.id));
+  const rest = outcome.scoped.filter((document) => !cited.has(document.id));
+  const named = rest.filter((document) => namedAsUncovered(outcome.answer.text, document.name));
+  return {
+    cited: covered.map((document) => document.name),
+    named: named.map((document) => document.name),
+    unsaid: rest.filter((document) => !named.includes(document)).map((document) => document.name),
+    outside: [...cited].filter((id) => !inScope.has(id)).length,
+  };
 }
 
 /**
@@ -552,12 +620,14 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
         : outcome.askedFrom != null && log.changed.has(outcome.askedFrom) && log.made.size === 0;
     if (!landed) failures.push({ kind: "wrong-place", wanted: expected.into });
   }
+  const appClaims = answer.steps?.unbackedClaims ?? [];
+  // The judge's sentences and the app's kinds can't be matched to each other, so each finding is
+  // reported on its own: a false positive of either is visible.
   if (outcome.verdict.unbacked.length > 0) {
-    failures.push({
-      kind: "unbacked",
-      sentences: outcome.verdict.unbacked,
-      flagged: (answer.steps?.unbackedClaims ?? []).length > 0,
-    });
+    failures.push({ kind: "unbacked", sentences: outcome.verdict.unbacked });
+  }
+  if (appClaims.length > 0) {
+    failures.push({ kind: "claimed-action", claims: [...appClaims] });
   }
   const lined = (answer.steps?.unrunTools ?? []).length > 0;
   const toolClaims = outcome.toolVerdict?.unbacked ?? [];
@@ -585,16 +655,19 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   const shaped = toolTextIn(answer.text);
   if (shaped.length > 0) failures.push({ kind: "tool-text", blocks: shaped });
   if (expected.coverAll) {
-    const cited = new Set([
-      ...answer.citations.map((citation) => citation.documentId),
-      ...outcome.citedInMinds,
-    ]);
-    const uncovered = outcome.scoped
-      .filter(
-        (document) => !cited.has(document.id) && !namedAsUncovered(answer.text, document.name),
-      )
-      .map((document) => document.name);
-    if (uncovered.length > 0) failures.push({ kind: "uncovered", documents: uncovered });
+    const { unsaid, outside } = documentsCovered(outcome);
+    if (unsaid.length > 0) failures.push({ kind: "uncovered", documents: unsaid });
+    if (outside > 0) failures.push({ kind: "cited-outside", documents: outside });
+  }
+  if (expected.leftOutAsk) {
+    const rest = outcome.answer.steps?.coverage?.rest ?? [];
+    const left = rest.slice(0, COVERED_AT_ONCE).map((id) => {
+      const document = outcome.scoped.find((one) => one.id === id);
+      return document ? displayName(document) : id;
+    });
+    if ((outcome.coverageAsks ?? 0) === 0) failures.push({ kind: "no-left-out-ask" });
+    const unnamed = left.filter((name) => !namedAsUncovered(outcome.answer.text, name));
+    if (unnamed.length > 0) failures.push({ kind: "left-out-unnamed", documents: unnamed });
   }
   if (expected.only !== undefined) {
     const outside = outcome.changedBlocks.filter((block) => block !== expected.only);
@@ -612,6 +685,7 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   ) {
     failures.push({ kind: "untouched" });
   }
+  if (expected.longer && !outcome.longer) failures.push({ kind: "not-longer" });
   if (outcome.sourcesAsText && outcome.sourcesAsText.length > 0) {
     failures.push({ kind: "as-text", sources: [...outcome.sourcesAsText] });
   }
@@ -774,7 +848,9 @@ export function failureLine(failure: RequestFailure): string {
         ? "wrote the piece somewhere other than a new Mind"
         : "wrote the piece somewhere other than the Mind it was asked from";
     case "unbacked":
-      return `claims a change no call made${failure.flagged ? " (flagged under the reply)" : ""}: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
+      return `claims a change no call made: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
+    case "claimed-action":
+      return `claims actions the Mind's change log doesn't back: ${failure.claims.join(", ")}`;
     case "unbacked-tool":
       return `claims a calculation or search that didn't run${failure.flagged ? " (flagged under the reply)" : ""}: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
     case "false-tool-line":
@@ -787,12 +863,20 @@ export function failureLine(failure: RequestFailure): string {
       return `shows a Tool's call written as text: ${failure.blocks.map((block) => `“${block.slice(0, 60)}”`).join(", ")}`;
     case "uncovered":
       return `neither cites nor names as left out ${failure.documents.map((name) => `“${name}”`).join(", ")}`;
+    case "no-left-out-ask":
+      return "names none of the Documents the next summary takes, and the app didn't ask it again";
+    case "left-out-unnamed":
+      return `doesn't name as left out ${failure.documents.map((name) => `“${name}”`).join(", ")}`;
+    case "cited-outside":
+      return `cites ${failure.documents} Document${failure.documents === 1 ? "" : "s"} outside its scope`;
     case "outside":
       return `changed what it was asked to leave: Block ${failure.blocks.map((block) => block + 1).join(", ")}`;
     case "beside":
       return "added a new version beside the text it was asked to change";
     case "untouched":
       return "left the text it was asked to change as it was";
+    case "not-longer":
+      return "changed the text but did not make it longer";
     case "as-text":
       return `wrote sources into a Mind as text: ${failure.sources.map((source) => `“${source}”`).join(", ")}`;
     case "earlier":

@@ -22,8 +22,8 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync, renameSync } from "node:fs";
-import { rm, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import type { LiveDocument } from "../../shared/citations";
 import { joinUnits, quoteInUnits } from "../../shared/locations";
 import { readableQuote } from "../../shared/readableQuote";
@@ -71,18 +71,24 @@ import { referenceOf, writeFileReference } from "../referenceRecords/store";
 import { foundSourceOf } from "../sources/store";
 import type { Database, SqlValue } from "../storage";
 import { tagsOfDocument } from "../tags";
+import { markArrived } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
+import { fileCreatedAt, parseFileProperties, storedFileProperties } from "./fileProperties";
 import {
   DOCUMENT_EXTENSIONS,
+  hashBytes,
+  isInside,
   isLegacyCopy,
+  nameFromPath,
   openFile,
   openImageBeside,
   pathIn,
   relativePath,
   type StatIdentity,
 } from "./files";
+import { isHeifPicture } from "./formats/images";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
 import { createLibrary, type LibraryHooks } from "./library";
@@ -94,6 +100,7 @@ import {
   type KeywordsJob,
   METADATA_VERSION,
   NAME_INDEX_CURRENT_SINCE,
+  PDF_PASSAGES_CURRENT_SINCE,
   PICTURES_CURRENT_SINCE,
   PROCESSING_VERSION,
   type ProcessedPassage,
@@ -106,6 +113,7 @@ import {
 import { createProcessor } from "./processor";
 import { createReadingMeter, type ReadingMeterOptions } from "./readingSpeed";
 import { type TextRecognitionModel, TextRecognitionUnavailableError } from "./scan";
+import { unsureSpansIn } from "./scan/layout";
 import { MIN_PAGE_TEXT } from "./scan/pages";
 import {
   distinctPassages,
@@ -134,6 +142,7 @@ import { unreadMessage } from "./unreadMessage";
 import { createVectorIndex } from "./vectors";
 import type { WatchFolder } from "./watcher";
 import type { SnapshotFile } from "./web";
+import { pictureProblem } from "./web/pictures";
 import { currentLookHash, lookName, showsPicture, webPageInfo } from "./web/store";
 
 const DEFAULT_SEARCH_LIMIT = 20;
@@ -163,6 +172,7 @@ interface DocumentRow {
   failure_reason: string | null;
   failure_message: string | null;
   unread_parts: string | null;
+  read_hidden_sheets: number;
   folder_id: string | null;
   tagging_status: string;
   tagging_error_kind: string | null;
@@ -176,11 +186,16 @@ interface DocumentRow {
   creation_date: string | null;
   title: string | null;
   own_file: string | null;
+  converted_from: string | null;
+  your_note_mind_id: string | null;
+  your_note_at: string | null;
   counted_as_evidence: number;
   not_cited: number;
   processing_version: number;
   keywords_version: number;
   file_mtime_ms: number | null;
+  file_created_ns: string | null;
+  file_properties: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -192,6 +207,7 @@ interface UnitRow {
   kind: string;
   label: string | null;
   anchors: string | null;
+  scale_marker: string | null;
 }
 
 /** JSON stored by this app; null if it doesn't parse. */
@@ -204,12 +220,20 @@ function parseJson<T>(json: string | null): T | null {
   }
 }
 
+/** A Unit's label as the viewer gets it: a workbook's formulas and saved values stay in the core, which alone reads them (#2347). */
+function viewedLabel(label: UnitLabel | null | undefined): UnitLabel | null {
+  if (!label) return null;
+  const { formulas: _formulas, saved: _saved, workbook: _workbook, ...viewed } = label;
+  return viewed;
+}
+
 const toUnitText = (row: UnitRow): PageText => ({
   page: row.page,
   text: row.text,
   kind: row.kind as UnitKind,
   label: parseJson<UnitLabel>(row.label),
   anchors: parseJson<Anchor[]>(row.anchors),
+  scaleMarker: row.scale_marker,
 });
 
 /**
@@ -223,10 +247,13 @@ const versionMomentOf = (row: Pick<DocumentRow, "file_mtime_ms">, readAt: string
     : new Date(row.file_mtime_ms).toISOString();
 
 const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
-  failure_reason, failure_message, unread_parts, folder_id, tagging_status, tagging_error_kind,
+  failure_reason, failure_message, unread_parts, read_hidden_sheets, folder_id, tagging_status,
+  tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
-  source_kind, creation_date, title, own_file, counted_as_evidence, not_cited, processing_version,
-  keywords_version, file_mtime_ms, created_at, updated_at`;
+  source_kind, creation_date, title, own_file, converted_from, your_note_mind_id, your_note_at,
+  counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms,
+  file_created_ns, file_properties, created_at,
+  updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
 const ownFileOf = (row: Pick<DocumentRow, "own_file" | "counted_as_evidence">): OwnFile | null =>
@@ -390,6 +417,8 @@ export interface CitationSource {
   documentDeleted: boolean;
   /** The User keeps the Document as their own workings: its Passages are read, never cited. */
   notCited: boolean;
+  /** Set when the Document is a snapshot of a Mind (#335): when the version quoted was taken. */
+  yourNoteAt: string | null;
 }
 
 /**
@@ -464,6 +493,12 @@ export interface DocumentsOptions {
    * scanned pages are left with the little text they have, as before.
    */
   textRecognition?: TextRecognitionModel;
+  /**
+   * This computer's own decoder for a HEIC or HEIF picture, which the engine
+   * that draws pictures can't read (#1937), as a PNG (#762). Absent: such a
+   * picture can't be read here.
+   */
+  decodePicture?(bytes: Uint8Array): Promise<Uint8Array | null>;
   /** How many scans are read at once (./processor, `scansAtOnce`). */
   scansAtOnce?: number;
   /** The password kept for a locked PDF (./pdfPasswords, #763); undefined when none is. */
@@ -595,6 +630,7 @@ export function createDocuments(options: DocumentsOptions) {
         : null,
       unreadParts,
       unreadPartsUnknown,
+      readHiddenSheets: row.read_hidden_sheets === 1,
       folderId: row.folder_id,
       tags: tagsOfDocument(db, row.id),
       tagging,
@@ -612,10 +648,17 @@ export function createDocuments(options: DocumentsOptions) {
       creationDate:
         row.creation_date && !isPlaceholderDate(row.creation_date) ? row.creation_date : null,
       modifiedAt: row.file_mtime_ms === null ? null : new Date(row.file_mtime_ms).toISOString(),
+      fileCreatedAt: fileCreatedAt(row.file_created_ns),
+      properties: parseFileProperties(row.file_properties),
       title: row.title,
       web: row.kind === "web" ? webPageInfo(db, row.id) : null,
       reference: referenceOf(db, row.id),
       ownFile: ownFileOf(row),
+      convertedFrom: row.converted_from,
+      yourNote:
+        row.your_note_mind_id === null
+          ? null
+          : { mindId: row.your_note_mind_id, snapshotAt: row.your_note_at ?? row.created_at },
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
@@ -628,6 +671,69 @@ export function createDocuments(options: DocumentsOptions) {
     db.get<DocumentRow>(`SELECT ${COLUMNS} FROM documents WHERE id = ? AND deleted_at IS NULL`, [
       id,
     ]);
+
+  function insertSnapshot(
+    id: string,
+    name: string,
+    file: SnapshotFile,
+    record: () => void,
+    kind: DocumentKind,
+    deletedAt: string | null,
+    convertedFrom: string | null = null,
+    yourNoteMindId: string | null = null,
+  ): void {
+    const at = now();
+    db.transaction(() => {
+      db.run(
+        `INSERT INTO documents (id, content_hash, name, kind, size, status, path,
+           linked_folder_id, folder_id, source_kind, relative_path, file_status, file_mtime_ms,
+           converted_from, your_note_mind_id, your_note_at, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?,
+           ?, ?, ?, ?)`,
+        [
+          id,
+          file.contentHash,
+          parseName(name.slice(0, MAX_NAME_LENGTH)),
+          kind,
+          file.size,
+          file.path,
+          relativePath(dataDir, file.path),
+          file.mtimeMs,
+          convertedFrom,
+          yourNoteMindId,
+          yourNoteMindId === null ? null : at,
+          at,
+          at,
+          deletedAt,
+        ],
+      );
+      markArrived(db, id, at);
+      record();
+    });
+  }
+
+  /**
+   * Writes a copy IncarnaMind converted from one of the User's files (#762)
+   * into the data folder, where it stays as the Document's own file: only
+   * this account reads it, and it is never the User's original.
+   */
+  async function writeConvertedCopy(
+    name: string,
+    bytes: Uint8Array,
+    contentHash: string,
+  ): Promise<SnapshotFile> {
+    const folder = join(dataDir, "converted", randomUUID());
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    const path = join(folder, parseName(basename(name)));
+    await writeFile(path, bytes, { mode: 0o600 });
+    const info = await stat(path);
+    return {
+      path,
+      contentHash,
+      size: bytes.byteLength,
+      mtimeMs: info.mtimeMs,
+    };
+  }
 
   // Set below, once the library exists: Linked folders' progress follows their Documents.
   let progressed = (_linkedFolderId: string | null) => {};
@@ -753,16 +859,17 @@ export function createDocuments(options: DocumentsOptions) {
   }
 
   const jobFor = (
-    row: Pick<DocumentRow, "id" | "kind" | "path" | "content_hash">,
+    row: Pick<DocumentRow, "id" | "kind" | "path" | "content_hash" | "read_hidden_sheets">,
   ): ProcessingJob => ({
     task: "process",
     documentId: row.id,
     kind: row.kind as DocumentKind,
     file: row.path,
+    ...(row.read_hidden_sheets === 1 && { readHiddenSheets: true as const }),
     scan:
       textRecognition && row.kind === "pdf"
         ? { reader: textRecognition.reader, keep: keptScans(row) }
-        : textRecognition && row.kind === "web"
+        : textRecognition && (row.kind === "web" || row.kind === "image")
           ? { reader: textRecognition.reader, keep: null }
           : null,
   });
@@ -836,11 +943,11 @@ export function createDocuments(options: DocumentsOptions) {
     versionAt: string,
   ): void {
     const at = now();
-    for (const { page, text, kind, label, anchors } of pages) {
+    for (const { page, text, kind, label, anchors, scaleMarker } of pages) {
       db.run(
         `INSERT INTO document_pages (id, document_id, content_hash, page, kind, label, anchors,
-           text, created_at, updated_at, version_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           scale_marker, text, created_at, updated_at, version_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           randomUUID(),
           documentId,
@@ -849,6 +956,7 @@ export function createDocuments(options: DocumentsOptions) {
           kind ?? "page",
           label ? JSON.stringify(label) : null,
           anchors && anchors.length > 0 ? JSON.stringify(anchors) : null,
+          scaleMarker ?? "",
           text,
           at,
           at,
@@ -1108,12 +1216,10 @@ export function createDocuments(options: DocumentsOptions) {
         joinStoredPassages(row.id, at);
       }
       // A Document kept that way has Passages whose windows an older build chose; a later
-      // pipeline (a version past its kind's) starts the Passages afresh.
+      // pipeline (a version past the one whose PDF windows changed) starts the Passages
+      // afresh. Version 23 changed only a PDF's labels, not the text they are built from.
       const keptWindows =
-        coversText &&
-        pageChange === "same" &&
-        row.processing_version >=
-          ((CURRENT_SINCE as Readonly<Record<string, number>>)[row.kind] ?? PROCESSING_VERSION);
+        coversText && pageChange === "same" && row.processing_version >= PDF_PASSAGES_CURRENT_SINCE;
       const passagesSame = reread && samePassages(row.id, result.passages);
       const unchanged =
         reread &&
@@ -1189,7 +1295,7 @@ export function createDocuments(options: DocumentsOptions) {
            unread_parts = ?, processing_version = ?, keywords_version = ?, embedding_model = ?,
            embedding_dimensions = CASE WHEN ? THEN embedding_dimensions END,
            content_hash = ?, size = ?, file_status = 'available', creation_date = ?,
-           title = ?, metadata_version = ?, updated_at = ?
+           title = ?, file_properties = ?, metadata_version = ?, updated_at = ?
          WHERE id = ?`,
         [
           status,
@@ -1207,6 +1313,7 @@ export function createDocuments(options: DocumentsOptions) {
           result.size,
           result.creationDate,
           result.title,
+          storedFileProperties(result.properties),
           BigInt(METADATA_VERSION),
           at,
           job.documentId,
@@ -1333,7 +1440,7 @@ export function createDocuments(options: DocumentsOptions) {
       scanProgress.set(job.documentId, {
         pages: of,
         read,
-        of: job.kind === "web" ? "pictures" : "scanned-pages",
+        of: job.kind === "pdf" ? "scanned-pages" : "pictures",
       });
       // A page that couldn't be read is read again by the next job; a web page's pictures are few.
       if (unit && job.kind === "pdf" && !unit.label?.scan?.unread) {
@@ -1350,11 +1457,23 @@ export function createDocuments(options: DocumentsOptions) {
     onLog(job, { event, fields }) {
       log.warn(event, { documentId: job.documentId, ...fields });
     },
-    readFile(_job, page, file) {
+    async readFile(_job, page, file) {
       if (!textRecognition) {
         return Promise.reject(new TextRecognitionUnavailableError("Pictures can't be read."));
       }
-      return textRecognition.readFile(file, page);
+      // A HEIC is a picture the engine that draws pictures can't read: this computer's own
+      // decoder makes it a PNG first (#762).
+      const readable =
+        options.decodePicture && isHeifPicture(file)
+          ? ((await options.decodePicture(file)) ?? file)
+          : file;
+      // The reader checks a HEIC's ispe where it has one; the decoded PNG's size is checked too,
+      // for a file whose boxes hide it, before the model is given the bytes.
+      if (readable !== file) {
+        const problem = pictureProblem(readable);
+        if (problem !== null) return { refused: problem };
+      }
+      return textRecognition.readFile(readable, page);
     },
     isUnavailable: (error) => error instanceof TextRecognitionUnavailableError,
     password: async (job) => options.pdfPassword?.(job.documentId),
@@ -1405,12 +1524,14 @@ export function createDocuments(options: DocumentsOptions) {
         const written = db.transaction(() => {
           const at = now();
           const updated = db.get<{ id: string }>(
-            `UPDATE documents SET creation_date = ?, title = ?, metadata_version = ?, updated_at = ?
+            `UPDATE documents SET creation_date = ?, title = ?, file_properties = ?,
+               metadata_version = ?, updated_at = ?
              WHERE id = ? AND content_hash = ? AND metadata_version < ? AND deleted_at IS NULL
              RETURNING id`,
             [
               result.creationDate,
               result.title,
+              storedFileProperties(result.properties),
               BigInt(METADATA_VERSION),
               at,
               job.documentId,
@@ -1554,7 +1675,8 @@ export function createDocuments(options: DocumentsOptions) {
     const params = from === null || to === null ? [] : [BigInt(from), BigInt(to)];
     return db
       .all<UnitRow>(
-        `SELECT dp.page, dp.text, dp.kind, dp.label, dp.anchors FROM document_pages dp
+        `SELECT dp.page, dp.text, dp.kind, dp.label, dp.anchors, dp.scale_marker
+         FROM document_pages dp
          JOIN documents d ON d.id = dp.document_id
          WHERE dp.document_id = ? AND dp.content_hash = ? AND dp.deleted_at IS NULL
            AND d.deleted_at IS NULL ${range}
@@ -2373,26 +2495,53 @@ export function createDocuments(options: DocumentsOptions) {
     /** The live Documents with Passages to search (of all of them, or only of these), the most text first: `size` characters. */
     searchableBySize(
       documentIds: readonly string[] | undefined,
-    ): { id: string; name: string; size: number }[] {
+    ): { id: string; name: string; title: string | null; size: number }[] {
       const { where, params } = searchable(documentIds);
       return db
-        .all<{ id: string; name: string; size: bigint | number }>(
-          `SELECT d.id, d.name,
+        .all<{ id: string; name: string; title: string | null; size: bigint | number }>(
+          `SELECT d.id, d.name, d.title,
              (SELECT coalesce(sum(length(p.text)), 0) FROM passages p
                WHERE p.document_id = d.id AND p.deleted_at IS NULL) AS size
            FROM documents d WHERE ${where}
            ORDER BY size DESC, d.created_at DESC, d.rowid DESC`,
           params,
         )
-        .map((row) => ({ id: row.id, name: row.name, size: Number(row.size) }));
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          title: row.title,
+          size: Number(row.size),
+        }));
     },
 
-    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file. */
-    searchableHasSheets(documentIds: readonly string[] | undefined): boolean {
+    /** Whether any live Document to search (of all of them, or only of these) is a workbook or a CSV file; or a workbook. */
+    searchableHasSheets(
+      documentIds: readonly string[] | undefined,
+      workbooksOnly = false,
+    ): boolean {
+      const { where, params } = searchable(documentIds);
+      const kinds = workbooksOnly ? "('xlsx')" : "('xlsx', 'csv')";
+      return (
+        db.get<{ found: number }>(
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ${kinds} LIMIT 1`,
+          params,
+        ) !== undefined
+      );
+    },
+
+    /**
+     * Whether any live Document to search (of all of them, or only of these) has a table of
+     * figures its version's Units keep (#448): what an Analysis reads besides sheets.
+     */
+    searchableHasTables(documentIds: readonly string[] | undefined): boolean {
       const { where, params } = searchable(documentIds);
       return (
         db.get<{ found: number }>(
-          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('xlsx', 'csv') LIMIT 1`,
+          `SELECT 1 AS found FROM documents d WHERE ${where} AND d.kind IN ('pdf', 'docx', 'pptx')
+             AND EXISTS (SELECT 1 FROM document_pages p WHERE p.document_id = d.id
+               AND p.content_hash = d.content_hash AND p.deleted_at IS NULL
+               AND p.label LIKE '%"tables":[%')
+           LIMIT 1`,
           params,
         ) !== undefined
       );
@@ -2437,9 +2586,17 @@ export function createDocuments(options: DocumentsOptions) {
         content_hash: string;
         deleted_at: string | null;
         not_cited: number;
+        your_note_mind_id: string | null;
+        your_note_at: string | null;
+        your_note_version_at: string | null;
       }>(
         `SELECT p.id, p.text, p.page_from, p.page_to, p.document_id, d.name, d.kind,
-           coalesce(p.content_hash, d.content_hash) AS content_hash, d.deleted_at, d.not_cited
+           coalesce(p.content_hash, d.content_hash) AS content_hash, d.deleted_at, d.not_cited,
+           d.your_note_mind_id, d.your_note_at,
+           (SELECT dp.version_at FROM document_pages dp
+            WHERE dp.document_id = d.id AND dp.content_hash = coalesce(p.content_hash, d.content_hash)
+              AND dp.deleted_at IS NULL
+            ORDER BY dp.page LIMIT 1) AS your_note_version_at
          FROM passages p JOIN documents d ON d.id = p.document_id
          WHERE p.id = ?`,
         [passageId],
@@ -2456,6 +2613,8 @@ export function createDocuments(options: DocumentsOptions) {
         contentHash: row.content_hash,
         documentDeleted: row.deleted_at !== null,
         notCited: row.not_cited === 1,
+        yourNoteAt:
+          row.your_note_mind_id === null ? null : (row.your_note_version_at ?? row.your_note_at),
       };
     },
 
@@ -2549,7 +2708,7 @@ export function createDocuments(options: DocumentsOptions) {
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
-          label: unit.label ?? null,
+          label: viewedLabel(unit.label),
         })),
       };
     },
@@ -2595,7 +2754,7 @@ export function createDocuments(options: DocumentsOptions) {
           page: unit.page ?? 1,
           text: unit.text,
           kind: unit.kind ?? "page",
-          label: unit.label ?? null,
+          label: viewedLabel(unit.label),
         })),
       };
     },
@@ -2621,6 +2780,7 @@ export function createDocuments(options: DocumentsOptions) {
           text: unit.text,
           label: unit.label ?? null,
           anchors: unit.anchors ?? [],
+          unsure: unsureSpansIn(unit),
         })),
       };
     },
@@ -2664,8 +2824,11 @@ export function createDocuments(options: DocumentsOptions) {
       let start = 0;
       for (const unit of units) {
         const end = start + unit.text.length;
-        if (unit.label?.scan && !unit.label.scan.unread && covers(start, end)) scanned = true;
-        for (const [from, to] of unit.label?.scan?.unsure ?? []) {
+        if (unit.label?.scan && !unit.label.scan.unread && covers(start, end)) {
+          if (unit.label.scan.picture) pictured = true;
+          else scanned = true;
+        }
+        for (const [from, to] of unsureSpansIn(unit)) {
           if (covers(start + from, start + to)) unsure.push(unit.text.slice(from, to));
         }
         for (const figure of unit.label?.figures ?? []) {
@@ -2726,33 +2889,132 @@ export function createDocuments(options: DocumentsOptions) {
       record: () => void,
       kind: "web" | "transcript" = "web",
     ): Document {
-      const at = now();
-      db.transaction(() => {
-        db.run(
-          `INSERT INTO documents (id, content_hash, name, kind, size, status, path,
-             linked_folder_id, folder_id, source_kind, relative_path, file_status, file_mtime_ms,
-             created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, 'data-folder', ?, 'available', ?, ?, ?)`,
-          [
-            id,
-            file.contentHash,
-            parseName(name.slice(0, MAX_NAME_LENGTH)),
-            kind,
-            file.size,
-            file.path,
-            relativePath(dataDir, file.path),
-            file.mtimeMs,
-            at,
-            at,
-          ],
-        );
-        record();
-      });
+      insertSnapshot(id, name, file, record, kind, null);
       announce(id);
       process(id);
       const row = find(id);
       if (!row) throw new NotFoundError({ key: "error.document.notFound" });
       return toDocument(row);
+    },
+
+    /**
+     * Adds a snapshot of a Mind as a Document marked "Your note" (#335): a
+     * Markdown file IncarnaMind keeps in the data folder (see `MindSources`),
+     * which the caller files in the Mind's Folder. It is queued and read like
+     * any other Document, its headings and paragraphs its Locations.
+     */
+    addYourNote(id: string, name: string, file: SnapshotFile, mindId: string): Document {
+      insertSnapshot(id, name, file, () => {}, "markdown", null, null, mindId);
+      announce(id);
+      process(id);
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(row);
+    },
+
+    /** Whether a live Document has this content, other than `exceptDocumentId` (#335): a snapshot's file must be its own. */
+    contentHashInUse(contentHash: string, exceptDocumentId: string | null = null): boolean {
+      return (
+        db.get<{ id: string }>(
+          `SELECT id FROM documents
+           WHERE content_hash = ? AND deleted_at IS NULL
+             AND (? IS NULL OR id <> ?)`,
+          [contentHash, exceptDocumentId, exceptDocumentId],
+        ) !== undefined
+      );
+    },
+
+    /**
+     * When the version of the live Document's snapshot was taken, or null for a Document that
+     * isn't one (#335). `contentHash`: the version quoted, null for the Document's own.
+     */
+    yourNoteAt(documentId: string, contentHash: string | null): string | null {
+      const row = db.get<{
+        mind: string | null;
+        at: string | null;
+        version_at: string | null;
+      }>(
+        `SELECT d.your_note_mind_id AS mind, d.your_note_at AS at,
+           (SELECT dp.version_at FROM document_pages dp
+            WHERE dp.document_id = d.id AND dp.content_hash = coalesce(?, d.content_hash)
+              AND dp.deleted_at IS NULL
+            ORDER BY dp.page LIMIT 1) AS version_at
+         FROM documents d WHERE d.id = ? AND d.deleted_at IS NULL`,
+        [contentHash, documentId],
+      );
+      return row && row.mind !== null ? (row.version_at ?? row.at) : null;
+    },
+
+    /** The live Document that is this Mind's snapshot, or null (#335). */
+    yourNoteDocument(mindId: string): Document | null {
+      const row = db.get<DocumentRow>(
+        `SELECT ${COLUMNS} FROM documents
+         WHERE your_note_mind_id = ? AND deleted_at IS NULL
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+        [mindId],
+      );
+      return row ? toDocument(row) : null;
+    },
+
+    /** When a snapshot was last taken, after a new version of it was read (#335). */
+    setYourNoteAt(documentId: string, at: string): Document {
+      const row = find(parseId(documentId));
+      if (!row || row.your_note_mind_id === null) {
+        throw new NotFoundError({ key: "error.document.notFound" });
+      }
+      db.run("UPDATE documents SET your_note_at = ?, updated_at = ? WHERE id = ?", [
+        at,
+        now(),
+        row.id,
+      ]);
+      const updated = find(row.id);
+      if (!updated) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(updated);
+    },
+
+    /**
+     * Adds a copy IncarnaMind converted from one of the User's files with
+     * their LibreOffice (#762) as a Document of its own: it keeps the copy in
+     * the data folder, names it after the converted file, and says which file
+     * it came from. The original is never touched.
+     */
+    async addConverted(input: {
+      /** The original's file name, with its extension. */
+      from: string;
+      /** The copy's file name, with its new extension. */
+      name: string;
+      kind: "docx" | "xlsx" | "pptx";
+      bytes: Uint8Array;
+    }): Promise<Document> {
+      const contentHash = hashBytes(input.bytes);
+      // The same file or another with the same content is one Document (ADR-0003).
+      const known = db.get<DocumentRow>(
+        `SELECT ${COLUMNS} FROM documents WHERE content_hash = ? AND deleted_at IS NULL`,
+        [contentHash],
+      );
+      if (known) return toDocument(known);
+      const id = randomUUID();
+      const file = await writeConvertedCopy(input.name, input.bytes, contentHash);
+      insertSnapshot(id, nameFromPath(input.name), file, () => {}, input.kind, null, input.from);
+      announce(id);
+      process(id);
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(row);
+    },
+
+    /**
+     * Adds a Meeting's Transcript made while its note waits in Recently deleted: deleted at the
+     * note's time, so it comes back and is deleted permanently with it, and read once back (#1253).
+     */
+    addDeletedTranscript(
+      id: string,
+      name: string,
+      file: SnapshotFile,
+      record: () => void,
+      deletedAt: string,
+    ): void {
+      insertSnapshot(id, name, file, record, "transcript", deletedAt);
     },
 
     /** Looks at a file again now, as when it is opened: a new version is processed. */
@@ -3003,7 +3265,7 @@ export function createDocuments(options: DocumentsOptions) {
     async dropPurged(): Promise<void> {
       // By place, not by path: a Document added from a data folder reached through a link has
       // the path with links resolved, an old one the path as the app was given it.
-      const copies = db
+      const places = db
         .all<{ relative_path: string }>(
           `SELECT DISTINCT d.relative_path FROM documents d
            WHERE d.purged_at IS NOT NULL AND d.source_kind = 'data-folder'
@@ -3012,9 +3274,31 @@ export function createDocuments(options: DocumentsOptions) {
                AND (o.path = d.path
                     OR (o.source_kind = 'data-folder' AND o.relative_path = d.relative_path)))`,
         )
-        .map((row) => pathIn(dataDir, row.relative_path))
-        .filter((path) => isLegacyCopy(dataDir, path));
-      await Promise.all(copies.map((path) => rm(path, { force: true }).catch(reportError)));
+        .map((row) => pathIn(dataDir, row.relative_path));
+      const copies = places.filter((path) => isLegacyCopy(dataDir, path));
+      // A converted copy lives in a folder of its own in the data folder; it goes whole.
+      const convertedRoot = join(dataDir, "converted");
+      const converted = new Set(
+        places.filter((path) => isInside(convertedRoot, path)).map((path) => dirname(path)),
+      );
+      // A note's snapshot is a Document's file too: once the Document is purged, its words go (#335).
+      const notes = db
+        .all<{ id: string }>(
+          `SELECT id FROM documents
+           WHERE purged_at IS NOT NULL AND your_note_mind_id IS NOT NULL`,
+        )
+        .map((row) => join(dataDir, "Notes", `${row.id}.md`));
+      await Promise.all([
+        ...copies.map((path) => rm(path, { force: true }).catch(reportError)),
+        ...notes.map((path) => rm(path, { force: true }).catch(reportError)),
+        ...[...converted]
+          .filter((folder) => folder !== convertedRoot)
+          .map((folder) =>
+            rm(folder, { recursive: true, force: true }).catch((error: unknown) =>
+              reportError(error),
+            ),
+          ),
+      ]);
     },
 
     /**
@@ -3032,6 +3316,50 @@ export function createDocuments(options: DocumentsOptions) {
       }
       if (row.file_status !== "available") {
         throw new NotFoundError({ key: "error.document.fileGone" });
+      }
+      process(id);
+      return toDocument(find(id) ?? row);
+    },
+
+    /**
+     * Reads a workbook with its hidden and very hidden sheets (`readHidden`),
+     * or again without them (#740), and keeps that for every version after. Only
+     * a workbook with hidden sheets left out to read, or one that reads them to
+     * leave them out, whose file is there.
+     */
+    readHiddenSheets(idInput: unknown, readInput: unknown = true): Document {
+      const id = parseId(idInput);
+      if (typeof readInput !== "boolean") {
+        throw new InvalidInputError({ key: "error.document.readHiddenSheets" });
+      }
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      if (row.kind !== "xlsx") {
+        throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
+      }
+      if (readInput) {
+        const parts = parseUnreadParts(row.unread_parts);
+        // The stored parts are the last finished read's. While a read runs, or the latest one
+        // failed, they belong to the setting before it, so they can't say nothing is left out:
+        // Redo straight after Undo must redo (#740).
+        const current =
+          row.status !== "queued" && row.status !== "extracting" && row.failure_reason === null;
+        if (current && (parts === null || parts.hiddenSheets.length === 0)) {
+          throw new InvalidInputError({ key: "error.document.noHiddenSheets" });
+        }
+      } else if (row.read_hidden_sheets !== 1) {
+        return toDocument(row);
+      }
+      if (row.file_status !== "available") {
+        throw new NotFoundError({ key: "error.document.fileGone" });
+      }
+      const wanted = readInput ? 1 : 0;
+      if (row.read_hidden_sheets !== wanted) {
+        db.run("UPDATE documents SET read_hidden_sheets = ?, updated_at = ? WHERE id = ?", [
+          wanted,
+          now(),
+          id,
+        ]);
       }
       process(id);
       return toDocument(find(id) ?? row);

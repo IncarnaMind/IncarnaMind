@@ -4,6 +4,7 @@ import type { ConversationAnswer, ConversationQuestion } from "../../../../core/
 import { answerBlocks, hasText } from "../../../../shared/answerBlocks";
 import type { NodeJSON } from "../../../../shared/blockJson";
 import { figureRunsOfAnswer } from "../../../../shared/figureRuns";
+import { figuresOf } from "../../answerFigures";
 import { useAnswers } from "../../answers";
 import { useAnswerWait } from "../../answerWait";
 import { useApprovals, waitingFor } from "../../approvals";
@@ -12,7 +13,6 @@ import { regenerateAnswer } from "../../conversations";
 import {
   AnswerError,
   ApprovalCard,
-  figuresOf,
   NoCitationsLine,
   UncalculatedLine,
 } from "../../editor/AnswerView";
@@ -42,6 +42,7 @@ import { CoverageLine, WrittenFromLine } from "./CoverageLines";
 import { MindChangesCard, NoMindLine, wantedAMind } from "./MindChangesCard";
 import { SelfCheckLines } from "./SelfCheckLines";
 import { StillReadingLine } from "./StillReadingLine";
+import { UnbackedCommandLines } from "./UnbackedCommandLines";
 import { UnrunToolLines } from "./UnrunToolLines";
 
 /** What adding an Answer needs from the thread around it. */
@@ -106,7 +107,7 @@ export function AssistantAnswer({
   const modelNow = useModelInUse(doc);
   const regenerate = () => void regenerateAnswer(answer.id);
   const written = hasText(blocks);
-  const { uncalculated } = figuresOf(answer.toolCalls);
+  const figureSummary = figuresOf(answer.toolCalls);
   const scopeEmpty = useScopeEmpty(question?.scope ?? null);
   const scopeName = useStepsScopeOf(question)(0);
   const unread = useUnreadFiles(question?.scope ?? null);
@@ -152,6 +153,7 @@ export function AssistantAnswer({
           label={t("answer.label")}
           streaming={streaming}
           regenerate={regenerate}
+          judged={answer}
           onOpenTable={(table) => keeping.openTable(answer, table)}
         />
       )}
@@ -163,6 +165,7 @@ export function AssistantAnswer({
       )}
       {!streaming && <WaitingChangesLine answer={answer} />}
       {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
+      {!streaming && <UnbackedCommandLines steps={answer.steps} onRetry={regenerate} />}
       {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
       {!streaming && <UncitedWritesLine answer={answer} onRetry={regenerate} />}
       {!streaming && <UncitedReplyLine answer={answer} onRetry={regenerate} />}
@@ -179,7 +182,7 @@ export function AssistantAnswer({
           {t("scope.empty.line", { scope: scopeName })}
         </ProblemLine>
       )}
-      {!streaming && uncalculated > 0 && <UncalculatedLine count={uncalculated} />}
+      {!streaming && figureSummary.uncalculated > 0 && <UncalculatedLine figures={figureSummary} />}
       {!streaming && status !== "failed" && <StillReadingLine answer={answer} />}
       {!streaming && status !== "failed" && <UnreadFilesLine files={unread} />}
       {!streaming && status === "failed" && !planModel && (
@@ -196,6 +199,16 @@ export function AssistantAnswer({
           onRetryWith={(model) => void regenerateAnswer(answer.id, { model })}
           modelNow={modelNow}
           chooseHere
+          question={
+            question
+              ? {
+                  text: question.text,
+                  scope: question.scope,
+                  askedFrom: question.askedFrom,
+                  folderAskedIn: question.folderAskedIn,
+                }
+              : null
+          }
           onOpenSettings={openSettings}
         />
       )}

@@ -14,6 +14,7 @@ import {
   type ChatProviderKind,
   type ChatReadiness,
   type CitationSupport,
+  type CloudReadPermit,
   type ConnectionTestResult,
   type DataFlowId,
   type ExternalService,
@@ -87,6 +88,12 @@ import { classifyProviderError, LocalModelError, OllamaNotRunningError } from ".
 
 /** How long a provider's model list is kept before it is asked again. */
 const MODEL_LIST_TTL_MS = 5 * 60_000;
+
+/** When a model list was asked for: `order` among every ask, `at` in milliseconds. */
+interface ListAsked {
+  order: number;
+  at: number;
+}
 
 /**
  * The chat flow: what a Question sends to a cloud chat provider. While a
@@ -342,6 +349,8 @@ export function createChat(options: {
   localOnly(): boolean;
   /** Counts every cloud request of the models handed out, and holds the monthly cap (see ../cost/meter). */
   meter: Pick<Meter, "wrap">;
+  /** Facts the host lays over every source's for a model (`CoreAdapters.modelFacts`). */
+  modelFacts?: (provider: string, modelId: string) => ModelFactsLayer | undefined;
 }) {
   const {
     db,
@@ -446,9 +455,18 @@ export function createChat(options: {
       ? OLLAMA_CLOUD
       : null);
 
-  /** Model lists by provider and server, with when they were fetched. */
-  const modelLists = new Map<string, { at: number; models: ListedModel[] }>();
+  /** Model lists by provider and server, with when they were asked for, in order and in time. */
+  const modelLists = new Map<string, ListAsked & { models: ListedModel[] }>();
   const listKey = (row: ProviderRow) => `${row.id}\n${row.base_url ?? ""}\n${row.endpoint ?? ""}`;
+  let listsAsked = 0;
+  const askList = (): ListAsked => ({ order: ++listsAsked, at: Date.now() });
+  /** Keeps a list, unless one asked for after it came back first: that one is newer (#2302). */
+  const keepList = (key: string, asked: ListAsked, models: ListedModel[]) => {
+    const kept = modelLists.get(key);
+    if (models.length > 0 && (!kept || kept.order < asked.order)) {
+      modelLists.set(key, { ...asked, models });
+    }
+  };
 
   /** The models a saved provider lists, kept for a few minutes; none for a cloud service the User hasn't allowed yet. */
   const listedModels = async (row: ProviderRow, provider: ChatProvider): Promise<ListedModel[]> => {
@@ -466,6 +484,7 @@ export function createChat(options: {
     }
     if (!listed && !mayAsk) listed = [];
     if (!listed) {
+      const asked = askList();
       const apiKey = provider.hasApiKey ? await secrets.tryGet(keyName(row.id)) : null;
       listed = await listProviderModels({
         kind: provider.kind,
@@ -474,7 +493,7 @@ export function createChat(options: {
         endpoint: row.endpoint,
         catalogId: row.catalog_id,
       });
-      if (listed.length > 0) modelLists.set(cacheKey, { at: Date.now(), models: listed });
+      keepList(cacheKey, asked, listed);
     }
     return listed;
   };
@@ -517,22 +536,26 @@ export function createChat(options: {
     serviceFor(row.kind as ChatProviderKind, row.base_url, row.endpoint, row.catalog_id);
 
   /**
-   * What is known of a model on a provider, by precedence (see ./capabilities):
-   * the server's word (`server`, else what its model list said), then the
+   * What is known of a model on a provider, by precedence (see ./capabilities): the host's
+   * facts (a test's), the server's word (`server`, else what its model list said), then the
    * catalog's. Nothing the User sets on a model is stored yet.
    */
   const capabilitiesOf = (
     row: ProviderRow,
     modelId: string,
     server?: ModelFactsLayer,
-  ): ModelCapabilities =>
-    resolveCapabilities({
+  ): ModelCapabilities => {
+    const provider = modelsProviderOfKind(
+      row.kind as ChatProviderKind,
+      row.endpoint,
+      row.catalog_id,
+    );
+    return resolveCapabilities({
+      user: options.modelFacts?.(provider, modelId),
       server: server ?? modelLists.get(listKey(row))?.models.find((m) => m.id === modelId)?.facts,
-      catalog: catalogFacts(
-        modelsProviderOfKind(row.kind as ChatProviderKind, row.endpoint, row.catalog_id),
-        modelId,
-      ),
+      catalog: catalogFacts(provider, modelId),
     });
+  };
 
   /**
    * What the model factory needs: a hosted provider's endpoint from the
@@ -924,12 +947,14 @@ export function createChat(options: {
       );
     },
 
-    /** The key of the saved provider of a hosted catalog entry, for another service of its (#141). */
-    async apiKeyOf(catalogId: string): Promise<{ providerId: string; apiKey: string } | null> {
+    /** The key of the saved provider of a hosted catalog entry, with its region, for another service of its (#141). */
+    async apiKeyOf(
+      catalogId: string,
+    ): Promise<{ providerId: string; apiKey: string; endpoint: string | null } | null> {
       for (const row of knownRows()) {
         if ((row.catalog_id ?? row.kind) !== catalogId || row.base_url !== null) continue;
         const apiKey = await secrets.tryGet(keyName(row.id));
-        if (apiKey) return { providerId: row.id, apiKey };
+        if (apiKey) return { providerId: row.id, apiKey, endpoint: row.endpoint };
       }
       return null;
     },
@@ -1290,6 +1315,7 @@ export function createChat(options: {
           error instanceof ChatNotReadyError ? notReadyError(error) : classifyProviderError(error),
       });
       let listed: ListedModel[];
+      const asked = askList();
       try {
         if (provider.service) {
           // Local mode first: a prompt for what couldn't be sent anyway would only be in the way.
@@ -1317,7 +1343,7 @@ export function createChat(options: {
       } catch (error) {
         return failed("list", null, error);
       }
-      if (listed.length > 0) modelLists.set(listKey(row), { at: Date.now(), models: listed });
+      keepList(listKey(row), asked, listed);
       const modelId = testModelOf(row, listed);
       if (!modelId) {
         return failed("answer", null, new LocalModelError("model", "It lists no models to try."));
@@ -1372,11 +1398,26 @@ export function createChat(options: {
       choice?: ChatModelChoice,
       flow: DataFlowId = "chat",
       thinking?: Exclude<ChatModelSpec["thinking"], undefined>,
+      permit?: CloudReadPermit,
     ): Promise<PreparedChatModel> {
       const readiness = await readinessFor(choice ?? settings.get().user.chatModel, flow);
-      if (!readiness.ready) throw new ChatNotReadyError(readiness);
-      const { provider, modelId } = readiness;
-      if (provider.service) {
+      const permitted = (service: ExternalService | null | undefined) =>
+        service !== null &&
+        service !== undefined &&
+        permit?.flow === flow &&
+        permit.serviceId === service.id;
+      let provider: ChatProvider;
+      let modelId: string;
+      if (readiness.ready) {
+        provider = readiness.provider;
+        modelId = readiness.modelId;
+      } else if (readiness.reason === "consent-declined" && permitted(readiness.provider.service)) {
+        provider = readiness.provider;
+        modelId = readiness.modelId;
+      } else {
+        throw new ChatNotReadyError(readiness);
+      }
+      if (provider.service && !permitted(provider.service)) {
         try {
           await consent.ensure(flow, provider.service);
         } catch (error) {
@@ -1438,6 +1479,7 @@ export function createChat(options: {
         ),
         flow,
         provider.service,
+        permit,
       );
       const support = startingSupport(capabilities);
       const prepared = {

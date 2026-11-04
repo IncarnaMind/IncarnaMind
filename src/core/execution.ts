@@ -53,6 +53,10 @@ export const folderPath = (folder: ExecFolder, workingFolder: string): string =>
 export const looksLikeSecret = (name: string): boolean =>
   /KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/i.test(name);
 
+/** What a request with `environment: "minimal"` gets of the login environment: the path and the locale. */
+export const MINIMAL_ENVIRONMENT = (name: string): boolean =>
+  name === "PATH" || name === "LANG" || name === "TZ" || name.startsWith("LC_");
+
 /** A program as an Executor starts it: what it runs, and the variables added to its environment. */
 export interface Program {
   command: string;
@@ -76,9 +80,20 @@ export interface Confinement {
    * nothing runs unconfined. A command that isn't found rejects with an
    * error whose `code` is "ENOENT".
    */
-  confine(request: ExecRequest, workingFolder: string): Promise<Program>;
+  confine(request: ExecRequest, workingFolder: string): Promise<ConfinedProgram>;
   /** Called once for each program `confine` gave, when it has ended or couldn't start. */
   release(): void;
+}
+
+/** A program as a confinement starts it, with how to stop what it leaves outside its group. */
+export interface ConfinedProgram extends Program {
+  /**
+   * Stops every process of this run still running (one that left the program's process group:
+   * a daemon, a worker pool). Called once the program has ended or was stopped, and once more
+   * when the run ends, with the program's process group (its pid; 0 if it never started); it
+   * never rejects.
+   */
+  sweep?(group: number): Promise<void>;
 }
 
 /**
@@ -187,22 +202,103 @@ class Tail {
 /** How long a stopped program's output may stay open before the run ends without it. */
 const STOP_GRACE_MS = 2000;
 
-/** Waits for the process to end, keeping what it writes; stops it on its timeout or signal. */
-const collect = (child: ChildProcess, request: ExecRequest) =>
+/** How often a program's memory and working folder are measured against its limits. */
+const WATCH_MS = 250;
+
+/** Measures a running program against its limits: the host's, which reads its processes. */
+export interface ProgramMeter {
+  /**
+   * The memory, in bytes, of the program started as `root` and every process under it;
+   * `unmeasured` hears why a part of it couldn't be read.
+   */
+  memory(root: number, unmeasured: (error: unknown) => void): Promise<number>;
+  /** The bytes the files under `folder` hold; links aren't followed. */
+  folder(folder: string): Promise<number>;
+}
+
+/**
+ * Measures the program's memory and working folder every `WATCH_MS` while it
+ * runs, and calls `over` with the first limit it goes past. Returns what
+ * stops the watching.
+ */
+function watchLimits(
+  child: ChildProcess,
+  request: ExecRequest,
+  cwd: string,
+  over: (limit: NonNullable<ExecResult["limit"]>) => void,
+  report: (error: unknown) => void,
+  meter: ProgramMeter | undefined,
+): () => void {
+  const { memoryBytes, folderBytes } = request.limits ?? {};
+  const { pid } = child;
+  if (!meter || (memoryBytes === undefined && folderBytes === undefined) || pid === undefined) {
+    return () => undefined;
+  }
+  // Measured four times a second: one report of each failure is enough to find it.
+  let reported = false;
+  const reportOnce = (error: unknown) => {
+    if (reported) return;
+    reported = true;
+    report(error);
+  };
+  let measuring = false;
+  const timer = setInterval(async () => {
+    if (measuring) return;
+    measuring = true;
+    try {
+      if (memoryBytes !== undefined && (await meter.memory(pid, reportOnce)) > memoryBytes) {
+        over("memory");
+      } else if (folderBytes !== undefined && (await meter.folder(cwd)) > folderBytes) {
+        over("folder");
+      }
+    } catch (error) {
+      reportOnce(error);
+    } finally {
+      measuring = false;
+    }
+  }, WATCH_MS);
+  return () => clearInterval(timer);
+}
+
+/**
+ * Waits for the process to end, keeping what it writes; stops it on its timeout or signal.
+ * `leftovers` stops what it left running outside its group.
+ */
+const collect = (
+  child: ChildProcess,
+  request: ExecRequest,
+  cwd: string,
+  leftovers: () => Promise<void>,
+  report: (error: unknown) => void,
+  meter: ProgramMeter | undefined,
+) =>
   new Promise<ExecResult>((resolve) => {
     const stdout = new Head(request.maxOutputBytes);
     const stderr = new Tail(request.maxOutputBytes);
     let timedOut = false;
     let stopped = false;
     let settled = false;
+    let limit: ExecResult["limit"];
     const timer = setTimeout(() => {
       timedOut = true;
       stop();
     }, request.timeoutMs);
+    const stopWatching = watchLimits(
+      child,
+      request,
+      cwd,
+      (over) => {
+        limit ??= over;
+        stop();
+      },
+      report,
+      meter,
+    );
     const finish = (code: number | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      stopWatching();
       request.signal.removeEventListener("abort", stop);
       resolve({
         exitCode: stopped ? null : code,
@@ -211,12 +307,14 @@ const collect = (child: ChildProcess, request: ExecRequest) =>
         stderr: stderr.text(),
         stdoutTruncated: stdout.truncated,
         stderrTruncated: stderr.truncated,
+        ...(limit === undefined ? {} : { limit }),
       });
     };
     function stop() {
       if (stopped) return;
       stopped = true;
       stopProcessTree(child);
+      void leftovers();
       // A process that escaped (e.g. it started a session of its own) may keep the output
       // open: after a grace period the run ends anyway, without it.
       setTimeout(() => {
@@ -232,7 +330,14 @@ const collect = (child: ChildProcess, request: ExecRequest) =>
     child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
     request.signal.addEventListener("abort", stop, { once: true });
-    // Once it has exited and its output has closed (a process it started may keep that open).
+    // What it left running in its group ends with it, which also closes the output such a
+    // process held open; Windows has no group to find it by.
+    child.once("exit", () => {
+      if (process.platform === "win32" || stopped) return;
+      stopProcessTree(child);
+      void leftovers();
+    });
+    // Once it has exited and its output has closed.
     child.once("close", (code) => finish(code));
     // Stopped while it was starting: there was nothing to stop until now.
     if (request.signal.aborted) stop();
@@ -243,10 +348,12 @@ export interface LocalExecutorOptions {
   processes: ProcessLauncher;
   /** Where each run without a `cwd` gets its temporary working folder. */
   tempDir: string;
-  /** Told when a run's temporary working folder can't be removed. */
+  /** Told when a run's temporary working folder can't be removed, or its limits measured. */
   reportError(error: unknown): void;
   /** Confines each program, at its level. Not given: level "none", nothing confined. */
   confinement?: Confinement;
+  /** Measures a program against a request's memory and folder limits; without it none runs. */
+  meter?: ProgramMeter;
 }
 
 /**
@@ -259,19 +366,40 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
     level: confinement?.level ?? "none",
     async run(request) {
       request.signal.throwIfAborted();
+      const { memoryBytes, folderBytes } = request.limits ?? {};
+      if (!options.meter && (memoryBytes !== undefined || folderBytes !== undefined)) {
+        throw new Error(
+          "This Executor can't measure a program's memory or folder, so a program with those limits didn't run.",
+        );
+      }
       const cwd = request.cwd ?? (await mkdtemp(join(options.tempDir, "incarnamind-script-")));
       const temporary = request.cwd === undefined ? cwd : undefined;
       try {
-        const program = confinement ? await confinement.confine(request, cwd) : request;
+        const program: ConfinedProgram = confinement
+          ? await confinement.confine(request, cwd)
+          : request;
+        // One sweep at a time: the program's end, a stop and the run's end each ask for one.
+        let sweeping = Promise.resolve();
+        let group = 0;
+        const leftovers = () => {
+          sweeping = sweeping.then(() => program.sweep?.(group));
+          return sweeping;
+        };
         try {
           const child = await options.processes.spawn(program.command, program.args, {
             cwd,
             env: program.env,
-            omitEnv: looksLikeSecret,
+            omitEnv:
+              request.environment === "minimal"
+                ? (name) => !MINIMAL_ENVIRONMENT(name)
+                : looksLikeSecret,
             processGroup: true,
           });
-          return await collect(child, request);
+          group = child.pid ?? 0;
+          return await collect(child, request, cwd, leftovers, options.reportError, options.meter);
         } finally {
+          // Also when it couldn't start: the run's record goes only once a sweep has found it over.
+          await leftovers();
           confinement?.release();
         }
       } finally {

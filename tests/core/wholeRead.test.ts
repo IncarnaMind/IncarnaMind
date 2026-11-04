@@ -1587,7 +1587,7 @@ interface ReadOptions {
   /** The Note is checked before the read, so the sentence's parts have results. */
   checkedFirst?: boolean;
   /** What each look at the quote a window's judgement gives finds. */
-  look?: (quote: string) => "there" | "not";
+  look?: (quote: string) => "there" | "elsewhere" | "not";
 }
 
 /** A 16,385-token context: windows of 4,096 tokens. */
@@ -1640,7 +1640,7 @@ describe("A whole read's windows, on a sentence that says something is absent", 
           }
           if (call.system.startsWith("A sentence the User wrote says something is absent")) {
             looks.push({ system: call.system, prompt: call.prompt });
-            const quote = /<quote>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
+            const quote = /<quote[^>]*>\n([\s\S]*?)\n<\/quote>/.exec(call.prompt)?.[1] ?? "";
             return { text: `Judgement: ${look(quote)}` };
           }
           if (!call.system.startsWith("Read the whole Documents")) return checkGenerate(plan)(call);
@@ -1874,6 +1874,16 @@ describe("A whole read's windows, on a sentence that says something is absent", 
       const rejected = await readWindows(example, pages, judgeOf(example), { look: () => "not" });
       expect(rejected.check).toMatchObject({ state: "not-checked", reason: "absence-unconfirmed" });
       expect(rejected.looks.length).toBeGreaterThan(0);
+
+      // Its reason survives the Note it is saved in (#1443).
+      const elsewhere = await readWindows(example, pages, judgeOf(example), {
+        look: () => "elsewhere",
+      });
+      expect(elsewhere.check).toMatchObject({
+        state: "not-checked",
+        reason: "absence-other-document",
+      });
+      expect(elsewhere.looks).toHaveLength(1);
 
       // A quote about rent the second window's judgement gives as the clause.
       const unrelated = await readWindows(example, pagesOf(example, 24), (prompt, index) => {

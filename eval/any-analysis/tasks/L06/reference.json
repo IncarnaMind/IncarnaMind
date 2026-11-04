@@ -1,0 +1,19 @@
+{
+  "task": "L06",
+  "inputs": {
+    "en": "893937d3dae364fc092bc1e8240042f7adf19d56d69366a447ede71bb4a77dac",
+    "zh": "77d0c742e7975a042ca9423cb49ee7d68dcd52a97703c521bcceb92690488c6e"
+  },
+  "values": {
+    "total": 3981716.46,
+    "rows": 310,
+    "formats": [
+      59,
+      51,
+      57,
+      41,
+      53,
+      49
+    ]
+  }
+}

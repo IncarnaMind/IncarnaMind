@@ -46,11 +46,19 @@ import {
 } from "../shared/permissionGuide";
 import { titleBarOf } from "../shared/titleBar";
 
-const served = ipcRenderer.invoke(SERVED_CHANNEL);
+// Once served, a call goes straight through in the turn it is made: deferring every call by a
+// turn moved an Answer's change card as it finished (#2104).
+let isServed = false;
+const served = ipcRenderer.invoke(SERVED_CHANNEL).then(() => {
+  isServed = true;
+});
 const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
-  served.then(() => ipcRenderer.invoke(channel, ...args));
+  isServed
+    ? ipcRenderer.invoke(channel, ...args)
+    : served.then(() => ipcRenderer.invoke(channel, ...args));
 const send = (channel: string, ...args: unknown[]): void => {
-  void served.then(() => ipcRenderer.send(channel, ...args));
+  if (isServed) ipcRenderer.send(channel, ...args);
+  else void served.then(() => ipcRenderer.send(channel, ...args));
 };
 
 function listen<T>(channel: string, listener: (value: T) => void): () => void {
@@ -102,6 +110,7 @@ contextBridge.exposeInMainWorld(BRIDGE_KEY, bridge);
 const files: FilesBridge = {
   pathForFile: (file) => webUtils.getPathForFile(file),
   decodePicture: (bytes) => invoke(FILES_CHANNELS.decodePicture, bytes),
+  captureArea: (rect) => invoke(FILES_CHANNELS.captureArea, rect),
   showSavedFile: (path) => invoke(FILES_CHANNELS.showSavedFile, path),
   openSavedFile: (path) => invoke(FILES_CHANNELS.openSavedFile, path),
   pickOutputLocation: () => invoke(FILES_CHANNELS.pickOutputLocation),

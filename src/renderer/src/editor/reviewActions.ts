@@ -12,7 +12,7 @@ const waiting = (item: ReviewItem): item is ChangeItem =>
   item.kind === "change" && item.state === "waiting";
 
 function pickedRanges(editor: Editor, item: ReviewItem): PickedRange[] {
-  if (item.kind === "comment" || item.state === "kept") {
+  if (item.state === "kept") {
     return [{ from: item.from, to: item.to, node: true }];
   }
   if (item.state === "waiting") {

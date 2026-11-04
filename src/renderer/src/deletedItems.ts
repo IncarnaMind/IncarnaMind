@@ -32,19 +32,34 @@ export function whenDeleted(
 /** The kinds in the order a confirmation lists what is lost. */
 const KIND_ORDER: readonly DeletedKind[] = ["document", "mind", "conversation", "folder", "tag"];
 
-/** A confirmation's sentences: each kind present says what is lost, the item named when it is the only one of its kind. */
+type Sentence = { key: MessageKey; params: MessageParams };
+
+/**
+ * A confirmation's sentences: each kind present says what is lost, the item named when it is the
+ * only one of its kind. A Note's Meeting says its recording and Transcript go with it (#1253).
+ */
 export function lostSentences(
-  items: readonly Pick<DeletedItem, "kind" | "name">[],
+  items: readonly Pick<DeletedItem, "kind" | "name" | "meeting">[],
   nameOf: (item: Pick<DeletedItem, "kind" | "name">) => string,
-): { key: MessageKey; params: MessageParams }[] {
+): Sentence[] {
   return KIND_ORDER.flatMap((kind) => {
     const of = items.filter((item) => item.kind === kind);
     const [first] = of;
     if (!first) return [];
-    const sentence: { key: MessageKey; params: MessageParams } =
+    const sentence: Sentence =
       of.length === 1
         ? { key: `deleted.lost.${kind}.one`, params: { name: nameOf(first) } }
         : { key: `deleted.lost.${kind}`, params: { count: of.length } };
-    return [sentence];
+    const meeting = kind === "mind" ? meetingSentence(of) : null;
+    return meeting ? [sentence, meeting] : [sentence];
   });
+}
+
+/** What the Notes' Meetings lose with them: their recordings, their Transcripts or both. */
+function meetingSentence(minds: readonly Pick<DeletedItem, "meeting">[]): Sentence | null {
+  const recording = minds.some((mind) => mind.meeting?.recording);
+  const transcript = minds.some((mind) => mind.meeting?.transcript);
+  if (!recording && !transcript) return null;
+  const what = recording && transcript ? "meeting" : recording ? "recording" : "transcript";
+  return { key: `deleted.lost.${what}${minds.length === 1 ? ".one" : ""}`, params: {} };
 }

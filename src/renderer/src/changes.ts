@@ -5,7 +5,7 @@
  * links back as they were. Each says what happened in the words of the undo
  * line, and what it was, for the Edit menu.
  */
-import type { RestoreRef, TagLinkState } from "../../core/api";
+import type { ExpiredAudio, RestoreRef, RestoreResult, TagLinkState } from "../../core/api";
 import { core } from "./core";
 import { languageNow } from "./i18n";
 import type { Words } from "./lineNames";
@@ -17,6 +17,16 @@ import type { Undoable } from "./undo";
 type Shown = string | Words;
 
 const shownIn = (t: Translate, shown: Shown) => (typeof shown === "string" ? shown : shown(t));
+
+/** What a restore says of a Meeting whose audio's day ended while its Note waited (#1253). */
+export const expiredKey = (expired: ExpiredAudio) =>
+  expired.memo
+    ? expired.transcript
+      ? "memos.audio.expired"
+      : "memos.audio.expiredAlone"
+    : expired.transcript
+      ? "meetings.audio.expired"
+      : "meetings.audio.expiredAlone";
 
 /** Renamed: undone by the old name, done again by the new one. */
 export function renamed(
@@ -48,6 +58,13 @@ export function deleted(
 ): Undoable {
   const count = refs.length;
   const counted = () => formatCount(count, languageNow());
+  /** Whether the last Undo brought a Meeting back without its audio, and why (#1253). */
+  let audio: RestoreResult = { audioLost: [], audioExpired: [] };
+  // Undo puts the User back where they were, so a Mind's tabs come back; a restore from
+  // Recently deleted leaves the window as it is.
+  const restore = async () => {
+    audio = await core.restore(refs, { reopen: true });
+  };
   return {
     said: (t) =>
       count > 1
@@ -58,17 +75,25 @@ export function deleted(
         ? t("undo.name.delete.documents", { count: counted() })
         : t("undo.name.delete", { name: shownIn(t, shown) }),
     undo: async () => {
-      // Undo puts the User back where they were, so a Mind's tabs come back; a restore from
-      // Recently deleted leaves the window as it is.
-      if (!here) return core.restore(refs, { reopen: true });
+      if (!here) return restore();
       // Back on the page at once, as they went: the core follows, and a refusal takes them out again.
       here.putBack();
       try {
-        await core.restore(refs, { reopen: true });
+        await restore();
       } catch (error) {
         here.takeOut();
         throw error;
       }
+    },
+    undoneNote: () => {
+      const [expired] = audio.audioExpired;
+      const key =
+        audio.audioLost.length > 0
+          ? "meetings.audio.notRestored"
+          : expired
+            ? expiredKey(expired)
+            : null;
+      return key ? (t) => t(key, { name: shownIn(t, shown) }) : null;
     },
     redo: async () => {
       await remove();
@@ -82,17 +107,27 @@ export function deleted(
  */
 export function documentsAdded(count: number, take: () => Promise<RestoreRef[]>): Undoable {
   let taken: RestoreRef[] = [];
+  let added = count;
   return {
     said: (t) =>
-      t(count === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", {
-        count: formatCount(count, languageNow()),
+      t(added === 1 ? "undo.documentAdded.one" : "undo.documentsAdded", {
+        count: formatCount(added, languageNow()),
       }),
     name: (t) => t("undo.name.addDocuments"),
+    takenBack: () =>
+      taken.length === 0
+        ? null
+        : (t) =>
+            t(taken.length === 1 ? "undo.documentRemoved.one" : "undo.documentsRemoved", {
+              count: formatCount(taken.length, languageNow()),
+            }),
     undo: async () => {
       taken = await take();
     },
     redo: async () => {
-      if (taken.length > 0) await core.restore(taken);
+      await core.restore(taken);
+      // Some may have been deleted before the Undo: it brought back only the others.
+      added = taken.length;
     },
   };
 }
@@ -106,6 +141,7 @@ export function folderLinked(
   return {
     said: (t) => t("undo.folderLinked", { name: shown() }),
     name: (t) => t("undo.name.linkFolder", { name: shown() }),
+    takenBack: () => (t) => t("undo.folderUnlinked", { name: shown() }),
     undo: async () => {
       await unlink();
     },

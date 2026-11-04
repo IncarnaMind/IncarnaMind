@@ -77,6 +77,8 @@ describe("Settings", () => {
         taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: "default", size: "default" },
+        meetingWords: [],
+        transcriptScript: null,
       },
       device: {
         sidebarWidth: 248,
@@ -110,9 +112,11 @@ describe("Settings", () => {
       },
       language: "en",
       scriptSandbox: "none",
+      sandboxProblem: null,
       // No capture in these tests: Meetings can't record.
       meetingAudio: "none",
       author: "Priya Raman",
+      chineseScript: "simplified",
     });
   });
 
@@ -126,10 +130,20 @@ describe("Settings", () => {
     const core = startCore(await createTempDataFolder(), { executor });
 
     expect((await core.getSettings()).scriptSandbox).toBe("os");
+    expect((await core.getSettings()).sandboxProblem).toBe(null);
     // Not a setting: it can't be changed.
     await expect(
       core.updateSettings({ device: { scriptSandbox: "none" } } as never),
     ).rejects.toThrow(InvalidInputError);
+  });
+
+  test("say why the OS sandbox can't start here, as the app found it", async () => {
+    const core = startCore(await createTempDataFolder(), {
+      sandboxProblem: { kind: "missing", packages: ["bubblewrap", "socat"] },
+    });
+    const settings = await core.getSettings();
+    expect(settings.scriptSandbox).toBe("none");
+    expect(settings.sandboxProblem).toEqual({ kind: "missing", packages: ["bubblewrap", "socat"] });
   });
 
   test.each([
@@ -189,6 +203,8 @@ describe("Settings", () => {
       taskNotifications: true,
       recentCitationStyles: [],
       newMindStyle: { font: "default", size: "default" },
+      meetingWords: [],
+      transcriptScript: null,
     });
     expect(settings.device).toEqual({
       sidebarWidth: 320,
@@ -234,6 +250,28 @@ describe("Settings", () => {
     const after = startCore(dataDir);
     expect((await after.getSettings()).user.taskNotifications).toBe(false);
     after.close();
+  });
+
+  test("a Note's own comments choice is kept, and only a boolean is accepted (#328)", async () => {
+    const core = startCore(await createTempDataFolder());
+    const docx = { ...DEFAULT_WORD, includeMyComments: true, myCommentsFile: "note-a" };
+    const saved = await core.updateSettings({
+      user: { exportOptions: { ...DEFAULT_EXPORT, docx } },
+    });
+    expect(saved.user.exportOptions.docx).toMatchObject({
+      includeMyComments: true,
+      myCommentsFile: "note-a",
+    });
+    await expect(
+      core.updateSettings({
+        user: {
+          exportOptions: {
+            ...DEFAULT_EXPORT,
+            docx: { ...docx, includeMyComments: "yes" },
+          } as unknown as ExportPreferences,
+        },
+      }),
+    ).rejects.toThrow();
   });
 
   test("export options saved before the web page to share (#72) read its defaults", async () => {
@@ -497,6 +535,8 @@ describe("Settings", () => {
         webSearch: true,
         keepWebPageLook: true,
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
+        meetingWords: ["Priya Raman", "星河科技"],
+        transcriptScript: "traditional",
       },
       device,
     });
@@ -521,12 +561,16 @@ describe("Settings", () => {
         taskNotifications: true,
         recentCitationStyles: [],
         newMindStyle: { font: { family: "Georgia" }, size: "large" },
+        meetingWords: ["Priya Raman", "星河科技"],
+        transcriptScript: "traditional",
       },
       device,
       language: "zh-CN",
       scriptSandbox: "none",
+      sandboxProblem: null,
       meetingAudio: "none",
       author: "P. Raman",
+      chineseScript: "traditional",
     });
   });
 
@@ -564,6 +608,14 @@ describe("Settings", () => {
       patch: { device: { skillScriptTimeoutSeconds: 1.5 } },
     },
     { name: "an unknown motion choice", patch: { device: { motion: "slow" } } },
+    { name: "Words to know that aren't a list", patch: { user: { meetingWords: "Priya" } } },
+    { name: "a blank word to know", patch: { user: { meetingWords: ["Priya", " "] } } },
+    { name: "a word to know twice", patch: { user: { meetingWords: ["Lumen", "lumen"] } } },
+    {
+      name: "a word to know longer than a name",
+      patch: { user: { meetingWords: ["x".repeat(61)] } },
+    },
+    { name: "a script that isn't one", patch: { user: { transcriptScript: "pinyin" } } },
     {
       name: "Task notifications that aren't on or off",
       patch: { user: { taskNotifications: "sometimes" } },

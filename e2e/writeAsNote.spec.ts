@@ -1,6 +1,7 @@
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { withoutTrailingMarks } from "../src/shared/naming";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -28,9 +29,10 @@ import {
  * "Write as a note" (#1940): the first, labelled button under every Answer makes a note,
  * opens it beside, writes the Answer in with Undo; Add to note never targets the example,
  * by the picker, ⌘⇧A or a viewer selection; the composer says what it can write; a note
- * lists its chat in its ⋯ and History under its title, also after the tab closes and after
- * a restart; an empty note keeps no second start guide once the first-run card was seen,
- * and keeps it until then. The scripted model answers from the Document, with a Citation.
+ * lists its chat in its ⋯ and History names that chat by its first Question, also after the
+ * tab closes and after a restart (#2310); an empty note keeps no second start guide once the
+ * first-run card was seen, and keeps it until then. The scripted model answers from the
+ * Document, with a Citation.
  */
 
 const TIDES = buildPdf([
@@ -247,7 +249,7 @@ for (const language of LANGUAGES) {
 for (const language of LANGUAGES) {
   const w = WORDS[language];
 
-  test(`a note made from an Answer lists its chat in its ⋯, which opens it, and History lists that chat under the note's title, also closed and after a restart (${language})`, async () => {
+  test(`a note made from an Answer lists its chat in its ⋯, which opens it, and History names that chat by its first Question, also closed and after a restart (${language})`, async () => {
     const { app, window } = await start(language, 1600);
     const answer = await askInAssistant(window, w.question);
     await pointAndClick(window, answer.getByTestId("answer-write-note"));
@@ -262,7 +264,7 @@ for (const language of LANGUAGES) {
     await expect(menu).toHaveCount(0);
     await expect(window.getByTestId("assistant-question").last()).toContainText(w.question);
 
-    // Closed, the note's title stays in History, read from what is stored for the note.
+    // Closed, the note's own title never renames its chat: History names it by its first Question.
     await pointAndClick(
       window,
       window.getByRole("tab", { selected: true }).getByTestId("tab-close"),
@@ -273,29 +275,29 @@ for (const language of LANGUAGES) {
       .getByTestId("assistant-history-popover")
       .getByTestId("assistant-history-row");
     await expect(rows).toHaveCount(1);
-    // Under the note's title, not the first Question's words.
-    await expect(rows.first()).toContainText(noteName);
-    await expect(rows.first()).not.toContainText(w.question);
+    // A name taken from a Question ends on its words, without its mark.
+    await expect(rows.first()).toContainText(withoutTrailingMarks(w.question));
+    await expect(rows.first()).not.toContainText(noteName);
+    await window.keyboard.press("Escape");
     await app.close();
 
-    // Restarted on the same data, the note is there before it is opened: its stored link names it.
+    // Restarted on the same data, the chat is still named by its first Question.
     const again = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(again.window);
     await setLanguage(again.window, language);
     await pointAndClick(again.window, again.window.getByTestId("assistant-title"));
-    await expect(
-      again.window
-        .getByTestId("assistant-history-popover")
-        .getByTestId("assistant-history-row")
-        .first(),
-    ).toContainText(noteName);
+    const againRows = again.window
+      .getByTestId("assistant-history-popover")
+      .getByTestId("assistant-history-row");
+    await expect(againRows.first()).toContainText(withoutTrailingMarks(w.question));
     await again.app.close();
   });
 }
 
-test("two notes from one chat name it by the first, and deleting that one moves to the next", async () => {
+test("deleting a note made from a chat leaves History naming that chat by its first Question", async () => {
   const { app, window } = await start("en", 1600);
-  const first = await askInAssistant(window, "When do spring tides happen?");
+  const question = "When do spring tides happen?";
+  const first = await askInAssistant(window, question);
   await pointAndClick(window, first.getByTestId("answer-write-note"));
   await expect(frontMindName(window)).not.toHaveText(/^(Untitled|未命名)$/);
   await nameMind(window, "First note");
@@ -312,31 +314,36 @@ test("two notes from one chat name it by the first, and deleting that one moves 
     await expect(rows).toHaveCount(1);
     return rows.first();
   };
-  await expect(await history()).toContainText("First note");
+  await expect(await history()).toContainText(withoutTrailingMarks(question));
   await window.keyboard.press("Escape");
 
-  // Deleted, the first note no longer names the chat: the second does.
+  // Deleted, the note no longer names the chat: its first Question still does.
   await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: "First note" }));
   await pointAndClick(window, (await tabMenu(window)).getByTestId("mind.delete"));
   await expect(window.getByTestId("mind-tab")).toHaveCount(1);
-  await expect(await history()).toContainText("Second note");
+  await expect(await history()).toContainText(withoutTrailingMarks(question));
+  await window.keyboard.press("Escape");
   await app.close();
 });
 
-test("a note the assistant wrote is named in History by its title once its tab is closed", async () => {
+test("a note the assistant wrote leaves History naming the chat by its first Question once its tab is closed", async () => {
   const { app, window } = await start("en", 1600);
   // A note with text in front, so the assistant's request writes a new note of its own.
   await noteWithText(window, "Harbour notes");
-  await askInAssistant(window, "Write a summary of my leases");
+  const question = "Write a summary of my leases";
+  await askInAssistant(window, question);
   const made = window.getByTestId("mind-tab").filter({ hasText: "Summary" });
   await expect(made).toHaveCount(1, { timeout: 15_000 });
   await pointAndClick(window, made);
   await expect(made).toHaveAttribute("aria-selected", "true");
   await pointAndClick(window, made.getByTestId("tab-close"));
   await pointAndClick(window, window.getByTestId("assistant-title"));
-  await expect(
-    window.getByTestId("assistant-history-popover").getByTestId("assistant-history-row").first(),
-  ).toContainText("Summary");
+  const row = window
+    .getByTestId("assistant-history-popover")
+    .getByTestId("assistant-history-row")
+    .first();
+  await expect(row).toContainText(question);
+  await expect(row.locator("span").first()).toHaveText(question);
   await app.close();
 });
 

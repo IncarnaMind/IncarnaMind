@@ -12,6 +12,7 @@ import type {
   ClaimCheckPart,
   ClaimCheckResult,
   ClaimCheckScope,
+  ClaimCorrection,
   ClaimJudgment,
   ClaimPartCoverage,
   ClaimPartFigure,
@@ -26,6 +27,7 @@ import type {
   UnsupportedReason,
 } from "../core/api";
 import { claimCheckActions } from "../core/api";
+import { citedInputs } from "./calculatedFigures";
 import { citationAttributesOf, parseQuotedWords } from "./citations";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
 import { graphemeBoundary } from "./graphemes";
@@ -33,28 +35,48 @@ import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText
 import { parseLocation } from "./locations";
 import { hasSearchScope, storedSearchScope } from "./searchScope";
 
-export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = [
-  "refused",
-  "malformed",
-  "empty",
-  "no-evidence",
-  "unread",
-  "rate-limit",
-  "cost-cap",
-  "plan-limit",
-  "out-of-credit",
-  "failed",
-  "stopped",
-  "too-many",
-  "consent-revoked",
-  "local-mode",
-  "kept-inside",
-  "absence-read-limit",
-  "absence-unconfirmed",
-  "cut-short",
-  "read-budget",
+// Keyed by every reason, so a new one that isn't listed fails to compile instead of reading back
+// from a saved Note as another (#1443).
+const FAILURES: Record<ClaimCheckFailure, true> = {
+  refused: true,
+  malformed: true,
+  empty: true,
+  "no-evidence": true,
+  unread: true,
+  "rate-limit": true,
+  "cost-cap": true,
+  "plan-limit": true,
+  "out-of-credit": true,
+  failed: true,
+  stopped: true,
+  "too-many": true,
+  "consent-revoked": true,
+  "local-mode": true,
+  "kept-inside": true,
+  "absence-read-limit": true,
+  "absence-unconfirmed": true,
+  "absence-other-document": true,
+  "cut-short": true,
+  "read-budget": true,
+  "workbook-changed": true,
+  "workbook-differs": true,
+  "workbook-external": true,
+  "workbook-volatile": true,
+  "workbook-circular": true,
+  "workbook-not-read": true,
+  "workbook-no-saved-value": true,
+  "other-cell": true,
+  "workbook-unsupported": true,
+};
+export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
+  (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
+);
+const EXCLUSIONS: readonly EvidenceExclusion[] = [
+  "own-file",
+  "own-workings",
+  "own-note",
+  "checked-document",
 ];
-const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
   "quote-not-on-pages",
   "quoted-words-not-on-pages",
@@ -192,6 +214,7 @@ function citationOf(value: unknown): CitationAttributes | null {
     pageTo: read.pageTo ?? null,
     location: value.location === null ? null : (read.location ?? null),
     quote: read.quote ?? null,
+    ...(read.yourNoteAt && { yourNoteAt: read.yourNoteAt }),
     check,
     checkReason,
     ...(typeof value.id === "string" && value.id && { id: value.id }),
@@ -212,6 +235,36 @@ function citationsOf(value: unknown): CitationAttributes[] | null {
     citations.push(citation);
   }
   return citations;
+}
+
+/** A contradiction's correction as a mark stores it, or null when it isn't one. */
+export function readClaimCorrection(value: unknown): ClaimCorrection | null {
+  if (
+    !isRecord(value) ||
+    typeof value.from !== "string" ||
+    value.from.trim() === "" ||
+    !Array.isArray(value.choices) ||
+    value.choices.length < 1 ||
+    value.choices.length > 2
+  )
+    return null;
+  const from = value.from;
+  const choices: ClaimCorrection["choices"] = [];
+  for (const each of value.choices as unknown[]) {
+    const evidence = isRecord(each) ? citationOf(each.evidence) : null;
+    const wording = isRecord(each) ? text(each.wording) : null;
+    if (
+      !evidence ||
+      checkedCitation(evidence) === null ||
+      wording === null ||
+      wording.trim() === "" ||
+      wording === from ||
+      choices.some((choice) => choice.wording === wording)
+    )
+      return null;
+    choices.push({ wording, evidence });
+  }
+  return { from, choices };
 }
 
 function boundary(text: string, at: number): boolean {
@@ -250,6 +303,14 @@ const withQuote = (citation: CitationAttributes): CitationAttributes =>
     ? citation
     : { ...citation, quote: cutQuote(citation.quote, CHECK_QUOTE_CHARS_AT_MOST) };
 
+const boundedCorrection = (correction: ClaimCorrection): ClaimCorrection => ({
+  ...correction,
+  choices: correction.choices.map((choice) => ({
+    ...choice,
+    evidence: withQuote(choice.evidence),
+  })),
+});
+
 /**
  * `parts` as a check stores them: every receipt keeps at most `CHECK_QUOTE_CHARS_AT_MOST`
  * characters of its quote, and every part, receipt and member is kept, so a card, the check record
@@ -259,6 +320,7 @@ export function boundedCheckParts(parts: readonly ClaimCheckPart[]): ClaimCheckP
   return parts.map((part) => ({
     ...part,
     evidence: part.evidence.map(withQuote),
+    ...(part.correction && { correction: boundedCorrection(part.correction) }),
     ...(part.unsupported?.quoted && {
       unsupported: { ...part.unsupported, quoted: withQuote(part.unsupported.quoted) },
     }),
@@ -280,6 +342,7 @@ export function boundedCheck(check: ClaimCheckBasis): ClaimCheckBasis {
   return {
     ...check,
     ...(check.evidence && { evidence: withQuote(check.evidence) }),
+    ...(check.correction && { correction: boundedCorrection(check.correction) }),
     ...(check.unsupported?.quoted && {
       unsupported: { ...check.unsupported, quoted: withQuote(check.unsupported.quoted) },
     }),
@@ -538,6 +601,7 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
     value.evidence === null ? null : checkedCitation(citationOf(value.evidence) ?? undefined);
   const unsupported = readUnsupportedReason(value.unsupported);
   const calculation = readClaimCalculation(value.calculation);
+  const correction = verdict === "contradicted" ? readClaimCorrection(value.correction) : null;
   if (
     !verdict ||
     (value.evidence !== null && evidence === null) ||
@@ -560,6 +624,7 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
     ...common,
     verdict,
     evidence,
+    ...(correction && { correction }),
     says: text(value.says),
     unsupported,
     calculation,
@@ -642,6 +707,7 @@ export function readClaimParts(
       return null;
     const coverage = each.coverage === undefined ? undefined : coverageOf(each.coverage);
     if (coverage === null) return null;
+    const correction = verdict === "contradicted" ? readClaimCorrection(each.correction) : null;
     if (each.kept !== undefined && each.kept !== true) return null;
     const figures: ClaimPartFigure[] = [];
     if (each.figures !== undefined) {
@@ -678,6 +744,7 @@ export function readClaimParts(
       verdict,
       evidence,
       ...(decidingEvidence !== undefined && { decidingEvidence }),
+      ...(correction && { correction }),
       says: text(each.says),
       unsupported,
       calculation,
@@ -740,8 +807,10 @@ export function partWithResult(
       ],
     };
   }
+  const correction = result.verdict === "contradicted" ? result.correction : undefined;
   const citations = [
     ...(result.verdict !== "not-checked" && result.evidence ? [result.evidence] : []),
+    ...(correction?.choices.map((choice) => choice.evidence) ?? []),
     ...(evidence ?? []),
     ...(result.figures
       ? partCitations({
@@ -780,6 +849,7 @@ export function partWithResult(
       currencyClause: cutQuote(result.currencyClause, CHECK_QUOTE_CHARS_AT_MOST),
     }),
     ...(result.kept && { kept: true }),
+    ...(correction && { correction }),
     ...(result.figures && { figures: result.figures }),
     ...(result.remainder !== undefined && { remainder: result.remainder }),
     decidingEvidence: result.verdict !== "not-checked" && result.evidence ? 0 : null,
@@ -811,7 +881,8 @@ export function coverageCount(coverage: ClaimPartCoverage): { covered: number; t
   };
 }
 
-function checkedCitation(citation: CitationAttributes | undefined): Citation | null {
+/** A stored receipt as the Citation its check found; null when its quote wasn't found. */
+export function checkedCitation(citation: CitationAttributes | undefined): Citation | null {
   if (
     citation?.check !== "found" ||
     typeof citation.passageId !== "string" ||
@@ -825,8 +896,17 @@ function checkedCitation(citation: CitationAttributes | undefined): Citation | n
     !citation.contentHash
   )
     return null;
-  const { passageId, documentId, documentName, contentHash, quote, quotedWords, ...rest } =
-    citation;
+  const {
+    passageId,
+    documentId,
+    documentName,
+    contentHash,
+    quote,
+    quotedWords,
+    unsure: _unsure,
+    pageChecked: _pageChecked,
+    ...rest
+  } = citation;
   return {
     ...rest,
     passageId,
@@ -839,7 +919,7 @@ function checkedCitation(citation: CitationAttributes | undefined): Citation | n
 }
 
 function notCheckedPart(
-  part: ClaimCheckPart,
+  { correction: _correction, ...part }: ClaimCheckPart,
   reason: ClaimCheckFailure,
   detail: string | null = null,
 ): ClaimCheckPart {
@@ -1084,10 +1164,12 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
           found: true as const,
         }
       : outcome.part.unsupported;
+  const correction = outcome.part.verdict === "contradicted" ? outcome.part.correction : undefined;
   return {
     ...common,
     verdict: outcome.part.verdict,
     ...(outcome.part.currencyClause && { currencyClause: outcome.part.currencyClause }),
+    ...(correction && { correction }),
     evidence:
       outcome.part.decidingEvidence !== undefined
         ? outcome.part.decidingEvidence === null
@@ -1127,7 +1209,7 @@ export function partCitations(part: ClaimCheckPart): (CitationAttributes | Citat
               : []),
           ]
         : []),
-      ...(figure.calculated?.figure.inputs ?? []).flatMap((input) => [
+      ...(figure.calculated ? citedInputs(figure.calculated.figure) : []).flatMap((input) => [
         input.citation,
         ...(input.unitStatement ? [input.unitStatement.citation] : []),
       ]),
@@ -1138,8 +1220,8 @@ export function partCitations(part: ClaimCheckPart): (CitationAttributes | Citat
         ]),
       ),
       ...("evidence" in figure.result && figure.result.evidence ? [figure.result.evidence] : []),
-      ...("calculation" in figure.result
-        ? (figure.result.calculation?.figure.inputs.flatMap((input) => [
+      ...("calculation" in figure.result && figure.result.calculation
+        ? (citedInputs(figure.result.calculation.figure).flatMap((input) => [
             input.citation,
             ...(input.unitStatement ? [input.unitStatement.citation] : []),
           ]) ?? [])
@@ -1201,7 +1283,13 @@ function judgmentOn(result: ClaimPartJudgment, basis: ClaimCheckBasis): ClaimPar
 }
 
 function storedJudgment(basis: ClaimCheckBasis, result: ClaimPartJudgment): ClaimCheckBasis {
-  const { kept: _kept, parts: _parts, readDocuments: _read, ...old } = basis;
+  const {
+    kept: _kept,
+    parts: _parts,
+    readDocuments: _read,
+    correction: _correction,
+    ...old
+  } = basis;
   const common = {
     ...old,
     ...judgmentMetadata(result),
@@ -1230,6 +1318,7 @@ function storedJudgment(basis: ClaimCheckBasis, result: ClaimPartJudgment): Clai
         reason: null,
         detail: null,
         evidence: result.evidence,
+        ...(result.correction && { correction: result.correction }),
         says: result.says,
         unsupported: result.unsupported,
         calculation: result.calculation,

@@ -93,7 +93,7 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
         },
       ],
       ready: {
-        question: "What leverage does the agreement allow?",
+        question: "What’s the leverage cap?",
         answer:
           "Clause 7.1 caps Leverage at 3.5 times EBITDA in each Relevant Period [^1]. At the end of Q3, net debt to EBITDA was 3.1 times, inside the limit [^2].",
         quotes: [

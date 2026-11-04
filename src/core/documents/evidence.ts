@@ -8,6 +8,8 @@
  *   Document ("Count it"), its Folder counts them, or Settings does.
  * - The User's own workings (`Document.notCited`): read to understand a
  *   Question, never evidence. Always, until the User cites them again.
+ * - A Mind's own snapshot (`Document.yourNote`, #335): a note can't support
+ *   itself. Always, in a check of that Mind.
  * - The document being checked, its earlier versions, and copies of either:
  *   any Document with one of its content fingerprints, at any path. Always.
  *
@@ -109,9 +111,11 @@ export function parseCheckedDocument(input: unknown): CheckedDocument {
     throw new InvalidInputError("The document being checked must be an object.");
   const documentIds = parseList(input.documentIds, "The checked Documents");
   const contentHashes = parseList(input.contentHashes, "The checked fingerprints");
+  const ownNoteMindIds = parseList(input.ownNoteMindIds, "The checked Minds");
   return {
     ...(documentIds && { documentIds }),
     ...(contentHashes && { contentHashes }),
+    ...(ownNoteMindIds && { ownNoteMindIds }),
   };
 }
 
@@ -144,9 +148,15 @@ export function createEvidence(deps: EvidenceDependencies) {
     /**
      * The scope of a check: its Search scope (the Documents it resolves to,
      * or null for every Document) without the Documents left out of its
-     * evidence, for the document being checked, if any.
+     * evidence, for the Mind being checked and the document being checked,
+     * if any. The Mind is always left out of its own evidence (#335), so no
+     * caller can forget it.
      */
-    scope(documentIds: readonly string[] | null, checked: CheckedDocument = {}): EvidenceScope {
+    scope(
+      mindId: string | null,
+      documentIds: readonly string[] | null,
+      checked: CheckedDocument = {},
+    ): EvidenceScope {
       const excluded = new Map<string, EvidenceExclusion>();
       const scoped = documentIds === null ? "" : `AND ${inList("d.id")}`;
       const scopeParams = documentIds === null ? [] : [JSON.stringify(documentIds)];
@@ -171,6 +181,25 @@ export function createEvidence(deps: EvidenceDependencies) {
         scopeParams,
       );
       for (const row of workings) excluded.set(row.id, "own-workings");
+
+      const ownNoteMinds = new Set(checked.ownNoteMindIds ?? []);
+      if (mindId !== null) ownNoteMinds.add(mindId);
+      if (ownNoteMinds.size > 0) {
+        // A copy's own snapshot is left out too, and its source's, all the way up the copy line.
+        const notes = db.all<{ id: string }>(
+          `WITH RECURSIVE line(id) AS (
+             SELECT value FROM json_each(?)
+             UNION
+             SELECT m.duplicated_from_mind_id FROM minds m JOIN line ON m.id = line.id
+             WHERE m.duplicated_from_mind_id IS NOT NULL
+           )
+           SELECT d.id FROM documents d
+           WHERE d.deleted_at IS NULL AND d.your_note_mind_id IN (SELECT id FROM line)
+             ${scoped}`,
+          [JSON.stringify([...ownNoteMinds]), ...scopeParams],
+        );
+        for (const row of notes) excluded.set(row.id, "own-note");
+      }
 
       const fingerprints = fingerprintsOf(checked);
       const checkedIds = checked.documentIds ?? [];

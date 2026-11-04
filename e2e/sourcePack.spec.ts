@@ -164,11 +164,11 @@ async function expectSmallPack(path: string, column: string): Promise<void> {
   );
   expect(shown.map((names) => names.length)).toEqual([1, 1]);
   expect(shown.flat().sort()).toEqual([PROJECT.name, RISKS.name].sort());
-  // Each page is headed by the numbers of the Citations on it: the seven between them.
+  // Each page is headed by the numbers of the Citations on it: one note for each source and place.
   const numbers = sheets.flatMap((sheet) =>
     (/^[\d,\s]+/.exec(sheet)?.[0] ?? "").split(/\D+/).filter(Boolean).map(Number),
   );
-  expect(numbers.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  expect(numbers.sort((a, b) => a - b)).toEqual([1, 2]);
   for (const sheet of sheets) expect(sheet).not.toMatch(/此页未找到引文|Quote not found/);
   expect((await pdfPictures(pdf)).map((pictures) => pictures.length)).toEqual([0, 1, 1]);
 }
@@ -215,7 +215,7 @@ test("a small pack, two Chinese Markdown Documents cited seven times in two sect
       timeout: 30_000,
     },
   );
-  await expect(done.getByTestId("export-unchecked")).toHaveText("未核对");
+  await expect(done.getByTestId("export-unchecked")).toHaveText("说法未核对");
   await expect(result.getByTestId("export-problem")).toHaveCount(0);
   await expectSmallPack((await done.getAttribute("title")) ?? "", "文档和位置");
 

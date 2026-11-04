@@ -1,9 +1,12 @@
 import { writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  acceptPlainTextKeys,
   askInAssistant,
   assistantAnswers,
   confirmLink,
@@ -28,6 +31,12 @@ import {
   slideSelect,
   welcomeStep as step,
 } from "./app";
+
+/** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots. */
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+async function shot(target: Page | Locator, name: string) {
+  if (SCREENSHOTS) await target.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+}
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -478,6 +487,7 @@ for (const language of ["en", "zh-CN"] as const) {
             wholeLabel.slice(shownLabel.length - 1),
             `${language} ${width}px, a word's end`,
           ).toMatch(/^\s/u);
+        await shot(a.window, `ask-line-long-${language}-${width}`);
       } finally {
         await a.app.close();
         await removeDataFolder(first);
@@ -533,6 +543,7 @@ test("a Chinese Question longer than the line cuts at a character, whole in its 
     expect(shown.endsWith("…")).toBe(true);
     expect(whole.startsWith(shown.slice(0, -1))).toBe(true);
     expect(whole.charAt(shown.length - 1)).not.toBe(" ");
+    await shot(window, "ask-line-zh-900");
   } finally {
     await app.close();
     await removeDataFolder(sources);
@@ -547,9 +558,10 @@ test("the English example's Question shows whole on one line at 900 px (#2084)",
     await expectReadyDocuments(window, 2);
     await markSteps(window, { indexed: true });
     const button = step(window, "question").getByTestId("first-open-ready");
-    const whole = "Ask: “What leverage does the agreement allow?”";
+    const whole = "Ask: “What’s the leverage cap?”";
     await expect(button).toHaveAttribute("aria-label", whole, { timeout: 30_000 });
     await expect(button).toHaveText(whole);
+    await shot(window, "ask-line-example-900");
   } finally {
     await app.close();
   }
@@ -1165,7 +1177,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("citation-card")).toBeVisible();
     await expect(citation).toHaveAttribute("data-state", "done");
     await expect(citation).toContainText(
-      language === "en" ? "Checked a Citation" : "已核对一条引用",
+      language === "en" ? "Opened a checked Citation" : "打开了一条已核对的引用",
     );
     expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });
     await app.close();
@@ -1269,3 +1281,232 @@ test("a red ≠ opened in a Mind of the User's own still records it (#1489)", as
   await app.close();
   await removeDataFolder(sources);
 });
+
+/** A stand-in for the local model app that reports the scripted model as 9B: too small to judge (#680). */
+async function smallModelServer(): Promise<{ baseUrl: string; stop: () => Promise<void> }> {
+  const server = createServer((request, response) => {
+    const send = (body: unknown) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(body));
+    };
+    if (request.url === "/api/tags") {
+      send({
+        models: [
+          {
+            name: "scripted-9b",
+            model: "scripted-9b",
+            size: 1_000_000_000,
+            digest: "scripted-9b",
+            details: { parameter_size: "9B" },
+          },
+        ],
+      });
+    } else if (request.url === "/api/show") {
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        const name = (JSON.parse(body) as { model?: string }).model ?? "";
+        send({
+          capabilities: ["completion", "tools"],
+          details: { parameter_size: name === "scripted-9b" ? "9B" : "" },
+          model_info: {
+            "general.architecture": "qwen3_5",
+            "general.parameter_count": 9_653_104_368,
+            // A tiny KV cache per token, so the window this build picks fits the scripted request.
+            "qwen3_5.block_count": 1,
+            "qwen3_5.attention.head_count": 1,
+            "qwen3_5.attention.head_count_kv": 1,
+            "qwen3_5.attention.key_length": 1,
+            "qwen3_5.attention.value_length": 1,
+            "qwen3_5.context_length": 262_144,
+          },
+        });
+      });
+    } else {
+      response.writeHead(404).end();
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {
+    baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`step 3 ticks for a Citation whose check ran, never for one a small model on this computer couldn't judge, in ${language} (#2375)`, async () => {
+    test.setTimeout(240_000);
+    const stub = await smallModelServer();
+    const sources = await createDataFolder();
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, {
+      examples: true,
+      fakeChat: true,
+      home: sources,
+    });
+    try {
+      await setWindowSize(app, window, 1440, 900);
+      await setLanguage(window, language);
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async (url) => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await bridge.saveChatProvider({ kind: "ollama", baseUrl: url, modelId: "scripted-9b" });
+      }, stub.baseUrl);
+      await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Tides.pdf")]);
+      await expectReadyDocuments(window, 3);
+
+      // The first own Question, answered by the model on this computer: its Citation is Not checked.
+      const assistant = window.getByTestId("assistant");
+      await askInAssistant(window, "When are the tides published?");
+      const local = assistant.locator('[data-testid="citation-chip"][data-check="not-checked"]');
+      await expect(local.first()).toBeVisible({ timeout: 30_000 });
+      await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+      await pointAndClick(window, local.first());
+      await expect(window.getByTestId("citation-card")).toBeVisible();
+      await expect(window.getByTestId("citation-badge")).toHaveText(
+        language === "en" ? "Not checked" : "未核对",
+      );
+      await expect(window.getByTestId("citation-reason")).toHaveText(
+        language === "en"
+          ? "This model on this computer is too small to judge whether the quote supports the sentence."
+          : "这台电脑上的模型太小，无法核对引文是否支持这句话。",
+      );
+      // Check again can't judge it either, so the card doesn't offer it: the cause is the model.
+      await expect(window.getByTestId("citation-check-again")).toHaveCount(0);
+      await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+      expect(await gettingStarted(window)).toMatchObject({ citationChecked: false });
+      await window.keyboard.press("Escape");
+
+      // A cloud model judges the sentence: its Citation is found, and opening it ticks step 3.
+      await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const provider = await bridge.saveChatProvider({
+          kind: "anthropic",
+          apiKey: "sk-ant-test",
+          modelId: "claude-haiku-5-5",
+        });
+        if (provider.service) {
+          for (const flow of ["chat", "checks"] as const) {
+            await bridge.allowDataFlow(flow, provider.service.id);
+          }
+        }
+      });
+      await askInAssistant(window, "How do the tides rise?");
+      const checked = assistant.locator('[data-testid="citation-chip"][data-check="found"]').last();
+      await expect(checked).toBeVisible({ timeout: 45_000 });
+      await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+      await pointAndClick(window, checked);
+      await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
+      await expect(step(window, "citation")).toContainText(
+        language === "en" ? "Opened a checked Citation" : "打开了一条已核对的引用",
+      );
+      expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });
+    } finally {
+      await app.close();
+      await removeDataFolder(sources);
+      await stub.stop();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`opening a checked Citation from its card or from ⌘K ticks step 3, in ${language} (#2375)`, async () => {
+    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, language);
+    await markSteps(window, { ...NONE, indexed: true, askedOwn: true });
+    const mind = window.getByTestId("mind-pane");
+    const chip = mind.getByTestId("mind-editor").getByTestId("citation-chip").first();
+    await expect(chip).toHaveAttribute("data-check", "found", { timeout: 20_000 });
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+    const card = window.getByTestId("citation-card");
+
+    // The card's Open, from a card the pointer opened: the marker is never clicked.
+    await chip.hover();
+    await expect(card).toBeVisible();
+    expect(await gettingStarted(window)).toMatchObject({ citationChecked: false });
+    await pointAndClick(window, card.getByTestId("citation-open"));
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
+    expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });
+
+    // ⌘K's Open cited page, on a card a click opened, with the step put back to open.
+    await markSteps(window, { citationChecked: false });
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+    await pointAndClick(window, chip);
+    await expect(card).toBeVisible();
+    await markSteps(window, { citationChecked: false });
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "open");
+    const open = language === "en" ? "Open cited page" : "打开引用页面";
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(open);
+    await pointAndClick(
+      window,
+      window.getByTestId("palette-item").filter({ hasText: open }).first(),
+    );
+    await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
+    expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`opening a still-checking Citation from its hover card ticks step 3 when its check arrives, in ${language} (#2375)`, async () => {
+    const sources = await createDataFolder();
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, {
+      examples: true,
+      fakeChat: true,
+      home: sources,
+    });
+    try {
+      await setWindowSize(app, window, 1440, 900);
+      await setLanguage(window, language);
+      await enableLocalModel(window, "fake-model-slow-check");
+      // The judgement waits until this test releases it: the card is opened while it is pending.
+      await app.evaluate(() => {
+        (
+          globalThis as unknown as { incarnamindSlowCheck: { hold: boolean } }
+        ).incarnamindSlowCheck.hold = true;
+      });
+      await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Tides.pdf")]);
+      await expectReadyDocuments(window, 3);
+      await markSteps(window, { ...NONE, indexed: true, askedOwn: true });
+      // Asked by hand: `askInAssistant` waits for the sentences to be judged, and this test needs
+      // the Citation opened while that is still running.
+      const answers = assistantAnswers(window);
+      const before = await answers.count();
+      await window.keyboard.press("ControlOrMeta+j");
+      await expect(window.getByTestId("composer-input")).toBeFocused();
+      await window.keyboard.type("When are the tides published?");
+      await window.keyboard.press("Enter");
+      const answer = answers.nth(before);
+      await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+      const chip = answer.getByTestId("citation-chip").first();
+      await expect(chip).toHaveAttribute("data-check", "checking", { timeout: 20_000 });
+
+      // Its card, opened by the pointer alone, offers Open; the check is still pending.
+      await chip.hover();
+      const card = window.getByTestId("citation-card");
+      await expect(card).toBeVisible();
+      await pointAndClick(window, card.getByTestId("citation-open"));
+      await expect(card).toBeHidden();
+      expect(await gettingStarted(window)).toMatchObject({ citationChecked: false });
+
+      // Released, the result arrives after the card closed, and step 3 follows it.
+      await app.evaluate(() => {
+        (
+          globalThis as unknown as { incarnamindSlowCheck: { release(): void } }
+        ).incarnamindSlowCheck.release();
+      });
+      await expect(chip).toHaveAttribute("data-check", "found", { timeout: 20_000 });
+      await expect(step(window, "citation")).toHaveAttribute("data-state", "done");
+      expect(await gettingStarted(window)).toMatchObject({ citationChecked: true });
+    } finally {
+      await app.close();
+      await removeDataFolder(sources);
+    }
+  });
+}

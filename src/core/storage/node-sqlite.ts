@@ -8,12 +8,26 @@ export const MAPPED_WAL_RETRY_MS = 5_000;
 const MAPPED_WAL_PAUSE_MS = 250;
 const WAL = "PRAGMA journal_mode = WAL";
 
+const SQLITE_BUSY = 5;
 /** SQLITE_IOERR_TRUNCATE: on Windows, another process still maps the `-shm` file. */
-const isMappedShm = (error: unknown) =>
-  isRecord(error) && error.code === "ERR_SQLITE_ERROR" && error.errcode === 1546;
+const SQLITE_IOERR_TRUNCATE = 1546;
 
 const errcodeOf = (error: unknown) =>
   isRecord(error) && typeof error.errcode === "number" ? error.errcode : undefined;
+
+const isMappedShm = (error: unknown) =>
+  isRecord(error) && error.code === "ERR_SQLITE_ERROR" && error.errcode === SQLITE_IOERR_TRUNCATE;
+
+/**
+ * Whether SQLite failed because another process holds the database: a lock (any SQLITE_BUSY), or
+ * on Windows a `-shm` it still maps (#2067). Elsewhere a failed truncate is a real I/O error.
+ */
+export function heldByAnotherProcess(error: unknown): boolean {
+  const errcode = errcodeOf(error);
+  if (errcode === undefined) return false;
+  if ((errcode & 0xff) === SQLITE_BUSY) return true;
+  return process.platform === "win32" && errcode === SQLITE_IOERR_TRUNCATE;
+}
 
 /**
  * The `node:sqlite` adapter for the storage port. `node:sqlite` ships with
@@ -23,16 +37,12 @@ const errcodeOf = (error: unknown) =>
 export function openNodeSqlite(file: string, log?: Logger): Database {
   const db = new DatabaseSync(file);
   try {
-    db.exec(WAL);
+    setUp(db, log);
   } catch (error) {
-    log?.warn("storage.walOpen.failed", { attempt: 1, elapsedMs: 0, errcode: errcodeOf(error) });
-    if (process.platform !== "win32" || !isMappedShm(error)) throw error;
-    retryMappedWal(db, error, log);
+    // A handle left open keeps the file, and on Windows its mapped `-shm`, from the next open (#2067).
+    db.close();
+    throw error;
   }
-  // Each commit is on disk before it returns: a Task's journal must survive a force-quit (#126).
-  db.exec("PRAGMA synchronous = FULL");
-  db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
 
   const reads = new Map<string, StatementSync>();
   const writes = new Map<string, StatementSync>();
@@ -85,6 +95,20 @@ export function openNodeSqlite(file: string, log?: Logger): Database {
       db.close();
     },
   };
+}
+
+function setUp(db: DatabaseSync, log: Logger | undefined): void {
+  try {
+    db.exec(WAL);
+  } catch (error) {
+    log?.warn("storage.walOpen.failed", { attempt: 1, elapsedMs: 0, errcode: errcodeOf(error) });
+    if (process.platform !== "win32" || !isMappedShm(error)) throw error;
+    retryMappedWal(db, error, log);
+  }
+  // Each commit is on disk before it returns: a Task's journal must survive a force-quit (#126).
+  db.exec("PRAGMA synchronous = FULL");
+  db.exec("PRAGMA foreign_keys = ON");
+  db.exec("PRAGMA busy_timeout = 5000");
 }
 
 // SQLite cannot truncate mapped SHM on Windows (#2067, upstream 7c103a0b7d).

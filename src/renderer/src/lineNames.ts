@@ -15,7 +15,7 @@ const NAME_PARAMS: ReadonlySet<string> = new Set([
 ]);
 
 const cutting =
-  (t: Translate, columns: number): Translate =>
+  (t: Translate): Translate =>
   (key, params) =>
     t(
       key,
@@ -24,7 +24,7 @@ const cutting =
           Object.entries(params).map(([each, value]) => [
             each,
             typeof value === "string" && NAME_PARAMS.has(each)
-              ? shortenMiddle(value, columns)
+              ? shortenMiddle(value, NAME_IN_LINE_COLUMNS)
               : value,
           ]),
         ),
@@ -40,8 +40,6 @@ export interface Said {
   message: string;
   /** `message` with every name whole, for the tooltip and the accessible name; absent when none was cut. */
   fullMessage?: string;
-  /** The message with each name cut to at most `columns`, for a line with less room than `message` needs. */
-  within(columns: number): string;
 }
 
 /**
@@ -50,9 +48,7 @@ export interface Said {
  * first, such as a quoted list, goes through `cut`.
  */
 export function saidInLine(t: Translate, build: WordsInLine): Said {
-  const within = (columns: number) =>
-    build(cutting(t, columns), (name) => shortenMiddle(name, columns));
-  const message = within(NAME_IN_LINE_COLUMNS);
+  const message = build(cutting(t), (name) => shortenMiddle(name, NAME_IN_LINE_COLUMNS));
   const fullMessage = build(t, (name) => name);
-  return message === fullMessage ? { message, within } : { message, fullMessage, within };
+  return message === fullMessage ? { message } : { message, fullMessage };
 }

@@ -100,7 +100,9 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Checkpoint | 检查点 | |
 | History (a Note's versions) | 历史版本 | "历史版本", "恢复此版本", "当前版本". As Yuque and Tencent Docs. Not 历史对话, which is the assistant's. |
 | Record cite | 记录引用 | A reference in legal writing to a record Document and its exact Location ("Smith Dep. 45:3–12"). Each has its own result, apart from the sentence's: "这句话中的记录引用". Not 引用 alone, which is a Citation. |
-| Citation check | 核对 | "正在核对引文…", "无法核对". |
+| Citation check | 核对 | "正在核对引文…", "无法核对", "引用核对：未找到". |
+| Check the page (a scan's quote) | 请核对原页 | A Citation whose quote covers a word the text recognition may have misread. It is as quiet as an uncited sentence, never an alarm. |
+| Matches the page | 原页无误 | The User compared the quote with the page and it matched: the Citation becomes found, and its card says 已由你对照原页核对; the undo line is 已对照原页核对. |
 | Quote not found | 未找到引文 | |
 | Unsupported | 无依据 | |
 | Not found (a sentence's check) | 未找到 | The card of an unsupported sentence that nothing in the scope states: "未找到", "未在“{scope}”中找到". Never 未找到引文, which is a Citation's quote. |
@@ -133,6 +135,7 @@ A Note is what the User writes in; your text is a Block the User writes. The cod
 | Voice memo | 语音备忘 | "录一段语音备忘"; the + menu's item is 语音备忘. As Apple's 语音备忘录, without its 录. Its note: "已写入语音备忘". |
 | Transcript | 转写稿 | |
 | Speaker | 发言人 | |
+| Words to know | 要识别的词 | Settings › Meetings: names and terms a Transcript should write as the User does. Not 热词, the engine's word. |
 | Me, Them, Speaker ? (a live line before speakers are told apart) | 我, 对方, 发言人 ? | "Me" is the microphone, "Them" the computer's sound, "Speaker ?" a meeting in a room, with no computer sound. |
 | Granted folder | 授权文件夹 | |
 | Output location | 保存位置 | |
@@ -166,6 +169,16 @@ A figure in an Answer is written as reports write it, with no space between the 
 | Source value | 来源数值 | The number as the source gives it. |
 | Difference | 差异 | The signed amount ("+£10m"), or "由 £4,979.6m 舍入" for a figure within its shown rounding. |
 | Doesn't add up (a total) | 合计不符 | Figures only: "合计不符：上面各行相加为 £4,850m". A total that agrees with its source says "与来源一致" too. |
+| Workbook | 工作簿 | As Excel and WPS. A cell keeps its reference as written: "Assumptions!B4". |
+| Cell | 单元格 | |
+| Formula (a workbook's) | 公式 | "已按工作簿中的公式重新计算". |
+| Formula chain | 公式链 | The card shows it line by line; the word appears in prose only. |
+| What-if | 改为…后重新计算 | Said by its change, never 模拟 or 情景: "已将“增长率”（Assumptions!B4）从 5.0% 改为 3.0%". Excel's 模拟分析 is its own menu of tools. |
+| Saved value (a workbook's) | 保存的值 | "工作簿保存的值", "工作簿中的原值". |
+| Volatile function | 易失性函数 | As Microsoft's Chinese documentation. |
+| Circular reference / iterative calculation | 循环引用 / 迭代计算 | |
+| Data table (What-If Analysis) | 模拟运算表 | Excel's name. |
+| Add-in | 加载项 | |
 | Treat as a total / Not a total | 将此行当作合计 / 将此列当作合计 / 不是合计 | The table menu and the schedule's row menu. 合计 is a total, 小计 a subtotal, 总计 a grand total, as statements label them. |
 
 ### Finance and law

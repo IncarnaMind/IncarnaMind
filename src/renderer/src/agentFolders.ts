@@ -8,14 +8,14 @@ import {
   type LibraryGroup,
   NOT_IN_A_FOLDER_ID,
 } from "../../core/api";
-import { sectionsOf } from "./libraryPage";
+import { treeCounts } from "./libraryPage";
 
 export interface AgentFolderRow {
   /** The Folder's id, or `NOT_IN_A_FOLDER_ID`. */
   id: string;
   /** The Folder's name; null for Not in a Folder, which the interface names. */
   name: string | null;
-  /** How many Documents it holds now. */
+  /** How many Documents it holds now, those in its sub-Folders too. */
   documents: number;
 }
 
@@ -29,11 +29,26 @@ export function agentFolderRows(
   assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId">[],
 ): AgentFolderRow[] {
   const folderOf = new Map(assignments.map((each) => [each.documentId, each.groupId]));
-  return sectionsOf(folders, documents, (id) => folderOf.get(id) ?? null, false).map((section) => ({
-    id: section.folder?.id ?? NOT_IN_A_FOLDER_ID,
-    name: section.folder?.name ?? null,
-    documents: section.documents.length,
-  }));
+  const counts = treeCounts(
+    folders,
+    documents.flatMap((document) => {
+      const id = folderOf.get(document.id) ?? null;
+      return id === null ? [] : [{ folderId: id }];
+    }),
+  );
+  const known = new Set(folders.map((folder) => folder.id));
+  const loose = documents.filter((document) => {
+    const id = folderOf.get(document.id) ?? null;
+    return id === null || !known.has(id);
+  });
+  return [
+    ...folders.map((folder) => ({
+      id: folder.id,
+      name: folder.name,
+      documents: counts.get(folder.id) ?? 0,
+    })),
+    ...(loose.length > 0 ? [{ id: NOT_IN_A_FOLDER_ID, name: null, documents: loose.length }] : []),
+  ];
 }
 
 /** Whether Not in a Folder is the only choice: every Document is in none. */

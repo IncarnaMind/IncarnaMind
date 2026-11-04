@@ -11,6 +11,7 @@ import {
   createDataFolder,
   interceptOpenExternal,
   launchApp,
+  openSetupSteps,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -83,16 +84,13 @@ for (const { language, width, height } of COMBINATIONS) {
 
       await field.fill(ANTHROPIC_KEY);
       await field.press("Enter");
-      await expect(card.getByTestId("setup-ready-title")).toHaveText(
-        translate(language, "setup.ready", { name: "Anthropic" }),
-        { timeout: 15_000 },
-      );
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
-
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-step-transcription")).toContainText(
         translate(language, "setup.step.transcription"),
+        { timeout: 15_000 },
       );
       await expect(card.getByTestId("setup-step-sorting")).toContainText(
         translate(language, "setup.step.sorting"),
@@ -119,6 +117,79 @@ for (const { language, width, height } of COMBINATIONS) {
       await pointAndClick(window, card.getByTestId("setup-sorting-use"));
       await expect(card).toHaveCount(0);
       await expect(window.getByTestId("composer-input")).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const { language, width, height } of COMBINATIONS) {
+  test(`a refused key says what to do in one line, and the next key answers the waiting Question (${language}, ${width} px)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, width, height);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+
+      await field.fill("sk-ant-a-key-that-is-refused");
+      await field.press("Enter");
+      const refused = card.getByTestId("setup-key-refused");
+      await expect(refused).toHaveText(
+        `${translate(language, "setup.key.refused")} · ${translate(language, "setup.key.check")}`,
+      );
+      expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
+      await pointAndClick(window, card.getByTestId("setup-key-check"));
+      await expect(field).toBeFocused();
+
+      // The same field takes the working key, and the Question that waited is answered.
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const { language, width, height } of COMBINATIONS) {
+  test(`a key with no credit says what to do in one line, and the next key answers the waiting Question (${language}, ${width} px)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, width, height);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+
+      await field.fill("sk-ant-a-key-with-no-credit");
+      await field.press("Enter");
+      const refused = card.getByTestId("setup-key-refused");
+      await expect(refused).toHaveText(
+        [
+          translate(language, "setup.key.credit"),
+          translate(language, "setup.key.addCredit"),
+          translate(language, "setup.key.another"),
+        ].join(" · "),
+      );
+      expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
+      await pointAndClick(window, card.getByTestId("setup-key-another"));
+      await expect(field).toBeFocused();
+
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
     } finally {
       await app.close();
     }
@@ -161,10 +232,7 @@ for (const { language, width, height } of COMBINATIONS) {
       const [authorize] = await urlsOpened(app);
       expect((await signInAt(openai, authorize ?? "")).status).toBe(200);
       await window.getByTestId("chatgpt-welcome-ok").click();
-      await expect(card.getByTestId("setup-ready-title")).toHaveText(
-        translate(language, "setup.ready", { name: translate(language, "chatgpt.title") }),
-        { timeout: 15_000 },
-      );
+      await openSetupSteps(window);
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
         timeout: 20_000,
       });
@@ -247,7 +315,7 @@ for (const { language, width, height } of COMBINATIONS) {
       expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
 
       await setLocalChatModel(window);
-      await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+      await openSetupSteps(window);
       await expect(card.getByTestId("setup-transcription").locator("option")).toHaveText([
         translate(language, "meetings.route.local"),
       ]);

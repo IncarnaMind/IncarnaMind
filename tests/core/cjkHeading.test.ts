@@ -128,7 +128,8 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
     try {
       db.transaction(() => {
         db.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
-          BigInt(PROCESSING_VERSION - 1),
+          // Version 16 joined a heading's line onto the text under it (#2219).
+          16n,
           document.id,
         ]);
         db.run(
@@ -405,10 +406,7 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
     // the Citation quotes is no longer stored as it was.
     const seeded = openDatabase(join(dataDir, DATABASE_FILE));
     try {
-      seeded.run("UPDATE documents SET processing_version = ? WHERE id = ?", [
-        BigInt(PROCESSING_VERSION - 1),
-        document.id,
-      ]);
+      seeded.run("UPDATE documents SET processing_version = ? WHERE id = ?", [16n, document.id]);
     } finally {
       seeded.close();
     }

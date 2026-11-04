@@ -55,6 +55,8 @@ interface AskedChangesState {
    * wait only once this Mind's copy no longer holds them, so a count never shows what was applied.
    */
   accepted: Readonly<Record<string, readonly string[]>>;
+  /** The Answers this window is still answering, or applying the changes of. */
+  arriving: ReadonlySet<string>;
 }
 
 export const useAskedChanges = create<AskedChangesState>()(() => ({
@@ -62,7 +64,13 @@ export const useAskedChanges = create<AskedChangesState>()(() => ({
   facts: {},
   onTop: {},
   accepted: {},
+  arriving: new Set(),
 }));
+
+/** Keeps the Answers still on their way, as the cards count what waits around them (#1325). */
+function syncArriving(): void {
+  useAskedChanges.setState({ arriving: new Set([...askedHere, ...finishing.keys()]) });
+}
 
 type ApplicationRef = Pick<AskedChangeApplication, "undoId" | "held">;
 
@@ -304,17 +312,30 @@ async function makeWayForAnswer(
   return outcome;
 }
 
+/** An Answer this window has just asked for: what it was asked to write or change applies here. */
+export function applyWhatIsAsked(answerId: string): void {
+  askedHere.add(answerId);
+  syncArriving();
+}
+
+/** An Answer this window asked for that nothing will be written for: nothing of it is on its way. */
+export function applyNotAsked(answerId: string): void {
+  if (!askedHere.delete(answerId)) return;
+  syncArriving();
+}
+
 /**
- * An Answer this window asked for, or asks for again: what it was asked to write or change
- * applies here. Asked again, what it applied before makes way for what it writes now, while
- * nothing was done in the Mind since. `keepWritten`: asked again from every Document, the text it
- * wrote stays, which the core writes over as one change, so Undo brings it back (#1149).
+ * An Answer this window asks for again: what it was asked to write or change applies here, and
+ * what it applied before makes way for what it writes now, while nothing was done in the Mind
+ * since. `keepWritten`: asked again from every Document, the text it wrote stays, which the core
+ * writes over as one change, so Undo brings it back (#1149).
  */
 export async function applyWhatWasAsked(
   answerId: string,
   { keepWritten = false } = {},
 ): Promise<void> {
   askedHere.add(answerId);
+  syncArriving();
   await undoSettled();
   const pending = finishing.get(answerId);
   if (pending) await pending.catch(useAppStore.getState().reportError);
@@ -352,6 +373,10 @@ export async function applyWhatWasAsked(
 
 export const useWrittenOnTop = (answerId: string, mindId: string): boolean =>
   useAskedChanges((state) => state.onTop[keyOf(answerId, mindId)] === true);
+
+/** The Answers this window is still answering, or applying the changes of: what its cards leave out. */
+export const useArrivingAnswers = (): ReadonlySet<string> =>
+  useAskedChanges((state) => state.arriving);
 
 const askedOf = (doc: Y.Doc, row: ChangedMind): Set<string> =>
   new Set(row.requests.filter((request) => askedFor(doc, request)));
@@ -465,8 +490,10 @@ const finish = (answer: ConversationAnswer): Promise<unknown> => {
     }
   });
   finishing.set(answer.id, task);
+  syncArriving();
   return task.finally(() => {
     if (finishing.get(answer.id) === task) finishing.delete(answer.id);
+    syncArriving();
   });
 };
 
@@ -505,11 +532,11 @@ async function finishIn(
     };
     asked.set(keyOf(answer.id, row.mindId), each);
     setOutcome(each, application.held ? "held" : "applied", application.accepted);
-    if (!(await openBeside(row.mindId, behind))) {
-      each.application = refOf(application);
-      return;
-    }
+    if (!(await openBeside(row.mindId, behind))) return;
     const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
+    // Undone on the card while the Note opened, and that Undo's entry gone since with a newer
+    // change: nothing is left to hold this apply back (#2302).
+    if (each.application?.undoId !== application.undoId) return;
     if (opened && editorDoc(opened)) applyCore(each, opened, application);
     return;
   }
@@ -548,6 +575,9 @@ async function recover(each: Asked, editor: Editor): Promise<void> {
   try {
     const pending = finishing.get(each.answerId);
     if (pending) await pending;
+    // The card's Undo of these changes, still running, decides whether there is anything to apply.
+    const headless = headlessChanges.get(key);
+    if (headless && useUndo.getState().running?.change === headless.change) await undoSettled();
     if (asked.get(key) !== each || each.applied || !each.application) return;
     const application = await core.applyAskedChanges({
       answerId: each.answerId,
@@ -685,5 +715,6 @@ core.on("conversation.message", (message) => {
   for (const row of changedMinds(answer)) follow(row);
   if (answer.status === "streaming") return;
   askedHere.delete(answer.id);
+  syncArriving();
   finish(answer).catch(useAppStore.getState().reportError);
 });

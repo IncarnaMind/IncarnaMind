@@ -30,6 +30,13 @@ export interface ExportLabels {
    * Revenue 2025 and Revenue 2024: Acme Annual Report 2025, p. 4."
    */
   figureNote(worked: FigureWorked, figure: string, sources: readonly FigureNoteSource[]): string;
+  /**
+   * A calculated figure whose saved Analysis is gone, written as its value (#2378): "The saved
+   * inputs for 300 aren't available, so IncarnaMind writes it as its value."
+   */
+  figureUnavailable(figure: string): string;
+  /** The same note as a parenthetical in an in-text citation style: " (…) ", "（…）". */
+  figureUnavailableInText(figure: string): string;
   /** The words before and after a calculated figure's inputs' cluster in a citation style: "calculated from ", "". */
   figureCluster(note: boolean): [before: string, after: string];
   /** A table of contents' heading: "Contents", "目录". */
@@ -37,7 +44,10 @@ export interface ExportLabels {
 }
 
 /** How a calculated figure was worked out: its formula in words, or the saved Analysis it came from. */
-export type FigureWorked = { formula: string } | { analysis: string };
+export type FigureWorked =
+  | { formula: string }
+  | { analysis: string }
+  | { cell: string; workbookFormula: string; change: { input: string; value: string } | null };
 
 export interface FigureNoteSource {
   inputs: readonly string[];
@@ -198,7 +208,10 @@ export function exportLabels(language: Language): ExportLabels {
       );
     },
     change: ({ kind, pending }) => {
-      const author = pending.by || t("export.change.someone");
+      const author =
+        pending.by === undefined
+          ? t("export.change.incarnaMind")
+          : pending.by || t("export.change.someone");
       // The day the Word file names, not the day it falls on here: Word writes its own clock's time.
       const date = pending.at ? formatDate(pending.at, language, { timeZone: "UTC" }) : "";
       const key = (
@@ -214,7 +227,21 @@ export function exportLabels(language: Language): ExportLabels {
       [
         "formula" in worked
           ? t("export.figure.calculated", { formula: worked.formula, figure })
-          : t("export.figure.analysis", { title: worked.analysis, figure }),
+          : "analysis" in worked
+            ? t("export.figure.analysis", { title: worked.analysis, figure })
+            : worked.change
+              ? t("export.figure.whatIf", {
+                  cell: worked.cell,
+                  formula: worked.workbookFormula,
+                  input: worked.change.input,
+                  value: worked.change.value,
+                  figure,
+                })
+              : t("export.figure.workbook", {
+                  cell: worked.cell,
+                  formula: worked.workbookFormula,
+                  figure,
+                }),
         ...sources.map(({ inputs, source, unverified }) =>
           t("export.figure.inputs", {
             inputs: listOf(inputs, language),
@@ -225,6 +252,11 @@ export function exportLabels(language: Language): ExportLabels {
         // No space after full-width punctuation (docs/agents/zh-CN.md).
         FULL_WIDTH_END.test(text) ? text + sentence : `${text} ${sentence}`,
       ),
+    figureUnavailable: (figure) => t("export.figure.unavailable", { figure }),
+    figureUnavailableInText: (figure) =>
+      language === "zh-CN"
+        ? `（${t("export.figure.unavailable", { figure }).replace(/。$/, "")}）`
+        : ` (${t("export.figure.unavailable", { figure }).replace(/\.$/, "")})`,
     figureCluster: (note) => {
       const [before = "", after = ""] = t(
         note ? "export.figure.cluster.note" : "export.figure.cluster",

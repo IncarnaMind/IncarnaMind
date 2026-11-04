@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -219,6 +219,8 @@ export interface LaunchOptions {
   extraEnv?: Record<string, string>;
   /** Keeps the app's trace at `tracePath` when it closes, as INCARNAMIND_KEEP_ARTIFACTS does, without the video. */
   trace?: boolean;
+  /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
+  switches?: readonly string[];
 }
 
 /**
@@ -288,6 +290,7 @@ export async function launchApp(
     realEngines = false,
     extraEnv,
     trace = false,
+    switches = [],
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
@@ -338,6 +341,7 @@ export async function launchApp(
     ...(packaged && { executablePath: mainExecutable() }),
     args: [
       ...KEYCHAIN_ARGS,
+      ...switches,
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
       ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
@@ -906,12 +910,17 @@ export async function busyOllama() {
 }
 
 /**
- * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): each is one click, and
- * the composer takes the card's place. The Question that waited is asked as step 1 works.
+ * Steps 2 and 3 of the setup card, once a key or sign-in works (#1922): they wait as one quiet
+ * line above the composer (#2310), opened from there; each is one click above the composer, and
+ * both the card and its line go when both are done.
  */
 export async function continueSetup(window: Page): Promise<void> {
-  const card = window.getByTestId("model-setup");
-  await expect(card.getByTestId("setup-ready-title")).toBeVisible({ timeout: 15_000 });
+  const card = await openSetupSteps(window);
+  const step = card
+    .getByTestId("setup-step-transcription")
+    .or(card.getByTestId("setup-step-sorting"))
+    .first();
+  await expect(step).toBeVisible({ timeout: 15_000 });
   const transcription = card.getByTestId("setup-transcription-use");
   if (await transcription.isVisible()) await pointAndClick(window, transcription);
   const sorting = card.getByTestId("setup-sorting-use");
@@ -919,6 +928,7 @@ export async function continueSetup(window: Page): Promise<void> {
   await expect(sorting).toBeEnabled();
   await pointAndClick(window, sorting);
   await expect(card).toBeHidden();
+  await expect(window.getByTestId("assistant-setup-line")).toHaveCount(0);
 }
 
 /**
@@ -933,6 +943,21 @@ export async function askFirstQuestion(window: Page): Promise<Locator> {
   await window.keyboard.press("Enter");
   const card = window.getByTestId("model-setup");
   await expect(card).toBeVisible();
+  return card;
+}
+
+/**
+ * Opens steps 2 and 3, still to do after a model works, from their quiet line above the composer
+ * (#2310). Does nothing when a step is already open above the composer; the composer stays below.
+ */
+export async function openSetupSteps(window: Page): Promise<Locator> {
+  const card = window.getByTestId("model-setup");
+  const line = window.getByTestId("assistant-setup-line");
+  // The line waits once a model works; step 1's card alone means the key is still being checked.
+  // A step already open keeps its card above the line.
+  await expect(line).toBeVisible({ timeout: 15_000 });
+  if (!(await card.isVisible())) await pointAndClick(window, line);
+  await expect(card).toBeVisible({ timeout: 15_000 });
   return card;
 }
 
@@ -2211,13 +2236,17 @@ export async function pointAndClick(
  * A Mind's check badge card (#909): open already, as a question opens it,
  * or opened as a person opens it: from the badge, or from ⌘K while no badge shows.
  */
-export async function checkCard(window: Page, scope: Page | Locator = window): Promise<Locator> {
+export async function checkCard(
+  window: Page,
+  scope: Page | Locator = window,
+  { stopTimeout = 10_000 }: { stopTimeout?: number } = {},
+): Promise<Locator> {
   const card = window.getByTestId("check-card");
   if (!(await card.isVisible())) {
     const badge = scope.getByTestId("check-badge-open").first();
     if (await badge.isVisible()) {
       // "Checking 2 of 2 · Stop" shrinks to the counts as a check ends: aim once it has.
-      await expect(scope.getByTestId("badge-stop")).toHaveCount(0);
+      await expect(scope.getByTestId("badge-stop")).toHaveCount(0, { timeout: stopTimeout });
       await motionSettled(window);
       // The counts are worked out a moment after a change, and the badge can narrow under the pointer: aim again.
       await expect(async () => {
@@ -2322,39 +2351,54 @@ export async function dragBlock(window: Page, block: Locator, target: Locator): 
  * Where `words` are drawn in a line of text: their left and right edges, and
  * their middle line. They may run across marks (AI text and the User's, bold).
  */
-export async function wordsBox(line: Locator, words: string) {
-  const box = await line.evaluate((element, wanted) => {
-    const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-    const texts: Text[] = [];
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
-    const at = texts
-      .map((text) => text.data)
-      .join("")
-      .indexOf(wanted);
-    if (at < 0) return null;
-    /** The text and offset `offset` characters in; an end falls at the end of a text, a start at the next. */
-    const place = (offset: number, end: boolean) => {
-      let start = 0;
-      for (const text of texts) {
-        if (offset < start + text.length || (end && offset === start + text.length)) {
-          return { text, offset: offset - start };
+export async function wordsBox(line: Locator, words: string, nth = 1) {
+  const box = await line.evaluate(
+    (element, wanted) => {
+      const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const texts: Text[] = [];
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
+      const all = texts.map((text) => text.data).join("");
+      let at = -1;
+      for (let found = 0; found < wanted.nth; found++) at = all.indexOf(wanted.words, at + 1);
+      if (at < 0) return null;
+      /** The text and offset `offset` characters in; an end falls at the end of a text, a start at the next. */
+      const place = (offset: number, end: boolean) => {
+        let start = 0;
+        for (const text of texts) {
+          if (offset < start + text.length || (end && offset === start + text.length)) {
+            return { text, offset: offset - start };
+          }
+          start += text.length;
         }
-        start += text.length;
-      }
-      return null;
-    };
-    const from = place(at, false);
-    const to = place(at + wanted.length, true);
-    if (!from || !to) return null;
-    const range = element.ownerDocument.createRange();
-    range.setStart(from.text, from.offset);
-    range.setEnd(to.text, to.offset);
-    const rect = range.getBoundingClientRect();
-    return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
-  }, words);
+        return null;
+      };
+      const from = place(at, false);
+      const to = place(at + wanted.words.length, true);
+      if (!from || !to) return null;
+      const range = element.ownerDocument.createRange();
+      range.setStart(from.text, from.offset);
+      range.setEnd(to.text, to.offset);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
+    },
+    { words, nth },
+  );
   if (!box) throw new Error(`"${words}" isn't in the line.`);
   return box;
 }
+
+/** A paragraph's words as the User reads them, without Review changes' struck old words or buttons. */
+export const reviewedWords = (paragraph: Locator) =>
+  paragraph.evaluate((node) => {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let words = "";
+    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
+      if (!each.parentElement?.closest(".applied-old, [contenteditable='false']")) {
+        words += each.textContent ?? "";
+      }
+    }
+    return words;
+  });
 
 /**
  * Returns once ProseMirror has settled its selection with the page after the editor got the
@@ -2791,7 +2835,7 @@ const answerEnded = (window: Page, known: readonly string[]) =>
 /**
  * Asks a Question as a person does: ⌘J, the words, Enter. It is asked in the
  * assistant's conversation (#201); resolves with its Answer there once the assistant says its
- * stream ended and the page shows it done. The scripted model streams a word every
+ * stream ended, the page shows it done, and its sentences are judged (#2311). The scripted model streams a word every
  * 60 ms, so a wide table takes about 7 s on a quiet computer, and a loaded runner took more than
  * twice the old 15 s ceiling (#1651).
  */
@@ -2825,6 +2869,10 @@ export async function askInAssistant(
   await expect(endedHere).toHaveAttribute(
     "data-status",
     end.status === "closed" ? "done" : end.status,
+    { timeout },
+  );
+  await expect(endedHere.locator('[data-testid="citation"][data-check="checking"]')).toHaveCount(
+    0,
     { timeout },
   );
   return answer;
@@ -2905,6 +2953,10 @@ export async function openSteps(window: Page, answer: Locator): Promise<Locator>
  */
 export async function addToNote(window: Page, answer: Locator): Promise<void> {
   await pointAt(window, answer.getByTestId("assistant-answer-text"));
+  // A Citation marker under the pointer opens its card over the Answer's foot: let it close
+  // before aiming at the button, as a person does, or the card takes the click.
+  await window.mouse.move(0, 0);
+  await expect(window.getByTestId("citation-card")).toHaveCount(0);
   await pointAndClick(window, answer.getByTestId("answer-add"));
   await expect(answer.getByTestId("answer-added")).toBeVisible();
   await expect(window.locator(".block-just-added")).toHaveCount(0);
@@ -2940,7 +2992,12 @@ export function blocksUpdate(blocks: Y.XmlElement[]): Uint8Array {
 export type BlockFromBefore =
   | { note: string }
   | { heading: string }
-  | { question: string; answer: string };
+  | {
+      question: string;
+      answer: string;
+      /** The Answer failed, as one asked with no reachable model is stored (#763). */
+      failed?: { errorKind: string; errorMessage: string; providerId: string; modelId: string };
+    };
 
 /**
  * Makes a Mind as one written before Questions were asked in the assistant
@@ -2978,7 +3035,13 @@ export async function mindWrittenBefore(
       const answer = new Y.XmlElement("answer");
       answer.setAttribute("id", crypto.randomUUID());
       answer.setAttribute("questionId", questionId);
-      answer.setAttribute("status", "done");
+      answer.setAttribute("status", block.failed === undefined ? "done" : "failed");
+      if (block.failed) {
+        answer.setAttribute("errorKind", block.failed.errorKind);
+        answer.setAttribute("errorMessage", block.failed.errorMessage);
+        answer.setAttribute("providerId", block.failed.providerId);
+        answer.setAttribute("modelId", block.failed.modelId);
+      }
       answer.insert(0, [element("paragraph", block.answer)]);
       fragment.push([question, answer]);
     }
@@ -3439,4 +3502,124 @@ export async function askToChange(window: Page, instruction: string) {
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("edit-pending")).toHaveCount(0);
   await expect(window.getByTestId("selection-edit-working")).toHaveCount(0);
+}
+
+/**
+ * The core's `channel` as a core that can't always answer would: while `failing`, every call
+ * fails, and the next `failNext` calls fail; the next `hold` calls wait, before the core's handler or, with `after`, after it has
+ * answered; and `settle` ends the oldest one held (`resolveAll`, all of them). Resolves to how
+ * many calls are held.
+ */
+export function controlReads(
+  app: ElectronApplication,
+  channel: string,
+  change: {
+    failing?: boolean;
+    failNext?: number;
+    hold?: number;
+    after?: boolean;
+    settle?: "reject" | "resolve" | "resolveAll";
+  },
+): Promise<number> {
+  return app.evaluate(
+    ({ ipcMain }, { name, what }) => {
+      interface Control {
+        failing: boolean;
+        failNext: number;
+        hold: number;
+        after: boolean;
+        held: ((how: "reject" | "resolve") => void)[];
+      }
+      const store = globalThis as unknown as { readControls?: Record<string, Control> };
+      const controls = store.readControls ?? {};
+      store.readControls = controls;
+      let control = controls[name];
+      if (!control) {
+        const own: Control = { failing: false, failNext: 0, hold: 0, after: false, held: [] };
+        control = own;
+        controls[name] = own;
+        const handlers = (
+          ipcMain as unknown as {
+            _invokeHandlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+          }
+        )._invokeHandlers;
+        const original = handlers.get(name);
+        if (!original) throw new Error(`The ${name} handler is unavailable.`);
+        ipcMain.removeHandler(name);
+        ipcMain.handle(name, (event, ...args) => {
+          if (own.hold > 0) {
+            own.hold -= 1;
+            const answered = own.after ? Promise.resolve(original(event, ...args)) : null;
+            return new Promise((resolve, reject) => {
+              own.held.push((how) =>
+                how === "reject"
+                  ? reject(new Error(`${name} is temporarily unavailable.`))
+                  : resolve(answered ?? original(event, ...args)),
+              );
+            });
+          }
+          if (own.failing || own.failNext > 0) {
+            own.failNext = Math.max(0, own.failNext - 1);
+            throw new Error(`${name} is temporarily unavailable.`);
+          }
+          return original(event, ...args);
+        });
+      }
+      if (what.failing !== undefined) control.failing = what.failing;
+      if (what.failNext !== undefined) control.failNext = what.failNext;
+      if (what.hold !== undefined) control.hold = what.hold;
+      if (what.after !== undefined) control.after = what.after;
+      if (what.settle === "resolveAll") {
+        for (const end of control.held.splice(0)) end("resolve");
+      } else if (what.settle) control.held.shift()?.(what.settle);
+      return control.held.length;
+    },
+    { name: channel, what: change },
+  );
+}
+
+/**
+ * A window picture for the pull request's before and after, where `INCARNAMIND_SCREENSHOTS`
+ * names a folder: motion settled first, so nothing is caught moving.
+ */
+export async function capture(window: Page, name: string): Promise<void> {
+  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  if (!folder) return;
+  await motionSettled(window);
+  await window.screenshot({ path: join(folder, `${name}.png`) });
+}
+
+/**
+ * Films what `run` does in the window, where `INCARNAMIND_RECORDING` names a folder: one JPEG a
+ * frame with when each was taken, for the pull request's flow beside the prototype.
+ */
+export async function film<T>(window: Page, run: () => Promise<T>): Promise<T> {
+  const folder = process.env.INCARNAMIND_RECORDING;
+  if (!folder) return run();
+  await mkdir(folder, { recursive: true });
+  const session = await window.context().newCDPSession(window);
+  const writes: Promise<void>[] = [];
+  const stamps: string[] = [];
+  let frame = 0;
+  session.on("Page.screencastFrame", (event) => {
+    const name = `frame-${String(frame++).padStart(5, "0")}.jpg`;
+    stamps.push(`${name} ${Date.now()}`);
+    writes.push(writeFile(join(folder, name), Buffer.from(event.data, "base64")));
+    void session.send("Page.screencastFrameAck", { sessionId: event.sessionId });
+  });
+  await session.send("Page.startScreencast", {
+    format: "jpeg",
+    quality: 85,
+    maxWidth: 1440,
+    maxHeight: 900,
+    everyNthFrame: 2,
+  });
+  try {
+    return await run();
+  } finally {
+    await session.send("Page.stopScreencast");
+    await Promise.all(writes);
+    await writeFile(join(folder, "frames.txt"), stamps.join("\n"));
+    await session.detach();
+  }
 }

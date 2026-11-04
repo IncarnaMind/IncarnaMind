@@ -1,5 +1,5 @@
 import type { Editor } from "@tiptap/core";
-import { useEffect } from "react";
+import { createContext, useContext, useEffect } from "react";
 import type * as Y from "yjs";
 import type { WindowLayout } from "../../../core/api";
 import type { CommandContext } from "./registry";
@@ -15,7 +15,11 @@ export const assistantHandle: Handle<{ openHistory(): void }> = { current: null 
 /** The Citation whose card is open: what "Open cited page" opens, and its needs re-check choices (#99). */
 export const citationHandle: Handle<{
   open(): void;
-  choices(): { update: (() => void) | null; keepOld: (() => void) | null };
+  choices(): {
+    update: (() => void) | null;
+    keepOld: (() => void) | null;
+    pageChecked: (() => void) | null;
+  };
   /** What its card offers, for ⌘K, which takes them as it opens: a click there closes the card. */
   here(): CommandContext["here"];
 }> = { current: null };
@@ -35,17 +39,8 @@ export const citedVersionHandles = new Map<string, CitedVersionAction>();
 export function citedVersionInUse(
   layout: Pick<WindowLayout, "groups" | "focusedGroupId"> | null,
 ): CitedVersionAction | null {
-  if (!layout) return null;
-  const shown = (group: { activeTabId: string | null } | undefined) =>
-    group?.activeTabId ? (citedVersionHandles.get(group.activeTabId) ?? null) : null;
-  const focused = shown(layout.groups.find((group) => group.id === layout.focusedGroupId));
-  if (focused) return focused;
-  for (const group of layout.groups) {
-    const active = shown(group);
-    if (active) return active;
-  }
-  // A window of one group shows a Document beside the Mind without making its tab the active one.
-  return [...citedVersionHandles.values()].at(-1) ?? null;
+  // Without a layout there is no tab in use yet.
+  return layout ? handleInUse(citedVersionHandles, layout) : null;
 }
 
 export const homeNextHandle: Handle<{ label: string; busy: boolean; run(): Promise<void> }> = {
@@ -102,15 +97,77 @@ export function useHandle<T>(handle: Handle<T>, value: T): void {
   }, [handle, value]);
 }
 
-/** The words selected in a Document's viewer (#101), while they are: what its selection menu does with them. */
-export const viewerSelectionHandle: Handle<{
+/** The words or cells selected in a Document's viewer (#101, #118): what its menu does with them. */
+export interface ViewerAskActions {
   /** Not offered while a Question waits for a model (#1789). */
   ask?: () => void;
   addToNote(): void;
   copy(): void;
-}> = {
-  current: null,
+}
+
+/** What a viewer offers the commands: by tab, so two viewers never take each other's (#118). */
+interface ViewerActions {
+  selection: ViewerAskActions;
+  range: ViewerAskActions;
+  slide: { ask?: () => void };
+  area: { select?: () => void };
+}
+
+const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]> } = {
+  selection: new Map(),
+  range: new Map(),
+  slide: new Map(),
+  area: new Map(),
 };
+
+/** The tab a viewer is drawn in: what the handle it lends the commands is filed under. */
+export const ViewerTabContext = createContext<string | null>(null);
+
+/** Lends `value` to the commands for this viewer's tab: the focused viewer's wins when two are open. */
+export function useViewerHandle<K extends keyof ViewerActions>(
+  kind: K,
+  value: ViewerActions[K] | null,
+  tabId?: string | null,
+): void {
+  const fromContext = useContext(ViewerTabContext);
+  const id = tabId ?? fromContext;
+  useEffect(() => {
+    if (!id || value === null) return;
+    const actions = viewerActions[kind] as Map<string, ViewerActions[K]>;
+    actions.set(id, value);
+    return () => {
+      if (actions.get(id) === value) actions.delete(id);
+    };
+  }, [kind, id, value]);
+}
+
+/** The actions of the tab a layout puts in use: its focused group's, else a group's shown one, else the last. */
+export function handleInUse<T>(
+  actions: ReadonlyMap<string, T>,
+  layout: Pick<WindowLayout, "groups" | "focusedGroupId"> | null,
+): T | null {
+  const shown = (group: { activeTabId: string | null } | undefined) =>
+    group?.activeTabId ? (actions.get(group.activeTabId) ?? null) : null;
+  const focused = layout
+    ? shown(layout.groups.find((group) => group.id === layout.focusedGroupId))
+    : null;
+  if (focused) return focused;
+  if (layout) {
+    for (const group of layout.groups) {
+      const active = shown(group);
+      if (active) return active;
+    }
+  }
+  return [...actions.values()].at(-1) ?? null;
+}
+
+/** The viewer's actions the commands act on: never whichever viewer mounted last (#118). */
+export function viewerHandleInUse<K extends keyof ViewerActions>(
+  kind: K,
+  layout: Pick<WindowLayout, "groups" | "focusedGroupId"> | null,
+): ViewerActions[K] | null {
+  return handleInUse(viewerActions[kind] as Map<string, ViewerActions[K]>, layout);
+}
 
 /** The Transcript in view (#139): the line the User is on, which "Add transcript line to note" adds. */
 export const transcriptHandle: Handle<{ hasLine(): boolean; addLine(): Promise<void> }> = {

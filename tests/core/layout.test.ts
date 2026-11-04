@@ -948,6 +948,29 @@ describe("Tabs and groups", () => {
     expect((await restarted.getLayout(WINDOW)).assistant.dock).toBe("float");
   });
 
+  test("the conversation the assistant shows is kept with the window's layout and comes back after a restart (#258)", async () => {
+    const { core, dataDir, change } = await setUp();
+    expect((await core.getLayout(WINDOW)).conversationId).toBeNull();
+
+    // A New chat keeps none; opening one keeps it.
+    let layout = await change({ type: "conversation", conversationId: "conversation-1" });
+    expect(layout.conversationId).toBe("conversation-1");
+    layout = await change({ type: "conversation", conversationId: null });
+    expect(layout.conversationId).toBeNull();
+    await change({ type: "conversation", conversationId: "conversation-1" });
+    core.close();
+
+    const restarted = startCore(dataDir);
+    expect((await restarted.getLayout(WINDOW)).conversationId).toBe("conversation-1");
+    await expect(
+      restarted.changeLayout(WINDOW, {
+        type: "conversation",
+        conversationId: 7,
+      } as unknown as LayoutChange),
+    ).rejects.toThrow(InvalidInputError);
+    expect((await restarted.getLayout(WINDOW)).conversationId).toBe("conversation-1");
+  });
+
   test("each window keeps its own layout, and a window is named by a short ID", async () => {
     const { core, mind } = await setUp();
     const alpha = await mind("Alpha");

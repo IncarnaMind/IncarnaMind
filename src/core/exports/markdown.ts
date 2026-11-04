@@ -31,6 +31,7 @@ interface Context {
   table: boolean;
   /** Inside the text of a footnote the User wrote. */
   note?: boolean;
+  inList?: boolean;
 }
 
 /**
@@ -59,6 +60,12 @@ export interface MarkdownOptions {
    * file).
    */
   pictures?: boolean;
+  /**
+   * False reads the Note's own words only, leaving out its Citation markers and
+   * footnotes: a snapshot of the Note is what the User wrote and the AI wrote,
+   * not what it cites (#335).
+   */
+  citations?: false;
 }
 
 export function renderMarkdown(
@@ -77,6 +84,7 @@ export function renderMarkdown(
     },
     headingEntries(blocks),
     options.pictures === false ? null : (image) => pictureFile(image, pictures),
+    options.citations !== false,
   );
   const parts: string[] = [];
   if (title) parts.push(`# ${escapeText(title, false)}`);
@@ -161,6 +169,8 @@ class MarkdownWriter {
     private readonly picture:
       | ((image: Image) => { src: string; alt?: string } | null)
       | null = null,
+    /** Whether Citation markers and footnotes are written (see `MarkdownOptions.citations`). */
+    private readonly citations = true,
   ) {}
 
   blocks(blocks: readonly Block[], context: Context): string {
@@ -228,7 +238,22 @@ class MarkdownWriter {
     }
   }
 
+  // Markdown has only "1." lists: a deeper one is indented a level three spaces, and says its
+  // level above it, since three spaces alone is a first-level list in other Markdown. A list in a
+  // table cell is no deeper: the cell is one line.
   private list(block: Extract<Block, { kind: "list" }>, context: Context): string {
+    const level = context.inList || context.table ? 0 : (block.numbering?.level ?? 0);
+    const written = this.listItems(block, { ...context, inList: true });
+    if (level === 0) return written;
+    const indent = "   ".repeat(level);
+    const indented = written
+      .split("\n")
+      .map((line) => (line ? indent + line : line))
+      .join("\n");
+    return `<!-- start-level: ${level} -->\n${indented}`;
+  }
+
+  private listItems(block: Extract<Block, { kind: "list" }>, context: Context): string {
     let number = block.start;
     return block.items
       .map((item, at) => {
@@ -396,6 +421,7 @@ class MarkdownWriter {
       case "figure":
         return escapeText(item.figure.shown, context.table);
       case "citation":
+        if (!this.citations) return "";
         if (context.note) return citationSource(item.footnote, this.labels);
         return `[^${this.number({ kind: "citation", footnote: item.footnote })}]`;
       case "footnote":

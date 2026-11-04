@@ -51,7 +51,7 @@ export const calculationsSchema = {
             unitQuote: {
               type: "string",
               description:
-                'When the number\'s scale or currency is only in a table\'s heading or caption ("单位：万元", "in millions"): that line, copied word for word from the same Passage.',
+                'When the number\'s scale or currency is only in a table\'s heading or caption ("单位：万元", "in millions"), or in another Passage whose line says it holds for the whole Document ("All amounts in £\'000", under a parent heading or on an earlier page): that line, copied word for word.',
             },
             reading: {
               type: "integer",
@@ -83,6 +83,12 @@ export const calculationsSchema = {
         type: "string",
         description:
           "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown.",
+      },
+      constants: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year.",
       },
     },
     required: ["marker", "inputs", "formula"],

@@ -590,7 +590,6 @@ test("a Chinese sentence's mark stays with its last character at 480 and 600px, 
   await pointAndClick(window, window.getByTestId("check-badge-open"));
   const card = window.getByTestId("check-card");
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
-  await pointAndClick(window, card.getByTestId("mind-check-ask").getByTestId("mind-check-check"));
   const marks = window.getByTestId("margin-checks").getByTestId("claim-mark");
   await expect(marks).toHaveCount(1, { timeout: 60_000 });
   await expect(window.locator('[data-testid="claim-mark"][data-check="checking"]')).toHaveCount(0, {

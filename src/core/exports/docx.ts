@@ -15,8 +15,11 @@
  */
 
 import { deflateRawSync } from "node:zlib";
+import { footnoteSubjectKey } from "../../shared/citations";
+import { FootnoteNumbering } from "../../shared/footnoteNumbers";
 import type { TableAlign } from "../../shared/markdownTables";
-import type { ParagraphFormat, StyledRun } from "../api";
+import { NUMBERING_SCHEMES, type NumberingScheme, wordLevel } from "../../shared/numbering";
+import type { CitedWork, MindComment, ParagraphFormat, StyledRun } from "../api";
 import { writeZip } from "../documents/formats/zip";
 import {
   type Block,
@@ -35,12 +38,16 @@ import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../pageDefaults";
 import { changeKey } from "./citations";
 import type { ExportLabels } from "./labels";
 import { latexToOmml, MATH_NAMESPACE } from "./math";
+import { noteChecks } from "./noteChecks";
 import { changedElement, formatChanges } from "./paragraphFormat";
 import {
   bookmarked,
   COMMENTS_CONTENT_TYPE,
+  COMMENTS_EXTENDED_CONTENT_TYPE,
+  COMMENTS_EXTENDED_RELATIONSHIP,
   COMMENTS_RELATIONSHIP,
   type CommentStyles,
+  commentsExtendedPart,
   commentsPart,
   escapeXml,
   type FootnoteStyles,
@@ -61,6 +68,8 @@ import { type Piece, Review, type ReviewChoices, trackBlocks, trackInline } from
 export interface DocxOptions {
   /** The Mind's name, as the file's Title property (`dc:title`); the page has no title line. Empty: none. */
   title: string;
+  /** The Mind's comments (#328), written as Word comments with their threads and resolved state. */
+  comments?: readonly MindComment[];
   labels: ExportLabels;
   /** The language Word checks the text in, e.g. "en-US". */
   language: string;
@@ -169,25 +178,49 @@ function containsTableOfContents(blocks: readonly Block[]): boolean {
 export function renderDocx(
   blocks: readonly Block[],
   options: DocxOptions,
-): { data: Uint8Array; commented: FailedSentence[]; checkComments: number; footnotes: number } {
+): {
+  data: Uint8Array;
+  commented: FailedSentence[];
+  checkComments: number;
+  footnotes: number;
+  /** Comments whose words were all deleted: a new .docx has no range to keep them on (#328). */
+  lostComments: MindComment[];
+} {
   const paper = PAPER[options.paper];
   const target = new NewDocxTarget();
   const review = options.review
-    ? new Review(options.review, target.ids, options.labels, () => NEW_DOCUMENT_STYLES.comment)
+    ? new Review(
+        options.review,
+        target.ids,
+        options.labels,
+        () => NEW_DOCUMENT_STYLES.comment,
+        options.comments ?? [],
+      )
     : null;
   review?.mark(piecesOf(blocks));
   const headings = tableOfContentsHeadings(blocks);
-  const writer = new DocxWriter(options.labels, paper.width - 2 * MARGIN, target, review, headings);
+  const writer = new DocxWriter(
+    options.labels,
+    paper.width - 2 * MARGIN,
+    target,
+    review,
+    headings,
+    [],
+    noteChecks(blocks),
+  );
   const body = writer.body(blocks);
 
-  const document = writer.finish(
+  const drawn = writer.finish(
     `${XML_DECLARATION}<w:document xmlns:w="${NS.w}" xmlns:r="${NS.r}" xmlns:wp="${NS.wp}" xmlns:a="${NS.a}" xmlns:pic="${NS.pic}" xmlns:m="${NS.m}"><w:body>` +
       body +
       `<w:sectPr><w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="${HEADER_AND_FOOTER_DISTANCE}" w:footer="${HEADER_AND_FOOTER_DISTANCE}" w:gutter="0"/></w:sectPr>` +
       "</w:body></w:document>",
   );
+  // A comment whose words were all deleted has no range to keep (#328): it is left out, not left dangling.
+  const document = review ? review.finish(drawn) : drawn;
 
   const comments = review?.comments ?? [];
+  const extended = review?.extended ?? [];
   const relationships = [
     { id: "rIdStyles", type: RELATIONSHIP.styles, target: "styles.xml" },
     { id: "rIdSettings", type: RELATIONSHIP.settings, target: "settings.xml" },
@@ -195,6 +228,15 @@ export function renderDocx(
     { id: "rIdFootnotes", type: RELATIONSHIP.footnotes, target: "footnotes.xml" },
     ...(comments.length > 0
       ? [{ id: "rIdComments", type: COMMENTS_RELATIONSHIP, target: "comments.xml" }]
+      : []),
+    ...(extended.length > 0
+      ? [
+          {
+            id: "rIdCommentsExtended",
+            type: COMMENTS_EXTENDED_RELATIONSHIP,
+            target: "commentsExtended.xml",
+          },
+        ]
       : []),
     ...target.relationships,
   ];
@@ -205,6 +247,7 @@ export function renderDocx(
         name: "[Content_Types].xml",
         data: contentTypes(
           comments.length > 0,
+          extended.length > 0,
           target.media.map((file) => file.name.slice(file.name.lastIndexOf(".") + 1)),
         ),
       },
@@ -226,6 +269,9 @@ export function renderDocx(
       { name: "word/numbering.xml", data: numbering(target.lists) },
       { name: "word/footnotes.xml", data: footnotesPart(writer.footnotes) },
       ...(comments.length > 0 ? [{ name: "word/comments.xml", data: commentsPart(comments) }] : []),
+      ...(extended.length > 0
+        ? [{ name: "word/commentsExtended.xml", data: commentsExtendedPart(extended) }]
+        : []),
       // Links in footnotes are the footnotes part's own relationships.
       ...(target.noteRelationships.length > 0
         ? [
@@ -244,6 +290,7 @@ export function renderDocx(
     commented: review?.commentedSentences() ?? [],
     checkComments: review?.checkComments() ?? 0,
     footnotes: writer.footnoteCount,
+    lostComments: review?.lostComments ?? [],
   };
 }
 
@@ -307,8 +354,17 @@ export interface DocxTarget {
   link(href: string, inNote: boolean): string;
   /** A new picture's relationship from the document part, and its part's file name. */
   picture(picture: NewPicture): { id: string; name: string };
-  /** A numbering instance for a list at `level` that starts at `start`: its numId. */
-  list(ordered: boolean, level: number, start: number): number;
+  /**
+   * A numbering instance for a list of bullets or in a scheme, its items at Word level `level`
+   * and starting at `start`, drawn from `from` of its scheme: its numId.
+   */
+  list(kind: ListKind, level: number, start: number, from?: number): number;
+  /**
+   * Another numbering instance of `numId`'s definition, which Word counts on with it, its items at
+   * `level` starting again at `start`: a nested list keeps its parent's numbers ("1.1.") and its
+   * own start (#1419).
+   */
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number;
   /** The bookmark around a note's mark that later Citations refer to: a name the file doesn't have. */
   noteBookmark(note: number): string;
 }
@@ -352,8 +408,14 @@ class NewDocxTarget implements DocxTarget {
     return { id, name };
   }
 
-  list(ordered: boolean, level: number, start: number): number {
-    this.lists.push({ ordered, level, start });
+  list(kind: ListKind, level: number, start: number, from?: number): number {
+    this.lists.push({ kind, level, start, ...(from !== undefined && from !== level && { from }) });
+    return this.lists.length;
+  }
+
+  restart(numId: number, scheme: NumberingScheme, level: number, start: number): number {
+    if (!this.lists[numId - 1]) throw new Error(`The list ${numId} isn't in this document.`);
+    this.lists.push({ kind: scheme, level, start, of: numId });
     return this.lists.length;
   }
 
@@ -370,6 +432,10 @@ interface Context {
   style: string | null;
   /** How deep in lists they are, from 0. */
   listDepth: number;
+  /** The level the outermost list they are in starts at, so its nested lists sit under it. */
+  listStart?: number;
+  /** The numbered list they are in, whose nested numbered lists share its Word numbering. */
+  numbered?: { id: number; scheme: NumberingScheme };
   /** All their text is bold, e.g. in a table's header row. */
   bold: boolean;
   /** The width available, in twips. */
@@ -387,10 +453,21 @@ interface Context {
   pending?: boolean;
 }
 
+export type ListKind = "bullet" | NumberingScheme;
+
 export interface List {
-  ordered: boolean;
+  kind: ListKind;
+  /** Where its items sit in Word's levels, from 0: how deep the list is. */
   level: number;
   start: number;
+  /**
+   * The level of its scheme its items draw from, when it isn't their Word level: a numbered list
+   * under a bullet starts its own numbering a level in, and draws the scheme's first format there
+   * (#1419).
+   */
+  from?: number;
+  /** The list whose definition it is an instance of, when it is nested in it. */
+  of?: number;
 }
 
 /** The context of a Block a change still waiting gives or takes away: its Citations share no note. */
@@ -406,7 +483,12 @@ function pendingContext(block: Block, context: Context): Context {
 export class DocxWriter {
   readonly footnotes: string[] = [];
   private readonly styles: DocxStyles;
-  private readonly notes = new Map<string, { id: number; text: string; reused: boolean }>();
+  /** The Mind's footnotes as every surface numbers them (#2292): one for each source and place. */
+  private readonly numbering = new FootnoteNumbering();
+  /** Numbered: the note each number was written as, and whether a later Citation refers to it. */
+  private readonly numbered = new Map<number, { id: number; reused: boolean }>();
+  /** A citation style's notes: the style's own form for a repeat is a note of its own (`text`). */
+  private readonly styledNotes = new Map<string, { id: number; text: string; reused: boolean }>();
   private footnoteTotal = 0;
 
   /**
@@ -431,6 +513,8 @@ export class DocxWriter {
     /** The Note's headings, when it has a table of contents; none: headings carry no bookmark. */
     private readonly headings: readonly HeadingEntry[] = [],
     preparedContents: readonly ContentsEntry[] = [],
+    /** The "Checked by" lines each note carries, by its key (see `noteChecks`). */
+    private readonly checks: ReadonlyMap<string, readonly string[]> = new Map(),
   ) {
     this.preparedContents = preparedContents;
     this.styles = target.styles;
@@ -697,7 +781,7 @@ export class DocxWriter {
     const key = shared ? `style\n${item.of}` : null;
     const text =
       item.runs.map((each) => each.text).join("") + marker + (item.checked?.join("\n") ?? "");
-    const first = key === null ? undefined : this.notes.get(key);
+    const first = key === null ? undefined : this.styledNotes.get(key);
     // A style's own form for a repeat ("Id.", a short note) differs from the first note's: it wins.
     if (first?.text === text) {
       first.reused = true;
@@ -711,16 +795,39 @@ export class DocxWriter {
         this.styles.footnote,
       ),
     );
-    if (key !== null && !first) this.notes.set(key, { id, text, reused: false });
+    this.numbering.footnote();
+    if (key !== null && !first) this.styledNotes.set(key, { id, text, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
 
-  /** A Word list: the first paragraph of each item carries its number or bullet. */
+  /**
+   * A Word list: the first paragraph of each item carries its number or bullet. A numbered list
+   * and the numbered lists nested in it are one Word numbering, so "1.1." takes its parent's number
+   * and Word goes on with it; each nested list is an instance of it that starts again at its own
+   * start, as the editor draws it. Each item at its level, a list that starts deeper at that level.
+   * A list's level numbers it and its depth places it: a numbered list under a bullet starts its
+   * own numbering, and still sits a level in (#1419).
+   */
   private list(block: Extract<Block, { kind: "list" }>, context: Context): string {
     if (block.checked) return this.todos(block, block.checked, context);
-    const level = Math.min(context.listDepth, 8);
-    const numbering = { id: this.target.list(block.ordered, level, block.start), level };
-    const textIndent = context.indent + INDENT * (level + 1);
+    const scheme = block.ordered ? (block.numbering?.scheme ?? "default") : null;
+    // How far in its items sit, and the level of its scheme they draw: the same, except a numbered
+    // list whose numbering starts again under an unnumbered list, which draws a level up from where it sits.
+    const level = block.numbering?.level ?? null;
+    const depth = Math.min(context.listDepth + (context.listStart ?? level ?? 0), 8);
+    const from = Math.min(level ?? depth, 8);
+    const shared = scheme !== null && context.numbered?.scheme === scheme ? context.numbered : null;
+    const id = shared
+      ? this.target.restart(shared.id, shared.scheme, depth, block.start)
+      : this.target.list(scheme ?? "bullet", depth, block.start, from);
+    const numbering = { id, level: depth };
+    const inside: Context = {
+      ...context,
+      listDepth: context.listDepth + 1,
+      listStart: depth - context.listDepth,
+      numbered: scheme === null ? undefined : { id, scheme },
+    };
+    const textIndent = context.indent + INDENT * (depth + 1);
     const numbered = (content: string) =>
       paragraph(
         { style: this.styles.listParagraph, numbering, indent: textIndent, hanging: HANGING },
@@ -743,8 +850,7 @@ export class DocxWriter {
             ? this.list(
                 child,
                 pendingContext(child, {
-                  ...context,
-                  listDepth: context.listDepth + 1,
+                  ...inside,
                   // A checklist starts at the text of the bullet or number it hangs under.
                   ...(child.checked && { indent: textIndent }),
                 }),
@@ -803,7 +909,10 @@ export class DocxWriter {
                   pendingContext(child, {
                     ...context,
                     indent: textAt,
+                    // A list under a to-do starts its own numbering, whatever list holds the to-do.
                     listDepth: 0,
+                    listStart: undefined,
+                    numbered: undefined,
                     todo: undefined,
                   }),
                 )
@@ -975,9 +1084,8 @@ export class DocxWriter {
           } else {
             const reference = this.footnote(
               item.footnote,
+              item.work,
               !item.inserted && !item.deleted && !context.pending,
-              item.work.documentId,
-              item.work.contentHash ?? null,
             );
             xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
           }
@@ -1000,29 +1108,34 @@ export class DocxWriter {
     return xml;
   }
 
-  private footnote(
-    citation: Footnote,
-    shared: boolean,
-    documentId: string | null,
-    version: string | null,
-  ): string {
-    const key = shared
-      ? `numbered\n${documentId ?? ""}\n${version ?? ""}\n${citation.source}\n${citation.unverified}\n${citation.link ?? ""}\n${citation.checked?.join("\n") ?? ""}`
-      : null;
-    const first = key === null ? undefined : this.notes.get(key);
-    if (first) {
-      first.reused = true;
-      return this.noteNumber(first.id);
+  private footnote(citation: Footnote, work: CitedWork, shared: boolean): string {
+    // A Citation a change still waiting adds or removes is a footnote of its own: never the one
+    // others refer to, nor one that refers to another.
+    const subject = {
+      documentId: work.documentId,
+      contentHash: work.contentHash ?? null,
+      location: work.location,
+      unverified: citation.unverified,
+      link: citation.link ?? null,
+    };
+    const key = shared ? footnoteSubjectKey(subject) : null;
+    const { number, first } =
+      key === null
+        ? { number: this.numbering.footnote(), first: true }
+        : this.numbering.citation(subject);
+    const written = first ? undefined : this.numbered.get(number);
+    if (written) {
+      written.reused = true;
+      return this.noteNumber(written.id);
     }
+    // A note stands for every Citation of its source and place, so it says a person's check only
+    // where all of them carry it (`noteChecks`); a change's Citation stands for itself alone.
+    const lines = key === null ? (citation.checked ?? []) : (this.checks.get(key) ?? []);
     const id = this.target.ids.take("footnote");
     this.footnotes.push(
-      footnote(
-        id,
-        this.source(citation, " ") + checkedRuns(citation.checked),
-        this.styles.footnote,
-      ),
+      footnote(id, this.source(citation, " ") + checkedRuns(lines), this.styles.footnote),
     );
-    if (key !== null) this.notes.set(key, { id, text: "", reused: false });
+    this.numbered.set(number, { id, reused: false });
     return footnoteReference(id, this.styles.footnote.reference);
   }
 
@@ -1042,7 +1155,8 @@ export class DocxWriter {
    */
   finish(document: string): string {
     const reused = new Set<number>();
-    for (const note of this.notes.values()) if (note.reused) reused.add(note.id);
+    for (const note of this.numbered.values()) if (note.reused) reused.add(note.id);
+    for (const note of this.styledNotes.values()) if (note.reused) reused.add(note.id);
     let out = document;
     if (reused.size > 0) {
       const bookmarkedNotes = new Set<number>();
@@ -1084,6 +1198,7 @@ export class DocxWriter {
    */
   private userFootnote(content: readonly Inline[]): string {
     const id = this.target.ids.take("footnote");
+    this.numbering.footnote();
     const text = this.inline(content, {
       indent: 0,
       style: null,
@@ -1147,7 +1262,12 @@ export function* piecesOf(blocks: readonly Block[]): Generator<Piece> {
         for (const inline of block.content) {
           if (inline.kind !== "text" || inline.inserted) continue;
           const authorship = inline.ai ? "ai" : inline.text.trim() === "" ? "neither" : "own";
-          yield { key: inline, authorship, sentence: inline.sentenceCheck };
+          yield {
+            key: inline,
+            authorship,
+            sentence: inline.sentenceCheck,
+            ...(inline.marks.comment && { comments: [inline.marks.comment] }),
+          };
         }
         break;
       case "list":
@@ -1334,7 +1454,7 @@ function imageSize(data: Buffer): Omit<DecodedImage, "data"> | null {
 /** Pictures every export lists, used or not, as it always has. */
 const LISTED_PICTURES: ReadonlySet<string> = new Set(["png", "jpeg", "gif"]);
 
-function contentTypes(comments: boolean, pictures: readonly string[]): string {
+function contentTypes(comments: boolean, extended: boolean, pictures: readonly string[]): string {
   const more = [...new Set(pictures)].filter(
     (extension): extension is DecodedImage["extension"] =>
       !LISTED_PICTURES.has(extension) && extension in PICTURE_TYPES,
@@ -1356,6 +1476,11 @@ function contentTypes(comments: boolean, pictures: readonly string[]): string {
     `<Override PartName="/word/footnotes.xml" ContentType="${MAIN_CONTENT_TYPE}.footnotes+xml"/>`,
     ...(comments
       ? [`<Override PartName="/word/comments.xml" ContentType="${COMMENTS_CONTENT_TYPE}"/>`]
+      : []),
+    ...(extended
+      ? [
+          `<Override PartName="/word/commentsExtended.xml" ContentType="${COMMENTS_EXTENDED_CONTENT_TYPE}"/>`,
+        ]
       : []),
     `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>`,
   ];
@@ -1390,17 +1515,24 @@ const settings = (updateFields: boolean) =>
   "</w:settings>";
 
 const BULLETS = ["•", "◦", "▪"];
-const NUMBER_FORMATS = ["decimal", "lowerLetter", "lowerRoman"];
 
-/** A list definition (`w:abstractNum`) of bullets, or of numbers. */
-export function listDefinition(id: number, ordered: boolean): string {
+/**
+ * A list definition (`w:abstractNum`) of bullets, or of numbers in a scheme, each level as it
+ * draws: `shift` levels down the scheme's first format, for a list that starts its numbering
+ * deeper than its scheme's first level.
+ */
+export function listDefinition(id: number, kind: ListKind, shift = 0): string {
   let levels = "";
   for (let level = 0; level < 9; level++) {
-    const format = ordered ? NUMBER_FORMATS[level % 3] : "bullet";
-    const text = ordered ? `%${level + 1}.` : BULLETS[level % 3];
-    levels += `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${INDENT * (level + 1)}" w:hanging="${HANGING}"/></w:pPr></w:lvl>`;
+    const { format, text } =
+      kind === "bullet"
+        ? { format: "bullet", text: BULLETS[level % 3] ?? "•" }
+        : wordLevel(kind, Math.max(level - shift, 0), level);
+    levels += `<w:lvl w:ilvl="${level}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${escapeXml(text)}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${INDENT * (level + 1)}" w:hanging="${HANGING}"/></w:pPr></w:lvl>`;
   }
-  return `<w:abstractNum w:abstractNumId="${id}"><w:multiLevelType w:val="hybridMultilevel"/>${levels}</w:abstractNum>`;
+  // Outline's "1.1." is one numbering through its levels, not a list of lists.
+  const type = kind === "outline" ? "multilevel" : "hybridMultilevel";
+  return `<w:abstractNum w:abstractNumId="${id}"><w:multiLevelType w:val="${type}"/>${levels}</w:abstractNum>`;
 }
 
 /**
@@ -1408,13 +1540,27 @@ export function listDefinition(id: number, ordered: boolean): string {
  * rather than going on from the last list of the same definition.
  */
 export function listInstance(numId: number, definition: number, list: List): string {
-  return `<w:num w:numId="${numId}"><w:abstractNumId w:val="${definition}"/>${list.ordered ? `<w:lvlOverride w:ilvl="${list.level}"><w:startOverride w:val="${list.start}"/></w:lvlOverride>` : ""}</w:num>`;
+  return `<w:num w:numId="${numId}"><w:abstractNumId w:val="${definition}"/>${list.kind !== "bullet" ? `<w:lvlOverride w:ilvl="${list.level}"><w:startOverride w:val="${list.start}"/></w:lvlOverride>` : ""}</w:num>`;
 }
 
-/** Two list definitions, bullets (0) and numbers (1), and an instance of one for each list. */
 function numbering(lists: readonly List[]): string {
-  const instances = lists.map((list, index) => listInstance(index + 1, list.ordered ? 1 : 0, list));
-  return `${XML_DECLARATION}<w:numbering xmlns:w="${NS.w}">${listDefinition(0, false)}${listDefinition(1, true)}${instances.join("")}</w:numbering>`;
+  const kinds: ListKind[] = ["bullet", ...NUMBERING_SCHEMES];
+  // LibreOffice treats instances of one definition as one list, so a list that starts deeper,
+  // which draws the levels above it ("1.1."), counts them on from the list before: it gets its own.
+  const definitions = kinds.map((kind, id) => listDefinition(id, kind));
+  const definitionOf: number[] = [];
+  const instances = lists.map((list, index) => {
+    const nested = list.of === undefined ? undefined : definitionOf[list.of - 1];
+    const own = nested === undefined && list.kind !== "bullet" && list.level > 0;
+    const definition = nested ?? (own ? definitions.length : kinds.indexOf(list.kind));
+    if (own)
+      definitions.push(
+        listDefinition(definition, list.kind, list.level - (list.from ?? list.level)),
+      );
+    definitionOf.push(definition);
+    return listInstance(index + 1, definition, list);
+  });
+  return `${XML_DECLARATION}<w:numbering xmlns:w="${NS.w}">${definitions.join("")}${instances.join("")}</w:numbering>`;
 }
 
 const CODE_FONT = '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/>';

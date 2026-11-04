@@ -91,6 +91,12 @@ const MARKS: Record<CitationCheck, (props: IconProps) => JSX.Element> = {
       <circle cx="12" cy="12" r="4" />
     </svg>
   ),
+  // Neither found nor a problem: the judgement of its sentence didn't run (#2311).
+  "not-checked": (props) => (
+    <Stroke weight={2.5} {...props}>
+      <circle cx="12" cy="12" r="4" />
+    </Stroke>
+  ),
 };
 
 /** The state of a Citation check as a small mark, for the margin and narrow markers. */
@@ -125,7 +131,7 @@ export function CheckStateIcon({ check, ...props }: IconProps & { check: Citatio
           <path d="m13.5 7.5-3 9" />
         </>
       )}
-      {check === "checking" && <path d="M12 7.5V12l3 2" />}
+      {(check === "checking" || check === "not-checked") && <path d="M12 7.5V12l3 2" />}
     </Stroke>
   );
 }
@@ -163,8 +169,21 @@ const CLAIM_MARKS: Record<ClaimMarkState, (props: IconProps) => JSX.Element> = {
   "needs-recheck": Again,
 };
 
+/** ☑: supported, and only by the User's own notes (#335): a box, so shape and colour both say it. */
+const OwnNoteCheck = (props: IconProps) => (
+  <Stroke weight={2} {...props}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="3" />
+    <path d="m7.5 12 3 3 6-7" />
+  </Stroke>
+);
+
 /** A sentence check's mark, as small as a Citation's, for the margin and its card. */
-export function ClaimMarkIcon({ state, ...props }: IconProps & { state: ClaimMarkState }) {
+export function ClaimMarkIcon({
+  state,
+  ownNoteOnly = false,
+  ...props
+}: IconProps & { state: ClaimMarkState; ownNoteOnly?: boolean }) {
+  if (ownNoteOnly && state === "supported") return <OwnNoteCheck {...props} />;
   const Mark = CLAIM_MARKS[state];
   return <Mark {...props} />;
 }

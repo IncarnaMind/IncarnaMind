@@ -30,6 +30,7 @@
  * the XML parser's refusal of a DOCTYPE apply (./zip, ./xml).
  */
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
+import { type NumberingScheme, schemeOfWordLevels } from "../../../shared/numbering";
 import { NODE_CHARACTER, targetHash } from "../../../shared/proposals";
 import { MAX_NOTE_START, readWordAtom } from "../../../shared/wordFiles";
 import { groupWordLists } from "../../../shared/wordLists";
@@ -38,9 +39,11 @@ import { DEFAULT_NOTE_NUMBERING } from "../../../shared/wordNotes";
 import { mindHeadingLevel } from "../../../shared/wordStyles";
 import {
   BLOCK_ID_ATTRIBUTE,
+  COMMENT_MARK,
   FOOTNOTE_NODE,
   IMAGE_NODE,
   type KeptChangeKind,
+  type MindComment,
   PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   PROPOSAL_ATTRIBUTE,
@@ -107,6 +110,8 @@ export interface WordStructure {
   /** Parts the look couldn't read (a broken `settings.xml`): it went on without them. */
   lookUnreadable: string[];
   noteNumbering: WordNoteNumbering;
+  /** Its comments (#328), with their threads and resolved state, anchored on the text by the comment mark. */
+  comments: MindComment[];
 }
 
 /** Reads a Word package's main document as Blocks. Throws `WordRefusedError` for one that can't be read. */
@@ -326,6 +331,8 @@ function styleChain(styles: Styles, id: string | null): ParagraphStyle[] {
 interface ListLevel {
   format: string;
   start: number;
+  /** Its number's text, "%1." or "(%2)": the scheme it is written in (#1419). */
+  text: string;
 }
 
 interface Numbering {
@@ -338,8 +345,10 @@ interface Numbering {
 function readLevel(lvl: XmlElement): Partial<ListLevel> {
   const format = child(lvl, "w:numFmt")?.attrs["w:val"];
   const start = child(lvl, "w:start")?.attrs["w:val"];
+  const text = child(lvl, "w:lvlText")?.attrs["w:val"];
   return {
     ...(format !== undefined && { format }),
+    ...(text !== undefined && { text }),
     ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
   };
 }
@@ -358,6 +367,7 @@ function readNumbering(xml: string | undefined, styles: Styles): Numbering {
         levels.set(Number(lvl.attrs["w:ilvl"] ?? 0), {
           format: level.format ?? "decimal",
           start: level.start ?? 1,
+          text: level.text ?? "",
         });
       }
       abstracts.set(id, levels);
@@ -389,11 +399,76 @@ function readNumbering(xml: string | undefined, styles: Styles): Numbering {
   return { abstracts, nums };
 }
 
-/** A comment's author, date and text. */
+/** A comment's author, date and text, and its place in the file (#328). */
 interface Comment {
   author: string;
   date: string;
   text: string;
+  /** Its last paragraph's `w14:paraId`, which `commentsExtended.xml` names; null when it has none. */
+  paraId: string | null;
+  /** The `w14:paraId` of the comment it replies to; null for a comment of its own. */
+  parentParaId: string | null;
+  /** `w15:done`: the file marks it resolved. */
+  done: boolean;
+}
+
+/**
+ * The file's comments as the Mind's own (#328): one record per thread, its
+ * replies in the file's order, and the resolved state `commentsExtended.xml`
+ * gives. Each record's id names it in the comment mark on its words.
+ */
+function commentThreads(comments: Map<string, Comment>): {
+  records: MindComment[];
+  idOfWord: Map<string, string>;
+} {
+  const idOfWord = new Map<string, string>();
+  const byWord = new Map<string, MindComment>();
+  const byParaId = new Map<string, MindComment>();
+  for (const [wordId, comment] of comments) {
+    // Derived from the file's id, so reading the package again gives the same marks: a commented
+    // paragraph read for its look isn't taken for one the User edited (#328).
+    const id = `word-comment-${wordId}`;
+    // Word's dates are UTC: a file that leaves its zone off is read as one, never as this computer's time.
+    const zone = /(?:Z|[+-]\d{2}:?\d{2})$/iu.test(comment.date.trim());
+    const parsed = Date.parse(zone ? comment.date : `${comment.date}Z`);
+    const date = Number.isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString();
+    const record: MindComment = {
+      id,
+      author: comment.author,
+      createdAt: date,
+      text: comment.text,
+      resolvedAt: comment.done ? date : null,
+      replies: [],
+    };
+    idOfWord.set(wordId, id);
+    byWord.set(wordId, record);
+    if (comment.paraId) byParaId.set(comment.paraId, record);
+  }
+  const records: MindComment[] = [];
+  for (const [wordId, comment] of comments) {
+    const record = byWord.get(wordId);
+    if (!record) continue;
+    const parent = comment.parentParaId ? byParaId.get(comment.parentParaId) : undefined;
+    const idNumber = Number(wordId);
+    const word =
+      Number.isInteger(idNumber) && idNumber >= 0
+        ? { word: { id: idNumber, paraId: comment.paraId } }
+        : {};
+    if (parent && parent !== record) {
+      // Word gives a reply its own range around its parent's words: the mark names the thread.
+      idOfWord.set(wordId, parent.id);
+      parent.replies.push({
+        id: record.id,
+        author: record.author,
+        createdAt: record.createdAt,
+        text: record.text,
+        ...word,
+      });
+    } else {
+      records.push({ ...record, ...word });
+    }
+  }
+  return { records, idOfWord };
 }
 
 /** The text of a part, or of an element in it: its paragraphs, a line each; a table row's cells by tabs. */
@@ -784,6 +859,8 @@ class Reader {
   private carry = 0;
   private fieldDepth = 0;
   private field: OpenField | null = null;
+  /** The comments whose range the text being read is inside, by the file's `w:id` (#328). */
+  private readonly openComments = new Set<string>();
   /** Body-level marks (bookmarks, ranges) waiting for the next paragraph to hold them. */
   private pending: NodeJSON[] = [];
   /** The content of the paragraph read last, which takes marks no paragraph follows. */
@@ -813,7 +890,10 @@ class Reader {
     private readonly rels: Map<string, Relationship>,
     private readonly styles: Styles,
     private readonly numbering: Numbering,
-    private readonly comments: Map<string, Comment>,
+    /** Each comment's own id, by the file's `w:id` (#328): the mark on its words names it. */
+    private readonly commentIds: Map<string, string>,
+    /** Its comments, with their threads and resolved state (#328). */
+    private readonly mindComments: MindComment[],
     private readonly noteParts: Record<NoteKind, NotesReading | null>,
     private readonly images: Map<string, string>,
     /** The text of each header and footer part. */
@@ -873,16 +953,36 @@ class Reader {
       });
     const look = lookReader();
     const comments = new Map<string, Comment>();
+    // `commentsExtended.xml` says which comment replies to which, and which the file marks done (#328).
+    const extended = new Map<string, { parent: string | null; done: boolean }>();
+    const extendedXml = await read("/commentsExtended");
+    for (const each of extendedXml ? elements(parseXml(extendedXml)) : []) {
+      if (each.name !== "w15:commentEx") continue;
+      const paraId = each.attrs["w15:paraId"];
+      if (!paraId) continue;
+      extended.set(paraId, {
+        parent: each.attrs["w15:paraIdParent"] ?? null,
+        done: each.attrs["w15:done"] === "1" || each.attrs["w15:done"] === "true",
+      });
+    }
     const commentsXml = await read("/comments");
     for (const comment of commentsXml ? elements(parseXml(commentsXml)) : []) {
       const id = comment.attrs["w:id"];
       if (comment.name !== "w:comment" || id === undefined) continue;
+      // A comment is named by its last paragraph's `w14:paraId`, which commentsExtended names.
+      const paragraphs = [...walk(comment)].filter((each) => each.name === "w:p");
+      const paraId = paragraphs.at(-1)?.attrs["w14:paraId"] ?? null;
+      const link = paraId ? extended.get(paraId) : undefined;
       comments.set(id, {
         author: comment.attrs["w:author"]?.trim() ?? "",
         date: comment.attrs["w:date"] ?? "",
         text: blockText(comment),
+        paraId,
+        parentParaId: link?.parent ?? null,
+        done: link?.done ?? false,
       });
     }
+    const { records: mindComments, idOfWord: commentIds } = commentThreads(comments);
     const noteNumbering = noteNumberingOf(readableXml(settingsXml), child(document, "w:body"));
     const noteParts: Record<NoteKind, NotesReading | null> = { footnote: null, endnote: null };
     // A note's runs are read with the file's styles, but the Mind's look draws only its body.
@@ -899,7 +999,8 @@ class Reader {
         await relationshipsOf(zip, name),
         styles,
         numbering,
-        comments,
+        commentIds,
+        mindComments,
         { footnote: null, endnote: null },
         new Map(),
         new Map(),
@@ -942,7 +1043,8 @@ class Reader {
       rels,
       styles,
       numbering,
-      comments,
+      commentIds,
+      mindComments,
       noteParts,
       images,
       partTexts,
@@ -1094,6 +1196,7 @@ class Reader {
       look: this.look.look(),
       lookUnreadable: this.look.unreadable,
       noteNumbering: this.noteNumbering,
+      comments: this.mindComments,
     };
   }
 
@@ -1271,7 +1374,26 @@ class Reader {
   private blocks(container: XmlElement, into: NodeJSON[], inCell: boolean): void {
     const items: Item[] = [];
     this.collect(container, items, inCell);
-    into.push(...groupLists(items));
+    into.push(...groupLists(items, (numId, used, own) => this.schemeOf(numId, used, own)));
+  }
+
+  private schemeOf(
+    numId: string,
+    used: readonly number[],
+    own: readonly number[],
+  ): { scheme: NumberingScheme; startLevel: number } | null {
+    const num = this.numbering.nums.get(numId);
+    const base = num ? this.numbering.abstracts.get(num.abstract) : undefined;
+    const levels = new Map<number, { format: string; text: string }>();
+    for (let level = 0; level <= Math.max(...used); level++) {
+      const override = num?.overrides.get(level);
+      const own = base?.get(level);
+      levels.set(level, {
+        format: override?.format ?? own?.format ?? "decimal",
+        text: override?.text ?? own?.text ?? "",
+      });
+    }
+    return schemeOfWordLevels(levels, used, own);
   }
 
   private collect(container: XmlElement, items: Item[], inCell: boolean): void {
@@ -1298,7 +1420,9 @@ class Reader {
           this.report.sections++;
           break;
         default:
-          if (RANGES.has(element.name))
+          if (element.name === "w:commentRangeStart" || element.name === "w:commentRangeEnd") {
+            this.rangeMarker(element);
+          } else if (RANGES.has(element.name))
             this.pending.push(this.atom("range", this.place(element), {}));
           else if (!IGNORED.has(element.name) && !PROPERTIES.has(element.name)) {
             items.push({
@@ -1646,7 +1770,7 @@ class Reader {
       if ((element.name === "w:ins" || element.name === "w:del") && readableChange(element)) {
         const author = element.attrs["w:author"]?.trim() || null;
         const joined = element.name === "w:ins" && deleted?.author === author ? deleted.ref : null;
-        const ref = this.trackedChange(element, marks, out, joined);
+        const ref = this.trackedChange(element, this.withComments(marks), out, joined);
         deleted = element.name === "w:del" ? { ref, author } : null;
         continue;
       }
@@ -1654,8 +1778,17 @@ class Reader {
       switch (element.name) {
         case "w:pPr":
           break;
+        case "w:commentRangeStart":
+        case "w:commentRangeEnd": {
+          const id = element.attrs["w:id"];
+          if (id) {
+            if (element.name === "w:commentRangeStart") this.openComments.add(id);
+            else this.openComments.delete(id);
+          }
+          break;
+        }
         case "w:r":
-          this.run(element, marks, out);
+          this.run(element, this.withComments(marks), out);
           break;
         case "w:hyperlink": {
           const href = this.hrefOf(element);
@@ -1729,6 +1862,8 @@ class Reader {
     if (PROPERTIES.has(element.name) || IGNORED.has(element.name)) return;
     if (element.name === "w:bookmarkStart" || element.name === "w:bookmarkEnd") {
       this.pending.push(this.bookmark(element));
+    } else if (element.name === "w:commentRangeStart" || element.name === "w:commentRangeEnd") {
+      this.rangeMarker(element);
     } else if (RANGES.has(element.name)) {
       this.pending.push(this.atom("range", this.place(element), {}));
     } else {
@@ -1824,6 +1959,27 @@ class Reader {
     }
   }
 
+  /** Marks with the comment of each range the text is inside (#328). */
+  private withComments(marks: MarkJSON[]): MarkJSON[] {
+    if (this.openComments.size === 0) return marks;
+    // A reply's range meets its parent's: one mark for the thread, not two.
+    const added = new Set<string>();
+    for (const wordId of this.openComments) {
+      const id = this.commentIds.get(wordId);
+      if (id) added.add(id);
+    }
+    if (added.size === 0) return marks;
+    return [...marks, ...[...added].map((id) => ({ type: COMMENT_MARK, attrs: { id } }))];
+  }
+
+  /** A range's start or end between paragraphs: the text that follows takes it, or stops taking it. */
+  private rangeMarker(element: XmlElement): void {
+    const id = element.attrs["w:id"];
+    if (!id) return;
+    if (element.name === "w:commentRangeStart") this.openComments.add(id);
+    else this.openComments.delete(id);
+  }
+
   private text(text: string, marks: MarkJSON[], out: NodeJSON[]): void {
     if (text)
       this.fromRun(marks.length > 0 ? { type: "text", text, marks } : { type: "text", text }, out);
@@ -1892,19 +2048,9 @@ class Reader {
           ),
         );
         break;
-      case "w:commentReference": {
-        const comment = this.comments.get(element.attrs["w:id"] ?? "");
-        out.push(
-          this.atom("comment", this.place(element), {
-            text: comment?.text ?? "",
-            info: {
-              ...(comment?.author && { author: comment.author }),
-              ...(comment?.date && { date: comment.date }),
-            },
-          }),
-        );
+      case "w:commentReference":
+        // The comment itself is the Mind's comment (#328), on the words its range covers.
         break;
-      }
       case "w:sym":
         out.push(this.atom("symbol", this.place(element), {}));
         break;
@@ -2283,23 +2429,62 @@ function rowsOf(
   return rows;
 }
 
-const groupLists = (items: readonly Item[]): NodeJSON[] =>
-  groupWordLists(
-    items.map(({ node, list }) => ({
-      node,
-      list: list && {
-        listId: list.numId,
-        level: list.level,
-        ordered: list.ordered,
-        number: list.number,
-      },
-    })),
+function groupLists(
+  items: readonly Item[],
+  schemeOf: (
+    numId: string,
+    used: readonly number[],
+    own: readonly number[],
+  ) => { scheme: NumberingScheme; startLevel: number } | null,
+): NodeJSON[] {
+  const levelsUsed = (key: (list: ListInfo) => string) => {
+    const used = new Map<string, Set<number>>();
+    for (const { list } of items) {
+      if (!list?.ordered) continue;
+      const levels = used.get(key(list)) ?? new Set();
+      levels.add(list.level);
+      used.set(key(list), levels);
+    }
+    return used;
+  };
+  // A nested list is an instance of its outer list's definition, as Word writes "Restart at 1":
+  // the scheme is the definition's, the level a list starts at its own items'.
+  const byDefinition = levelsUsed((list) => list.abstract);
+  const byList = levelsUsed((list) => list.numId);
+  const abstractOf = new Map(
+    items.flatMap(({ list }) => (list ? [[list.numId, list.abstract]] : [])),
+  );
+  const schemes = new Map(
+    [...byList].map(([numId, own]) => [
+      numId,
+      schemeOf(numId, [...(byDefinition.get(abstractOf.get(numId) ?? "") ?? own)], [...own]),
+    ]),
+  );
+  return groupWordLists(
+    items.map(({ node, list }) => {
+      const scheme = list && schemes.get(list.numId);
+      return {
+        node,
+        list: list && {
+          listId: list.numId,
+          level: list.level,
+          ordered: list.ordered,
+          number: list.number,
+          ...(scheme && { scheme: scheme.scheme, startLevel: scheme.startLevel }),
+        },
+      };
+    }),
     {
-      list: (place) =>
+      list: (place, startLevel) =>
         place.ordered
           ? {
               type: "orderedList",
-              attrs: { [BLOCK_ID_ATTRIBUTE]: newId(), start: place.number },
+              attrs: {
+                [BLOCK_ID_ATTRIBUTE]: newId(),
+                start: place.number,
+                ...(place.scheme && place.scheme !== "default" && { numbering: place.scheme }),
+                ...(startLevel > 0 && { startLevel }),
+              },
               content: [],
             }
           : { type: "bulletList", attrs: { [BLOCK_ID_ATTRIBUTE]: newId() }, content: [] },
@@ -2311,3 +2496,4 @@ const groupLists = (items: readonly Item[]): NodeJSON[] =>
       },
     },
   );
+}

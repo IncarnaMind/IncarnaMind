@@ -55,7 +55,8 @@ const KINDS: readonly [RegExp, readonly ModelCallKind[]][] = [
   [/^You checked a sentence the User wrote/, ["evidence"]],
   [/^Compare a sentence/, ["comparison", "record-cite"]],
   [/^You sort the sentences/, ["find-claims"]],
-  [/^You sort Documents with Tags/, ["tags"]],
+  [/^You tag Documents/, ["tags"]],
+  [/^You propose Folders/, ["folders"]],
 ];
 
 /** What a request of `kind` may be limited to: its own most, or its share for 1 to 10 items. */

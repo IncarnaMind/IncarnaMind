@@ -1,8 +1,9 @@
 /**
  * The core properties of an Office package (.docx, .pptx, .xlsx): the part
  * the package's relationships name, usually docProps/core.xml: its creation
- * date (#53), never dcterms:modified, its title (#213), and its author and
- * language for its reference record (#286).
+ * date (#53), its title (#213), its author and language for its reference
+ * record (#286), and its modified date, which only a check of a sentence about
+ * the file reads (#2458).
  */
 import { child, elements, parseXml, textOf } from "./xml";
 import { openPackage, resolvePart } from "./zip";
@@ -24,6 +25,8 @@ const MAX_BYTES = 1024 * 1024;
 export interface OfficeProperties {
   /** dcterms:created. */
   created: string | null;
+  /** dcterms:modified. */
+  modified: string | null;
   /** dc:title. */
   title: string | null;
   /** dc:creator: the author, as the person who made the file set it (or their computer did). */
@@ -41,7 +44,9 @@ export async function officeProperties(bytes: Uint8Array): Promise<OfficePropert
         .Target
     : undefined;
   const xml = await zip.readText(target ? resolvePart("", target) : DEFAULT_PART, MAX_BYTES);
-  if (xml === undefined) return { created: null, title: null, creator: null, language: null };
+  if (xml === undefined) {
+    return { created: null, modified: null, title: null, creator: null, language: null };
+  }
   const root = parseXml(xml);
   const property = (name: string) => {
     const element = child(root, name);
@@ -49,6 +54,7 @@ export async function officeProperties(bytes: Uint8Array): Promise<OfficePropert
   };
   return {
     created: property("created"),
+    modified: property("modified"),
     title: property("title"),
     creator: property("creator"),
     language: property("language"),

@@ -73,3 +73,36 @@ describe("what a confirmation says is lost", () => {
     expect(translate("zh-CN", sentence.key, sentence.params)).toContain("3 个文档");
   });
 });
+
+describe("what a Meeting's note loses with it (#1253)", () => {
+  const name = (item: { name: string }) => item.name;
+  const say =
+    (language: "en" | "zh-CN") => (sentence: { key: MessageKey; params: MessageParams }) =>
+      translate(language, sentence.key, sentence.params);
+
+  test("its recording, its Transcript or both, after the note's own sentence; a plain note says only its text", () => {
+    const meeting = (recording: boolean, transcript: boolean) =>
+      ({ kind: "mind", name: "Weekly call", meeting: { recording, transcript } }) as const;
+    const plain = { kind: "mind", name: "Tide tables" } as const;
+
+    expect(lostSentences([meeting(true, true)], name).map(say("en"))).toEqual([
+      "Your text in “Weekly call” is gone.",
+      "Its recording and Transcript are deleted too.",
+    ]);
+    expect(lostSentences([meeting(false, true)], name).map(say("zh-CN"))).toEqual([
+      "“Weekly call”中你写的内容将丢失。",
+      "会议的转写稿也将彻底删除。",
+    ]);
+    expect(lostSentences([meeting(true, false)], name).map(say("en"))).toEqual([
+      "Your text in “Weekly call” is gone.",
+      "Its recording is deleted too.",
+    ]);
+    expect(lostSentences([plain], name).map(say("en"))).toEqual([
+      "Your text in “Tide tables” is gone.",
+    ]);
+    expect(lostSentences([plain, meeting(true, false)], name).map(say("zh-CN"))).toEqual([
+      "这 2 篇笔记中你写的内容将丢失。",
+      "其中会议的录音也将彻底删除。",
+    ]);
+  });
+});

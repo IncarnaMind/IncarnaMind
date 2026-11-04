@@ -41,7 +41,11 @@ test("the Privacy page lists the data flows and the update check, and offers no 
       modelId: "example-model",
     });
     // Tagging and sorting by themselves start off for it; turning them on is the consent too.
-    await bridge.saveLibrarySettings({ ...(await bridge.getLibrary()).settings, automatic: true });
+    await bridge.saveLibrarySettings({
+      ...(await bridge.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
   });
 
   const privacy = await openPrivacySettings(window);

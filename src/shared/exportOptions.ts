@@ -92,7 +92,13 @@ export const optionsFor = (
   preferences: ExportPreferences,
 ): ExportMindOptions => {
   if (format === "docx") {
-    const { markAiText, ...choices } = preferences.docx;
+    // The comments choice belongs to one Note, which the export adds when it is that Note (#328).
+    const {
+      markAiText,
+      includeMyComments: _myComments,
+      myCommentsFile: _myCommentsFile,
+      ...choices
+    } = preferences.docx;
     return {
       format,
       ...choices,

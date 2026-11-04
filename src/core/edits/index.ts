@@ -46,12 +46,15 @@ import {
   type ChatModelChoice,
   type ChatReadiness,
   type EditAction,
+  type EditPart,
   type EditWithAiResult,
   type ExternalService,
   editActions,
+  type LeftOutPart,
   MIND_CONTENT_FIELD,
   type ProposalRequest,
   type RequestedChange,
+  type RunEstimate,
   type TextPlace,
   type WritingPlace,
 } from "../api";
@@ -74,9 +77,13 @@ import {
   replaceOwn,
   waitingIn,
 } from "../proposals/ownWaiting";
+import { splitCiting, unplacedSince } from "../proposals/placed";
 import {
+  acceptedText,
+  addNotes,
   createRewriteStream,
   layout,
+  type Notes,
   proposeAfter,
   proposeRewrite,
   type ReadResult,
@@ -84,9 +91,11 @@ import {
   type RewriteStream,
   readSelection,
   type Selection,
+  selectionParts,
   someNotes,
   takeBackForRegenerate,
   textBlocks,
+  withBlocksAround,
 } from "../proposals/write";
 import type { PreparedChatModel } from "../providers/chat";
 import { outputTokens } from "../providers/outputLimits";
@@ -96,13 +105,18 @@ import { inFlow } from "../timing/flows";
 import { waitsForUser } from "./applies";
 import {
   EDIT_INSTRUCTIONS,
+  EDIT_INSTRUCTIONS_NAMED,
   EXPLAIN_INSTRUCTIONS,
   editPrompt,
+  NAMES_SHOWN,
   passageSoFar,
   readEditReply,
   readRemovals,
   reasonOf,
   sameText,
+  unclearTypedTags,
+  unnameRemovals,
+  withoutNames,
 } from "./prompt";
 
 /** The tasks whose reply may take text out by quoting it: the User's words, and a Citation's checks. */
@@ -112,8 +126,15 @@ const QUOTES_TAKE_OUT: ReadonlySet<EditAction> = new Set([
   "follow-citation",
 ]);
 
-/** The new text a reply gives, without what it quotes as taken out. */
-const textOf = (reply: string) => readRemovals(reply).text.trim();
+/** The new text a reply gives, without what it quotes as taken out, nor its paragraphs' names when the passage was shown with them. */
+const textOf = (reply: string, named = false) =>
+  named
+    ? withoutNames(readRemovals(unnameRemovals(reply)).text).trim()
+    : readRemovals(reply).text.trim();
+
+/** The passage as the model is shown it for `action`: with its paragraphs' names, for a request in the User's words (#2356). */
+const passageFor = (action: EditAction, selection: Pick<Selection, "text" | "named">) =>
+  NAMES_SHOWN.has(action) ? selection.named : selection.text;
 
 const failedEdit = (failure: unknown): EditWithAiResult =>
   gateStop(failure) instanceof LocalModeError
@@ -125,6 +146,9 @@ export const EDITS_FLOW_SENDS = ["selection"] as const;
 
 /** The most text one request edits, in characters: more is better done a part at a time. */
 export const MAX_SELECTION_CHARACTERS = 12_000;
+/** The most parts one edit is: more is a selection to make shorter before it is edited. */
+export const MAX_EDIT_PARTS = 24;
+
 /** The most a request may say in the User's own words. */
 const MAX_INSTRUCTION_CHARACTERS = 2_000;
 /** A request that takes longer than this (a local model loading a long text) fails. */
@@ -149,8 +173,27 @@ export interface EditsOptions {
   localOnly(): boolean;
   /** A Citation's attributes checked again now, or null when its check comes out the same. */
   recheck(attributes: Attributes): Attributes | null;
-  /** Says where a request writes next in a Mind as its changes come in (#202); null once it has stopped. */
-  writing(mindId: string, place: WritingPlace | null): void;
+  /**
+   * Says where a request writes next in a Mind as its changes come in (#202); null once it has
+   * stopped. `part`: a long selection edited in parts says which of how many is written now (#2348).
+   */
+  writing(mindId: string, place: WritingPlace | null, part?: EditPart): void;
+  /**
+   * What a run of `parts` would cost, one call a part, for the estimate shown before it starts
+   * (#83); null for a model no estimate is known of.
+   */
+  estimate?(choice: ChatModelChoice | null, parts: number): RunEstimate | null;
+  /**
+   * Asks the User to let a run of `parts` on a model billed per token start, with its estimate:
+   * resolves true to go on, false to stop. A run that is small, or on this computer, never asks.
+   */
+  ask?(
+    mindId: string,
+    requestId: string,
+    parts: number,
+    estimate: RunEstimate | null,
+    signal: AbortSignal,
+  ): Promise<boolean>;
   /** A Checkpoint just before an edit that applies at once writes (#113). */
   checkpoint(mindId: string): void;
   now(): Date;
@@ -361,20 +404,32 @@ interface EditCall {
 const quotesOf = (selection: Selection): string[] =>
   selection.citations.map((citation) => (typeof citation.quote === "string" ? citation.quote : ""));
 
-/** The request for `ask` over `selection`; null when it is more than the model can take at once. */
+/**
+ * The request for `ask` over `selection`; null when it is more than the model can take at once.
+ * A selection with `named` is shown with its paragraphs' names when the task is in the User's words.
+ */
 function editCall(
   prepared: PreparedChatModel,
   ask: Pick<Ask, "action" | "instruction">,
   selection: Pick<Selection, "text" | "context" | "before" | "after" | "characters"> & {
+    named?: string;
     quotes?: readonly string[];
   },
 ): EditCall | null {
   const explain = ask.action === "explain";
-  const instructions = explain ? EXPLAIN_INSTRUCTIONS : EDIT_INSTRUCTIONS;
+  const passage =
+    selection.named === undefined
+      ? selection.text
+      : passageFor(ask.action, { text: selection.text, named: selection.named });
+  const instructions = explain
+    ? EXPLAIN_INSTRUCTIONS
+    : passage === selection.text
+      ? EDIT_INSTRUCTIONS
+      : EDIT_INSTRUCTIONS_NAMED;
   const prompt = editPrompt({
     action: ask.action,
     instruction: ask.instruction,
-    passage: selection.text,
+    passage,
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),
@@ -385,8 +440,8 @@ function editCall(
   const { window } = prepared;
   const budget = window ? createWindowBudget(window) : null;
   // The reply is about as long as the passage; a translation into Chinese can count more.
-  const passage = budget ? budget.tokens(selection.text) : estimateTokens(selection.text);
-  const expected = explain ? 512 : Math.ceil(passage * 1.5) + 64;
+  const tokens = budget ? budget.tokens(passage) : estimateTokens(passage);
+  const expected = explain ? 512 : Math.ceil(tokens * 1.5) + 64;
   // A rewrite that can't fit would come back cut short: it isn't sent (#2275).
   if (expected > Math.min(outputTokens("edit"), window?.outputTokens ?? Number.POSITIVE_INFINITY))
     return null;
@@ -403,6 +458,31 @@ function editCall(
     Math.max(1_024, Math.ceil(selection.characters * 1.5)),
   );
   return { instructions, prompt, maxOutputTokens };
+}
+
+/** Why a passage is more than one request edits: the app's own cap, or this model's window. */
+type TooLongCause = "cap" | "model";
+
+/**
+ * Why the model can't take `selection` in one request; null when it can. "cap": the app's own
+ * limits, which no model changes (12,000 characters, or a reply past an edit's 16,000 tokens).
+ * "model": this model's window, or the room it leaves, which a larger one may take.
+ */
+function tooLongCause(
+  prepared: PreparedChatModel,
+  ask: Pick<Ask, "action" | "instruction">,
+  selection: Parameters<typeof editCall>[2],
+): TooLongCause | null {
+  if (selection.characters > MAX_SELECTION_CHARACTERS) return "cap";
+  if (editCall(prepared, ask, selection) !== null) return null;
+  const passage =
+    selection.named === undefined
+      ? selection.text
+      : passageFor(ask.action, { text: selection.text, named: selection.named });
+  const { window } = prepared;
+  const tokens = window ? createWindowBudget(window).tokens(passage) : estimateTokens(passage);
+  const expected = ask.action === "explain" ? 512 : Math.ceil(tokens * 1.5) + 64;
+  return expected > outputTokens("edit") ? "cap" : "model";
 }
 
 /**
@@ -492,6 +572,13 @@ export function createEdits(options: EditsOptions) {
     },
   });
 
+  /** The part being written, while a long selection is edited in parts (#2348). */
+  let partNow: { mindId: string; part: EditPart } | null = null;
+
+  /** Says where a request writes next, and which part of how many, while it does (#202, #2348). */
+  const noteWriting = (mindId: string, place: WritingPlace | null): void =>
+    options.writing(mindId, place, partNow?.mindId === mindId ? partNow.part : undefined);
+
   const readinessOf = (choice: ChatModelChoice | null) =>
     chat.readiness(choice ?? undefined, "edits");
 
@@ -508,7 +595,11 @@ export function createEdits(options: EditsOptions) {
     signal: AbortSignal,
     hooks: Hooks = {},
   ): Promise<EditWithAiResult> {
-    if (draft.selection.characters > MAX_SELECTION_CHARACTERS) return { kind: "too-long" };
+    // A Block alone over what one request edits can't be edited in parts (#2348): said before
+    // anything is sent, and before a model is asked for.
+    if (draft.selection.segments.some((part) => part.characters > MAX_SELECTION_CHARACTERS)) {
+      return { kind: "block-too-long", cause: "cap" };
+    }
 
     const choice = ask.model ?? options.defaultModel();
     const readiness = await readinessOf(choice);
@@ -531,7 +622,173 @@ export function createEdits(options: EditsOptions) {
       throw error;
     }
     if (signal.aborted) return { kind: "cancelled" };
-    return (await rewrite(prepared, ask, draft, signal, hooks)).result;
+    // One request takes the whole selection when it fits: in characters, and in the model's
+    // window with the room its reply needs. More than that is edited in parts (#2348).
+    const fits =
+      draft.selection.characters <= MAX_SELECTION_CHARACTERS &&
+      editCall(prepared, ask, { ...draft.selection, quotes: quotesOf(draft.selection) }) !== null;
+    if (fits) return (await rewrite(prepared, ask, draft, signal, hooks)).result;
+    // Only an edit the User asked for is made in parts: one made again, or by the assistant,
+    // is asked of them another way.
+    if (hooks.requestId === undefined) return { kind: "too-long" };
+    return rewriteInParts(prepared, ask, choice, draft, signal, hooks);
+  }
+
+  /**
+   * A selection the model can't take at once, edited in parts at Block boundaries (#2348): each
+   * part is asked with the same instruction and the text around it, and streams in place as it
+   * finishes (#202). The parts' changes are one request's, so the window applies them as one
+   * step, with one Undo. Stopped, what is finished stays; a part that fails takes all back.
+   */
+  async function rewriteInParts(
+    prepared: PreparedChatModel,
+    ask: Ask,
+    choice: ChatModelChoice | null,
+    draft: Draft,
+    signal: AbortSignal,
+    hooks: Hooks,
+  ): Promise<EditWithAiResult> {
+    const { mindId } = draft;
+    const split = selectionParts(
+      draft.fork.getXmlFragment(MIND_CONTENT_FIELD),
+      draft.selection,
+      (part) =>
+        part.characters <= MAX_SELECTION_CHARACTERS &&
+        editCall(prepared, ask, { ...part, quotes: quotesOf(part) }) !== null,
+    );
+    if (!split.ok) {
+      if (split.reason === "changed") return { kind: "changed" };
+      const cause = tooLongCause(prepared, ask, { ...split.part, quotes: quotesOf(split.part) });
+      return { kind: "block-too-long", cause: cause ?? "model" };
+    }
+    const request = randomUUID();
+    const total = split.parts.length;
+    if (total > MAX_EDIT_PARTS) return { kind: "too-long" };
+    // What the whole run would cost, before the first request: shown, and asked when it isn't
+    // small, as for any large run on a model billed per token (#83).
+    const estimate = options.estimate?.(choice, total) ?? null;
+    // A model on this computer is free and never asks; a run billed per token does, with its
+    // estimate, before its first request (#83, #2348).
+    if (estimate?.billing === "per-token") {
+      const go =
+        (await options.ask?.(mindId, hooks.requestId ?? request, total, estimate, signal)) ?? true;
+      if (!go || signal.aborted) return { kind: "cancelled" };
+    }
+    // How many, before the first part streams: a cloud model's estimate shows first (#83).
+    options.writing(mindId, null, { at: 1, of: total });
+    const leftOut: LeftOutPart[] = [];
+    const notes: Notes = { unmatchedMarkers: 0, unlinkedSources: 0, extraCells: 0 };
+    let droppedCitations = 0;
+    let held = false;
+    let stopped = false;
+    let changed = false;
+    let made = 0;
+    let said: string | undefined;
+    // One Checkpoint for the whole edit, as for one request (#113).
+    let marked = false;
+    const once: Hooks = {
+      ...hooks,
+      beforeWriting: () => {
+        if (marked) return;
+        marked = true;
+        hooks.beforeWriting?.();
+      },
+    };
+    try {
+      for (const [index, place] of split.parts.entries()) {
+        if (signal.aborted) {
+          stopped = true;
+          break;
+        }
+        const read = readForEdit(mindId, place.from, place.to);
+        if (!read.ok) {
+          return takeBackAll(mindId, request, {
+            kind: read.reason === "has-proposals" ? "has-proposals" : "changed",
+          });
+        }
+        // The User typed here while the earlier parts ran: their words stay as they are, the
+        // parts already written stay, and this one and the rest are not asked (#2348).
+        if (read.draft.selection.plain !== place.plain) {
+          read.draft.fork.destroy();
+          stopped = true;
+          changed = true;
+          break;
+        }
+        read.draft.selection = withBlocksAround(
+          read.draft.fork.getXmlFragment(MIND_CONTENT_FIELD),
+          read.draft.selection,
+        );
+        partNow = { mindId, part: { at: index + 1, of: total } };
+        let result: EditWithAiResult;
+        try {
+          ({ result } = await rewrite(prepared, ask, read.draft, signal, once, request));
+        } finally {
+          partNow = null;
+          read.draft.fork.destroy();
+        }
+        if (result.kind === "proposed") {
+          made += 1;
+          held ||= result.held === true;
+          droppedCitations += result.droppedCitations;
+          leftOut.push(...(result.leftOut ?? []));
+          addNotes(notes, {
+            unmatchedMarkers: result.unmatchedMarkers ?? 0,
+            unlinkedSources: result.unlinkedSources ?? 0,
+            extraCells: result.extraCells ?? 0,
+          });
+          continue;
+        }
+        if (result.kind === "unchanged") {
+          said ||= result.said;
+          continue;
+        }
+        // Only a cancelled part is a Stop, keeping what is finished: a refusal that happened
+        // before the Stop takes back every part and says why (#2424).
+        if (result.kind === "cancelled") {
+          stopped = true;
+          break;
+        }
+        return takeBackAll(mindId, request, result);
+      }
+    } finally {
+      options.writing(mindId, null);
+    }
+    const now = content.read(mindId, (mind) => {
+      const stale = outOfDateProposals(mind);
+      const waiting = pendingProposals(mind).filter((each) => each.request === request);
+      return { count: waiting.length, outOfDate: waiting.filter((each) => stale.has(each.id)) };
+    });
+    if (now.count === 0) {
+      if (changed) return { kind: "changed" };
+      if (signal.aborted) return { kind: "cancelled" };
+      return said === undefined ? { kind: "unchanged" } : { kind: "unchanged", said };
+    }
+    return {
+      kind: "proposed",
+      request,
+      // How many parts it was, all of them unless the User stopped it partway.
+      ...((stopped ? made : total) > 1 && { parts: stopped ? made : total }),
+      proposals: now.count,
+      droppedCitations,
+      outOfDate: now.outOfDate.length,
+      ...someNotes(notes),
+      ...(held && { held: true as const }),
+      ...(leftOut.length > 0 && { leftOut }),
+      ...(changed && { stopped: "changed" as const }),
+      stateVector: content.stateVector(mindId),
+    };
+  }
+
+  /** A part that failed takes back every part's changes: the edit is one step, or none. */
+  function takeBackAll(
+    mindId: string,
+    request: string,
+    result: EditWithAiResult,
+  ): EditWithAiResult {
+    content.edit(mindId, (mind) => {
+      resolveProposals(mind, (each) => each.request === request, "reject");
+    });
+    return result;
   }
 
   /**
@@ -545,15 +802,21 @@ export function createEdits(options: EditsOptions) {
     draft: Draft,
     signal: AbortSignal,
     hooks: Hooks,
+    /** The request all the Proposals are written under: one per edit, or for all its parts (#2348). */
+    request: string = randomUUID(),
   ): Promise<{ result: EditWithAiResult; reply: string; reason: string | null }> {
     const { mindId, fork, selection } = draft;
     const explain = ask.action === "explain";
     const ended = (result: EditWithAiResult) => ({ result, reply: "", reason: null });
     const call = editCall(prepared, ask, { ...selection, quotes: quotesOf(selection) });
     if (!call) return ended({ kind: "too-long" });
+    // The reply is read against the passage as the model saw it.
+    const passage = passageFor(ask.action, selection);
+    const named = NAMES_SHOWN.has(ask.action);
 
-    const request = randomUUID();
     const blocks = fork.getXmlFragment(MIND_CONTENT_FIELD);
+    // Explain's words cite nothing: what it writes is checked against the Mind as it was.
+    const asItWas = explain ? splitCiting(blocks, request) : null;
     const { requestId } = hooks;
     // Explain's few sentences go in once they are all there.
     const stream = explain
@@ -570,6 +833,7 @@ export function createEdits(options: EditsOptions) {
               (requestId !== undefined || ask.requested === "edit") && ask.action === "instruction"
                 ? "keep"
                 : "remove",
+            named,
           },
         );
     let held = false;
@@ -622,19 +886,33 @@ export function createEdits(options: EditsOptions) {
       explain || ask.action === "translate" || (stream?.extent().mapped ?? false);
     let wrote = false;
     let refused = false;
+    /** What it wrote holds a Citation, footnote or figure its reply didn't place: nothing more goes in. */
+    let notPlaced = false;
     /**
      * Writes in the copy; once that has written Proposals, merges the copy
      * into the Mind, the first time after `beforeWriting`. A merge that would
      * change the User's text is refused, and nothing more is written.
      */
     const step = (write: () => boolean): void => {
-      if (refused) return;
+      if (refused || notPlaced) return;
       let changed = false;
       fork.transact(() => {
         changed = write();
         if (changed) recordProposalRequest(fork, request, made);
       });
       if (!changed) return;
+      // Checked in the copy before it reaches the Mind (#2424).
+      const unplaced = stream
+        ? stream.unplaced()
+        : asItWas && unplacedSince(asItWas, blocks, request, new Map());
+      if (unplaced) {
+        notPlaced = true;
+        console.error(
+          `Edit with AI: request ${request} (${ask.action}) wrote what its reply didn't place; refused`,
+          unplaced,
+        );
+        return;
+      }
       if (!wrote) hooks.beforeWriting?.();
       wrote = true;
       const update = forkChanges(draft.base, fork, content.state(mindId));
@@ -660,7 +938,18 @@ export function createEdits(options: EditsOptions) {
       });
     };
     const showWriting = () => {
-      if (stream) options.writing(mindId, placeOf(stream.writingAt()));
+      if (stream) noteWriting(mindId, placeOf(stream.writingAt()));
+    };
+    /**
+     * Which paragraph a rewrite replaces can't be trusted, or it would drop a tag the User typed:
+     * none of it goes in.
+     */
+    const untrusted = (): EditWithAiResult | null => {
+      if (notPlaced) return { kind: "not-placed" };
+      const written = stream?.written();
+      if (written?.misnamed) return { kind: "misnamed" };
+      if (written?.droppedTypedTag) return { kind: "typed-tag" };
+      return null;
     };
 
     let shown = false;
@@ -674,7 +963,7 @@ export function createEdits(options: EditsOptions) {
         const reread = piece.includes("\n") || afterBreak;
         afterBreak = piece.includes("\n");
         if (shown && !reread) return false;
-        const sofar = passageSoFar(raw, selection.text);
+        const sofar = passageSoFar(raw, passage);
         if (sofar === null) return false;
         if (!shown) {
           shown = true;
@@ -682,21 +971,34 @@ export function createEdits(options: EditsOptions) {
         }
         if (!reread) return false;
         step(() => stream.write(sofar));
-        if (refused) return true;
+        if (refused || untrusted()) return true;
         showWriting();
         return false;
       });
     } finally {
-      if (stream) options.writing(mindId, null);
+      if (stream) noteWriting(mindId, null);
     }
     const { raw, failure } = streamed;
+    if (notPlaced) {
+      takeBackWritten();
+      return ended({ kind: "not-placed" });
+    }
 
     if (signal.aborted && closing) return ended({ kind: "cancelled" });
+    const early = failure === null ? untrusted() : null;
+    if (early) {
+      takeBackWritten();
+      return ended(early);
+    }
     if (signal.aborted && !refused) {
       // Stopped: what is finished stays.
       if (stream) {
         step(() => stream.stop());
         held = requestId !== undefined && holdsBack(stream);
+      }
+      if (notPlaced) {
+        takeBackWritten();
+        return ended({ kind: "not-placed" });
       }
       if (!refused) return ended(wrote ? arrived() : { kind: "cancelled" });
     }
@@ -704,10 +1006,16 @@ export function createEdits(options: EditsOptions) {
       takeBackWritten();
       return ended(failedEdit(failure));
     }
-    const reply = readEditReply(raw, selection.text);
+    const reply = readEditReply(raw, passage);
+    // A tag that may be the User's typed one or the model's mark: read either way, it may take their words (#2333).
+    const unclear = explain ? [] : unclearTypedTags(reply, passage);
+    if (unclear.length > 0) {
+      takeBackWritten();
+      return ended({ kind: "unplaced", quotes: unclear });
+    }
     // No text back and nothing quoted as taken out: its reason ("I can't do this") is why it failed.
     // A fixed task (Shorten, Improve…) never asks for text to go, so only quotes are no text either.
-    const empty = reply === "" || (!QUOTES_TAKE_OUT.has(ask.action) && textOf(reply) === "");
+    const empty = reply === "" || (!QUOTES_TAKE_OUT.has(ask.action) && textOf(reply, named) === "");
     if (empty && !wrote && !refused) {
       return ended({
         kind: "failed",
@@ -717,7 +1025,7 @@ export function createEdits(options: EditsOptions) {
         },
       });
     }
-    if (!explain && !wrote && !refused && sameText(reply, selection.text)) {
+    if (!explain && !wrote && !refused && sameText(reply, passage)) {
       hooks.settle?.();
       return ended({ kind: "unchanged" });
     }
@@ -731,6 +1039,7 @@ export function createEdits(options: EditsOptions) {
       const more = stream.write(reply, true);
       if (stream.written().unmadeTable) return false;
       const finished = stream.finish();
+      if (stream.written().onlyAside) return false;
       if (requestId !== undefined) held = holdsBack(stream);
       // Written before the reason came: recorded again with it.
       return finished || more || held || (wrote && reason !== null);
@@ -741,7 +1050,12 @@ export function createEdits(options: EditsOptions) {
     }
     if (stream?.written().unmadeTable) {
       takeBackWritten();
-      return ended({ kind: "no-table", text: textOf(reply) });
+      return ended({ kind: "no-table", text: textOf(reply, named) });
+    }
+    const late = untrusted();
+    if (late) {
+      takeBackWritten();
+      return ended(late);
     }
     // Text marked to go that isn't there: what else it wrote may lean on that going, so none of it goes in.
     const unplaced = stream?.written().unplaced;
@@ -749,8 +1063,13 @@ export function createEdits(options: EditsOptions) {
       takeBackWritten();
       return ended({ kind: "unplaced", quotes: unplaced });
     }
-    if (!wrote) return ended({ kind: "unchanged" });
-    return { result: arrived(), reply: textOf(reply), reason };
+    // What the model said beside the paragraphs it names, or instead of any, is shown, never written (#2356).
+    const aside = stream?.written().aside;
+    if (!wrote || stream?.written().onlyAside) {
+      takeBackWritten();
+      return ended({ kind: "unchanged", ...(aside && { said: aside.join(" ") }) });
+    }
+    return { result: arrived(), reply: textOf(reply, named), reason };
   }
 
   /**
@@ -867,6 +1186,12 @@ export function createEdits(options: EditsOptions) {
       const { selection } = read;
       if (selection.text === "") return nothing({ kind: "unchanged" });
       if (selection.characters > MAX_SELECTION_CHARACTERS) return nothing({ kind: "too-long" });
+      // Its length is told from its Blocks: a reply that names its paragraphs may write only some.
+      const stretch = () => {
+        const top = topLevelBlocks(blocks);
+        return top.slice(bounds.before, top.length - bounds.after);
+      };
+      const before = acceptedText(stretch(), "");
       const call = editCall(input.prepared, askOf(input), selection);
       if (!call) return nothing({ kind: "too-long" });
       let streamed: { raw: string; failure: unknown };
@@ -880,23 +1205,30 @@ export function createEdits(options: EditsOptions) {
       if (streamed.failure !== null) {
         return nothing(failedEdit(streamed.failure));
       }
-      const reply = readEditReply(streamed.raw, selection.text);
-      if (sameText(reply, selection.text)) return nothing({ kind: "unchanged" });
+      const ask = askOf(input);
+      const passage = passageFor(ask.action, selection);
+      const named = NAMES_SHOWN.has(ask.action);
+      const reply = readEditReply(streamed.raw, passage);
+      const unclear = unclearTypedTags(reply, passage);
+      if (unclear.length > 0) return nothing({ kind: "unplaced", quotes: unclear });
+      if (sameText(reply, passage)) return nothing({ kind: "unchanged" });
       const request = randomUUID();
       const written = fork.transact(() => {
         const fresh = freshCitations(selection, options.recheck)(reply);
-        const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh);
+        const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh, { named });
         resolveProposals(blocks, (each) => each.request === request, "accept");
         return rewritten;
       });
-      if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply) });
+      const after = acceptedText(stretch(), request);
+      if (written.unmadeTable) return nothing({ kind: "no-table", text: textOf(reply, named) });
+      if (written.misnamed) return nothing({ kind: "misnamed" });
+      if (written.droppedTypedTag) return nothing({ kind: "typed-tag" });
+      if (written.notPlaced) return nothing({ kind: "not-placed" });
       if (written.unplaced) return nothing({ kind: "unplaced", quotes: written.unplaced });
-      if (written.proposals.length === 0) return nothing({ kind: "unchanged" });
+      if (written.proposals.length === 0 || written.onlyAside)
+        return nothing({ kind: "unchanged" });
       const { droppedCitations, notes } = written;
-      const top = topLevelBlocks(blocks);
-      const revised = top
-        .slice(bounds.before, top.length - bounds.after)
-        .map((element) => element.clone());
+      const revised = stretch().map((element) => element.clone());
       const made: ProposalRequest = {
         source: "answer-added",
         providerId: input.prepared.provider.id,
@@ -931,7 +1263,7 @@ export function createEdits(options: EditsOptions) {
           ...someNotes(notes),
           stateVector: content.stateVector(input.mindId),
         },
-        length: { before: selection.text, after: textOf(reply) },
+        length: { before, after },
         reason: reasonOf(streamed.raw),
         revised: { blockIds },
       };

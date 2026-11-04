@@ -5,6 +5,8 @@ export interface LibraryGroup {
   id: string;
   name: string;
   description: string;
+  /** The Folder this one is in, or null at the top level. A Folder holds Folders, Minds and Documents. */
+  parentId: string | null;
   /**
    * Checks count the files IncarnaMind wrote in this Folder as evidence (#80):
    * the User switched their exclusion off here. False by default.
@@ -135,9 +137,12 @@ export interface LibrarySettings {
    * Tag and sort new and changed Documents by itself, once a model is chosen
    * (#1617). Until the User sets it, it is on for a model on this computer
    * and off for a cloud model, since each Document's name and an excerpt go
-   * to it. Off, nothing is sent by itself: what the User starts by hand
-   * (Organize, a re-tag) still goes. A Document added while it is off isn't
-   * tagged or sorted when it is turned on.
+   * to it. Turned on for where it sends (`turnOn` in `saveLibrarySettings`),
+   * it reads off once that changes, to another service or from this computer
+   * to one, until it is turned on there (#2308). On, only a Document new
+   * since it was turned on goes by itself (`mayBackgroundSend` in
+   * ../tags/held); the others are "off". Off, nothing is sent by itself: what
+   * the User starts by hand (Organize, a re-tag) still goes.
    */
   automatic: boolean;
   /**
@@ -239,6 +244,8 @@ export interface LibrarySnapshot {
 export interface LibraryGroupInput {
   name: string;
   description: string;
+  /** The Folder it is inside, or null at the top level. Left out, it stays as it was (null for a new Folder). */
+  parentId?: string | null;
   /** See `LibraryGroup.countsOwnFiles`. Left out, it stays as it was (false for a new Folder). */
   countsOwnFiles?: boolean;
   /** See `LibraryGroup.keepInside`. Left out, it stays as it was (false for a new Folder). */

@@ -9,6 +9,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  gettingStarted,
   launchApp,
   removeDataFolder,
   setLanguage,
@@ -151,7 +152,11 @@ for (const language of ["en", "zh-CN"] as const) {
       const noteTitle = (await written.getByTestId("row-text").innerText()).trim();
       expect(noteTitle).not.toBe("");
 
-      // Dismiss the "You're set up." card, whose ✕ is on the example's tab.
+      // The Library comes with the User's own Document and Note, while the steps still show (#2376).
+      await expect(sidebar.getByTestId("open-library")).toBeVisible();
+      await expect(sidebar.getByTestId("library-row-count")).toHaveText("2");
+
+      // Dismiss the "You're set up." card, whose ✕ is on the example's tab: the Library stays.
       await sidebar.getByTestId("example-section").getByTestId("mind-list-item").click();
       await expect(window.getByTestId("first-open-hide")).toBeVisible();
       await window.getByTestId("first-open-hide").click();
@@ -174,6 +179,80 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(listed).not.toContainText(noteTitle);
       await expect(section).not.toContainText(noteTitle);
       await expect(window.getByTestId("library").getByTestId("mind-row")).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`with a Document and a Note of one's own, the Library is reachable from the Note's tab while the steps show, and the steps hide from there (${language}) (#2376)`, async () => {
+    test.setTimeout(240_000);
+    const paths = await twoPdfs();
+    const { app, window } = await launchApp(dataDir, {
+      examples: true,
+      fakeChat: true,
+      home: sources,
+    });
+    try {
+      await setWindowSize(app, window, 1200, 900);
+      await dismissChatSetup(window);
+      await connectLocalChatModel(window);
+      await setLanguage(window, language);
+      await addDocuments(window, paths);
+      const answer = await askInAssistant(window, "How do tides rise?");
+      await answer.getByTestId("answer-write-note").click();
+      await expect(answer.getByTestId("answer-added-undo")).toBeVisible();
+      const sidebar = window.getByTestId("sidebar");
+      const note = sidebar.getByTestId("notes-section").getByTestId("mind-row").first();
+      await expect(note).toHaveCount(1);
+      const noteTitle = (await note.getByTestId("row-text").innerText()).trim();
+      expect(noteTitle).not.toBe("");
+
+      // The Note's tab: the card isn't shown here, and the Library is reachable anyway.
+      await note.getByTestId("mind-list-item").click();
+      await expect(window.getByTestId("mind-tab").getByTestId("tab-title").first()).toBeVisible();
+      await expect(window.getByTestId("first-open-steps")).toHaveCount(0);
+      await expect(sidebar.getByTestId("open-library")).toBeVisible();
+      await expect(sidebar.getByTestId("library-row-count")).toHaveText("2");
+      await sidebar.getByTestId("open-library").click();
+      await expect(window.getByTestId("library")).toBeVisible();
+      await expect(window.getByTestId("library").getByTestId("library-count")).toHaveText("2");
+      // Reaching it dismissed nothing: the card is still on the example's page.
+      expect(await gettingStarted(window)).toMatchObject({ hidden: false });
+
+      // Back on the Note's tab, the card's ✕ is one page away; the steps still hide from here, and
+      // their command is found by the card's own title too.
+      await window.getByTestId("tab-title").filter({ hasText: noteTitle }).click();
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      const hide = language === "en" ? "Hide the getting-started steps" : "隐藏入门步骤";
+      await window.keyboard.type(language === "en" ? "Welcome" : "欢迎");
+      await expect(window.getByTestId("palette-item").filter({ hasText: hide })).toBeVisible();
+      await window.getByTestId("palette-search").fill(hide);
+      await window.getByTestId("palette-item").filter({ hasText: hide }).first().click();
+      await expect.poll(() => gettingStarted(window)).toMatchObject({ hidden: true });
+      // The line says what happened, and Undo brings the steps back where they were.
+      const hidden = language === "en" ? "Hid the getting-started steps" : "已隐藏入门步骤";
+      await expect(window.getByTestId("undo-line")).toContainText(hidden);
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect.poll(() => gettingStarted(window)).toMatchObject({ hidden: false });
+      await sidebar.getByTestId("example-section").getByTestId("mind-list-item").click();
+      await expect(window.getByTestId("first-open-steps")).toBeVisible();
+      expect(await gettingStarted(window)).toMatchObject({
+        indexed: true,
+        askedOwn: true,
+        citationChecked: false,
+      });
+
+      // Hidden again for good: the example's page has no card, and the User's Library is still there.
+      await window.keyboard.press("ControlOrMeta+k");
+      await expect(window.getByTestId("palette-search")).toBeFocused();
+      await window.keyboard.type(hide);
+      await window.getByTestId("palette-item").filter({ hasText: hide }).first().click();
+      await expect.poll(() => gettingStarted(window)).toMatchObject({ hidden: true });
+      await expect(window.getByTestId("first-open-steps")).toHaveCount(0);
+      await expect(sidebar.getByTestId("open-library")).toBeVisible();
     } finally {
       await app.close();
     }
@@ -229,6 +308,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const written = sidebar.getByTestId("notes-section").getByTestId("mind-row");
       await expect(written).toHaveCount(1);
       const noteTitle = (await written.getByTestId("row-text").innerText()).trim();
+      // The Library is there before the steps are put away (#2376).
+      await expect(sidebar.getByTestId("open-library")).toBeVisible();
       await sidebar.getByTestId("example-section").getByTestId("mind-list-item").click();
       await expect(window.getByTestId("first-open-hide")).toBeVisible();
       await window.getByTestId("first-open-hide").click();

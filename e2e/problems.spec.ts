@@ -117,7 +117,14 @@ test("a failed Answer says so under itself with one action: the key's page in Se
       }),
     ).toBe(true);
     await expect(window.locator("dialog[open]")).toHaveCount(0);
-    expect((await line.boundingBox())?.height).toBeLessThan(24);
+    // The line may wrap with a wide system font; all of it stays inside the window.
+    const lineBox = await line.boundingBox();
+    if (!lineBox) throw new Error("The problem line isn't showing.");
+    const [windowWidth, windowHeight] = await window.evaluate(() => [innerWidth, innerHeight]);
+    expect(lineBox.x).toBeGreaterThanOrEqual(0);
+    expect(lineBox.x + lineBox.width).toBeLessThanOrEqual(windowWidth);
+    expect(lineBox.y).toBeGreaterThanOrEqual(0);
+    expect(lineBox.y + lineBox.height).toBeLessThanOrEqual(windowHeight);
     await screenshot(window, "answer-key-refused-en");
 
     // Its action opens the Models page, where the key is.

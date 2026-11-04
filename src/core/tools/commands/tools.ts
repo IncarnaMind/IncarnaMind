@@ -11,6 +11,7 @@
  */
 import { COMMAND_TARGETS, type CommandTarget, type OfferedCommand } from "../../../shared/commands";
 import {
+  type CloudReadPermit,
   COMMAND_AT_ONCE,
   type CommandAsk,
   type CommandDone,
@@ -55,9 +56,11 @@ const windowLine = (entry: OfferedCommand) =>
 
 const yoursLine = (entry: OfferedCommand) => `${entry.id} (“${entry.label}”)`;
 
+const YOURS_RUN = "alone, run all the same to show them where";
+
 const yoursFor = (kind: CommandTarget, offered: readonly OfferedCommand[]): string | null => {
   const yours = offered.filter((entry) => entry.yours !== null && entry.on?.includes(kind));
-  return yours.length > 0 ? `the User's alone: ${yours.map(yoursLine).join("; ")}` : null;
+  return yours.length > 0 ? `the User's ${YOURS_RUN}: ${yours.map(yoursLine).join("; ")}` : null;
 };
 
 /**
@@ -85,7 +88,7 @@ const nouns: Record<CommandTarget, [string, string]> = {
 
 /** What only the User changes (#1421), as the model is told how to ask for it. */
 const YOURS_RULE =
-  "Never yours to change: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. For a request for one, always call run_command, never only words: with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, deleteForGood, …), or with the window's own command for it. Nothing runs, and the User is shown where they change it.";
+  "The User's alone: keys and sign-ins, consent, Local mode, Privacy and what leaves the computer, what you may do without asking, the monthly spending cap, deleting for good, giving “Checked by me”, and marking text as the User's own. Run a request for one all the same, with settings.change and that setting (localMode, consent, privacy, webSearch, apiKey, signIn, approvals, monthlyCap, deleteForGood, …) or the window's own command for it: nothing changes; the User is shown where they do it. Words alone show them nothing.";
 
 export interface CommandToolsOptions {
   host: CommandsHost;
@@ -178,7 +181,7 @@ export function commandTools(options: CommandToolsOptions): {
   const counted = new Map<string, number>();
   const renames = [...options.renames];
   const readTitles = new Set(options.titledPages);
-  /** What the model read of the window's commands that ran: marked `done`, one ends the turn. */
+  /** What the model read of the window's commands that ran, and of refusals: marked `done`, one ends the turn. */
   const oneLine = new Set<string>();
   /** The window's commands still going on when their calls returned, by call. */
   const goingOn = new Map<string, CommandDone>();
@@ -236,9 +239,7 @@ export function commandTools(options: CommandToolsOptions): {
             ? "The window offers no command now."
             : `Commands for the window in front: ${windowCommands.map(windowLine).join("; ")}.`,
           ...(yoursCommands.length > 0
-            ? [
-                `The User's alone, which only tell them where they change it: ${yoursCommands.map(yoursLine).join("; ")}.`,
-              ]
+            ? [`The User's ${YOURS_RUN}: ${yoursCommands.map(yoursLine).join("; ")}.`]
             : []),
         ].join("\n");
       }
@@ -273,7 +274,7 @@ export function commandTools(options: CommandToolsOptions): {
       }
       options.found(toolCallId, foundOf(query, found.length));
       if (found.length === 0) {
-        return `No ${one} matches, so no command can act on one. Say so, and change nothing.`;
+        return `No ${one} matches, so no command can act on one. Commands for ${many}: ${commandsFor(query.kind, options.offered)}. Act only as the request fits one of them.`;
       }
       const shown = found.slice(0, MAX_LISTED);
       for (const each of shown) if (each.webPage) readTitles.add(each.id);
@@ -295,9 +296,9 @@ export function commandTools(options: CommandToolsOptions): {
     description: [
       `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Notes: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
       `${COMMAND_TOOLS.list} gives the others for what it found, and with kind "window" those for the window in front; run them by id the same way.`,
-      `A change inside IncarnaMind runs at once and the User can undo it. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
+      `A change inside IncarnaMind runs at once and the User can undo it, except Organize and a Tag merge, which ask once. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
       YOURS_RULE,
-      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
+      "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command or a refusal with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
     ].join(" "),
     inputSchema: {
       type: "object",
@@ -324,6 +325,20 @@ export function commandTools(options: CommandToolsOptions): {
         size: { type: "string" },
         setting: { type: "string", enum: SETTING_NAMES },
         value: { type: "string" },
+        merges: {
+          type: "array",
+          description:
+            "For tag.merge into more than one Tag: each merge, instead of ids and tag. Every merge in this one call is confirmed once.",
+          items: {
+            type: "object",
+            properties: {
+              ids: { type: "array", items: { type: "string" } },
+              tag: { type: "string" },
+            },
+            required: ["ids", "tag"],
+            additionalProperties: false,
+          },
+        },
         done: {
           type: "boolean",
           description:
@@ -337,8 +352,9 @@ export function commandTools(options: CommandToolsOptions): {
     providerTool: COMMAND_TOOLS.run,
     effects: commandEffects,
     untrustedResult: false,
-    // Only a window's command the model marked as the request's last ends the turn: a refusal
-    // never does, so a request that asked for more goes on to it.
+    // Only a window's command or a refusal the model marked as the request's last ends the turn,
+    // so a request that asked for more goes on to it. After a refusal the model, told IncarnaMind
+    // says it, still said it again, and that the place was opened for the User (#2252).
     endsTurn: (result, input) => input.done === true && oneLine.has(result),
     async call(_input, { toolCallId, signal }) {
       const command = checked.get(toolCallId);
@@ -346,11 +362,20 @@ export function commandTools(options: CommandToolsOptions): {
       if (!command) throw new Error("The command wasn't checked before it ran.");
       const ask = options.ask;
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
+      // The card named the cloud service and what goes to it: the User's Allow is that consent.
+      // A standing no is theirs to change in Settings: this Allow carries a permit for this run
+      // only, and stores nothing.
+      let permit: CloudReadPermit | undefined;
+      if (command.cloud) {
+        if (command.cloudDeclined) permit = { flow: "classification", serviceId: command.cloud.id };
+        else options.host.allowCloudRead(command.cloud);
+      }
       try {
         ran = await inTurn(() =>
           command.run(
             ask ? (question) => ask(toolCallId, question(options.language), signal) : null,
             signal,
+            permit,
           ),
         );
       } catch (error) {
@@ -365,7 +390,7 @@ export function commandTools(options: CommandToolsOptions): {
       if (ran.step) options.steps.add(options.runId, ran.step);
       const done = { ...ran.done, command: command.command, run: options.runId };
       options.ran(toolCallId, done);
-      if (ran.done.window) oneLine.add(ran.said);
+      if (ran.done.window || ran.done.yours) oneLine.add(ran.said);
       if (ran.done.window?.running) {
         goingOn.set(toolCallId, done);
         const early = endedEarly.get(toolCallId);

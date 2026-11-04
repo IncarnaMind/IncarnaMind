@@ -1,3 +1,4 @@
+import { looseDocumentIds, organizeDocuments } from "../organizeDocuments";
 import { useAppStore } from "../store";
 import { hasNotSorted, waitingIds } from "../suggestionReview";
 import type { Command } from "./registry";
@@ -20,5 +21,20 @@ export const libraryCommands: readonly Command[] = [
     when: () => waitingIds().length > 0 || hasNotSorted(),
     reversible: true,
     run: () => useAppStore.getState().openLibrary("review"),
+  },
+  {
+    id: "library.organize",
+    label: "library.organize",
+    keywords: ["library.organize.keywords"],
+    group: "main",
+    when: () => looseDocumentIds(useAppStore.getState()).length > 0,
+    // Its suggestions wait in To review, and its Undo takes them back with the Folders it made.
+    reversible: true,
+    // The assistant's Organize is documents.organize, which files them at once with one Undo (#2252).
+    assistant: false,
+    async run() {
+      useAppStore.getState().openLibrary();
+      await organizeDocuments(looseDocumentIds(useAppStore.getState()));
+    },
   },
 ];

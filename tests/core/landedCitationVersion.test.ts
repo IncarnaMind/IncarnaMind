@@ -11,7 +11,7 @@ import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { citationState, needsRecheck, newVersionCitation } from "../../src/shared/citations";
 import { recheckCitations } from "../../src/shared/noteBlocks";
-import { checkedResult, citingModel, setUpWithDocuments } from "../helpers/citations";
+import { answerEnded, checkedResult, citingModel, setUpWithDocuments } from "../helpers/citations";
 import { queryDatabase, startCore } from "../helpers/core";
 import { sha256, waitForProcessing } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -63,13 +63,7 @@ async function citedAnswer(
   if (!document?.path) throw new Error("Nothing was added.");
   const result = await setup.core.askInConversation({ text: QUESTION });
   if (!result.asked) throw new Error("Not asked.");
-  await new Promise<void>((resolve) => {
-    const stop = setup.core.on("answer.finished", ({ answerId }) => {
-      if (answerId !== result.answerId) return;
-      stop();
-      resolve();
-    });
-  });
+  await answerEnded(setup.core, result.answerId);
   const { messages } = await setup.core.getConversation(result.conversation.id);
   const answer = messages.find((each) => each.id === result.answerId);
   if (answer?.kind !== "answer") throw new Error("No Answer.");
