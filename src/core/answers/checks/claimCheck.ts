@@ -25,12 +25,18 @@
 import { generateText } from "ai";
 import { citedInputs } from "../../../shared/calculatedFigures";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
+import {
+  type Figure,
+  type FigureContext,
+  FiguresNotRead,
+  readFigures,
+} from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
 import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { isPeriod } from "../../../shared/periods";
 import { sentenceSpans } from "../../../shared/sentences";
+import { type UnreadFigures, unreadFiguresDetail } from "../../../shared/unreadFigures";
 import type {
   CheckedVersion,
   CheckFigure,
@@ -128,6 +134,7 @@ import {
   PRESENCE_INSTRUCTIONS,
   partInstructions,
   presencePrompt,
+  RECHECK_INSTRUCTIONS,
   type ReadCorrection,
   type ReadVerdict,
   readEvidence,
@@ -598,6 +605,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
 }
 
 function createSentenceCheck(deps: ClaimCheckDependencies) {
+  // The Passages each check was given or shown, so that a text whose figures couldn't be read is
+  // named by the one it came from.
+  const passagesOf = new WeakMap<ClaimCheckRequest, () => readonly string[]>();
   const check = async function checkClaim(
     request: ClaimCheckRequest,
   ): Promise<AtomicClaimCheckResult> {
@@ -689,6 +699,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
     for (const passage of citedPassages) read.set(passage.documentId, passage.contentHash);
     const citedShown = citedPassages.length > 0 ? session.show(citedPassages.map(asPassage)) : null;
+    passagesOf.set(request, () => [
+      ...citedPassages.map((passage) => passage.passageId),
+      ...session.shownPassages().map((passage) => passage.passageId),
+    ]);
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
@@ -1648,6 +1662,47 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         excluded: nearest ? left.excluded : [...left.excluded, ...workingsSayingIt()],
       };
     };
+    // The fields-only second look (#2313): a judge's own reply that said it could not state the
+    // sentence, and then said the claim is stated and the same, is asked once more; a still
+    // inconsistent reply is Not checked rather than Supported or cut.
+    const rechecked = async (
+      again: ReadVerdict | null,
+      shown: Citation | null,
+    ): Promise<ClaimCheckResult> => {
+      if (!again) return notChecked("malformed");
+      if (again.verdict === "supported") {
+        if (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+          return unsupported(
+            {
+              reason: again.says,
+              covered: again.covered,
+              uncovered: again.uncovered,
+              found: true,
+            },
+            shown,
+          );
+        return {
+          verdict: "supported",
+          evidence: shown,
+          says: null,
+          unsupported: null,
+          calculation: worked?.calculation ?? null,
+          ...citedCase(shown),
+          ...facts(),
+        };
+      }
+      if (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+        return unsupported(
+          {
+            reason: again.says,
+            covered: again.covered,
+            uncovered: again.uncovered,
+            found: true,
+          },
+          shown,
+        );
+      return notChecked("malformed");
+    };
     session.check();
     if (verdict.reasonKind) {
       return unsupported(
@@ -1666,6 +1721,24 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       );
     }
     if (verdict.verdict === "unsupported" && !byCalculation) {
+      // Its fields say the claim is stated and the same, while its verdict says otherwise: ask
+      // once more, and a still inconsistent reply is Not checked (#2313).
+      const stated = namedEvidence[0] ?? null;
+      if (
+        stated !== null &&
+        verdict.topic === "found" &&
+        verdict.scope === "same" &&
+        verdict.roles === "same" &&
+        (verdict.time === undefined || verdict.time === "same") &&
+        !ownDetailDiffers(verdict) &&
+        !ownDetailUnread(verdict) &&
+        quoteStatesDetail(request.claim, stated.quote)
+      ) {
+        const again = await compare(request, stated, session, signal, RECHECK_INSTRUCTIONS);
+        if ("failed" in again) return failedCheck(again.failed);
+        if (signal.aborted) return notChecked("stopped");
+        return rechecked(readVerdict(again.reply), stated);
+      }
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
       const onTopic = verdict.topic !== "not found";
@@ -1793,8 +1866,9 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       }
       // A part whose quote states it on its own, and whose own Roles, Time, Duty, Condition and
       // Scope agree: the reply's contradiction was about words outside the part, as a sentence's
-      // figure is for a part about when it happened (#2313).
-      const part = request.originalClaim;
+      // figure is for a part about when it happened. Its fields disagree with its verdict, so it is
+      // asked once more; never upgraded by this code (#2313).
+      const sentence = request.originalClaim;
       if (
         confirmation.kind === "states" &&
         !unit &&
@@ -1802,20 +1876,17 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         !ownDetailDiffers(verdict) &&
         !ownDetailUnread(verdict) &&
         verdict.scope !== "wider" &&
-        part !== undefined &&
-        isPartOf(part, request.claim) &&
+        !comparesOtherWords({ ...verdict, verdict: "supported" }, request.claim, true) &&
+        sentence !== undefined &&
+        isPartOf(sentence, request.claim) &&
         evidence !== null &&
         quoteStatesDetail(request.claim, evidence.quote)
-      )
-        return {
-          verdict: "supported",
-          evidence,
-          says: null,
-          unsupported: null,
-          calculation: worked?.calculation ?? null,
-          ...citedCase(evidence),
-          ...facts(),
-        };
+      ) {
+        const again = await compare(request, deciding, session, signal, RECHECK_INSTRUCTIONS);
+        if ("failed" in again) return failedCheck(again.failed);
+        if (signal.aborted) return notChecked("stopped");
+        return rechecked(readVerdict(again.reply), evidence);
+      }
       // A whole sentence keeps the card of what the quote covers, never Supported: in one word it
       // called the parties the other way round the same (#1668, #2313).
       if (confirmation.kind === "doubt" || confirmation.kind === "states") return inDoubt();
@@ -1850,9 +1921,87 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     };
   };
   return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
-    const result = await check(request);
-    return result.verdict === "supported" ? withDollarClause(deps, request.claim, result) : result;
+    try {
+      const result = await check(request);
+      return result.verdict === "supported"
+        ? withDollarClause(deps, request.claim, result)
+        : result;
+    } catch (error) {
+      if (!(error instanceof FiguresNotRead)) throw error;
+      return figuresNotRead(deps, request, error, passagesOf.get(request)?.() ?? []);
+    }
   };
+}
+
+/**
+ * A check whose figures couldn't be read (#2510) is never Supported, and its text is never taken
+ * for one that holds no figures: it is not checked, and says where, as the Passage the text came
+ * from, else the sentence itself.
+ */
+function figuresNotRead(
+  deps: ClaimCheckDependencies,
+  request: ClaimCheckRequest,
+  error: FiguresNotRead,
+  passageIds: readonly string[],
+): AtomicClaimCheckResult {
+  const loose = (text: string) => text.replace(/\s+/g, " ").trim();
+  const unread = loose(error.text);
+  const holds = (text: string) => unread !== "" && loose(text).includes(unread);
+  // The text read may be a quote of a Passage, or a search's result that holds several: the place
+  // is the Passage whose own figures can't be read.
+  const near = passageIds
+    .map((id) => deps.documents.citationSource(id))
+    .filter(
+      (each): each is CitationSource =>
+        each !== null &&
+        (holds(each.text) || (loose(each.text) !== "" && unread.includes(loose(each.text)))),
+    );
+  const source = near.find((each) => !figuresReadIn(each.text)) ?? near[0] ?? null;
+  const sentence = [request.claim, request.originalClaim, request.recordClaim].some(
+    (text) => text !== undefined && (holds(text) || unread.includes(loose(text))),
+  );
+  const where = source
+    ? `Passage ${source.passageId}`
+    : sentence
+      ? "its sentence"
+      : "a text it read";
+  console.error(`A check couldn't read the figures in ${where}: ${messageOf(error.cause)}`);
+  const result: ClaimCheckResult = source
+    ? {
+        verdict: "not-checked",
+        reason: "figures-not-read",
+        detail: unreadFiguresDetail(unreadPlaceOf(deps, source)),
+        versions: [{ documentId: source.documentId, contentHash: source.contentHash }],
+        excluded: [],
+      }
+    : {
+        verdict: "not-checked",
+        reason: sentence ? "sentence-figures-not-read" : "figures-not-read",
+        detail: null,
+        versions: [],
+        excluded: [],
+      };
+  return request.figures?.length ? uncheckedFigureResults(request.figures, result) : result;
+}
+
+function figuresReadIn(text: string): boolean {
+  try {
+    readFigures(text);
+    return true;
+  } catch (error) {
+    if (error instanceof FiguresNotRead) return false;
+    throw error;
+  }
+}
+
+function unreadPlaceOf(deps: ClaimCheckDependencies, source: CitationSource): UnreadFigures {
+  const { documentId, documentName, contentHash, pageFrom, pageTo } = source;
+  const units =
+    pageFrom === null || pageTo === null
+      ? []
+      : deps.documents.pageTexts(documentId, contentHash, pageFrom, pageTo);
+  const location = units.length > 0 ? locationOf(units, null) : null;
+  return { documentId, documentName, contentHash, pageFrom, pageTo, location };
 }
 
 /**
@@ -1874,7 +2023,7 @@ const DETAIL_LINES =
  * sentence's party or term: a figure's or a cell's sentence often names neither ("Scope: none,
  * same" for 杠杆率仍应在3.25倍的契约上限之内), but one that names the Tenant has its words to copy.
  */
-function comparesOtherWords(verdict: ReadVerdict, claim: string, asked: boolean): boolean {
+export function comparesOtherWords(verdict: ReadVerdict, claim: string, asked: boolean): boolean {
   if (verdict.verdict !== "supported") return false;
   const sides = verdict.rolesSides;
   if (sides === undefined) return asked;
@@ -2084,7 +2233,7 @@ const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : 
  * Whether `claim` is one part of `sentence`, not the whole sentence but for spaces and punctuation
  * around it, as the part path tells a part from the sentence it fills (#2313).
  */
-function isPartOf(sentence: string, claim: string): boolean {
+export function isPartOf(sentence: string, claim: string): boolean {
   const at = sentence.indexOf(claim);
   return (
     at >= 0 && !/^[\s\p{P}]*$/u.test(sentence.slice(0, at) + sentence.slice(at + claim.length))
@@ -2129,23 +2278,49 @@ const DETAIL_LINKS = new Set([
 ]);
 
 /**
- * Whether the deciding quote states the part's own detail: each of its content words (or, in
- * Chinese, each of its characters) is there. One judgement called "every week" against "every
- * year" the same, and the part read Supported (#2313).
+ * Whether the deciding quote states the part's own detail in its own order: its content words
+ * stand consecutively, its numbers whole, and in Chinese a run stands whole. One judgement called
+ * a part's own detail the same when the quote had another there, and the part read Supported
+ * (#2313).
  */
-function quoteStatesDetail(claim: string, quote: string): boolean {
-  const text = quote.toLowerCase();
-  for (const word of claim.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
-    if (/^\p{Script=Han}+$/u.test(word)) {
-      for (const character of word) if (!text.includes(character)) return false;
-      continue;
-    }
-    // A token mixing letters and digits is a figure's notation ("1m", "1,500"): its digits are
-    // the part's own, and the figure rules compare them.
-    if (/\p{L}/u.test(word) && /\p{N}/u.test(word)) continue;
-    if (word.length < 2 || DETAIL_LINKS.has(word)) continue;
-    if (!text.includes(word)) return false;
-  }
+export function quoteStatesDetail(claim: string, quote: string): boolean {
+  const normalize = (text: string) =>
+    text
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/\bcan['’]t\b/g, "cannot")
+      .replace(/\bwon['’]t\b/g, "will not")
+      .replace(/\bshan['’]t\b/g, "shall not")
+      .replace(/n['’]t\b/g, " not");
+  const words = (text: string) =>
+    text.match(/\p{Script=Han}+|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu) ?? [];
+  const text = normalize(quote);
+  const own = normalize(claim);
+  const negations = (each: string) =>
+    [...each.matchAll(/\b(?:not|no|never|without|nor|cannot)\b|[不未没无非]/gu)].length;
+  if (negations(text) > negations(own)) return false;
+  // A number is its whole digits, so "3.9" is compared with "3.9" and never split into "3" and
+  // "9", which the word tokenizer would drop; a comma is a thousands mark.
+  const numbers = (each: string) =>
+    (each.match(/\d+(?:[.,]\d+)*/g) ?? []).map((number) => number.replace(/,/g, ""));
+  const quoteNumbers = new Set(numbers(text));
+  for (const number of numbers(own)) if (!quoteNumbers.has(number)) return false;
+  const content = (word: string) =>
+    !/\d/.test(word) &&
+    !/^\p{Script=Han}+$/u.test(word) &&
+    word.length >= 2 &&
+    !DETAIL_LINKS.has(word);
+  const quoteWords = words(text);
+  const quoteContent = quoteWords.filter(content);
+  const ownContent = words(own).filter(content);
+  const consecutive =
+    ownContent.length === 0 ||
+    quoteContent.some((_, start) =>
+      ownContent.every((word, offset) => quoteContent[start + offset] === word),
+    );
+  if (!consecutive) return false;
+  for (const word of words(own))
+    if (/^\p{Script=Han}+$/u.test(word) && !text.includes(word)) return false;
   return true;
 }
 

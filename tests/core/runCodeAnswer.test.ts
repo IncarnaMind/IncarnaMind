@@ -321,7 +321,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     ]);
     const answer = await ask(await setUp(model), "How many errors are in the log?");
     expect(told(model, "run_code")[0]).toBe(
-      "Python didn't run: this copy of IncarnaMind has no Python of its own. Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download. bash still runs here.",
+      "Python didn't run: this copy of IncarnaMind has no Python of its own. Your code and the Documents aren't the cause. Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download. bash still runs here.",
     );
     expect(answer.analyses[0]?.end).toMatchObject({ kind: "unavailable", reason: "missing" });
   });
@@ -342,7 +342,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     expect(offered.at(-1)).not.toContain("run_analysis");
     expect(offered.at(-1)).toContain("run_code");
     expect(told(model, "run_code")[0]).toBe(
-      "Python didn't run: this copy of IncarnaMind has no Python of its own. Say in the Answer that the analysis couldn't run. bash still runs here.",
+      "Python didn't run: this copy of IncarnaMind has no Python of its own. Your code and the Documents aren't the cause. Say in the Answer that the analysis couldn't run. bash still runs here.",
     );
   });
 
@@ -363,7 +363,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     });
     const answer = await ask(core, "How many errors are in the log?");
     expect(told(model, "run_code")[0]).toContain(
-      "Python didn't run: it couldn't be downloaded: the computer may be offline. Run this analysis with run_analysis instead",
+      "Python didn't run: it couldn't be downloaded: the computer may be offline. Your code and the Documents aren't the cause. Run this analysis with run_analysis instead",
     );
     const step = answer.toolCalls.find((call) => call.tool === "run_code");
     expect(step?.analysis).toMatchObject({

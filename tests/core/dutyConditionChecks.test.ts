@@ -70,7 +70,10 @@ interface Case {
 /** How the check's ask for the Duty and Condition lines starts. */
 const ASKED = "Your reply has no Duty or Condition line";
 
-function replying(each: Case, calls: ModelCall[]) {
+/** How the check's second look at a reply that disagreed with itself starts. */
+const LOOKS_AGAIN = "Your last check of this sentence";
+
+function replying(each: Case, calls: ModelCall[], looks: string[]) {
   const plans: Record<string, Plan> = {
     [each.sentence]: { verdict: each.verdict, quote: each.quote, judgement: "conflict" },
   };
@@ -144,9 +147,17 @@ function replying(each: Case, calls: ModelCall[]) {
       };
     },
     {
-      generate: checkGenerate({
-        [each.sentence]: { judgement: "conflict", strict: { text: "Judgement: conflict" } },
-      }),
+      generate: (call) => {
+        if (call.system.startsWith(LOOKS_AGAIN)) {
+          looks.push(call.system);
+          return {
+            text: "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: none / none, same\nTime: none / none, same\nThe rules say more.\nEvidence: [1]",
+          };
+        }
+        return checkGenerate({
+          [each.sentence]: { judgement: "conflict", strict: { text: "Judgement: conflict" } },
+        })(call);
+      },
     },
   );
 }
@@ -161,8 +172,9 @@ async function check(
   each: Case,
   document: { name: string; contents: string },
   calls: ModelCall[] = [],
+  looks: string[] = [],
 ) {
-  const setup = await setUpWithDocuments(replying(each, calls), [document]);
+  const setup = await setUpWithDocuments(replying(each, calls, looks), [document]);
   writeMind(setup.client, [paragraph("point", each.sentence)]);
   await setup.client.settled();
   await setup.core.checkSentences({
@@ -525,5 +537,26 @@ describe("the Duty and Condition lines only ever take support away (#1766, #1708
     expect(checked?.state).toBe(state);
     expect(checked?.state).not.toBe("supported");
     if (each.number) expect(checked?.figures).toHaveLength(1);
+  });
+});
+
+describe("an Unsupported reply whose own Duty or Condition says why is not asked again (#1766, #1708)", () => {
+  const dropped: Case = {
+    sentence: "Berth holders may run a generator.",
+    quote: "Berth holders may run a generator only if the harbour master agrees.",
+    verdict: "unsupported",
+    duty: "may / may, same",
+    condition: "none / only if the harbour master agrees, differs",
+  };
+  test.each<[string, Case, number]>([
+    ["its Condition differs", dropped, 0],
+    ["it gives no Condition line", { ...dropped, condition: null }, 0],
+    // Paired: with every field the same, the reply disagrees with itself and is asked once more.
+    ["every field the same", { ...dropped, condition: SAME }, 1],
+  ])("%s", async (_, each, asked) => {
+    const looks: string[] = [];
+    const checked = await check(each, BERTHS, [], looks);
+    expect(looks).toHaveLength(asked);
+    expect(checked?.state).not.toBe("supported");
   });
 });

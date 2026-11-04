@@ -328,8 +328,14 @@ export interface CreateMindInput {
  *   `comments` map. An older version would strip the mark, so it opens these
  *   Notes read-only. Older content is version 49 content as it is: a Note
  *   written before has no comments.
+ * - 51: each part of a `claimCheck` mark keeps the model and time that judged
+ *   it (`providerId`, `modelId`, `checkedAt` on a part, #1667), so checking
+ *   one part again leaves the others' as they were. An older version would
+ *   write the parts again without them and name the newest model for every
+ *   part, so it opens these Notes read-only. Older content is version 51
+ *   content as it is: a part with none was judged by its mark's model.
  */
-export const CONTENT_SCHEMA_VERSION = 50;
+export const CONTENT_SCHEMA_VERSION = 51;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -1308,6 +1314,8 @@ export interface CommandDone {
    * and goes on in the window, a Check for one; this call is updated when it ends.
    */
   window?: { changed: boolean; running?: true };
+  /** For a window's command with nothing found: the Note the Question was asked from, which it acts on. */
+  mindId?: string;
   /** It is the User's alone: nothing ran, and the card says where they change it (#1421). */
   yours?: Yours;
   /** With `yours` "wall": the Folder whose wall the request is about, which the card names (#1934). */
@@ -5342,6 +5350,11 @@ export interface ChatProvider {
   baseUrl: string | null;
   /** Whether an API key is stored for it. Keys live in the keychain, never in the database. */
   hasApiKey: boolean;
+  /**
+   * True when a key is saved for it but this device can't open it, as after the
+   * keyring that saved it changed. Absent when a key is readable or none is saved.
+   */
+  apiKeyUnreadable?: boolean;
   /** Where Questions go, or null when the server runs on this computer and nothing leaves it. */
   service: ExternalService | null;
 }
@@ -5389,6 +5402,8 @@ export interface TestChatConnectionInput {
 /** Why a request to a model provider failed, so the UI can say what to fix. */
 export type ProviderErrorKind =
   | "auth"
+  /** A saved key this device can't open (e.g. the keyring changed): the User enters it again. */
+  | "api-key-unreadable"
   | "model"
   | "rate-limit"
   | "network"
@@ -6056,6 +6071,8 @@ export type ChatReadiness =
       ready: false;
       /**
        * "missing-api-key": the provider needs a key and none is stored.
+       * "api-key-unreadable": the provider's saved key can't be opened on this
+       * device (e.g. the keyring changed), so it is asked for again.
        * "consent-declined": the User declined sending data to its service.
        * "sign-in-required": the provider uses a sign-in (the ChatGPT plan) and
        * this device has none, e.g. the User signed out or it expired.
@@ -6063,7 +6080,12 @@ export type ChatReadiness =
        * on this computer, so no Question is sent to it (each other flow checks
        * local mode itself).
        */
-      reason: "missing-api-key" | "consent-declined" | "sign-in-required" | "local-mode";
+      reason:
+        | "missing-api-key"
+        | "api-key-unreadable"
+        | "consent-declined"
+        | "sign-in-required"
+        | "local-mode";
       provider: ChatProvider;
       modelId: string;
     };
@@ -6463,6 +6485,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   saved value differs from its formulas, it links to another file, it changes each time, its
  *   formulas refer to each other, it reads a sheet or rows that weren't read, Excel saved no value
  *   for it, or any other formula IncarnaMind can't work out), so its cell's number backs nothing.
+ * - "figures-not-read": the figures in a text of a Document the check read couldn't be read; its
+ *   detail is where, as `src/shared/unreadFigures.ts` writes it, or null when that isn't known.
+ * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -6493,6 +6518,8 @@ export type ClaimCheckFailure =
   | "workbook-not-read"
   | "workbook-no-saved-value"
   | "workbook-unsupported"
+  | "figures-not-read"
+  | "sentence-figures-not-read"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
   | "other-cell";
 
@@ -6601,7 +6628,10 @@ export interface ClaimPartCoverage {
   domainEvidence: CitationAttributes[];
 }
 
-export interface ClaimCheckPart extends ClaimPartPlan {
+/** A part keeps the model and time that judged it: checking another part again changes neither (#1667). */
+export interface ClaimCheckPart
+  extends ClaimPartPlan,
+    Partial<Pick<ClaimCheckBasis, "checkedAt" | "providerId" | "modelId">> {
   verdict: ClaimVerdict | "not-checked" | "checking" | null;
   kept?: true;
   figures?: ClaimPartFigure[];

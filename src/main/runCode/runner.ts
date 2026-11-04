@@ -61,6 +61,7 @@ import {
   readAnalysisOutput,
 } from "../../shared/analysis";
 import type { UnitText } from "../../shared/units";
+import { canonicalPath } from "../sandbox";
 import type { PythonRuntime } from "./python";
 import runnerSource from "./runner.py?raw";
 
@@ -289,6 +290,17 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
   const timeLimitMs = options.timeLimitMs ?? RUN_CODE_TIME_LIMIT_MS;
   void removeLeftBehind(options.tempDir, options.reportError);
   const helperSha256 = sha256(`${options.helper}\n${runnerSource}`);
+  // The sandbox is given canonical paths only. The plot font's is found once it is there, and
+  // only a Python run that draws reads it: while it can't be found, its path goes to the run as it
+  // was given, unreadable, so a run that draws stops naming it and every other run goes ahead.
+  let foundFont: string | undefined;
+  const fontPath = async (): Promise<{ path: string; found: boolean } | null> => {
+    if (options.font === null) return null;
+    foundFont ??= await canonicalPath(options.font, { mustExist: true }).catch(() => undefined);
+    return foundFont === undefined
+      ? { path: options.font, found: false }
+      : { path: foundFont, found: true };
+  };
 
   async function stage(
     run: string,
@@ -377,6 +389,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
     pythonUsable: () => options.python !== null && options.python.status().state !== "failed",
     async run(request: CodeRequest): Promise<CodeRun> {
       let command: string;
+      let prefix: string | null = null;
       let fontCache: string | null = null;
       let versions: AnalysisVersions;
       if (request.language === "python") {
@@ -384,6 +397,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
         const ready = await options.python.ensure(request.signal);
         if (!ready.ok) return { kind: "no-python", error: ready.error };
         command = ready.python.command;
+        prefix = ready.python.prefix;
         fontCache = ready.python.fontCache;
         const { manifest } = ready.python;
         versions = {
@@ -406,11 +420,14 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
         };
       }
       request.signal.throwIfAborted();
-      const run = await mkdtemp(join(options.tempDir, "incarnamind-code-"));
-      const lib = join(run, "lib");
-      const work = join(run, "work");
-      const out = join(work, "out");
+      const font = request.language === "python" ? await fontPath() : null;
+      const made = await mkdtemp(join(options.tempDir, "incarnamind-code-"));
       try {
+        // Every path the code is handed, in its arguments, environment and job, is canonical.
+        const run = await canonicalPath(made, { mustExist: true });
+        const lib = join(run, "lib");
+        const work = join(run, "work");
+        const out = join(work, "out");
         await Promise.all([
           mkdir(join(run, "inputs")),
           mkdir(join(lib, "tables"), { recursive: true }),
@@ -445,7 +462,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
             JSON.stringify({
               code: request.code,
               limits: ANALYSIS_LIMITS,
-              font: options.font,
+              font: font?.path ?? null,
               tableMegabytes: TABLE_FILE_BYTES / 1024 / 1024,
               inputsFolder: join(run, "inputs"),
               result,
@@ -490,7 +507,8 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
               join(run, "inputs"),
               lib,
               WORKING_FOLDER,
-              ...(options.font ? [dirname(options.font)] : []),
+              ...(prefix ? [prefix] : []),
+              ...(font?.found ? [dirname(font.path)] : []),
             ],
             write: [WORKING_FOLDER],
             network: "none",
@@ -584,7 +602,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
       } finally {
         // Copies of Documents must not stay behind: a failure is reported, and the folder is
         // removed by the first runner made after the hour any run could take.
-        await removeRunFolder(run).catch((error: unknown) => options.reportError(error));
+        await removeRunFolder(made).catch((error: unknown) => options.reportError(error));
       }
     },
   };

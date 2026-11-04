@@ -148,6 +148,26 @@ describe("run_code's Tool", () => {
     expect(figures).toEqual([]);
   });
 
+  test("Python that couldn't start here: the model is told it is IncarnaMind's Python, not its code or the Documents", async () => {
+    const { report, analysis, figures } = await call({
+      kind: "no-python",
+      error: {
+        kind: "load",
+        message: "Python couldn't import its packages: exec: python3: Operation not permitted",
+      },
+    });
+    expect(report).toBe(
+      "Python didn't run: IncarnaMind's own Python couldn't start on this computer. Your code and the Documents aren't the cause. Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download. bash still runs here.",
+    );
+    expect(analysis?.end).toEqual({
+      kind: "unavailable",
+      reason: "python",
+      detail: "Python couldn't import its packages: exec: python3: Operation not permitted",
+      python: "load",
+    });
+    expect(figures).toEqual([]);
+  });
+
   test("a run that ended in an error gives no marker and no figure", async () => {
     const { report, analysis, figures } = await call(
       ran(30, ["sales.csv"], { kind: "error", message: "NameError: x", line: 3 }),

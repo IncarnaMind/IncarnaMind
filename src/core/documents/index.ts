@@ -123,6 +123,7 @@ import {
   keywordOnlyPassages,
   keywordSearch,
   livePassage,
+  othersHoldTerms,
   passagesBetween,
   passagesBySeq,
   passagesCovering,
@@ -2443,6 +2444,14 @@ export function createDocuments(options: DocumentsOptions) {
 
     /** How many live Documents have Passages to search: of all of them, or only of these. */
     searchableCount,
+
+    /** Whether another Document among these holds half the words of `text` (./search, `othersHoldTerms`). */
+    othersHoldTerms: (
+      text: string,
+      except: string,
+      documentIds: readonly string[] | undefined,
+      leftOut: readonly string[],
+    ) => othersHoldTerms(db, text, except, documentIds, leftOut),
 
     /**
      * The live Documents with Passages to search (of all of them, or only of these) that
