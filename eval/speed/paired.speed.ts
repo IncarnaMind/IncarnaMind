@@ -287,7 +287,6 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     title,
     rows: rows.filter((row) => `${row.model} · ${row.set}` === title),
   }));
-  // The guards hold on both languages together; each language's own table is beside them.
   const sections = groups.flatMap((group) => {
     const languages = [...new Set(group.rows.map((row) => row.language))];
     return [
@@ -299,7 +298,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
         ? languages.flatMap((language) => {
             const ofLanguage = group.rows.filter((row) => row.language === language);
             return [
-              `### ${group.title} · ${language} (${ofLanguage.length} items)`,
+              `### ${group.title} · ${language} (${ofLanguage.length} items; reported only, the guards hold on both languages together)`,
               "",
               pairedSection(ofLanguage, names, margin),
               "",

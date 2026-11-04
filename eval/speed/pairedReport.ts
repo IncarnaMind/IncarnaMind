@@ -166,7 +166,8 @@ function paired(rows: readonly PairedRow[], pick: (run: ArmRun) => number | null
     0.5,
   ) as number;
   const sooner = pairs.filter(({ a, b }) => b < a).length;
-  return `${difference <= 0 ? "−" : "+"}${seconds(Math.abs(difference))}, sooner in ${sooner} of ${pairs.length}`;
+  const sign = difference < 0 ? "−" : difference > 0 ? "+" : "±";
+  return `${sign}${seconds(Math.abs(difference))}, sooner in ${sooner} of ${pairs.length}`;
 }
 
 export function pairedSection(

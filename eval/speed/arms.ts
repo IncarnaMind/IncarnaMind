@@ -22,7 +22,7 @@ export interface Arm {
 }
 
 // An arm that compares one Answer path keeps every other as the Tool loop has it from its first
-// call: a model the retrieve-first list names would otherwise write first in both citation arms.
+// call: a model the retrieve-first list names would otherwise search first in both citation arms.
 export const ARMS: readonly Arm[] = [
   { id: "today", label: "today's path, as the branch runs it" },
   {
@@ -43,7 +43,7 @@ export const ARMS: readonly Arm[] = [
   {
     id: "retrieve-first",
     label:
-      "the Question searched before the first call, answered in one call unless it needs more (#1633)",
+      "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
     paths: { retrievesFirst: true },
   },
 ];
