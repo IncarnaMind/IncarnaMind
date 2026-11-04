@@ -76,6 +76,8 @@ beforeEach(async () => {
   for (const [name, value] of Object.entries(globals)) vi.stubGlobal(name, value);
   commits = [];
   sizes = [];
+  measures = [];
+  probe = null;
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
@@ -97,7 +99,7 @@ function labelState(): string {
   return shown === "true" ? "shown" : shown === "false" ? "hidden" : "none";
 }
 
-async function showMark(room: number | undefined, label = "p. 1–2") {
+async function showMark(room: number | undefined, label = "p. 1–2", number = 2) {
   // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
   const markPath = "../../src/renderer/src/viewer/quoteMark.tsx";
   const {
@@ -116,7 +118,7 @@ async function showMark(room: number | undefined, label = "p. 1–2") {
         Profiler,
         { id: "mark", onRender: () => commits.push(labelState()) },
         createElement(CitationMark, {
-          mark: { tone: "found", number: 2, label },
+          mark: { tone: "found", number, label },
           style: { top: 0, left: 0 },
           room,
           onSize: (size: Size) => sizes.push(size),
@@ -124,6 +126,44 @@ async function showMark(room: number | undefined, label = "p. 1–2") {
       ),
     ),
   );
+}
+
+interface Measured {
+  full: number;
+  compact: number;
+  number: number | undefined;
+  label: string | undefined;
+}
+
+/** What a viewer holding the mark's measure had at each render: the mark's number and its measure. */
+let measures: { number: number; measured: Measured | null }[] = [];
+let probe: ComponentType<{ number: number; label: string }> | null = null;
+
+/** A viewer's side of the mark: the hook that holds the measure, and the mark that reports it. */
+async function showProbe(number: number, label = "p. 1–2") {
+  const markPath = "../../src/renderer/src/viewer/quoteMark.tsx";
+  const {
+    CitationMark,
+    useMarkMeasure,
+  }: {
+    CitationMark: ComponentType<{
+      mark: { tone: "found"; number: number; label?: string };
+      style: object;
+      onSize?: (size: Size) => void;
+    }>;
+    useMarkMeasure: (mark: { tone: "found"; number: number; label?: string } | null) => {
+      measured: Measured | null;
+      onSize: (size: Size) => void;
+    };
+  } = await import(markPath);
+  probe ??= function Probe(props: { number: number; label: string }) {
+    const mark = { tone: "found" as const, number: props.number, label: props.label };
+    const { measured, onSize } = useMarkMeasure(mark);
+    measures.push({ number: props.number, measured });
+    return createElement(CitationMark, { mark, style: { top: 0, left: 0 }, onSize });
+  };
+  const Viewer = probe;
+  await act(() => root?.render(createElement(Viewer, { number, label })));
 }
 
 // "p. 1–2" has two digits and four other signs: the label's box is 1 + 5 + 38.4 = 44.4px. The
@@ -171,6 +211,24 @@ describe("the mark's label in a margin around its width (#2459)", () => {
     for (const size of sizes) expect(size).toEqual({ full: FULL, compact: COMPACT });
   });
 
+  test("tells its place the widths of the label it shows, never those of the label before it", async () => {
+    await showMark(90, "p. 1");
+    expect(sizes.at(-1)).toEqual({ full: 64, compact: COMPACT });
+    sizes = [];
+    await showMark(90, "p. 1–2");
+    expect(sizes.length).toBeGreaterThan(0);
+    for (const size of sizes) expect(size).toEqual({ full: FULL, compact: COMPACT });
+  });
+
+  test("tells its place the widths of the number it shows, never those of the number before it", async () => {
+    await showMark(120, "p. 1–2", 9);
+    expect(sizes.at(-1)).toEqual({ full: 77, compact: 28 });
+    sizes = [];
+    await showMark(120, "p. 1–2", 10);
+    expect(sizes.length).toBeGreaterThan(0);
+    for (const size of sizes) expect(size).toEqual({ full: 84, compact: 34 });
+  });
+
   test("the mark and its copies stay out of the words a quote is found in and a selection reads", async () => {
     // As the viewers read a page's words (`textNodes`): none under `data-quote-skip`.
     const read = (node: Node): string =>
@@ -193,5 +251,41 @@ describe("the mark's label in a margin around its width (#2459)", () => {
       expect(labelState(), `room ${room}`).toBe("none");
       for (const size of sizes) expect(size).toEqual({ full: COMPACT, compact: COMPACT });
     }
+  });
+});
+
+describe("a viewer's measure of its mark, read only for the number and label it was taken for", () => {
+  test("the next number of the same row, a digit wider: no render sees the narrower measure", async () => {
+    await showProbe(9);
+    expect(measures.at(-1)?.measured).toEqual({
+      full: 77,
+      compact: 28,
+      number: 9,
+      label: "p. 1–2",
+    });
+    measures = [];
+    await showProbe(10);
+    const ten = measures.filter((each) => each.number === 10);
+    expect(ten.length).toBeGreaterThan(0);
+    for (const each of ten) expect(each.measured?.full ?? 84).toBe(84);
+    expect(ten.at(-1)?.measured).toEqual({ full: 84, compact: 34, number: 10, label: "p. 1–2" });
+  });
+
+  test("the next number of the same row, as wide: measured again, so the mark is placed", async () => {
+    await showProbe(1);
+    expect(measures.at(-1)?.measured).toEqual({
+      full: 77,
+      compact: 28,
+      number: 1,
+      label: "p. 1–2",
+    });
+    measures = [];
+    await showProbe(2);
+    expect(measures.at(-1)?.measured).toEqual({
+      full: 77,
+      compact: 28,
+      number: 2,
+      label: "p. 1–2",
+    });
   });
 });

@@ -3,6 +3,7 @@ import type { Language } from "../core/language";
 import { type EditMenuState, FILES_CHANNELS, type MenuCommand } from "../shared/bridge";
 import { MENU_COMMANDS } from "../shared/commands";
 import { type MessageKey, translate } from "../shared/i18n";
+import type { QuitAsker } from "./appEnd";
 import { systemDialogOpen } from "./systemDialogs";
 
 /** The window the menu acts on: the one in front, or else the only one. */
@@ -33,13 +34,18 @@ function selectAll(): void {
  * The application menu, in the interface language. As in a browser, ⌘W closes
  * the tab and Shift+⌘W the window. Reload and the developer tools are only in
  * development and test builds. Ctrl stands in for ⌘ on Windows and Linux.
- * `windows` is the app's own windows, for Close All: never the hidden ones.
+ * `windows` is the app's own windows, for Close All: never the hidden ones. `quit` quits, the log
+ * naming the menu or its keys as what asked.
  */
 export function installAppMenu(
   language: Language,
-  { developer, windows }: { developer: boolean; windows: () => BrowserWindow[] },
+  options: {
+    developer: boolean;
+    windows: () => BrowserWindow[];
+    quit: (by: Extract<QuitAsker, "menu" | "shortcut">) => void;
+  },
 ): void {
-  installed = { language, developer, windows };
+  installed = { language, ...options };
   buildMenu();
 }
 
@@ -48,6 +54,7 @@ let installed: {
   language: Language;
   developer: boolean;
   windows: () => BrowserWindow[];
+  quit: (by: Extract<QuitAsker, "menu" | "shortcut">) => void;
 } | null = null;
 let sidebarHidden = false;
 let exportedMind: string | null = null;
@@ -94,9 +101,16 @@ export function setMenuSidebarHidden(hidden: boolean): void {
 
 function buildMenu(): void {
   if (!installed) return;
-  const { language, developer, windows } = installed;
+  const { language, developer, windows, quit } = installed;
   const isMac = process.platform === "darwin";
   const t = (key: MessageKey) => translate(language, key);
+  // Not the `quit` role, which quits without saying it was asked from here; its keys are the role's.
+  const quitItem: MenuItemConstructorOptions = {
+    id: "app.quit",
+    label: t("menu.quit"),
+    ...(process.platform !== "win32" && { accelerator: "CmdOrCtrl+Q" }),
+    click: (_item, _window, event) => quit(event.triggeredByAccelerator ? "shortcut" : "menu"),
+  };
   const command = (
     id: MenuCommand,
     label: MessageKey = MENU_COMMANDS[id].label,
@@ -148,7 +162,7 @@ function buildMenu(): void {
               { role: "hideOthers", label: t("menu.hideOthers") },
               { role: "unhide", label: t("menu.showAll") },
               { type: "separator" },
-              { role: "quit", label: t("menu.quit") },
+              quitItem,
             ],
           } satisfies MenuItemConstructorOptions,
         ]
@@ -196,7 +210,7 @@ function buildMenu(): void {
               { type: "separator" },
               settings,
               { type: "separator" },
-              { role: "quit", label: t("menu.quit") },
+              quitItem,
             ] satisfies MenuItemConstructorOptions[])),
       ],
     },
