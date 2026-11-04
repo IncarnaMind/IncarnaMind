@@ -515,7 +515,7 @@ const exportedThisNoteAs =
 /** A source pack of a Note that cites nothing is refused in plain words, and nothing is saved. */
 const packRefused: Check = (seen) => {
   const [call] = exportCalls(seen, "source-pack");
-  expect(call?.commandProblem?.wording?.key).toBe("export.pack.empty");
+  expect(call?.commandProblem?.message).toBe("No Citations yet, so no cited pages to export.");
   expect(ran(seen).some((each) => each.command === "mind.export")).toBe(false);
 };
 

@@ -2703,7 +2703,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
 
     const call = commandCalls(answer).at(-1);
     expect(call?.status).toBe("failed");
-    expect(call?.commandProblem?.wording?.key).toBe("export.pack.empty");
+    expect(call?.commandProblem?.message).toBe("No Citations yet, so no cited pages to export.");
     expect(await readdir(output)).toEqual([]);
   });
 
