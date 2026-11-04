@@ -131,6 +131,8 @@ export function SelectionMenu({
     const read = () => {
       const range = rangeIn(section);
       if (!range) return;
+      // The words already held: a second read of them must not move the menu's anchor again.
+      if (sameRange(heldRange.current, range)) return;
       const { parts, shown } = reader(range);
       setHeld(
         parts.length > 0
