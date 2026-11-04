@@ -2124,7 +2124,8 @@ const isAmount = (word: string) =>
 /**
  * Whether a new paragraph says the same words as `segment` but other numbers: "Room 103 is
  * booked." for "Room 102 is booked.", "2026 revenue…" for "2025 revenue…". Whether it rewrites
- * that line or is a new one beside it can't be told, so a reply without names adds it (#2356).
+ * that line or is a new one beside it can't be told, so a reply without names over several
+ * paragraphs adds it (#2356).
  */
 function onlyNumbersDiffer(segment: Segment, paragraph: NewParagraph): boolean {
   const old = wordsOf(segment.tokens);
@@ -2423,6 +2424,9 @@ export function createRewriteStream(
     ]),
   );
   const indexOf = new Map(segments.map((segment, index) => [segment, index]));
+  /** Over one paragraph, a new line that differs from it only in its numbers can only mean that one. */
+  const numbersOnly = (segment: Segment, paragraph: NewParagraph) =>
+    segments.length > 1 && onlyNumbersDiffer(segment, paragraph);
   const sameAs = segments.map((segment) => charsOf(segment.tokens).chars);
   /**
    * How alike a new paragraph is to each of the selection's, whether it says words of that one's
@@ -2485,7 +2489,7 @@ export function createRewriteStream(
       ownWords: saysOwn = true,
     }: { standIn?: boolean; least?: number; ownWords?: boolean } = {},
   ) => {
-    if (saysOwn && onlyNumbersDiffer(segment, paragraph)) return false;
+    if (saysOwn && numbersOnly(segment, paragraph)) return false;
     const { alike, own, ownShare, ofOwn, cover, words } = nearnessOf(paragraph);
     const index = indexOf.get(segment) ?? -1;
     const mine = alike[index] ?? 0;
@@ -2619,7 +2623,7 @@ export function createRewriteStream(
     const segment = segments[index];
     if (!segment || droppedTypedTag) return;
     // By its place too, a new line that differs from this one only in its numbers is added.
-    if (keeps && onlyNumbersDiffer(segment, paragraph)) {
+    if (keeps && numbersOnly(segment, paragraph)) {
       addNew(paragraph);
       return;
     }
@@ -2723,7 +2727,7 @@ export function createRewriteStream(
     // of another kind takes a paragraph's place by its place only in a text that rewrites every
     // paragraph: a heading or a table between two kept ones is new text.
     const takesPlace = (segment: Segment, paragraph: NewParagraph) =>
-      !onlyNumbersDiffer(segment, paragraph) &&
+      !numbersOnly(segment, paragraph) &&
       ((byTheirPlace &&
         paragraph.kind === segment.kind &&
         between.indexOf(segment) === held.indexOf(paragraph)) ||
@@ -2943,7 +2947,7 @@ export function createRewriteStream(
           (paragraph.kind === null || paragraph.kind === segment.kind) &&
           placeLikeness(segment, paragraph) >= MOVED_LIKENESS &&
           covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL &&
-          !onlyNumbersDiffer(segment, paragraph),
+          !numbersOnly(segment, paragraph),
       );
       if (again < 0) continue;
       const [movedTo] = said.splice(again, 1);
