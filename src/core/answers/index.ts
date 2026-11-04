@@ -3344,8 +3344,8 @@ export function createAnswers(options: AnswersOptions) {
         (input.toolSet ?? "answer") === "answer" &&
         !writesMinds &&
         (options.retrievesFirst?.(prepared, flow) ?? false);
-      // Each list decides its own path: a model left off the write-then-cite list, which failed
-      // that gate, keeps citing first when it retrieves first (#1633).
+      // Retrieving first doesn't bring writing first with it: a model the write-then-cite list
+      // doesn't name keeps citing first, rather than citing in a way it wasn't admitted to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
       for await (const event of engine.generate({
         instructions: (

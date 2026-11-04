@@ -105,7 +105,7 @@ describe("the guards", () => {
 });
 
 describe("the report", () => {
-  test("counts the Answers that searched more than once, the search made first included", () => {
+  test("counts the Answers that searched more than once", () => {
     const section = pairedSection(
       [row({ searches: 1 }, { searches: 2 }), row({ searches: 1 }, { searches: 1 }, "en-02")],
       ["loop", "retrieve-first"],
@@ -167,7 +167,7 @@ describe("the arm switch", () => {
 });
 
 describe("the arms' Answer paths", () => {
-  // In the question flow, the one the arms' sets ask in; each list decides its own path.
+  // In the question flow, the one the arms' sets ask in.
   const pathOf = (model: { catalogId: string; modelId: string }, paths: AnswerPathsOverride) => ({
     searchesFirst: retrievesFirst(model, "question", paths),
     writesFirst: writesThenCites(model, "question", paths),

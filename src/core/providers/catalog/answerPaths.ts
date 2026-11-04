@@ -35,10 +35,9 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
 ];
 
 /**
- * Searches the Question before the first call and answers from those Passages in one call,
- * falling back to the Tool loop when it needs more (#1633, an amendment to ADR-0007). Claude
- * Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records first, so it
- * answered in one call once in 94 and finished no sooner (+0.3 s on the gating set).
+ * Searches the Question before the first call and answers from those Passages, citing as
+ * WRITES_THEN_CITES has the model (in one call for a model on both lists), falling back to the
+ * Tool loop when it needs more (#1633, an amendment to ADR-0007).
  */
 const RETRIEVES_FIRST: readonly Admitted[] = [
   {

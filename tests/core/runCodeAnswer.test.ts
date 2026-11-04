@@ -9,30 +9,15 @@ import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
-import type { Executor } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
-import { createLocalExecutor } from "../../src/core/execution";
-import { createProcessLauncher } from "../../src/main/processes";
-import { programMeter } from "../../src/main/programMeter";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { answerEnded, shownPassages } from "../helpers/citations";
+import { localExecutorAt } from "../helpers/codeRunner";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { answerRequests, codeToolOn, scriptedModel, scriptedModels } from "../helpers/models";
 
 const LOG = ["GET /a 200", "GET /b 500", "GET /c 500", "POST /d 201", ""].join("\n");
-
-async function executorAt(level: "os" | "none"): Promise<Executor> {
-  const local = createLocalExecutor({
-    processes: createProcessLauncher(async () => ({ PATH: process.env.PATH ?? "/usr/bin:/bin" })),
-    tempDir: await createTempDataFolder(),
-    reportError: (error) => {
-      throw error;
-    },
-    meter: programMeter,
-  });
-  return { level, run: (request) => local.run(request) };
-}
 
 function told(model: MockLanguageModelV4, tool: string): string[] {
   const texts: string[] = [];
@@ -99,7 +84,7 @@ async function setUp(
         output: { results: [{ kind: "figure", name: "n", label: "Rows", unit: null, value: 4 }] },
       }),
     }),
-    executor: await executorAt(options.level ?? "os"),
+    executor: await localExecutorAt(options.level ?? "os"),
     ...(options.codeRuntime !== false && {
       codeRuntime: createCodeHost({
         python: options.manifestUrl

@@ -1,8 +1,8 @@
 /**
  * Retrieve first (#1633): on a model the allowlist names, an Answer starts from the Question's
- * own search, answers from it in one call, and falls back to the Tool loop when the model
- * searches on. A model it doesn't name runs the loop as before, and so does a turn offered the
- * Tools that write Minds (every assistant turn).
+ * own search, answers from it (in one call when the model writes then cites), and falls back to
+ * the Tool loop when the model searches on. A model it doesn't name runs the loop as before, and
+ * so does a turn offered the Tools that write Minds (every assistant turn).
  */
 import { describe, expect, test } from "vitest";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
@@ -10,9 +10,6 @@ import {
   SEARCH_QUERY_INSTRUCTIONS,
   TRANSLATE_QUERY_INSTRUCTIONS,
 } from "../../src/core/answers/prompt";
-import { createLocalExecutor } from "../../src/core/execution";
-import { createProcessLauncher } from "../../src/main/processes";
-import { programMeter } from "../../src/main/programMeter";
 import { createCodeHost } from "../../src/main/runCode/host";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFiguresIn } from "../../src/shared/figureRuns";
@@ -24,6 +21,7 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
+import { localExecutorAt } from "../helpers/codeRunner";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -325,9 +323,9 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 describe.skipIf(process.platform === "win32")(
   "A Question that needs code, retrieving first",
   () => {
-    // run_code is offered to Claude Haiku 5.5 by the shipped catalog (#2485), which also lists it
-    // to retrieve first: the search made first must leave the Run every Tool it had.
-    test("on Claude Haiku 5.5 as listed, the first call is offered run_code, and the number its code printed is a figure calculated by code", async () => {
+    // The shipped catalog offers run_code to Claude Haiku 5.5 (#2351): the search made first must
+    // leave the Run every Tool it had.
+    test("the first call is offered run_code beside the Passages searched first, and the number its code printed is a figure calculated by code", async () => {
       const calls: ModelCall[] = [];
       const model = scriptedModel((call: ModelCall): ScriptedReply => {
         calls.push(call);
@@ -350,21 +348,12 @@ describe.skipIf(process.platform === "win32")(
           ],
         };
       });
-      const local = createLocalExecutor({
-        processes: createProcessLauncher(async () => ({
-          PATH: process.env.PATH ?? "/usr/bin:/bin",
-        })),
-        tempDir: await createTempDataFolder(),
-        reportError: (error) => {
-          throw error;
-        },
-        meter: programMeter,
-      });
       const core = startCore(await createTempDataFolder(), {
         createChatModel: scriptedModels(model).createChatModel,
         analysisRuntime: createFakeAnalysisRuntime({ answer: () => ({}) }),
-        executor: { level: "os", run: (request) => local.run(request) },
+        executor: await localExecutorAt(),
         codeRuntime: createCodeHost({ python: null, font: null, appVersion: "0.0.0-test" }),
+        answerPaths: { retrievesFirst: () => true },
       });
       const saved = await core.saveChatProvider({
         kind: "anthropic",
