@@ -205,3 +205,71 @@ export const FRESH_CASES: readonly RoutingCase[] = [
     route: "none",
   },
 ];
+
+/**
+ * Requests whose code prints the numbers the Answer gives (#2351): what reaches the Answer marked
+ * as calculated by code, and what reaches it unmarked. Written and committed before any run of
+ * the marking, and never shown to the model, so they can't have been fitted to it.
+ */
+export const PRINTED_CASES: readonly RoutingCase[] = [
+  {
+    id: "printed-log-bytes",
+    language: "en",
+    question: "How many bytes did access.log serve in total, and how many per request on average?",
+    route: "run_code",
+  },
+  {
+    id: "printed-log-paths",
+    language: "en",
+    question: "Which path is requested most often in access.log? Give the count for every path.",
+    route: "run_code",
+  },
+  {
+    id: "printed-log-warnings",
+    language: "en",
+    question: "How many slow-query warnings are in app.log, out of how many lines altogether?",
+    route: "run_code",
+  },
+  {
+    id: "printed-rows-months",
+    language: "en",
+    question: "Taking every row of orders.csv, what is the total amount for each month?",
+    route: "run_code",
+  },
+  {
+    id: "printed-rows-small",
+    language: "en",
+    question: "How many orders in orders.csv are below 100, and what do those orders come to?",
+    route: "run_code",
+  },
+  {
+    id: "printed-rows-regions",
+    language: "en",
+    question: "Count the orders for each region over the whole of orders.csv.",
+    route: "run_code",
+  },
+  {
+    id: "printed-formulas-sheets",
+    language: "en",
+    question: "How many cells hold a formula on each sheet of the DCF workbook?",
+    route: "run_code",
+  },
+  {
+    id: "printed-log-ip-zh",
+    language: "zh-CN",
+    question: "access.log 里请求次数最多的 IP 地址是哪个？一共请求了多少次？",
+    route: "run_code",
+  },
+  {
+    id: "printed-rows-average-zh",
+    language: "zh-CN",
+    question: "按 orders.csv 的全部行计算，各地区订单的平均金额分别是多少？",
+    route: "run_code",
+  },
+  {
+    id: "printed-log-share-zh",
+    language: "zh-CN",
+    question: "app.log 中 ERROR 行占所有行的百分之多少？",
+    route: "run_code",
+  },
+];

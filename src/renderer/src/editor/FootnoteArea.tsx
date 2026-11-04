@@ -5,7 +5,7 @@ import { useRef } from "react";
 import type { CitationAttributes } from "../../../core/api";
 import { citationSource, citationState, withShownName } from "../../../shared/citations";
 import { noteOfCitation, useMindFormatting } from "../citationFormatting";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { numberedCitations, numberedFootnotes } from "./citationNumbers";
 import { FootnoteText } from "./FootnoteText";
@@ -189,13 +189,14 @@ export function FootnoteArea({
 /** A Citation's footnote in the area: its number, which goes to its marker, and its reference. */
 function CitationRow({ editor, row }: { editor: Editor; row: Extract<Row, { kind: "citation" }> }) {
   const t = useT();
+  const language = useLanguage();
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
   const { attributes } = row;
   const state = citationState(attributes, documents, kept);
-  const source = citationSource(withShownName(attributes, documents), t).text;
+  const source = citationSource(withShownName(attributes, documents), t, language).text;
   // In a note style, the note as the style writes it (#289), once it is formatted.
   const formatting = useMindFormatting(useMindId());
   const note = noteOfCitation(editor.state, formatting, row.key);

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { CitationAttributes } from "../../../core/api";
 import { badgeMessage, type CitationState, citationSource } from "../../../shared/citations";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { ChangedSourceNotice } from "./ChangedSourceNotice";
 import { ChartCheck } from "./ChartCheck";
 
@@ -35,6 +35,7 @@ export function ChartPointCard({
   onOpen(): void;
 }) {
   const t = useT();
+  const language = useLanguage();
   const rows =
     citations && citations.length > 0 ? citations : citation && state ? [{ citation, state }] : [];
   const canOpen = rows.some(({ state }) => state.documentId !== null);
@@ -78,7 +79,7 @@ export function ChartPointCard({
       {rows.length > 0 ? (
         <>
           {rows.map((row) => {
-            const source = citationSource(row.citation, t);
+            const source = citationSource(row.citation, t, language);
             const badge = badgeMessage(row.state, row.citation, t);
             return (
               <div

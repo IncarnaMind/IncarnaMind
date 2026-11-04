@@ -581,7 +581,7 @@ export function scriptedModels(model: MockLanguageModelV4) {
   return { createChatModel, specs, model };
 }
 
-/** Offers run_code to whichever model a test uses: the shipped catalog offers it to none yet (#2351). */
+/** Offers run_code to whichever model a test uses: the shipped catalog offers it only where it was measured (#2351). */
 export const codeToolOn = (): Pick<CoreAdapters, "modelFacts"> => ({
   modelFacts: () => ({ codeTool: true }),
 });

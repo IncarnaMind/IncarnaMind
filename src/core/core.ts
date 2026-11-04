@@ -249,6 +249,7 @@ import { meetingWords } from "./meetings/words";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
+import { createMindSources } from "./mindSources";
 import {
   createMinds,
   type NewMind,
@@ -2264,7 +2265,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const allowed =
         resolveScope({ folderIds: [], tagIds: [], documentIds: [...ids] }, mindId) ?? [];
       const permitted = ids.filter((id) => allowed.includes(id));
-      return evidence.scope(permitted).documentIds ?? [...permitted];
+      return evidence.scope(mindId, permitted).documentIds ?? [...permitted];
     },
     checkpoint: (mindId) => checkpoints.save(mindId, "compare"),
     tasks: {
@@ -2770,7 +2771,15 @@ export function createCore(adapters: CoreAdapters): Core {
     walledFolderName,
     searchedScope,
     pickedDocuments,
-    originalOf: (mindId) => wordImports.originalOf(mindId),
+    originalOf: (mindId) => {
+      const original = wordImports.originalOf(mindId);
+      const duplicated = minds.duplicatedFrom(mindId);
+      if (duplicated === null) return original;
+      return {
+        ...original,
+        ownNoteMindIds: [duplicated, ...(original?.ownNoteMindIds ?? [])],
+      };
+    },
     defaultModel: () => settings.get().user.chatModel,
     modelInUse: (own) => chat.modelInUse(own),
     recordAiUse: (inputs) => void aiUse.record(inputs),
@@ -3484,6 +3493,16 @@ export function createCore(adapters: CoreAdapters): Core {
       const plan = planPaceOf(prepared.provider.kind);
       return plan ? pacedBy(chosen, plan.run) : chosen;
     },
+  });
+  const mindSources = createMindSources({
+    dataDir,
+    now,
+    language: () => settings.get().language,
+    minds,
+    content,
+    documents,
+    assign: (documentId, folderId) => library.assign(documentId, folderId),
+    removeDocument: (documentId) => removeDocuments([documentId]),
   });
   function scanImagesAllowed(reader: ChatModelChoice): boolean {
     const service = chat.describeModel(reader)?.service;
@@ -4448,6 +4467,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const result = await checks.checkClaim({
         claim,
         scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
+        mindId,
         checked: { documentIds: [transcriptId] },
         model,
       });
@@ -4763,8 +4783,25 @@ export function createCore(adapters: CoreAdapters): Core {
         for (const [key, value] of settingsOfSource) mindSettings.set(key, value);
       });
       wordImports.copyPackage(source.id, copy.id);
+      minds.setDuplicatedFrom(copy.id, source.id);
       return minds.get(copy.id);
     },
+    saveMindAsSource: async (mindId) => mindSources.use(writableMind(mindId).id),
+    updateMindSourceSnapshot: async (mindId) => mindSources.update(writableMind(mindId).id),
+    restoreMindSourceSnapshot: async (documentId, input) => {
+      if (
+        !isRecord(input) ||
+        typeof input.text !== "string" ||
+        typeof input.snapshotAt !== "string" ||
+        Number.isNaN(new Date(input.snapshotAt).getTime())
+      )
+        throw new InvalidInputError({ key: "error.mindSource.restore" });
+      return mindSources.restore(documentId, {
+        text: input.text,
+        snapshotAt: input.snapshotAt,
+      });
+    },
+    removeMindSource: async (mindId) => mindSources.remove(writableMind(mindId).id),
     checkWordFile: async (path, folderId) => wordImports.check(path, folderId),
     importWordFile: async (input) => {
       const path = isRecord(input) && typeof input.path === "string" ? input.path : null;
@@ -5331,9 +5368,10 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError("searchEvidence's options must be an object.");
       }
       const scope = parseSearchScope(options?.scope);
+      const mindId = typeof options?.mindId === "string" ? options.mindId : null;
       const found = await evidence.search(
         query,
-        evidence.scope(scopeDocuments(scope), parseCheckedDocument(options?.checked)),
+        evidence.scope(mindId, scopeDocuments(scope), parseCheckedDocument(options?.checked)),
       );
       return { passages: found.passages.map(passageResult), excluded: found.excluded };
     },

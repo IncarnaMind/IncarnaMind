@@ -69,6 +69,7 @@ const NO_HEALTH: Health = {
   kept: [],
   tableCells: [],
   noCitation: [],
+  ownNotes: [],
   checkable: 0,
   supported: 0,
   checkedAt: null,
@@ -88,13 +89,16 @@ export function Counted({ text, count }: { text: string; count: string }) {
   );
 }
 
+/** A row of the card: a part of the health, or the supported claims only the User's own notes back. */
+type HealthRowPart = HealthPart | "ownNotes";
+
 /**
  * A part's words, with its count as `shown`. Unsupported sentences "need a look", as Verify counts
  * them, whether their card says not found or unsupported (#1608).
  */
 export function partLabel(
   t: ReturnType<typeof useT>,
-  part: HealthPart | "notChecked",
+  part: HealthRowPart | "notChecked",
   count: number,
   shown: string,
 ): string {
@@ -102,6 +106,8 @@ export function partLabel(
   switch (part) {
     case "found":
       return count === 1 ? t("health.found.one") : t("health.found", params);
+    case "ownNotes":
+      return count === 1 ? t("health.ownNotes.one") : t("health.ownNotes", params);
     case "notFound":
       return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
     case "unsupported":
@@ -163,10 +169,12 @@ function summaryParts(
 }
 
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
-export function PartMark({ part }: { part: HealthPart | "notChecked" }) {
+export function PartMark({ part }: { part: HealthRowPart | "notChecked" }) {
   switch (part) {
     case "found":
       return <CheckMarkIcon check="found" className="mind-health-icon" />;
+    case "ownNotes":
+      return <ClaimMarkIcon state="supported" ownNoteOnly className="mind-health-icon" />;
     case "notFound":
       return <CheckMarkIcon check="not-found" className="mind-health-icon" />;
     case "unsupported":
@@ -286,7 +294,7 @@ export function HealthCard({
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const signedOff = useSignOffCounts(editor);
 
-  const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
+  const label = (part: HealthRowPart, count: number) => partLabel(t, part, count, format(count));
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
@@ -294,7 +302,7 @@ export function HealthCard({
    * centred by its own position, not its paragraph's, which can be taller than the page, and clear
    * of the fade and the badge at the page's foot.
    */
-  const goToNext = (part: HealthPart | "checking") => {
+  const goToNext = (part: HealthRowPart | "checking") => {
     if (editor.isDestroyed) return;
     const cited = part === "found" || part === "notFound";
     const targets = health[part].map((pos) => (cited ? pos + 1 : pos));
@@ -341,7 +349,7 @@ export function HealthCard({
     testId: "checks-problem-close",
     onClick: () => dismissCheckProblem(mindId),
   };
-  const row = (part: HealthPart | "checking") => {
+  const row = (part: HealthRowPart | "checking") => {
     const text =
       part === "checking"
         ? t(health.checking.length === 1 ? "health.checking.one" : "health.checking", {
@@ -378,6 +386,7 @@ export function HealthCard({
       <AddedDocumentsLine doc={doc} mindId={mindId} />
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
+        {health.ownNotes.length > 0 && row("ownNotes")}
         {health.noCitation.length > 0 && row("noCitation")}
         {/* A claim being checked keeps its row: the card is as tall while a run is on as after
             it, so nothing under it moves when the run ends (#1312). */}

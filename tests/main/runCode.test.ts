@@ -186,6 +186,7 @@ async function sales(text = SALES): Promise<CodeDocument> {
     contentHash: sha256(SALES),
     documentDeleted: false,
     notCited: false,
+    yourNoteAt: null,
   };
   return { source, path };
 }
@@ -499,6 +500,7 @@ describe.skipIf(unavailable !== undefined || !runtimeFolder)(
           contentHash: sha256(big),
           documentDeleted: false,
           notCited: false,
+          yourNoteAt: null,
         },
       };
       const { call, analyses, figures } = tool({ P1: document });

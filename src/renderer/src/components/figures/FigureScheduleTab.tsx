@@ -131,10 +131,10 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
     try {
       const state = useAppStore.getState();
       const folderId = state.minds.find((mind) => mind.id === mindId)?.folderId ?? null;
-      const found = await core.searchEvidence(
-        row.context || row.reading.chars,
-        folderId ? { scope: folderScope(folderId) } : undefined,
-      );
+      const found = await core.searchEvidence(row.context || row.reading.chars, {
+        ...(folderId ? { scope: folderScope(folderId) } : {}),
+        mindId,
+      });
       const options = await Promise.all(
         found.passages.slice(0, 4).map(async (passage: PassageSearchResult) => {
           const checked = await core.citeSelection({
