@@ -5164,6 +5164,36 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(await acceptThenUndo(client, before)).toEqual(each.now);
   });
 
+  // protects=a short summary of a long paragraph, after its heading, takes the paragraph's place, though it says few of that paragraph's words: most of its own words are that paragraph's alone (#2356); English and Chinese; fails_when=the summary is added beside the paragraph; no_claim=none beyond protects.
+  test.each([
+    {
+      heading: "Summary",
+      long: "Revenue for September was €312,000, up 6% on August, with the largest gains in the Nordic region. Support tickets fell by a fifth after the help centre was rewritten, and the average response time dropped to 3 hours. Two senior engineers joined in September, which brings the team to 23 people.",
+      reply: "## Summary\n\nRevenue was €312,000. It was up 6%. The team now has 23 people.",
+      now: "Revenue was €312,000. It was up 6%. The team now has 23 people.",
+    },
+    {
+      heading: "概要",
+      long: "九月收入为三十一万二千欧元，比八月增长百分之六，北欧地区增幅最大。帮助中心改写后，支持工单减少了五分之一，平均回复时间降到三小时。九月有两名资深工程师加入，团队达到二十三人。",
+      reply: "## 概要\n\n现在九月收入共三十一万二千欧元，多了百分之六。团队现有二十三人。",
+      now: "现在九月收入共三十一万二千欧元，多了百分之六。团队现有二十三人。",
+    },
+  ])("a short summary of a long paragraph takes its place: $heading", async (each) => {
+    const title: JSONContent = {
+      type: "heading",
+      attrs: { id: `block-${++ids}`, level: 2 },
+      content: [text(each.heading)],
+    };
+    const { core, mind, client, before } = await noteOf(
+      [title, ...plain([each.long])],
+      () => each.reply,
+    );
+
+    await core.editWithAi(wholeMind(client, mind.id, "Two sentences."));
+
+    expect(await acceptThenUndo(client, before)).toEqual([each.heading, each.now]);
+  });
+
   // protects=a reply that names a paragraph twice, names one the selection hasn't, or names one with no words for it is refused with its own problem, and the Note is exactly as it was, nothing waiting; English and Chinese; fails_when=any change goes in, or the edit reads as done; no_claim=how often a real model misnames.
   test.each([
     {
