@@ -74,7 +74,7 @@ jobs:
               heavy=false
             fi
             # Only a change to what the packaged real-engine checks cover runs them.
-            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/documents/(extract|processing)\.ts$|src/core/documents/scan/|src/core/(embedding|reranking)/(download|onnx)\.ts$|src/core/engineModules\.ts$|src/main/(meetings/|engine(Process|Environment|Check)\.ts$|(embedder|reranker|scanReader)(Process)?\.ts$|(index|sandbox|analysis|analysisPaths)\.ts$)|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|scripts/(afterPack|check-package)\.mjs$|scripts/pythonRuntime\.ts$|e2e/app\.ts$|e2e/packaged/|tests/helpers/pdf\.ts$|tests/fixtures/(speech|scans|rotated-scans)/|\.github/(actions/packaged-(transcription|speech-windows|engines)/|workflows/ci\.yml$))'; then
+            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/(transcription|meetings)/|src/core/documents/(extract|processing)\.ts$|src/core/documents/scan/|src/core/(embedding|reranking)/(download|onnx)\.ts$|src/core/engineModules\.ts$|src/main/(meetings/|engine(Process|Environment|Check)\.ts$|(embedder|reranker|scanReader)(Process)?\.ts$|(index|sandbox|analysis|analysisPaths|secretsFile)\.ts$)|src/main/transcriber(Process)?\.ts$|src/main/speaker(Process|Separator)\.ts$|src/(preload|shared)/capture\.ts$|src/renderer/capture(/|\.html$)|build/entitlements\.mac\.plist$|electron-builder\.yml$|electron\.vite\.config\.ts$|package(-lock)?\.json$|scripts/(afterPack|check-package)\.mjs$|scripts/pythonRuntime\.ts$|e2e/app\.ts$|e2e/packaged/|tests/helpers/pdf\.ts$|tests/fixtures/(speech|scans|rotated-scans)/|\.github/(actions/packaged-(transcription|speech-windows|engines)/|workflows/ci\.yml$))'; then
               packaged=true
             fi
           fi
@@ -393,7 +393,7 @@ jobs:
       - name: Check the packaged connection on Linux
         if: runner.os == 'Linux' && needs.changes.outputs.agents == 'true'
         run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts
-      - name: Check the packaged connection on Windows
+      - name: Check the packaged connection and secrets on Windows
         if: runner.os == 'Windows'
         run: npm run test:packaged -- agentConnection.packaged.ts secrets.packaged.ts
       # After the connection, so that a change to either still hears about both.

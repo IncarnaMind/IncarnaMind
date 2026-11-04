@@ -11,6 +11,7 @@ import { saveFailureReason } from "../../src/shared/systemReasons";
 
 const KINDS: ProviderErrorKind[] = [
   "auth",
+  "api-key-unreadable",
   "model",
   "rate-limit",
   "network",
@@ -264,6 +265,10 @@ describe("a failed Answer's problem line", () => {
       "The key for claude-haiku-5-5 was refused",
       "Check the key",
     ]);
+    expect(shown("api-key-unreadable", "en")).toEqual([
+      "The saved key for claude-haiku-5-5 can’t be read. Enter it again",
+      "Check the key",
+    ]);
     expect(shown("refused", "en")).toEqual([
       "Anthropic refused this request",
       "Choose another model",
@@ -280,6 +285,10 @@ describe("a failed Answer's problem line", () => {
     expect(shown("network", "zh-CN")).toEqual(["无法连接 Anthropic，请检查网络连接", "重试"]);
     expect(shown("rate-limit", "zh-CN")).toEqual(["Anthropic 暂时限制了请求", "重试"]);
     expect(shown("auth", "zh-CN")).toEqual(["claude-haiku-5-5 的密钥被拒绝了", "检查密钥"]);
+    expect(shown("api-key-unreadable", "zh-CN")).toEqual([
+      "无法读取已保存的 claude-haiku-5-5 密钥。请重新输入",
+      "检查密钥",
+    ]);
     expect(shown("refused", "zh-CN")).toEqual(["Anthropic 拒绝了这个请求", "换一个模型"]);
     expect(shown("out-of-credit", "zh-CN")).toEqual(["这个密钥没有额度", "换一个模型"]);
     expect(shown("region", "zh-CN")).toEqual([

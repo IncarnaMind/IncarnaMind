@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -49,6 +49,21 @@ test("a key the packaged app saved opens after a restart, and the previous ciphe
         stored,
       );
       expect(older).toBe(secret);
+
+      // What criterion 2 asks: a key the previous synchronous version wrote opens with the asynchronous API.
+      const previous = await second.evaluate(
+        ({ safeStorage }, value) => safeStorage.encryptString(value).toString("base64"),
+        secret,
+      );
+      await writeFile(
+        join(data, "secrets.json"),
+        JSON.stringify({ [`chat-provider:${provider.id}:api-key`]: previous }),
+        { mode: 0o600 },
+      );
+      const reread = await (await coreOf(reopened)).evaluate((bridge) =>
+        bridge.listChatProviders(),
+      );
+      expect(reread).toEqual([expect.objectContaining({ id: provider.id, hasApiKey: true })]);
     } finally {
       await second.close();
     }

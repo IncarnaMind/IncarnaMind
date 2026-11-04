@@ -94,9 +94,12 @@ test("a saved key that can't be opened says so where it is entered", async () =>
   const reopened = await openSettings(window, "models");
   await expect(
     reopened.getByText(
-      "The saved API key for OpenAI on this computer can’t be read. Enter it again.",
+      "The saved API key for OpenAI on this device can’t be read. Enter it again.",
     ),
   ).toBeVisible();
+  await expect(reopened.getByTestId("provider-row-status").first()).toContainText(
+    "Can’t be read. Enter it again.",
+  );
   await reopened.locator(`[data-provider-id="${provider.id}"]`).click();
   const unreadable = reopened.getByTestId("provider-page");
   await expect(unreadable.getByTestId("provider-key-unreadable")).toHaveText(
@@ -109,6 +112,9 @@ test("a saved key that can't be opened says so where it is entered", async () =>
   );
   await unreadable.getByTestId("models-back").click();
   await expect(
-    reopened.getByText("无法读取保存在这台电脑上的 OpenAI API 密钥。请重新输入。"),
+    reopened.getByText("无法读取这台设备上保存的 OpenAI API 密钥。请重新输入。"),
   ).toBeVisible();
+  await expect(reopened.getByTestId("provider-row-status").first()).toContainText(
+    "无法读取。请重新输入。",
+  );
 });
