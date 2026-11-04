@@ -171,6 +171,15 @@ describe("the mark's label in a margin around its width (#2459)", () => {
     for (const size of sizes) expect(size).toEqual({ full: FULL, compact: COMPACT });
   });
 
+  test("tells its place the widths of the label it shows, never those of the label before it", async () => {
+    await showMark(90, "p. 1");
+    expect(sizes.at(-1)).toEqual({ full: 64, compact: COMPACT });
+    sizes = [];
+    await showMark(90, "p. 1–2");
+    expect(sizes.length).toBeGreaterThan(0);
+    for (const size of sizes) expect(size).toEqual({ full: FULL, compact: COMPACT });
+  });
+
   test("the mark and its copies stay out of the words a quote is found in and a selection reads", async () => {
     // As the viewers read a page's words (`textNodes`): none under `data-quote-skip`.
     const read = (node: Node): string =>

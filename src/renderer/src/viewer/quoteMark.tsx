@@ -88,7 +88,12 @@ export function CitationMark({
   const t = useT();
   const fullCopy = useRef<HTMLSpanElement>(null);
   const compactCopy = useRef<HTMLSpanElement>(null);
-  const [size, setSize] = useState<{ full: number; compact: number } | null>(null);
+  const [size, setSize] = useState<{
+    full: number;
+    compact: number;
+    of: string | undefined;
+  } | null>(null);
+  const shown = mark.shown ?? mark.label;
   const fits = room === undefined || size === null || size.full <= room;
   const word = (
     {
@@ -110,12 +115,14 @@ export function CitationMark({
     const full = fullCopy.current?.offsetWidth ?? 0;
     const compact = compactCopy.current?.offsetWidth ?? 0;
     setSize((previous) =>
-      previous?.full === full && previous.compact === compact ? previous : { full, compact },
+      previous?.full === full && previous.compact === compact && previous.of === shown
+        ? previous
+        : { full, compact, of: shown },
     );
-  }, [room, mark.number, mark.label, mark.shown]);
+  }, [room, mark.number, shown]);
   useLayoutEffect(() => {
-    if (size) onSize?.(size);
-  }, [size, onSize]);
+    if (size && size.of === shown) onSize?.({ full: size.full, compact: size.compact });
+  }, [size, shown, onSize]);
 
   const Icon =
     mark.tone === "found"
@@ -134,9 +141,7 @@ export function CitationMark({
     >
       <Icon className="size-[11px] shrink-0" />
       <span>{mark.number}</span>
-      {withLabel && mark.label && (
-        <span className="quote-mark-label">{mark.shown ?? mark.label}</span>
-      )}
+      {withLabel && mark.label && <span className="quote-mark-label">{shown}</span>}
     </span>
   );
   return (
@@ -160,7 +165,7 @@ export function CitationMark({
             aria-hidden={!fits}
             className={`quote-mark-label ${fits ? "" : "quote-mark-label--hidden"}`}
           >
-            {mark.shown ?? mark.label}
+            {shown}
           </span>
         )}
       </span>
