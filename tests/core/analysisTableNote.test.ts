@@ -76,14 +76,23 @@ const ANALYSIS = (heading: string): FakeAnswer => ({
         unit: "",
         value: 6.550218340611387,
       },
+      // Each region's total again as a figure of its own, [=2] to [=5], as the walk's code gave them.
+      ...TOTALS.map(([region, total]) => ({
+        kind: "figure" as const,
+        name: `total_${region.toLowerCase()}`,
+        label: `Total amount, ${region}`,
+        unit: "",
+        value: total,
+      })),
     ],
+    // Drawn of the same rows under the headings the code gave the chart, as the walk's was.
     charts: [
       {
         kind: "bar",
         title: heading,
-        x: "region",
-        y: ["amount"],
-        table: { columns: ["region", "amount"], rows: TOTALS, rowCount: 4, columnCount: 2 },
+        x: "Region",
+        y: ["Total"],
+        table: { columns: ["Region", "Total"], rows: TOTALS, rowCount: 4, columnCount: 2 },
       },
     ],
   },
@@ -120,10 +129,13 @@ const WORDS = {
   },
 } as const;
 
-/** A sort and check model that keeps every sentence it is sent, and finds none in the Documents. */
+/**
+ * A sort and check model that keeps every sentence it is sent, and finds none in the Documents.
+ * `content` is what create_mind is given, or each call's in turn while a call is refused.
+ */
 function writingModel(
   language: Language,
-  content: string,
+  content: string | readonly string[],
   sent: string[],
   asksChart: boolean,
   again: string | null,
@@ -151,7 +163,11 @@ function writingModel(
           ],
         };
       }
-      if (!call.results.some((result) => result.tool === "create_mind"))
+      const contents = typeof content === "string" ? [content] : content;
+      const creates = call.results.filter((result) => result.tool === "create_mind");
+      const refused = creates.at(-1)?.text.includes("wasn't made") ?? true;
+      const next = contents[creates.length];
+      if (refused && next !== undefined)
         return {
           calls: [
             {
@@ -159,7 +175,7 @@ function writingModel(
               streamInput: true,
               input: {
                 title: words.title,
-                content,
+                content: next,
                 ...(asksChart && { chart: { kind: "bar", title: words.chart } }),
               },
             },
@@ -193,9 +209,10 @@ function writingModel(
 
 async function walked(
   language: Language,
-  content: string,
+  content: string | readonly string[],
   asksChart = true,
   again: string | null = null,
+  given: FakeAnswer = ANALYSIS(WORDS[language].caption),
 ) {
   const sent: string[] = [];
   const model = writingModel(language, content, sent, asksChart, again);
@@ -204,7 +221,7 @@ async function walked(
     createChatModel: scriptedModels(model).createChatModel,
     printer: printer.printer,
     analysisRuntime: createFakeAnalysisRuntime({
-      answer: () => ANALYSIS(WORDS[language].caption),
+      answer: () => given,
     }),
   });
   const saved = await core.saveChatProvider({
@@ -220,7 +237,8 @@ async function walked(
     mindId: (await core.createMind({ title: "Questions" })).id,
     analyse: true,
   });
-  const madeId = answer.toolCalls.find((call) => call.tool === "create_mind")?.mindChange?.mindId;
+  const madeId = answer.toolCalls.findLast((call) => call.tool === "create_mind")?.mindChange
+    ?.mindId;
   if (!madeId)
     throw new Error(`The Answer made no Note: ${JSON.stringify(answer.toolCalls).slice(0, 1500)}`);
   const client = await connectToMind(core, madeId);
@@ -287,6 +305,8 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
       expect(sent.some((each) => each.includes(new Intl.NumberFormat("en").format(total)))).toBe(
         false,
       );
+    // Nor its caption, which names it as a heading does.
+    expect(sent.some((each) => each.includes(WORDS[language].caption))).toBe(false);
     expect(marks(client).filter((mark) => /\d,\d{3}$/.test(mark.text))).toEqual([]);
     const schedule = await core.getFigureSchedule(madeId);
     const tables = schedule.rows.filter((row) => row.analysisTable);
@@ -298,6 +318,46 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     // No cell is a figure of its own, so nothing counts toward "don't cover".
     expect(schedule.rows.filter((row) => row.place.table)).toEqual([]);
     expect(schedule.counts.needsLook).toBe(0);
+    core.close();
+  });
+
+  test("a cell of words in the Analysis's table is its run's too, never a sentence Check sends", async () => {
+    const base = ANALYSIS(WORDS[language].caption);
+    const busiest: Record<string, string> = {
+      Central: "Brightside, Inc. placed most orders",
+      North: "Evergreen Labs placed most orders",
+      South: "Coastal Foods placed most orders",
+      West: "Delta Health placed most orders",
+    };
+    const results = base.output?.results.map((result) =>
+      result.kind === "table"
+        ? {
+            ...result,
+            table: {
+              columns: ["region", "amount", "busiest"],
+              rows: TOTALS.map(([region, total]) => [region, total, busiest[region] ?? ""]),
+              rowCount: 4,
+              columnCount: 3,
+            },
+          }
+        : result,
+    );
+    const given = {
+      ...base,
+      output: { ...noAnalysisOutput(), ...base.output, results: results ?? [] },
+    };
+    const { core, madeId, client, sent } = await walked(
+      language,
+      CONTENT(language),
+      false,
+      null,
+      given,
+    );
+    sent.length = 0;
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.some((each) => each.includes("placed most orders"))).toBe(false);
     core.close();
   });
 
@@ -430,6 +490,38 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     expect(created?.mindChange?.chartNotDrawn).toBeUndefined();
     core.close();
   });
+
+  test.each([
+    ["its numbers", (total: number, _: number) => total.toLocaleString("en")],
+    ["its figures' markers", (_: number, at: number) => `[=${at + 2}]`],
+  ])(
+    "content that types the table again with %s beside its marker is refused, and the call made again gives one table",
+    async (_, cell) => {
+      const typed = [
+        `# ${WORDS[language].title}`,
+        "",
+        "| Region | Total |",
+        "|---|---|",
+        ...TOTALS.map(([region, total], at) => `| ${region} | ${cell(total, at)} |`),
+        "",
+        "[=table 1]",
+        "",
+        WORDS[language].slope,
+      ].join("\n");
+      const { core, answer, client } = await walked(language, [typed, CONTENT(language)]);
+      const [refused, made] = answer.toolCalls.filter((call) => call.tool === "create_mind");
+      expect(refused?.status).toBe("failed");
+      expect(refused?.mindProblem).toMatchObject({ kind: "copy", text: WORDS[language].caption });
+      expect(made?.status).toBe("done");
+      expect(blocksOf(client).filter((block) => block.type === "table")).toHaveLength(1);
+      // The refused call's Note went with it: the User finds one Note of that name.
+      const named = (await core.listMinds()).filter((mind) =>
+        mind.title.startsWith(WORDS[language].title),
+      );
+      expect(named).toHaveLength(1);
+      core.close();
+    },
+  );
 
   test("a later call that writes the table again is refused: the Note holds it once", async () => {
     const { core, answer, client } = await walked(language, CONTENT(language), true, "[=table 1]");

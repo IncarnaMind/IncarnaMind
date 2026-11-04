@@ -87,10 +87,11 @@ export function withAnalysisResults(
     for (const marker of analysis.markers.pictures ?? []) pictures.add(marker);
   }
   // Each table goes in once: a marker written again, or a chart's marker whose table is already
-  // there, would write the same table a second time (#2378). The table's caption names it.
+  // there, would write the same table a second time (#2378). The table's caption names it. Its
+  // rows are what it holds: a chart drawn of a result's rows under other headings is that table.
   const placed = new Set<string>();
   const once = ({ analysis, table }: { analysis: AnswerAnalysis; table: AnalysisTable }) => {
-    const key = JSON.stringify([analysis.number, analysis.ranAt, table.columns, table.rows]);
+    const key = JSON.stringify([analysis.number, analysis.ranAt, table.rows]);
     if (placed.has(key)) return null;
     placed.add(key);
     return `\n${markdownTable(table, language)}\n`;

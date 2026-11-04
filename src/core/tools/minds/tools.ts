@@ -39,6 +39,7 @@ import {
   analysisTablesOf,
   boundTableFor,
   countBoundTables,
+  holdsTableAgain,
   keptAnalysisTables,
 } from "../../../shared/analysisTables";
 import { askedFor, translationRequested, waitsForUser } from "../../../shared/askedChanges";
@@ -79,6 +80,7 @@ import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import { withoutPointersBack } from "../../answers/pointersBack";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
+  type AnalysisTableBinding,
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
   CHART_NODE,
@@ -1464,16 +1466,31 @@ export function mindTools(options: MindToolsOptions): {
   };
 
   /**
-   * An Analysis's table the Note already holds, written again by a later call (#2378): the same
-   * table twice. Its caption's words; null when `blocks` bring no table the Note has.
+   * An Analysis's table written twice (#2378): given twice in `blocks`, as its marker and typed
+   * again, or again by a later call to a Note that holds it. Its name, and whether the Note holds
+   * it already; null when `blocks` give each table once.
    */
-  const tableHeldIn = (writer: Writer, blocks: readonly NodeJSON[]): string | null => {
-    const written = blocks.flatMap((block, at) => {
+  const tableTwiceIn = (
+    writer: Writer,
+    blocks: readonly NodeJSON[],
+    tables: readonly AnalysisTableMatch[],
+  ): { caption: string; held: boolean } | null => {
+    const bound = blocks.flatMap((block) => {
       const binding =
         block.type === "table" ? readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) : null;
-      return binding ? [{ binding, caption: blocks[at - 1] }] : [];
+      return binding ? [binding] : [];
     });
-    if (written.length === 0) return null;
+    const typedAgain = (binding: AnalysisTableBinding) => {
+      const match = tables.find((table) => sameBinding(table.binding, binding));
+      return match !== undefined && blocks.some((block) => holdsTableAgain(block, match));
+    };
+    const named = (binding: AnalysisTableBinding) =>
+      tables.find((table) => sameBinding(table.binding, binding))?.label.trim() || binding.id;
+    const twice = bound.find(
+      (binding, at) =>
+        bound.slice(0, at).some((each) => sameBinding(each, binding)) || typedAgain(binding),
+    );
+    if (twice) return { caption: named(twice), held: false };
     // What this call has written already, as its content streamed in, is this same table.
     const own = new Set(writer.ids);
     const held = minds.read(writer.mind.id, (note) =>
@@ -1483,13 +1500,10 @@ export function mindTools(options: MindToolsOptions): {
           .map(nodeOf),
       ),
     );
-    const again = written.find(({ binding }) => held.some((each) => sameBinding(each, binding)));
-    if (!again) return null;
-    const words = (again.caption?.content ?? [])
-      .map((node) => (node.type === "text" ? (node.text ?? "") : ""))
-      .join("")
-      .trim();
-    return words || again.binding.id;
+    const again = held.find(
+      (binding) => bound.some((each) => sameBinding(each, binding)) || typedAgain(binding),
+    );
+    return again ? { caption: named(again), held: true } : null;
   };
 
   const repeatRefusal = (mind: ChangeableMind, repeat: Repeat) => {
@@ -1748,14 +1762,17 @@ export function mindTools(options: MindToolsOptions): {
     writer ??= writerFor(mind, after, made);
     if (typeof given !== "string") writer.origin = given.origin;
     const copy = stream?.copy ?? repeatIn(writer, blocks);
-    const held = copy === null ? tableHeldIn(writer, blocks) : null;
-    if (copy !== null || held !== null) {
+    const twice = copy === null ? tableTwiceIn(writer, blocks, analysisTables) : null;
+    if (copy !== null || twice !== null) {
       withdraw(writer);
       minds.writing(writer.mind.id, null);
       if (copy !== null) throw repeatRefusal(mind, copy);
+      const caption = twice?.caption ?? "";
       throw new Refusal(
-        { kind: "copy", mindId: mind.id, text: held ?? "" },
-        `Nothing was added to “${mind.name}”: it holds this Analysis's table, “${held}”, already. Write each table once; to chart it, call add_to_mind with chart and content empty.`,
+        { kind: "copy", mindId: mind.id, text: caption },
+        twice?.held
+          ? `Nothing was added to “${mind.name}”: it holds this Analysis's table, “${caption}”, already. Write each table once; to chart it, call add_to_mind with chart and content empty.`
+          : `${made ? `“${mind.name}” wasn't made` : `Nothing was added to “${mind.name}”`}: content gives this Analysis's table, “${caption}”, twice. Write each table once: its marker, [=table n], gives it with its Citations, so leave out the table typed again with its figures, and ${again} with the rest.`,
       );
     }
     writeMore(writer, blocks);
@@ -2729,7 +2746,12 @@ export function mindTools(options: MindToolsOptions): {
           chartAsked(input.chart),
         );
       } catch (error) {
-        if (error instanceof Refusal && error.problem.kind === "uncited") minds.discard(mind.id);
+        // A new Note whose content was refused is empty: the call made again makes it again.
+        if (
+          error instanceof Refusal &&
+          (error.problem.kind === "uncited" || error.problem.kind === "copy")
+        )
+          minds.discard(mind.id);
         throw error;
       }
       if (!written) {

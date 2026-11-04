@@ -360,7 +360,15 @@ for (const language of ["en", "zh-CN"] as const) {
           : "Revenue：5 行的合计 · 已重新计算",
       ]);
       const evidence = process.env.INCARNAMIND_ANALYSIS_EVIDENCE_DIR;
-      if (evidence) await window.screenshot({ path: join(evidence, `${language}-note-table.png`) });
+      if (evidence) {
+        await window.screenshot({ path: join(evidence, `${language}-note-table-wide.png`) });
+        await window.keyboard.press("Escape");
+        await setWindowSize(app, window, 900, 660);
+        await pointAndClick(window, marker.locator("button"));
+        await expect(card).toBeVisible();
+        await window.screenshot({ path: join(evidence, `${language}-note-table-narrow.png`) });
+        await setWindowSize(app, window, 1200, 660);
+      }
     } finally {
       await app.close();
     }

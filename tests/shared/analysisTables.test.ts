@@ -43,10 +43,13 @@ const cell = (text: string): NodeJSON => ({
 
 const dataCell = (text: string): NodeJSON => ({ ...cell(text), type: "tableCell" });
 
-const tableBlock = (rows: (string | number)[][]): NodeJSON => ({
+const tableBlock = (
+  rows: (string | number)[][],
+  headings: readonly string[] = ["Region", "Revenue"],
+): NodeJSON => ({
   type: "table",
   content: [
-    { type: "tableRow", content: [cell("Region"), cell("Revenue")] },
+    { type: "tableRow", content: headings.map(cell) },
     ...rows.map((row) => ({
       type: "tableRow",
       content: row.map((value) => dataCell(String(value))),
@@ -145,6 +148,12 @@ describe("an Analysis's table is one calculated object (#2378)", () => {
       [undefined, undefined],
     ]);
     expect(blocks.at(-1)).toEqual(other);
+  });
+
+  test("a table typed under headings of its writer's own is the Analysis's, by the rows it holds", () => {
+    const made = analysis([byRegion(rows)]);
+    const blocks = withAnalysisTables([tableBlock(rows, ["Area", "Total"])], runs(made));
+    expect(captioned(blocks).map((each) => each.table?.table)).toEqual([{ result: "by_region" }]);
   });
 
   test("a table matches as it reads in Chinese too", () => {

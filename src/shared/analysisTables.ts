@@ -15,6 +15,7 @@ import {
   type AnalysisTableBinding,
   type AnswerAnalysis,
   type AnswerAnalysisInput,
+  CALCULATED_FIGURE_NODE,
   type Citation,
   type RetainedFigureAnalysis,
 } from "../core/api";
@@ -27,9 +28,11 @@ import {
   sameTableKey,
 } from "./analysis";
 import type { NodeJSON } from "./blockJson";
+import { readCalculatedFigureEvidence } from "./calculatedFigures";
 import { labelRole } from "./figureFooting";
 import { figureRunId, figureRunsFor, readTableBinding, sameBinding } from "./figureRuns";
 import { figureCellText, figureText, rawColumn } from "./figures";
+import { sameNumber } from "./formula";
 import { translate } from "./i18n";
 
 /** An Analysis, and the Answer it ran in, whose tables a Note can hold. */
@@ -222,10 +225,15 @@ export function analysisTableFor(
           );
         })
       ) &&
+      // Its rows are what it holds: the headings are the writer's words for them.
       table.grids.some(
         (cells) =>
           cells.length === grid.length &&
-          grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
+          grid.every((row, at) =>
+            at === 0
+              ? row.length === (cells[0] ?? []).length
+              : row.join("\u0000") === (cells[at] ?? []).join("\u0000"),
+          ),
       ),
   );
   const [first] = matches;
@@ -240,6 +248,42 @@ export function analysisTableFor(
       ),
   );
   return agrees ? first : null;
+}
+
+/** The value of the calculated figure a cell holds alone; null: it holds none, or more than one. */
+function figureValueIn(cell: NodeJSON): number | null {
+  const inline = (cell.content ?? []).flatMap((block) =>
+    (block.content ?? []).filter((node) => node.type !== "text" || (node.text ?? "").trim() !== ""),
+  );
+  const [only] = inline;
+  if (inline.length !== 1 || only?.type !== CALCULATED_FIGURE_NODE) return null;
+  const value = readCalculatedFigureEvidence(only.attrs)?.figure.value;
+  return typeof value === "number" ? value : null;
+}
+
+/**
+ * Whether `block`, a table typed in the content, holds `match`'s rows again (#2378): under any
+ * headings, the same rows and labels, each other cell the Analysis's text or a figure marker of
+ * its value.
+ */
+export function holdsTableAgain(block: NodeJSON, match: AnalysisTableMatch): boolean {
+  if (block.type !== "table" || readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]))
+    return false;
+  const rows = (block.content ?? []).slice(1);
+  if (rows.length === 0 || rows.length !== match.table.rows.length) return false;
+  return rows.every((row, at) => {
+    const cells = row.content ?? [];
+    return (
+      cells.length === match.table.columns.length &&
+      cells.every((cell, column) => {
+        const figure = figureValueIn(cell);
+        const value = match.value(at, column);
+        if (figure !== null) return value !== null && sameNumber(figure, value);
+        const text = textOf(cell).trim();
+        return match.grids.some((grid) => grid[at + 1]?.[column] === text);
+      })
+    );
+  });
 }
 
 /** A caption line: the Analysis's name for its table, ending with the table's marker. */
