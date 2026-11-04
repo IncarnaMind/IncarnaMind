@@ -72,6 +72,8 @@ interface Asking {
   estimate: EstimateLine | null;
   /** `estimateRun` failed: the ask says the cost couldn't be estimated. */
   unestimated: boolean;
+  /** A run of the Figure schedule's chosen figures: the OK checks those figures, never the whole Note. */
+  figureIds?: string[];
 }
 
 /** What a Check runs: what changed, and whether a Folder's other Documents are checked too. */
@@ -80,6 +82,8 @@ interface CheckToRun {
   allDocuments: boolean;
   /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
   watch: { claims: number } | null;
+  /** The figures to check, for a run from the Figure schedule; none for a whole-Note Check. */
+  figureIds?: string[];
 }
 
 /** A problem with the model or a stop ends the Check: the contradiction watch needs the model too. */
@@ -291,12 +295,8 @@ async function readSentencesToCheck(mindId: string): Promise<SentencesToCheck | 
 }
 
 /** What a run is to check, and what it would send. */
-export interface Planned {
-  mode: CheckMindMode;
-  allDocuments: boolean;
+export interface Planned extends CheckToRun {
   plan: MindCheckPlan;
-  /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
-  watch: { claims: number } | null;
 }
 
 /**
@@ -329,11 +329,11 @@ async function start(
       return { kind: "running" };
     }
     held = true;
-    const { mode, allDocuments, plan, watch } = await planned();
+    const { mode, allDocuments, plan, watch, figureIds } = await planned();
     const outcome = await askOrCheck(
       mindId,
       requestId,
-      { mode, allDocuments, watch },
+      { mode, allDocuments, watch, ...(figureIds && { figureIds }) },
       plan,
       () => {
         ranCheck = true;
@@ -475,6 +475,26 @@ export const startCheckAsking = (mindId: string): Promise<CheckOutcome> =>
   start(mindId, () => planCheckThisMind(mindId), true);
 
 /**
+ * The Figure schedule's Check again: the figures the User chose, checked as every other way in
+ * asks — its price above $1 or with a spending cap, and the couldn't-estimate line when the
+ * estimate fails (#2313).
+ */
+export const startFigureCheckAsking = (
+  mindId: string,
+  figureIds: string[],
+): Promise<CheckOutcome> =>
+  start(
+    mindId,
+    async (): Promise<Planned> => ({
+      mode: "all",
+      allDocuments: false,
+      plan: await core.planMindCheck(mindId, "all", false, figureIds),
+      watch: null,
+      figureIds,
+    }),
+  );
+
+/**
  * The assistant's Check (#1421), in the window that asked: the Note's one Check, or every sentence
  * again. It never answers its own question: with `reply`, an asked run ends as a reply that says
  * the check waits for the User's OK on the Note; from ⌘K the card's question is the answer. A Note
@@ -540,12 +560,13 @@ export async function confirmCheck(mindId: string): Promise<void> {
       mode: asking.mode,
       allDocuments: asking.allDocuments,
       watch: asking.watch,
+      ...(asking.figureIds && { figureIds: asking.figureIds }),
     });
   } catch (error) {
     setCheckProblem(mindId, {
       kind: "failed",
       error,
-      retry: again(mindId, asking.mode, asking.allDocuments),
+      retry: again(mindId, asking.mode, asking.allDocuments, asking.figureIds),
     });
   }
 }
@@ -573,7 +594,7 @@ async function runCheck(mindId: string, requestId: string, run: CheckToRun): Pro
     const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
     // Read before the run: the marks it writes cover every sentence it checks.
     const toCheck = run.watch !== null && !full ? await readSentencesToCheck(mindId) : null;
-    const result = await checkMindNow(mindId, run.mode, run.allDocuments, requestId);
+    const result = await checkMindNow(mindId, run.mode, run.allDocuments, requestId, run.figureIds);
     const stopped = endsCheck(result);
     if (!stopped && run.watch !== null) {
       const watchRequest = crypto.randomUUID();
@@ -657,6 +678,7 @@ async function askOrCheck(
           watch: run.watch,
           estimate: null,
           unestimated: true,
+          ...(run.figureIds && { figureIds: run.figureIds }),
         },
       },
     }));
@@ -703,6 +725,7 @@ async function askOrCheck(
         watch: run.watch,
         estimate,
         unestimated: estimated === null,
+        ...(run.figureIds && { figureIds: run.figureIds }),
       },
     },
   }));

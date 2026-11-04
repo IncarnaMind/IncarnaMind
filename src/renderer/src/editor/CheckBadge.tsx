@@ -174,6 +174,7 @@ function MindBadge({
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
       holds={!askingNow && (ready || heldOnce)}
+      priceLine={estimate !== null && running === undefined}
     >
       <p className="check-card-title">{t("health.label")}</p>
       <HealthCard
@@ -199,7 +200,7 @@ function MindBadge({
   );
 }
 
-function CheckActions({
+export function CheckActions({
   editor,
   doc,
   mindId,
@@ -371,6 +372,7 @@ function BadgeFrame({
   onStop,
   foot,
   holds = true,
+  priceLine = false,
   children,
 }: {
   mindId: string;
@@ -386,6 +388,8 @@ function BadgeFrame({
    * question, a problem, an estimate), so the price line and the press show in full.
    */
   holds?: boolean;
+  /** The price line is shown and no run is on: a line that lands later needs room. */
+  priceLine?: boolean;
   children: ReactNode;
 }) {
   const t = useT();
@@ -403,6 +407,18 @@ function BadgeFrame({
   // the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  const showedPrice = useRef(false);
+  useLayoutEffect(() => {
+    // A price line that lands after the card opened needs its own room, not the scroll of a
+    // height measured without it (#2313).
+    if (!open || !priceLine) {
+      showedPrice.current = false;
+      return;
+    }
+    if (showedPrice.current) return;
+    showedPrice.current = true;
+    setHeldHeight(null);
+  }, [open, priceLine]);
   useLayoutEffect(() => {
     if (!open || !holds) {
       setHeldHeight(null);
