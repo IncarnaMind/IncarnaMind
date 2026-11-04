@@ -1526,6 +1526,111 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(await filedIn()).toBe(5);
   });
 
+  // protects=a permit for the service the card named cannot send to another service the User declined while the card waited (#2252, ADR-0022); fails_when=switching Organize to Anthropic and declining it still sends, or either consent changes; no_claim=which Folder the classifier picks.
+  test("a card for OpenAI never sends to Anthropic when Organize switched and declined while it waited", async () => {
+    let classified = 0;
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          let data: { groups?: { id: string; name: string }[] };
+          try {
+            data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          } catch {
+            return { text: JSON.stringify({ tags: [] }) };
+          }
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified += 1;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind, dataDir } = await setUpWithDocuments(answers, DOCUMENTS);
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "small",
+    });
+    const anthropic = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-test",
+    });
+    if (!openai.service || !anthropic.service) throw new Error("No service.");
+    const decline = async (service: { id: string; name: string }) => {
+      await core.revokeConsent("classification", service.id);
+      const at = new Date().toISOString();
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      try {
+        db.run(
+          `INSERT INTO data_flow_consents
+             (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+           VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
+          [randomUUID(), service.id, service.name, at, at],
+        );
+      } finally {
+        db.close();
+      }
+    };
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: openai.id, modelId: "small" },
+      },
+      automatic: false,
+    });
+    await decline(openai.service);
+    const requested: ApprovalRequest[] = [];
+    core.on("approval.requested", (request) => requested.push(request));
+    const result = await core.askInConversation({
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    await vi.waitFor(() => expect(requested).toHaveLength(1));
+    expect(requested[0] && "ask" in requested[0] ? requested[0].ask : null).toMatchObject({
+      reason: "organize",
+      service: "OpenAI",
+      declined: true,
+    });
+
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: anthropic.id, modelId: "claude-test" },
+      },
+      automatic: false,
+    });
+    await decline(anthropic.service);
+    const ended = answerEnded(core, result.answerId);
+    await core.respondToApproval(requested[0]?.requestId ?? "", "allow-once");
+    expect((await ended).event).toBe("finished");
+
+    expect(classified).toBe(0);
+    expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
+      [],
+    );
+    const consents = (await core.listDataFlows())
+      .filter((each) => each.flow.id === "classification")
+      .map((each) => [each.flow.service.id, each.consent]);
+    expect(consents).toContainEqual([openai.service.id, "declined"]);
+    expect(consents).toContainEqual([anthropic.service.id, "declined"]);
+  });
+
   // protects=Organize above 20 Documents asks on its card, and files them when allowed (#2252, ADR-0013); fails_when=it runs without asking or files before the allow; no_claim=which Folder the classifier picks.
   test("Organize above 20 Documents asks, then files them", async () => {
     const answers = scriptedModel(
