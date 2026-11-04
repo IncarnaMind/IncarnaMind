@@ -21,7 +21,7 @@ import { downloadModel, ModelDownloadError, progressReporter } from "../../core/
 import { STALL_MS } from "../../core/embedding/modelSources";
 import { WORKING_FOLDER } from "../../core/execution";
 import type { PythonRuntimeManifest } from "../../core/runCode";
-import { realFolders } from "../sandbox";
+import { canonicalPath } from "../sandbox";
 import { unpackTarZst } from "./tar";
 
 export type { PythonRuntimeManifest };
@@ -29,6 +29,11 @@ export type { PythonRuntimeManifest };
 export interface ReadyPython {
   /** The interpreter: …/python/bin/python3. */
   command: string;
+  /**
+   * Where it is installed, …/python, which each of its runs names in its request: the one folder
+   * in the data folder the sandbox lets a program read for being where its interpreter is.
+   */
+  prefix: string;
   /** matplotlib's font cache, built by the first import, which each run starts from. */
   fontCache: string;
   manifest: PythonRuntimeManifest;
@@ -109,7 +114,8 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
   const folder = pythonRuntimeFolder(options.dataDir, manifest.sha256);
   const files = join(folder, "files");
   const archive = join(folder, "download", manifest.file);
-  const command = join(files, "python", "bin", "python3");
+  const prefix = join(files, "python");
+  const command = join(prefix, "bin", "python3");
   const fontCache = join(folder, "matplotlib");
   const lifetime = new AbortController();
   const ready = (): boolean => {
@@ -148,13 +154,13 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
     const started = performance.now();
     await rm(fontCache, { recursive: true, force: true });
     await mkdir(fontCache, { recursive: true });
-    const cache = await realFolders(fontCache);
+    const cache = await canonicalPath(fontCache, { mustExist: true });
     const ran = await options.executor.run({
       command,
       args: ["-I", "-B", "-c", FIRST_IMPORT],
       env: { MPLBACKEND: "Agg", MPLCONFIGDIR: cache, PYTHONIOENCODING: "utf-8" },
       // Only this import, IncarnaMind's own code, writes the font cache: a run gets a copy of it.
-      allow: { read: [cache], write: [WORKING_FOLDER, cache], network: "none" },
+      allow: { read: [cache, prefix], write: [WORKING_FOLDER, cache], network: "none" },
       timeoutMs: FIRST_IMPORT_MS,
       maxOutputBytes: 16 * 1024,
       environment: "minimal",
@@ -242,7 +248,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
         lifetime.signal.removeEventListener("abort", close);
         if (preparing?.stop === stop) preparing = null;
         update({ state: "ready", downloadedBytes: manifest.size, error: null });
-        return { ok: true, python: { command, fontCache, manifest } };
+        return { ok: true, python: { command, prefix, fontCache, manifest } };
       }
       // An archive a download finished is only checked again: nothing is shown downloading. Should
       // it fail its check, the download starts again and shows so.
@@ -252,7 +258,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
         stop.signal.throwIfAborted();
         await prepare(stop.signal);
         update({ state: "ready", downloadedBytes: manifest.size, error: null });
-        return { ok: true, python: { command, fontCache, manifest } };
+        return { ok: true, python: { command, prefix, fontCache, manifest } };
       } catch (error) {
         if (stop.signal.aborted) {
           update({ state: "not-downloaded", error: null, downloadedBytes: 0 });
@@ -290,7 +296,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
       if (ready()) {
         if (status.state !== "ready")
           update({ state: "ready", downloadedBytes: manifest.size, error: null });
-        return Promise.resolve({ ok: true, python: { command, fontCache, manifest } });
+        return Promise.resolve({ ok: true, python: { command, prefix, fontCache, manifest } });
       }
       if (!preparing || preparing.stop.signal.aborted) {
         preparing = startPreparing(preparing?.done ?? Promise.resolve(null));
