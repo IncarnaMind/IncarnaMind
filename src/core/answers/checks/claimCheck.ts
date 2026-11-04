@@ -1603,19 +1603,22 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     if (absence) return absence;
     if (await requiresCalculation(verdict))
       return confirmationFailure ? failedCheck(confirmationFailure) : notChecked("no-evidence");
-    const byCalculation: ClaimCheckResult | null = worked
-      ? (await requiresCalculation({ ...verdict, verdict: "supported" }))
-        ? notChecked("no-evidence")
-        : {
-            verdict: "supported",
-            evidence: worked.evidence,
-            says: null,
-            unsupported: null,
-            calculation: worked.calculation,
-            ...citedCase(worked.evidence),
-            ...facts(),
-          }
-      : null;
+    // A worked figure settles its number alone: never Supported over a reply that records another
+    // duty or a dropped condition, or gives neither line (#1766, #1708).
+    const byCalculation: ClaimCheckResult | null =
+      worked && !ownDetailDiffers(verdict) && !ownDetailUnread(verdict)
+        ? (await requiresCalculation({ ...verdict, verdict: "supported" }))
+          ? notChecked("no-evidence")
+          : {
+              verdict: "supported",
+              evidence: worked.evidence,
+              says: null,
+              unsupported: null,
+              calculation: worked.calculation,
+              ...citedCase(worked.evidence),
+              ...facts(),
+            }
+        : null;
     if (confirmationFailure) return failedCheck(confirmationFailure);
     /** Unsupported, with the nearest line when it states another value for the same thing (#770). */
     const unsupported = async (

@@ -5,7 +5,13 @@ export type StreamPart = StreamResult["stream"] extends ReadableStream<infer Par
 export type Prompt = Parameters<MockLanguageModelV4["doStream"]>[0]["prompt"];
 export type GenerateOptions = Parameters<MockLanguageModelV4["doGenerate"]>[0];
 
-export type Reply = ({ text: string } | { tool: string; input: unknown }) & { reasoning?: string };
+/**
+ * `fields`: lines streamed after the text as one piece, as a provider sends a reply's last lines in
+ * a chunk or two, so they add no wait of a word each to every check.
+ */
+export type Reply = ({ text: string; fields?: string } | { tool: string; input: unknown }) & {
+  reasoning?: string;
+};
 
 export const SLOWLY = /\bslowly\b/i;
 

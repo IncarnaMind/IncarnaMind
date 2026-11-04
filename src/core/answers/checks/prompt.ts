@@ -796,8 +796,8 @@ function jsonVerdict(reply: string): ReadVerdict | null {
       ...rolesSidesOf(typeof roles === "string" ? `Roles: ${roles}` : undefined),
       ...timeOf(typeof time === "string" ? `Time: ${time}` : undefined),
       ...detailOf(
-        typeof duty === "string" ? `Duty: ${duty}` : undefined,
-        typeof condition === "string" ? `Condition: ${condition}` : undefined,
+        typeof duty === "string" ? [`Duty: ${duty}`] : [],
+        typeof condition === "string" ? [`Condition: ${condition}`] : [],
       ),
       ...(evidence !== undefined && { evidence: markersOf(evidence) }),
       ...(declaresCoverage(coverage) && { coverage: coverageOf(coverage) }),
@@ -877,7 +877,7 @@ const closingOf = (word: string | undefined): Closing | null => {
 function closingWord(
   field: string,
   words: readonly Closing[],
-): { word: Closing | null; sides: string[] } {
+): { word: Closing | null; sides: string[]; placed?: true } {
   // "N/A" is a side's "none", never two sides.
   const text = field.normalize("NFKC").replace(/\bn\/a\b/gi, "none");
   if (text.length > MAX_PHRASE * 8) return { word: null, sides: [text] };
@@ -892,7 +892,7 @@ function closingWord(
     const word = closingOf(found?.[1]);
     if (!found || !word || !words.includes(word)) continue;
     if (!REASON.test(piece.slice(found[0].length))) continue;
-    return { word, sides: sides(text.slice(0, at).replace(/[/(:,;—–→、]$/, "")) };
+    return { word, sides: sides(text.slice(0, at).replace(/[/(:,;—–→、]$/, "")), placed: true };
   }
   const last = closingOf(text.match(/\b(?:same|differs?)\b/gi)?.at(-1));
   return {
@@ -951,20 +951,77 @@ const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
   return time === "same" || time === "differs" ? { time } : {};
 };
 
-/** A field's closing word, read as Time's is; undefined when it has none to read. */
-function sameOrDiffers(label: RegExp, line: string | undefined): "same" | "differs" | undefined {
-  const field = line === undefined ? undefined : label.exec(line)?.[1];
-  const word = field === undefined ? null : closingWord(field, ["same", "differs"]).word;
-  return word === "same" || word === "differs" ? word : undefined;
+/** The one word each side of a Duty line takes, as the reply form gives them. */
+const DUTY_SIDES = new Set(["must", "should", "may", "must not", "none"]);
+
+const sideWords = (side: string) =>
+  side
+    .toLowerCase()
+    .replace(/[^\p{L}\s]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * A Duty line whose two sides are two different words of the form, short of "must" against "must
+ * not" (one rule put the other way round), called "same": it recorded the difference and then
+ * denied it, in English and Chinese replies alike.
+ */
+const dutySidesDiffer = (lineSides: readonly string[]): boolean => {
+  const [own, theirs] = lineSides.map(sideWords);
+  return (
+    lineSides.length === 2 &&
+    own !== undefined &&
+    theirs !== undefined &&
+    DUTY_SIDES.has(own) &&
+    DUTY_SIDES.has(theirs) &&
+    own !== theirs &&
+    own !== "none" &&
+    theirs !== "none" &&
+    !(own.startsWith("must") && theirs.startsWith("must"))
+  );
+};
+
+/** A Condition line with a condition on one side only, called "same". */
+const conditionSidesDiffer = (lineSides: readonly string[]): boolean =>
+  lineSides.length === 2 &&
+  lineSides.filter((side) => side === "" || NO_PHRASE.test(side)).length === 1;
+
+/**
+ * A Duty or Condition line's closing word: one that starts a piece after the sides, or the field's
+ * very last word, never a "same" inside the copied words ("used by the same person", "same-day").
+ * A "same" its own sides deny can't be read either. Undefined when there is none to read.
+ */
+function detailWord(
+  label: RegExp,
+  line: string,
+  denied: (lineSides: readonly string[]) => boolean,
+): "same" | "differs" | undefined {
+  const field = label.exec(line)?.[1];
+  if (field === undefined) return undefined;
+  const { word, sides: lineSides, placed } = closingWord(field, ["same", "differs"]);
+  if (word !== "same" && word !== "differs") return undefined;
+  if (!placed && !/\b(?:same|differs?)[\s"'`*_.。]*$/i.test(field)) return undefined;
+  return word === "same" && denied(lineSides) ? undefined : word;
 }
 
-/** The Duty and Condition lines' closing words; each absent when the reply gives none to read. */
+/**
+ * The Duty and Condition lines' closing words. A "differs" on any of a reply's lines holds; else the
+ * last line's word, absent when it can't be read.
+ */
 function detailOf(
-  dutyLine: string | undefined,
-  conditionLine: string | undefined,
+  dutyLines: readonly string[],
+  conditionLines: readonly string[],
 ): Pick<ReadVerdict, "duty" | "condition"> {
-  const duty = sameOrDiffers(DUTY, dutyLine);
-  const condition = sameOrDiffers(CONDITION, conditionLine);
+  const read = (
+    lines: readonly string[],
+    label: RegExp,
+    denied: (lineSides: readonly string[]) => boolean,
+  ) => {
+    const words = lines.map((line) => detailWord(label, line, denied));
+    return words.includes("differs") ? "differs" : words.at(-1);
+  };
+  const duty = read(dutyLines, DUTY, dutySidesDiffer);
+  const condition = read(conditionLines, CONDITION, conditionSidesDiffer);
   return { ...(duty && { duty }), ...(condition && { condition }) };
 }
 
@@ -1187,8 +1244,8 @@ export function readVerdict(reply: string): ReadVerdict | null {
       ...rolesSidesOf(fields.findLast((each) => ROLES.test(each))),
       ...timeOf(fields.findLast((each) => TIME.test(each))),
       ...detailOf(
-        fields.findLast((each) => DUTY.test(each)),
-        fields.findLast((each) => CONDITION.test(each)),
+        fields.filter((each) => DUTY.test(each)),
+        fields.filter((each) => CONDITION.test(each)),
       ),
       ...(calculationFields.some((line) => CALCULATION.test(line)) && {
         calculations: calculationFields.reduce<string[]>((values, line) => {
@@ -1246,7 +1303,8 @@ const linesOf = (turn: string): string[] =>
 /**
  * A last turn with a verdict of its own keeps the Roles, Scope, Time, Duty and Condition lines it
  * leaves out from the turns set aside after the search: Claude Haiku 5.5 wrote them beside `cite`
- * and only its verdict and sentence after them, and each can only hold a verdict back ("…, other").
+ * and only its verdict and sentence after them. Each can hold a verdict back ("…, other"), and a
+ * kept Duty or Condition line also stands for the one a Supported reply would otherwise lack.
  */
 function withFieldsSetAside(last: string, setAside: readonly string[]): string {
   const own = linesOf(last);

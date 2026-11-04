@@ -214,6 +214,9 @@ export function replyParts(prompt: Prompt, tools: readonly OfferedTool[]): Strea
   parts.push(
     { type: "text-start", id: "answer" },
     ...words.map((word): StreamPart => ({ type: "text-delta", id: "answer", delta: word })),
+    ...(reply.fields
+      ? [{ type: "text-delta", id: "answer", delta: `\n${reply.fields}` } satisfies StreamPart]
+      : []),
     { type: "text-end", id: "answer" },
     { type: "finish", finishReason: { unified: "stop", raw: undefined }, usage: USAGE },
   );

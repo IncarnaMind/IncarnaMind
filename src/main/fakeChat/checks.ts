@@ -152,7 +152,8 @@ const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentenc
 const SAME_DETAIL = "Duty: none / none, same\nCondition: none / none, same";
 
 const withAbsence = (sentence: string, verdict: string): Reply => ({
-  text: `${verdict}\n${absenceLine(sentence)}\n${SAME_DETAIL}`,
+  text: `${verdict}\n${absenceLine(sentence)}`,
+  fields: SAME_DETAIL,
 });
 
 /**
@@ -403,6 +404,7 @@ function figuresReply(
     };
   });
   return {
-    text: `Verdict: supported\n${absenceLine(sentence)}\n${SAME_DETAIL}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+    text: `Verdict: supported\n${absenceLine(sentence)}`,
+    fields: `${SAME_DETAIL}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
   };
 }
