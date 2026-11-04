@@ -162,6 +162,14 @@ describe("fitting a name on one line", () => {
   test("a word too long for the line is cut inside it", () => {
     expect(fitName("x".repeat(50), room(10))).toBe(`${"x".repeat(9)}…`);
   });
+
+  test("a word too long for the line is cut between letters, an accent kept with its letter", () => {
+    const accented = "e\u0301";
+    expect(fitName(accented.repeat(20), room(10))).toBe(`${accented.repeat(4)}…`);
+    expect(fitName(accented.repeat(20), (text) => Array.from(text).length <= 1)).toBe(
+      `${accented}…`,
+    );
+  });
 });
 
 describe("shortening in the middle", () => {
