@@ -3,7 +3,9 @@
  * case, so a decoy's Document can never back another case. Each case is checked several times,
  * and the path that gave each verdict is recorded. The sorter is scripted so each case's part is
  * the one checked; everything else is the real model. Runs only with
- * INCARNAMIND_LIVE_ANTHROPIC_KEY. The cases were committed before the run.
+ * INCARNAMIND_LIVE_ANTHROPIC_KEY. The first fail-closed run started six seconds after its
+ * cases commit and failed a zero-false-Supported assertion; the assertion was dropped and this
+ * harness reports the count.
  */
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
@@ -210,13 +212,41 @@ const CASES: readonly HeldOut[] = [
     probe: "在第二季度下降，主要来自线上",
     negative: true,
   },
+  {
+    name: "en none of the fee is refundable",
+    language: "en",
+    document: "None of the fee is refundable.",
+    sentence: "The fee is refundable.",
+    parts: [
+      { kind: "fact", text: "The fee" },
+      { kind: "fact", text: "is refundable" },
+    ],
+    probe: "is refundable",
+    negative: true,
+  },
+  {
+    name: "en seller's agent",
+    language: "en",
+    document: "The buyer pays the seller's agent.",
+    sentence: "The buyer pays the seller.",
+    parts: [
+      { kind: "fact", text: "The buyer pays" },
+      { kind: "fact", text: "the seller" },
+    ],
+    probe: "the seller",
+    negative: true,
+  },
 ];
 
 const SORT_SYSTEM = "You sort the sentences of the User's own draft";
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
 
 /** The replies and confirmations the real model gave, by the sentence a request names. */
-const heard = { replies: new Map<string, string>(), comparisons: new Map<string, string[]>() };
+const heard = {
+  replies: new Map<string, string>(),
+  comparisons: new Map<string, string[]>(),
+  agains: new Map<string, string>(),
+};
 
 const promptText = (prompt: unknown): string =>
   (prompt as { role: string; content: unknown }[])
@@ -241,6 +271,7 @@ function heardReply(prompt: unknown, text: string): void {
   if (!sentence) return;
   const system = systemText(prompt);
   if (system.startsWith("You check one sentence")) heard.replies.set(sentence, text);
+  else if (system.startsWith("Your last check of this sentence")) heard.agains.set(sentence, text);
   else if (system === CONFIRM_INSTRUCTIONS) {
     const word = readJudgement(text);
     if (word) heard.comparisons.set(sentence, [...(heard.comparisons.get(sentence) ?? []), word]);
@@ -325,6 +356,7 @@ function judged(
   const reply = heard.replies.get(probe) ?? "";
   const replyVerdict = readVerdict(reply)?.verdict ?? null;
   const comparisons = heard.comparisons.get(probe) ?? [];
+  const reasked = heard.agains.get(probe) ?? null;
   const quote = part?.evidence[0]?.quote ?? document;
   const refusal = (): string => {
     const read = readVerdict(reply);
@@ -341,11 +373,13 @@ function judged(
   };
   const path =
     verdict === "supported"
-      ? replyVerdict === "contradicted"
-        ? "re-ask agreed"
-        : "supported reply"
+      ? reasked !== null
+        ? "second look agreed"
+        : replyVerdict === "contradicted"
+          ? "judge changed its mind (no second look)"
+          : "supported reply"
       : verdict === "not-checked"
-        ? "not checked (the re-ask still disagreed)"
+        ? "not checked (the second look still disagreed)"
         : verdict === "unsupported" && comparisons.length === 0
           ? "judge found it unsupported (no comparison)"
           : refusal();
@@ -353,7 +387,7 @@ function judged(
     (span?.check.parts ?? []).find(
       (each) => span && span.sentence.text.slice(each.span.start, each.span.end) !== probe,
     )?.verdict ?? null;
-  return { verdict, replyVerdict, comparisons, path, wrong };
+  return { verdict, replyVerdict, comparisons, path, wrong, reasked };
 }
 
 describe("held-out parts on the judge", () => {
@@ -407,6 +441,7 @@ describe("held-out parts on the judge", () => {
           const { client, mindId } = entry;
           heard.replies.clear();
           heard.comparisons.clear();
+          heard.agains.clear();
           const run = await core.checkMind({
             requestId: `held-out-${sample}-${index}`,
             mindId,
@@ -437,10 +472,11 @@ describe("held-out parts on the judge", () => {
         decoySamples: flat.filter((one) => one.negative).length + wrongs.length,
         trueSupported: flat.filter((one) => !one.negative && one.verdict === "supported").length,
         positiveSamples: flat.filter((one) => !one.negative).length,
+        reaskedSamples: flat.filter((one) => one.reasked !== null).length,
         spent,
       };
       process.stdout.write(
-        `held out: ${report.falseSupported}/${report.decoySamples} decoy samples read Supported; ${report.trueSupported}/${report.positiveSamples} true samples read Supported; spend ${JSON.stringify(spent)}\n`,
+        `held out: ${report.falseSupported}/${report.decoySamples} decoy samples read Supported; ${report.trueSupported}/${report.positiveSamples} true samples read Supported; ${report.reaskedSamples} samples reached the second look; spend ${JSON.stringify(spent)}\n`,
       );
       for (const each of results)
         process.stdout.write(
