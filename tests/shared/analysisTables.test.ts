@@ -9,8 +9,13 @@ import {
 } from "../../src/core/api";
 import { type AnalysisTable, noAnalysisOutput } from "../../src/shared/analysis";
 import {
+  type AnalysisTableMatch,
   analysisTableFor,
+  analysisTableMatch,
+  analysisTableShown,
   analysisTablesOf,
+  columnLine,
+  holdsTableAgain,
   withAnalysisTables,
 } from "../../src/shared/analysisTables";
 import { citationNode, type NodeJSON } from "../../src/shared/blockJson";
@@ -150,10 +155,24 @@ describe("an Analysis's table is one calculated object (#2378)", () => {
     expect(blocks.at(-1)).toEqual(other);
   });
 
-  test("a table typed under headings of its writer's own is the Analysis's, by the rows it holds", () => {
+  test("a table that cites a Document's own lines is that Document's, never the Analysis's typed again", () => {
     const made = analysis([byRegion(rows)]);
-    const blocks = withAnalysisTables([tableBlock(rows, ["Area", "Total"])], runs(made));
-    expect(captioned(blocks).map((each) => each.table?.table)).toEqual([{ result: "by_region" }]);
+    const typed = tableBlock(rows, ["Region", "Revenue"]);
+    const [, first] = typed.content ?? [];
+    const label = first?.content?.[0]?.content?.[0];
+    label?.content?.push(citationNode(citation));
+    expect(holdsTableAgain(typed, analysisTablesOf(runs(made))[0] as AnalysisTableMatch)).toBe(
+      false,
+    );
+  });
+
+  test("a table typed under other headings is never bound: its headings say what its numbers are", () => {
+    const made = analysis([byRegion(rows)]);
+    const typed = tableBlock(rows, ["Region", "Average revenue"]);
+    expect(withAnalysisTables([typed], runs(made))).toEqual([typed]);
+    expect(holdsTableAgain(typed, analysisTablesOf(runs(made))[0] as AnalysisTableMatch)).toBe(
+      true,
+    );
   });
 
   test("a table matches as it reads in Chinese too", () => {
@@ -278,5 +297,61 @@ describe("a table two Analyses could have given (#2378)", () => {
     const readNothing: AnswerAnalysis = { ...analysis([result]), inputs: [] };
     expect(analysisTableFor(tableBlock(rows), analysisTablesOf(runs(readNothing)))).toBeNull();
     expect(withAnalysisTables([tableBlock(rows)], runs(readNothing))).toEqual([tableBlock(rows)]);
+  });
+});
+
+describe("a bound table reads as its run while the Note keeps the run's headings and rows (#2378)", () => {
+  const binding = { id: "run-1", table: { result: "by_region" } };
+  const kept = (given: (string | number)[][]) =>
+    analysisTableMatch(
+      binding,
+      "Revenue by region",
+      table(given),
+      [citation],
+      [
+        {
+          column: 1,
+          rule: { input: "sales", key: "Region", value: "Revenue", how: "sum" },
+          rows: 24,
+        },
+      ],
+    );
+  const bound = (block: NodeJSON): NodeJSON => ({
+    ...block,
+    attrs: { [ANALYSIS_TABLE_ATTRIBUTE]: binding },
+  });
+  const shown = (block: NodeJSON, given = rows) =>
+    analysisTableShown(bound(block), kept(given), "en", null);
+
+  test("under the run's headings it is recalculated", () => {
+    const read = shown(tableBlock(rows));
+    expect(read.state.kind).toBe("recalculated");
+    expect(read.columns.map((column) => columnLine(column, "en"))).toEqual([
+      "Revenue: sum of 24 rows · recalculated",
+    ]);
+  });
+
+  test("a heading the User renames, or a column they add, leaves it not recalculated", () => {
+    const renamed = shown(tableBlock(rows, ["Region", "Average revenue"]));
+    expect(renamed.state.kind).toBe("calculated");
+    expect(renamed.columns.map((column) => columnLine(column, "en"))).toEqual([
+      "Average revenue: from the Analysis · not recalculated",
+    ]);
+    const added = tableBlock(
+      rows.map((row) => [...row, "90%"]),
+      ["Region", "Revenue", "Share"],
+    );
+    expect(shown(added).state.kind).toBe("calculated");
+  });
+
+  test("a label the run gives twice pairs its rows in order, so the table as written differs from nothing", () => {
+    const twice = [
+      ["North", 100],
+      ["North", 200],
+      ["South", 80],
+    ];
+    const read = shown(tableBlock(twice), twice);
+    expect(read.columns.flatMap((column) => column.differs)).toEqual([]);
+    expect(read.state.kind).toBe("recalculated");
   });
 });

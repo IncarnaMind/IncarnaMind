@@ -19,14 +19,21 @@ import {
   MIND_FIGURE_RUNS_FIELD,
 } from "../../src/core/api";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
-import { noAnalysisOutput } from "../../src/shared/analysis";
+import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import { columnLine, differingLine, footedLine } from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { chartSources, readChart } from "../../src/shared/charts";
 import { readClaimCheck } from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
-import { checkGenerate, checkReply, isCheckRun, listedSentences } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  listedSentences,
+  type Plan,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
@@ -53,7 +60,9 @@ const TOTALS: [string, number][] = [
   ["West", 9075],
 ];
 
-const ANALYSIS = (heading: string): FakeAnswer => ({
+type Answered = Exclude<FakeAnswer, "hang">;
+
+const ANALYSIS = (heading: string): Answered => ({
   output: {
     ...noAnalysisOutput(),
     results: [
@@ -139,11 +148,16 @@ function writingModel(
   sent: string[],
   asksChart: boolean,
   again: string | null,
+  plan: (sentence: string) => Plan | undefined,
+  rewrite: { part: string; content: string } | null,
 ) {
   const words = WORDS[language];
   return scriptedModel(
     (call: ModelCall) => {
-      if (isCheckRun(call)) return checkReply(call, {});
+      if (isCheckRun(call)) {
+        const planned = plan(sentenceOf(call));
+        return checkReply(call, planned ? { [sentenceOf(call)]: planned } : {});
+      }
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search) return { calls: [{ tool: "search_documents", input: { query: "Central" } }] };
       if (!call.results.some((result) => result.tool === "run_analysis")) {
@@ -185,6 +199,10 @@ function writingModel(
         return {
           calls: [{ tool: "add_to_mind", input: { mind: words.title, content: again } }],
         };
+      if (rewrite !== null && !call.results.some((result) => result.tool === "edit_mind"))
+        return {
+          calls: [{ tool: "edit_mind", input: { mind: words.title, ...rewrite } }],
+        };
       return { text: language === "en" ? "Written." : "已写入。" };
     },
     {
@@ -213,9 +231,11 @@ async function walked(
   asksChart = true,
   again: string | null = null,
   given: FakeAnswer = ANALYSIS(WORDS[language].caption),
+  plan: (sentence: string) => Plan | undefined = () => undefined,
+  rewrite: { part: string; content: string } | null = null,
 ) {
   const sent: string[] = [];
-  const model = writingModel(language, content, sent, asksChart, again);
+  const model = writingModel(language, content, sent, asksChart, again, plan, rewrite);
   const printer = fakePrinter();
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -301,6 +321,7 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     sent.length = 0;
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
+    expect(sent.length).toBeGreaterThan(0);
     for (const [, total] of TOTALS)
       expect(sent.some((each) => each.includes(new Intl.NumberFormat("en").format(total)))).toBe(
         false,
@@ -329,7 +350,7 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
       South: "Coastal Foods placed most orders",
       West: "Delta Health placed most orders",
     };
-    const results = base.output?.results.map((result) =>
+    const results = (base.output?.results ?? []).map((result) =>
       result.kind === "table"
         ? {
             ...result,
@@ -372,6 +393,44 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     ).toHaveLength(1);
     const pack = await core.exportMind(madeId, { format: "source-pack" });
     expect(pack.citations).toBeGreaterThan(0);
+    core.close();
+  });
+
+  test("a table whose cell the User changed, or a caption left without its table, exports no note that the Analysis worked it out", async () => {
+    const { core, madeId, client } = await walked(language, CONTENT(language));
+    const noted = async () => {
+      const files = unzip((await core.exportMind(madeId, { format: "docx" })).data);
+      return Object.values(footnotesOf(part(files, "word/footnotes.xml"))).filter((each) =>
+        each.includes(WORDS[language].note),
+      ).length;
+    };
+    expect(await noted()).toBe(1);
+    const table = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement => each instanceof Y.XmlElement && each.nodeName === "table",
+      );
+    const north = table?.toArray()[2] as Y.XmlElement | undefined;
+    const cell = north?.toArray()[1] as Y.XmlElement | undefined;
+    const text = (cell?.toArray()[0] as Y.XmlElement | undefined)?.toArray()[0] as
+      | Y.XmlText
+      | undefined;
+    if (!table || !text) throw new Error("No North cell.");
+    client.doc.transact(() => {
+      text.delete(0, text.length);
+      text.insert(0, "9,999");
+    });
+    await client.settled();
+    expect(await noted()).toBe(0);
+    client.doc.transact(() => {
+      text.delete(0, text.length);
+      text.insert(0, "9,450");
+    });
+    await client.settled();
+    expect(await noted()).toBe(1);
+    client.doc.transact(() => client.blocks.delete(client.blocks.toArray().indexOf(table), 1));
+    await client.settled();
+    expect(await noted()).toBe(0);
     core.close();
   });
 
@@ -434,6 +493,46 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     core.close();
   });
 
+  test("a sentence is Supported by a figure worked out again only while its words say what the figure is", async () => {
+    const base = ANALYSIS(WORDS[language].caption);
+    const total: AnalysisValue = {
+      kind: "figure",
+      name: "total_amount",
+      label: "Total amount, all orders",
+      unit: "",
+      value: 35550,
+      of: { input: "orders", columns: ["amount"], rows: [[2, 41]], count: 40, how: "sum" },
+    };
+    const given = {
+      ...base,
+      output: {
+        ...noAnalysisOutput(),
+        ...base.output,
+        results: [...(base.output?.results ?? []), total],
+      },
+    };
+    const said = {
+      en: {
+        right: "Across all orders the amount comes to [=6].",
+        wrong: "The South region's total is [=6].",
+      },
+      "zh-CN": { right: "全部订单的金额合计为 [=6]。", wrong: "南部地区的合计为 [=6]。" },
+    }[language];
+    const misnamed = (sentence: string) =>
+      sentence.startsWith(said.wrong.slice(0, 8))
+        ? ({ analysis: "unsupported" } as const)
+        : undefined;
+    const content = [`# ${WORDS[language].title}`, "", said.right, "", said.wrong].join("\n");
+    const { core, madeId, client } = await walked(language, content, false, null, given, misnamed);
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    const stateOf = (words: string) =>
+      marks(client).find((mark) => mark.text.startsWith(words.slice(0, 8)))?.state;
+    expect(stateOf(said.right)).toBe("supported");
+    expect(stateOf(said.wrong)).toBe("unsupported");
+    core.close();
+  });
+
   test("the chart draws the Analysis's values, cited to the rows it read", async () => {
     const { core, answer, client } = await walked(language, CONTENT(language));
     const created = answer.toolCalls.find((call) => call.tool === "create_mind");
@@ -492,15 +591,16 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
   });
 
   test.each([
-    ["its numbers", (total: number, _: number) => total.toLocaleString("en")],
-    ["its figures' markers", (_: number, at: number) => `[=${at + 2}]`],
+    ["its numbers", "Area | Sum", (total: number, _: number) => total.toLocaleString("en")],
+    ["its chart's headings", "Region | Total", (total: number) => total.toLocaleString("en")],
+    ["its figures' markers", "Region | Total", (_: number, at: number) => `[=${at + 2}]`],
   ])(
     "content that types the table again with %s beside its marker is refused, and the call made again gives one table",
-    async (_, cell) => {
+    async (_, headings, cell) => {
       const typed = [
         `# ${WORDS[language].title}`,
         "",
-        "| Region | Total |",
+        `| ${headings} |`,
         "|---|---|",
         ...TOTALS.map(([region, total], at) => `| ${region} | ${cell(total, at)} |`),
         "",
@@ -523,11 +623,79 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     },
   );
 
+  test("a chart's marker between two tables goes beneath the one its Analysis drew", async () => {
+    const base = ANALYSIS(WORDS[language].caption);
+    const counts = {
+      kind: "table" as const,
+      name: "region_counts",
+      label: language === "en" ? "Orders by region" : "各地区订单数",
+      unit: "",
+      table: {
+        columns: ["region", "orders"],
+        rows: TOTALS.map(([region], at) => [region, 9 + at]),
+        rowCount: 4,
+        columnCount: 2,
+      },
+    };
+    const given = {
+      ...base,
+      output: {
+        ...noAnalysisOutput(),
+        ...base.output,
+        results: [...(base.output?.results ?? []), counts],
+      },
+    };
+    const content = [
+      `# ${WORDS[language].title}`,
+      "",
+      "[=table 1]",
+      "",
+      "[=chart 1]",
+      "",
+      "[=table 2]",
+    ].join("\n");
+    const { core, client } = await walked(language, content, false, null, given);
+    const blocks = blocksOf(client);
+    expect(blocks.map((block) => block.type)).toEqual([
+      "heading",
+      "paragraph",
+      "table",
+      CHART_NODE,
+      "paragraph",
+      "table",
+    ]);
+    const chart = blocks.find((block) => block.type === CHART_NODE);
+    if (!chart?.attrs) throw new Error("No chart.");
+    expect(readChart(chart.attrs).data.rows.map((row) => row.values[0]?.value)).toEqual(
+      TOTALS.map(([, total]) => total),
+    );
+    core.close();
+  });
+
   test("a later call that writes the table again is refused: the Note holds it once", async () => {
     const { core, answer, client } = await walked(language, CONTENT(language), true, "[=table 1]");
     const added = answer.toolCalls.find((call) => call.tool === "add_to_mind");
     expect(added?.status).toBe("failed");
     expect(added?.mindProblem).toMatchObject({ kind: "copy", text: WORDS[language].caption });
+    expect(blocksOf(client).filter((block) => block.type === "table")).toHaveLength(1);
+    core.close();
+  });
+
+  test("a rewrite of the text beside the table that gives the table again is refused: the Note holds it once", async () => {
+    const part = WORDS[language].slope.slice(0, 12);
+    const rewrite = { part, content: ["[=table 1]", "", WORDS[language].slope].join("\n") };
+    const { core, answer, client } = await walked(
+      language,
+      CONTENT(language),
+      false,
+      null,
+      undefined,
+      undefined,
+      rewrite,
+    );
+    const edited = answer.toolCalls.find((call) => call.tool === "edit_mind");
+    expect(edited?.status).toBe("failed");
+    expect(edited?.mindProblem).toMatchObject({ kind: "copy", text: WORDS[language].caption });
     expect(blocksOf(client).filter((block) => block.type === "table")).toHaveLength(1);
     core.close();
   });

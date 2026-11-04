@@ -16,6 +16,7 @@ import {
   type AnswerAnalysis,
   type AnswerAnalysisInput,
   CALCULATED_FIGURE_NODE,
+  CITATION_NODE,
   type Citation,
   type RetainedFigureAnalysis,
 } from "../core/api";
@@ -225,15 +226,10 @@ export function analysisTableFor(
           );
         })
       ) &&
-      // Its rows are what it holds: the headings are the writer's words for them.
       table.grids.some(
         (cells) =>
           cells.length === grid.length &&
-          grid.every((row, at) =>
-            at === 0
-              ? row.length === (cells[0] ?? []).length
-              : row.join("\u0000") === (cells[at] ?? []).join("\u0000"),
-          ),
+          grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
       ),
   );
   const [first] = matches;
@@ -269,6 +265,10 @@ function figureValueIn(cell: NodeJSON): number | null {
 export function holdsTableAgain(block: NodeJSON, match: AnalysisTableMatch): boolean {
   if (block.type !== "table" || readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]))
     return false;
+  // A table that cites a Document's own lines is that Document's, set beside the Analysis's to compare.
+  const cites = (node: NodeJSON): boolean =>
+    node.type === CITATION_NODE || (node.content ?? []).some(cites);
+  if (cites(block)) return false;
   const rows = (block.content ?? []).slice(1);
   if (rows.length === 0 || rows.length !== match.table.rows.length) return false;
   return rows.every((row, at) => {
@@ -402,10 +402,24 @@ export function analysisTableShown(
   const raw = given.columns.map(rawColumn);
   const written = (value: AnalysisCell, column: number) =>
     LANGUAGES.map((each) => cellKey(figureCellText(each, value, raw[column] ?? false)));
-  const runRow = new Map<string, number>();
+  // A label the run gives twice, as a group by two keys does, pairs its rows in their order.
+  const runRows = new Map<string, number[]>();
   given.rows.forEach((row, at) => {
-    for (const label of written(row[0] ?? null, 0)) if (!runRow.has(label)) runRow.set(label, at);
+    for (const label of new Set(written(row[0] ?? null, 0)))
+      runRows.set(label, [...(runRows.get(label) ?? []), at]);
   });
+  const seen = new Map<string, number>();
+  const runRowOf = rows.map((row) => {
+    const label = cellKey(row[0] ?? "");
+    const nth = seen.get(label) ?? 0;
+    seen.set(label, nth + 1);
+    return runRows.get(label)?.[nth];
+  });
+  // Its headings say what its numbers are: renamed, or beside a column the run never gave, the
+  // table is the User's words over the Analysis's numbers, which no rule vouches for.
+  const shaped =
+    headings.length === given.columns.length &&
+    headings.every((heading, at) => cellKey(heading) === cellKey(given.columns[at] ?? ""));
   const columns: AnalysisTableColumn[] = kept.numeric
     .filter((column) => column > 0)
     .map((column) => {
@@ -413,10 +427,10 @@ export function analysisTableShown(
       const differs: DifferingCell[] = [];
       const footed: AnalysisTableColumn["footed"] = [];
       let above = 0;
-      for (const row of rows) {
+      for (const [index, row] of rows.entries()) {
         const label = row[0] ?? "";
         const note = cellKey(row[column] ?? "");
-        const at = runRow.get(cellKey(label));
+        const at = runRowOf[index];
         const value = at === undefined ? undefined : given.rows[at]?.[column];
         if (value !== undefined && written(value, column).includes(note)) {
           if (typeof value === "number") above += value;
@@ -442,8 +456,8 @@ export function analysisTableShown(
       return {
         column,
         heading: headings[column] ?? given.columns[column] ?? "",
-        rule: check?.rule ?? null,
-        rows: check?.rows ?? 0,
+        rule: shaped ? (check?.rule ?? null) : null,
+        rows: shaped ? (check?.rows ?? 0) : 0,
         differs,
         footed,
       };

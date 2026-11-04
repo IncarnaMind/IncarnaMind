@@ -257,17 +257,20 @@ export function aggregateFigureStates(
 ): ClaimCheckShown {
   if (figures.length === 0) return { state: "not-checked", reason: "malformed" };
   const all = [...figures, ...(remainder ? [remainder] : [])];
-  for (const state of [
-    "contradicted",
-    "unsupported",
-    "needs-recheck",
-    "checking",
-    "not-checked",
-  ] as const) {
+  for (const state of ["contradicted", "unsupported", "needs-recheck", "checking"] as const) {
     const found = all.find((each) => each.state === state);
     if (found) return found;
   }
+  // An Analysis's figure not worked out again says nothing of the rest of the sentence (#2378): a
+  // part that couldn't be checked, or a remainder never given, is what the sentence shows.
+  const unchecked = all.filter((each) => each.state === "not-checked");
+  const other = unchecked.find(
+    (each) => each.state === "not-checked" && each.reason !== "analysis",
+  );
+  if (other) return other;
   if (remainder === undefined) return { state: "not-checked", reason: "malformed" };
+  const [analysis] = unchecked;
+  if (analysis) return analysis;
   return all.length > 0 && all.every((each) => each.state === "kept")
     ? { state: "kept" }
     : { state: "supported" };
@@ -318,7 +321,13 @@ export function aggregateFigureResults(
         .map((item) => [`${item.documentId}\n${item.reason}`, item]),
     ).values(),
   ];
-  const selected = all.find((result) => !result.kept && result.verdict === summary.state);
+  const selected = all.find(
+    (result) =>
+      !result.kept &&
+      result.verdict === summary.state &&
+      (result.verdict !== "not-checked" ||
+        (summary.state === "not-checked" && result.reason === summary.reason)),
+  );
   if (selected) return { ...selected, versions, excluded };
   if (summary.state === "kept")
     return {

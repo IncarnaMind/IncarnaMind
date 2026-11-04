@@ -54,6 +54,7 @@ import {
   figureRunsFor,
   labelledCitations,
   readTableBinding,
+  sameBinding,
 } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { withoutInertBrackets } from "../shared/inertBrackets";
@@ -437,9 +438,10 @@ export interface ReadOptions {
   sentenceChecks?: ReadonlyMap<string, FailedSentence>;
   /**
    * An Analysis table's footnote, from the run the Note keeps (#2378): what it was worked out
-   * by and from. Absent: its caption's marker is read as nothing, as the editor's text does.
+   * by and from, for the table beneath its caption. Null, or absent: its caption's marker is read
+   * as nothing, as the editor's text does.
    */
-  tableNote?(run: RetainedFigureAnalysis): string;
+  tableNote?(run: RetainedFigureAnalysis, table: Y.XmlElement): string | null;
   /** Set by the reader in an Answer from before AI text was marked, which is the AI's as a whole. */
   wholeAnswerAi?: boolean;
 }
@@ -1282,11 +1284,20 @@ function readInlineElement(
       const node = { type: ANALYSIS_TABLE_NODE, attrs: { [ANALYSIS_TABLE_ATTRIBUTE]: binding } };
       // A run the Note lost leaves its table with no note to say where it came from (#2378).
       const run = binding ? figureRunsFor(doc, [node])[0] : undefined;
-      if (!run) break;
+      // The note speaks for the table beneath its caption: none once that table is gone.
+      const table = child.parent instanceof Y.XmlElement ? child.parent.nextSibling : null;
+      const below =
+        table instanceof Y.XmlElement && table.nodeName === "table"
+          ? readTableBinding(table.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
+          : null;
+      const beneath = binding !== null && below !== null && sameBinding(below, binding);
+      const note =
+        run && beneath && table instanceof Y.XmlElement ? options.tableNote(run, table) : null;
+      if (!run || note === null) break;
       if (options.trimBeforeFootnote ?? options.trimBeforeCitation) trimTrailingSpace(content);
       add({
         kind: "footnote",
-        content: [{ kind: "text", text: options.tableNote(run), marks: NO_MARKS }],
+        content: [{ kind: "text", text: note, marks: NO_MARKS }],
         cites: run.inputs.flatMap((input) =>
           input.kind === "range" ? [options.footnote({ ...input.citation })] : [],
         ),

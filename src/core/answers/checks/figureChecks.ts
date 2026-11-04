@@ -310,18 +310,31 @@ export function figureJudgment(
 /**
  * An Analysis's figure in a sentence, judged by its run as the Note keeps it (#2378), never by the
  * Documents' text, which never holds it: Supported when IncarnaMind worked it out again to the same
- * number, while the Documents it read are as they were; Not checked otherwise.
+ * number, while the Documents it read are as they were, and the check reads the sentence's words
+ * for it as what its label says it is; Unsupported when the words make it something else; Not
+ * checked otherwise.
  */
-function analysisJudgment(target: CheckFigure, facts: Facts): ClaimJudgment {
+function analysisJudgment(
+  target: CheckFigure,
+  item: FigureReplyItem | undefined,
+  facts: Facts,
+): ClaimJudgment {
   const record = target.analysisRecord;
   const read = (record?.citations ?? []).map(({ documentId, contentHash }) => ({
     documentId,
     contentHash,
   }));
   const known = { ...facts, versions: [...facts.versions, ...read] };
+  if (item && item.verdict !== "supported")
+    return figureJudgment({ ...item, verdict: "unsupported" }, null, known, {
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+    });
   const [evidence] = record?.citations ?? [];
   if (!record?.recalculated || !evidence)
     return { verdict: "not-checked", reason: "analysis", detail: null, ...known };
+  // A figure the check gave no word on: what the sentence calls it was never read.
+  if (!item) return { verdict: "not-checked", reason: "malformed", detail: null, ...known };
   return {
     verdict: "supported",
     evidence,
@@ -542,11 +555,11 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
   const rows: FigureCheckResult[] = [];
   for (const original of requested) {
     let target = original;
+    const item = items.get(target.id);
     if (target.calculated?.figure.analysis) {
-      rows.push({ ...finding(target), result: analysisJudgment(target, options.facts()) });
+      rows.push({ ...finding(target), result: analysisJudgment(target, item, options.facts()) });
       continue;
     }
-    const item = items.get(target.id);
     if (!item) {
       rows.push({ ...finding(target), result: unavailable("malformed") });
       continue;

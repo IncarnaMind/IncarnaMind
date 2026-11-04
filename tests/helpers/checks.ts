@@ -25,6 +25,11 @@ import {
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
+  /**
+   * What it says of an Analysis's figure, as the check's instructions ask: whether the sentence's
+   * words for it say what the figure's label says it is. "supported" when absent.
+   */
+  analysis?: "supported" | "unsupported";
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   /** The number of `quote` that backs the sentence's figure, as written: its first of a kind when absent. */
@@ -83,6 +88,7 @@ export function requestedFigures(call: ModelCall): {
   reading: number | null;
   label: string | null;
   context: string | null;
+  analysis: boolean;
 }[] {
   const match = FIGURES.exec(call.prompt);
   if (!match?.[1]) return [];
@@ -94,7 +100,15 @@ export function requestedFigures(call: ModelCall): {
     const unsettled = Array.isArray(figure.ambiguities) && figure.ambiguities.length > 0;
     const label = typeof figure.label === "string" ? figure.label : null;
     const context = typeof figure.context === "string" ? figure.context : null;
-    return { id: figure.id, shown: figure.shown, reading: unsettled ? 1 : null, label, context };
+    const analysis = isRecord(figure.saved) && figure.saved.analysis != null;
+    return {
+      id: figure.id,
+      shown: figure.shown,
+      reading: unsettled ? 1 : null,
+      label,
+      context,
+      analysis,
+    };
   });
 }
 
@@ -189,26 +203,44 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   const verdict = `Verdict: ${plan.verdict}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
+  // An Analysis's figure is never looked for in the Passages: only what the sentence calls it is read.
+  const analysed = ({ id, reading }: { id: string; reading: number | null }) => ({
+    id,
+    verdict: plan.analysis ?? "supported",
+    scope: "same",
+    topic: "found",
+    roles: "same",
+    says: null,
+    reading,
+    relation: "equals",
+    source: null,
+    calculation: null,
+  });
   if (!calculation) {
     // With nothing quoted, each figure is one no Passage states.
     if (!quote) {
-      const items = figures.map(({ id, reading }) => ({
-        id,
-        verdict: "unsupported",
-        scope: "same",
-        topic: "not found",
-        roles: "same",
-        says: null,
-        reading,
-        relation: "equals",
-        source: null,
-        calculation: null,
-      }));
+      const items = figures.map(({ id, reading, analysis }) =>
+        analysis
+          ? analysed({ id, reading })
+          : {
+              id,
+              verdict: "unsupported",
+              scope: "same",
+              topic: "not found",
+              roles: "same",
+              says: null,
+              reading,
+              relation: "equals",
+              source: null,
+              calculation: null,
+            },
+      );
       return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
     }
     // Each figure from the cited quote's number of its own kind of unit, or its first.
     const numbers = readFigures(quote, documentFigureContext([{ text: quote }]));
-    const items = figures.map(({ id, shown, reading }) => {
+    const items = figures.map(({ id, shown, reading, analysis }) => {
+      if (analysis) return analysed({ id, reading });
       const kind = readFigures(shown, documentFigureContext([{ text: shown }]))[0]?.unit.kind;
       const source = plan.number
         ? { chars: plan.number }

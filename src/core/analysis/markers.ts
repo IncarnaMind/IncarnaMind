@@ -115,8 +115,8 @@ export function withAnalysisResults(
 export function chartsPlacedIn(
   text: string,
   analyses: readonly AnswerAnalysis[],
-): { kind: AnalysisChart["kind"]; title: string }[] {
-  const placed: { kind: AnalysisChart["kind"]; title: string }[] = [];
+): { kind: AnalysisChart["kind"]; title: string; rows: AnalysisTable["rows"] }[] {
+  const placed: { kind: AnalysisChart["kind"]; title: string; rows: AnalysisTable["rows"] }[] = [];
   for (const line of text.split("\n")) {
     const whole = LINE.exec(line);
     if (whole?.[1] !== "chart") continue;
@@ -126,7 +126,7 @@ export function chartsPlacedIn(
       const index = analysis.markers.charts.indexOf(marker);
       const chart = index < 0 ? undefined : analysis.output.charts[index];
       if (!chart) continue;
-      placed.push({ kind: chart.kind, title: chart.title });
+      placed.push({ kind: chart.kind, title: chart.title, rows: chart.table.rows });
       break;
     }
   }

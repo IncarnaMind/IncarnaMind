@@ -1471,7 +1471,8 @@ export function mindTools(options: MindToolsOptions): {
    * it already; null when `blocks` give each table once.
    */
   const tableTwiceIn = (
-    writer: Writer,
+    mindId: string,
+    replaced: readonly string[],
     blocks: readonly NodeJSON[],
     tables: readonly AnalysisTableMatch[],
   ): { caption: string; held: boolean } | null => {
@@ -1480,20 +1481,32 @@ export function mindTools(options: MindToolsOptions): {
         block.type === "table" ? readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) : null;
       return binding ? [binding] : [];
     });
+    const matchOf = (binding: AnalysisTableBinding) =>
+      tables.find((table) => sameBinding(table.binding, binding));
+    // One run's result and its chart can hold the same rows under two names: one table to the User.
+    const same = (one: AnalysisTableBinding, other: AnalysisTableBinding) => {
+      if (sameBinding(one, other)) return true;
+      const [a, b] = [matchOf(one), matchOf(other)];
+      return (
+        one.id === other.id &&
+        a !== undefined &&
+        b !== undefined &&
+        JSON.stringify(a.table.rows) === JSON.stringify(b.table.rows)
+      );
+    };
     const typedAgain = (binding: AnalysisTableBinding) => {
-      const match = tables.find((table) => sameBinding(table.binding, binding));
+      const match = matchOf(binding);
       return match !== undefined && blocks.some((block) => holdsTableAgain(block, match));
     };
-    const named = (binding: AnalysisTableBinding) =>
-      tables.find((table) => sameBinding(table.binding, binding))?.label.trim() || binding.id;
+    const named = (binding: AnalysisTableBinding) => matchOf(binding)?.label.trim() || binding.id;
     const twice = bound.find(
       (binding, at) =>
-        bound.slice(0, at).some((each) => sameBinding(each, binding)) || typedAgain(binding),
+        bound.slice(0, at).some((each) => same(each, binding)) || typedAgain(binding),
     );
     if (twice) return { caption: named(twice), held: false };
-    // What this call has written already, as its content streamed in, is this same table.
-    const own = new Set(writer.ids);
-    const held = minds.read(writer.mind.id, (note) =>
+    // What this call wrote as its content streamed in, or writes over, is this same table.
+    const own = new Set(replaced);
+    const held = minds.read(mindId, (note) =>
       boundTablesIn(
         topLevelBlocks(note)
           .filter((each) => !own.has(idOf(each)))
@@ -1501,10 +1514,23 @@ export function mindTools(options: MindToolsOptions): {
       ),
     );
     const again = held.find(
-      (binding) => bound.some((each) => sameBinding(each, binding)) || typedAgain(binding),
+      (binding) => bound.some((each) => same(each, binding)) || typedAgain(binding),
     );
     return again ? { caption: named(again), held: true } : null;
   };
+
+  const tableTwice = (
+    mind: ChangeableMind,
+    { caption, held }: { caption: string; held: boolean },
+    unmade: string | null,
+    again: string,
+  ) =>
+    new Refusal(
+      { kind: "copy", mindId: mind.id, text: caption },
+      held
+        ? `Nothing was added to “${mind.name}”: it holds this Analysis's table, “${caption}”, already. Write each table once; to chart it, call add_to_mind with chart and content empty.`
+        : `${unmade ?? `Nothing was added to “${mind.name}”`}: content gives this Analysis's table, “${caption}”, twice. Write each table once: its marker, [=table n], gives it with its Citations, so leave out the table typed again with its figures, and ${again} with the rest.`,
+    );
 
   const repeatRefusal = (mind: ChangeableMind, repeat: Repeat) => {
     const shown = repeat.text.length > 80 ? `${repeat.text.slice(0, 80)}…` : repeat.text;
@@ -1762,18 +1788,13 @@ export function mindTools(options: MindToolsOptions): {
     writer ??= writerFor(mind, after, made);
     if (typeof given !== "string") writer.origin = given.origin;
     const copy = stream?.copy ?? repeatIn(writer, blocks);
-    const twice = copy === null ? tableTwiceIn(writer, blocks, analysisTables) : null;
+    const twice =
+      copy === null ? tableTwiceIn(writer.mind.id, writer.ids, blocks, analysisTables) : null;
     if (copy !== null || twice !== null) {
       withdraw(writer);
       minds.writing(writer.mind.id, null);
       if (copy !== null) throw repeatRefusal(mind, copy);
-      const caption = twice?.caption ?? "";
-      throw new Refusal(
-        { kind: "copy", mindId: mind.id, text: caption },
-        twice?.held
-          ? `Nothing was added to “${mind.name}”: it holds this Analysis's table, “${caption}”, already. Write each table once; to chart it, call add_to_mind with chart and content empty.`
-          : `${made ? `“${mind.name}” wasn't made` : `Nothing was added to “${mind.name}”`}: content gives this Analysis's table, “${caption}”, twice. Write each table once: its marker, [=table n], gives it with its Citations, so leave out the table typed again with its figures, and ${again} with the rest.`,
-      );
+      if (twice) throw tableTwice(mind, twice, made ? `“${mind.name}” wasn't made` : null, again);
     }
     writeMore(writer, blocks);
     minds.writing(writer.mind.id, null);
@@ -1826,7 +1847,14 @@ export function mindTools(options: MindToolsOptions): {
     markdown: string | null,
     analysisTables: readonly AnalysisTableMatch[],
   ): { said: string; problem?: ChartProblem } => {
-    const at = blocks.findLastIndex((block) => block.type === "table");
+    // A chart's marker charts the rows its Analysis drew: the table that holds them, wherever it is.
+    const at = asked.rows
+      ? blocks.findIndex(
+          (block) =>
+            JSON.stringify(boundTableFor(block, analysisTables)?.table.rows) ===
+            JSON.stringify(asked.rows),
+        )
+      : blocks.findLastIndex((block) => block.type === "table");
     const table = blocks[at];
     const tableId = writer.ids[at];
     // A later call of the Answer may have revised the table away before `cite` recorded its markers.
@@ -2185,6 +2213,8 @@ export function mindTools(options: MindToolsOptions): {
     const newText = remade ? alone.markdown : null;
     const uncited = uncitedIn(mind, content, again, { answer: false, retry, markdown: newText });
     if (uncited) throw uncited;
+    const twice = tableTwiceIn(mind.id, over.blockIds, blocks, analysisTables);
+    if (twice) throw tableTwice(mind, twice, `Nothing was changed in “${mind.name}”`, again);
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
     const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
     const request = randomUUID();

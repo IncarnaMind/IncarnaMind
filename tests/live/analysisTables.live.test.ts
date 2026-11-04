@@ -242,7 +242,9 @@ async function noteCounts(
           `${figure.reading.chars}${figure.calculated?.figure.analysis ? " (Analysis)" : ""} ${figure.state}`,
       );
       if (check.state === "unsupported" || check.state === "contradicted")
-        lines.push(`- needs a look, ${check.state}: ${check.text} [${rows.join("; ")}]`);
+        lines.push(
+          `- needs a look, ${check.state}: ${check.text} [${rows.join("; ")}]${check.remainder ? ` remainder ${check.remainder.state}: ${check.remainder.text}` : ""}${(check.parts ?? []).map((part) => ` part ${part.verdict}${part.remainder ? ` (remainder ${part.remainder.verdict})` : ""}: ${check.text.slice(part.span.start, part.span.end)}`).join("")}`,
+        );
       for (const figure of check.figures ?? [])
         if (
           figure.calculated?.figure.analysis &&
