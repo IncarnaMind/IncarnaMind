@@ -4,6 +4,7 @@ import {
   closeSettings,
   createDataFolder,
   dismissChatSetup,
+  focusSettled,
   launchApp,
   motionSettled,
   newMind,
@@ -212,7 +213,10 @@ test("after a comment is deleted, Comment on its words makes a new one", async (
 
   // Commenting the same words again makes a new comment, rather than finding the deleted one.
   await pointAndClick(window, editor.locator("p").first());
+  await focusSettled(window, editor);
   await selectLine(window);
+  // A key pressed before the editor's own state has the selection acts on the one before it.
+  await expect(window.getByTestId("selection-menu")).toBeVisible();
   await pointAndClick(window, window.getByTestId("selection-comment"));
   await expect(window.locator(".comment-field").first()).toBeFocused();
   await window.keyboard.type("Second remark.");
@@ -247,7 +251,9 @@ test("the keys add a comment, a narrow Mind folds the cards into a count, and de
   // The command list finds Comment too (⌘K on selected text is the link's, so Search opens it);
   // Esc leaves the draft unadded.
   await pointAndClick(window, editor.locator("p").first());
+  await focusSettled(window, editor);
   await selectLine(window);
+  await expect(window.getByTestId("selection-menu")).toBeVisible();
   await pointAndClick(window, window.getByTestId("sidebar-search"));
   await expect(window.getByTestId("palette-search")).toBeFocused();
   await window.keyboard.type("Comment");
@@ -278,8 +284,11 @@ test("the keys add a comment, a narrow Mind folds the cards into a count, and de
   // All the words deleted: the comment stays in the list as Text removed, and Undo brings both back.
   await setWindowSize(app, window, 1800, 900);
   await pointAndClick(window, editor.locator("p").nth(1));
+  await focusSettled(window, editor);
   await selectLine(window);
+  await expect(window.getByTestId("selection-menu")).toBeVisible();
   await window.keyboard.press("Backspace");
+  // The list draws each comment's words from the editor's document: the mark gone is its Text removed.
   await expect(editor.locator(".comment-mark")).toHaveCount(0);
   await expect(card(window)).toHaveCount(0);
   await pointAndClick(window, window.getByTestId("comments-count"));
@@ -323,8 +332,12 @@ test("the interface is Chinese: 批注, 回复, 解决 and 原文已删除", asy
   // All the words deleted: the list says 原文已删除.
   await setWindowSize(app, window, 1800, 900);
   await pointAndClick(window, editor.locator("p").first());
+  await focusSettled(window, editor);
   await selectLine(window);
+  await expect(window.getByTestId("selection-menu")).toBeVisible();
   await window.keyboard.press("Backspace");
+  await expect(editor.locator(".comment-mark")).toHaveCount(0);
+  await expect(card(window)).toHaveCount(0);
   await pointAndClick(window, window.getByTestId("comments-count"));
   await expect(window.getByTestId("comments-list")).toContainText("原文已删除");
   await app.close();
