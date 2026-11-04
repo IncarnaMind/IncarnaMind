@@ -1,7 +1,11 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { ApprovalRequest, ConversationAnswer, Core } from "../../src/core";
+import { DATABASE_FILE } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { catalogProvider, kindOfCatalogId } from "../../src/core/providers/catalog/providers";
+import { openDatabase } from "../../src/core/storage";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -67,12 +71,12 @@ async function newUser(language: Language = "en") {
   const models = scriptedModels(organizing());
   const core = startCore(folder, { createChatModel: models.createChatModel });
   if (language !== "en") await core.updateSettings({ user: { language } });
-  const catalog = catalogProvider("anthropic");
-  if (!catalog) throw new Error("No Anthropic in the catalog.");
+  const modelId = catalogProvider("anthropic")?.roles.answers;
+  if (!modelId) throw new Error("Anthropic has no Answers model in the catalog.");
   const provider = await core.saveChatProvider({
     kind: kindOfCatalogId("anthropic"),
     catalogId: "anthropic",
-    modelId: catalog.roles.answers,
+    modelId,
     apiKey: "sk-ant-test",
   });
   const paths = await Promise.all(
@@ -80,7 +84,7 @@ async function newUser(language: Language = "en") {
   );
   await addAndProcess(core, paths);
   const mind = await core.createMind({ title: "Tides" });
-  return { core, models, provider, mind };
+  return { core, models, provider, mind, dataDir: folder };
 }
 
 const approvals = (core: Core) => {
@@ -129,6 +133,26 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     expect(flow).toMatchObject({ consent: "accepted", flow: { service: { name: "Anthropic" } } });
   });
 
+  // protects=the model the User allowed is kept like the Library's "Use {company}", so after Undo the same request asks nothing and files them again; fails_when=the second request asks again, or Undo leaves a Document filed; no_claim=which Folder the classifier picks.
+  test("asked again after Undo, it asks nothing", async () => {
+    const { core, mind } = await newUser();
+    const requests = approvals(core);
+    const first = await askAssistant(core, {
+      text: "Put my Documents into Folders.",
+      mindId: mind.id,
+    });
+    const run = commandCalls(first).find((call) => call.command)?.command?.run;
+    if (!run) throw new Error("No command ran.");
+    expect(await filed(core)).toHaveLength(4);
+
+    await core.undoCommands(run);
+    expect(await filed(core)).toEqual([]);
+    await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
+
+    expect(requests).toHaveLength(1);
+    expect(await filed(core)).toHaveLength(4);
+  });
+
   // protects=Don't allow on that card sends nothing and keeps no model for Organize; fails_when=a Document is filed, a Folder is made, or the model is kept without the User's yes; no_claim=the card's words.
   test("not allowed, nothing is sent and no model is kept", async () => {
     const { core, mind } = await newUser();
@@ -144,6 +168,37 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     expect(await filed(core)).toEqual([]);
     const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
     expect(flow?.consent ?? "not-asked").not.toBe("accepted");
+  });
+
+  // protects=a standing no to sending Documents for sorting stays a no after the card's Allow, which lets this one request send; fails_when=Allow stores accepted, or the Documents are not filed; no_claim=which Folder the classifier picks.
+  test("a standing no is still a no after the card's Allow", async () => {
+    const { core, provider, mind, dataDir } = await newUser();
+    if (!provider.service) throw new Error("No service.");
+    const at = new Date().toISOString();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `INSERT INTO data_flow_consents
+           (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+         VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
+        [randomUUID(), provider.service.id, provider.service.name, at, at],
+      );
+    } finally {
+      db.close();
+    }
+    const requests = approvals(core);
+
+    await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0] && "ask" in requests[0] ? requests[0].ask : null).toMatchObject({
+      reason: "organize",
+      service: "Anthropic",
+      declined: true,
+    });
+    expect(await filed(core)).toHaveLength(4);
+    const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+    expect(flow?.consent).toBe("declined");
   });
 
   // protects=a model chosen in Settings is the one Organize uses, with no question when its service is allowed, and Automatic's pick is not kept over it; fails_when=it asks again, uses Haiku, or sets the model Organize keeps; no_claim=which Folder the classifier picks.

@@ -26,6 +26,8 @@ import type {
   MarkAiTextChoice,
   Mind,
   SavedFile,
+  TaggingClassifier,
+  TaggingRoute,
   TagLinkChange,
   UserAnswer,
   UserQuestion,
@@ -118,6 +120,13 @@ export interface CommandsHost {
   proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<LibraryGroup[]>;
   /** The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022). */
   allowCloudRead(service: ExternalService): void;
+  /**
+   * With no model chosen for Organize, the one the Library offers as "Use {company}" (Automatic's
+   * pick) and where it sends; null when one is chosen or Automatic has none (#2252).
+   */
+  offeredOrganizeModel(): Promise<{ classifier: TaggingClassifier; route: TaggingRoute } | null>;
+  /** Keeps that pick as Organize's model, as the Library's "Use {company}" does; sends nothing. */
+  keepOrganizeModel(classifier: TaggingClassifier): Promise<void>;
   /**
    * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
    * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.

@@ -3,7 +3,9 @@
  * or found, or those in no Folder, with the Folder the request names among those it may choose,
  * made for it if there is none, and Folders proposed when there are none at all. The User asked,
  * so it asks once in place and then files them, the way Accept all does (#2252): one Undo puts
- * every Document back and takes away the Folders it made.
+ * every Document back and takes away the Folders it made. With no model chosen for Organize it
+ * takes the one the Library offers as "Use {company}", asks where that Library question would, and
+ * keeps it as Organize's model once it runs (#2252).
  */
 import type {
   AssignmentChange,
@@ -105,8 +107,11 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
     input.ids.length > 0 ? await documentsOf(core, input.ids) : await inNoFolder(core);
   const items = documents.map((each) => documentItem(each));
   const ids = documents.map((each) => each.id);
+  const picked = ids.length > 0 ? await host.offeredOrganizeModel() : null;
   const route =
-    ids.length > 0 ? await core.getTaggingRoute("classification") : { where: "none" as const };
+    ids.length === 0
+      ? { where: "none" as const }
+      : (picked?.route ?? (await core.getTaggingRoute("classification")));
   const flow =
     route.where === "cloud"
       ? (await core.listDataFlows()).find(
@@ -129,6 +134,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             said: "No Document is in no Folder, so Organize had nothing to sort.",
           };
         }
+        if (picked) await host.keepOrganizeModel(picked.classifier);
         const before = await assignmentsOf(core, ids);
         const made: LibraryGroup[] = [];
         let named: LibraryGroup | null = null;
