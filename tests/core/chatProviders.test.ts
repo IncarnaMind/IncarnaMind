@@ -424,6 +424,40 @@ describe("Test connection", () => {
     expect(models.model.doGenerateCalls).toHaveLength(1);
   });
 
+  test("a saved key that can't be read is reported before any request", async () => {
+    const dataDir = await createTempDataFolder();
+    const secretsFile = join(dataDir, SECRETS_FILE);
+    const before = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, createFakeCipher()),
+    });
+    await before.saveChatProvider({
+      kind: "openai",
+      apiKey: OPENAI_KEY,
+      modelId: "gpt-5.4-mini",
+    });
+    before.close();
+
+    const models = scriptedModels(replyingModel());
+    const core = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, {
+        ...createFakeCipher(),
+        decrypt: async () => {
+          throw new Error("The keyring changed.");
+        },
+      }),
+      createChatModel: models.createChatModel,
+    });
+
+    expect(await core.testChatConnection({ kind: "openai", modelId: "gpt-5.4-mini" })).toEqual({
+      ok: false,
+      error: {
+        kind: "api-key-unreadable",
+        message: "The saved key can’t be read. Enter it again.",
+      },
+    });
+    expect(models.specs).toEqual([]);
+  });
+
   test("testing doesn't save anything", async () => {
     const core = startCore(await createTempDataFolder(), {
       createChatModel: scriptedModels(replyingModel()).createChatModel,

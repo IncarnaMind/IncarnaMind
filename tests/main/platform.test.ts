@@ -220,7 +220,10 @@ test("Linux without a keyring never asks, and plain text is on before the first 
   vi.spyOn(process, "platform", "get").mockReturnValue("linux");
   const { createElectronAdapters } = await import("../../src/main/platform");
 
-  const adapters = await Promise.resolve(createElectronAdapters(log));
+  const adaptersReady = Promise.resolve(createElectronAdapters(log));
+  // If the cipher wrongly asks, answering here makes the test fail at its first check instead of hanging to the timeout.
+  held.release(true);
+  const adapters = await adaptersReady;
   const core = startCore(await createTempDataFolder(), { keychain: adapters.keychain });
 
   expect(held.asked).toBe(0);

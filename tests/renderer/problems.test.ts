@@ -266,7 +266,7 @@ describe("a failed Answer's problem line", () => {
       "Check the key",
     ]);
     expect(shown("api-key-unreadable", "en")).toEqual([
-      "The saved key for claude-haiku-5-5 can’t be read. Enter it again",
+      "The saved key for claude-haiku-5-5 can’t be read",
       "Check the key",
     ]);
     expect(shown("refused", "en")).toEqual([
@@ -286,7 +286,7 @@ describe("a failed Answer's problem line", () => {
     expect(shown("rate-limit", "zh-CN")).toEqual(["Anthropic 暂时限制了请求", "重试"]);
     expect(shown("auth", "zh-CN")).toEqual(["claude-haiku-5-5 的密钥被拒绝了", "检查密钥"]);
     expect(shown("api-key-unreadable", "zh-CN")).toEqual([
-      "无法读取已保存的 claude-haiku-5-5 密钥。请重新输入",
+      "无法读取已保存的 claude-haiku-5-5 密钥",
       "检查密钥",
     ]);
     expect(shown("refused", "zh-CN")).toEqual(["Anthropic 拒绝了这个请求", "换一个模型"]);

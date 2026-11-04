@@ -3489,7 +3489,7 @@ export const zhCN = {
   "answer.offline.none": "文档中没有匹配的内容。",
   "answer.error.thisModel": "这个模型",
   "answer.error.auth": "{model} 的密钥被拒绝了",
-  "answer.error.apiKeyUnreadable": "无法读取已保存的 {model} 密钥。请重新输入",
+  "answer.error.apiKeyUnreadable": "无法读取已保存的 {model} 密钥",
   "answer.error.thisService": "这个服务",
   "answer.error.model": "{service} 找不到 {model}",
   "answer.error.rate-limit": "{service} 暂时限制了请求",

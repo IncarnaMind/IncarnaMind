@@ -3667,7 +3667,7 @@ export const en = {
   "answer.offline.none": "Nothing in your Documents matched.",
   "answer.error.thisModel": "this model",
   "answer.error.auth": "The key for {model} was refused",
-  "answer.error.apiKeyUnreadable": "The saved key for {model} can’t be read. Enter it again",
+  "answer.error.apiKeyUnreadable": "The saved key for {model} can’t be read",
   "answer.error.thisService": "This service",
   "answer.error.model": "{service} doesn’t know {model}",
   "answer.error.rate-limit": "{service} is limiting requests right now",

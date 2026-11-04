@@ -81,7 +81,7 @@ jobs:
           echo "heavy=$heavy" | tee -a "$GITHUB_OUTPUT"
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" != true ]; then
             agents=false
-            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/agents/|src/core/(core|api)\.ts$|src/shared/agent(Connection|Socket|Names)\.ts$|src/main/(agentShim|platform)\.ts$|src/renderer/src/components/(agents/|providers/(ModelSetupCard|PlansSettings)\.tsx$)|e2e/(agents.*\.spec\.ts$|agentConnection\.spec\.ts$|packaged/(agentConnection\.packaged|app)\.ts$)|tests/helpers/agentClients\.ts$|docs/(agents(\.zh-CN)?|claude-code|codex|cursor)\.md$|electron(-builder\.yml|\.vite\.config\.ts)$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
+            if [ -z "$files" ] || echo "$files" | grep -qE '^(src/core/agents/|src/core/(core|api)\.ts$|src/shared/agent(Connection|Socket|Names)\.ts$|src/main/(agentShim|platform|secretsFile)\.ts$|src/renderer/src/components/(agents/|providers/(ModelSetupCard|PlansSettings)\.tsx$)|e2e/(agents.*\.spec\.ts$|agentConnection\.spec\.ts$|packaged/(agentConnection\.packaged|secrets\.packaged|app)\.ts$)|tests/helpers/agentClients\.ts$|docs/(agents(\.zh-CN)?|claude-code|codex|cursor)\.md$|electron(-builder\.yml|\.vite\.config\.ts)$|package(-lock)?\.json$|\.github/workflows/ci\.yml$)'; then
               agents=true
             fi
           fi

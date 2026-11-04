@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
+import { translate } from "../../shared/i18n";
 import { modelInUse } from "../../shared/mindModel";
 import {
   CHOSEN_PROVIDER_FLOWS,
@@ -120,11 +121,13 @@ function notReadyError(error: ChatNotReadyError): ProviderError {
   const kind: ProviderErrorKind =
     reason === "local-mode" || reason === "consent-declined"
       ? reason
-      : reason === "missing-api-key" || reason === "api-key-unreadable"
-        ? "auth"
-        : reason === "sign-in-required"
-          ? "not-signed-in"
-          : "unknown";
+      : reason === "api-key-unreadable"
+        ? "api-key-unreadable"
+        : reason === "missing-api-key"
+          ? "auth"
+          : reason === "sign-in-required"
+            ? "not-signed-in"
+            : "unknown";
   return { kind, message: error.message };
 }
 
@@ -1238,7 +1241,19 @@ export function createChat(options: {
       let apiKey = parseApiKey(input.apiKey, server) ?? null;
       if (apiKey === null && acceptsApiKey(server.kind, server.catalogId)) {
         const saved = rowByServer(server);
-        if (saved) apiKey = await secrets.tryGet(keyName(saved.id));
+        if (saved) {
+          const { secret, unreadable } = await secrets.tryRead(keyName(saved.id));
+          if (unreadable) {
+            return {
+              ok: false,
+              error: {
+                kind: "api-key-unreadable",
+                message: translate("en", "providers.test.api-key-unreadable"),
+              },
+            };
+          }
+          apiKey = secret;
+        }
       }
       if (requiresApiKey(server.kind, server.catalogId) && !apiKey) {
         throw new InvalidInputError({
