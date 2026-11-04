@@ -174,29 +174,26 @@ export const summarizesReasoning = (kind: ChatProviderKind): boolean =>
   summaryQuirk(kind) !== undefined;
 
 /**
- * The provider options of a call that thinks: its provider's summary of the reasoning, where it
- * gives one, and the effort the catalog gives the call's kind. None for a small call, a model
- * that doesn't think by default (thinking isn't turned on for one), or one the catalog knows
- * doesn't reason.
+ * The provider options of a call that thinks: its provider's summary of the reasoning, with the
+ * effort the catalog gives the call's kind. None for a small call, a provider whose reasoning
+ * isn't summarized, a model that doesn't think by default (thinking isn't turned on for one), or
+ * one the catalog knows doesn't reason.
  */
 function thinkingOptions(
   spec: Pick<ChatModelSpec, "kind" | "modelId" | "endpoint" | "catalogId" | "thinking">,
 ): ProviderOptions | null {
   if (spec.thinking === undefined || spec.thinking === "off") return null;
-  const set = modelsProviderOfKind(spec.kind, spec.endpoint, spec.catalogId);
-  const reasons = catalogFacts(set, spec.modelId)?.reasoning;
-  if (reasons === false) return null;
   const quirks = thinkingQuirks(spec.kind);
   const summary = quirks?.reasoningSummary;
-  if (summary?.only && !summary.only.some((prefix) => spec.modelId.startsWith(prefix))) return null;
-  // With no summary's list of the models that think by default, only one the catalog knows to
-  // reason is sent an effort: on another, an effort could turn thinking on.
+  if (!summary) return null;
+  if (summary.only && !summary.only.some((prefix) => spec.modelId.startsWith(prefix))) return null;
+  const set = modelsProviderOfKind(spec.kind, spec.endpoint, spec.catalogId);
+  if (catalogFacts(set, spec.modelId)?.reasoning === false) return null;
   const effort =
-    spec.thinking === "summary" || (!summary && reasons !== true)
-      ? undefined
-      : effortOf(quirks?.effort, spec.modelId, spec.thinking);
-  if (!summary && !effort) return null;
-  return withOptionsOver({ providerOptions: summary?.options ?? {} }, effort ?? {}).providerOptions;
+    spec.thinking === "summary" ? undefined : effortOf(quirks.effort, spec.modelId, spec.thinking);
+  return effort
+    ? withOptionsOver({ providerOptions: summary.options }, effort).providerOptions
+    : summary.options;
 }
 
 function effortOf(
@@ -228,10 +225,7 @@ function refusedForm(
   error: unknown,
   refused: readonly { names: string; options: ProviderOptions }[] | undefined,
 ): ProviderOptions | undefined {
-  // DeepSeek answers a parameter it doesn't take with 422 (its error codes page), Anthropic with 400.
-  if (!APICallError.isInstance(error) || (error.statusCode !== 400 && error.statusCode !== 422)) {
-    return undefined;
-  }
+  if (!APICallError.isInstance(error) || error.statusCode !== 400) return undefined;
   const said = `${error.message} ${error.responseBody ?? ""}`;
   return refused?.find((each) => said.includes(each.names))?.options;
 }

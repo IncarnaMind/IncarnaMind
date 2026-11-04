@@ -47,7 +47,7 @@ export const ARMS: readonly Arm[] = [
   {
     id: "default-effort",
     label:
-      "every call that thinks at its provider's default effort: what Tasks sent on every provider, and every call to DeepSeek, before #1631; not Claude's Answers, which were at low (careful ones at high) before it too",
+      "every call that thinks at its provider's default effort, as Tasks were sent before #1631; not what Claude's Answers were sent before it, at low (careful ones at high)",
     spec: (spec) =>
       spec.thinking === undefined || spec.thinking === "off"
         ? spec

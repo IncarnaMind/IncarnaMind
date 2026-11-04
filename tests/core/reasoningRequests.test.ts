@@ -225,68 +225,28 @@ describe("An Answer's request to a model that thinks", () => {
     },
   );
 
-  // protects=DeepSeek's thinking models are asked for low effort on an Answer, and for none (its default) on a careful Answer, a Task's or a call of no kind, while its reasoning stays raw (no summary); fails_when=an Answer lacks reasoning_effort low, or another kind carries one; no_claim=the fake API doesn't check what DeepSeek accepts.
-  test.each([
-    ["answer", "low"],
-    ["task", undefined],
-    ["careful", undefined],
-    ["summary", undefined],
-  ] as const)("DeepSeek Flash, %s: reasoning_effort %s", async (thinking, effort) => {
-    const bodies = fakeApi(() =>
-      Response.json({
-        id: "c1",
-        object: "chat.completion",
-        created: 1_790_000_000,
-        model: "deepseek-flash",
-        choices: [
-          { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
-        ],
-        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-      }),
-    );
-    await generateText({ model: modelOf("deepseek", "deepseek-flash", thinking), prompt: "OK?" });
-    expect(bodies[0]?.reasoning_effort).toBe(effort);
-    expect(bodies[0]?.thinking).toBeUndefined();
-  });
-
-  // protects=a DeepSeek model that refuses reasoning_effort still answers, asked again once without it, and its later calls leave it out from the start; fails_when=the call fails with the refusal, or a later call sends reasoning_effort again; no_claim=the refusal's wording is a stand-in, not DeepSeek's recorded one.
-  test("a DeepSeek model that refuses the effort is asked again without it, and then from the start", async () => {
-    const bodies: Json[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body ?? "{}")) as Json;
-        bodies.push(body);
-        if (body.reasoning_effort !== undefined) {
-          return Response.json(
-            {
-              error: {
-                message: "Unknown parameter: reasoning_effort",
-                type: "invalid_request_error",
-              },
-            },
-            { status: 422 },
-          );
-        }
-        return Response.json({
+  // protects=DeepSeek Flash, which thinks by default, is sent no effort for any kind of call: low was measured and kept out (#1631); fails_when=any kind carries reasoning_effort or a thinking setting; no_claim=the fake API doesn't check what DeepSeek accepts.
+  test.each(["answer", "careful", "task", "summary"] as const)(
+    "DeepSeek Flash, %s: no reasoning_effort",
+    async (thinking) => {
+      const bodies = fakeApi(() =>
+        Response.json({
           id: "c1",
           object: "chat.completion",
           created: 1_790_000_000,
-          model: "deepseek-v4-pro",
+          model: "deepseek-flash",
           choices: [
             { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
           ],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        });
-      }),
-    );
-    const model = modelOf("deepseek", "deepseek-v4-pro", "answer");
-    expect((await generateText({ model, prompt: "OK?", maxRetries: 0 })).text).toBe("OK");
-    expect(bodies.map((body) => body.reasoning_effort)).toEqual(["low", undefined]);
-    bodies.length = 0;
-    await generateText({ model: modelOf("deepseek", "deepseek-v4-pro", "answer"), prompt: "OK?" });
-    expect(bodies.map((body) => body.reasoning_effort)).toEqual([undefined]);
-  });
+        }),
+      );
+      await generateText({ model: modelOf("deepseek", "deepseek-flash", thinking), prompt: "OK?" });
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]?.reasoning_effort).toBeUndefined();
+      expect(bodies[0]?.thinking).toBeUndefined();
+    },
+  );
 
   // protects=OpenAI's reasoning models are asked for a reasoning summary, others for none; fails_when=gpt-6-luna lacks reasoning.summary or gpt-4.1 carries reasoning; no_claim=the fake API doesn't check what OpenAI accepts.
   test("OpenAI's reasoning models are asked for a reasoning summary; a model that doesn't reason, for none", async () => {
@@ -337,13 +297,8 @@ describe("An Answer's request to a model that thinks", () => {
       }),
     );
     await generateText({ model: modelOf("deepseek", "deepseek-chat", "summary"), prompt: "OK?" });
-    // A model the catalog doesn't know to reason gets no effort either: it could turn thinking on.
-    await generateText({ model: modelOf("deepseek", "deepseek-chat", "answer"), prompt: "OK?" });
-    expect(deepseek).toHaveLength(2);
-    for (const body of deepseek) {
-      expect(body.thinking).toBeUndefined();
-      expect(body.reasoning).toBeUndefined();
-      expect(body.reasoning_effort).toBeUndefined();
-    }
+    expect(Object.keys(deepseek[0] ?? {})).not.toEqual(
+      expect.arrayContaining(["thinking", "reasoning", "reasoning_effort"]),
+    );
   });
 });

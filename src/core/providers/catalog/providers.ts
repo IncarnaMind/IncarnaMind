@@ -411,18 +411,11 @@ const PROVIDERS = [
       },
     ],
     docsUrl: "https://api-docs.deepseek.com/quick_start/pricing",
-    request: {
-      thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } },
-      // DeepSeek V4 thinks by default at effort high; low and max are its others. Its comparison
-      // cells at low were judged right less often and finished no sooner (#1631), so Tasks keep
-      // the default.
-      effort: {
-        kinds: { answer: { deepseek: { reasoningEffort: "low" } } },
-        refused: [
-          { names: "reasoning_effort", options: { deepseek: { reasoningEffort: undefined } } },
-        ],
-      },
-    },
+    // Its own effort, reasoning_effort (high by default), was measured at low on DeepSeek Flash
+    // (#1631): Answers finished 1.5 to 5 s sooner, but on the everyday requests one claimed a change
+    // it hadn't made and one asked instead of writing, and its comparison cells were judged right
+    // less often. So it has no `effort`: every kind thinks at the default.
+    request: { thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } } },
     roles: {
       answers: "deepseek-flash",
       strongest: "deepseek-v4-pro",
