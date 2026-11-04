@@ -314,6 +314,47 @@ export const FLOWS: readonly Flow[] = [
     },
   },
   {
+    id: "research-task",
+    label: "A Research Task of one step from the Library, to its draft in the page",
+    async run({ core, language }) {
+      const { mindId } = await mindWith(core, language, [NOTES[language]]);
+      return timed(core, mindId, async () => {
+        const topic = inLanguage(language, {
+          en: "How the Vantrell report sets targets for financed emissions",
+          "zh-CN": "Vantrell 报告如何为融资排放设定目标",
+        });
+        let taskId: string | null = null;
+        const ended = new Promise<void>((resolve, reject) => {
+          const stop = core.on("task.changed", (task) => {
+            if (task.id !== taskId || task.status === "running") return;
+            stop();
+            if (task.status === "done") resolve();
+            else reject(new Error(`The Task ended ${task.status}: ${task.problem ?? ""}`));
+          });
+        });
+        const started = await core.startResearch({
+          mindId,
+          topic,
+          plan: {
+            title: topic,
+            steps: [
+              inLanguage(language, {
+                en: "Find the report's targets for financed emissions and the years they run to",
+                "zh-CN": "找出报告中融资排放的目标及其目标年份",
+              }),
+            ],
+          },
+          sources: { web: false, library: true },
+          writeInto: { mindId },
+          scope: { folderIds: [], tagIds: [], documentIds: [] },
+        });
+        if (!started.started) throw new Error(`Not started: ${JSON.stringify(started)}`);
+        taskId = started.task.id;
+        await ended;
+      });
+    },
+  },
+  {
     id: "research",
     label: "Plan a Research Task",
     async run({ core, language }) {

@@ -1423,8 +1423,8 @@ export function createChat(options: {
      * `flow` (automatic tagging passes "tagging"). `thinking: "off"` skips
      * thinking where the model can, for a short request on the chat flow;
      * the chat flow's other requests ask for a summary of the model's
-     * reasoning, with a modest budget for `thinking: "answer"` and a larger
-     * one for `"careful"`.
+     * reasoning, at the effort the catalog gives their kind of call (an
+     * Answer, a careful one, a Task's).
      * Throws `ChatNotReadyError` or `ConsentDeclinedError`; nothing is sent then.
      */
     async prepareModel(

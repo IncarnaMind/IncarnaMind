@@ -132,6 +132,7 @@ export interface ResearchOptions extends FinishOptions {
       documentIds: string[];
       model: ChatModelChoice;
       signal: AbortSignal;
+      thinking?: "summary";
     }): Promise<CellAnswer>;
   };
   /** A Mind's name, as the window shows it; null once it is gone. */

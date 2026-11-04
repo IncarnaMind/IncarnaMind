@@ -81,6 +81,9 @@ export const exportCommands: readonly Command[] = [
       keywords: ["export.keywords"],
       group: "main",
       reversible: true,
+      // The assistant exports with the core's "mind.export", which takes every format and a
+      // folder and asks before saving outside the Output location; this one saves only there.
+      assistant: false,
       // The last format is "mind.export", with its keys.
       when: (ctx) => onlyOne(ctx) && mindOf(ctx) !== null && exportPreferences().format !== format,
       run: (ctx) => {

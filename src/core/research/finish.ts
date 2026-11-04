@@ -419,6 +419,7 @@ export async function writeDraft(
     documentIds: string[];
     model: ChatModelChoice;
     signal: AbortSignal;
+    thinking?: "summary";
   }) => Promise<CellAnswer>,
 ): Promise<{ written: WrittenDraft } | { failed: string } | { end: TaskEnd }> {
   task.started(DRAFT_STEP);
@@ -446,6 +447,9 @@ export async function writeDraft(
       documentIds,
       model,
       signal,
+      // A draft is written as a cell is, but over several sources: it keeps its provider's
+      // default effort, as no set judges a draft yet (#1631).
+      thinking: "summary",
     }),
   );
   if (!("answer" in result)) {
