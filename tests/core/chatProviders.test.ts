@@ -292,6 +292,51 @@ describe("Chat providers", () => {
       modelId: "gpt-5.4-mini",
     });
   });
+
+  test("a key that can't be opened is offered again, and the stored value is left as it was", async () => {
+    const dataDir = await createTempDataFolder();
+    const secretsFile = join(dataDir, SECRETS_FILE);
+    const before = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, createFakeCipher()),
+    });
+    const provider = await before.saveChatProvider({
+      kind: "openai",
+      apiKey: OPENAI_KEY,
+      modelId: "gpt-5.4-mini",
+    });
+    before.close();
+    const stored = await readFile(secretsFile);
+
+    // The keyring that wrote the value is gone, as after a profile is copied to another computer.
+    const keychain = createFileKeychain(secretsFile, {
+      ...createFakeCipher(),
+      decrypt: async () => {
+        throw new Error("The keyring changed.");
+      },
+    });
+    const after = startCore(dataDir, { keychain });
+
+    expect(await after.listChatProviders()).toEqual([{ ...provider, hasApiKey: false }]);
+    expect(await after.getChatReadiness()).toEqual({
+      ready: false,
+      reason: "missing-api-key",
+      provider: { ...provider, hasApiKey: false },
+      modelId: "gpt-5.4-mini",
+    });
+    expect((await readFile(secretsFile)).equals(stored)).toBe(true);
+
+    // Entering the key again is what replaces the stored value, and only then.
+    await after.saveChatProvider({
+      kind: "openai",
+      apiKey: OPENAI_KEY,
+      modelId: "gpt-5.4-mini",
+    });
+    expect(
+      await createFileKeychain(secretsFile, createFakeCipher()).get(
+        `chat-provider:${provider.id}:api-key`,
+      ),
+    ).toBe(OPENAI_KEY);
+  });
 });
 
 describe("Test connection", () => {

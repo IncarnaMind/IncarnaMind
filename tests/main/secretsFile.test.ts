@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { SecretsFileDamagedError } from "../../src/core";
 import { createFileKeychain, SECRETS_FILE } from "../../src/main/secretsFile";
-import { createFakeCipher } from "../helpers/cipher";
+import { createFakeCipher, createLegacyCipher } from "../helpers/cipher";
 import { createTempDataFolder } from "../helpers/core";
 
 const SECRET = "sk-test-0123456789-very-secret";
@@ -29,6 +29,42 @@ describe("The secrets file behind the Keychain adapter", () => {
 
     expect(await reopened.get("token")).toBe(SECRET);
     expect(await reopened.get("missing")).toBeNull();
+  });
+
+  test("a secret the previous, synchronous cipher stored still opens", async () => {
+    const file = join(await createTempDataFolder(), SECRETS_FILE);
+    const legacy = createLegacyCipher();
+    await writeFile(file, JSON.stringify({ token: legacy.encrypt(SECRET).toString("base64") }), {
+      mode: 0o600,
+    });
+
+    const keychain = createFileKeychain(file, createFakeCipher());
+
+    expect(await keychain.get("token")).toBe(SECRET);
+  });
+
+  test("a secret that can't be opened is an error, and its stored bytes are left as they are", async () => {
+    const file = join(await createTempDataFolder(), SECRETS_FILE);
+    const legacy = createLegacyCipher();
+    await writeFile(file, JSON.stringify({ token: legacy.encrypt(SECRET).toString("base64") }), {
+      mode: 0o600,
+    });
+    const before = await readFile(file);
+    const keychain = createFileKeychain(file, {
+      ...createFakeCipher(),
+      decrypt: async () => {
+        throw new Error("The keyring changed.");
+      },
+    });
+
+    await expect(keychain.get("token")).rejects.toThrow("The keyring changed.");
+    expect((await readFile(file)).equals(before)).toBe(true);
+
+    // Entering the key again is what replaces the stored value, and only then.
+    await keychain.set("token", "sk-test-entered-again");
+    expect(await createFileKeychain(file, createFakeCipher()).get("token")).toBe(
+      "sk-test-entered-again",
+    );
   });
 
   test.skipIf(process.platform === "win32")("only the User can read the file", async () => {

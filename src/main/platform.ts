@@ -71,24 +71,51 @@ import { systemUserName } from "./userName";
  * no keyring running it falls back to "basic_text", a hard-coded key, which
  * the core treats as plain text.
  */
-const safeStorageCipher: SecretCipher = {
-  protection() {
-    if (process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text") {
-      return "plain-text";
-    }
-    return safeStorage.isEncryptionAvailable() ? "os" : "unavailable";
-  },
-  allowPlainText() {
-    // Without this, safeStorage refuses to encrypt on Linux's basic_text backend.
-    if (process.platform === "linux") safeStorage.setUsePlainTextEncryption(true);
-  },
-  encrypt: (plainText) => safeStorage.encryptString(plainText),
-  decrypt: (cipherText) => safeStorage.decryptString(cipherText),
-};
+function createSafeStorageCipher(log: Logger): SecretCipher {
+  // The core asks for `protection()` synchronously, so the asynchronous API is asked
+  // once in the background. Until it answers, encryption counts as available; an
+  // encrypt or decrypt that actually fails reports it where that operation is.
+  let encryptionAvailable: boolean | undefined;
+  let availabilityAsked = false;
+  const askAvailability = () => {
+    if (availabilityAsked) return;
+    availabilityAsked = true;
+    void safeStorage.isAsyncEncryptionAvailable().then(
+      (available) => {
+        encryptionAvailable = available;
+      },
+      (error) => {
+        log.warn("secrets.encryption", {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        encryptionAvailable = false;
+      },
+    );
+  };
+
+  return {
+    protection() {
+      if (
+        process.platform === "linux" &&
+        safeStorage.getSelectedStorageBackend() === "basic_text"
+      ) {
+        return "plain-text";
+      }
+      askAvailability();
+      return encryptionAvailable === false ? "unavailable" : "os";
+    },
+    allowPlainText() {
+      // Without this, safeStorage refuses to encrypt on Linux's basic_text backend.
+      if (process.platform === "linux") safeStorage.setUsePlainTextEncryption(true);
+    },
+    encrypt: (plainText) => safeStorage.encryptStringAsync(plainText),
+    decrypt: async (cipherText) => (await safeStorage.decryptStringAsync(cipherText)).result,
+  };
+}
 
 /** Secrets encrypted with `safeStorage`, kept in a secrets file in the data folder, never in SQLite. */
-function createSafeStorageKeychain(dataDir: string): Keychain {
-  return createFileKeychain(join(dataDir, SECRETS_FILE), safeStorageCipher);
+function createSafeStorageKeychain(dataDir: string, cipher: SecretCipher): Keychain {
+  return createFileKeychain(join(dataDir, SECRETS_FILE), cipher);
 }
 
 export const systemBrowser: Browser = {
@@ -760,14 +787,14 @@ function audioCapture(log: Logger): AudioCapture | undefined {
  * folder only, and a lock file keeps the processes' refreshes apart. A
  * release build never reads the variable.
  */
-function chatGptTestProfile(log: Logger): CoreAdapters["chatGptStore"] {
+function chatGptTestProfile(log: Logger, cipher: SecretCipher): CoreAdapters["chatGptStore"] {
   const folder = process.env.INCARNAMIND_CHATGPT_PROFILE;
   if (import.meta.env.MODE === "production" || !folder) return undefined;
   const dir = resolve(folder);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   log.info("chatgpt.testProfile", { folder: dir });
   return {
-    keychain: createFileKeychain(join(dir, SECRETS_FILE), safeStorageCipher),
+    keychain: createFileKeychain(join(dir, SECRETS_FILE), cipher),
     lockFile: join(dir, "refresh.lock"),
   };
 }
@@ -775,9 +802,10 @@ function chatGptTestProfile(log: Logger): CoreAdapters["chatGptStore"] {
 /** Builds the core's adapters, with the log the core writes to. Call after `app` is ready. */
 export function createElectronAdapters(log: Logger): CoreAdapters {
   const dataDir = app.getPath("userData");
+  const safeStorageCipher = createSafeStorageCipher(log);
   const crashReporter = createCrashReporter(dataDir);
   const usageData = createUsageDataSender();
-  const chatGptStore = chatGptTestProfile(log);
+  const chatGptStore = chatGptTestProfile(log, safeStorageCipher);
   const chatGptPlan = chatGptStandIn();
   const claudeAccount = claudeStandIn();
   const copilotProfiles = copilotStandIn();
@@ -852,7 +880,7 @@ export function createElectronAdapters(log: Logger): CoreAdapters {
       ...(testModelDownloads && { copies: testModelDownloads.copies }),
     },
     systemUserName: () => systemUserName(log),
-    keychain: createSafeStorageKeychain(dataDir),
+    keychain: createSafeStorageKeychain(dataDir, safeStorageCipher),
     browser: systemBrowser,
     shell: fileShell,
     modelRuntimeFolder: createModelRuntimeFolder({
