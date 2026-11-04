@@ -531,6 +531,28 @@ test("a note of the same version on its page is carried when the group cannot pa
   db.close();
 });
 
+test("a note of another version is not carried by the same-page fallback", async () => {
+  const { document, store, read, db } = await harness();
+  const note = (page: number): FileAnnotation => ({
+    page,
+    kind: "note",
+    quote: "",
+    note: "Check.",
+    colour: "yellow",
+    author: "Priya Raman",
+  });
+  read("version-a", [note(1), note(2)]);
+  const second = store.list(document.id).find((row) => row.pageFrom === 2);
+  if (!second) throw new Error("The page-2 note wasn't read.");
+  store.update(second.id, { note: "Mine." });
+
+  read("version-b", [note(2)]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === second.id)).toMatchObject({ note: "Mine.", missing: true });
+  expect(rows.filter((row) => !row.missing && row.pageFrom === 2)).toHaveLength(1);
+  db.close();
+});
+
 test("two untouched notes on a page are not handed one new note's row", async () => {
   const { document, store, read, db } = await harness();
   const note = (said: string): FileAnnotation => ({
@@ -547,6 +569,28 @@ test("two untouched notes on a page are not handed one new note's row", async ()
   expect(rows).toHaveLength(3);
   expect(rows.filter((row) => row.missing)).toHaveLength(2);
   expect(rows.find((row) => row.note === "Z.")?.missing).toBe(false);
+  db.close();
+});
+
+test("identical words that come back bring their comments back", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1), highlight(quote, 2)]);
+  const [first, second] = store
+    .list(document.id)
+    .sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
+  if (!first || !second) throw new Error("Both highlights weren't read.");
+  store.update(first.id, { note: "first" });
+  store.update(second.id, { note: "second" });
+
+  read("version-b", []);
+  expect(store.list(document.id).every((row) => row.missing)).toBe(true);
+  read("version-c", [highlight(quote, 1), highlight(quote, 2)]);
+  const back = store.list(document.id).sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
+  expect(back).toMatchObject([
+    { id: first.id, note: "first", missing: false },
+    { id: second.id, note: "second", missing: false },
+  ]);
   db.close();
 });
 

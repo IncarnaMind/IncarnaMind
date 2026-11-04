@@ -591,14 +591,15 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     },
 
     /**
-     * Stores a PDF's own highlights and notes for a version. Rows and the new
-     * read are grouped by their words with whitespace aside, and a sticky note by
-     * its page; a group is paired in page order only when both sides have the same
+     * Stores a PDF's own highlights and notes for a version. Rows and the new read
+     * are grouped by their words with whitespace aside, a sticky note by the file's
+     * own words: a group pairs in page order only when both sides have the same
      * count and every pair moves by one shift, else only a row of the same version
      * on the same page is carried. A matched row keeps its id, the User's note,
-     * colour and delete; the file's own note follows the file until the User edits
-     * it. A row the version lacks stays, with the current version, no Passage and
-     * a not-found check. The User's own annotations are untouched.
+     * colour and delete; the file's own note and colour follow the file until the
+     * User edits them. A row the version lacks stays, with the current version, no
+     * Passage and a not-found check. A re-read that changes nothing writes nothing.
+     * The User's own annotations are untouched.
      */
     replaceFileAnnotations(
       documentId: string,
@@ -626,92 +627,104 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
       type Mark = (typeof marks)[number];
       db.transaction(() => {
         const taken = new Set<string>();
+        const matched = new Set<Mark>();
         const pairs: { mark: Mark; row: Row }[] = [];
-        const pageOf = (mark: Mark) =>
-          mark.there && mark.cited?.pageFrom != null ? mark.cited.pageFrom : mark.annotation.page;
         const pair = (mark: Mark, row: Row) => {
           taken.add(row.id);
+          matched.add(mark);
           pairs.push({ mark, row });
         };
-        // A sticky note is known by the file's own words and, in page order, by one shift; a
-        // leftover is carried only where the User has not written over it.
-        const marked = new Set<Mark>();
+        const pageOf = (mark: Mark) =>
+          mark.there && mark.cited?.pageFrom != null ? mark.cited.pageFrom : mark.annotation.page;
+        /** Groups pair in page order for one count and one shift, else only the same version on the same page. */
+        const pairGroups = (
+          rowsByKey: Map<string, Row[]>,
+          marksByKey: Map<string, Mark[]>,
+          rowPage: (row: Row) => number,
+          markPage: (mark: Mark) => number,
+        ) => {
+          for (const [key, group] of marksByKey) {
+            const all = (rowsByKey.get(key) ?? []).filter((row) => !taken.has(row.id));
+            // Rows a read already left missing are not this group's place any more.
+            const live = all.filter((row) => !row.missing);
+            const rows = live.length > 0 ? live : all;
+            const byPageRows = [...rows].sort(
+              (a, b) =>
+                rowPage(a) - rowPage(b) ||
+                a.created_at.localeCompare(b.created_at) ||
+                a.id.localeCompare(b.id),
+            );
+            const byPageMarks = [...group].sort((a, b) => markPage(a) - markPage(b));
+            const shifts = byPageMarks.map(
+              (mark, index) =>
+                markPage(mark) - (byPageRows[index] ? rowPage(byPageRows[index]) : 0),
+            );
+            if (
+              byPageRows.length === byPageMarks.length &&
+              byPageRows.length > 0 &&
+              shifts.every((shift) => shift === shifts[0])
+            ) {
+              for (const [index, mark] of byPageMarks.entries()) {
+                const row = byPageRows[index];
+                if (row) pair(mark, row);
+              }
+              continue;
+            }
+            for (const mark of byPageMarks) {
+              const row = rows.find(
+                (each) =>
+                  !taken.has(each.id) &&
+                  each.content_hash === contentHash &&
+                  rowPage(each) === markPage(mark),
+              );
+              if (row) pair(mark, row);
+            }
+          }
+        };
+
         const noteRows = existing.filter((row) => row.quote === "");
         const noteMarks = marks.filter((mark) => mark.annotation.kind === "note");
-        const noteRowGroups = new Map<string, Row[]>();
+        const noteRowsByText = new Map<string, Row[]>();
         for (const row of noteRows) {
           const key = collapsed(row.file_note ?? "");
-          noteRowGroups.set(key, [...(noteRowGroups.get(key) ?? []), row]);
+          noteRowsByText.set(key, [...(noteRowsByText.get(key) ?? []), row]);
         }
-        const noteMarkGroups = new Map<string, Mark[]>();
+        const noteMarksByText = new Map<string, Mark[]>();
         for (const mark of noteMarks) {
           const key = collapsed(mark.annotation.note ?? "");
-          noteMarkGroups.set(key, [...(noteMarkGroups.get(key) ?? []), mark]);
+          noteMarksByText.set(key, [...(noteMarksByText.get(key) ?? []), mark]);
         }
-        const notePages = new Set<number>();
-        for (const [text, group] of noteMarkGroups) {
-          const rows = (noteRowGroups.get(text) ?? []).filter((row) => !taken.has(row.id));
-          const byPageRows = [...rows].sort((a, b) => (a.page_from ?? 0) - (b.page_from ?? 0));
-          const byPageMarks = [...group].sort((a, b) => a.annotation.page - b.annotation.page);
-          const shifts = byPageMarks.map(
-            (mark, index) => mark.annotation.page - (byPageRows[index]?.page_from ?? 0),
-          );
-          if (
-            byPageRows.length === byPageMarks.length &&
-            byPageRows.length > 0 &&
-            shifts.every((shift) => shift === shifts[0])
-          ) {
-            for (const [index, mark] of byPageMarks.entries()) {
-              const row = byPageRows[index];
-              if (row) {
-                pair(mark, row);
-                marked.add(mark);
-              }
-            }
-            continue;
-          }
-          for (const mark of byPageMarks) {
-            const row = rows.find(
-              (each) =>
-                !taken.has(each.id) &&
-                each.content_hash === contentHash &&
-                each.page_from === mark.annotation.page,
-            );
-            if (row) {
-              pair(mark, row);
-              marked.add(mark);
-            }
-          }
-        }
+        pairGroups(
+          noteRowsByText,
+          noteMarksByText,
+          (row) => row.page_from ?? 0,
+          (mark) => mark.annotation.page,
+        );
         // A page's only other note takes a leftover only when the User hasn't rewritten it.
+        const freeRowsByPage = new Map<number, Row[]>();
+        for (const row of noteRows) {
+          if (taken.has(row.id) || row.note !== row.file_note) continue;
+          const page = row.page_from ?? 0;
+          freeRowsByPage.set(page, [...(freeRowsByPage.get(page) ?? []), row]);
+        }
+        const freeMarksByPage = new Map<number, Mark[]>();
         for (const mark of noteMarks) {
-          if (marked.has(mark)) continue;
-          notePages.add(mark.annotation.page);
+          if (matched.has(mark)) continue;
+          const page = mark.annotation.page;
+          freeMarksByPage.set(page, [...(freeMarksByPage.get(page) ?? []), mark]);
         }
-        for (const row of noteRows) if (!taken.has(row.id)) notePages.add(row.page_from ?? 0);
-        for (const page of notePages) {
-          const rowsLeft = noteRows.filter(
-            (row) => !taken.has(row.id) && (row.page_from ?? 0) === page,
-          );
-          const marksLeft = noteMarks.filter(
-            (mark) => !marked.has(mark) && mark.annotation.page === page,
-          );
-          if (rowsLeft.length === 1 && marksLeft.length === 1) {
-            const [row] = rowsLeft;
-            const [mark] = marksLeft;
-            if (row && mark && row.note === row.file_note) {
-              pair(mark, row);
-              marked.add(mark);
-            }
-          }
+        for (const [page, rows] of freeRowsByPage) {
+          const marksOn = freeMarksByPage.get(page) ?? [];
+          const [row] = rows;
+          const [mark] = marksOn;
+          if (rows.length === 1 && marksOn.length === 1 && row && mark) pair(mark, row);
         }
+
         const rowGroups = new Map<string, Row[]>();
         for (const row of existing) {
           if (row.quote === "") continue;
-          rowGroups.set(collapsed(row.quote), [
-            ...(rowGroups.get(collapsed(row.quote)) ?? []),
-            row,
-          ]);
+          const key = collapsed(row.quote);
+          rowGroups.set(key, [...(rowGroups.get(key) ?? []), row]);
         }
         const markGroups = new Map<string, Mark[]>();
         for (const mark of marks) {
@@ -719,47 +732,11 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           const key = collapsed(mark.quote);
           markGroups.set(key, [...(markGroups.get(key) ?? []), mark]);
         }
-        for (const [words, group] of markGroups) {
-          const all = (rowGroups.get(words) ?? []).filter((row) => !taken.has(row.id));
-          // Rows the last read left missing are not these words' place any more: the live ones are.
-          const live = all.filter((row) => !row.missing);
-          const rows = live.length > 0 ? live : all;
-          const byPageRows = [...rows].sort(
-            (a, b) =>
-              (a.page_from ?? 0) - (b.page_from ?? 0) ||
-              a.created_at.localeCompare(b.created_at) ||
-              a.id.localeCompare(b.id),
-          );
-          const byPageMarks = [...group].sort((a, b) => a.annotation.page - b.annotation.page);
-          const shifts = byPageMarks.map(
-            (mark, index) => mark.annotation.page - (byPageRows[index]?.page_from ?? 0),
-          );
-          // The same words, the same count, all moved by one shift: each row is its mark's.
-          if (
-            byPageRows.length === byPageMarks.length &&
-            byPageRows.length > 0 &&
-            shifts.every((shift) => shift === shifts[0])
-          ) {
-            for (const [index, mark] of byPageMarks.entries()) {
-              const row = byPageRows[index];
-              if (row) pair(mark, row);
-            }
-            continue;
-          }
-          // Else only the row this version left on the mark's own page is carried.
-          for (const mark of byPageMarks) {
-            const row = rows.find(
-              (each) =>
-                !taken.has(each.id) &&
-                each.content_hash === contentHash &&
-                each.page_from === pageOf(mark),
-            );
-            if (row) pair(mark, row);
-          }
-        }
-        const done = new Set<Mark>(pairs.map(({ mark }) => mark));
+        pairGroups(rowGroups, markGroups, (row) => row.page_from ?? 0, pageOf);
+
         for (const { mark, row } of pairs) {
           const { annotation, cited, there, quote } = mark;
+          const passageId = there && cited ? cited.passageId : null;
           const pageFrom = there && cited?.pageFrom != null ? cited.pageFrom : annotation.page;
           const pageTo = there && cited?.pageTo != null ? cited.pageTo : pageFrom;
           const location =
@@ -768,6 +745,31 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               : { kind: "page" as const, from: annotation.page, to: annotation.page };
           const note = row.note === row.file_note ? annotation.note : row.note;
           const colour = row.colour === row.file_colour ? annotation.colour : row.colour;
+          const check = annotation.kind === "note" ? "cant-check" : there ? "found" : "not-found";
+          const checkReason =
+            annotation.kind === "note"
+              ? "no-text"
+              : there
+                ? (cited?.checkReason ?? null)
+                : "quote-not-on-pages";
+          const missing = annotation.kind === "highlight" && !there;
+          const locationText = JSON.stringify(location);
+          const unchanged =
+            row.content_hash === contentHash &&
+            row.passage_id === passageId &&
+            row.quote === quote &&
+            row.note === note &&
+            row.file_note === annotation.note &&
+            row.colour === colour &&
+            row.file_colour === annotation.colour &&
+            row.page_from === pageFrom &&
+            row.page_to === pageTo &&
+            row.location === locationText &&
+            row.check_state === check &&
+            row.check_reason === checkReason &&
+            row.missing === (missing ? 1 : 0) &&
+            row.author === annotation.author;
+          if (unchanged) continue;
           db.run(
             `UPDATE document_annotations
                SET content_hash = ?, passage_id = ?, quote = ?, note = ?, file_note = ?,
@@ -776,7 +778,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
              WHERE id = ?`,
             [
               contentHash,
-              there && cited ? cited.passageId : null,
+              passageId,
               quote,
               note,
               annotation.note,
@@ -784,14 +786,10 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               annotation.colour,
               pageFrom,
               pageTo,
-              JSON.stringify(location),
-              annotation.kind === "note" ? "cant-check" : there ? "found" : "not-found",
-              annotation.kind === "note"
-                ? "no-text"
-                : there
-                  ? (cited?.checkReason ?? null)
-                  : "quote-not-on-pages",
-              annotation.kind === "highlight" && !there ? 1 : 0,
+              locationText,
+              check,
+              checkReason,
+              missing ? 1 : 0,
               annotation.author,
               at,
               row.id,
@@ -801,8 +799,9 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             reindex(row.id, quote, note);
           }
         }
+
         for (const mark of marks) {
-          if (done.has(mark)) continue;
+          if (matched.has(mark)) continue;
           const { annotation, cited, there, quote } = mark;
           insert(
             {
@@ -839,8 +838,16 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             annotation.colour,
           );
         }
+
         for (const row of existing) {
           if (taken.has(row.id) || row.deleted_at !== null) continue;
+          const current =
+            row.content_hash === contentHash &&
+            row.passage_id === null &&
+            row.check_state === "not-found" &&
+            row.check_reason === "quote-not-on-pages" &&
+            row.missing === 1;
+          if (current) continue;
           db.run(
             `UPDATE document_annotations
                SET content_hash = ?, passage_id = NULL, check_state = 'not-found',
