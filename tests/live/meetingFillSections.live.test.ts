@@ -52,6 +52,7 @@ interface Call {
   microphoneOnly?: boolean;
   requireSections?: boolean;
   notDecided?: RegExp[];
+  sectionHeadings?: Partial<Record<"summary" | "decisions" | "actions", string>>;
 }
 
 const me = (text: string) => ({ side: "me" as const, text });
@@ -102,7 +103,7 @@ const CALLS: Call[] = [
         said: [6],
       },
     ],
-    notDecided: [/April (?:the )?(?:4|fourth)\b/i],
+    notDecided: [/open(?: the display)? on April (?:the )?(?:4|fourth)\b/i],
   },
   {
     id: "sections-zh-museum",
@@ -131,12 +132,13 @@ const CALLS: Call[] = [
       { name: "预约灯光验收人员", kind: "action", pattern: [/预约/, /验收/], said: [5] },
       { name: "小乔周五送展签", kind: "action", pattern: [/展签/, /周五/], said: [6] },
     ],
-    notDecided: [/四月四日|4\s*月\s*4\s*日/],
+    notDecided: [/(?:定|选)(?:在)?(?:四月四日|4\s*月\s*4\s*日)开幕/],
   },
   {
     id: "sections-en-workshop",
     language: "en",
     requireSections: true,
+    sectionHeadings: { actions: "Action items" },
     notes: [note("workshop venue"), heading(2, "Action items")],
     turns: [
       me("Let's choose the venue for the repair workshop."),
@@ -180,6 +182,7 @@ const CALLS: Call[] = [
     id: "sections-zh-workshop",
     language: "zh-CN",
     requireSections: true,
+    sectionHeadings: { actions: "待办" },
     notes: [note("维修课场地"), heading(2, "待办")],
     turns: [
       me("今天定维修课的场地。"),
@@ -884,6 +887,270 @@ const CALLS: Call[] = [
   },
 ];
 
+const FINAL_CALLS: Call[] = [
+  ...(
+    [
+      {
+        id: "final-en-looped-room",
+        language: "en",
+        microphoneOnly: true,
+        requireSections: true,
+        notes: [
+          note(
+            "Harbour barrier call with Tom Okafor and Priya Raman: decide the crest raise and agree next steps.",
+          ),
+        ],
+        turns: [
+          me(
+            "Hello Tom, hello Priya. Today we decide the crest raise for the harbour barrier and agree next steps.",
+          ),
+          me(
+            "Tom Okafor here. The field report says raising the crest by 40 centimeters halves the expected damage.",
+          ),
+          me("Priya Raman here. The cost fits the budget if we phase the work over two winters."),
+          me("Yes, we agree to raise the crest by 40 centimeters. That is our decision."),
+          me("I will send the revised budget to the steering group by Friday."),
+          me("I will book the survey boat for the December tide readings."),
+          me("And I will get the engineers' cost estimate by the thirtieth, the end of the month."),
+          me("Good. Thanks, everyone."),
+        ],
+        facts: [
+          {
+            name: "raise the crest by 40 cm",
+            kind: "decision",
+            pattern: [/crest/i, /\b40\b|forty/i],
+            said: [3],
+          },
+          {
+            name: "revised budget by Friday",
+            kind: "action",
+            pattern: [/budget/i, /Friday/i],
+            said: [4],
+          },
+          { name: "survey boat booked", kind: "action", pattern: /survey boat/i, said: [5] },
+          { name: "engineers' cost estimate", kind: "action", pattern: /estimate/i, said: [6] },
+        ],
+      },
+      {
+        id: "final-zh-looped-room",
+        language: "zh-CN",
+        microphoneOnly: true,
+        requireSections: true,
+        notes: [note("防波堤会议，和汤姆、普丽娅：定加高方案，分好工")],
+        turns: [
+          me("汤姆、普丽娅你们好，今天要定防波堤加高的方案，再把下一步分好工。"),
+          me("我是汤姆。现场报告说堤顶加高四十厘米，预计损失能减半。"),
+          me("我是普丽娅。工程分两个冬天做，费用在预算之内。"),
+          me("对，我们同意堤顶加高四十厘米，这就是我们的决定。"),
+          me("我周五前把修改后的预算发给指导小组。"),
+          me("我来订十二月测潮用的勘测船。"),
+          me("我月底三十号前拿到工程师的成本估算。"),
+          me("好，谢谢大家。"),
+        ],
+        facts: [
+          { name: "堤顶加高四十厘米", kind: "decision", pattern: [/加高/, /40|四十/], said: [3] },
+          { name: "周五前发预算", kind: "action", pattern: [/预算/, /周五/], said: [4] },
+          { name: "订勘测船", kind: "action", pattern: /勘测船|测量船/, said: [5] },
+          { name: "成本估算", kind: "action", pattern: /估算/, said: [6] },
+        ],
+      },
+    ] satisfies Call[]
+  ).map((call) => ({
+    ...call,
+    turns: [...call.turns, ...call.turns.slice(0, 5)],
+    facts: call.facts.map((fact) => ({
+      ...fact,
+      said: fact.said.flatMap((index) =>
+        index < 5 ? [index, index + call.turns.length] : [index],
+      ),
+    })),
+  })),
+  {
+    id: "final-en-launch",
+    language: "en",
+    requireSections: true,
+    notes: [note("launch date")],
+    turns: [
+      me("Hi Sam. Let's pick the launch date for the booking app."),
+      them("Marketing would like the third of March."),
+      me("OK, then we launch on the third of March."),
+      them(
+        "Hold on. The payment provider's review takes four weeks, so we won't be approved by the third.",
+      ),
+      me("Then the third is off. We launch on the seventeenth of March instead."),
+      them("The seventeenth leaves two weeks to spare. Agreed."),
+      me("I'll tell marketing about the new date today."),
+      them("And I'll submit the app for the payment review on Monday."),
+    ],
+    facts: [
+      {
+        name: "launch on 17 March",
+        kind: "decision",
+        pattern: /\b17(?:th)?\b|seventeenth/i,
+        said: [4, 5],
+      },
+      {
+        name: "tell marketing today",
+        kind: "action",
+        pattern: [/marketing/i, /today/i],
+        said: [6],
+      },
+      {
+        name: "payment review on Monday",
+        kind: "action",
+        pattern: [/review/i, /Monday/i],
+        said: [7],
+      },
+    ],
+    notDecided: [/\b3(?:rd)?\b|third/i],
+  },
+  {
+    id: "final-zh-launch",
+    language: "zh-CN",
+    requireSections: true,
+    notes: [note("上线日期")],
+    turns: [
+      me("小孙你好，我们把小程序的上线日期定一下。"),
+      them("市场部希望三月三日上线。"),
+      me("行，那就三月三日上线。"),
+      them("等一下，支付审核要四周，三月三日之前批不下来。"),
+      me("那三月三日不行了。改成三月十七日上线。"),
+      them("十七日还能留出两周的余量，同意。"),
+      me("我今天就把新日期告诉市场部。"),
+      them("我周一提交支付审核。"),
+    ],
+    facts: [
+      {
+        name: "三月十七日上线",
+        kind: "decision",
+        pattern: /17\s*日|十七日|3\s*月\s*17/,
+        said: [4, 5],
+      },
+      { name: "今天告诉市场部", kind: "action", pattern: [/市场部/, /今天/], said: [6] },
+      { name: "周一提交支付审核", kind: "action", pattern: [/审核/, /周一/], said: [7] },
+    ],
+    notDecided: [/3\s*月\s*3\s*日|三月三日/],
+  },
+  {
+    id: "final-en-cleaning",
+    language: "en",
+    requireSections: true,
+    notes: [note("cleaning quotes")],
+    turns: [
+      me(
+        "Hi Rosa, thanks for joining. I want to go over the cleaning quotes before anything is signed.",
+      ),
+      them(
+        "Sure. BrightCo quoted one thousand one hundred pounds a month, and Clearway nine hundred and fifty.",
+      ),
+      me("Should we go with Clearway, since it's the cheapest?"),
+      them("Maybe, but their references from the Leeds office were mixed."),
+      me("If we picked BrightCo, we'd pay about eighteen hundred more a year."),
+      them("Right. What if we asked Clearway for a trial month first?"),
+      me("Possibly. It's hard to say yet."),
+      them("Nimbus sends their quote next week."),
+      me("Then I'll forward the Nimbus quote to you when it arrives."),
+      them("And I'll call the Leeds office about Clearway's references."),
+    ],
+    facts: [
+      {
+        name: "forward the Nimbus quote",
+        kind: "action",
+        pattern: [/Nimbus/i, /forward/i],
+        said: [8],
+      },
+      {
+        name: "call Leeds about references",
+        kind: "action",
+        pattern: [/Leeds/i, /reference/i],
+        said: [9],
+      },
+    ],
+    notDecided: [/Clearway|BrightCo|trial/i],
+  },
+  {
+    id: "final-zh-cleaning",
+    language: "zh-CN",
+    requireSections: true,
+    notes: [note("保洁报价")],
+    turns: [
+      me("罗经理你好，签约之前想先把几家保洁公司的报价过一遍。"),
+      them("好的。洁亮报价每月一万一千元，清风每月九千五百元。"),
+      me("要不要选清风？它最便宜。"),
+      them("也许吧，不过他们在杭州分公司的口碑一般。"),
+      me("如果选洁亮，一年要多花一万八千元左右。"),
+      them("对。要是先让清风试用一个月呢？"),
+      me("也有可能。现在还说不好。"),
+      them("云朵下周会把报价发过来。"),
+      me("那等云朵的报价到了，我转发给你。"),
+      them("我去问问杭州分公司对清风的评价。"),
+    ],
+    facts: [
+      { name: "转发云朵的报价", kind: "action", pattern: [/云朵/, /转发/], said: [8] },
+      { name: "问杭州分公司", kind: "action", pattern: /杭州/, said: [9] },
+    ],
+    notDecided: [/清风|洁亮|试用/],
+  },
+  {
+    id: "final-en-summary",
+    language: "en",
+    requireSections: true,
+    sectionHeadings: { summary: "Summary" },
+    notes: [heading(2, "Summary"), note("staffing")],
+    turns: [
+      me("Hi Pete. Let's plan the staffing for the December market stall."),
+      them("We need two people on weekdays and four on Saturdays."),
+      me("Can students from the college cover the Saturdays?"),
+      them("Three of them said yes, at twelve pounds an hour."),
+      me("Then we hire the three students for the Saturdays."),
+      them("Good. Who runs the till on weekdays?"),
+      me("Hannah will run the till on weekdays."),
+      them("I'll draw up the rota by Friday."),
+    ],
+    facts: [
+      {
+        name: "hire students for Saturdays",
+        kind: "decision",
+        pattern: [/student/i, /Saturday/i],
+        said: [4],
+      },
+      { name: "Hannah runs the till", kind: "action", pattern: [/Hannah/i, /till/i], said: [6] },
+      { name: "rota by Friday", kind: "action", pattern: [/rota/i, /Friday/i], said: [7] },
+    ],
+  },
+  {
+    id: "final-zh-summary",
+    language: "zh-CN",
+    requireSections: true,
+    sectionHeadings: { summary: "摘要" },
+    notes: [heading(2, "摘要"), note("人手")],
+    turns: [
+      me("老彭好，我们排一下十二月集市摊位的人手。"),
+      them("工作日要两个人，周六要四个人。"),
+      me("周六能不能请学院的学生来帮忙？"),
+      them("有三个学生答应了，每小时二十五元。"),
+      me("那周六就请这三个学生。"),
+      them("好。工作日谁来收银？"),
+      me("汉娜工作日负责收银。"),
+      them("我周五前把排班表做出来。"),
+    ],
+    facts: [
+      { name: "周六请学生", kind: "decision", pattern: [/学生/, /周六/], said: [4] },
+      { name: "汉娜工作日收银", kind: "action", pattern: [/汉娜/, /收银/], said: [6] },
+      { name: "周五前做排班表", kind: "action", pattern: [/排班/, /周五/], said: [7] },
+    ],
+  },
+  ...CALLS.filter((call) => call.id.endsWith("workshop")).map((call) => {
+    const text = call.language === "en" ? "What we settled" : "敲定的事";
+    return {
+      ...call,
+      id: `final-${call.language}-decisions-heading`,
+      notes: [call.notes[0] ?? note(""), heading(2, text)],
+      sectionHeadings: { decisions: text },
+    };
+  }),
+];
+
 interface Usage {
   /** Each request's reply: its text, how much it reasoned, and the Tools it called. */
   replies: { text: string; reasoning: number; tools: string[]; output: number }[];
@@ -955,7 +1222,7 @@ interface Unit {
   text: string;
   ai: boolean;
   section: string | null;
-  citations: { quote: string; speaker: string | null; check: string }[];
+  citations: { quote: string; speaker: string | null; from: number | null; check: string }[];
 }
 
 function unitsOf(doc: ProseMirrorNode): Unit[] {
@@ -969,10 +1236,15 @@ function unitsOf(doc: ProseMirrorNode): Unit[] {
         ai = true;
       }
       if (inside.type.name === CITATION_NODE) {
-        const location = inside.attrs.location as { kind?: string; speaker?: string } | null;
+        const location = inside.attrs.location as {
+          kind?: string;
+          speaker?: string;
+          from?: number;
+        } | null;
         citations.push({
           quote: String(inside.attrs.quote ?? ""),
           speaker: location?.kind === "time" ? (location.speaker ?? null) : null,
+          from: location?.kind === "time" ? (location.from ?? null) : null,
           check: String(inside.attrs.check ?? ""),
         });
       }
@@ -1006,7 +1278,8 @@ const SPEAKERS = { me: ["me", "我"], them: ["them", "对方"] } as const;
 /** A Citation of a turn that says the fact, found in the Transcript, with that turn's speaker. */
 function citesRightly(unit: Unit, fact: Fact, call: Call): boolean {
   return unit.citations.some((citation) => {
-    if (citation.check !== "found") return false;
+    if (citation.check !== "found" || citation.from === null || !Number.isFinite(citation.from))
+      return false;
     const quote = plain(citation.quote);
     return fact.said.some((index) => {
       const turn = call.turns[index];
@@ -1017,7 +1290,7 @@ function citesRightly(unit: Unit, fact: Fact, call: Call): boolean {
       return (
         said &&
         (call.microphoneOnly
-          ? speaker !== ""
+          ? speaker === "speaker ?"
           : SPEAKERS[turn.side].some((each) => each === speaker))
       );
     });
@@ -1073,6 +1346,7 @@ async function run(call: Call) {
   if (call.notes.length > 0) writeMind(client, call.notes);
   await client.settled();
   const typed = unitsOf(readMind(client)).map((each) => each.text);
+  const typedNote = readMind(client).toJSON();
   await core.startMeeting({ meetingId: meeting.id, systemAudio: !call.microphoneOnly });
   record(20);
   for (const turn of call.turns) {
@@ -1104,8 +1378,14 @@ async function run(call: Call) {
   });
   const uncited = units.filter((each) => each.ai && each.citations.length === 0).length;
   const transcript = (await core.listMeetings()).find((each) => each.id === meeting.id)?.transcript;
+  let undone = false;
+  if (fill.state === "filled" && call.requireSections) {
+    await core.undoMeetingFill(meeting.id);
+    await vi.waitFor(() => expect(readMind(client).toJSON()).toEqual(typedNote));
+    undone = true;
+  }
   core.close();
-  return { fill, doc, typed, units, scored, uncited, usage, transcript };
+  return { fill, doc, typed, units, scored, uncited, usage, transcript, undone };
 }
 
 const shownNote = (doc: ProseMirrorNode) => {
@@ -1143,7 +1423,9 @@ const UNTYPED = CALLS.filter((call) => call.id.startsWith("walk-")).map((call) =
   notes: [],
 }));
 
-const chosen = [...CALLS, ...UNTYPED].filter((call) => !PICKED || PICKED.includes(call.id));
+const chosen = [...CALLS, ...FINAL_CALLS, ...UNTYPED].filter(
+  (call) => !PICKED || PICKED.includes(call.id),
+);
 
 describe.skipIf(!KEY)(
   "Notes typed in a call, filled in on a real model (#2306)",
@@ -1152,9 +1434,10 @@ describe.skipIf(!KEY)(
   },
   () => {
     test.each(chosen)("$id", async (call) => {
-      const { fill, doc, typed, units, scored, uncited, usage } = await run(call);
+      const { fill, doc, typed, units, scored, uncited, usage, undone } = await run(call);
       const once = scored.filter((each) => each.count === 1 && each.cited).length;
       const title = (section: "summary" | "decisions" | "actions") =>
+        call.sectionHeadings?.[section] ??
         translate(call.language, `meetings.fill.section.${section}`);
       const summary = units.filter((each) => each.ai && each.section === title("summary"));
       const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
@@ -1167,6 +1450,10 @@ describe.skipIf(!KEY)(
         ).length,
         summary: summary.length,
         decisionsSection: decisions.length,
+        undone,
+        decisionsInSection: call.facts.filter(
+          (fact) => fact.kind === "decision" && decisions.some((unit) => says(fact, unit.text)),
+        ).length,
       };
       if (REPORT) {
         const rows = scored
@@ -1210,9 +1497,24 @@ describe.skipIf(!KEY)(
       expect(units.filter((each) => !each.ai).map((each) => each.text)).toEqual(typed);
       expect(scored.filter((each) => each.count === 0).map((each) => each.fact.name)).toEqual([]);
       if (call.requireSections) {
+        expect(undone).toBe(true);
         expect(summary.length, "Summary is present").toBeGreaterThan(0);
-        expect(decisions.length, "Decisions is present").toBeGreaterThan(0);
+        const expected = call.facts.filter((fact) => fact.kind === "decision").length;
+        expect(decisions.length > 0, "Decisions only when the call decided something").toBe(
+          expected > 0,
+        );
+        expect(counts.decisionsInSection).toBe(expected);
         expect(counts.invented).toBe(0);
+        expect(once, "Every fact occurs once with the right Citation").toBe(call.facts.length);
+        expect(uncited).toBe(0);
+        const headings: string[] = [];
+        doc.forEach((block) => {
+          if (block.type.name === "heading") headings.push(block.textContent);
+        });
+        for (const text of Object.values(call.sectionHeadings ?? {})) {
+          expect(headings.filter((heading) => heading === text)).toHaveLength(1);
+          expect(units.some((unit) => unit.ai && unit.section === text)).toBe(true);
+        }
       }
     });
   },
