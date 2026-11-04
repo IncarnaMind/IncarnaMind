@@ -278,7 +278,7 @@ export function createVerify(options: VerifyOptions) {
     const { sentences, snapshot } = sortingInput(mindId, verification);
     const found = await claimsAmong(
       ready.prepared,
-      sentences.map((each) => each.said),
+      sentences.map((each) => ({ text: each.said })),
       "someone-else",
       signal,
     );

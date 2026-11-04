@@ -69,6 +69,7 @@ const NO_HEALTH: Health = {
   kept: [],
   tableCells: [],
   noCitation: [],
+  ownNotes: [],
   checkable: 0,
   supported: 0,
   checkedAt: null,
@@ -88,13 +89,16 @@ export function Counted({ text, count }: { text: string; count: string }) {
   );
 }
 
+/** A row of the card: a part of the health, or the supported claims only the User's own notes back. */
+type HealthRowPart = HealthPart | "ownNotes";
+
 /**
  * A part's words, with its count as `shown`. Unsupported sentences "need a look", as Verify counts
  * them, whether their card says not found or unsupported (#1608).
  */
 export function partLabel(
   t: ReturnType<typeof useT>,
-  part: HealthPart | "notChecked",
+  part: HealthRowPart | "notChecked",
   count: number,
   shown: string,
 ): string {
@@ -102,6 +106,8 @@ export function partLabel(
   switch (part) {
     case "found":
       return count === 1 ? t("health.found.one") : t("health.found", params);
+    case "ownNotes":
+      return count === 1 ? t("health.ownNotes.one") : t("health.ownNotes", params);
     case "notFound":
       return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
     case "unsupported":
@@ -120,53 +126,31 @@ export function partLabel(
   }
 }
 
-/** The summary's parts: what a check found, and what is left of it, in D276's words. */
+/**
+ * The summary's one part the rows don't name: the claims a check found supported (#2313). What is
+ * left — needs a look, not checked yet, no Citation — is each a row a click moves to.
+ */
 function summaryParts(
   summary: HealthSummary,
   t: ReturnType<typeof useT>,
   format: (value: number) => string,
 ): string[] {
-  const shown = (value: number) => format(value);
-  const parts: string[] = [];
-  if (summary.supported > 0) {
-    parts.push(
-      t(summary.supported === 1 ? "health.supported.one" : "health.supported", {
-        count: shown(summary.supported),
-      }),
-    );
-  }
-  const look = summary.look.claims;
-  if (look > 0) {
-    const reasons = (["contradicted", "unsupported", "notFound"] as const)
-      .filter((reason) => summary.look[reason] > 0)
-      .map((reason) => {
-        const count = summary.look[reason];
-        return t(
-          count === 1 ? `health.look.reason.${reason}.one` : `health.look.reason.${reason}`,
-          { count: shown(count) },
-        );
-      });
-    parts.push(
-      t(look === 1 ? "health.look.one" : "health.look", {
-        count: shown(look),
-        reasons: reasons.join(t("health.look.separator")),
-      }),
-    );
-  }
-  if (summary.toCheck > 0) {
-    parts.push(partLabel(t, "toCheck", summary.toCheck, shown(summary.toCheck)));
-  }
-  if (summary.noCitation > 0) {
-    parts.push(partLabel(t, "noCitation", summary.noCitation, shown(summary.noCitation)));
-  }
-  return parts;
+  return summary.supported > 0
+    ? [
+        t(summary.supported === 1 ? "health.supported.one" : "health.supported", {
+          count: format(summary.supported),
+        }),
+      ]
+    : [];
 }
 
 /** Each part's small mark, as the margin draws its state; none for sentences with no Citation. */
-export function PartMark({ part }: { part: HealthPart | "notChecked" }) {
+export function PartMark({ part }: { part: HealthRowPart | "notChecked" }) {
   switch (part) {
     case "found":
       return <CheckMarkIcon check="found" className="mind-health-icon" />;
+    case "ownNotes":
+      return <ClaimMarkIcon state="supported" ownNoteOnly className="mind-health-icon" />;
     case "notFound":
       return <CheckMarkIcon check="not-found" className="mind-health-icon" />;
     case "unsupported":
@@ -286,7 +270,18 @@ export function HealthCard({
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const signedOff = useSignOffCounts(editor);
 
-  const label = (part: HealthPart, count: number) => partLabel(t, part, count, format(count));
+  const label = (part: HealthRowPart, count: number) => partLabel(t, part, count, format(count));
+
+  // A sentence the last check couldn't sort is named on that check's line: its row would count
+  // it twice (#2313).
+  const unexamined = new Set(health.unexamined);
+  const toCheck = health.toCheck.filter((pos) => !unexamined.has(pos));
+  const countOf = (part: HealthRowPart | "checking") =>
+    part === "checking"
+      ? health.checking.length
+      : part === "toCheck"
+        ? toCheck.length
+        : health[part].length;
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first; for a Citation, just
@@ -294,10 +289,12 @@ export function HealthCard({
    * centred by its own position, not its paragraph's, which can be taller than the page, and clear
    * of the fade and the badge at the page's foot.
    */
-  const goToNext = (part: HealthPart | "checking") => {
+  const goToNext = (part: HealthRowPart | "checking") => {
     if (editor.isDestroyed) return;
     const cited = part === "found" || part === "notFound";
-    const targets = health[part].map((pos) => (cited ? pos + 1 : pos));
+    const targets = (part === "toCheck" ? toCheck : health[part]).map((pos) =>
+      cited ? pos + 1 : pos,
+    );
     const head = editor.state.selection.head;
     const next = targets.find((pos) => pos > head) ?? targets[0];
     if (next === undefined) return;
@@ -323,7 +320,7 @@ export function HealthCard({
     setOpenClaim(place, claim.check.id);
   };
 
-  const rows = ROWS.filter((part) => health[part].length > 0);
+  const rows = ROWS.filter((part) => countOf(part) > 0);
   const summary = healthSummary(health, {
     running: running !== undefined,
     problem: problem !== undefined,
@@ -341,19 +338,20 @@ export function HealthCard({
     testId: "checks-problem-close",
     onClick: () => dismissCheckProblem(mindId),
   };
-  const row = (part: HealthPart | "checking") => {
+  const row = (part: HealthRowPart | "checking") => {
+    const count = countOf(part);
     const text =
       part === "checking"
         ? t(health.checking.length === 1 ? "health.checking.one" : "health.checking", {
             count: format(health.checking.length),
           })
-        : label(part, health[part].length);
+        : label(part, count);
     return (
       <button
         key={part}
         type="button"
         data-testid={`health-${part}`}
-        data-count={health[part].length}
+        data-count={count}
         data-part={part === "checking" ? "toCheck" : part}
         className="check-row"
         aria-label={t("health.next", { part: text })}
@@ -364,7 +362,7 @@ export function HealthCard({
           <PartMark part={part === "checking" ? "toCheck" : part} />
         </span>
         <span className="check-row-text">
-          <Counted text={text} count={format(health[part].length)} />
+          <Counted text={text} count={format(count)} />
         </span>
         <span className="check-row-next" aria-hidden="true">
           {t("badge.next")}
@@ -378,6 +376,7 @@ export function HealthCard({
       <AddedDocumentsLine doc={doc} mindId={mindId} />
       <div className="check-rows" data-testid="mind-health">
         {rows.map(row)}
+        {health.ownNotes.length > 0 && row("ownNotes")}
         {health.noCitation.length > 0 && row("noCitation")}
         {/* A claim being checked keeps its row: the card is as tall while a run is on as after
             it, so nothing under it moves when the run ends (#1312). */}
@@ -435,7 +434,7 @@ export function HealthCard({
           {t("health.allChecked")}
         </p>
       )}
-      {summary?.kind === "left" && (
+      {summary?.kind === "left" && summary.summary.supported > 0 && (
         <MetaLine
           data-testid="health-summary"
           className="mind-health-summary"
@@ -444,15 +443,18 @@ export function HealthCard({
       )}
       {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
       {/* One line of note, in one place, from the moment the check starts: the sentence it is
-          on, then when it was checked. Rows above it never move as the run ends (#1312). It
-          stays once a run has started here: a run ends a moment before its record reaches the
-          Mind, and the line must not go in between. */}
+          on, then when it was checked. It stays once a run has started here: a run ends a moment
+          before its record reaches the Mind, and the line must not go in between. The card's
+          body keeps its opening height, so what is above it stays put as the run ends (#1312). */}
       {(running || checkedAll || ranHere) && (
         <div className="check-card-note">
           {running ? (
             <RunningText editor={editor} mindId={mindId} testId="card-progress" />
           ) : (
-            checkedAll && (
+            // The health is counted a moment after the record lands: until no claim says it is
+            // being checked, the line would name a check a row still says is running (#2313).
+            checkedAll &&
+            health.checking.length === 0 && (
               <CheckedWhen
                 run={checkedAll}
                 editor={editor}

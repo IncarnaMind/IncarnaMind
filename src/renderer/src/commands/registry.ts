@@ -94,6 +94,8 @@ export interface CommandContext {
   checked?: WindowCommandRequest["targets"];
   /** The Folder wall the core checked them behind; null: outside every wall (#2250). */
   checkedWall?: string | null;
+  /** The assistant asked for it, whose reply says how it ended rather than a toast. */
+  assistant?: true;
 }
 
 export interface Command {

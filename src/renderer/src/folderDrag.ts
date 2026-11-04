@@ -14,7 +14,7 @@ import { linksIn, useWebPages } from "./webPages";
  * only while the drop would move something there, as Move to… does; a Tag
  * only while every Document dragged is one and one of them would get it. A
  * link dragged from a browser onto a Folder is saved there as a web page
- * (#261).
+ * (#261), and files dragged from Finder onto one are added into it (#212).
  *
  * A Folder dragged onto another nests it, or places it beside it (#246): over
  * the middle of a row it goes inside ("Put inside", a box), near its top or
@@ -147,7 +147,26 @@ export function folderTarget(
     useAppStore.getState().library?.groups.find((group) => group.id === id)?.name ?? "";
   return {
     accepts(dragged, at) {
-      if (dragged.kind === "links") return { kind: "add" };
+      if (dragged.kind === "links") {
+        // Not in a Folder takes no link: the window saves one dropped elsewhere, unfiled.
+        if (folderId === null) return null;
+        return {
+          kind: "add",
+          said: (t) => t("drop.addWebPage", { folder: folderNameNow(folderId) }),
+        };
+      }
+      if (dragged.kind === "files") {
+        if (folderId === null) return null;
+        // Before the drop, a file is known by its type alone; its name comes with the drop.
+        const count = dragged.types.length;
+        return {
+          kind: "import",
+          said: (t) =>
+            count > 1
+              ? t("drop.addFiles.many", { count, folder: folderNameNow(folderId) })
+              : t("drop.addFiles", { folder: folderNameNow(folderId) }),
+        };
+      }
       if (dragged.kind !== "objects") return null;
       const folders = foldersDragged(dragged.refs);
       if (onlyFolders(dragged.refs, folders)) {
@@ -191,6 +210,11 @@ export function folderTarget(
     drop(dropped, effect) {
       if (dropped.kind === "links") {
         void useWebPages.getState().add(linksIn(dropped.data), folderId);
+        return null;
+      }
+      if (dropped.kind === "files") {
+        if (folderId === null) return null;
+        void useAppStore.getState().addDropped(dropped.files, dropped.folders, folderId);
         return null;
       }
       if (dropped.kind !== "objects") return null;

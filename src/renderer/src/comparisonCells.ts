@@ -33,7 +33,7 @@ import { type ComparisonRefillStart, refillComparison } from "./comparisonRefill
 import { comparisonCellSelection } from "./comparisonSelection";
 import { core } from "./core";
 import { comparisonCellInRow, comparisonTableIn } from "./editor/comparisonCommands";
-import { sourceContext } from "./editor/copyCitations";
+import { reportCopyNotice, sourceContext, takeCopyNotice } from "./editor/copyCitations";
 import { citationsIn, wordFootnoteHtml } from "./editor/copyNotes";
 import { asOneStep, offerEditorUndo, undoStackOf } from "./editor/editorUndo";
 import {
@@ -320,6 +320,7 @@ export async function editComparisonCell(
             },
           ],
           scope: { folderIds: [], tagIds: [], documentIds: [handle.documentId] },
+          mindId: handle.mindId,
           ...(model && { model }),
         }),
       ),
@@ -410,6 +411,7 @@ export async function copyComparisonCells(
   if (!slice) return false;
   const { dom, text } = handle.editor.view.serializeForClipboard(slice);
   const plain = text.trim();
+  const noticed = takeCopyNotice(dom);
   try {
     if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
       await navigator.clipboard.write([
@@ -418,12 +420,15 @@ export async function copyComparisonCells(
           "text/plain": new Blob([plain], { type: "text/plain" }),
         }),
       ]);
+      if (noticed) reportCopyNotice();
     } else {
       await navigator.clipboard.writeText(plain);
+      if (noticed) reportCopyNotice();
     }
   } catch (error) {
     try {
       await navigator.clipboard.writeText(plain);
+      if (noticed) reportCopyNotice();
     } catch (fallback) {
       console.warn("Comparison cell copy failed.", error, fallback);
       useAppStore.getState().reportError(fallback);

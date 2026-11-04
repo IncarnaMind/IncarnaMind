@@ -8,7 +8,10 @@ import {
   useState,
 } from "react";
 import type { Document, LibraryGroup, LinkedFolder } from "../../../core/api";
+import { formatBytes } from "../../../shared/bytes";
+import { formatShortDate, formatTime } from "../../../shared/dates";
 import { displayName } from "../../../shared/documentNames";
+import { type FileDates, fileDates, shownFileDate } from "../../../shared/fileProperties";
 import { mindName } from "../../../shared/naming";
 import { copyText } from "../copied";
 import { core, files } from "../core";
@@ -16,14 +19,13 @@ import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
 import { missingFonts, useFontLoads } from "../editor/wordFonts";
 import { providerErrorText } from "../errors";
-import { addedDate, documentSummary, fileDate, showFileLabelKey, userFile } from "../fileInfo";
+import { addedDate, documentSummary, showFileLabelKey, userFile } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { useInfo } from "../info";
 import { folderCounts, organizeModel, organizeState } from "../libraryPage";
 import {
   fileStatusLabel,
   folderName,
-  formatBytes,
   formatCount,
   linkedFolderRowState,
   rowStateLabel,
@@ -270,6 +272,28 @@ function useMissingFonts(mindId: string | undefined): string[] {
   return missingFonts(fonts);
 }
 
+const WHOSE_MARK = "\u0000";
+
+/** A file's date, and whose it is: the file's own, or this computer's, which says how it can change. */
+function FileDate({ value, from }: { value: string; from: FileDates["from"] }) {
+  const t = useT();
+  const language = useLanguage();
+  const date = shownFileDate(value, from, language);
+  if (from === "file") return <>{t("info.fileDate", { date })}</>;
+  const [before = "", after = ""] = t("info.computerDate", { date, whose: WHOSE_MARK }).split(
+    WHOSE_MARK,
+  );
+  return (
+    <>
+      {before}
+      <span data-testid="info-on-computer" title={t("info.onComputer.tooltip")}>
+        {t("info.onComputer")}
+      </span>
+      {after}
+    </>
+  );
+}
+
 function DocumentInfo({ document }: { document: Document }) {
   const t = useT();
   const language = useLanguage();
@@ -306,6 +330,7 @@ function DocumentInfo({ document }: { document: Document }) {
   const status = documentStatusText(document, t, language, scanning);
 
   const summary = documentSummary(document, units, t, language);
+  const dates = fileDates(document);
 
   return (
     <>
@@ -322,6 +347,14 @@ function DocumentInfo({ document }: { document: Document }) {
         ) : (
           <Row label={t("info.where")} testId="info-path">
             {file ? document.path : t("info.inLibrary")}
+          </Row>
+        )}
+        {document.yourNote && (
+          <Row label={t("mind.yourNote")} testId="info-your-note">
+            {t("mind.snapshotAt", {
+              date: formatShortDate(document.yourNote.snapshotAt, language),
+              time: formatTime(document.yourNote.snapshotAt, language),
+            })}
           </Row>
         )}
         {file && (
@@ -373,9 +406,14 @@ function DocumentInfo({ document }: { document: Document }) {
             </span>
           </Row>
         )}
-        {document.creationDate && (
+        {dates?.created && (
           <Row label={t("info.created")} testId="info-created">
-            {t("info.createdValue", { date: fileDate(document.creationDate, language) })}
+            <FileDate value={dates.created} from={dates.from} />
+          </Row>
+        )}
+        {dates?.modified && (
+          <Row label={t("info.modified")} testId="info-modified">
+            <FileDate value={dates.modified} from={dates.from} />
           </Row>
         )}
         <Row label={t("info.added")} testId="info-added">

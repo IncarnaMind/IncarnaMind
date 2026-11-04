@@ -53,6 +53,20 @@ export function checkComments(
     : t("export.checkComments", { count: checks.comments });
 }
 
+/**
+ * The Saved line's part on the User's own comments in a Word file (#328): how many it holds,
+ * or that someone else's file leaves them out; null when there are none.
+ */
+export function myCommentsPart(count: number, shown: boolean, t: Translate): string | null {
+  if (count === 0) return null;
+  if (shown) {
+    return count === 1 ? t("export.myComments.one") : t("export.myComments.other", { count });
+  }
+  return count === 1
+    ? t("export.myComments.leftOut.one")
+    : t("export.myComments.leftOut.other", { count });
+}
+
 /** `changed`: the file written beside, which had changed after it was saved (#110). */
 export function rewrittenLine(
   t: Translate,

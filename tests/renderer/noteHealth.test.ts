@@ -118,7 +118,39 @@ const NOTHING = {
   noCitation: 0,
 };
 
+const evidencing = (yourNoteAt?: string): CitationAttributes => ({
+  passageId: "p1",
+  documentId: "note",
+  documentName: "Field visit",
+  contentHash: "a".repeat(64),
+  pageFrom: null,
+  pageTo: null,
+  location: null,
+  quote: "Harbours publish the times of high water every week.",
+  check: "found",
+  checkReason: null,
+  ...(yourNoteAt && { yourNoteAt }),
+});
+
 describe("A Mind's health", () => {
+  test("counts the supported claims only the User's own notes back (#335)", () => {
+    const doc = docOf(
+      paragraph(
+        checked("Harbours publish the times of high water every week.", "supported", null, {
+          evidence: evidencing("2026-10-12T10:00:00.000Z"),
+        }),
+      ),
+      paragraph(
+        checked("Spring tides come at the new moon.", "supported", null, {
+          evidence: evidencing(),
+        }),
+      ),
+    );
+    const health = healthOf(doc);
+    expect(health.supported).toBe(2);
+    expect(health.ownNotes).toHaveLength(1);
+  });
+
   test("counts its Citations, and its claims: every one no check covers is to check, whatever its Citation (#1909)", () => {
     const doc = docOf(
       heading("Recommendation"),
@@ -474,6 +506,19 @@ describe("A Mind's health", () => {
     expect(checking.checking).toHaveLength(1);
     expect(checking.toCheck).toHaveLength(0);
     expect(healthSummary(checking, { running: false, problem: false, unread: 0 })).toBeNull();
+  });
+
+  test("a table's value cell with a figure is still to check though the last whole-Note check left its words out, as the core still sends it; the paragraph with those words isn't (#2447)", () => {
+    const doc = docOf(
+      paragraph(text("540")),
+      table(paragraph(text("Fuel")), paragraph(text("540"))),
+      table(paragraph(text("540"))),
+    );
+
+    expect(healthOf(doc).toCheck).toHaveLength(3);
+    const left = healthOf(doc, { skipped: [sentenceKey("540")] });
+    expect(left.toCheck).toHaveLength(2);
+    expect(left.tableCells).toEqual(left.toCheck);
   });
 
   test("counts a table cell's claim, on its own line (#1909)", () => {

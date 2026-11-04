@@ -423,19 +423,57 @@ export function coveredPart(
 }
 
 /**
+ * Whether the card lists a check's parts as rows (#2002): more than one, or one with a card of
+ * its own. A check with rows shows each part's own result there; the sentence's result is the
+ * parts' verdict, Not found only when every part found nothing (#2313).
+ */
+export function showsPartRows(check: Pick<ClaimCheckAttributes, "parts">): boolean {
+  return Boolean(
+    check.parts &&
+      (check.parts.length > 1 ||
+        check.parts.some(
+          (part) =>
+            part.kind === "opinion" ||
+            part.coverage ||
+            part.evidence.length > 1 ||
+            part.unsupported?.kind,
+        )),
+  );
+}
+
+/**
+ * Whether one part's own check found nothing (#2313): no quoted Passage, no Passage read and
+ * judged, no court decision, none of the User's own workings, and no covered quote.
+ */
+export function partFoundNothing(part: ClaimCheckPart): boolean {
+  return (
+    part.verdict === "unsupported" &&
+    part.evidence.length === 0 &&
+    !part.citedCaseUnchecked &&
+    !part.excluded.some((left) => left.reason === "own-workings") &&
+    !part.unsupported?.found &&
+    coveredPart(part.unsupported) === null
+  );
+}
+
+/**
  * Whether nothing in its scope was about an unsupported sentence (#1608): its card is headed Not
  * found and says where it looked, and its Word comment says the same. A Passage the check found
  * makes it Unsupported: one quoted as saying something different or as stating part of it, or one
  * it read and judged (`UnsupportedReason.found`). A sentence with Citations, one citing a court
- * decision no Document holds, and one only the User's own workings state have cards of their own.
+ * decision no Document holds, or one only the User's own workings state is Unsupported; one whose
+ * parts the card lists as rows is Not found only when every part found nothing (#2313).
  */
 export function saysNotFound(
   shown: ClaimCheckShown,
   check: ClaimCheckAttributes,
   citations: number,
 ): boolean {
+  if (shown.state !== "unsupported") return false;
+  if (showsPartRows(check)) {
+    return Boolean(check.parts?.length) && (check.parts ?? []).every(partFoundNothing);
+  }
   return (
-    shown.state === "unsupported" &&
     citations === 0 &&
     check.evidence === null &&
     !check.citedCaseUnchecked &&
@@ -566,6 +604,26 @@ const RECORD_MISSES: ReadonlySet<RecordCiteResult["outcome"]> = new Set([
 ]);
 
 /**
+ * Whether every Document that supports the sentence is one of the User's own notes (#335):
+ * its own evidence and the evidence of each supported part, with nothing read whole behind it.
+ * A Document of theirs that also supports it makes this false, so the mark stays the usual one.
+ */
+export function supportedByOwnNotesOnly(check: {
+  state: ClaimCheckAttributes["state"];
+  evidence: CitationAttributes | null;
+  parts?: readonly Pick<ClaimCheckPart, "verdict" | "evidence">[];
+  readDocuments?: readonly unknown[];
+}): boolean {
+  if (check.state !== "supported") return false;
+  if ((check.readDocuments ?? []).length > 0) return false;
+  const evidence = [
+    ...(check.evidence ? [check.evidence] : []),
+    ...(check.parts ?? []).flatMap((part) => (part.verdict === "supported" ? part.evidence : [])),
+  ];
+  return evidence.length > 0 && evidence.every((each) => typeof each.yourNoteAt === "string");
+}
+
+/**
  * What a check's margin glyph shows: its sentence's state, but Unsupported rather than Supported
  * while one of the sentence's own record cites is Unsupported, Not found or Choose (#1709).
  */
@@ -626,8 +684,13 @@ export function analysisFigureShown(
     versions: ReadonlyMap<string, string> | null;
   },
 ): ClaimCheckShown {
-  if (figure.checked) return shown;
   const value = figure.run?.values.find((each) => each.name === figure.result);
+  // A figure that names an Analysis whose record the Note no longer keeps reads as its value and
+  // Not checked: neither a sentence's check nor a recalculation can stand for a record that is
+  // gone, and an earlier build could take one away (#2378).
+  if (figure.result !== null && !value)
+    return shown.state === "kept" ? shown : { state: "not-checked", reason: "unread" };
+  if (figure.checked) return shown;
   if (value?.check?.kind !== "same") return shown;
   for (const input of figure.run?.inputs ?? []) {
     const citation = input.kind === "figure" ? input.input.citation : input.citation;

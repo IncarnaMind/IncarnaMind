@@ -228,6 +228,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Open in new tab$/,
       /^Outline(⌥⌘L|Ctrl\+Alt\+L)$/,
       /^Duplicate$/,
+      /^Use as a source$/,
       /^Export…$/,
       /^Export AI use statement$/,
       /^Export check record…$/,
@@ -360,6 +361,7 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
     await expect(folderActions.getByRole("menuitem")).toHaveText([
       /^Open in the Library$/,
       /^New note here$/,
+      /^Add Documents here…$/,
       /^New Folder inside$/,
       /^Organize this Folder$/,
       /^Edit description…$/,

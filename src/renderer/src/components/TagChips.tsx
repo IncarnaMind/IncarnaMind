@@ -37,7 +37,15 @@ export function DocumentTagChips({
   const peek = variant === "peek";
   const t = useT();
   const tags = useAppStore((state) => state.tags);
-  const popover = useTagPopover();
+  const popover = useTagPopover({
+    // A folded row's button has no box: the ⋯ that opened the picker is where it should show.
+    cover: (button) =>
+      button && button.getBoundingClientRect().width > 0
+        ? null
+        : (button
+            ?.closest<HTMLElement>('[data-testid="viewer-header"]')
+            ?.querySelector<HTMLElement>('[data-testid="document-file-menu"]') ?? null),
+  });
   const chips = chipsOf(document.tags, tags);
   const fitting = useFittingChips(chips.length, MOST_CHIPS);
   const listed = peek ? chips : chips.slice(0, MOST_CHIPS);

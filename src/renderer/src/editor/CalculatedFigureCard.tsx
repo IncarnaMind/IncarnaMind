@@ -70,7 +70,7 @@ export function CalculatedFigureCard({
         )}
         {replayed ? (
           <> · {t("figures.inline.recalculated")}</>
-        ) : figure.analysis ? (
+        ) : sources?.analysis ? (
           <> · {t("figures.inline.retained")}</>
         ) : figure.workbook ? (
           <>
@@ -141,7 +141,9 @@ export function CalculatedFigureCard({
       <p className="calculated-figure-note">
         {t(
           figure.analysis
-            ? "figures.inline.analysisNote"
+            ? sources?.analysis
+              ? "figures.inline.analysisNote"
+              : "figures.inline.analysisUnavailable"
             : figure.workbook
               ? figure.workbook.kept.length > 0
                 ? "figures.workbook.keptNote"

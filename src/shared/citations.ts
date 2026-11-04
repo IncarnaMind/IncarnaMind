@@ -19,7 +19,7 @@ import type {
   RecheckResult,
 } from "../core/api";
 import type { Language } from "../core/language";
-import { formatDate } from "./dates";
+import { formatDate, formatShortDate } from "./dates";
 import { displayName } from "./documentNames";
 import type { MessageKey } from "./i18n";
 import {
@@ -48,6 +48,7 @@ export function citationAttributesOf(node: Record<string, unknown>): Partial<Cit
   const count = (value: unknown) => (typeof value === "number" ? value : null);
   const check = CITATION_CHECKS.find((each) => each === node.check);
   const verdict = text(node.verdict);
+  const yourNoteAt = text(node.yourNoteAt);
   const unsure = Array.isArray(node.unsure)
     ? node.unsure.filter((word): word is string => typeof word === "string")
     : null;
@@ -56,6 +57,7 @@ export function citationAttributesOf(node: Record<string, unknown>): Partial<Cit
     documentId: text(node.documentId),
     documentName: text(node.documentName),
     contentHash: text(node.contentHash),
+    ...(yourNoteAt !== null && { yourNoteAt }),
     pageFrom: count(node.pageFrom),
     pageTo: count(node.pageTo),
     location: citationLocation({
@@ -473,6 +475,8 @@ export function newVersionCitation(
     quote: now.quote,
     check: now.check,
     checkReason: now.checkReason,
+    // The version it moves to has the date of that version of the User's note (#335).
+    ...(now.yourNoteAt && { yourNoteAt: now.yourNoteAt }),
     // The confirmation was for the quote and page the User looked at, and those changed.
     pageChecked: null,
     unsure: now.unsure ?? null,
@@ -496,14 +500,35 @@ export function citedLocation(
 }
 
 /**
+ * What a Citation calls its Document: "Your note: Field visit, 12 Oct" for a
+ * snapshot of a Mind (#335), dated by the version it quotes, else the
+ * Document's name.
+ */
+export function citedName(
+  attributes: Partial<Pick<CitationAttributes, "documentName" | "yourNoteAt">>,
+  t: Translate,
+  language: Language,
+): string {
+  const name = attributes.documentName ?? "";
+  return attributes.yourNoteAt
+    ? t("citation.yourNote", {
+        title: name,
+        date: formatShortDate(attributes.yourNoteAt, language),
+      })
+    : name;
+}
+
+/**
  * Where a Citation points, as "Document, Location". A sheet that shares its
  * Document's name is left out of the Location, so the name isn't said twice.
+ * With `language`, a snapshot of a Mind is called "Your note: …" (#335).
  */
 export function citationSource(
   attributes: Partial<CitationAttributes>,
   t: Translate,
+  language?: Language,
 ): { name: string; where: string | null; text: string } {
-  const name = attributes.documentName ?? "";
+  const name = language ? citedName(attributes, t, language) : (attributes.documentName ?? "");
   const location = citationLocation(attributes);
   if (!location) return { name, where: null, text: name };
   const sameName = (sheet: string) =>
@@ -616,7 +641,11 @@ export function badgeMessage(
       // Words a scan may have misread: the User looks at the page (#535).
       return {
         key:
-          state.reason === "unsure-word" ? "citation.badge.checkPage" : "citation.badge.cantCheck",
+          state.reason === "unsure-word"
+            ? "citation.badge.checkPage"
+            : state.reason === "picture"
+              ? "citation.badge.pictureNotChecked"
+              : "citation.badge.cantCheck",
       };
     case "not-checked":
       return { key: "citation.badge.notChecked" };

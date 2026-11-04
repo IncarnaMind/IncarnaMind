@@ -23,6 +23,8 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { citedCases } from "../../../shared/caseCitations";
+import type { SourceGrid } from "../../../shared/charts";
 import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
 import { withFigureFacts } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
@@ -50,8 +52,9 @@ import { InvalidInputError, isRecord } from "../../errors";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
+import { recordCiteSpans } from "../../recordCites/parser";
 import type { CheckedCitation } from "./claimCheck";
-import { inTableCell } from "./figureOccurrences";
+import { cellHeadings, inTableCell, inValueCell } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import { pendingParts, type QueuedClaim, type RunChecksOptions, runChecks } from "./runChecks";
@@ -104,26 +107,28 @@ export interface MindCheckOptions extends RunChecksOptions {
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
 
+/** The figures a run checks: a non-empty list of distinct ids, or null for the whole Note. */
+function parseFigureIds(value: unknown): string[] | null {
+  if (value === undefined) return null;
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every((id): id is string => typeof id === "string" && id !== "") ||
+    new Set(value).size !== value.length
+  )
+    throw new InvalidInputError({ key: "error.mindCheck.request" });
+  return value;
+}
+
 function parseCheckMind(input: unknown) {
   if (!isRecord(input)) throw new InvalidInputError({ key: "error.mindCheck.request" });
   const { requestId } = input;
   if (typeof requestId !== "string" || requestId === "") {
     throw new InvalidInputError({ key: "error.mindCheck.request" });
   }
-  let figureIds: string[] | null = null;
-  if (input.figureIds !== undefined) {
-    if (
-      !Array.isArray(input.figureIds) ||
-      input.figureIds.length === 0 ||
-      !input.figureIds.every((id): id is string => typeof id === "string" && id !== "") ||
-      new Set(input.figureIds).size !== input.figureIds.length
-    )
-      throw new InvalidInputError({ key: "error.mindCheck.request" });
-    figureIds = input.figureIds;
-  }
   return {
     requestId,
-    figureIds,
+    figureIds: parseFigureIds(input.figureIds),
     mindId: parseMindId(input.mindId),
     mode: parseMode(input.mode),
     allDocuments: input.allDocuments === true,
@@ -193,7 +198,7 @@ export function createMindCheck(options: MindCheckOptions) {
   ): Promise<
     | {
         kind: "found";
-        claims: SortedSentence[];
+        claims: SelectedSentence[];
         left: SortedSentence[];
         undecided: SelectedSentence[];
       }
@@ -207,9 +212,13 @@ export function createMindCheck(options: MindCheckOptions) {
     }
     const unsorted = fresh.filter((sentence) => !known.has(sentence.text));
     if (unsorted.length > 0) {
+      const grids = new Map<Y.XmlElement, SourceGrid>();
       const found = await claimsAmong(
         prepared,
-        unsorted.map((sentence) => checkText(sentence).claim),
+        unsorted.map((sentence) => ({
+          text: checkText(sentence).claim,
+          ...cellHeadings(sentence.element, grids),
+        })),
         "own",
         signal,
       );
@@ -219,7 +228,12 @@ export function createMindCheck(options: MindCheckOptions) {
         const said = found.parts.get(index);
         if (said === undefined) continue;
         const { claim, projection } = checkText(sentence);
-        const parts = withFigureFacts(claim, said, sentence.figures ?? [], projection);
+        // A sort that names nothing in a value cell would leave its figure out unchecked, so the
+        // cell is checked whole (#2447).
+        const parts =
+          said.length === 0 && inValueCell(sentence.figures)
+            ? [{ kind: "fact" as const, span: { start: 0, end: claim.length } }]
+            : withFigureFacts(claim, said, sentence.figures ?? [], projection);
         const earlier = known.get(sentence.text);
         if (
           parts.some((part) => part.kind === "fact") ||
@@ -235,12 +249,27 @@ export function createMindCheck(options: MindCheckOptions) {
     });
     content.edit(mindId, (blocks) => recordOpinions(blocks, sentences));
     options.retainEvidence(mindId);
-    const named = (sentence: SortedSentence) => sentence.parts.some((part) => part.kind === "fact");
+    const named = (parts: readonly ClaimPartPlan[]) => parts.some((part) => part.kind === "fact");
+    // A sentence no reply decided isn't taken to make no claim: one that writes a figure, cites a
+    // source or the record, or names a court decision is checked all the same, its check naming
+    // its parts (#2447).
+    const asserts = (sentence: SelectedSentence) => {
+      const words = noteTextOf(sentence);
+      return (
+        (sentence.figures?.length ?? 0) > 0 ||
+        sentence.cited.length > 0 ||
+        recordCiteSpans(words).length > 0 ||
+        citedCases(words).length > 0
+      );
+    };
     return {
       kind: "found",
-      claims: sentences.filter(named),
-      left: sentences.filter((sentence) => !named(sentence)),
-      undecided: fresh.filter((sentence) => !known.has(sentence.text)),
+      claims: fresh.filter((sentence) => {
+        const parts = known.get(sentence.text);
+        return parts === undefined ? asserts(sentence) : named(parts);
+      }),
+      left: sentences.filter((sentence) => !named(sentence.parts)),
+      undecided: fresh.filter((sentence) => !known.has(sentence.text) && !asserts(sentence)),
     };
   }
 
@@ -380,7 +409,10 @@ export function createMindCheck(options: MindCheckOptions) {
       const opinions = blocks.doc
         ? resolveOpinions(sentences, readOpinionSentences(blocks.doc))
         : [];
+      // A run keeps what makes no claim by its words, which a value cell can share with another
+      // sentence or hold from a run before #2447: its figure is checked all the same.
       const leftOut = (sentence: SelectedSentence) =>
+        (skipped.has(sentenceKey(sentence.text)) && !inValueCell(sentence.figures)) ||
         opinions.some(
           (each) =>
             each.blockId === sentence.blockId &&
@@ -434,7 +466,7 @@ export function createMindCheck(options: MindCheckOptions) {
                   noteText: () => noteTextOf(sentence),
                 })
               : null,
-            skipped: skipped.has(sentenceKey(sentence.text)) || leftOut(sentence),
+            skipped: leftOut(sentence),
             kept: keptAsView(marks, sentence),
           });
           if (state.kind === "kept" || state.kind === "checking" || state.kind === "not-claim") {
@@ -472,7 +504,7 @@ export function createMindCheck(options: MindCheckOptions) {
                 noteText: () => noteTextOf(sentence),
               })
             : null,
-          skipped: skipped.has(sentenceKey(sentence.text)) || leftOut(sentence),
+          skipped: leftOut(sentence),
           kept: keptAsView(marks, sentence),
         });
         if (state.kind === "to-check") {
@@ -493,8 +525,13 @@ export function createMindCheck(options: MindCheckOptions) {
     return oldest ?? content.readSettings(mindId, readMindCheck)?.at ?? null;
   }
 
-  function plan(mindId: string, mode: CheckMindMode, allDocuments: boolean): MindCheckPlan {
-    const sent = sending(mindId, mode);
+  function plan(
+    mindId: string,
+    mode: CheckMindMode,
+    allDocuments: boolean,
+    figureIds: readonly string[] | null = null,
+  ): MindCheckPlan {
+    const sent = sending(mindId, mode, figureIds);
     if (sent.fresh.length + sent.again.length === 0 && sent.held.length > 0) {
       return { kind: "unchanged", since: unchangedSince(mindId, sent.held) };
     }
@@ -690,10 +727,15 @@ export function createMindCheck(options: MindCheckOptions) {
 
   return {
     /** See `CoreApi.planMindCheck`. */
-    planMindCheck(mindId: unknown, mode: unknown, allDocuments: boolean): MindCheckPlan {
+    planMindCheck(
+      mindId: unknown,
+      mode: unknown,
+      allDocuments: boolean,
+      figureIds?: unknown,
+    ): MindCheckPlan {
       const id = parseMindId(mindId);
       options.requireMind(id);
-      return plan(id, parseMode(mode), allDocuments);
+      return plan(id, parseMode(mode), allDocuments, parseFigureIds(figureIds));
     },
 
     /** See `CoreApi.findMindClaims`. */

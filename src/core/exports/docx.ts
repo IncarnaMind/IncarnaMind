@@ -19,7 +19,7 @@ import { footnoteSubjectKey } from "../../shared/citations";
 import { FootnoteNumbering } from "../../shared/footnoteNumbers";
 import type { TableAlign } from "../../shared/markdownTables";
 import { NUMBERING_SCHEMES, type NumberingScheme, wordLevel } from "../../shared/numbering";
-import type { CitedWork, ParagraphFormat, StyledRun } from "../api";
+import type { CitedWork, MindComment, ParagraphFormat, StyledRun } from "../api";
 import { writeZip } from "../documents/formats/zip";
 import {
   type Block,
@@ -43,8 +43,11 @@ import { changedElement, formatChanges } from "./paragraphFormat";
 import {
   bookmarked,
   COMMENTS_CONTENT_TYPE,
+  COMMENTS_EXTENDED_CONTENT_TYPE,
+  COMMENTS_EXTENDED_RELATIONSHIP,
   COMMENTS_RELATIONSHIP,
   type CommentStyles,
+  commentsExtendedPart,
   commentsPart,
   escapeXml,
   type FootnoteStyles,
@@ -65,6 +68,8 @@ import { type Piece, Review, type ReviewChoices, trackBlocks, trackInline } from
 export interface DocxOptions {
   /** The Mind's name, as the file's Title property (`dc:title`); the page has no title line. Empty: none. */
   title: string;
+  /** The Mind's comments (#328), written as Word comments with their threads and resolved state. */
+  comments?: readonly MindComment[];
   labels: ExportLabels;
   /** The language Word checks the text in, e.g. "en-US". */
   language: string;
@@ -173,11 +178,24 @@ function containsTableOfContents(blocks: readonly Block[]): boolean {
 export function renderDocx(
   blocks: readonly Block[],
   options: DocxOptions,
-): { data: Uint8Array; commented: FailedSentence[]; checkComments: number; footnotes: number } {
+): {
+  data: Uint8Array;
+  commented: FailedSentence[];
+  checkComments: number;
+  footnotes: number;
+  /** Comments whose words were all deleted: a new .docx has no range to keep them on (#328). */
+  lostComments: MindComment[];
+} {
   const paper = PAPER[options.paper];
   const target = new NewDocxTarget();
   const review = options.review
-    ? new Review(options.review, target.ids, options.labels, () => NEW_DOCUMENT_STYLES.comment)
+    ? new Review(
+        options.review,
+        target.ids,
+        options.labels,
+        () => NEW_DOCUMENT_STYLES.comment,
+        options.comments ?? [],
+      )
     : null;
   review?.mark(piecesOf(blocks));
   const headings = tableOfContentsHeadings(blocks);
@@ -192,14 +210,17 @@ export function renderDocx(
   );
   const body = writer.body(blocks);
 
-  const document = writer.finish(
+  const drawn = writer.finish(
     `${XML_DECLARATION}<w:document xmlns:w="${NS.w}" xmlns:r="${NS.r}" xmlns:wp="${NS.wp}" xmlns:a="${NS.a}" xmlns:pic="${NS.pic}" xmlns:m="${NS.m}"><w:body>` +
       body +
       `<w:sectPr><w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="${HEADER_AND_FOOTER_DISTANCE}" w:footer="${HEADER_AND_FOOTER_DISTANCE}" w:gutter="0"/></w:sectPr>` +
       "</w:body></w:document>",
   );
+  // A comment whose words were all deleted has no range to keep (#328): it is left out, not left dangling.
+  const document = review ? review.finish(drawn) : drawn;
 
   const comments = review?.comments ?? [];
+  const extended = review?.extended ?? [];
   const relationships = [
     { id: "rIdStyles", type: RELATIONSHIP.styles, target: "styles.xml" },
     { id: "rIdSettings", type: RELATIONSHIP.settings, target: "settings.xml" },
@@ -207,6 +228,15 @@ export function renderDocx(
     { id: "rIdFootnotes", type: RELATIONSHIP.footnotes, target: "footnotes.xml" },
     ...(comments.length > 0
       ? [{ id: "rIdComments", type: COMMENTS_RELATIONSHIP, target: "comments.xml" }]
+      : []),
+    ...(extended.length > 0
+      ? [
+          {
+            id: "rIdCommentsExtended",
+            type: COMMENTS_EXTENDED_RELATIONSHIP,
+            target: "commentsExtended.xml",
+          },
+        ]
       : []),
     ...target.relationships,
   ];
@@ -217,6 +247,7 @@ export function renderDocx(
         name: "[Content_Types].xml",
         data: contentTypes(
           comments.length > 0,
+          extended.length > 0,
           target.media.map((file) => file.name.slice(file.name.lastIndexOf(".") + 1)),
         ),
       },
@@ -238,6 +269,9 @@ export function renderDocx(
       { name: "word/numbering.xml", data: numbering(target.lists) },
       { name: "word/footnotes.xml", data: footnotesPart(writer.footnotes) },
       ...(comments.length > 0 ? [{ name: "word/comments.xml", data: commentsPart(comments) }] : []),
+      ...(extended.length > 0
+        ? [{ name: "word/commentsExtended.xml", data: commentsExtendedPart(extended) }]
+        : []),
       // Links in footnotes are the footnotes part's own relationships.
       ...(target.noteRelationships.length > 0
         ? [
@@ -256,6 +290,7 @@ export function renderDocx(
     commented: review?.commentedSentences() ?? [],
     checkComments: review?.checkComments() ?? 0,
     footnotes: writer.footnoteCount,
+    lostComments: review?.lostComments ?? [],
   };
 }
 
@@ -1227,7 +1262,12 @@ export function* piecesOf(blocks: readonly Block[]): Generator<Piece> {
         for (const inline of block.content) {
           if (inline.kind !== "text" || inline.inserted) continue;
           const authorship = inline.ai ? "ai" : inline.text.trim() === "" ? "neither" : "own";
-          yield { key: inline, authorship, sentence: inline.sentenceCheck };
+          yield {
+            key: inline,
+            authorship,
+            sentence: inline.sentenceCheck,
+            ...(inline.marks.comment && { comments: [inline.marks.comment] }),
+          };
         }
         break;
       case "list":
@@ -1414,7 +1454,7 @@ function imageSize(data: Buffer): Omit<DecodedImage, "data"> | null {
 /** Pictures every export lists, used or not, as it always has. */
 const LISTED_PICTURES: ReadonlySet<string> = new Set(["png", "jpeg", "gif"]);
 
-function contentTypes(comments: boolean, pictures: readonly string[]): string {
+function contentTypes(comments: boolean, extended: boolean, pictures: readonly string[]): string {
   const more = [...new Set(pictures)].filter(
     (extension): extension is DecodedImage["extension"] =>
       !LISTED_PICTURES.has(extension) && extension in PICTURE_TYPES,
@@ -1436,6 +1476,11 @@ function contentTypes(comments: boolean, pictures: readonly string[]): string {
     `<Override PartName="/word/footnotes.xml" ContentType="${MAIN_CONTENT_TYPE}.footnotes+xml"/>`,
     ...(comments
       ? [`<Override PartName="/word/comments.xml" ContentType="${COMMENTS_CONTENT_TYPE}"/>`]
+      : []),
+    ...(extended
+      ? [
+          `<Override PartName="/word/commentsExtended.xml" ContentType="${COMMENTS_EXTENDED_CONTENT_TYPE}"/>`,
+        ]
       : []),
     `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>`,
   ];

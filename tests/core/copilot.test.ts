@@ -4,6 +4,7 @@ import { version } from "../../package.json";
 import { type CopilotProfileId, type Core, createAiSdkChatModel } from "../../src/core";
 import type { SignInRouteProblem } from "../../src/core/api";
 import { authorizeWithDevice } from "../../src/core/oauth";
+import { COPILOT_PROFILES } from "../../src/core/providers/copilot/config";
 import { COPILOT_SERVICE } from "../../src/core/providers/copilot/service";
 import { classifyProviderError } from "../../src/core/providers/providerErrors";
 import {
@@ -59,7 +60,10 @@ async function startFakeGitHub(): Promise<FakeGitHub> {
   return fake;
 }
 
-async function setUp(overrides: TestAdapters = {}): Promise<Setup> {
+async function setUp(
+  overrides: TestAdapters = {},
+  profiles = (fake: FakeGitHub) => ({ own: fake.profile("own"), editor: fake.profile("editor") }),
+): Promise<Setup> {
   const clock = manualClock();
   const fake = await startFakeGitHub();
   const browser = createRecordingBrowser();
@@ -70,7 +74,7 @@ async function setUp(overrides: TestAdapters = {}): Promise<Setup> {
     browser,
     now: clock.now,
     createChatModel: createAiSdkChatModel,
-    copilotProfiles: { own: fake.profile("own"), editor: fake.profile("editor") },
+    copilotProfiles: profiles(fake),
     ...overrides,
   });
   return { dataDir, core, fake, browser, keychain, clock };
@@ -221,10 +225,7 @@ describe("Sign in with GitHub for Copilot", () => {
       expiresIn: 900,
     });
     expect(browser.opened).toEqual([`${fake.origin}/login/device`]);
-    expect(fake.requests[0]?.body).toEqual({
-      client_id: "test-own-app",
-      scope: "read:user offline_access",
-    });
+    expect(fake.requests[0]?.body).toEqual({ client_id: "test-own-app", scope: "read:user" });
 
     fake.approve();
     expect(await result).toMatchObject({
@@ -284,6 +285,158 @@ describe("Sign in with GitHub for Copilot", () => {
       { id: "own", experimental: false },
       { id: "editor", experimental: true },
     ]);
+  });
+});
+
+function ownApp(fake: FakeGitHub) {
+  const own = COPILOT_PROFILES.own;
+  if (!own) throw new Error("This build has no app of IncarnaMind's own.");
+  const { deviceCodeUrl, tokenUrl, apiBaseUrl, accountUrl } = fake.profile("own");
+  return { ...own, deviceCodeUrl, tokenUrl, apiBaseUrl, accountUrl };
+}
+
+describe("IncarnaMind's own GitHub OAuth App (#876)", () => {
+  const withOwnApp = () =>
+    setUp({}, (fake) => ({ own: ownApp(fake), editor: fake.profile("editor") }));
+
+  test("signs in with its client ID and asks as IncarnaMind, offered first", async () => {
+    const setup = await withOwnApp();
+    const { core, fake } = setup;
+
+    expect((await core.getCopilot()).profiles).toEqual([
+      { id: "own", experimental: false },
+      { id: "editor", experimental: true },
+    ]);
+    const { result } = await codeShown(core);
+    expect(fake.requests[0]?.body).toEqual({
+      client_id: "Ov23liF4c8fKcl0K4ziJ",
+      scope: "read:user",
+    });
+    fake.approve();
+    expect(await result).toMatchObject({ ok: true, status: { account: { profile: "own" } } });
+    const poll = fake.requests.find((request) => request.body.grant_type !== undefined);
+    expect(poll?.body).toEqual({
+      client_id: "Ov23liF4c8fKcl0K4ziJ",
+      device_code: "device-1",
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    });
+    await core.saveChatProvider({ kind: "copilot", modelId: MODEL });
+
+    expect((await ask(core)).text).toBe(ANSWER);
+    expect(chats(fake)[0]?.headers).toMatchObject({ "user-agent": `IncarnaMind/${version}` });
+    for (const request of fake.requests) {
+      for (const name of ["editor-version", "editor-plugin-version", "copilot-integration-id"]) {
+        expect(request.headers[name]).toBeUndefined();
+      }
+      expect(request.body).not.toHaveProperty("client_secret");
+    }
+  });
+
+  test("shows no plan tier: GitHub documents no call that gives one, and the account's own plan is not it", async () => {
+    const { core, fake } = await withOwnApp();
+    const { result } = await codeShown(core);
+    fake.approve();
+
+    expect(await result).toMatchObject({
+      ok: true,
+      status: { account: { state: "signed-in", profile: "own", login: LOGIN, plan: null } },
+    });
+    const paths = fake.requests.map((request) => request.path);
+    expect(paths).toContain("/user");
+    expect(paths).not.toContain("/copilot_internal/v2/token");
+    expect((await core.getCopilot()).account).toMatchObject({ plan: null });
+  });
+
+  test("an account GitHub says has no Copilot plan is told so at sign-in, in words, and nothing is kept", async () => {
+    const { core, fake, keychain } = await withOwnApp();
+    fake.modelsRefusal = {
+      status: 403,
+      body: { error: { message: "No access to GitHub Copilot found.", code: "no_copilot_access" } },
+    };
+    const { result } = await codeShown(core);
+    fake.approve();
+
+    const failed = await result;
+    expect(failed).toMatchObject({ ok: false, error: { kind: "no-plan" } });
+    expect(keychain.secrets.size).toBe(0);
+    expect(await core.getCopilot()).toMatchObject({ account: { state: "signed-out" } });
+    const words = COPILOT_SIGN_IN_PROBLEMS["no-plan"];
+    expect(translate("en", words.line)).toBe("Your GitHub account has no Copilot plan");
+    expect(translate("zh-CN", words.line)).toBe("你的 GitHub 账号没有 Copilot 订阅");
+  });
+
+  test("a refusal of the model list that doesn't say there is no plan leaves the sign-in standing", async () => {
+    const { core, fake } = await withOwnApp();
+    fake.modelsRefusal = { status: 403, body: { error: { message: "Forbidden" } } };
+    const { result } = await codeShown(core);
+    fake.approve();
+
+    expect(await result).toMatchObject({
+      ok: true,
+      status: { account: { state: "signed-in", profile: "own", plan: null }, models: [] },
+    });
+  });
+
+  test("a model list that fails at sign-in leaves the sign-in standing with no plan claimed or said, and is asked again when needed", async () => {
+    const { core, fake, keychain } = await withOwnApp();
+    fake.modelsRefusal = { status: 503, body: { message: "Service unavailable" } };
+    const { result } = await codeShown(core);
+    fake.approve();
+
+    expect(await result).toMatchObject({
+      ok: true,
+      status: {
+        account: { state: "signed-in", profile: "own", login: LOGIN, plan: null },
+        models: [],
+      },
+    });
+    expect(keychain.secrets.size).toBeGreaterThan(0);
+
+    fake.modelsRefusal = null;
+    expect((await core.getCopilot()).models).not.toEqual([]);
+  });
+
+  test("cancelling while the model list is being read keeps nothing", async () => {
+    const { core, fake, keychain } = await withOwnApp();
+    let release = () => {};
+    fake.holdModels = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    onTestFinished(() => release());
+    const { result } = await codeShown(core);
+    fake.approve();
+    await vi.waitFor(() => expect(fake.modelRequests).toBe(1));
+
+    await core.cancelCopilotSignIn();
+
+    expect(await result).toMatchObject({ ok: false, error: { kind: "sign-in-cancelled" } });
+    expect(keychain.secrets.size).toBe(0);
+    expect(await core.getCopilot()).toMatchObject({ account: { state: "signed-out" } });
+  });
+
+  test("refused by Copilot, it says GitHub didn't let IncarnaMind, and the experimental way still works", async () => {
+    const setup = await withOwnApp();
+    await signedIn("own", setup);
+    const { core, fake } = setup;
+    fake.replies.push({
+      kind: "error",
+      status: 403,
+      body: JSON.stringify({ error: { message: "This integration can't use Copilot." } }),
+    });
+
+    expect(await failure(core)).toMatchObject({ kind: "blocked", signInRoute: "refused" });
+    const words = SIGN_IN_ROUTES.copilot.problems.refused;
+    if (!words) throw new Error("Copilot has no words for a refusal.");
+    expect(translate("en", words.line)).toBe("GitHub didn’t let IncarnaMind use your Copilot plan");
+    expect(words.waysBack).toContain("paste-api-key");
+    expect(translate("en", wayBackLabel("copilot", "paste-api-key"))).toBe(
+      "Use an API key instead",
+    );
+    expect(translate("zh-CN", words.line)).not.toBe(words.line);
+
+    await signIn(setup, "editor");
+    expect((await ask(core)).text).toBe(ANSWER);
+    expect(chats(fake).at(-1)?.headers["editor-version"]).toBe(EDITOR_HEADER);
   });
 });
 

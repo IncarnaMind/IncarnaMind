@@ -10,6 +10,7 @@ import {
   cloudWindow,
   givesStructuredOutput,
   offersAnalysis,
+  offersCode,
   offersWorkbookTools,
   readsImages,
   resolveCapabilities,
@@ -383,6 +384,31 @@ describe("The provider catalog", () => {
       ]).toEqual([offered, offered, offered]);
     },
   );
+
+  test("run_code is offered only to Claude Haiku 5.5 and Sonnet 5.5, where it was measured", () => {
+    const models = providersWithModels().flatMap((provider) =>
+      catalogModels(provider).map((model) => ({ provider, id: model.id })),
+    );
+    const on = models
+      .filter(({ provider, id }) => catalogFacts(provider, id)?.codeTool === true)
+      .map(({ provider, id }) => `${provider}/${id}`);
+    const offered = models
+      .filter(({ provider, id }) =>
+        offersCode(resolveCapabilities({ catalog: catalogFacts(provider, id) })),
+      )
+      .map(({ provider, id }) => `${provider}/${id}`);
+    const measured = ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5"];
+    expect([on, offered]).toEqual([measured, measured]);
+    // What a test turns on is enough to offer it, where the model has the Analysis Tool.
+    expect(
+      offersCode(
+        resolveCapabilities({
+          user: { codeTool: true },
+          catalog: catalogFacts("openai", "gpt-5.5"),
+        }),
+      ),
+    ).toBe(true);
+  });
 
   test.each<[ChatProviderKind, string, boolean]>([
     ["anthropic", "claude-sonnet-5-5", true],

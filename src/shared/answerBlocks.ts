@@ -18,6 +18,7 @@ import {
   type MarkedCitation,
 } from "../core/api";
 import { asGenerated } from "./aiText";
+import type { AnalysisValue } from "./analysis";
 import { withAnalysisPictures } from "./analysisPictures";
 import { withAnalysisTableCitations } from "./analysisTables";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
@@ -25,6 +26,7 @@ import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
 import { withFigures } from "./figureMarkers";
 import { figureRunId } from "./figureRuns";
 import { withoutFraming } from "./noteBlocks";
+import { printedValue } from "./printedFigures";
 
 /**
  * While it is written, what would still change how it looks is held back, and
@@ -65,16 +67,27 @@ export function withCalculatedFigures(
     const analysis = figure.analysis
       ? answer.analyses?.find((run) => run.number === figure.analysis?.analysis)
       : undefined;
+    const backed = analysis && holdsFigure(analysis, figure) ? analysis : null;
+    // A figure this answer can't back reads as its value, never as a figure an Analysis checks
+    // when there is no record for it (#2378).
+    if (figure.analysis && !backed) return figure.shown;
     return calculatedFigureNode(
       { ...figure, written },
       `${answer.id ?? "preview"}:figure:${marker}:${occurrence++}`,
-      figure.analysis
-        ? analysis
-          ? figureRunId(answer.id ?? "preview", analysis)
-          : `${answer.id ?? "preview"}:missing-analysis:${figure.analysis.analysis}`
-        : null,
+      backed ? figureRunId(answer.id ?? "preview", backed) : null,
     );
   });
+}
+
+function holdsFigure(analysis: AnswerAnalysis, figure: CalculatedFigure): boolean {
+  const name = figure.analysis?.result;
+  if (name === undefined) return false;
+  const gives = (result: AnalysisValue | null) =>
+    result?.kind === "figure" && result.name === name && result.value === figure.value;
+  return (
+    (analysis.end.kind === "done" && analysis.output.results.some(gives)) ||
+    gives(printedValue(analysis, name))
+  );
 }
 
 /**

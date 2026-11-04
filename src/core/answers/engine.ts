@@ -108,6 +108,7 @@ import type {
 } from "../runs/engine";
 import { inStep } from "../timing/flows";
 import {
+  ANALYSIS_TOOLS,
   DOCUMENT_TOOLS,
   offeredTools,
   type Tool,
@@ -198,6 +199,8 @@ export interface AnswerSearchOptions {
   parameters?: Partial<SearchToolParameters>;
   /** Only this Document, by its name as the instructions list it. */
   document?: string;
+  /** The Documents' file properties too: a check's search, for a sentence about a file itself (#2458). */
+  properties?: true;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
@@ -255,6 +258,8 @@ export interface AnswerTools {
   unreadDocuments?(): readonly UnreadFile[];
   /** The Documents in the Search scope still being read: the search Tool says so, so a Document isn't taken for missing (#1503). */
   readingDocuments?(): readonly { name: string }[];
+  /** The search Tool can show the Documents' file properties: a check Run's (#2458). */
+  readonly fileProperties?: boolean;
   /** The document-search Tool. */
   searchDocuments(
     query: string,
@@ -317,6 +322,8 @@ export interface AnswerTools {
    * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
    */
   citeFigures?(text: string): string;
+  /** `text` with each mark of a row the file sets aside that the model copied into it said in words (#1979). */
+  setAsideInWords?(text: string): string;
 }
 
 /** What a Run still owes, by marker (`AnswerTools.owed`). */
@@ -351,6 +358,8 @@ export interface InstructionOptions {
   mindTools?: boolean;
   /** The model is offered `run_analysis` (#447). */
   analysisTools?: boolean;
+  /** The model is offered `run_code` (ADR-0025). */
+  codeTools?: boolean;
   /** The model is offered a workbook's formula Tools (#2347). */
   workbookTools?: boolean;
   /** The model is offered the commands' Tools (#1110). */
@@ -522,10 +531,11 @@ export interface AnswerRequest {
    */
   blankReply?(): string | null;
   /**
-   * What to append after the reply when a Tool refused the request, without replacing it: the
-   * lines `reply` doesn't already hold. Null: none.
+   * What to append after the reply, without replacing it: the app's own words — a refusal's
+   * sentence, or what a command changed (#2252) — the lines `reply` doesn't already hold.
+   * Null: none.
    */
-  refusalSuffix?(reply: string): string | null;
+  appSuffix?(reply: string): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -1446,6 +1456,7 @@ export function documentTools(
 ): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
+  const properties = checking && documents.fileProperties === true;
   return {
     search: {
       ...own(DOCUMENT_TOOLS.search),
@@ -1463,22 +1474,31 @@ export function documentTools(
             description:
               "Search only this Document, named as the instructions list it: to find what each of several Documents says.",
           },
+          ...(properties && {
+            properties: {
+              type: "boolean",
+              description:
+                "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds.",
+            },
+          }),
         },
         required: ["query"],
       },
-      shownInput: ({ query, document }) => ({
+      shownInput: ({ query, document, properties: asked }) => ({
         query: String(query ?? ""),
         ...(typeof document === "string" && document !== "" && { document }),
+        ...(properties && asked === true && { properties: true }),
       }),
       effects: () => [{ action: "read", scope: { kind: "documents" } }],
       // The User didn't write their Documents.
       untrustedResult: true,
-      async call({ query, document }, { toolCallId, signal, readThirdParty }) {
+      async call({ query, document, properties: asked }, { toolCallId, signal, readThirdParty }) {
         let found: SearchResultForModel;
         try {
           found = await documents.searchDocuments(String(query ?? ""), signal, {
             rerank: false,
             ...(typeof document === "string" && document !== "" && { document }),
+            ...(properties && asked === true && { properties: true }),
           });
         } catch (error) {
           // A failed search is the app's problem, so it is logged; the model is told it failed.
@@ -1830,7 +1850,8 @@ async function* toolLoop(
     sourceTools: tools.some((each) => each.provider.kind === "sources"),
     webTools: tools.some((each) => each.provider.kind === "web"),
     mindTools: tools.some((each) => each.provider.kind === "minds"),
-    analysisTools: tools.some((each) => each.provider.kind === "analysis"),
+    analysisTools: tools.some((each) => each.name === ANALYSIS_TOOLS.run),
+    codeTools: tools.some((each) => each.name === ANALYSIS_TOOLS.code),
     workbookTools: tools.some((each) => each.name === WORKBOOK_TOOLS.trace),
     commandTools: tools.some((each) => each.provider.kind === "commands"),
   });
@@ -1944,7 +1965,10 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
-    const suffix = request.refusalSuffix?.(keptText) ?? null;
+    const worded = request.documents.setAsideInWords?.(keptText) ?? keptText;
+    yield* textEdits(keptText, worded);
+    keptText = worded;
+    const suffix = request.appSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;
@@ -2357,7 +2381,8 @@ async function* structured(
   } catch (error) {
     console.error(`The Citations couldn't be recorded: ${messageOf(error)}`);
   }
-  yield* emit(typeof answer === "string" ? takeToolText(answer).text : answer);
+  const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
+  yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
   if (typeof answer === "string") {
     // A small model often gives the records but leaves their markers out.
     const marked = yield* missingMarkerEvents(emitted, records, request.documents);
@@ -2447,7 +2472,8 @@ async function* plain(
     return;
   }
   if (signal.aborted) return;
-  const written = takeToolText(produced).text;
+  const taken = takeToolText(produced).text;
+  const written = request.documents.setAsideInWords?.(taken) ?? taken;
   yield* textEdits(produced, written);
   yield* flagClaims(request, written);
   yield { type: "finished" };

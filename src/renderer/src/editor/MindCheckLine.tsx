@@ -156,7 +156,7 @@ export function RunningText({
 
 /**
  * When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", what stopped it,
- * and how many of its sentences it didn't examine and are still to check (#1682).
+ * and how many of its sentences it couldn't tell are claims and are still to check (#1682).
  */
 export function CheckedWhen({
   run,

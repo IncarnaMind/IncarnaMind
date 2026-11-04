@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -2236,13 +2236,17 @@ export async function pointAndClick(
  * A Mind's check badge card (#909): open already, as a question opens it,
  * or opened as a person opens it: from the badge, or from ⌘K while no badge shows.
  */
-export async function checkCard(window: Page, scope: Page | Locator = window): Promise<Locator> {
+export async function checkCard(
+  window: Page,
+  scope: Page | Locator = window,
+  { stopTimeout = 10_000 }: { stopTimeout?: number } = {},
+): Promise<Locator> {
   const card = window.getByTestId("check-card");
   if (!(await card.isVisible())) {
     const badge = scope.getByTestId("check-badge-open").first();
     if (await badge.isVisible()) {
       // "Checking 2 of 2 · Stop" shrinks to the counts as a check ends: aim once it has.
-      await expect(scope.getByTestId("badge-stop")).toHaveCount(0);
+      await expect(scope.getByTestId("badge-stop")).toHaveCount(0, { timeout: stopTimeout });
       await motionSettled(window);
       // The counts are worked out a moment after a change, and the badge can narrow under the pointer: aim again.
       await expect(async () => {
@@ -3572,4 +3576,50 @@ export function controlReads(
     },
     { name: channel, what: change },
   );
+}
+
+/**
+ * A window picture for the pull request's before and after, where `INCARNAMIND_SCREENSHOTS`
+ * names a folder: motion settled first, so nothing is caught moving.
+ */
+export async function capture(window: Page, name: string): Promise<void> {
+  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  if (!folder) return;
+  await motionSettled(window);
+  await window.screenshot({ path: join(folder, `${name}.png`) });
+}
+
+/**
+ * Films what `run` does in the window, where `INCARNAMIND_RECORDING` names a folder: one JPEG a
+ * frame with when each was taken, for the pull request's flow beside the prototype.
+ */
+export async function film<T>(window: Page, run: () => Promise<T>): Promise<T> {
+  const folder = process.env.INCARNAMIND_RECORDING;
+  if (!folder) return run();
+  await mkdir(folder, { recursive: true });
+  const session = await window.context().newCDPSession(window);
+  const writes: Promise<void>[] = [];
+  const stamps: string[] = [];
+  let frame = 0;
+  session.on("Page.screencastFrame", (event) => {
+    const name = `frame-${String(frame++).padStart(5, "0")}.jpg`;
+    stamps.push(`${name} ${Date.now()}`);
+    writes.push(writeFile(join(folder, name), Buffer.from(event.data, "base64")));
+    void session.send("Page.screencastFrameAck", { sessionId: event.sessionId });
+  });
+  await session.send("Page.startScreencast", {
+    format: "jpeg",
+    quality: 85,
+    maxWidth: 1440,
+    maxHeight: 900,
+    everyNthFrame: 2,
+  });
+  try {
+    return await run();
+  } finally {
+    await session.send("Page.stopScreencast");
+    await Promise.all(writes);
+    await writeFile(join(folder, "frames.txt"), stamps.join("\n"));
+    await session.detach();
+  }
 }

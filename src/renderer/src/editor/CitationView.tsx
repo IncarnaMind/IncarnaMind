@@ -19,6 +19,7 @@ import {
   citationCheckRan,
   citationSource,
   citationState,
+  citedName,
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
@@ -169,6 +170,7 @@ export function CitationView({
   decorations,
 }: ReactNodeViewProps) {
   const t = useT();
+  const language = useLanguage();
   // None in the assistant, whose Answers are read only and say how they are written again.
   const mindId = useContext(MindIdContext);
   const regenerateHere = useContext(RegenerateAnswerContext);
@@ -211,7 +213,7 @@ export function CitationView({
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
   const inFootnote = footnoteId !== null;
-  const pointsTo = citationSource(shown, t).text;
+  const pointsTo = citationSource(shown, t, language).text;
   /** Clicked: the card stays until it is dismissed. */
   const [pinned, setPinned] = useState(false);
   /** Hovered or focused, with the card, the marker or its mark. */
@@ -805,7 +807,7 @@ function CitationCard({
   const where = location ? formatLocation(location, t) : null;
   const withPdfPage = location ? formatLocationWithPdf(location, t) : null;
   const opens = web ? "web" : openKind(location);
-  const name = nameWithPlace(attributes.documentName ?? "", place);
+  const name = nameWithPlace(citedName(attributes, t, language), place);
   // When the version it quotes was fetched: an older one's, if the page changed since.
   const fetchedAt =
     web?.versions.find((each) => each.contentHash === attributes.contentHash)?.fetchedAt ??
@@ -827,7 +829,7 @@ function CitationCard({
         ? name
         : null
       : where
-        ? citationSource(attributes, t).text
+        ? citationSource(attributes, t, language).text
         : name);
   const stoppedAt = useJudgementLimit();
   const reason =
@@ -844,9 +846,11 @@ function CitationCard({
               : state.reason === "unsure-word"
                 ? // The line under it says which words may be misread.
                   null
-                : state.reason
-                  ? t(`citation.reason.${state.reason}`)
-                  : null;
+                : state.reason === "document-removed" && attributes.yourNoteAt
+                  ? t("citation.reason.source-removed")
+                  : state.reason
+                    ? t(`citation.reason.${state.reason}`)
+                    : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
@@ -889,11 +893,17 @@ function CitationCard({
         </p>
         {source && (
           <p
+            data-testid="citation-source"
             title={source}
             // A scan's name and place wrap: the place must show, whatever the name's length (#535).
             className={`citation-card-source${scanWhere ? " citation-card-source--scan" : ""}`}
           >
             {source}
+          </p>
+        )}
+        {attributes.yourNoteAt && (
+          <p data-testid="citation-own-record" className="citation-card-note">
+            {t("citation.ownRecord")}
           </p>
         )}
         {state.keptInside && (

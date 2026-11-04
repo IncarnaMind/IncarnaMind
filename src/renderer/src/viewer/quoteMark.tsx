@@ -1,4 +1,4 @@
-import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from "react";
 import type { ViewerCitation } from "../../../shared/documentViewer";
 import { useT } from "../i18n";
 import { ExclamationIcon, NotEqualIcon, QuestionIcon, TickIcon } from "./icons";
@@ -47,9 +47,6 @@ export function quoteMarkOf(citation: ViewerCitation | undefined): QuoteMark | n
 /** The mark's height, as in the Mind's margin. */
 export const MARK_HEIGHT = 18;
 
-/** The space the label takes beside the number: its margin, border and padding. */
-const LABEL_SPACING = 3;
-
 /**
  * Where the mark's top goes, inside `container`, to centre it on the first line
  * of `highlight` (a quote's first highlighted part).
@@ -87,9 +84,10 @@ export function CitationMark({
   onSize?: (size: { full: number; compact: number }) => void;
 }) {
   const t = useT();
-  const own = useRef<HTMLSpanElement>(null);
-  const labelElement = useRef<HTMLSpanElement>(null);
-  const [fits, setFits] = useState(true);
+  const fullCopy = useRef<HTMLSpanElement>(null);
+  const compactCopy = useRef<HTMLSpanElement>(null);
+  const [size, setSize] = useState<{ full: number; compact: number } | null>(null);
+  const fits = room === undefined || size === null || size.full <= room;
   const word = (
     {
       found: "found",
@@ -102,17 +100,20 @@ export function CitationMark({
     ? t(`viewer.mark.${word}.at`, { number: mark.number, location: mark.label })
     : t(`viewer.mark.${word}`, { number: mark.number });
 
+  // The widths come from copies that are never shown, so they stay the same whether the label
+  // shows or not: the mark's own width changes with it, and a room just short of the full width
+  // would switch the label at every render (#2459).
   // biome-ignore lint/correctness/useExhaustiveDependencies: measured again as the room changes
   useLayoutEffect(() => {
-    const element = own.current;
-    const shown = labelElement.current;
-    if (!element) return;
-    const labelWidth = shown ? shown.offsetWidth + LABEL_SPACING : 0;
-    const base = element.offsetWidth - (fits && shown ? labelWidth : 0);
-    const next = room === undefined || !shown || base + labelWidth <= room;
-    if (next !== fits) setFits(next);
-    else onSize?.({ full: base + labelWidth, compact: base });
-  }, [room, mark.label, fits]);
+    const full = fullCopy.current?.offsetWidth ?? 0;
+    const compact = compactCopy.current?.offsetWidth ?? 0;
+    setSize((previous) =>
+      previous?.full === full && previous.compact === compact ? previous : { full, compact },
+    );
+  }, [room, mark.number, mark.label]);
+  useLayoutEffect(() => {
+    if (size) onSize?.(size);
+  }, [size, onSize]);
 
   const Icon =
     mark.tone === "found"
@@ -122,30 +123,45 @@ export function CitationMark({
         : mark.tone === "cant-check"
           ? QuestionIcon
           : ExclamationIcon;
-  return (
+  const copy = (ref: RefObject<HTMLSpanElement | null>, withLabel: boolean) => (
     <span
-      ref={own}
-      role="img"
-      aria-label={label}
-      title={label}
-      data-testid="viewer-quote-mark"
-      data-check={mark.tone}
-      data-label-shown={mark.label ? String(fits) : undefined}
-      className={`quote-mark quote-mark--${mark.tone}`}
-      style={style}
+      ref={ref}
+      aria-hidden="true"
+      data-quote-skip=""
+      className={`quote-mark quote-mark--${mark.tone} quote-mark--copy`}
     >
       <Icon className="size-[11px] shrink-0" />
-      <span data-testid="viewer-quote-mark-number">{mark.number}</span>
-      {mark.label && (
-        <span
-          ref={labelElement}
-          data-testid="viewer-quote-mark-label"
-          aria-hidden={!fits}
-          className={`quote-mark-label ${fits ? "" : "quote-mark-label--measured"}`}
-        >
-          {mark.label}
-        </span>
-      )}
+      <span>{mark.number}</span>
+      {withLabel && mark.label && <span className="quote-mark-label">{mark.label}</span>}
     </span>
+  );
+  return (
+    <>
+      <span
+        role="img"
+        aria-label={label}
+        title={label}
+        data-testid="viewer-quote-mark"
+        data-quote-skip=""
+        data-check={mark.tone}
+        data-label-shown={mark.label ? String(fits) : undefined}
+        className={`quote-mark quote-mark--${mark.tone}`}
+        style={style}
+      >
+        <Icon className="size-[11px] shrink-0" />
+        <span data-testid="viewer-quote-mark-number">{mark.number}</span>
+        {mark.label && (
+          <span
+            data-testid="viewer-quote-mark-label"
+            aria-hidden={!fits}
+            className={`quote-mark-label ${fits ? "" : "quote-mark-label--hidden"}`}
+          >
+            {mark.label}
+          </span>
+        )}
+      </span>
+      {copy(fullCopy, true)}
+      {copy(compactCopy, false)}
+    </>
   );
 }

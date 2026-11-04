@@ -417,6 +417,20 @@ export const folderCommands: readonly Command[] = [
     },
   },
   {
+    id: "folder.addDocuments",
+    label: "folder.addDocumentsHere",
+    group: "main",
+    appliesTo: ["folder"],
+    when: onlyOne,
+    // It waits for the User's choice in a file picker.
+    assistant: false,
+    reversible: true,
+    run: async (ctx) => {
+      const id = idsOf(ctx, "folder")[0];
+      if (id) await store().pickDocumentsIntoFolder(id);
+    },
+  },
+  {
     id: "folder.newInside",
     label: "folder.newInside",
     group: "main",
@@ -462,6 +476,8 @@ export const folderCommands: readonly Command[] = [
       folderDocumentIds(ctx).length > 0 ? true : { reason: "folder.organize.empty" },
     // Suggestions are reviewed and taken back from the Library.
     reversible: true,
+    // The assistant's Organize is documents.organize, which files them at once with one Undo (#2252).
+    assistant: false,
     async run(ctx) {
       if (!store().library?.settings.classifier) return store().openSettings("models", "tagging");
       await core.classifyDocuments(folderDocumentIds(ctx));

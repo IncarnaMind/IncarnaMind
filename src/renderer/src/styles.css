@@ -41,6 +41,9 @@
   --color-accent: #2a5bd7;
   --color-accent-strong: #1e46b0;
   --color-accent-wash: #e7edfb;
+  /* The cells a User selected in a sheet, drawn as the system's selection is (#118). */
+  --selection-wash: color-mix(in srgb, AccentColor, transparent 88%);
+  --selection-overlay: color-mix(in srgb, AccentColor, transparent 88%);
   /* A selection in a field that has lost the focus, as macOS draws one in a window not in front. */
   --color-selection-inactive: #dde1e7;
   /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state (D266). */
@@ -1120,7 +1123,7 @@
   }
   .mind-measure {
     width: 680px;
-    margin-left: calc((100% - 784px) / 2 + 56px);
+    margin-left: calc((100% - 784px) / 2 + 56px - var(--comment-shift, 0px));
   }
 
   /* How far a Word import has got (#104), at the top of the page while it goes on. */
@@ -1138,7 +1141,6 @@
   .mind-word-problem {
     margin: 0 0 16px;
   }
-
   /*
    * Parts joined by middle dots wrap only between parts, and no line starts or
    * ends with a dot (#684): each part draws the dot in the gap before it, and
@@ -1489,10 +1491,6 @@
   }
   .review-card-what {
     color: var(--color-ink-meta);
-  }
-  .review-card-comment {
-    color: var(--color-ink-secondary);
-    white-space: pre-line;
   }
   /* "Changes (3)" at the page's top right, while the pane is folded or over the page. */
   .review-fold {
@@ -1855,6 +1853,16 @@
     margin: 0;
     padding: 0 8px 6px;
   }
+  /* The run's price, under the rows and in the card's text column (#1941). */
+  .check-card-estimate {
+    padding: 2px 8px 4px;
+
+    /* A part that begins a wrapped line begins with its dot: the line clips it at its start. */
+    & .meta-line {
+      margin: 0;
+      padding-left: 0;
+    }
+  }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
@@ -1883,7 +1891,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 4px 12px;
-    padding: 2px;
+    padding: 2px 8px;
   }
   .check-card-link {
     padding: 2px 4px;
@@ -4806,6 +4814,73 @@
   .composer-row > .quote-chip--where-first {
     max-width: 100%;
   }
+  /* A sheet range's chip: its preview, on hover, shows the cells with their header row (#118). */
+  .composer-quote--rows {
+    position: relative;
+    max-width: 100%;
+    padding-left: 4px;
+  }
+  .composer-table-preview {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    max-width: 340px;
+    max-height: 240px;
+    overflow: auto;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    color: var(--color-ink);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+
+    table {
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th,
+    td {
+      padding: 2px 6px;
+      border-bottom: 1px solid var(--color-rule);
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      background: var(--color-frame);
+      font-weight: 600;
+    }
+  }
+  .composer-quote--rows:hover .composer-table-preview,
+  .composer-quote--rows:focus-within .composer-table-preview {
+    display: block;
+  }
+  .composer-table-preview-title {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+  }
+  /* An area of a page: its thumbnail, then "Figure · p. 7" (#118). */
+  .composer-quote--area {
+    height: 26px;
+    max-width: 100%;
+    padding-left: 3px;
+  }
+  .composer-quote-thumb {
+    display: block;
+    width: 32px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: 3px;
+    object-fit: cover;
+  }
+  .composer-quote-thumb--none {
+    background: var(--color-frame);
+    box-shadow: inset 0 0 0 1px var(--color-rule);
+  }
 
   /*
    * A suggestion as the User writes (#282): grey text after the caret, then
@@ -5419,6 +5494,10 @@
       --check-wash: none;
       color: var(--color-success);
     }
+    /* Supported by the User's own notes alone: the ticked box in the meta ink, not the green tick (#335). */
+    &[data-check="supported"][data-own-note] {
+      color: var(--color-ink-meta);
+    }
     /* Contradicted is outlined, so it reads without its colour. */
     &[data-check="contradicted"] {
       background: var(--color-sheet);
@@ -5713,6 +5792,15 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  /* A file's property says its date or count in full, so its row wraps (#2458). */
+  .claim-property {
+    display: block;
+    width: 100%;
+    text-align: start;
+    white-space: normal;
+    overflow: visible;
+    border-radius: 4px;
   }
   .claim-part-menu {
     position: absolute;
@@ -6198,6 +6286,8 @@
   }
   .selection-menu {
     width: 280px;
+    /* The padding is part of the room: a taller menu's field stays inside the view. */
+    box-sizing: border-box;
     max-height: max(var(--selection-menu-room, 100vh), 140px);
     padding: 4px;
     border-radius: 10px;
@@ -6217,7 +6307,7 @@
   }
   .selection-formats {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 2px;
     padding: 2px 4px;
   }
@@ -6751,6 +6841,13 @@
       cursor: default;
     }
   }
+  /* A menu's own line above its items: a range's size (DESIGN.md › Viewer). */
+  .editor-menu-note {
+    padding: 4px 8px 2px;
+    color: var(--color-ink-meta);
+    font-size: 12px;
+    white-space: nowrap;
+  }
   /* Numbering ›: each scheme as its first levels draw it, its name after (#1419). */
   .numbering-menu {
     width: 272px;
@@ -6865,6 +6962,95 @@
     font-size: 13px;
     color: var(--color-ink-meta);
   }
+  /* Cite… (#281): the search of the Mind's Search scope at the caret, and its Passages. */
+  .cite-menu {
+    width: min(420px, calc(100vw - 32px));
+    padding: 0;
+    overflow: hidden;
+  }
+  .cite-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    background: none;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+    outline: none;
+
+    &::placeholder {
+      color: var(--color-ink-placeholder);
+    }
+  }
+  .cite-scope {
+    padding: 6px 12px 2px;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .cite-list {
+    max-height: 320px;
+    padding: 4px;
+    overflow-y: auto;
+  }
+  .cite-result {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    text-align: left;
+
+    &[aria-selected="true"] {
+      background: var(--color-hover);
+    }
+  }
+  .cite-result-icon {
+    flex: none;
+    margin-top: 2px;
+    color: var(--color-ink-meta);
+  }
+  .cite-result-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .cite-result-head {
+    overflow: hidden;
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    & b {
+      font-weight: 600;
+      color: var(--color-ink);
+    }
+  }
+  /* Two lines of the Passage, as the results show it. */
+  .cite-result-text {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+
+    & b {
+      font-weight: 600;
+    }
+  }
+  .cite-note {
+    padding: 8px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
 
   /* The LaTeX field of a formula. */
   .math-editor {
@@ -6901,7 +7087,7 @@
   /* The margins narrow, from 56px and 48px to 40px each at 760px, with the measure kept at 680px. */
   @container mind (width < 784px) {
     .mind-measure {
-      margin-left: calc(40px + (100% - 760px) * 2 / 3);
+      margin-left: calc(40px + (100% - 760px) * 2 / 3 - var(--comment-shift, 0px));
     }
     .margin-checks {
       width: 40px;
@@ -11417,4 +11603,235 @@ body.assistant-dragging * {
 :root[data-motion="off"] *::after {
   animation: none;
   transition: none;
+}
+
+/*
+ * Comments on selected text (#328): each card stands beside its words, to the
+ * right of the Citation checks' 48px gutter, so it never covers a check. The
+ * marks are the cards' own; a comment whose words are gone has none. Under a
+ * narrow Mind the cards fold into the count in the page's corner.
+ */
+.comments-layer {
+  position: absolute;
+  inset: 0;
+  font-family: var(--font-sans);
+  pointer-events: none;
+}
+
+.comment-card-place {
+  position: absolute;
+  left: calc(100% + 64px);
+  width: 264px;
+  pointer-events: auto;
+}
+
+.comment-card-place--asked {
+  position: static;
+  width: 260px;
+}
+
+.comment-card {
+  padding: 10px 12px 8px;
+  border-radius: 8px;
+  background: var(--color-sheet);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.comment-card--resolved {
+  opacity: 0.72;
+}
+
+.comment-message + .comment-message {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-rule);
+}
+
+.comment-message-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--color-ink-meta);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.comment-author {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comment-message-head time {
+  flex: none;
+  margin-left: auto;
+}
+
+.comment-resolved {
+  flex: none;
+  color: var(--color-ink-meta);
+  font-size: 11px;
+}
+
+.comment-text {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.comment-actions,
+.comment-message-actions,
+.comment-compose-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.comment-quiet {
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--color-ink-meta);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.comment-quiet:hover,
+.comment-quiet:focus-visible {
+  background: var(--color-chip);
+  color: var(--color-ink);
+}
+
+.comment-send {
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--color-accent);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.comment-send:disabled {
+  opacity: 0.5;
+}
+
+.comment-field {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.comment-menu {
+  min-width: 180px;
+  padding: 4px;
+}
+
+.comment-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: start;
+}
+
+.comment-menu-item:hover:not(:disabled) {
+  background: var(--color-chip);
+}
+
+.comment-menu-item:disabled {
+  color: var(--color-ink-meta);
+}
+
+.comments-count {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--color-ink-meta);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.comments-count:hover,
+.comments-count[aria-expanded="true"] {
+  background: var(--color-chip);
+  color: var(--color-ink);
+}
+
+.comments-list {
+  width: 300px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 4px;
+  font-family: var(--font-sans);
+}
+
+.comments-list-head {
+  padding: 6px 8px;
+  color: var(--color-ink-meta);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.comments-list-row {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  text-align: start;
+}
+
+.comments-list-row:hover,
+.comments-list-row:focus-visible {
+  background: var(--color-frame);
+}
+
+.comments-list-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.comments-list-text {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* The quiet underline of the words a live comment is on: Word's and Google Docs' affordance. */
+.comment-mark {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-accent) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* The card a click on its words lit, while it stands beside them. */
+.comment-card-place[data-highlight] .comment-card {
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    var(--shadow-popover);
 }

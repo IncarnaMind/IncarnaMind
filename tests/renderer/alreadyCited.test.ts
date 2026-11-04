@@ -114,6 +114,21 @@ describe("a sentence that already cites what its check found", () => {
     expect(citationDecision(held, claimOf(firstSentence(false), { quote: LINE })).kind).toBe("add");
   });
 
+  // protects=a file's properties never become a Citation in the Note: a Note's Citations quote a Document's text, which every check reads again (#2458); fails_when=Add as Citation is offered for "Modified: …" of the file's properties.
+  test("is offered nothing for a file's property, though a Passage of the same Document is", () => {
+    const held = state(null, null);
+    const sentence = firstSentence(false);
+    expect(citationDecision(held, claimOf(sentence, { quote: LINE })).kind).toBe("add");
+    const property = claimOf(sentence, {
+      passageId: "file-properties:contract",
+      pageFrom: null,
+      pageTo: null,
+      quote: "Modified: 2026-11-02T09:00:00Z",
+      location: { kind: "properties", property: "modified", value: "2026-11-02T09:00:00Z" },
+    });
+    expect(citationDecision(held, property).kind).toBe("none");
+  });
+
   test("is already cited by the one of several Citations that overlaps", () => {
     const held = state({ documentId: "handbook" }, {});
     const sentence = { from: 1, to: 1 + FIRST.length + 1 + 1 + SECOND.length + 1 };

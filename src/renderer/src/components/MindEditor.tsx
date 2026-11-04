@@ -29,6 +29,7 @@ import {
 } from "../citationFormatting";
 import { noteHandle, readMindHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
+import { commentIdsOf, commentOnSelection } from "../comments";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { useComposer } from "../composer";
 import { core } from "../core";
@@ -43,7 +44,9 @@ import { ChartView } from "../editor/ChartView";
 import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
+import { CiteSearch } from "../editor/CiteSearch";
 import { CodeBlockView } from "../editor/CodeBlockView";
+import { AskedComment, CommentLayer, CommentsButton, DraftComment } from "../editor/CommentLayer";
 import { comparisonCellView } from "../editor/ComparisonCellView";
 import { ComparisonRowView } from "../editor/ComparisonRowView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
@@ -51,8 +54,10 @@ import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
 import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
+import { type CitePlace, offerCite } from "../editor/citeRequest";
 import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
+import { commentDecorations } from "../editor/commentSchema";
 import { CopyCitations } from "../editor/copyCitations";
 import { DocumentChipView } from "../editor/DocumentChipView";
 import { useDefaultStyleNotice } from "../editor/defaultStyleNotice";
@@ -109,7 +114,12 @@ import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
 import { ShiftClickSelection } from "../editor/shiftClickSelection";
 import { useSignOffs } from "../editor/signOffActions";
-import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
+import {
+  citeWhileWritingItems,
+  compareSlashItem,
+  noteSlashItems,
+  skillSlashItems,
+} from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
 import { TableOfContentsView } from "../editor/TableOfContentsView";
@@ -382,6 +392,7 @@ function MindEditorView({
         : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
+  const [cite, setCite] = useState<CitePlace | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
   const importing = useWordFile(doc).progress !== null;
   /** The Mind's citation style, followed as it changes (#289). */
@@ -429,6 +440,8 @@ function MindEditorView({
         Pictures,
         CitationClusters,
         ClaimChecks,
+        // The quiet underline of each live comment, and where a click on it finds the card (#328).
+        commentDecorations(() => commentIdsOf(doc)),
         // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
         UncheckedFigures,
         CopyCitations.configure({
@@ -480,7 +493,13 @@ function MindEditorView({
             const compare = compareSlashItem(
               (afterBlockId) => void startCompareDocuments(mindId, afterBlockId),
             );
-            return place === "question" ? skills : [...noteSlashItems, compare, ...skills];
+            const writing = citeWhileWritingItems(
+              translateNow("editor.slash.citeHint"),
+              (current, range) => setCite({ editor: current, from: range.from, to: range.to }),
+            );
+            return place === "question"
+              ? skills
+              : [...writing, ...noteSlashItems, compare, ...skills];
           },
         }),
         ScopePicker,
@@ -894,6 +913,15 @@ function MindEditorView({
   );
   const reviewing = !readOnly && slots.reviewShown !== "closed";
   useEffect(() => followMindStyle(mindId, doc), [mindId, doc]);
+  // ⌘K reaches Cite… as the "/" menu does.
+  useEffect(() => (readOnly ? undefined : offerCite(editor, setCite)), [editor, readOnly]);
+  // Another Mind's document is another editor: a Cite… open in the one before is gone.
+  const citeDoc = useRef(doc);
+  useEffect(() => {
+    if (citeDoc.current === doc) return;
+    citeDoc.current = doc;
+    setCite(null);
+  }, [doc]);
 
   return (
     <MindIdContext.Provider value={mindId}>
@@ -912,6 +940,7 @@ function MindEditorView({
               {reviewing && slots.reviewShown !== "beside" && (
                 <ReviewFold editor={editor} mindId={mindId} />
               )}
+              <CommentsButton editor={editor} mindId={mindId} doc={doc} />
               <PageMenu
                 editor={editor}
                 doc={doc}
@@ -959,6 +988,8 @@ function MindEditorView({
           </OpinionMenu>
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
+          <CommentLayer editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
+          <DraftComment editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
           {!readOnly && <TableMenu editor={editor} />}
           {!readOnly && <ListMenu editor={editor} />}
           <FootnoteArea editor={editor} citationView={citationView} />
@@ -983,7 +1014,32 @@ function MindEditorView({
           !readOnly &&
           createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
         {!readOnly && <BlockHandle editor={editor} />}
-        {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
+        {!readOnly && (
+          <SelectionMenu
+            editor={editor}
+            ai={aiActions}
+            edit={editField}
+            comment={{
+              run: (current) => commentOnSelection(current, mindId, doc),
+            }}
+          />
+        )}
+        {!readOnly && cite && (
+          <CiteSearch
+            key={`${cite.from}:${cite.to}`}
+            place={cite}
+            mindId={mindId}
+            doc={doc}
+            onDone={() => setCite(null)}
+          />
+        )}
+        <AskedComment
+          editor={editor}
+          mindId={mindId}
+          doc={doc}
+          fallback={slots.menu}
+          readOnly={readOnly}
+        />
         {!readOnly && <LinkBubble editor={editor} />}
         {findShown && (
           <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />

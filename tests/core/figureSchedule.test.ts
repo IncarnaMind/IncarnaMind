@@ -162,7 +162,7 @@ test("ordinary per-figure and atom-owned Check sources join the same retention c
     figures: [{ ...parent, ...finding(occurrence), source }],
     remainder: null,
   });
-  expect(figureCitations(blocks)).toContainEqual(source);
+  expect(figureCitations(blocks) ?? []).toContainEqual(source);
 });
 
 test("malformed per-figure inventories throw before replacing retained sources", () => {
@@ -264,6 +264,7 @@ function sourceTable(lines: string[]) {
             documentKind: "xlsx",
             documentDeleted: false,
             notCited: false,
+            yourNoteAt: null,
             text,
             pageFrom: 1,
             pageTo: 1,
@@ -700,7 +701,7 @@ test("atom-owned Check closure retains source, unit and supplemental references"
   });
   const atom = findBlock(blocks, "p").get(0);
   expect(atom instanceof Y.XmlElement && atom.getAttribute("claimCheck")).toBeTruthy();
-  expect(new Set(figureCitations(blocks).map((citation) => citation.documentId))).toEqual(
+  expect(new Set((figureCitations(blocks) ?? []).map((citation) => citation.documentId))).toEqual(
     new Set(["accounts", "unit", "omitted", "attempted"]),
   );
   expect(project(blocks).rows[0]?.locator).toMatchObject({
@@ -729,7 +730,7 @@ test("concurrent visible copies of one Check id retain both source closures", ()
       remainder: null,
     });
   }
-  expect(new Set(figureCitations(blocks).map((citation) => citation.documentId))).toEqual(
+  expect(new Set((figureCitations(blocks) ?? []).map((citation) => citation.documentId))).toEqual(
     new Set(["source-0", "source-1"]),
   );
 });

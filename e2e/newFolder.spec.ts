@@ -167,8 +167,8 @@ test("the + menu makes a Folder at the top level, and a Folder's ⋯ makes one i
     await window.keyboard.press("Enter");
     await expect(sidebarFolder(window, "Reading")).toHaveCount(1);
 
-    // The Folder's ⋯ has "New Folder inside" after "New note here": one item, making a Folder
-    // inside Reading, not beside it.
+    // The Folder's ⋯ has "New Folder inside": one item, making a Folder inside Reading, not
+    // beside it.
     const reading = sidebarFolder(window, "Reading");
     await reading.getByTestId("folder-row").hover();
     await pointAndClick(window, reading.getByTestId("folder-menu"));

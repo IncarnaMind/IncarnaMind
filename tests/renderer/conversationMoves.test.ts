@@ -7,6 +7,8 @@ import type {
   ExampleReadyAsked,
   Meeting,
 } from "../../src/core/api";
+import { NotFoundError } from "../../src/core/errors";
+import { errorForWindow } from "../../src/shared/errorWording";
 
 /*
  * The assistant shows the conversation the User moved to last: a reply that comes after they
@@ -50,6 +52,8 @@ const conversation = (id: string): Conversation => ({
 const reads = new Map<string, Promise<{ messages: ConversationMessage[] }>>();
 const readsAsked: string[] = [];
 const stopped: string[] = [];
+/** The conversations the window's layout was told to show, as the assistant moved. */
+const layoutWrites: (string | null)[] = [];
 const listeners = new Map<string, (payload: unknown) => void>();
 let ask: () => Promise<ConversationAskResult> = async () => {
   throw new Error("No Question is asked in this test.");
@@ -80,6 +84,12 @@ const bridge = new Proxy(
     deleteConversation: () => deleting,
     askExampleReadyQuestion: () => exampleAsk(),
     askMeetingHelp: () => helpAsk(),
+    changeLayout: async (
+      _windowId: string,
+      change: { type: string; conversationId?: string | null },
+    ) => {
+      if (change.type === "conversation") layoutWrites.push(change.conversationId ?? null);
+    },
   },
   {
     get: (target: object, name: string) =>
@@ -117,10 +127,11 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  conversations.startNewChat();
   reads.clear();
   readsAsked.length = 0;
   stopped.length = 0;
-  conversations.startNewChat();
+  layoutWrites.length = 0;
 });
 
 const shown = () => conversations.useConversations.getState().openId;
@@ -386,9 +397,19 @@ test("help asked during a call shows its conversation when the User stayed", asy
   expect(shown()).toBe("help");
 });
 
-/** The window as a reload of its page leaves it, with the conversation it showed kept. */
+/** The window as a reload of its page leaves it, with the conversation it showed kept by its layout. */
 async function reloadedShowing(conversationId: string) {
-  sessionStorage.setItem("incarnamind.window.conversation", JSON.stringify(conversationId));
+  const { DEFAULT_ASSISTANT } = await import("../../src/core/api");
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  useAppStore.setState({
+    layout: {
+      groups: [],
+      focusedGroupId: "",
+      reopenable: 0,
+      conversationId,
+      assistant: DEFAULT_ASSISTANT,
+    },
+  });
   const { installWindowMemory } = await import("../../src/renderer/src/windowMemory");
   installWindowMemory();
 }
@@ -399,10 +420,8 @@ test("a New chat clicked while a reload shows the conversation again stays a New
   await reloadedShowing("kept");
   conversations.startNewChat();
   restoring.settle({ messages: [question("kept")] });
-  // A second reload starts in the New chat too: what is kept says so once the read is done.
-  await vi.waitFor(() =>
-    expect(sessionStorage.getItem("incarnamind.window.conversation")).toBeNull(),
-  );
+  // The layout says so too: the next start shows a New chat.
+  await vi.waitFor(() => expect(layoutWrites).toContain(null));
 
   expect(readsAsked).toContain("kept");
   expect(shown()).toBeNull();
@@ -413,4 +432,64 @@ test("a reload shows the conversation it showed again when the User stayed", asy
   await vi.waitFor(() => expect(shown()).toBe("kept"));
 
   expect(conversations.useConversations.getState().messages).toEqual([question("kept")]);
+});
+
+const goneError = () => errorForWindow(new NotFoundError({ key: "error.conversation.notFound" }));
+
+test("a conversation gone since the window kept it leaves a New chat, the app's own words for one (#258)", async () => {
+  const gone = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("gone", gone.promise);
+  await reloadedShowing("gone");
+  gone.reject(goneError());
+  await vi.waitFor(() => expect(layoutWrites).toContain(null));
+
+  expect(shown()).toBeNull();
+});
+
+test("a gone conversation read does not clear one the User opened meanwhile (#258)", async () => {
+  const gone = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("gone", gone.promise);
+  await reloadedShowing("gone");
+  await conversations.openConversation("other");
+  expect(shown()).toBe("other");
+
+  gone.reject(goneError());
+  // The read that found it gone says nothing about the conversation opened since.
+  await vi.waitFor(() => expect(layoutWrites).toEqual(["other", "other"]));
+  expect(shown()).toBe("other");
+});
+
+test("a kept read that fails for another reason is reported and keeps the id (#258)", async () => {
+  const broken = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("broken", broken.promise);
+  const reported: unknown[] = [];
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  const reportError = useAppStore.getState().reportError;
+  useAppStore.setState({ reportError: (error: unknown) => void reported.push(error) });
+  try {
+    await reloadedShowing("broken");
+    broken.reject(new Error("database is locked"));
+
+    // Not gone: the failure is said, and the kept id stays for the next start.
+    await vi.waitFor(() => expect(reported).toHaveLength(1));
+    expect(readsAsked).toContain("broken");
+    expect(layoutWrites).not.toContain(null);
+    expect(shown()).toBeNull();
+  } finally {
+    useAppStore.setState({ reportError });
+  }
+});
+
+test("a kept conversation read does not replace one already showing (#258)", async () => {
+  const kept = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("kept", kept.promise);
+  await reloadedShowing("kept");
+  conversations.useConversations.setState({ openId: "open", messages: [question("open")] });
+
+  kept.resolve({ messages: [question("kept")] });
+  // The read is awaited by the restore, so its guard has run once this promise is seen to settle.
+  await kept.promise;
+  // A conversation already showing stays, even though the kept one's read lands later.
+  expect(shown()).toBe("open");
+  expect(layoutWrites).not.toContain("kept");
 });

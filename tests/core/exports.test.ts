@@ -450,6 +450,9 @@ describe("exporting a Mind", () => {
       markAiText: false,
       othersFile: false,
       othersComments: false,
+      myComments: 0,
+      myCommentsShown: true,
+      myCommentsOptional: false,
     });
   });
 
@@ -770,16 +773,16 @@ describe("exporting a Mind", () => {
       expect(await nameOf("", [], "markdown")).toBe("Untitled.md");
     });
 
-    test("the first line is cleaned for a file name, and cut only where a file name can't hold it", async () => {
+    test("the first line is cleaned for a file name, and named as the Note shows it (#2418)", async () => {
       expect(await nameOf("", [note("Tides: spring/neap?")], "docx")).toBe(
         "Tides spring neap.docx",
       );
+      // The Note's own name is its first line, cut as the tab shows it (#2418).
       const long = await nameOf("", [note("tide ".repeat(40))], "markdown");
-      expect(long.length).toBeLessThanOrEqual(122);
-      expect(long.endsWith("tide.md")).toBe(true);
+      expect(long).toBe("tide tide tide tide tide tide tide tide tide tide tide tide.md");
     });
 
-    test("a whole sentence names the file as it reads, without the mark it ends on", async () => {
+    test("a whole sentence names the file as the Note shows it, without the mark it ends on", async () => {
       expect(
         await nameOf(
           "",
@@ -790,9 +793,7 @@ describe("exporting a Mind", () => {
           ],
           "docx",
         ),
-      ).toBe(
-        "The employee gets 27 days of paid holiday per year, plus bank holidays and the notice period after probation.docx",
-      );
+      ).toBe("The employee gets 27 days of paid holiday per year.docx");
       expect(
         await nameOf(
           "",
@@ -804,7 +805,7 @@ describe("exporting a Mind", () => {
           "docx",
         ),
       ).toBe(
-        "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，否则视为违约，需要承担相应的赔偿责任并支付违约金.docx",
+        "员工每年享有二十七天带薪年假，另外还享有法定节假日，试用期结束后双方需要提前一个月书面通知对方，否则视为违约.docx",
       );
     });
 

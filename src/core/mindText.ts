@@ -33,7 +33,6 @@
  * Word export reads them too, for review (`ReadOptions.review`, #107).
  */
 import * as Y from "yjs";
-import { originOf } from "../shared/blockOrigins";
 import { figureShownText, readCalculatedFigureAttributes } from "../shared/calculatedFigures";
 import {
   type ChartAttributes,
@@ -50,7 +49,7 @@ import {
   comparisonQuestionsOf,
   visibleComparisonQuestions,
 } from "../shared/comparisons";
-import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
+import { calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
@@ -79,7 +78,6 @@ import { comparisonCellTarget } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
-  BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
   type CalculatedFigureAttributes,
@@ -89,6 +87,7 @@ import {
   type CitedWork,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
+  COMMENT_MARK,
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonQuestion,
@@ -129,6 +128,8 @@ export interface Marks {
   code: boolean;
   /** The link's target, or null. */
   link: string | null;
+  /** The comment the text is on (#328), by the record's id; absent when it is on none. */
+  comment?: string;
   /** Hex "RRGGBB". */
   color?: string;
   font?: string;
@@ -565,34 +566,6 @@ export function firstLineOf(blocks: Y.XmlFragment): string {
     if (written !== "") return written;
   }
   return "";
-}
-
-/**
- * What a Mind's export file is called (#1945): the words of its first Block that has any, as it
- * reads, and the Question that made them when an Answer wrote them — a sentence from an Answer
- * says less about the note than the Question did. A heading is a title, so it names the file
- * itself. Neither is cut here: a file name is cut only where a file name can't hold it.
- */
-export function namedLineOf(blocks: Y.XmlFragment): { line: string; question: string } {
-  for (const block of blocks.toArray()) {
-    if (
-      !(block instanceof Y.XmlElement) ||
-      block.nodeName === ANSWER_BLOCK ||
-      block.nodeName === COMPARISON_TABLE_NODE
-    ) {
-      continue;
-    }
-    const line = firstText(block).trim();
-    if (line === "") continue;
-    const id = block.getAttribute(BLOCK_ID_ATTRIBUTE);
-    const doc = blocks.doc;
-    const question =
-      block.nodeName === "heading" || typeof id !== "string" || doc === null
-        ? ""
-        : (originOf(doc, id)?.question.trim() ?? "");
-    return { line, question };
-  }
-  return { line: "", question: "" };
 }
 
 export interface HeadingEntry {
@@ -1218,6 +1191,9 @@ function marksOf(attributes: Record<string, unknown> = {}): Marks {
     highlight: Object.hasOwn(attributes, "highlight"),
     code: Object.hasOwn(attributes, "code"),
     link: link && typeof link.href === "string" && link.href !== "" ? link.href : null,
+    ...(typeof attributeOf(attributes[COMMENT_MARK], "id") === "string" && {
+      comment: attributeOf(attributes[COMMENT_MARK], "id") as string,
+    }),
     ...(color && { color }),
     ...(font && { font }),
     ...(size && { size }),
@@ -1346,14 +1322,11 @@ function readInlineElement(
 
 function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): Inline {
   const { figure } = attributes;
-  let sources: CalculatedSources;
-  try {
-    sources = calculatedSources(attributes, doc);
-  } catch {
-    // Its saved Analysis is gone: it still reads as its text, and an export that would write its
-    // sources says they aren't available, as the editor does (`error.figure.evidenceMissing`).
+  const sources = calculatedSources(attributes, doc);
+  // A figure that names an Analysis whose record the Note no longer keeps reads as its value, and
+  // an export says its saved inputs aren't available, as the editor does (#2378).
+  if (figure.analysis && !sources.analysis)
     return { kind: "figure", figure, sources: null, analysis: null };
-  }
   return {
     kind: "figure",
     figure,

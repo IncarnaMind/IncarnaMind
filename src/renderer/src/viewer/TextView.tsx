@@ -390,7 +390,7 @@ function TextContent({
         onScroll={onScroll}
         className="viewer-backdrop viewer-text-backdrop min-h-0 min-w-0 flex-1 overflow-auto select-text"
       >
-        <article className="viewer-page viewer-text-page">
+        <article className="viewer-page viewer-text-page" data-area-unit="">
           <div ref={column} className="relative">
             {blocks && !source ? (
               <MarkdownBlocks blocks={blocks} source={text} highlight={highlight} />
@@ -457,7 +457,12 @@ function PlainText({
       );
     }
     parts.push(
-      <span key={unit.page} data-unit={unit.page} data-heading={headings?.get(unit.page)}>
+      <span
+        key={unit.page}
+        data-unit={unit.page}
+        data-area-unit={unit.page}
+        data-heading={headings?.get(unit.page)}
+      >
         <Slice source={source} start={unit.start} end={unit.end} highlight={highlight} />
       </span>,
     );

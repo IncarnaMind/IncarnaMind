@@ -12,7 +12,7 @@ import type {
   WholeRead,
 } from "../../../core/api";
 import { citationState, shownDocumentName } from "../../../shared/citations";
-import { checkedScope } from "../../../shared/claimChecks";
+import { checkedScope, partFoundNothing } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
 import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
 import { citationLocation, formatLocation } from "../../../shared/locations";
@@ -32,6 +32,7 @@ import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
 import { SignOffsContext } from "./mindContext";
+import { PropertySource, showFileProperties } from "./PropertySource";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import {
   citationSignOff,
@@ -61,6 +62,7 @@ function PartCitation({
   const state = citationState(citation, documents, kept);
   const quote = useReadableQuote(citation);
   const location = citationLocation(citation);
+  const property = location?.kind === "properties" ? location : null;
   const where = location ? formatLocation(location, t) : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);
@@ -83,6 +85,7 @@ function PartCitation({
   };
   const open = () => {
     if (!citation.documentId) return;
+    if (property) return showFileProperties(citation.documentId, onOpen);
     void openCited(
       { ...citation, documentId: state.documentId ?? citation.documentId },
       { check: state.check, withQuote: quoteSaysSo(state.check), label: where },
@@ -99,7 +102,15 @@ function PartCitation({
   );
   return (
     <div data-testid="claim-part-receipt" data-citation-id={id ?? undefined} {...menu.rowProps}>
-      {citation.documentId ? (
+      {property ? (
+        <PropertySource
+          citation={citation}
+          location={property}
+          className="claim-part-citation claim-part-source claim-property"
+          testId="claim-part-property"
+          onOpen={onOpen}
+        />
+      ) : citation.documentId ? (
         <button
           type="button"
           className="claim-part-citation"
@@ -270,6 +281,7 @@ function PartRow({
       : undefined;
   const heldAt = held ? citationLocation(held) : null;
   const state = stale ? "needs-recheck" : part.verdict;
+  const showsNotFound = !stale && partFoundNothing(part);
   const target = { kind: "check", id: `${id}:${part.span.start}:${part.span.end}` } as const;
   const menu = useObjectMenu(target);
   const reason =
@@ -322,7 +334,9 @@ function PartRow({
             ? t("claim.opinion")
             : state === "checking"
               ? t("claim.part.checking")
-              : t(`claim.state.${state}`)}
+              : state === "unsupported" && showsNotFound
+                ? t("claim.state.notFound")
+                : t(`claim.state.${state}`)}
         </span>
         {citations && citing.some((decision) => decision.kind === "add") && (
           <button

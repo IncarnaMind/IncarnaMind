@@ -90,6 +90,10 @@ _Avoid_: private Document, hidden Document, excluded Document
 A reference, anchored in the text of an Answer, to the Passage a claim was drawn from: the Location it cites, and a quote from the Passage that is checked against the text at that Location. Copied into your text, it stays a Citation; Question context shows it as a reference to its Document with an id, by which an Answer keeps it as the same Citation. It names its Document as the Document is named now, so a rename shows in every Citation of it, on screen, in exports and in what a model or an outside agent reads; the name it was made with is kept, never rewritten, and shown only when the Document can't be found. A History comparison keeps each Checkpoint's own names.
 _Avoid_: source, reference
 
+**Comment**:
+A remark attached to words in a Note, by the User or by a Word file's author, with replies, that can be resolved and reopened. A Word file's comments arrive as the Note's comments and go back as Word comments. Not a Citation, a check or AI text.
+_Avoid_: annotation, remark (and 评论 in Chinese)
+
 **Calculated figure**:
 A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".
 _Avoid_: computed figure, calculated citation, derived number, formula
@@ -107,7 +111,7 @@ The figures shown in a Note, each beside its source value, Citation, difference 
 _Avoid_: second check, audit table
 
 **Input**:
-A number a Calculated figure or an Analysis is worked out from: a number in a Citation's quote (with the line that states its scale or currency when the number has none of its own), a cell of a sheet (the number it stores, not the one it shows rounded), or a range of a sheet or CSV, in the version of its Document it was read from.
+A number a Calculated figure or an Analysis is worked out from: a number in a Citation's quote (with the line that states its scale or currency when the number has none of its own), a cell of a sheet (the number it stores, not the one it shows rounded), a range of a sheet or CSV, or a table in a PDF, Word file or deck, each row cited where the Document has it, in the version of its Document it was read from.
 _Avoid_: argument, variable, source
 
 **Footnote**:
@@ -188,7 +192,7 @@ What a Tool call can do beyond the conversation it is part of: read data, write 
 _Avoid_: permission, capability, side effect
 
 **Analysis**:
-Python an Answer wrote and IncarnaMind ran in its sandbox, with no network or files, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results. Its results are figures, tables, charts and pictures of the plots it drew; a figure names the rows of its Input it was worked out from, and a sum, average, lowest, highest or count is worked out again by IncarnaMind from those cells before the Answer may use it.
+Python (or, on macOS and Linux, a shell command) an Answer wrote and IncarnaMind ran in a sandbox, with no network, reading the files it was given and everything outside the home folders (the system's own files, and what apps installed outside a home keep there) but no one's home folder, over Inputs cited from Documents, kept in a Note with its steps, Inputs, code and results. Its results are figures, tables, charts and pictures of the plots it drew; a figure names the rows of its Input it was worked out from, and a sum, average, lowest, highest or count is worked out again by IncarnaMind from those cells before the Answer may use it.
 _Avoid_: notebook, script, code interpreter (in the interface), Skill script
 
 **Third-party text**:
@@ -276,8 +280,8 @@ The result for a sentence when Verify or contradiction watch finds a Passage tha
 _Avoid_: wrong, conflict, false
 
 **Not examined**:
-A sentence the last whole-Note check couldn't tell makes a claim: the model said nothing of it, even asked once more about the sentences its reply left out. It isn't taken for a sentence that makes no claim: it stays to check, and the next Check asks about it again. The line under the check says how many: "1 sentence not examined" (1 句未能判断是否为说法).
-_Avoid_: skipped, left out (an opinion is left out), not checked (a claim whose check failed)
+A sentence the check couldn't tell is a Claim or not, because the model said nothing of it when the check named the Claims, even when asked again. The Note says "Couldn’t tell if 1 sentence is a claim". A sentence with a figure, a Citation, a record cite or a court decision never ends here: it is checked. The next Check asks about it again.
+_Avoid_: unsorted (Sort files Documents), Not checked (a Claim whose check failed or hasn't run)
 
 **Part**:
 One piece of a sentence that a reader can check on its own: a fact, or the writer's own opinion. A sentence's check keeps its parts in order under its one Mark; the sentence is supported only when every factual part is, and its worst part's result is the sentence's. A view the sentence gives to someone else ("The minister said…") is a fact about who said it. A number inside the writer's opinion is a fact inside that opinion, which stays one part. The card shows a row for each part, and Covers counts a quantified part's members ("Covers 3 of the 4 quarters", 覆盖 4 项中的 3 项). Counted with 处 in Chinese.

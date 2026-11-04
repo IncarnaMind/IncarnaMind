@@ -14,20 +14,23 @@ import { dirname, join } from "node:path";
 import { pageScale } from "../../shared/figures";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
-import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
+import type { DocumentFailureReason, DocumentKind, FileProperties, UnreadParts } from "../api";
 import {
   type FileMetadata,
   type FileReference,
   readReference,
   webPageReference,
+  xmpProperties,
 } from "../referenceRecords/read";
 import { BOILERPLATE_PARAMETERS, stripBoilerplate } from "./boilerplate";
-import { creationDate, pdfDate, w3cDate } from "./creationDate";
+import { creationDate, ownDate, pdfDate, w3cDate } from "./creationDate";
 import { addDepositionAnchors, hasPrintedLines } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
+import { readableText } from "./fileProperties";
 import { officeProperties } from "./formats/coreProperties";
 import { htmlTitleOf } from "./formats/html";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
+import { workbookSheets } from "./formats/xlsx";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
 import { joinCjkLineWraps } from "./lineWrap";
@@ -69,9 +72,12 @@ import type { PictureProblem } from "./web/pictures";
  * its first Unit its defined names and what of it wasn't read). 21: #2365 (a
  * Word section's headers and footers, and more forms of a scale, are read for
  * it). 22: #762 (pictures are read as scanned pages are; RTF and HTML files
- * are read).
+ * are read). 23: #448 (the tables of a PDF's pages, a Word file's sections and a
+ * deck's slides are kept with their Units as rows and columns; a Word table's
+ * merged cells keep their columns; raised digits stay raised). 24: #1979 (a
+ * workbook's rows Units name the rows the file strikes through or hides).
  */
-export const PROCESSING_VERSION = 22;
+export const PROCESSING_VERSION = 24;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -104,15 +110,22 @@ export const PROCESSING_VERSION = 22;
  * embeddings come out as they were (#2365). Version 22 adds the kinds of
  * Document from #762: a picture's one page read from it, and RTF and HTML
  * files read as text with their headings. No other kind's Passage or Unit
- * changes.
+ * changes. Version 23 PDFs', Word files' and decks': their Units keep their
+ * tables' rows and columns, and a PDF's text comes out as it was. A Word
+ * table's row keeps a tab for each of its grid's columns, also the empty ones
+ * a merged cell leaves, a merged cell's text repeats down the rows it
+ * continues, and digits a Word file or a deck sets raised or lowered are
+ * superscript or subscript digits, not plain ones (#448). Version 24 only
+ * workbooks', whose rows Units name the rows the file strikes through or
+ * hides; their text, Passages and embeddings come out as they were (#1979).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 21,
+  pdf: 23,
   text: 5,
   markdown: 5,
-  docx: 21,
-  pptx: 5,
-  xlsx: 20,
+  docx: 23,
+  pptx: 23,
+  xlsx: 24,
   csv: 5,
   image: 22,
   rtf: 22,
@@ -120,6 +133,15 @@ export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   web: 7,
   transcript: 7,
 };
+
+/**
+ * For a PDF, the oldest version whose Passages are still what this version
+ * builds: version 23 changes only the labels of a PDF's Units (their tables),
+ * not the text its Passages are built from, so a PDF kept at 21 or 22 keeps
+ * its Passage windows rather than being embedded again (#448). Bump this when
+ * a PDF's Passages change.
+ */
+export const PDF_PASSAGES_CURRENT_SINCE = 21;
 
 /**
  * For a Document with Han characters in its text or name (Chinese, or
@@ -177,9 +199,10 @@ export const PICTURES_CURRENT_SINCE = 10;
  * job, in the background, without being processed or embedded again. When
  * only the metadata read changes, bump this, not `PROCESSING_VERSION`.
  * 1: #53 (creation dates). 2: #213 (titles). 3: #286 (reference records).
- * 4: #706 (reference records from a PDF's first page).
+ * 4: #706 (reference records from a PDF's first page). 5: #2458 (the file's
+ * own dates and author, which a check of a sentence about the file cites).
  */
-export const METADATA_VERSION = 4;
+export const METADATA_VERSION = 5;
 
 /** How many of a PDF's first pages a DOI or an arXiv id is looked for in (#286). */
 const REFERENCE_PAGES = 2;
@@ -294,6 +317,11 @@ export interface VersionMetadata {
   title: string | null;
   /** The version's reference record, as far as the file gives it (see ../referenceRecords/read). */
   reference: FileReference;
+  /**
+   * What the version's file records about itself (#2458); null when that can't be read, and for
+   * a web page, whose file is IncarnaMind's snapshot of it.
+   */
+  properties: FileProperties | null;
 }
 
 export type ProcessingResult =
@@ -433,6 +461,7 @@ async function refuseTooLarge(file: string, kind: DocumentKind): Promise<Process
       creationDate: null,
       title: null,
       reference: readReference({ kind, firstPages: [] }),
+      properties: null,
     };
   } catch (error) {
     return unreadable(error);
@@ -500,6 +529,7 @@ export async function readMetadata(job: MetadataJob, password?: string): Promise
       creationDate: creationDate([], job.firstUnit, thisYear()),
       title: documentTitle(null, job.firstUnit),
       reference: readReference({ kind: job.kind, firstPages }),
+      properties: recordsNone(job.kind) ? NO_PROPERTIES : null,
     };
   }
   const bytes = await readBytes(job.file);
@@ -520,6 +550,15 @@ const hasMetadata = (kind: DocumentKind) =>
 /** The local calendar year now: no later creation date is plausible. */
 const thisYear = () => new Date().getFullYear();
 
+const NO_PROPERTIES: FileProperties = { created: null, modified: null, author: null, sheets: null };
+
+/**
+ * What a file of a kind with no place for properties records about itself: nothing. Any other
+ * kind's are read from the file, and are unknown (null) when they can't be (#2458).
+ */
+const recordsNone = (kind: DocumentKind) =>
+  kind === "text" || kind === "markdown" || kind === "csv" || kind === "transcript";
+
 /**
  * A version's creation date (see ./creationDate): the metadata's (a PDF's
  * Info dictionary, then its XMP; an Office file's core properties), or else
@@ -538,6 +577,7 @@ async function readMetadataOf(
 ): Promise<VersionMetadata> {
   let fromMetadata: (string | null)[] = [];
   let property: string | null = null;
+  let properties: FileProperties | null = recordsNone(kind) ? NO_PROPERTIES : null;
   const parts: FileMetadata = { kind, firstPages: firstPages ?? [] };
   try {
     if (kind === "web") {
@@ -560,6 +600,7 @@ async function readMetadataOf(
           },
           title,
         ),
+        properties: null,
       };
     }
     if (kind === "pdf") {
@@ -568,6 +609,20 @@ async function readMetadataOf(
         pdf.info === null ? null : pdfDate(pdf.info),
         pdf.xmp === null ? null : w3cDate(pdf.xmp),
       ];
+      const xmp = pdf.xmpPacket === null ? null : xmpProperties(pdf.xmpPacket);
+      const xmpDate = (name: string) => {
+        const written = xmp?.get(name)?.[0];
+        return written === undefined ? null : w3cDate(written);
+      };
+      properties = {
+        created: ownDate(fromMetadata, new Date()),
+        modified: ownDate(
+          [pdf.modified === null ? null : pdfDate(pdf.modified), xmpDate("xmp:ModifyDate")],
+          new Date(),
+        ),
+        author: readableText(pdf.author, xmp?.get("dc:creator")?.join("; ")),
+        sheets: null,
+      };
       property = pdf.title;
       parts.info = { title: pdf.title, author: pdf.author };
       parts.xmp = pdf.xmpPacket;
@@ -579,6 +634,12 @@ async function readMetadataOf(
     } else if (hasMetadata(kind)) {
       const office = await officeProperties(bytes);
       fromMetadata = [office.created === null ? null : w3cDate(office.created)];
+      properties = {
+        created: ownDate(fromMetadata, new Date()),
+        modified: ownDate([office.modified === null ? null : w3cDate(office.modified)], new Date()),
+        author: readableText(office.creator),
+        sheets: kind === "xlsx" ? await workbookSheets(bytes) : null,
+      };
       property = office.title;
       parts.office = office;
     }
@@ -589,6 +650,7 @@ async function readMetadataOf(
     creationDate: creationDate(fromMetadata, firstUnit, thisYear()),
     title: documentTitle(property, firstUnit),
     reference: readReference(parts),
+    properties,
   };
 }
 

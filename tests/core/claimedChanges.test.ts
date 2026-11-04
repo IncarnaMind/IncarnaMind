@@ -182,6 +182,36 @@ describe("The quick model's verdict", () => {
     expect(prompt).toContain('\\"ids\\"');
   });
 
+  // protects=a Tag merge's record says the merged Tags are in Recently deleted, where a reply that says so is backed (#2252); fails_when=the record leaves it out and a true sentence is flagged after the reply was written; no_claim=the judge's verdicts.
+  test("a Tag merge's record says where the merged Tags go (#2252)", async () => {
+    const model = judge({ claims: [] });
+    const calls: AnswerToolCall[] = [
+      {
+        id: "merge",
+        tool: "run_command",
+        source: "commands",
+        input: { command: "tag.merge" },
+        status: "done",
+        resultCount: null,
+        command: {
+          command: "tag.merge",
+          run: "r1",
+          items: [],
+          merges: [{ from: "Book", into: "Report" }],
+          tagCount: { before: 8, after: 6 },
+        },
+      },
+    ];
+
+    await check(model, "The merged tags are in Recently deleted.", calls);
+
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain("mergedTags");
+    expect(prompt).toContain("Recently deleted");
+    expect(prompt).toContain('\\"tagCount\\"');
+    expect(prompt).toContain('\\"before\\": 8');
+  });
+
   test.each(["typo", undefined])(
     "a verdict with an invalid change kind finds nothing: %s",
     async (kind) => {

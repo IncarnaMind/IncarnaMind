@@ -252,6 +252,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "—",
     "mind.outline",
     "mind.duplicate",
+    "mind.useAsSource",
     "mind.exportMenu",
     "mind.aiUseStatement",
     "mind.checkRecord",
@@ -326,6 +327,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "folder.open",
     "—",
     "folder.newMind",
+    "folder.addDocuments",
     "folder.newInside",
     "folder.organize",
     "folder.editDescription",
@@ -396,6 +398,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   expect(byRightClick.slice(0, tabOwn)).toEqual([
     "mind.outline",
     "mind.duplicate",
+    "mind.useAsSource",
     "mind.exportMenu",
     "mind.aiUseStatement",
     "mind.checkRecord",
@@ -537,6 +540,7 @@ test("each item shows its shortcut as the system writes it, and the labels are i
     "在新标签页中打开",
     /^大纲(⌥⌘L|Ctrl\+Alt\+L)$/,
     "创建副本",
+    "作为来源使用",
     "导出…",
     "导出 AI 使用声明",
     "导出核对记录…",
@@ -959,8 +963,8 @@ for (const language of ["en", "zh-CN"] as const) {
             : /^向右拆分(⌥⌘\\|Ctrl\+Alt\+\\)$/,
         );
       }
-      // Duplicate and Tidy Chinese text join this menu with the Note basics (#1935).
-      expect(ids.length, name).toBeLessThanOrEqual(19);
+      // Duplicate, Use as a source and Tidy Chinese text join this menu with the Note basics (#1935).
+      expect(ids.length, name).toBeLessThanOrEqual(20);
       // It fits: no scrollbar, and inside the window.
       const fits = await menu.evaluate((element) => ({
         scrolls: element.scrollHeight > element.clientHeight + 1,

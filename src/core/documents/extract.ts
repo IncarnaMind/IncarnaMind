@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import type { PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
 import { readPdfPageText } from "../../shared/pdfFormText";
 import { CJK } from "../../shared/text";
-import type { Anchor, TextUnit } from "../../shared/units";
+import type { Anchor, TextUnit, UnitTable } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentKind, UnreadParts } from "../api";
 import { isRecord } from "../errors";
@@ -20,9 +20,25 @@ import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
-import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
+import {
+  type CanvasFactory,
+  invisibleText,
+  isScanned,
+  MIN_PICTURE_SHARE,
+  pagePicture,
+  pictureShare,
+} from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
-import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
+import {
+  continuedTables,
+  findTables,
+  type PageTables,
+  pageTables,
+  scannedRows,
+  type TableGrid,
+  textItemOf,
+  textLayerRows,
+} from "./tables";
 import { unreadMessage } from "./unreadMessage";
 import {
   PICTURE_LIMITS,
@@ -360,6 +376,8 @@ const XMP_CREATE_DATE = /xmp:CreateDate\s*(?:=\s*(["'])([^"'<>]*)\1|>([^<]*)<)/i
 export interface PdfMetadata {
   /** Its Info dictionary's CreationDate, a PDF date string. */
   info: string | null;
+  /** Its Info dictionary's ModDate, a PDF date string (#2458). */
+  modified: string | null;
   /** Its XMP metadata's xmp:CreateDate, an ISO 8601 date. */
   xmp: string | null;
   /** Its Info dictionary's Title (#213). */
@@ -376,8 +394,8 @@ export interface PdfMetadata {
 
 /**
  * A PDF's metadata as written: its document information dictionary's
- * CreationDate (#53), Title (#213) and Author, and its XMP metadata, whose
- * xmp:CreateDate is read here; never its ModDate. Its first page's lines, and
+ * CreationDate (#53), Title (#213), Author and ModDate (#2458), and its XMP
+ * metadata, whose xmp:CreateDate is read here. Its first page's lines, and
  * with `pages`, the text of its first pages too (#286: a DOI or an arXiv id is
  * printed there). Throws if the PDF can't be opened.
  */
@@ -415,6 +433,7 @@ export async function pdfMetadata(
     }
     return {
       info: entry("CreationDate"),
+      modified: entry("ModDate"),
       xmp: xmp ? (xmp[2] ?? xmp[3] ?? null) : null,
       title: entry("Title"),
       author: entry("Author"),
@@ -543,6 +562,7 @@ async function extractPdf(
     const scanned: number[] = [];
     const scanFields = new Map<number, { text: string; anchors: Anchor[] }>();
     const unreadForms: number[] = [];
+    const layouts = new Map<number, PageTables>();
     const metadata = await document.getMetadata();
     const xfa = isRecord(metadata.info) && metadata.info.IsXFAPresent === true;
     const signatures = await document.getSignatures();
@@ -558,6 +578,17 @@ async function extractPdf(
       const read = readPageText(content.items);
       if (read.kept.size > 0) keptBreaks.set(number, read.kept);
       pages.push({ page: number, kind: "page", label: null, text: read.text, anchors: null });
+      const layout = pageTables(textLayerRows(content.items));
+      // A recognizer's searchable layer is invisible text over the page's picture; visible text
+      // over a background picture is the page's own, so its figures are still checked (#448).
+      if (
+        layout.tables.length > 0 &&
+        (await pictureShare(page, OPS)) >= MIN_PICTURE_SHARE &&
+        (await invisibleText(page, OPS))
+      ) {
+        layout.tables = layout.tables.map((table) => ({ ...table, overPicture: true }));
+      }
+      layouts.set(number, layout);
       if (reading && (await isScanned(page, pageText(source.items), OPS))) {
         scanned.push(number);
         if (fields.length > 0) scanFields.set(number, scannedFormFields(page, fields));
@@ -583,7 +614,16 @@ async function extractPdf(
       await document.getPageLabels(),
       pages.map((unit) => unit.text),
     );
-    const units = pages.map((unit, index) => withPrintedName(unit, names[index] ?? null));
+    for (const unit of pages) {
+      const scan = unit.label?.scan;
+      if (!scan) continue;
+      // An unread scan keeps its text layer but no anchors, so it has no rows to find a table in.
+      layouts.set(unit.page, pageTables(scannedRows(unit.text, unit.anchors ?? [], scan.turn)));
+    }
+    const tables = continuedTables(layouts);
+    const units = pages.map((unit, index) =>
+      withTables(withPrintedName(unit, names[index] ?? null), tables.get(unit.page)),
+    );
     return { pageCount: pages.length, units, unread, parts: null, keptBreaks };
   } catch (error) {
     if (reading?.signal.aborted) throw reading.signal.reason;
@@ -596,6 +636,13 @@ async function extractPdf(
   } finally {
     await task.destroy();
   }
+}
+
+/** `unit` with `tables`, in place of any a kept scanned page had from an earlier read. */
+function withTables(unit: TextUnit, tables: UnitTable[] | undefined): TextUnit {
+  const { tables: _earlier, ...label } = unit.label ?? {};
+  const kept = tables && tables.length > 0 ? { ...label, tables } : label;
+  return { ...unit, label: Object.keys(kept).length > 0 ? kept : null };
 }
 
 function withPrintedName(unit: TextUnit, name: string | null): TextUnit {

@@ -33,6 +33,11 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import {
+  type AnalysisTableMatch,
+  analysisTableFor,
+  analysisTablesOf,
+} from "../../../shared/analysisTables";
 import { askedFor, translationRequested, waitsForUser } from "../../../shared/askedChanges";
 import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
 import {
@@ -289,6 +294,8 @@ export interface MindToolsOptions {
     /** Cells beyond its tables' columns, their text kept in the row's last cell. */
     extraCells: number;
     searchTalk: number;
+    /** The Analysis tables among its Blocks, so a chart of one draws the Analysis's own values (#2378). */
+    analysisTables: readonly AnalysisTableMatch[];
   };
   /** A call changed a Mind: its card says so, as soon as it does, also while it writes. */
   changed(toolCallId: string, change: MindChange): void;
@@ -950,6 +957,8 @@ interface Written {
   unrecorded: number;
   searchTalk: number;
   pointersBack: number;
+  /** The Analysis tables the text holds, so a chart of one draws its own values (#2378). */
+  analysisTables: readonly AnalysisTableMatch[];
   /** `ids` in the order of `blocks`. */
   blocks: { mindId: string; ids: readonly string[]; blocks: readonly NodeJSON[] };
 }
@@ -1577,6 +1586,7 @@ export function mindTools(options: MindToolsOptions): {
       unlinkedSources: 0,
       extraCells: 0,
       searchTalk: 0,
+      analysisTables: analysisTablesOf(options.lastAnswer?.answer.analyses ?? []),
     };
   };
 
@@ -1660,7 +1670,7 @@ export function mindTools(options: MindToolsOptions): {
     const markdown = typeof given === "string" ? alone.markdown : null;
     const content =
       typeof given === "string" ? options.blocksOf(alone.markdown) : answerContent(given.blocks);
-    const { blocks, cited, notFound, unrecorded, searchTalk, ...notes } = content;
+    const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, ...notes } = content;
     let writer = stream?.writer ?? null;
     const unmade = blocks.some(unmadeTable);
     const again = made ? "call create_mind again" : "call add_to_mind again";
@@ -1696,7 +1706,8 @@ export function mindTools(options: MindToolsOptions): {
     logPointersLeft(alone.left, writer.mind.id, toolCallId);
     // A chart drawn before `cite` records its table's markers would draw values with no Citation.
     const later = chart !== null && unrecorded > 0 && markdown !== null;
-    const drawn = chart && !later ? drawChart(writer, blocks, chart, markdown) : null;
+    const drawn =
+      chart && !later ? drawChart(writer, blocks, chart, markdown, analysisTables) : null;
     // Markers `cite` may still record in this step count as left out only once the Run is done.
     const change = {
       ...changeOf(writer, made),
@@ -1713,7 +1724,10 @@ export function mindTools(options: MindToolsOptions): {
         markdown,
         change: () => changeOf(writer, made),
         sent: change,
-        chart: later && chart ? (settled) => drawChart(writer, settled, chart, markdown) : null,
+        chart:
+          later && chart
+            ? (settled) => drawChart(writer, settled, chart, markdown, analysisTables)
+            : null,
       });
     }
     const charted = later
@@ -1726,6 +1740,7 @@ export function mindTools(options: MindToolsOptions): {
       searchTalk,
       pointersBack: alone.removed,
       charted,
+      analysisTables,
       blocks: { mindId: writer.mind.id, ids: writer.ids, blocks },
     };
   };
@@ -1735,6 +1750,7 @@ export function mindTools(options: MindToolsOptions): {
     blocks: readonly NodeJSON[],
     asked: ChartAsked,
     markdown: string | null,
+    analysisTables: readonly AnalysisTableMatch[],
   ): { said: string; problem?: ChartProblem } => {
     const at = blocks.findLastIndex((block) => block.type === "table");
     const table = blocks[at];
@@ -1755,7 +1771,14 @@ export function mindTools(options: MindToolsOptions): {
       markdown === null
         ? () => false
         : calculatedCells(markdown, (marker) => options.figure(marker));
-    const drawn = chartOfTable(table, tableId, asked, options.language, calculated);
+    const drawn = chartOfTable(
+      table,
+      tableId,
+      asked,
+      options.language,
+      calculated,
+      analysisTableFor(table, analysisTables),
+    );
     if ("problem" in drawn) return { problem: drawn.problem, said: drawn.why };
     minds.edit(writer.mind.id, (note) => {
       const after = topLevelBlocks(note).find((each) => idOf(each) === tableId) ?? null;
@@ -1782,7 +1805,15 @@ export function mindTools(options: MindToolsOptions): {
         `No chart was drawn: “${mind.name}” has ${several ? "more than one table, and the User's cursor is in none" : "no table"}. Say so, and ask them to put the cursor in the table to chart.`,
       );
     }
-    const drawn = chartOfTable(table.picked.node, table.picked.id, asked, options.language, null);
+    const analyses = options.lastAnswer?.answer.analyses ?? [];
+    const drawn = chartOfTable(
+      table.picked.node,
+      table.picked.id,
+      asked,
+      options.language,
+      null,
+      analysisTableFor(table.picked.node, analysisTablesOf(analyses)),
+    );
     if ("problem" in drawn) {
       throw new Refusal({ kind: "no-chart", mindId: mind.id, problem: drawn.problem }, drawn.why);
     }
@@ -2077,7 +2108,7 @@ export function mindTools(options: MindToolsOptions): {
   ): Written & { change: MindChange; dropped: number } => {
     const alone = withoutPointersBack(markdown);
     const content = options.blocksOf(alone.markdown);
-    const { blocks, cited, notFound, unrecorded, searchTalk, ...notes } = content;
+    const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, ...notes } = content;
     if (blocks.some(unmadeTable)) throw noTable(mind);
     logPointersLeft(alone.left, mind.id, toolCallId);
     // Written again from every Document, it is new text from create_mind or add_to_mind (#1415).
@@ -2149,6 +2180,7 @@ export function mindTools(options: MindToolsOptions): {
       unrecorded,
       searchTalk,
       pointersBack: alone.removed,
+      analysisTables,
       dropped,
       blocks: { mindId: mind.id, ids, blocks },
     };
@@ -2526,10 +2558,13 @@ export function mindTools(options: MindToolsOptions): {
     };
     const later = chart !== null && written.unrecorded > 0;
     const drawn =
-      chart && !later ? drawChart(target, written.blocks.blocks, chart, markdown) : null;
+      chart && !later
+        ? drawChart(target, written.blocks.blocks, chart, markdown, written.analysisTables)
+        : null;
     const settling = unsettled.get(toolCallId);
     if (later && chart && settling) {
-      settling.chart = (settled) => drawChart(target, settled, chart, markdown);
+      settling.chart = (settled) =>
+        drawChart(target, settled, chart, markdown, written.analysisTables);
     }
     if (drawn) {
       options.changed(toolCallId, {

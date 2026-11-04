@@ -11,6 +11,7 @@
  */
 import { COMMAND_TARGETS, type CommandTarget, type OfferedCommand } from "../../../shared/commands";
 import {
+  type CloudReadPermit,
   COMMAND_AT_ONCE,
   type CommandAsk,
   type CommandDone,
@@ -273,7 +274,7 @@ export function commandTools(options: CommandToolsOptions): {
       }
       options.found(toolCallId, foundOf(query, found.length));
       if (found.length === 0) {
-        return `No ${one} matches, so no command can act on one. Say so, and change nothing.`;
+        return `No ${one} matches, so no command can act on one. Commands for ${many}: ${commandsFor(query.kind, options.offered)}. Act only as the request fits one of them.`;
       }
       const shown = found.slice(0, MAX_LISTED);
       for (const each of shown) if (each.webPage) readTitles.add(each.id);
@@ -295,7 +296,7 @@ export function commandTools(options: CommandToolsOptions): {
     description: [
       `Runs one of the app's commands for the User, as ⌘K would, on what ${COMMAND_TOOLS.list} found, by id. For Documents: ${coreCommandsOn("document").map(coreLine).join("; ")}. For Notes, with no ids for this Note, the one the Question was asked from: ${coreCommandsOn("mind").map(coreLine).join("; ")}. For Folders: ${coreCommandsOn("folder").map(coreLine).join("; ")}. For Tags: ${coreCommandsOn("tag").map(coreLine).join("; ")}. For what is in Recently deleted: ${coreCommandsOn("deleted").map(coreLine).join("; ")}. For the Library: ${coreCommandsOn("library").map(coreLine).join("; ")}. Settings: ${coreLine("settings.change")}.`,
       `${COMMAND_TOOLS.list} gives the others for what it found, and with kind "window" those for the window in front; run them by id the same way.`,
-      `A change inside IncarnaMind runs at once and the User can undo it. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
+      `A change inside IncarnaMind runs at once and the User can undo it, except Organize and a Tag merge, which ask once. A delete, a file saved outside the Output location, files added from a folder, a recording, what can't be undone and more than ${COMMAND_AT_ONCE} changes wait for the User to allow them.`,
       YOURS_RULE,
       "Set done on the call that does the last thing the request asks for; leave it out while more is to do. After a window's command or a refusal with done, no reply is needed: what it shows is the reply. Otherwise say only what each call returned.",
     ].join(" "),
@@ -324,6 +325,20 @@ export function commandTools(options: CommandToolsOptions): {
         size: { type: "string" },
         setting: { type: "string", enum: SETTING_NAMES },
         value: { type: "string" },
+        merges: {
+          type: "array",
+          description:
+            "For tag.merge into more than one Tag: each merge, instead of ids and tag. Every merge in this one call is confirmed once.",
+          items: {
+            type: "object",
+            properties: {
+              ids: { type: "array", items: { type: "string" } },
+              tag: { type: "string" },
+            },
+            required: ["ids", "tag"],
+            additionalProperties: false,
+          },
+        },
         done: {
           type: "boolean",
           description:
@@ -347,11 +362,20 @@ export function commandTools(options: CommandToolsOptions): {
       if (!command) throw new Error("The command wasn't checked before it ran.");
       const ask = options.ask;
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
+      // The card named the cloud service and what goes to it: the User's Allow is that consent.
+      // A standing no is theirs to change in Settings: this Allow carries a permit for this run
+      // only, and stores nothing.
+      let permit: CloudReadPermit | undefined;
+      if (command.cloud) {
+        if (command.cloudDeclined) permit = { flow: "classification", serviceId: command.cloud.id };
+        else options.host.allowCloudRead(command.cloud);
+      }
       try {
         ran = await inTurn(() =>
           command.run(
             ask ? (question) => ask(toolCallId, question(options.language), signal) : null,
             signal,
+            permit,
           ),
         );
       } catch (error) {

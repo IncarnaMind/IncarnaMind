@@ -15,7 +15,7 @@ export type ParsedRange =
   | { ok: true; sheet: string | null; bounds: RangeBounds }
   | { ok: false; problem: string };
 
-const WHOLE: RangeBounds = { firstRow: 1, lastRow: null, firstColumn: 0, lastColumn: null };
+export const WHOLE: RangeBounds = { firstRow: 1, lastRow: null, firstColumn: 0, lastColumn: null };
 
 /**
  * A range as the model writes it: "A1:F1240", "'Q3 2025'!B2:D40", "rows
@@ -135,13 +135,14 @@ export interface ReadRange {
 export function readRange(
   rows: ReadonlyMap<number, readonly AnalysisCell[]>,
   bounds: RangeBounds,
+  limits = { rows: MAX_ROWS, cells: MAX_CELLS },
 ): ReadRange | null {
   const numbers = [...rows.keys()]
     .filter((row) => row >= bounds.firstRow && (bounds.lastRow === null || row <= bounds.lastRow))
     .sort((a, b) => a - b);
   const [headingRow, ...dataRows] = numbers;
   if (headingRow === undefined) return null;
-  const widest = Math.max(...numbers.map((row) => rows.get(row)?.length ?? 0));
+  const widest = numbers.reduce((most, row) => Math.max(most, rows.get(row)?.length ?? 0), 0);
   const lastColumn = Math.min(bounds.lastColumn ?? widest - 1, widest - 1);
   if (lastColumn < bounds.firstColumn) return null;
   const width = lastColumn - bounds.firstColumn + 1;
@@ -150,17 +151,26 @@ export function readRange(
       { length: width },
       (_, offset) => rows.get(row)?.[bounds.firstColumn + offset] ?? null,
     );
-  const columns = slice(headingRow).map((cell, offset) =>
+  const named = slice(headingRow).map((cell, offset) =>
     cell === null || cell === "" ? columnName(bounds.firstColumn + offset) : String(cell),
   );
-  const kept = Math.min(dataRows.length, MAX_ROWS, Math.floor(MAX_CELLS / width));
+  // Two columns under one heading name (a merged heading with no sub-heading) get a suffix, so
+  // the model can name either one and no figure silently takes the first (#448).
+  const seen = new Map<string, number>();
+  const columns = named.map((name) => {
+    const count = (seen.get(name) ?? 0) + 1;
+    seen.set(name, count);
+    return count === 1 ? name : `${name} (${count})`;
+  });
+  const kept = Math.min(dataRows.length, limits.rows, Math.floor(limits.cells / width));
   const read = dataRows.slice(0, kept);
-  const lastStored = Math.max(...rows.keys());
+  let lastStored = 0;
+  for (const row of rows.keys()) lastStored = Math.max(lastStored, row);
   const cells = [...rows.values()].reduce(
     (sum, row) => sum + row.filter((cell) => cell !== null).length,
     0,
   );
-  const sheetCut = rows.size >= MAX_ROWS || cells >= MAX_CELLS;
+  const sheetCut = rows.size >= limits.rows || cells >= limits.cells;
   const toTheEnd = bounds.lastRow === null || bounds.lastRow > lastStored;
   const lastRead = read.at(-1) ?? headingRow;
   return {

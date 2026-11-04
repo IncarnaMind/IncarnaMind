@@ -2,6 +2,7 @@ import type { EditorState } from "@tiptap/pm/state";
 import type { CitationAttributes, CitationCheck, ClaimCheckPart } from "../../../core/api";
 import { continuesCitation, overlapsCitation } from "../../../shared/citationOverlap";
 import { quotedWordsFoundIn } from "../../../shared/citations";
+import { citationLocation } from "../../../shared/locations";
 import { type NumberedCitation, numberedCitations } from "./citationNumbers";
 import type { ShownClaim } from "./claimChecks";
 
@@ -33,9 +34,16 @@ export type CitationDecision =
 
 export function citationDecision(state: EditorState, claim: ShownClaim): CitationDecision {
   const { evidence, calculation } = claim.check;
-  if (!evidence || calculation) return { kind: "none" };
+  if (!evidence || calculation || ofProperties(evidence)) return { kind: "none" };
   return decisionFor(state, claim, evidence);
 }
+
+/**
+ * A file's properties (#2458) are no Passage a Note's Citation could quote: a check names them in
+ * its row, and the Note's Citations stay quotes of the Documents' text, which every check reads.
+ */
+const ofProperties = (evidence: CitationAttributes) =>
+  citationLocation(evidence)?.kind === "properties";
 
 /**
  * What a supported part's row offers for each Passage its check found, by the
@@ -48,7 +56,7 @@ export function partDecisions(
 ): { evidence: CitationAttributes; decision: CitationDecision }[] {
   if (part.verdict !== "supported" || part.calculation) return [];
   return part.evidence
-    .filter((evidence) => evidence.check === "found")
+    .filter((evidence) => evidence.check === "found" && !ofProperties(evidence))
     .map((evidence) => ({ evidence, decision: decisionFor(state, claim, evidence) }));
 }
 

@@ -200,10 +200,6 @@ async function checkThisMind(window: Page, label = "Check") {
   await window.getByTestId("mind-tab").first().click({ button: "right" });
   await pointAndClick(window, window.getByRole("menuitem", { name: label, exact: true }));
   await checkCard(window);
-  await pointAndClick(
-    window,
-    window.getByTestId("check-card").getByTestId("mind-check-ask").getByTestId("mind-check-check"),
-  );
 }
 
 /** ⌘Z right after a card's action, as the User presses it: the note has the focus back. */

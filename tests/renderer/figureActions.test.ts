@@ -496,7 +496,7 @@ test("Change to source points the figure's own Citation at its source, and keeps
   expect(bold.join("")).toBe("Revenue 8");
 });
 
-test("with the note not open, a change and its Undo take an Analysis figure's run away and back", async () => {
+test("with the note not open, a change and its Undo leave an Analysis figure's run in place", async () => {
   const run: RetainedFigureAnalysis = {
     id: "run",
     title: "Revenue",
@@ -553,7 +553,8 @@ test("with the note not open, a change and its Undo take an Analysis figure's ru
     return { tr: state.tr.insertText("8", at, at + 1), said: () => "" };
   });
   expect(figuresInMind(blocks).some((each) => each.calculated)).toBe(false);
-  expect(runs.size).toBe(0);
+  // No edit removes a record: a change's Undo in another window may bring the figure back (#2378).
+  expect(runs.size).toBe(2);
   await undoable?.undo();
   expect(runs.toJSON()).toEqual(kept);
   expect(figuresInMind(blocks).some((each) => each.calculated?.figure.analysis)).toBe(true);

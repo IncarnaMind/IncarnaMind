@@ -364,6 +364,7 @@ function parseClaim(input: unknown) {
     context: typeof input.context === "string" ? input.context : undefined,
     cited,
     scope: parseSearchScope(input.scope),
+    mindId: typeof input.mindId === "string" ? input.mindId : null,
     checked: parseCheckedDocument(input.checked),
     model: parseModel(input.model),
   };
@@ -379,6 +380,7 @@ const citationAttributes = (citation: CitationAttributes): CitationAttributes =>
   pageTo: citation.pageTo,
   location: citation.location,
   quote: citation.quote,
+  ...(citation.yourNoteAt && { yourNoteAt: citation.yourNoteAt }),
   check: citation.check,
   checkReason: citation.checkReason,
   ...(citation.id && { id: citation.id }),
@@ -872,6 +874,12 @@ export function createChecks(options: ChecksOptions) {
     return {
       documentIds: [...(original?.documentIds ?? []), ...(checked.documentIds ?? [])],
       contentHashes: [...(original?.contentHashes ?? []), ...(checked.contentHashes ?? [])],
+      // A Mind's own snapshot never supports its own sentences, nor a copy of it (#335, #1935).
+      ownNoteMindIds: [
+        mindId,
+        ...(original?.ownNoteMindIds ?? []),
+        ...(checked.ownNoteMindIds ?? []),
+      ],
     };
   }
 
@@ -896,19 +904,19 @@ export function createChecks(options: ChecksOptions) {
       : { folderId: own, widened: walled ? false : allDocuments || own !== folderId };
     const leftOut = leftOutOf(mindId, checked);
     const resolved = options.scopeDocuments(wanted, mindId);
-    const scope = options.evidence.scope(resolved, leftOut);
+    const scope = options.evidence.scope(mindId, resolved, leftOut);
     const searchable = options.documents.searchableCount(scope.documentIds);
     const empty = (): NoDocuments => {
       const none: NoDocuments = { kind: "no-documents", folderId };
       if (!inChosen || !wanted) return none;
       if (
         options.documents.searchableCount(
-          options.evidence.scope(options.scopeDocuments(null, mindId), leftOut).documentIds,
+          options.evidence.scope(mindId, options.scopeDocuments(null, mindId), leftOut).documentIds,
         ) === 0
       )
         return none;
       const onlyLeftOut =
-        options.documents.searchableCount(options.evidence.scope(resolved).documentIds) > 0;
+        options.documents.searchableCount(options.evidence.scope(mindId, resolved).documentIds) > 0;
       return { ...none, chosen: { scope: wanted, onlyLeftOut } };
     };
     return {
@@ -1418,7 +1426,11 @@ export function createChecks(options: ChecksOptions) {
     folderDocuments: (folderId) =>
       options.resolveScope({ folderIds: [folderId], tagIds: [], documentIds: [] }) ?? [],
     evidenceScope: (mindId, documentIds, citedIds) =>
-      options.evidence.scope(documentIds, leftOutOf(mindId, { documentIds: [...citedIds] })),
+      options.evidence.scope(
+        mindId,
+        documentIds,
+        leftOutOf(mindId, { documentIds: [...citedIds] }),
+      ),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     prepare,
     prepareQuietly,
@@ -1489,7 +1501,7 @@ export function createChecks(options: ChecksOptions) {
 
   const answerCheck = createAnswerCheck({
     prepare: answeringModel,
-    scope: (documentIds) => options.evidence.scope(documentIds),
+    scope: (mindId, documentIds) => options.evidence.scope(mindId, documentIds),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     citedNow,
     passages: (cited, scope) =>
@@ -1527,7 +1539,8 @@ export function createChecks(options: ChecksOptions) {
   const wholeRead = createWholeRead({
     documents: options.documents,
     pickedDocuments: options.pickedDocuments,
-    evidenceScope: (mindId, documentIds) => options.evidence.scope(documentIds, leftOutOf(mindId)),
+    evidenceScope: (mindId, documentIds) =>
+      options.evidence.scope(mindId, documentIds, leftOutOf(mindId)),
     defaultModel: options.defaultModel,
     model: (choice) => chat.modelShape(choice ?? undefined),
     runStart: (check, model) => checkRunStart(options, check, model),
@@ -1623,8 +1636,12 @@ export function createChecks(options: ChecksOptions) {
       });
     },
 
-    planMindCheck: async (mindId: unknown, mode: unknown, allDocuments?: unknown) =>
-      mindCheck.planMindCheck(mindId, mode, allDocuments === true),
+    planMindCheck: async (
+      mindId: unknown,
+      mode: unknown,
+      allDocuments?: unknown,
+      figureIds?: unknown,
+    ) => mindCheck.planMindCheck(mindId, mode, allDocuments === true, figureIds),
 
     holdMindCheck: (input: unknown) => mindCheck.holdMindCheck(input),
     forgetCheckWindow: (clientId: unknown) => mindCheck.forgetCheckWindow(clientId),
@@ -1656,6 +1673,7 @@ export function createChecks(options: ChecksOptions) {
         });
       }
       const scope = options.evidence.scope(
+        parsed.mindId,
         options.scopeDocuments(parsed.scope, null),
         parsed.checked,
       );
@@ -1716,6 +1734,7 @@ export function createChecks(options: ChecksOptions) {
         (stored.check.scope.widened ? null : folderScope(stored.check.scope.folderId));
       // Resolved as the Mind's checks resolve theirs, so its wall bounds what a choice reads.
       const scope = options.evidence.scope(
+        input.mindId,
         options.scopeDocuments(wanted, input.mindId),
         leftOutOf(input.mindId),
       );

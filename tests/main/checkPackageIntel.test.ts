@@ -108,3 +108,65 @@ test.skipIf(lipo.status !== 0 || lipo.stdout.trim() !== "arm64")(
     expect(intelFailures().join("\n")).toContain(join("dist", "mac-arm64", "IncarnaMind.app"));
   },
 );
+
+/** The package check's failures about run_code's Python (ADR-0025). */
+function nativePythonFailures(): string[] {
+  const { stderr } = spawnSync(process.execPath, [SCRIPT, join(folder, "dist")], {
+    encoding: "utf8",
+  });
+  return stderr.split("\n").filter((line) => /python-native|run_code's Python/.test(line));
+}
+
+const resourcesOf = (platformFolder: string) =>
+  join(folder, "dist", platformFolder, "IncarnaMind.app", "Contents", "Resources");
+
+async function writeRuntimeJson(platformFolder: string, runtime: object) {
+  await mkdir(join(resourcesOf(platformFolder), "python-native"), { recursive: true });
+  await writeFile(
+    join(resourcesOf(platformFolder), "python-native", "runtime.json"),
+    JSON.stringify(runtime),
+  );
+}
+
+const runtime = {
+  file: "python-runtime-darwin-arm64.tar.zst",
+  url: "https://example.invalid/python-runtime-darwin-arm64.tar.zst",
+  size: 81_000_000,
+  sha256: "a".repeat(64),
+  platform: "darwin-arm64",
+  python: "3.14.10",
+  packages: { numpy: "2.5.4" },
+};
+
+test("a macOS app needs the runtime.json of run_code's Python beside app.asar", async () => {
+  await packApp("mac-arm64");
+  expect(nativePythonFailures()).toEqual([
+    `FAIL: ${join(resourcesOf("mac-arm64"), "app.asar")} has no python-native/runtime.json beside it (npm run python:native)`,
+  ]);
+  await writeRuntimeJson("mac-arm64", runtime);
+  expect(nativePythonFailures()).toEqual([]);
+});
+
+test("a runtime.json without a SHA-256 and size, or for another platform, fails the check", async () => {
+  await packApp("mac-arm64");
+  await writeRuntimeJson("mac-arm64", { ...runtime, sha256: "", platform: "linux-x64" });
+  const failures = nativePythonFailures().join("\n");
+  expect(failures).toContain("gives no SHA-256 and size for run_code's Python");
+  expect(failures).toContain("python-native/runtime.json is for linux-x64, not darwin-arm64");
+});
+
+test("the runtime's archive inside the app fails the check", async () => {
+  await packApp("mac-arm64");
+  await writeRuntimeJson("mac-arm64", runtime);
+  const archive = join(
+    resourcesOf("mac-arm64"),
+    "python-native",
+    "python-runtime-darwin-arm64.tar.zst",
+  );
+  await writeFile(archive, "");
+  // Beside the apps, where python:native writes it for the release, it is no part of any app.
+  await writeFile(join(folder, "dist", "python-runtime-darwin-arm64.tar.zst"), "");
+  expect(nativePythonFailures()).toEqual([
+    `FAIL: ${archive} is run_code's Python, which the app downloads and never ships`,
+  ]);
+});

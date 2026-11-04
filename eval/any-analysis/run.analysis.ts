@@ -13,6 +13,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { extname, join, relative } from "node:path";
@@ -99,6 +100,41 @@ async function listen(): Promise<{
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("The listener has no port.");
   return { server, port: address.port, heard };
+}
+
+/**
+ * run_code's own Python (#2351), when INCARNAMIND_TEST_PYTHON_RUNTIME names the folder
+ * `npm run python:native` wrote its archive to: served from this computer as its release would
+ * serve it, apart from the listener. The app fetches it through Chromium, so its one address
+ * bypasses the proxy, and any other request to it is heard as a connection.
+ */
+async function pythonRelease(
+  folder: string | undefined,
+  heard: { at: number; line: string }[],
+): Promise<{ server: HttpServer; port: number; manifest: string } | null> {
+  if (!folder) return null;
+  const given = JSON.parse(
+    await readFile(join(ROOT, "resources/python-native/runtime.json"), "utf8"),
+  ) as { file: string };
+  const archive = await readFile(join(folder, given.file));
+  const server = createHttpServer((request, response) => {
+    if (request.method === "GET" && request.url === `/${given.file}`) {
+      response.writeHead(200, { "content-length": archive.byteLength });
+      response.end(archive);
+      return;
+    }
+    heard.push({ at: Date.now(), line: `${request.method} ${request.url} (to Python's release)` });
+    response.writeHead(404).end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Python's release has no port.");
+  const manifest = join(tmpdir(), `incarnamind-any-analysis-python-${randomUUID()}.json`);
+  await writeFile(
+    manifest,
+    JSON.stringify({ ...given, url: `http://127.0.0.1:${address.port}/${given.file}` }),
+  );
+  return { server, port: address.port, manifest };
 }
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -216,15 +252,25 @@ test("the any-analysis set", async () => {
     );
   const runs = await chosen();
   const listener = await listen();
+  const python = await pythonRelease(process.env.INCARNAMIND_TEST_PYTHON_RUNTIME, listener.heard);
   const sources = join(tmpdir(), `incarnamind-any-analysis-${randomUUID()}`);
   const dataDir = await createDataFolder();
+  // The stand-in recognizer reads what the real one read of the scan D03 draws, so D03 measures
+  // what the app makes of a recognized table rather than finding no text at all.
+  const scans = join(tmpdir(), `incarnamind-any-analysis-scans-${randomUUID()}.json`);
+  const read = JSON.parse(await readFile(join(ROOT, "tests/fixtures/scans/read.json"), "utf8")) as {
+    pages: Record<string, unknown>;
+  };
+  await writeFile(scans, JSON.stringify({ pages: { 1: read.pages.table } }));
   let app: ElectronApplication | null = null;
   const record: RunRecord = {
     run: {
       startedAt: new Date().toISOString(),
       commit: commitOf(ROOT, [join(ROOT, "eval/results")]),
       model: `anthropic/${modelId}`,
-      runtime: "A test build, Chromium's sandbox on, Analyses in Pyodide in the hidden window",
+      runtime: python
+        ? "A test build, Chromium's sandbox on, Analyses in Pyodide in the hidden window and run_code in the OS sandbox with IncarnaMind's own Python"
+        : "A test build, Chromium's sandbox on, Analyses in Pyodide in the hidden window",
     },
     answers: [],
   };
@@ -235,12 +281,14 @@ test("the any-analysis set", async () => {
   try {
     const launched = await launchApp(dataDir, {
       sandboxed: true,
+      scans,
       // Chromium's requests, the Analysis window's among them, reach only the listener.
       // Loopback too: Chromium sends it past a proxy unless told not to.
       switches: [
         `--proxy-server=http://127.0.0.1:${listener.port}`,
-        "--proxy-bypass-list=<-loopback>",
+        `--proxy-bypass-list=<-loopback>${python ? `;127.0.0.1:${python.port}` : ""}`,
       ],
+      ...(python && { extraEnv: { INCARNAMIND_TEST_PYTHON_RUNTIME: python.manifest } }),
     });
     app = launched.app;
     if (isTraced(launched.window))
@@ -365,7 +413,10 @@ test("the any-analysis set", async () => {
     await app?.close().catch(() => undefined);
     await removeDataFolder(dataDir);
     await rm(sources, { recursive: true, force: true });
+    await rm(scans, { force: true });
     listener.server.close();
+    python?.server.close();
+    if (python) await rm(python.manifest, { force: true });
     console.log(`Saved ${record.answers.length} Answers to ${out}`);
   }
 });

@@ -12,7 +12,7 @@ import { ConsentDialog } from "./components/ConsentDialog";
 import { DropLabel } from "./components/DropLabel";
 import { ErrorNotices } from "./components/ErrorNotices";
 import { FeedbackDialog } from "./components/FeedbackDialog";
-import { DropOverlay, useFileDrop } from "./components/FileDrop";
+import { DropOverlay, useFileDrop, useWindowDrop } from "./components/FileDrop";
 import { FileWriteDialog } from "./components/FileWriteDialog";
 import { HistoryView } from "./components/history/HistoryView";
 import { InfoPanel } from "./components/InfoPanel";
@@ -36,6 +36,7 @@ import { useDragState } from "./dragDrop";
 import { useEscapeToDismiss } from "./escapeDismiss";
 import { useExamplesMenu, useExportMenu } from "./exportMenu";
 import { useLanguage, useT } from "./i18n";
+import type { Words } from "./lineNames";
 import { useMeetingHelpInWindow } from "./meetingHelp";
 import { useMeetings } from "./meetings";
 import { setMotionPreference } from "./motion";
@@ -205,6 +206,13 @@ function Workspace() {
   );
   // A target inside that takes the files (a Word file on a Mind) says what its drop does instead.
   const takenInside = useDragState((state) => state.over !== null);
+  // Where the drag is: the shell reads the zone alone, so a move redraws the label and not it.
+  const zone = useWindowDrop((state) => state.zone);
+  const overCard = fileDrop.active && zone === "card";
+  const windowWords: Words | null =
+    fileDrop.active && !takenInside && zone === "other"
+      ? (t) => t(fileDrop.links ? "webPages.drop" : "drop.addToLibrary")
+      : null;
   const windowWidth = useWindowWidth();
   const assistantBeside = useAppStore((state) => {
     const place = state.layout?.assistant;
@@ -301,10 +309,15 @@ function Workspace() {
         <Workbench
           ref={workbench}
           sidebarHidden={sidebar.hidden}
-          // Links dropped become web pages, so the card is where they go (#261).
-          cardOverlay={fileDrop.active && fileDrop.links ? <DropOverlay links /> : null}
+          // The overlay is the card's own light: only under the pointer, and never for a target
+          // inside, such as a Folder or the composer, so one target lights at a time (#212, #261).
+          cardOverlay={
+            fileDrop.active && overCard && !takenInside ? (
+              <DropOverlay links={fileDrop.links} />
+            ) : null
+          }
         />
-        <DropLabel />
+        <DropLabel instead={windowWords} />
         <PanelBoundary name="overlays">
           <CommandPalette />
           {/* Where Move to… from ⌘K opens when nothing it moves is in sight: where the palette was. */}
@@ -333,7 +346,6 @@ function Workspace() {
           <FileWriteDialog />
         </PanelBoundary>
         <ErrorNotices />
-        {fileDrop.active && !fileDrop.links && !takenInside && <DropOverlay />}
         <p role="status" data-testid="sidebar-announcement" className="sr-only">
           {announcement}
         </p>

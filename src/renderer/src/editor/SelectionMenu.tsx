@@ -14,9 +14,10 @@ import {
 } from "react";
 import type { MessageKey } from "../../../shared/i18n";
 import { keysHere, shortcutLabel } from "../commands/keymap";
-import { ChevronIcon } from "../components/icons";
+import { ChevronIcon, CommentIcon } from "../components/icons";
 import { PageBreakLineIcon } from "../components/lineIcons";
 import { useT } from "../i18n";
+import { commentCommandName, commentKeyshortcuts } from "./commentButton";
 import { isComposing } from "./composing";
 import { EditField, EditWorking } from "./EditField";
 import { selectionForEdit } from "./editSelection";
@@ -186,13 +187,17 @@ export function SelectionMenu({
   editor,
   ai = [],
   edit,
+  comment,
 }: {
   editor: Editor;
   ai?: readonly SelectionAction[];
   /** What the "Edit with AI…" field at the menu's foot asks with; with none the field isn't there. */
   edit?: EditWithAiField;
+  /** Comment on the selection (#328): the words get a quiet underline, and the card opens to type. */
+  comment?: { run(editor: Editor): void };
 }) {
   const t = useT();
+  const commentName = comment ? commentCommandName(t, shortcutLabel("comment.add")) : null;
   const frame = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const turnRow = useRef<HTMLButtonElement>(null);
@@ -684,6 +689,26 @@ export function SelectionMenu({
             >
               <span aria-hidden="true">T×</span>
             </button>
+            {comment && commentName && (
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="selection-comment"
+                title={commentName}
+                aria-label={commentName}
+                aria-keyshortcuts={commentKeyshortcuts()}
+                onMouseDown={keepSelection}
+                onClick={() => {
+                  // The card opens at the words where the menu stood, and keeps the focus the menu
+                  // would take back from it: close the menu first, then make the comment.
+                  closeMenu();
+                  act(() => comment.run(editor));
+                }}
+                className="selection-format"
+              >
+                <CommentIcon className="size-4" />
+              </button>
+            )}
           </div>
           {(shownAi.length > 0 || (edit && state.editable)) && (
             <>

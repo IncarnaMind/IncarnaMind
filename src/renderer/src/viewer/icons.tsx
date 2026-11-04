@@ -104,3 +104,10 @@ export const QuestionIcon = (props: IconProps) => (
     <path d="M12 19v.01" />
   </Stroke>
 );
+
+/** A dashed square: select an area of the page as a figure (#118). */
+export const AreaIcon = (props: IconProps) => (
+  <Stroke {...props} strokeDasharray="3 2.5">
+    <rect x="3.75" y="3.75" width="16.5" height="16.5" rx="1.5" />
+  </Stroke>
+);

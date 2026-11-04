@@ -13,6 +13,9 @@
 /** WordprocessingML's namespace (`w:`), and the relationships' (`r:`). */
 export const W_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 export const R_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+/** Word 2010's namespace (`w14:`), which names a comment's paragraph, and 2012's (`w15:`) for its thread. */
+export const W14_NAMESPACE = "http://schemas.microsoft.com/office/word/2010/wordml";
+export const W15_NAMESPACE = "http://schemas.microsoft.com/office/word/2012/wordml";
 
 export const XML_DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 
@@ -212,6 +215,11 @@ export function deletion(id: number, author: string, date: string | null, runs: 
 export const COMMENTS_RELATIONSHIP = `${R_NAMESPACE}/comments`;
 export const COMMENTS_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml";
+/** The part that says which comment answers which, and which are resolved (#328). */
+export const COMMENTS_EXTENDED_RELATIONSHIP =
+  "http://schemas.microsoft.com/office/2011/relationships/commentsExtended";
+export const COMMENTS_EXTENDED_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml";
 
 /**
  * The ids of Word's comment styles in a document: these, in a new one; an
@@ -252,6 +260,8 @@ export function comment(
   date: string | null,
   text: string,
   styles = COMMENT_STYLES,
+  /** Its last paragraph's `w14:paraId`, which `commentsExtended.xml` names (#328); none when unasked. */
+  paraId: string | null = null,
 ): string {
   const mark = `<w:r><w:rPr><w:rStyle w:val="${escapeXml(styles.reference)}"/></w:rPr><w:annotationRef/></w:r>`;
   const paragraphs = text
@@ -260,12 +270,39 @@ export function comment(
       (line, index) =>
         `<w:p><w:pPr><w:pStyle w:val="${escapeXml(styles.text)}"/></w:pPr>${index === 0 ? mark : ""}${run(line)}</w:p>`,
     );
+  if (paraId) {
+    const last = paragraphs.at(-1);
+    if (last)
+      paragraphs[paragraphs.length - 1] = last.replace(
+        "<w:p>",
+        `<w:p w14:paraId="${escapeXml(paraId)}">`,
+      );
+  }
   return `<w:comment w:id="${id}" w:author="${escapeXml(author)}"${dateAttribute(date)}>${paragraphs.join("")}</w:comment>`;
 }
 
 /** The comments part (word/comments.xml). */
-export function commentsPart(comments: readonly string[]): string {
-  return `${XML_DECLARATION}<w:comments xmlns:w="${W_NAMESPACE}" xmlns:r="${R_NAMESPACE}">${comments.join("")}</w:comments>`;
+export function commentsPart(
+  comments: readonly string[],
+  w14 = comments.some((each) => each.includes("w14:paraId")),
+): string {
+  return `${XML_DECLARATION}<w:comments xmlns:w="${W_NAMESPACE}" xmlns:r="${R_NAMESPACE}"${w14 ? ` xmlns:w14="${W14_NAMESPACE}"` : ""}>${comments.join("")}</w:comments>`;
+}
+
+/** What `commentsExtended.xml` says of one comment (#328): its paragraph, its parent's, and whether it's done. */
+export interface ExtendedComment {
+  paraId: string;
+  parentParaId: string | null;
+  done: boolean;
+}
+
+/** The comments-extended part (word/commentsExtended.xml), which Word's replies and resolved state use. */
+export function commentsExtendedPart(entries: readonly ExtendedComment[]): string {
+  const each = entries.map(
+    ({ paraId, parentParaId, done }) =>
+      `<w15:commentEx w15:paraId="${escapeXml(paraId)}"${parentParaId ? ` w15:paraIdParent="${escapeXml(parentParaId)}"` : ""}${done ? ' w15:done="1"' : ""}/>`,
+  );
+  return `${XML_DECLARATION}<w15:commentsEx xmlns:w15="${W15_NAMESPACE}">${each.join("")}</w15:commentsEx>`;
 }
 
 // ---------------------------------------------------------------------------
