@@ -215,7 +215,7 @@ export function commandTools(options: CommandToolsOptions): {
 
   const listTool: Tool = {
     name: COMMAND_TOOLS.list,
-    description: `Finds the User's Documents, Notes, Folders or Tags, or what is in Recently deleted (kind "deleted"), for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening things, beside the Note too, Settings at a page, recording, checking the Note in front, exporting and the rest of what ⌘K offers.`,
+    description: `Finds the User's Documents, Notes, Folders or Tags, or what is in Recently deleted (kind "deleted"), for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening things, beside the Note too, Settings at a page, recording, checking the Note in front and the rest of what ⌘K offers.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -363,13 +363,14 @@ export function commandTools(options: CommandToolsOptions): {
       const ask = options.ask;
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
       // The card named the cloud service and what goes to it: the User's Allow is that consent.
-      // A standing no is theirs to change in Settings: this Allow carries a permit for this run
-      // only, and stores nothing.
-      let permit: CloudReadPermit | undefined;
-      if (command.cloud) {
-        if (command.cloudDeclined) permit = { flow: "classification", serviceId: command.cloud.id };
-        else options.host.allowCloudRead(command.cloud);
-      }
+      // This run sends under a permit for that service, and the Allow is stored after it, as the
+      // Library stores "Use {company}" after it saves the model: a consent stored first would
+      // read as a turn-on of the switch for tagging by itself (#2308). A standing no is theirs to
+      // change in Settings: this Allow carries the permit for this run only, and nothing is stored.
+      const permit: CloudReadPermit | undefined = command.cloud && {
+        flow: "classification",
+        serviceId: command.cloud.id,
+      };
       try {
         ran = await inTurn(() =>
           command.run(
@@ -383,6 +384,8 @@ export function commandTools(options: CommandToolsOptions): {
         options.failed(toolCallId, problemOf(command.command, error));
         throw error;
       } finally {
+        if (command.cloud && !command.cloudDeclined)
+          await options.host.allowCloudRead(command.cloud);
         counted.delete(toolCallId);
         settle(toolCallId);
       }

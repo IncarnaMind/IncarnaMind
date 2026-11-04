@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type {
@@ -20,6 +21,7 @@ import { logFileIn, testProcesses, tideServer, waitForState } from "../helpers/c
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { type ModelCall, scriptedModel } from "../helpers/models";
+import { fakePrinter } from "../helpers/printer";
 import { transcribingCore, until } from "../helpers/transcription";
 import { startWeb, webSearchingModel } from "../helpers/web";
 
@@ -2640,6 +2642,102 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     ).toEqual(["Dock", "Harbour"]);
     expect(commandCalls(answer).at(-1)?.status).toBe("failed");
     expect(answer.text).not.toMatch(/Merged/i);
+  });
+
+  // protects="export this note as a Word file" exports the Note the Question was asked from when the call names no Note, as the window's commands take it, into the Output location at once; fails_when=an export with no ids is refused, or acts on another Note; no_claim=the file's contents.
+  test("an export that names no Note exports the Note the Question was asked from", async () => {
+    const model = calling(run("mind.export", { format: "docx" }, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createMind({ title: "Other note" });
+    const output = await createTempDataFolder();
+    await core.setOutputLocation(output);
+    const approved = approvals(core, "deny");
+
+    const answer = await askAssistant(core, {
+      text: "Export this note as a Word file",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(approved).toEqual([]);
+    expect(commandCalls(answer).at(-1)?.command?.items).toEqual([
+      expect.objectContaining({ id: mind.id, name: "Tides" }),
+    ]);
+    expect(await readdir(output)).toEqual(["Tides.docx"]);
+  });
+
+  // protects="export this note as a web page to share" saves the share page into the Output location at once, as the window's Export as… does; fails_when=the core's export doesn't take the format, or saves another one; no_claim=the page's contents.
+  test("a share page of this Note is saved into the Output location at once", async () => {
+    const model = calling(run("mind.export", { format: "share-page" }, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const output = await createTempDataFolder();
+    await core.setOutputLocation(output);
+    const approved = approvals(core, "deny");
+
+    const answer = await askAssistant(core, {
+      text: "Export this note as a web page I can share",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(approved).toEqual([]);
+    expect(commandCalls(answer).at(-1)?.status).toBe("done");
+    expect(await readdir(output)).toEqual(["Tides.html"]);
+  });
+
+  // protects=a source pack of a Note that cites nothing is refused in plain words and saves nothing, rather than another format; fails_when=a file is saved, or the call is refused for its format; no_claim=a source pack's pages.
+  test("a source pack of a Note with no Citations says why and saves nothing", async () => {
+    const model = calling(run("mind.export", { format: "source-pack" }, false));
+    // The app's printer, so the refusal is the pack's own, not that no PDF can be made here.
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS, {
+      printer: fakePrinter().printer,
+    });
+    const output = await createTempDataFolder();
+    await core.setOutputLocation(output);
+
+    const answer = await askAssistant(core, {
+      text: "Make a PDF of the pages this note cites",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const call = commandCalls(answer).at(-1);
+    expect(call?.status).toBe("failed");
+    expect(call?.commandProblem?.message).toBe("No Citations yet, so no cited pages to export.");
+    expect(await readdir(output)).toEqual([]);
+  });
+
+  // protects=a rename that names no Note is refused, so a model's slip never renames the Note the User is in; fails_when=the Note asked from is renamed; no_claim=the refusal's words.
+  test("a rename that names no Note renames nothing", async () => {
+    const model = calling(run("mind.rename", { name: "Board pack" }, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+
+    const answer = await askAssistant(core, {
+      text: "Rename the Q3 note to Board pack",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(commandCalls(answer).at(-1)?.status).toBe("failed");
+    expect((await core.listMinds()).map((each) => each.title)).toEqual(["Tides"]);
+  });
+
+  // protects=a delete that names no Note is refused before it asks, so the User is never asked to delete the Note they are in by a model's slip; fails_when=the delete asks, or the Note goes; no_claim=the refusal's words.
+  test("a delete that names no Note asks nothing and deletes nothing", async () => {
+    const model = calling(run("mind.delete", {}, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const approved = approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Delete the board pack note",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(commandCalls(answer).at(-1)?.status).toBe("failed");
+    expect(approved).toEqual([]);
+    expect((await core.listMinds()).map((each) => each.title)).toEqual(["Tides"]);
+    expect(await core.listDeleted()).toEqual([]);
   });
 
   // protects=a setting the User could change in Settings changes, and Undo puts it back; fails_when=it stays after Undo; no_claim=every setting.

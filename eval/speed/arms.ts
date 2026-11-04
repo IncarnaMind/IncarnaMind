@@ -1,13 +1,14 @@
 /**
  * The two paths a paired run compares (README.md › Paired runs), each an arm. Each runs in a core
  * of its own, opened the same way, so an arm changes what its core does only through the settings
- * it saves, as the User saves them, each model request as it is sent (a prompt's wording, a
- * provider option), and which Answer paths a model takes instead of the lists beside the catalog
- * (src/core/providers/catalog/answerPaths).
+ * it saves, as the User saves them, each model as it is made (how it thinks), each model request
+ * as it is sent (a prompt's wording, a provider option), and which Answer paths a model takes
+ * instead of the lists beside the catalog (src/core/providers/catalog/answerPaths).
  */
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { AnswerPathsOverride, ChatModelFactory, Core } from "../../src/core";
+import type { ChatModelSpec } from "../../src/core/providers/models";
 
 export interface Arm {
   id: string;
@@ -15,6 +16,8 @@ export interface Arm {
   label: string;
   /** Before each of its items: the settings it needs. */
   prepare?(core: Core): Promise<void>;
+  /** Each model made while the arm runs: one is made for each Answer, before its first request. */
+  spec?(spec: ChatModelSpec): ChatModelSpec;
   /** Each model request while the arm runs, as it is sent. */
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
   /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
@@ -41,6 +44,15 @@ export const ARMS: readonly Arm[] = [
     paths: { retrievesFirst: false },
   },
   {
+    id: "default-effort",
+    label:
+      "every call that thinks at its provider's default effort, as Tasks were sent before #1631; not what Claude's Answers were sent before it, at low (careful ones at high)",
+    spec: (spec) =>
+      spec.thinking === undefined || spec.thinking === "off"
+        ? spec
+        : { ...spec, thinking: "summary" },
+  },
+  {
     id: "retrieve-first",
     label:
       "the Question searched before the first call, answered from those Passages unless it needs more (#1633)",
@@ -58,7 +70,7 @@ export function armNamed(id: string): Arm {
   return arm;
 }
 
-/** The chat models and Answer paths of a core that runs both arms, as the arm in use has them. */
+/** The chat models and Answer paths of a core, as the arm it runs has them. */
 export function armSwitch() {
   let current: Arm | null = null;
   const middleware: LanguageModelMiddleware = {
@@ -73,7 +85,7 @@ export function armSwitch() {
     chatModels:
       (inner: ChatModelFactory): ChatModelFactory =>
       (spec) =>
-        wrapLanguageModel({ model: inner(spec), middleware }),
+        wrapLanguageModel({ model: inner(current?.spec?.(spec) ?? spec), middleware }),
     answerPaths,
     use(arm: Arm): void {
       current = arm;
