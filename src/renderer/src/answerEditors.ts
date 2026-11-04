@@ -13,6 +13,7 @@ import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import { questionOf } from "./conversations";
 import { tablesOf } from "./editor/answerTables";
 import { withoutCitationGlue } from "./editor/citationGlue";
+import { reportCopyNotice, takeCopyNotice } from "./editor/copyCitations";
 import { translateNow } from "./i18n";
 import { useAppStore } from "./store";
 
@@ -106,6 +107,7 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
   const { dom, text } = editor.view.serializeForClipboard(doc.slice(range.from, range.to));
   // The run's mark is how the Answer is drawn, not part of it.
   for (const run of dom.querySelectorAll(".citation-glue")) run.replaceWith(...run.childNodes);
+  const noticed = takeCopyNotice(dom);
   try {
     await navigator.clipboard.write([
       new ClipboardItem({
@@ -113,6 +115,7 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
         "text/plain": new Blob([text.trim()], { type: "text/plain" }),
       }),
     ]);
+    if (noticed) reportCopyNotice();
     return true;
   } catch (error) {
     useAppStore.getState().reportError(error);

@@ -9,7 +9,7 @@
 import type { AnalysisCell, AnalysisInput } from "../../shared/analysis";
 import { unitLocation } from "../../shared/locations";
 import type { UnitText } from "../../shared/units";
-import type { AnalysisRangeInput, Citation } from "../api";
+import type { AnalysisRangeInput, Citation, CitationLocation } from "../api";
 import type { CitationSource } from "../documents";
 import { unsureSpansIn } from "../documents/scan/layout";
 import { isFigure, withoutFootnoteMark } from "../documents/tableCells";
@@ -127,7 +127,7 @@ export function documentTables(units: readonly UnitText[]): DocumentTable[] {
 /** "p. 41", "pp. 2–4", "slide 2", "sections 3–4": where a table's rows are, for the model. */
 export function tableWhereText(
   rows: readonly { unit: number }[],
-  kind: UnitText["kind"] | "rows" | "lines" | "time" | undefined,
+  kind: UnitText["kind"] | CitationLocation["kind"] | undefined,
 ): string {
   const units = [...new Set(rows.map((row) => row.unit))];
   const [first, last] = [units[0] ?? 0, units.at(-1) ?? 0];

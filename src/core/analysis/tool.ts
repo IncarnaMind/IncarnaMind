@@ -1,6 +1,7 @@
 import { type AnalysisInput, noAnalysisOutput } from "../../shared/analysis";
 import type { UnitText } from "../../shared/units";
 import type { AnalysisRuntime } from "../adapters";
+import { setAsideRowsOf } from "../answers/sheetRows";
 import type {
   AnalysisFigureInput,
   AnalysisRangeInput,
@@ -140,6 +141,14 @@ export function rangeInput(
     check: "found",
     checkReason: null,
   };
+  // A sum over a sheet that keeps an earlier version of its rows counted both (#1979); a paid
+  // invoice struck through in a tracker is still one to count. The code reads every row, told
+  // which ones the file sets aside.
+  const setAsideHow = setAsideRowsOf(units);
+  const setAside = {
+    struck: read.rowNumbers.filter((row) => setAsideHow(named, row)?.includes("strikes")),
+    hidden: read.rowNumbers.filter((row) => setAsideHow(named, row)?.includes("hides")),
+  };
   const record: Omit<AnalysisRangeInput, "sha256"> = {
     kind: "range",
     name,
@@ -149,6 +158,7 @@ export function rangeInput(
     columns: read.columns.length,
     rowCount: read.rowCount,
     cut: read.cut,
+    ...(setAside.struck.length + setAside.hidden.length > 0 && { setAside }),
   };
   return {
     job: {
@@ -223,7 +233,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     provider: ANALYSIS_PROVIDER,
     providerTool: ANALYSIS_TOOLS.run,
     description:
-      'Run Python over sheets, CSV files and the tables of PDF, Word and PowerPoint files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once), a table a Passage of a PDF, Word file or deck shows, {"name": "costs", "passage": "P5"} (the whole table, over every page it runs to, its headings row 1; add "table": 2 where the Passage shows more than one), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
+      'Run Python over sheets, CSV files and the tables of PDF, Word and PowerPoint files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once; it holds the rows the file strikes through or hides too, which the result names: drop such rows by their numbers where they are an earlier version of rows the sheet shows plainly), a table a Passage of a PDF, Word file or deck shows, {"name": "costs", "passage": "P5"} (the whole table, over every page it runs to, its headings row 1; add "table": 2 where the Passage shows more than one), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. Give any other figure or table with result(name, value, label, unit), each a number or a table; a figure a model or test works out (a coefficient, a forecast, a p-value) also names the input\'s rows it used: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
     inputSchema: {
       type: "object",
       properties: {

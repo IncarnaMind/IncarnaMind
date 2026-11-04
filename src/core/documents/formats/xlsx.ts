@@ -4,9 +4,12 @@
  * Values are shown as Excel shows them: formulas give their last cached
  * result, numbers follow their cell's number format ("£350,200", "4.2%"),
  * dates become ISO dates, booleans TRUE and FALSE. Hidden sheets are left
- * out unless the read asks for them (#740). Sheets are read as a stream of rows, so a huge sheet costs no more
- * than the rows read: past `MAX_ROWS` rows or `MAX_CELLS` cells in all,
- * reading stops and the workbook says it was cut short. Ported from the
+ * out unless the read asks for them (#740). Rows the file strikes through or
+ * hides are read, and named as such: the file sets them aside, often as an
+ * older version of a row shown beside them (#1979). Sheets are read as a
+ * stream of rows, so a huge sheet costs no more than the rows read: past
+ * `MAX_ROWS` rows or `MAX_CELLS` cells in all, reading stops and the
+ * workbook says it was cut short. Ported from the
  * office-formats spike, with streaming and number formats added.
  *
  * The sheet preview also asks for the workbook's look (`layout`), read in the
@@ -38,7 +41,7 @@ import {
   readNotes,
   relationshipsOf,
 } from "./xlsxDrawings";
-import { readFont, readStyles, type WorkbookStyles } from "./xlsxStyles";
+import { readFont, readStyles, struckStyles, type WorkbookStyles } from "./xlsxStyles";
 import {
   child,
   descendants,
@@ -92,8 +95,81 @@ interface ReadCell extends Pick<Cell, "value" | "numeric" | "raw"> {
 }
 
 /** The parts the elements of a sheet's stream are read from. */
-const SHEET_PARTS = ["col", "row", "mergeCell"];
-const LAYOUT_PARTS = [...SHEET_PARTS, "sheetPr", "sheetView", "sheetFormatPr", "drawing"];
+const SHEET_PARTS = ["sheetPr", "col", "row", "mergeCell", "autoFilter"];
+const LAYOUT_PARTS = [...SHEET_PARTS, "sheetView", "sheetFormatPr", "drawing"];
+
+/** An XML boolean, as Excel ("1") and LibreOffice ("true") write one. */
+const flagOn = (value: string | undefined): boolean => value === "1" || value === "true";
+
+/** What a sheet's rows need beside them to settle which it sets aside (`setAsideRows`). */
+interface RowFacts {
+  /** Rows hidden by hand or by a filter, not by a collapsed group. */
+  hidden: readonly number[];
+  /** Rows some of whose cells are struck through: the columns of those that aren't. */
+  partlyStruck: ReadonlyMap<number, readonly number[]>;
+  /** Rows every cell of which is struck through: the columns that hold a value. */
+  struckColumns: ReadonlyMap<number, readonly number[]>;
+  /** The sheet says a filter hides some of its rows (`<sheetPr filterMode>`). */
+  filterMode: boolean;
+  /** The sheet's AutoFilter and its Tables', each with a criterion: the ranges they filter. */
+  filters: readonly XmlElement[];
+}
+
+/**
+ * Settles the rows a sheet sets aside, once its merges and filters are read (they follow its
+ * rows). A row struck through but for its revision's label is struck through: the label is
+ * merged down beside the rows, or written once above struck rows that leave its column empty. A
+ * row a filter hides is a current row the filter doesn't match: one inside a filter's range, or
+ * any hidden row when the sheet says a filter is on but no range with a criterion is known.
+ */
+function setAsideRows(sheet: Sheet, facts: RowFacts): void {
+  const labels = new Set<string>();
+  for (const merge of sheet.merges) {
+    const [from, to] = merge.split(":").map((ref) => parseCellRef(ref));
+    if (from && to && to.row > from.row) labels.add(`${from.row}:${from.column}`);
+  }
+  const labelAbove = (row: number, column: number) => {
+    const below = facts.struckColumns.get(row + 1);
+    return below !== undefined && !below.includes(column);
+  };
+  for (const [row, plain] of facts.partlyStruck)
+    if (plain.every((column) => labels.has(`${row}:${column}`) || labelAbove(row, column)))
+      sheet.struckRows?.add(row);
+  const ranges = facts.filters.flatMap((filter) => {
+    if (descendants(filter, "filterColumn").length === 0) return [];
+    const [from, to] = (filter.attrs.ref ?? "").split(":").map((ref) => parseCellRef(ref));
+    return from && to ? [{ header: from.row, last: to.row }] : [];
+  });
+  const filtered = (row: number) =>
+    ranges.length === 0
+      ? facts.filterMode
+      : ranges.some((range) => row > range.header && row <= range.last);
+  for (const row of facts.hidden) if (!filtered(row)) sheet.hiddenRows?.add(row);
+}
+
+/** The AutoFilters of a sheet's Tables, which their own parts hold (`xl/tables/table1.xml`). */
+async function tableFilters(zip: ZipArchive, part: string): Promise<XmlElement[]> {
+  const filters: XmlElement[] = [];
+  for (const { target, type } of (await relationshipsOf(zip, part)).values()) {
+    const xml = type.endsWith("/table") && zip.has(target) ? await zip.readText(target) : undefined;
+    const filter = xml ? child(parseXml(xml), "autoFilter") : undefined;
+    if (filter) filters.push(filter);
+  }
+  return filters;
+}
+
+const isHiddenSheet = (entry: XmlElement) =>
+  entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden";
+
+/** The sheets xl/workbook.xml lists (#2458), and how many of them are hidden; null for none. */
+export async function workbookSheets(
+  bytes: Uint8Array,
+): Promise<{ count: number; hidden: number } | null> {
+  const xml = await openPackage(bytes).readText("xl/workbook.xml");
+  const entries = xml === undefined ? [] : descendants(parseXml(xml), "sheet");
+  if (entries.length === 0) return null;
+  return { count: entries.length, hidden: entries.filter(isHiddenSheet).length };
+}
 
 /**
  * Reads a workbook's visible sheets, and with `readHidden`, its hidden and very
@@ -143,6 +219,7 @@ export async function readWorkbook(
       formats.push(custom.get(id) ?? builtInFormat(id));
     }
   }
+  const struck = struckStyles(styles);
   let looks: WorkbookStyles | undefined;
   if (layout) {
     const themeXml = themePart && zip.has(themePart) ? await zip.readText(themePart) : undefined;
@@ -169,10 +246,8 @@ export async function readWorkbook(
   const rowsCut: { sheet: string; from: number }[] = [];
   const sheetsNotRead: string[] = [];
   const entries = descendants(workbook, "sheet");
-  const hiddenEntry = (entry: XmlElement) =>
-    entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden";
   const ordered = readHidden
-    ? [...entries.filter((entry) => !hiddenEntry(entry)), ...entries.filter(hiddenEntry)]
+    ? [...entries.filter((entry) => !isHiddenSheet(entry)), ...entries.filter(isHiddenSheet)]
     : entries;
   const positions = new Map(entries.map((entry, position) => [entry, position]));
   const active = Number(descendants(workbook, "workbookView")[0]?.attrs.activeTab ?? 0);
@@ -188,7 +263,7 @@ export async function readWorkbook(
     const part = targets.get(entry.attrs["r:id"] ?? "");
     if (!part || !zip.has(part)) continue;
     const name = entry.attrs.name ?? `Sheet${(positions.get(entry) ?? 0) + 1}`;
-    const hidden = hiddenEntry(entry);
+    const hidden = isHiddenSheet(entry);
     if (!readHidden && hidden) {
       hiddenSheets.push(name);
       continue;
@@ -212,6 +287,8 @@ export async function readWorkbook(
       columnWidths: [],
       formulas: new Map(),
       saved: new Map(),
+      struckRows: new Set(),
+      hiddenRows: new Set(),
     };
     const formulas = new SheetFormulas(sheet);
     const look = looks ? emptyLayout() : undefined;
@@ -224,8 +301,16 @@ export async function readWorkbook(
       continue;
     }
     let rowNumber = 0;
+    let filterMode = false;
+    let filter: XmlElement | undefined;
+    const hiddenRows: number[] = [];
+    const partlyStruck = new Map<number, number[]>();
+    const struckColumns = new Map<number, number[]>();
     const chunks = zip.textChunks(part, MAX_STREAMED_BYTES);
     for await (const element of streamElements(chunks, look ? LAYOUT_PARTS : SHEET_PARTS)) {
+      if (is(element, "sheetPr")) filterMode = flagOn(element.attrs.filterMode);
+      // The sheet's own AutoFilter comes first; a custom view's comes after it, and isn't the one on.
+      if (is(element, "autoFilter")) filter ??= element;
       if (is(element, "col")) {
         readColumns(element, sheet, look);
         continue;
@@ -250,6 +335,8 @@ export async function readWorkbook(
       }
       rowsLeft--;
       let column = -1;
+      const plain: number[] = [];
+      const valued: number[] = [];
       for (const c of cells) {
         const ref = c.attrs.r ? parseCellRef(c.attrs.r) : null;
         column = ref ? ref.column : column + 1;
@@ -260,6 +347,8 @@ export async function readWorkbook(
         formulas.read(c, cell, rowNumber, column);
         if (!cell) continue;
         cellsLeft--;
+        valued.push(column);
+        if (!struck.has(Number(c.attrs.s ?? 0))) plain.push(column);
         sheet.cells.push({
           row: rowNumber,
           column,
@@ -270,7 +359,25 @@ export async function readWorkbook(
         sheet.rowCount = Math.max(sheet.rowCount, rowNumber);
         sheet.columnCount = Math.max(sheet.columnCount, column + 1);
       }
+      if (valued.length === 0) continue;
+      if (plain.length === 0) {
+        sheet.struckRows?.add(rowNumber);
+        struckColumns.set(rowNumber, valued);
+      } else if (plain.length < valued.length) partlyStruck.set(rowNumber, plain);
+      // A collapsed group hides its detail rows, which are current rows out of view.
+      const grouped = Number(element.attrs.outlineLevel ?? 0) > 0;
+      if (flagOn(element.attrs.hidden) && !grouped) hiddenRows.push(rowNumber);
     }
+    setAsideRows(sheet, {
+      hidden: hiddenRows,
+      partlyStruck,
+      struckColumns,
+      filterMode,
+      filters: [
+        ...(filter ? [filter] : []),
+        ...(hiddenRows.length > 0 ? await tableFilters(zip, part) : []),
+      ],
+    });
   }
   // Merged ranges stretch the grid even where they hold nothing.
   for (const sheet of sheets) {

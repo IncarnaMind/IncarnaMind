@@ -200,6 +200,10 @@ function DocxPages({ loaded, target }: { loaded: Loaded; target: ViewerTarget })
         }
         mapOfficeFontNames(style, body);
         fixSymbols(style, body);
+        // An area picked over a page is cited by its words; the core works out their section (#118).
+        for (const page of body.querySelectorAll<HTMLElement>(`section.${CLASS_NAME}`)) {
+          page.dataset.areaUnit = "";
+        }
         comments.current = takeComments(body, CLASS_NAME, (author) =>
           t("viewer.docx.comment", { author }),
         );

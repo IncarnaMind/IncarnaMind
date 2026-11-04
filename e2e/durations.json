@@ -37,6 +37,7 @@
   "assistantGap.spec.ts": 43,
   "assistantInView.spec.ts": 83,
   "assistantReadsMind.spec.ts": 31,
+  "assistantReopen.spec.ts": 31,
   "assistantResizeKeys.spec.ts": 23,
   "assistantWaitingChanges.spec.ts": 16,
   "blankAnswer.spec.ts": 7,

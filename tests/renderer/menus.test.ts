@@ -287,6 +287,38 @@ describe("the menus", () => {
     ).toBe(false);
   });
 
+  // protects=a Folder's Add Documents here… acts on one Folder only, so two selected Folders are offered neither a menu item nor a ⌘K command that would file into only the first (#212); fails_when=the menu or ⌘K lists it for two Folders; no_claim=what the picker does.
+  test("Add Documents here… is offered for one Folder only, in its menu and in ⌘K", async () => {
+    const one: CommandContext = {
+      selection: [{ kind: "folder", id: "a" }],
+      focus: { kind: "folder", id: "a" },
+      surface: "library",
+    };
+    const two: CommandContext = {
+      ...one,
+      selection: [
+        { kind: "folder", id: "a" },
+        { kind: "folder", id: "b" },
+      ],
+    };
+    const inMenu = (ctx: CommandContext) =>
+      buildMenu("folder", ctx).some(
+        (entry) => entry !== "rule" && entry.command.id === "folder.addDocuments",
+      );
+    expect(inMenu(one)).toBe(true);
+    expect(inMenu(two)).toBe(false);
+
+    const { actionGroup } = await import("../../src/renderer/src/palette");
+    const { queryWords } = await import("../../src/renderer/src/matcher");
+    const typed = queryWords("Add Documents here");
+    const inPalette = (ctx: CommandContext) =>
+      actionGroup(typed, { ...ctx, surface: "palette" }, "en", new Map())
+        .flatMap((group) => group.items)
+        .some((item) => item.key === "command:folder.addDocuments");
+    expect(inPalette(one)).toBe(true);
+    expect(inPalette(two)).toBe(false);
+  });
+
   test("a comparison column's menu shows the heading's own keys: F2 edits it and Delete removes it", async () => {
     const { menuKeysLabel } = await import("../../src/renderer/src/commands/keymap");
     const edit = commands.get("comparison.column.edit");

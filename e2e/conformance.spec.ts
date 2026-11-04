@@ -98,6 +98,9 @@ const NO_UNDO_YET: Record<string, string> = {
   "folder.organize": "what it suggests is taken back in To review (#241), not by ⌘Z",
 };
 
+/** Commands that add what the system's open sheet gives: the stub answers each with a new file. */
+const ADDS_A_PICKED_FILE = new Set(["folder.addDocuments"]);
+
 /** Commands that only make a Mind: it gets no undo line and no ⌘Z step, because Delete takes it back (#1191). */
 const MAKES_A_MIND = new Set([
   "document.ask",
@@ -375,6 +378,11 @@ async function checkCommand(
   const place = await placeOf(run, kind, stage, key);
   const readState = () => stateOf(run, stage, key);
   const before = await settled(window, readState);
+  if (ADDS_A_PICKED_FILE.has(commandId)) {
+    const added = join(run.sources, "Added here.txt");
+    await writeFile(added, "Added into the Folder from its menu.\n");
+    await interceptOpenDialog(run.app, added);
+  }
 
   if (through === "palette") {
     // ⌘K on its row acts on it; ">" lists the actions that apply.

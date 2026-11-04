@@ -3,10 +3,10 @@ import {
   addedDate,
   defaultFolderLabelKey,
   documentSummary,
-  fileDate,
   infoLabelKey,
   showFileLabelKey,
 } from "../../src/renderer/src/fileInfo";
+import { fileDate } from "../../src/shared/fileProperties";
 import { translate } from "../../src/shared/i18n";
 
 test("when something was added is a date in the app's one style", () => {

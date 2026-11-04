@@ -103,6 +103,7 @@ import {
   unsureWordsCovered,
 } from "./citations";
 import type { CiteOptions } from "./engine";
+import { setAsideRowsOf } from "./sheetRows";
 
 /** Why a formula mustn't change an amount's scale, and how to show the figure in the scale meant. */
 function scaleChangeProblem(change: ScaleChange, language: Language): string {
@@ -489,6 +490,23 @@ function signNote(negatives: readonly { name: string; chars: string; value: numb
     .map((each) => `${each.name} is ${each.chars}, read as ${plainNumber(each.value)}`)
     .join("; ");
   return ` Check the sign: ${read}, so subtracting ${them} adds ${them}. To take a deduction off, add it (price + fee); if adding ${them} is what you meant, the figure stands.`;
+}
+
+/**
+ * The inputs read from rows the file strikes through or hides (#1979), said after the figure: a
+ * total over an earlier version's rows read as the sheet's current one. "" when none is.
+ */
+function setAsideNote(reads: readonly Pick<ReadInput, "given" | "quoted" | "cell">[]): string {
+  const said = reads.flatMap((read) => {
+    const row = Number(/\d+$/.exec(read.cell?.ref ?? "")?.[0]);
+    const how =
+      read.cell && Number.isInteger(row)
+        ? setAsideRowsOf(read.quoted.units)(read.cell.sheet, row)
+        : null;
+    return how ? [`${read.given.name} is in row ${row}, which the file ${how}`] : [];
+  });
+  if (said.length === 0) return "";
+  return ` ${said.join("; ")}: the file has set ${said.length === 1 ? "that row" : "those rows"} aside, so a figure from ${said.length === 1 ? "it" : "them"} is never the sheet's current one. Where you give this figure, say so.`;
 }
 
 /** One of the reader's readings, as the model is offered it. */
@@ -2448,7 +2466,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       scale: given.scale,
     };
     let shown = showResult(result, show);
-    let note = negatives.length > 0 ? signNote(negatives) : "";
+    let note = (negatives.length > 0 ? signNote(negatives) : "") + setAsideNote(reads);
     // A result that can't be shown as asked (a difference of percents "as a percent") is shown in
     // its own unit, which is the right one, rather than refused.
     if (!shown.ok && show.as !== null) {

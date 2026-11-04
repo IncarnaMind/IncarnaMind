@@ -33,6 +33,7 @@ import type { PageFetch } from "../core/documents/web/fetch";
 import type { ModelCopies } from "../core/embedding/modelSources";
 import { createFakeCapture, type FakeCapture, wavSamples } from "../core/meetings/fakeCapture";
 import type { ModelFactsLayer } from "../core/providers/capabilities";
+import { COPILOT_PROFILES } from "../core/providers/copilot/config";
 import { type LocalServers, scriptedLocalServers } from "../core/providers/localServers";
 import { type Resolve, systemResolve } from "../core/tools/web/addresses";
 import type { FakeTranscriberOptions } from "../core/transcription/fake";
@@ -682,26 +683,29 @@ function claudeStandIn(): CoreAdapters["claudeAccount"] {
 }
 
 /**
- * Test-only launch flag: a local server standing in for GitHub and Copilot, at
- * this origin, where the experimental way of signing in with GitHub signs in
- * and asks, so the smoke tests reach neither. Only a test build honours it.
+ * Test-only launch flag: a local server standing in for GitHub and Copilot, at this origin. Each
+ * profile this build offers keeps its client ID, scopes and headers; only its endpoints move, so
+ * the smoke tests reach neither GitHub nor Copilot. Only a test build honours it.
  */
 function copilotStandIn(): CoreAdapters["copilotProfiles"] {
   const origin = import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_COPILOT : undefined;
   if (!origin) return undefined;
-  return {
-    editor: {
-      experimental: true,
-      clientId: "test-editor-app",
+  const profiles: NonNullable<CoreAdapters["copilotProfiles"]> = {};
+  for (const id of ["own", "editor"] as const) {
+    const profile = COPILOT_PROFILES[id];
+    if (!profile) continue;
+    profiles[id] = {
+      ...profile,
       deviceCodeUrl: `${origin}/login/device/code`,
       tokenUrl: `${origin}/login/oauth/access_token`,
-      scopes: ["read:user"],
-      format: "json",
       apiBaseUrl: origin,
       accountUrl: `${origin}/user`,
-      tokenExchange: { url: `${origin}/copilot_internal/v2/token` },
-    },
-  };
+      ...(profile.tokenExchange && {
+        tokenExchange: { ...profile.tokenExchange, url: `${origin}/copilot_internal/v2/token` },
+      }),
+    };
+  }
+  return profiles;
 }
 
 // The smoke tests read when each stream's audio went to the fake transcriber, to check that none

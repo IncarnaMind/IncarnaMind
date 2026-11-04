@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CopilotPlan, CopilotStatus } from "../../../../core/api";
-import { copilotWay } from "../../../../core/providers/copilot/service";
+import { copilotTagged, copilotWay } from "../../../../core/providers/copilot/service";
 import {
   COPILOT_SIGN_IN_PROBLEMS,
   type RouteProblemWords,
@@ -137,14 +137,21 @@ export function CopilotPlanRow() {
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className={`flex flex-wrap items-center gap-x-2 ${rowTitleClass}`}>
           {t("plans.copilot.title")}
-          {offered.experimental && <ExperimentalTag />}
+          {copilotTagged(status) && <ExperimentalTag />}
         </span>
         {account.state === "signed-in" ? (
           <>
             <span data-testid="plans-copilot-account" className={rowTextClass}>
-              {[t(account.plan ? PLAN_NAMES[account.plan] : "copilot.plan.unknown"), account.login]
-                .filter(Boolean)
-                .join(" · ")}
+              {account.profile === "own"
+                ? account.login
+                  ? t("copilot.signedIn.own", { account: account.login })
+                  : t("copilot.signedIn.ownNoName")
+                : [
+                    t(account.plan ? PLAN_NAMES[account.plan] : "copilot.plan.unknown"),
+                    account.login,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
             </span>
             {ready && <span className={rowTextClass}>{t("copilot.signedIn.usage")}</span>}
           </>
