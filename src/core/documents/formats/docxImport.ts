@@ -39,9 +39,11 @@ import { DEFAULT_NOTE_NUMBERING } from "../../../shared/wordNotes";
 import { mindHeadingLevel } from "../../../shared/wordStyles";
 import {
   BLOCK_ID_ATTRIBUTE,
+  COMMENT_MARK,
   FOOTNOTE_NODE,
   IMAGE_NODE,
   type KeptChangeKind,
+  type MindComment,
   PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   PROPOSAL_ATTRIBUTE,
@@ -108,6 +110,8 @@ export interface WordStructure {
   /** Parts the look couldn't read (a broken `settings.xml`): it went on without them. */
   lookUnreadable: string[];
   noteNumbering: WordNoteNumbering;
+  /** Its comments (#328), with their threads and resolved state, anchored on the text by the comment mark. */
+  comments: MindComment[];
 }
 
 /** Reads a Word package's main document as Blocks. Throws `WordRefusedError` for one that can't be read. */
@@ -395,11 +399,76 @@ function readNumbering(xml: string | undefined, styles: Styles): Numbering {
   return { abstracts, nums };
 }
 
-/** A comment's author, date and text. */
+/** A comment's author, date and text, and its place in the file (#328). */
 interface Comment {
   author: string;
   date: string;
   text: string;
+  /** Its last paragraph's `w14:paraId`, which `commentsExtended.xml` names; null when it has none. */
+  paraId: string | null;
+  /** The `w14:paraId` of the comment it replies to; null for a comment of its own. */
+  parentParaId: string | null;
+  /** `w15:done`: the file marks it resolved. */
+  done: boolean;
+}
+
+/**
+ * The file's comments as the Mind's own (#328): one record per thread, its
+ * replies in the file's order, and the resolved state `commentsExtended.xml`
+ * gives. Each record's id names it in the comment mark on its words.
+ */
+function commentThreads(comments: Map<string, Comment>): {
+  records: MindComment[];
+  idOfWord: Map<string, string>;
+} {
+  const idOfWord = new Map<string, string>();
+  const byWord = new Map<string, MindComment>();
+  const byParaId = new Map<string, MindComment>();
+  for (const [wordId, comment] of comments) {
+    // Derived from the file's id, so reading the package again gives the same marks: a commented
+    // paragraph read for its look isn't taken for one the User edited (#328).
+    const id = `word-comment-${wordId}`;
+    // Word's dates are UTC: a file that leaves its zone off is read as one, never as this computer's time.
+    const zone = /(?:Z|[+-]\d{2}:?\d{2})$/iu.test(comment.date.trim());
+    const parsed = Date.parse(zone ? comment.date : `${comment.date}Z`);
+    const date = Number.isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString();
+    const record: MindComment = {
+      id,
+      author: comment.author,
+      createdAt: date,
+      text: comment.text,
+      resolvedAt: comment.done ? date : null,
+      replies: [],
+    };
+    idOfWord.set(wordId, id);
+    byWord.set(wordId, record);
+    if (comment.paraId) byParaId.set(comment.paraId, record);
+  }
+  const records: MindComment[] = [];
+  for (const [wordId, comment] of comments) {
+    const record = byWord.get(wordId);
+    if (!record) continue;
+    const parent = comment.parentParaId ? byParaId.get(comment.parentParaId) : undefined;
+    const idNumber = Number(wordId);
+    const word =
+      Number.isInteger(idNumber) && idNumber >= 0
+        ? { word: { id: idNumber, paraId: comment.paraId } }
+        : {};
+    if (parent && parent !== record) {
+      // Word gives a reply its own range around its parent's words: the mark names the thread.
+      idOfWord.set(wordId, parent.id);
+      parent.replies.push({
+        id: record.id,
+        author: record.author,
+        createdAt: record.createdAt,
+        text: record.text,
+        ...word,
+      });
+    } else {
+      records.push({ ...record, ...word });
+    }
+  }
+  return { records, idOfWord };
 }
 
 /** The text of a part, or of an element in it: its paragraphs, a line each; a table row's cells by tabs. */
@@ -790,6 +859,8 @@ class Reader {
   private carry = 0;
   private fieldDepth = 0;
   private field: OpenField | null = null;
+  /** The comments whose range the text being read is inside, by the file's `w:id` (#328). */
+  private readonly openComments = new Set<string>();
   /** Body-level marks (bookmarks, ranges) waiting for the next paragraph to hold them. */
   private pending: NodeJSON[] = [];
   /** The content of the paragraph read last, which takes marks no paragraph follows. */
@@ -819,7 +890,10 @@ class Reader {
     private readonly rels: Map<string, Relationship>,
     private readonly styles: Styles,
     private readonly numbering: Numbering,
-    private readonly comments: Map<string, Comment>,
+    /** Each comment's own id, by the file's `w:id` (#328): the mark on its words names it. */
+    private readonly commentIds: Map<string, string>,
+    /** Its comments, with their threads and resolved state (#328). */
+    private readonly mindComments: MindComment[],
     private readonly noteParts: Record<NoteKind, NotesReading | null>,
     private readonly images: Map<string, string>,
     /** The text of each header and footer part. */
@@ -879,16 +953,36 @@ class Reader {
       });
     const look = lookReader();
     const comments = new Map<string, Comment>();
+    // `commentsExtended.xml` says which comment replies to which, and which the file marks done (#328).
+    const extended = new Map<string, { parent: string | null; done: boolean }>();
+    const extendedXml = await read("/commentsExtended");
+    for (const each of extendedXml ? elements(parseXml(extendedXml)) : []) {
+      if (each.name !== "w15:commentEx") continue;
+      const paraId = each.attrs["w15:paraId"];
+      if (!paraId) continue;
+      extended.set(paraId, {
+        parent: each.attrs["w15:paraIdParent"] ?? null,
+        done: each.attrs["w15:done"] === "1" || each.attrs["w15:done"] === "true",
+      });
+    }
     const commentsXml = await read("/comments");
     for (const comment of commentsXml ? elements(parseXml(commentsXml)) : []) {
       const id = comment.attrs["w:id"];
       if (comment.name !== "w:comment" || id === undefined) continue;
+      // A comment is named by its last paragraph's `w14:paraId`, which commentsExtended names.
+      const paragraphs = [...walk(comment)].filter((each) => each.name === "w:p");
+      const paraId = paragraphs.at(-1)?.attrs["w14:paraId"] ?? null;
+      const link = paraId ? extended.get(paraId) : undefined;
       comments.set(id, {
         author: comment.attrs["w:author"]?.trim() ?? "",
         date: comment.attrs["w:date"] ?? "",
         text: blockText(comment),
+        paraId,
+        parentParaId: link?.parent ?? null,
+        done: link?.done ?? false,
       });
     }
+    const { records: mindComments, idOfWord: commentIds } = commentThreads(comments);
     const noteNumbering = noteNumberingOf(readableXml(settingsXml), child(document, "w:body"));
     const noteParts: Record<NoteKind, NotesReading | null> = { footnote: null, endnote: null };
     // A note's runs are read with the file's styles, but the Mind's look draws only its body.
@@ -905,7 +999,8 @@ class Reader {
         await relationshipsOf(zip, name),
         styles,
         numbering,
-        comments,
+        commentIds,
+        mindComments,
         { footnote: null, endnote: null },
         new Map(),
         new Map(),
@@ -948,7 +1043,8 @@ class Reader {
       rels,
       styles,
       numbering,
-      comments,
+      commentIds,
+      mindComments,
       noteParts,
       images,
       partTexts,
@@ -1100,6 +1196,7 @@ class Reader {
       look: this.look.look(),
       lookUnreadable: this.look.unreadable,
       noteNumbering: this.noteNumbering,
+      comments: this.mindComments,
     };
   }
 
@@ -1323,7 +1420,9 @@ class Reader {
           this.report.sections++;
           break;
         default:
-          if (RANGES.has(element.name))
+          if (element.name === "w:commentRangeStart" || element.name === "w:commentRangeEnd") {
+            this.rangeMarker(element);
+          } else if (RANGES.has(element.name))
             this.pending.push(this.atom("range", this.place(element), {}));
           else if (!IGNORED.has(element.name) && !PROPERTIES.has(element.name)) {
             items.push({
@@ -1671,7 +1770,7 @@ class Reader {
       if ((element.name === "w:ins" || element.name === "w:del") && readableChange(element)) {
         const author = element.attrs["w:author"]?.trim() || null;
         const joined = element.name === "w:ins" && deleted?.author === author ? deleted.ref : null;
-        const ref = this.trackedChange(element, marks, out, joined);
+        const ref = this.trackedChange(element, this.withComments(marks), out, joined);
         deleted = element.name === "w:del" ? { ref, author } : null;
         continue;
       }
@@ -1679,8 +1778,17 @@ class Reader {
       switch (element.name) {
         case "w:pPr":
           break;
+        case "w:commentRangeStart":
+        case "w:commentRangeEnd": {
+          const id = element.attrs["w:id"];
+          if (id) {
+            if (element.name === "w:commentRangeStart") this.openComments.add(id);
+            else this.openComments.delete(id);
+          }
+          break;
+        }
         case "w:r":
-          this.run(element, marks, out);
+          this.run(element, this.withComments(marks), out);
           break;
         case "w:hyperlink": {
           const href = this.hrefOf(element);
@@ -1754,6 +1862,8 @@ class Reader {
     if (PROPERTIES.has(element.name) || IGNORED.has(element.name)) return;
     if (element.name === "w:bookmarkStart" || element.name === "w:bookmarkEnd") {
       this.pending.push(this.bookmark(element));
+    } else if (element.name === "w:commentRangeStart" || element.name === "w:commentRangeEnd") {
+      this.rangeMarker(element);
     } else if (RANGES.has(element.name)) {
       this.pending.push(this.atom("range", this.place(element), {}));
     } else {
@@ -1849,6 +1959,27 @@ class Reader {
     }
   }
 
+  /** Marks with the comment of each range the text is inside (#328). */
+  private withComments(marks: MarkJSON[]): MarkJSON[] {
+    if (this.openComments.size === 0) return marks;
+    // A reply's range meets its parent's: one mark for the thread, not two.
+    const added = new Set<string>();
+    for (const wordId of this.openComments) {
+      const id = this.commentIds.get(wordId);
+      if (id) added.add(id);
+    }
+    if (added.size === 0) return marks;
+    return [...marks, ...[...added].map((id) => ({ type: COMMENT_MARK, attrs: { id } }))];
+  }
+
+  /** A range's start or end between paragraphs: the text that follows takes it, or stops taking it. */
+  private rangeMarker(element: XmlElement): void {
+    const id = element.attrs["w:id"];
+    if (!id) return;
+    if (element.name === "w:commentRangeStart") this.openComments.add(id);
+    else this.openComments.delete(id);
+  }
+
   private text(text: string, marks: MarkJSON[], out: NodeJSON[]): void {
     if (text)
       this.fromRun(marks.length > 0 ? { type: "text", text, marks } : { type: "text", text }, out);
@@ -1917,19 +2048,9 @@ class Reader {
           ),
         );
         break;
-      case "w:commentReference": {
-        const comment = this.comments.get(element.attrs["w:id"] ?? "");
-        out.push(
-          this.atom("comment", this.place(element), {
-            text: comment?.text ?? "",
-            info: {
-              ...(comment?.author && { author: comment.author }),
-              ...(comment?.date && { date: comment.date }),
-            },
-          }),
-        );
+      case "w:commentReference":
+        // The comment itself is the Mind's comment (#328), on the words its range covers.
         break;
-      }
       case "w:sym":
         out.push(this.atom("symbol", this.place(element), {}));
         break;

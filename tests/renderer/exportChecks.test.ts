@@ -3,6 +3,7 @@ import type { SentenceChecksExported } from "../../src/core/api";
 import {
   checkComments,
   commentsHint,
+  myCommentsPart,
   rewrittenLine,
   trackedChanges,
   unmarkedChecks,
@@ -51,6 +52,25 @@ describe("The line after saving, for what a file says of its checked sentences",
     const on = checks({ contradicted: 1, unsupported: 1, comments: 2 }, true);
     expect(checkComments(on, t("en"), true)).toBe("2 check comments");
     expect(checkComments(on, t("zh-CN"), true)).toBe("2 条核对批注");
+  });
+
+  test("the User's own comments in a Word file are counted, or said left out with the way to include them, in English and Chinese (#328)", () => {
+    expect(myCommentsPart(3, true, t("en"))).toBe("with 3 comments");
+    expect(myCommentsPart(3, true, t("zh-CN"))).toBe("含 3 条批注");
+    expect(myCommentsPart(1, true, t("en"))).toBe("with 1 comment");
+    expect(myCommentsPart(1, true, t("zh-CN"))).toBe("含 1 条批注");
+    expect(myCommentsPart(3, false, t("en"))).toBe("Your 3 comments were left out");
+    expect(myCommentsPart(3, false, t("zh-CN"))).toBe("你的 3 条批注未包含");
+    expect(myCommentsPart(1, false, t("en"))).toBe("Your comment was left out");
+    expect(myCommentsPart(1, false, t("zh-CN"))).toBe("你的 1 条批注未包含");
+    expect(myCommentsPart(0, true, t("en"))).toBeNull();
+    expect(t("en")("export.myComments.include")).toBe("Include them");
+    expect(t("zh-CN")("export.myComments.include")).toBe("包含");
+    expect(t("en")("export.includeMyComments")).toBe("Include my comments");
+    expect(t("zh-CN")("export.includeMyComments")).toBe("包含我的批注");
+    // The fold the cards go into, in both languages, with 批注 and never 评论 (#328).
+    expect(t("en")("comments.fold", { count: 3 })).toBe("Comments (3)");
+    expect(t("zh-CN")("comments.fold", { count: 3 })).toBe("批注（3）");
   });
 
   test("the undo line of a file written again says what changed in it, one or more, in English and Chinese (#110)", () => {

@@ -30,6 +30,8 @@ export const libraryCommands: readonly Command[] = [
     when: () => looseDocumentIds(useAppStore.getState()).length > 0,
     // Its suggestions wait in To review, and its Undo takes them back with the Folders it made.
     reversible: true,
+    // The assistant's Organize is documents.organize, which files them at once with one Undo (#2252).
+    assistant: false,
     async run() {
       useAppStore.getState().openLibrary();
       await organizeDocuments(looseDocumentIds(useAppStore.getState()));

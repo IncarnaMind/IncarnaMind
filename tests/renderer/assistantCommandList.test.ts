@@ -577,6 +577,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         "mind.rename",
         "mind.style",
         "tag.delete",
+        "tag.merge",
         "tag.rename",
         "deleted.restore",
       ].sort(),

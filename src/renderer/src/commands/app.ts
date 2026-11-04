@@ -30,6 +30,7 @@ import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
 import { chartCommands } from "./charts";
 import { checkCommands } from "./checks";
+import { commentCommands } from "./comments";
 import { comparisonCommands } from "./comparisons";
 import { deletedCommands } from "./deleted";
 import { editCommands } from "./edit";
@@ -218,6 +219,7 @@ const appCommands: readonly Command[] = [
   ...evidenceCommands,
   ...mindSourceCommands,
   ...comparisonCommands,
+  ...commentCommands,
   ...researchCommands,
   ...analysisCommands,
   ...exportCommands,

@@ -323,8 +323,13 @@ export interface CreateMindInput {
  *   An older version's reader refuses a bash run's record and would keep the
  *   Note again without it, so it opens these Notes read-only. Older content is
  *   version 49 content as it is.
+ * - 50: comments on text (#328): the `comment` mark on the words a comment is
+ *   on, and its thread (author, time, replies, resolved) in the Mind's
+ *   `comments` map. An older version would strip the mark, so it opens these
+ *   Notes read-only. Older content is version 49 content as it is: a Note
+ *   written before has no comments.
  */
-export const CONTENT_SCHEMA_VERSION = 49;
+export const CONTENT_SCHEMA_VERSION = 50;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -442,6 +447,51 @@ export const MIND_FIGURE_RUNS_FIELD = "figureRuns";
  * marks go and sync with the Note. See src/shared/signOffs.ts.
  */
 export const MIND_SIGN_OFFS_FIELD = "signOffs";
+
+/**
+ * The name of the mark on the words a comment is on (#328): its `id` is the comment's,
+ * which names a record in the Mind's `comments` map. The mark goes with the words through
+ * edits, moves and sync; the record holds the thread.
+ */
+export const COMMENT_MARK = "comment";
+
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that holds its comments (#328), by
+ * comment id: the words they are on carry the `comment` mark with that id. A comment is
+ * stored here, not in the mark, so it stays when its text is deleted, as "Text removed".
+ */
+export const MIND_COMMENTS_FIELD = "comments";
+
+/** Where a comment came from in a Word file (#328): its `w:id`, and its last paragraph's `w14:paraId`. */
+export interface WordCommentMark {
+  /** `w:id`, which its range's `w:commentRangeStart`, `w:commentRangeEnd` and `w:commentReference` share. */
+  id: number;
+  /** Its last paragraph's `w14:paraId`, which `commentsExtended.xml` names; null when the file has none, so replies can't be linked. */
+  paraId: string | null;
+}
+
+/** One message of a comment's thread (#328): the comment itself, or a reply. */
+export interface CommentMessage {
+  id: string;
+  /**
+   * Its author's name as it was written: a Word file's author, "IncarnaMind" for the
+   * assistant, or null for the User, shown as their Settings name (or "Me").
+   */
+  author: string | null;
+  /** When it was written (ISO 8601, UTC). */
+  createdAt: string;
+  text: string;
+  /** Its place in the Word file it was imported from; applied to the export as it goes out. */
+  word?: WordCommentMark;
+}
+
+/** A comment on a Mind's text (#328), as the Mind stores it: its thread, and whether it's resolved. */
+export interface MindComment extends CommentMessage {
+  /** When the User resolved it (ISO 8601, UTC); null while it's open. */
+  resolvedAt: string | null;
+  /** Replies to it, in the order they were written, or imported. */
+  replies: CommentMessage[];
+}
 
 /** What a person checked (#1933): a Citation by its own id, a figure by its id, a comparison cell. */
 export interface SignOffTarget {
@@ -1264,6 +1314,18 @@ export interface CommandDone {
   folder?: { id: string; name: string };
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
   setting?: { name: string; from: string; to: string };
+  /** Organize: the Folders it filed the Documents into, most first (#2252). */
+  folders?: readonly { name: string; count: number }[];
+  /** Organize: how many of the Documents it read it couldn't sort (#2252). */
+  unsorted?: number;
+  /** Organize: how many it never reached, left as they were when the run stopped (#2252). */
+  untouched?: number;
+  /** Organize: how many Documents it was asked to sort, which the Folders, unsorted and untouched count (#2252). */
+  considered?: number;
+  /** A Tag merge: what went into what, by name (#2252). */
+  merges?: readonly { from: string; into: string }[];
+  /** A Tag merge: how many Tags the Library held before and after (#2252). */
+  tagCount?: { before: number; after: number };
 }
 
 /** Why a call of `run_command` changed nothing (#1110). */
@@ -8717,6 +8779,15 @@ export const dataFlowIds = [
 export type DataFlowId = (typeof dataFlowIds)[number];
 
 /**
+ * Consent a command's Allow gives for one run only, to one service and flow; it is never stored
+ * (#2252). Nothing else may send: the standing decision and the automatic switch stay as they are.
+ */
+export interface CloudReadPermit {
+  flow: DataFlowId;
+  serviceId: string;
+}
+
+/**
  * The flows choosing the chat model's provider allows (ADR-0022): what runs
  * by itself, as the line above "Use this provider" says. That line is made from
  * this list, so a flow added here needs its words (`chosenFlowLines`). Tagging and
@@ -9720,9 +9791,11 @@ export interface ToolApprovalRequest extends ApprovalRequestBase {
 
 /**
  * Why a change inside IncarnaMind waits for the User (#1110): it would take the Answer's changes
- * past `COMMAND_AT_ONCE`, or it deletes, which the assistant never does without asking.
+ * past `COMMAND_AT_ONCE`, it deletes, which the assistant never does without asking; Organize
+ * files what the User asked to have sorted (#2252); or a Tag merge is proposed, every merge in
+ * the one call.
  */
-export type CommandAskReason = "many" | "delete";
+export type CommandAskReason = "many" | "delete" | "organize" | "merge";
 
 /** How many things one Answer's commands may change before the next change asks the User first (#1110). */
 export const COMMAND_AT_ONCE = 20;
@@ -9745,6 +9818,12 @@ export type CommandAsk =
       items: CommandItem[];
       /** The Folder or Tag it would put them in, by name. */
       into: string | null;
+      /** A Tag merge's pairs, by name, when one call merges into more than one Tag (#2252). */
+      merges?: readonly { from: string; into: string }[];
+      /** The cloud service that would read the Documents for the first time, by name (#2252). */
+      service?: string;
+      /** The User said no before, so this Allow sends them this time only (#2252). */
+      declined?: boolean;
       /** How many things the Answer changed without asking before this call. */
       changed: number;
     }
@@ -9920,6 +9999,14 @@ export interface FolderDeletion {
   conversationIds: string[];
 }
 
+/** A link automatic tagging changed, before and after, so a command can take it back (#2252). */
+export interface TagLinkChange {
+  documentId: string;
+  tagId: string;
+  before: Pick<DocumentTag, "source" | "confidence" | "needsReview"> | null;
+  after: Pick<DocumentTag, "source" | "confidence" | "needsReview"> | null;
+}
+
 /** How a Document carried a Tag before a change, for `revertDocumentTags`. */
 export interface TagLinkState {
   documentId: string;
@@ -10050,6 +10137,14 @@ export interface WordExportPreferences {
   trackChanges: boolean;
   markAiText: MarkAiTextChoice | null;
   commentFailedChecks: boolean;
+  /**
+   * In someone else's file, whether the User's own comments and replies go into the Word
+   * file (#328). Chosen in Export options and kept for the Note named by `myCommentsFile`
+   * only, so another file starts off. Absent: off there, and always on in the User's own Note.
+   */
+  includeMyComments?: boolean;
+  /** The Note `includeMyComments` was chosen for (#328): no other Note's export takes it. */
+  myCommentsFile?: string;
 }
 
 export interface ExportMindOptions {
@@ -10091,6 +10186,11 @@ export interface ExportMindOptions {
    * else's file keeps its own choice instead (`setCheckComments`).
    */
   commentFailedChecks?: boolean;
+  /**
+   * Word only (#328): whether the User's own comments and replies go into the file. The file's
+   * own imported comments always do. Absent: on in the User's own Note, off in someone else's.
+   */
+  includeMyComments?: boolean;
   /**
    * A web page to share only: each Citation's marker opens a card with
    * its quote, the part of its Document around it, and its check. Off, the
@@ -10140,6 +10240,12 @@ export interface MindExportPreview {
   othersFile: boolean;
   /** For someone else's file: whether its Word export gets check comments (`setCheckComments`); false otherwise. */
   othersComments: boolean;
+  /** The User's own comments and replies in the Note (#328): what a Word file includes, or leaves out. */
+  myComments: number;
+  /** Whether the Word file includes them; true for a format that writes no comments. */
+  myCommentsShown: boolean;
+  /** Whether a Word export offers "Include my comments": the file came from someone else (#328). */
+  myCommentsOptional: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -12649,6 +12755,13 @@ export interface CoreApi {
    */
   revertDocumentTags(links: TagLinkState[]): Promise<Document[]>;
   /**
+   * The Tags the User decided on for each Document, added or removed: automatic tagging leaves
+   * those links alone, live or removed. Returns each Document's Tag ids, in the order given.
+   */
+  listDocumentTagDecisions(
+    documentIds: string[],
+  ): Promise<{ documentId: string; tagIds: string[] }[]>;
+  /**
    * Merges a Tag into another: every Document carrying `tagId` carries
    * `intoTagId` instead, and `tagId` is deleted. Who chose each Tag is kept
    * (the User's choice wins when a Document had both), and a removal the
@@ -13670,6 +13783,7 @@ const methods: Record<CoreApiMethod, true> = {
   addTagToDocuments: true,
   removeTagFromDocuments: true,
   revertDocumentTags: true,
+  listDocumentTagDecisions: true,
   mergeTags: true,
   retagDocuments: true,
   backOnline: true,

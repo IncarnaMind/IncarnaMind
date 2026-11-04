@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type {
   ApprovalRequest,
@@ -7,6 +9,8 @@ import type {
   WindowCommandRequest,
   WindowCommandResult,
 } from "../../src/core";
+import { DATABASE_FILE } from "../../src/core";
+import { openDatabase } from "../../src/core/storage";
 import { STYLE_EXAMPLES } from "../../src/core/tools/commands/styles";
 import type { OfferedCommand } from "../../src/shared/commands";
 import { translate } from "../../src/shared/i18n";
@@ -38,6 +42,14 @@ const DOCUMENTS = [
     name: "Scan 0042.md",
     contents: "# Agreement\n\nThe landlord lets the flat; rent is due monthly.\n",
   },
+];
+
+const MANY_DOCUMENTS = [
+  ...DOCUMENTS,
+  ...Array.from({ length: 17 }, (_, at) => ({
+    name: `Rent note ${at + 1}.md`,
+    contents: `Rent note ${at + 1}: 900 euros.`,
+  })),
 ];
 
 const entry = (id: OfferedCommand["id"], label: string, more: Partial<OfferedCommand> = {}) => ({
@@ -363,6 +375,15 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     const after = await core.getLibrary();
     expect(after.groups.map((each) => each.name)).not.toContain("Leases");
     expect(after.assignments.filter((each) => each.groupId !== null)).toEqual([]);
+
+    // Redo does it again: the Folder comes back and the same Documents are filed.
+    await core.redoCommands(runOf(answer));
+    const again = await core.getLibrary();
+    const remade = again.groups.find((each) => each.name === "Leases");
+    expect(remade).toBeDefined();
+    expect(
+      again.assignments.filter((each) => each.groupId === remade?.id && !each.suggested),
+    ).toHaveLength(2);
   });
 
   // protects=renaming a preset Tag with the assistant and undoing puts back that it was not the User's; fails_when=the preset stays the User's at 0; no_claim=a real model's ids.
@@ -382,12 +403,13 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect((await core.listTags()).map((tag) => tag.name)).not.toContain("Decks");
   });
 
-  // protects="put the documents about leases together" runs the Library's Organize, which reads what each says (the scan's name says nothing), and its suggestions wait in To review: nothing moves; one Undo takes them and the Folder back; fails_when=a Document is filed as the User's choice, the scan is left out, or Undo leaves a suggestion; no_claim=a real classifier's choices.
-  test("Organize by content suggests, and nothing moves before the User accepts", async () => {
+  // protects="re organise the files" runs Organize in the turn, files the Documents at once, and one Undo puts them back (#2252, ADR-0013's 2026-11-03 amendment); fails_when=it leaves suggestions, files nothing, or asks the User to confirm a small Organize; no_claim=which Folder the classifier picks.
+  test("Organize files the Documents at once, and one Undo puts them back", async () => {
+    let classified = 0;
     const answers = scriptedModel(
       (call) => {
-        const made = call.results.filter((each) => each.tool === "run_command").length;
-        return made === 0
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
           ? {
               calls: [
                 {
@@ -400,7 +422,1797 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
                 },
               ],
             }
-          : { text: "Organize is sorting them." };
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as {
+            groups?: { id: string; name: string }[];
+            document?: { text?: string };
+          };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified++;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          const aboutRent = /rent/i.test(JSON.stringify(data.document ?? {}));
+          return {
+            text: JSON.stringify({
+              groupId: aboutRent && leases ? leases.id : "__unsorted__",
+              tags: [],
+              newTags: [{ name: "Leased", description: "Lease papers" }],
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind, documents } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    const requests = approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    // A small Organize asks nothing: the request is the acceptance, and it runs at once.
+    expect(requests).toHaveLength(0);
+
+    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
+    expect(leases?.description).toBe("Lease papers: tenancies and rent");
+    const aboutRent = documents
+      .filter((each) => !each.name.startsWith("Q3"))
+      .map((each) => each.id)
+      .sort();
+    const filed = async () =>
+      (await core.getLibrary()).assignments
+        .filter((each) => each.groupId === leases?.id)
+        .map((each) => ({ id: each.documentId, suggested: each.suggested, source: each.source }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+    expect(await filed()).toEqual(
+      aboutRent.map((id) => ({ id, suggested: false, source: "user" })),
+    );
+    // The reply names what moved, and no Document the run left where it was.
+    expect(answer.text).toContain("Organize filed 3 Documents");
+    // The record counts every Document it read, so a reply's "3 of the 4" adds up.
+    expect(commandCalls(answer).at(-1)?.command?.considered).toBe(4);
+    expect(answer.text).toContain("Leases");
+    expect(answer.text).not.toContain("Q3 commentary");
+    // The reply already names the Folder, so the app doesn't say it a second time; what the reply
+    // leaves out, the couldn't-be-sorted count, the app still says.
+    expect(answer.text).not.toContain("Sorted 3 Documents");
+    expect(answer.text).toContain("1 Document couldn’t be sorted.");
+
+    // Undo takes back the Tags Organize added, and Redo adds them again.
+    const tagsOf = async (id: string) =>
+      ((await core.listDocuments()).find((each) => each.id === id)?.tags ?? []).length;
+    const tagged = await Promise.all(aboutRent.map(tagsOf));
+    expect(tagged.every((count) => count > 0)).toBe(true);
+    const classifications = classified;
+    await core.undoCommands(runOf(answer));
+    expect((await Promise.all(aboutRent.map(tagsOf))).every((count) => count === 0)).toBe(true);
+    const after = await core.getLibrary();
+    expect(after.groups.map((each) => each.name)).not.toContain("Leases");
+    expect(after.assignments.filter((each) => each.groupId !== null)).toEqual([]);
+
+    // Redo files the Folders it recorded, without asking the model again.
+    await core.redoCommands(runOf(answer));
+    expect(classified).toBe(classifications);
+    const again = await core.getLibrary();
+    const remade = again.groups.find((each) => each.name === "Leases");
+    expect(remade).toBeDefined();
+    expect(
+      again.assignments
+        .filter((each) => each.groupId === remade?.id && !each.suggested)
+        .map((each) => each.documentId)
+        .sort(),
+    ).toEqual(aboutRent);
+
+    expect((await Promise.all(aboutRent.map(tagsOf))).every((count) => count > 0)).toBe(true);
+
+    // Undo again puts them back: Redo's filing is what this Undo compares against.
+    await core.undoCommands(runOf(answer));
+    const undoneTwice = await core.getLibrary();
+    expect(undoneTwice.groups.map((each) => each.name)).not.toContain("Leases");
+    expect(undoneTwice.assignments.filter((each) => each.groupId !== null)).toEqual([]);
+    expect((await Promise.all(aboutRent.map(tagsOf))).every((count) => count === 0)).toBe(true);
+  });
+
+  // protects=Undo leaves the Tags of a Document Organize never touched (#2252); fails_when=the other Document loses its Tag; no_claim=which Folder the classifier picks.
+  test("Undo leaves the Tags of Documents Organize didn't touch", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+    const q3 = documents.find((each) => each.name === "Q3 commentary");
+    if (!q3) throw new Error("No Q3 commentary.");
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "" });
+    await core.assignDocumentGroup(q3.id, finance.id);
+    const budget = await core.createTag({ name: "Budget" });
+    await core.addTagToDocuments([q3.id], budget.id);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    await core.undoCommands(runOf(answer));
+
+    const after = (await core.listDocuments()).find((each) => each.id === q3.id);
+    expect(after?.tags.some((each) => each.tagId === budget.id)).toBe(true);
+  });
+
+  // protects=a Tag added while the Organize card waits stays after Undo, while the Tags the run added go (#2252); fails_when=the waiting Tag is removed or an automatic one stays; no_claim=which Folder the classifier picks.
+  test("Undo keeps a Tag added while the card waited", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return {
+            text: JSON.stringify({
+              groupId: leases?.id ?? null,
+              tags: [],
+              newTags: [{ name: "Leased", description: "Lease papers" }],
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind, documents } = await setUpWithDocuments(model, MANY_DOCUMENTS);
+    const lease = documents.find((each) => each.name === "Lease Mill Lane");
+    if (!lease) throw new Error("No lease.");
+    const late = await core.createTag({ name: "Late" });
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    core.on("approval.requested", (request) => {
+      void core
+        .addTagToDocuments([lease.id], late.id)
+        .then(() => core.respondToApproval(request.requestId, "allow-once"));
+    });
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const tagged = (await core.listDocuments()).find((each) => each.id === lease.id);
+    expect(tagged?.tags.some((each) => each.tagId === late.id)).toBe(true);
+    await core.undoCommands(runOf(answer));
+
+    const after = (await core.listDocuments()).find((each) => each.id === lease.id);
+    expect(after?.tags.some((each) => each.tagId === late.id)).toBe(true);
+    expect(after?.tags.length).toBe(1);
+  });
+
+  // protects=a User's Tag added to a Document while Organize reads it stays after Undo, while the run's automatic Tags go (#2252); fails_when=the User's Tag is reverted; no_claim=which Folder the classifier picks.
+  test("Undo keeps a Tag added while the Documents are read", async () => {
+    let classified = 0;
+    let added: () => void = () => undefined;
+    const tagAdded = new Promise<void>((resolve) => {
+      added = resolve;
+    });
+    let coreRef: Core | null = null;
+    let leaseId = "";
+    let duringId = "";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified++;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          const text = JSON.stringify({
+            groupId: leases?.id ?? null,
+            tags: [],
+            newTags: [{ name: "Leased", description: "Lease papers" }],
+          });
+          if (classified === 2 && coreRef && leaseId && duringId) {
+            void coreRef.addTagToDocuments([leaseId], duringId).then(() => added());
+            return { text, until: tagAdded };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+    coreRef = core;
+    const lease = documents.find((each) => each.name === "Lease Mill Lane");
+    if (!lease) throw new Error("No lease.");
+    leaseId = lease.id;
+    const during = await core.createTag({ name: "During" });
+    duringId = during.id;
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const tagged = (await core.listDocuments()).find((each) => each.id === lease.id);
+    expect(tagged?.tags.some((each) => each.tagId === during.id)).toBe(true);
+
+    await core.undoCommands(runOf(answer));
+    const after = (await core.listDocuments()).find((each) => each.id === lease.id);
+    expect(after?.tags.some((each) => each.tagId === during.id)).toBe(true);
+    expect(after?.tags.length).toBe(1);
+  });
+
+  // protects=Undo of a second Organize leaves the Tag a merge during the run put on a Document it had already read (#2252); fails_when=the merge target is removed with the run's Tags; no_claim=which Folder the classifier picks.
+  test("Undo leaves a Tag merged onto a read Document during the run", async () => {
+    let phase: "add" | "keep" = "add";
+    let classified = 0;
+    let released: () => void = () => undefined;
+    const acted = new Promise<void>((resolve) => {
+      released = resolve;
+    });
+    let coreRef: Core | null = null;
+    let moving: string[] = [];
+    let priorId = "";
+    let leaseTagId = "";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        if (ran.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: {
+                command: "documents.organize",
+                ...(phase === "keep" && { ids: moving }),
+                folder: "Leases",
+                about: "Lease papers",
+              },
+            },
+          ],
+        };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          if (phase === "add")
+            return {
+              text: JSON.stringify({
+                groupId: leases?.id ?? null,
+                tags: [],
+                newTags: [{ name: "Prior", description: "Earlier work" }],
+              }),
+            };
+          classified++;
+          const text = JSON.stringify({
+            groupId: leases?.id ?? null,
+            tags: priorId ? [priorId] : [],
+            newTags: [{ name: "Extra", description: "Extra reading" }],
+          });
+          if (classified === 2 && coreRef && priorId && leaseTagId) {
+            void coreRef.mergeTags(priorId, leaseTagId).then(
+              () => released(),
+              () => released(),
+            );
+            return { text, until: acted };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    coreRef = core;
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const prior = (await core.listTags()).find((each) => each.name === "Prior");
+    if (!prior) throw new Error("No Prior Tag.");
+    priorId = prior.id;
+    const leaseTag = await core.createTag({ name: "Lease", description: "Lease papers" });
+    leaseTagId = leaseTag.id;
+    const read = (await core.listDocuments()).slice(0, 2);
+    moving = read.map((each) => each.id);
+    const first = read[0];
+    if (!first) throw new Error("No Document.");
+
+    phase = "keep";
+    const second = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    expect(
+      (await core.listDocuments())
+        .find((each) => each.id === first.id)
+        ?.tags.some((each) => each.tagId === leaseTag.id),
+    ).toBe(true);
+
+    await core.undoCommands(runOf(second));
+    expect(
+      (await core.listDocuments())
+        .find((each) => each.id === first.id)
+        ?.tags.some((each) => each.tagId === leaseTag.id),
+    ).toBe(true);
+  });
+
+  // protects=Undo still takes Organize's Tags back when the User deletes an unrelated Tag meanwhile (#2252); fails_when=no Tag link is reverted because some other Tag went; no_claim=which Folder the classifier picks.
+  test("Deleting an unrelated Tag during the run does not keep Organize's Tags", async () => {
+    let classified = 0;
+    let released: () => void = () => undefined;
+    const acted = new Promise<void>((resolve) => {
+      released = resolve;
+    });
+    let coreRef: Core | null = null;
+    let unrelatedId = "";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified++;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          const text = JSON.stringify({
+            groupId: leases?.id ?? null,
+            tags: [],
+            newTags: [{ name: "Rentals", description: "Rent payments" }],
+          });
+          if (classified === 2 && coreRef && unrelatedId) {
+            void coreRef.deleteTag(unrelatedId).then(
+              () => released(),
+              () => released(),
+            );
+            return { text, until: acted };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    coreRef = core;
+    const unrelated = await core.createTag({ name: "Unrelated" });
+    unrelatedId = unrelated.id;
+    const holder = (await core.listDocuments())[0];
+    if (holder) await core.addTagToDocuments([holder.id], unrelated.id);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const rentals = (await core.listTags()).find((each) => each.name === "Rentals");
+    if (!rentals) throw new Error("No Rentals Tag.");
+    const count = async () =>
+      (await core.listDocuments()).filter((each) =>
+        each.tags.some((tag) => tag.tagId === rentals.id),
+      ).length;
+    expect(await count()).toBe(3);
+
+    await core.undoCommands(runOf(answer));
+    expect(await count()).toBe(0);
+    await core.redoCommands(runOf(answer));
+    expect(await count()).toBe(3);
+    await core.undoCommands(runOf(answer));
+    expect(await count()).toBe(0);
+  });
+
+  // protects=Undo still takes Organize's Tags back when the User merges another Tag meanwhile (#2252); fails_when=no Tag link is reverted because a Tag was merged; no_claim=which Folder the classifier picks.
+  test("Merging another Tag during the run does not keep Organize's Tags", async () => {
+    let classified = 0;
+    let released: () => void = () => undefined;
+    const acted = new Promise<void>((resolve) => {
+      released = resolve;
+    });
+    let coreRef: Core | null = null;
+    let firstTagId = "";
+    let secondTagId = "";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified++;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          const text = JSON.stringify({
+            groupId: leases?.id ?? null,
+            tags: [],
+            newTags: [{ name: "Rentals", description: "Rent payments" }],
+          });
+          if (classified === 2 && coreRef && firstTagId && secondTagId) {
+            void coreRef.mergeTags(firstTagId, secondTagId).then(
+              () => released(),
+              () => released(),
+            );
+            return { text, until: acted };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    coreRef = core;
+    const first = await core.createTag({ name: "First" });
+    const second = await core.createTag({ name: "Second" });
+    firstTagId = first.id;
+    secondTagId = second.id;
+    const holder = (await core.listDocuments())[0];
+    if (holder) await core.addTagToDocuments([holder.id], first.id);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const rentals = (await core.listTags()).find((each) => each.name === "Rentals");
+    if (!rentals) throw new Error("No Rentals Tag.");
+    const count = async () =>
+      (await core.listDocuments()).filter((each) =>
+        each.tags.some((tag) => tag.tagId === rentals.id),
+      ).length;
+    expect(await count()).toBe(3);
+
+    await core.undoCommands(runOf(answer));
+    expect(await count()).toBe(0);
+    expect((await core.listTags()).map((each) => each.name)).not.toContain("First");
+    expect((await core.listTags()).map((each) => each.name)).toContain("Second");
+  });
+
+  // protects=Organize that files nothing but changes Tags still has an Undo that takes them back (#2252); fails_when=the step is missing and Undo fails, or the Tags stay; no_claim=which Folder the classifier picks.
+  test("Organize that only Tags the Documents can still be undone", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          return {
+            text: JSON.stringify({
+              groupId: "__unsorted__",
+              tags: [],
+              newTags: [{ name: "Rentals", description: "Rent payments" }],
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const rentals = (await core.listTags()).find((each) => each.name === "Rentals");
+    if (!rentals) throw new Error("No Rentals Tag.");
+    expect(
+      (await core.listDocuments()).every((each) =>
+        each.tags.some((tag) => tag.tagId === rentals.id),
+      ),
+    ).toBe(true);
+
+    await core.undoCommands(runOf(answer));
+    expect(
+      (await core.listDocuments()).every(
+        (each) => !each.tags.some((tag) => tag.tagId === rentals.id),
+      ),
+    ).toBe(true);
+    expect((await core.getLibrary()).groups).toEqual([]);
+  });
+
+  // protects=Undo does not put back an automatic Tag the User removed while Organize was reading (#2252); fails_when=the removed Tag comes back; no_claim=which Folder the classifier picks.
+  test("Undo leaves an automatic Tag the User removed during the run off", async () => {
+    let phase: "add" | "keep" = "add";
+    let classified = 0;
+    let added: () => void = () => undefined;
+    const removed = new Promise<void>((resolve) => {
+      added = resolve;
+    });
+    let coreRef: Core | null = null;
+    let firstId = "";
+    let moving: string[] = [];
+    let rentalsId = "";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        if (ran.length > 0) return { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: {
+                command: "documents.organize",
+                ...(phase === "keep" && { ids: moving }),
+                folder: "Leases",
+                about: "Lease papers",
+              },
+            },
+          ],
+        };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          if (phase === "add")
+            return {
+              text: JSON.stringify({
+                groupId: leases?.id ?? null,
+                tags: [],
+                newTags: [{ name: "Rentals", description: "Rent payments" }],
+              }),
+            };
+          classified++;
+          const text = JSON.stringify({
+            groupId: leases?.id ?? null,
+            tags: rentalsId ? [rentalsId] : [],
+            newTags: [{ name: "Extra", description: "Extra reading" }],
+          });
+          if (classified === 2 && coreRef && firstId && rentalsId) {
+            void coreRef.removeTagFromDocuments([firstId], rentalsId).then(
+              () => added(),
+              () => added(),
+            );
+            return { text, until: removed };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    coreRef = core;
+    const listed = await core.listDocuments();
+    firstId = listed[0]?.id ?? "";
+    moving = listed.map((each) => each.id);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const rentals = (await core.listTags()).find((each) => each.name === "Rentals");
+    if (!rentals) throw new Error("No Rentals Tag.");
+    rentalsId = rentals.id;
+    const extra = await core.createTag({ name: "Extra", description: "Extra reading" });
+
+    phase = "keep";
+    const second = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const afterRun = (await core.listDocuments()).find((each) => each.id === firstId);
+    expect(afterRun?.tags.some((each) => each.tagId === rentals.id)).toBe(false);
+
+    await core.undoCommands(runOf(second));
+    const after = (await core.listDocuments()).find((each) => each.id === firstId);
+    expect(after?.tags.some((each) => each.tagId === rentals.id)).toBe(false);
+    expect(after?.tags.some((each) => each.tagId === extra.id)).toBe(false);
+  });
+
+  async function organizePriorThenRemoved() {
+    let phase: "add" | "remove" = "add";
+    let ids: string[] = [];
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        if (ran.length > 0) return { text: "Done." };
+        return {
+          calls: [
+            {
+              tool: "run_command",
+              input: {
+                command: "documents.organize",
+                ...(phase === "remove" && { ids }),
+                folder: "Leases",
+                about: "Lease papers",
+              },
+            },
+          ],
+        };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return {
+            text: JSON.stringify({
+              groupId: leases?.id ?? null,
+              tags: [],
+              ...(phase === "add" && {
+                newTags: [
+                  { name: "Prior", description: "Earlier work" },
+                  { name: "Keep", description: "Kept work" },
+                ],
+              }),
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    await askAssistant(core, { text: "Re organise the files", mindId: mind.id, ...FROM_WINDOW });
+    const prior = (await core.listTags()).find((each) => each.name === "Prior");
+    const keep = (await core.listTags()).find((each) => each.name === "Keep");
+    if (!prior || !keep) throw new Error("No Prior or Keep Tag.");
+    ids = (await core.listDocuments()).map((each) => each.id);
+    phase = "remove";
+    const second = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    const documents = await core.listDocuments();
+    const has = (document: { tags: { tagId: string }[] } | undefined, tag: { id: string }) =>
+      document?.tags.some((each) => each.tagId === tag.id) ?? false;
+    return { core, prior, keep, second, documents, has };
+  }
+
+  // protects=Undo skips a Document deleted after the run, while the other Documents get their Tag back (#2252); fails_when=the gone Document's change is reverted or nothing is reverted at all; no_claim=which Folder the classifier picks.
+  test("Undo skips a Document deleted after the run", async () => {
+    const { core, prior, second, documents, has } = await organizePriorThenRemoved();
+    const gone = documents[0];
+    if (!gone) throw new Error("No Document.");
+
+    await core.deleteDocuments([gone.id]);
+    expect((await core.undoCommands(runOf(second))).failed).toBeNull();
+    await core.restore([{ kind: "document", id: gone.id }]);
+
+    const after = await core.listDocuments();
+    expect(
+      has(
+        after.find((each) => each.id === gone.id),
+        prior,
+      ),
+    ).toBe(false);
+    expect(after.filter((each) => each.id !== gone.id).every((each) => has(each, prior))).toBe(
+      true,
+    );
+  });
+
+  // protects=Undo skips a Tag deleted after the run, while the run's other Tags come back (#2252); fails_when=the gone Tag's link returns or nothing is reverted at all; no_claim=which Folder the classifier picks.
+  test("Undo skips a Tag deleted after the run", async () => {
+    const { core, prior, keep, second, has } = await organizePriorThenRemoved();
+
+    await core.deleteTag(prior.id);
+    expect((await core.undoCommands(runOf(second))).failed).toBeNull();
+    await core.restore([{ kind: "tag", id: prior.id }]);
+
+    const after = await core.listDocuments();
+    expect(after.some((each) => has(each, prior))).toBe(false);
+    expect(after.every((each) => has(each, keep))).toBe(true);
+  });
+
+  // protects=Undo skips a Tag the User removed after the run, while the other Documents get it back (#2252); fails_when=the User's removal is undone or nothing is reverted at all; no_claim=which Folder the classifier picks.
+  test("Undo leaves a Tag the User removed after the run off", async () => {
+    const { core, prior, second, documents, has } = await organizePriorThenRemoved();
+    const first = documents[0];
+    if (!first) throw new Error("No Document.");
+
+    await core.removeTagFromDocuments([first.id], prior.id);
+    expect((await core.undoCommands(runOf(second))).failed).toBeNull();
+
+    const after = await core.listDocuments();
+    expect(
+      has(
+        after.find((each) => each.id === first.id),
+        prior,
+      ),
+    ).toBe(false);
+    expect(after.filter((each) => each.id !== first.id).every((each) => has(each, prior))).toBe(
+      true,
+    );
+  });
+
+  // protects=a small Organize after the cloud service is already consented asks nothing (#2252, ADR-0022); fails_when=the card shows though consent stands; no_claim=which Folder the classifier picks.
+  test("a small Organize after the cloud service is consented asks nothing", async () => {
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "test-key",
+      modelId: "small",
+    });
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "small" } },
+      automatic: settings.automatic,
+    });
+    const classification = (await core.listDataFlows()).find(
+      (each) => each.flow.id === "classification",
+    );
+    expect(classification?.consent).toBe("accepted");
+
+    const requests = approvals(core, "allow-once");
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(0);
+    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
+    expect(
+      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id),
+    ).toHaveLength(4);
+  });
+
+  // protects=the first cloud read of the Documents asks on the Organize card, naming the service, and the Allow is that consent (#2252, ADR-0022); fails_when=it runs without asking; no_claim=which Folder the classifier picks.
+  test("the first cloud read asks on the Organize card", async () => {
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "test-key",
+      modelId: "small",
+    });
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "small" } },
+      automatic: settings.automatic,
+    });
+    const classification = (await core.listDataFlows()).find(
+      (each) => each.flow.id === "classification",
+    );
+    if (!classification) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", classification.flow.service.id);
+    const requests = approvals(core, "allow-once");
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0] && "ask" in requests[0] ? requests[0].ask : null).toMatchObject({
+      kind: "change",
+      reason: "organize",
+      service: classification.flow.service.name,
+    });
+    const after = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+    expect(after?.consent).toBe("accepted");
+    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
+    expect(
+      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id),
+    ).toHaveLength(4);
+  });
+
+  // protects=a declined classification makes the Organize card send this time only: the run sorts and files, Undo and Redo restore them, the no and the automatic switch stay, background work still sends nothing, and the next request asks again (#2252, ADR-0022); fails_when=Allow stores accepted, turns the switch on, files nothing, or lets background sorting send; no_claim=which Folder the classifier picks.
+  test("a standing no makes the card send this time only, and asks again next time", async () => {
+    let classified = 0;
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          let data: {
+            groups?: { id: string; name: string }[];
+            documents?: unknown;
+            folders?: string[];
+          };
+          try {
+            data = JSON.parse(prompt) as {
+              groups?: { id: string; name: string }[];
+              documents?: unknown;
+              folders?: string[];
+            };
+          } catch {
+            return { text: JSON.stringify({ tags: [] }) };
+          }
+          if (data.documents && data.folders)
+            return {
+              text: JSON.stringify({ folders: [{ name: "Leases", description: "Lease papers" }] }),
+            };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified += 1;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind, dataDir } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "test-key",
+      modelId: "small",
+    });
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "small" } },
+      automatic: true,
+      turnOn: true,
+    });
+    const classification = (await core.listDataFlows()).find(
+      (each) => each.flow.id === "classification",
+    );
+    if (!classification) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", classification.flow.service.id);
+    // Declined in a dialog before background flows stopped asking.
+    const at = new Date().toISOString();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `INSERT INTO data_flow_consents
+           (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+         VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
+        [randomUUID(), classification.flow.service.id, classification.flow.service.name, at, at],
+      );
+    } finally {
+      db.close();
+    }
+    const automatic = (await core.getLibrary()).settings.automatic;
+    const requests = approvals(core, "allow-once");
+    const classifiedBefore = classified;
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0] && "ask" in requests[0] ? requests[0].ask : null).toMatchObject({
+      kind: "change",
+      reason: "organize",
+      service: classification.flow.service.name,
+      declined: true,
+    });
+    const consent = async () =>
+      (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
+    expect(await consent()).toBe("declined");
+    expect((await core.getLibrary()).settings.automatic).toBe(automatic);
+    // The permit carried from Allow reaches the classifier: the run sorts and files all four.
+    expect(classified - classifiedBefore).toBe(4);
+    const leasesOf = async () =>
+      (await core.getLibrary()).groups.find((each) => each.name === "Leases");
+    const leases = await leasesOf();
+    expect(leases).toBeDefined();
+    const filedIn = async () =>
+      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id).length;
+    expect(await filedIn()).toBe(4);
+    // One Undo takes the run back, and Redo files them again, with the decline still stored.
+    const run = runOf(answer);
+    await core.undoCommands(run);
+    expect(await leasesOf()).toBeUndefined();
+    expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
+      [],
+    );
+    await core.redoCommands(run);
+    expect(await filedIn()).toBe(4);
+    expect(await consent()).toBe("declined");
+
+    const beforeSorts = classified;
+    const sources = await createTempDataFolder();
+    const path = await writeSourceFile(sources, "New rent note.md", "Rent is due monthly.");
+    const [added] = await addAndProcess(core, [path]);
+    if (!added) throw new Error("The new Document wasn't added.");
+    await vi.waitFor(async () => {
+      const row = (await core.listDocuments()).find((each) => each.id === added.id);
+      expect(["pending", "tagging"]).not.toContain(row?.tagging);
+    });
+    expect(classified).toBe(beforeSorts);
+    const filed = (await core.getLibrary()).assignments.find(
+      (each) => each.documentId === added.id,
+    );
+    expect(filed?.groupId ?? null).toBeNull();
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[1] && "ask" in requests[1] ? requests[1].ask : null).toMatchObject({
+      reason: "organize",
+      declined: true,
+    });
+    // The second request carried its own permit: it sorted the new Document too.
+    expect(classified).toBeGreaterThan(beforeSorts);
+    expect(await filedIn()).toBe(5);
+  });
+
+  // protects=a permit for the service the card named cannot send to another service the User declined while the card waited (#2252, ADR-0022); fails_when=switching Organize to Anthropic and declining it still sends, or either consent changes; no_claim=which Folder the classifier picks.
+  test("a card for OpenAI never sends to Anthropic when Organize switched and declined while it waited", async () => {
+    let classified = 0;
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          let data: { groups?: { id: string; name: string }[] };
+          try {
+            data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          } catch {
+            return { text: JSON.stringify({ tags: [] }) };
+          }
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified += 1;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind, dataDir } = await setUpWithDocuments(answers, DOCUMENTS);
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "small",
+    });
+    const anthropic = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-test",
+    });
+    if (!openai.service || !anthropic.service) throw new Error("No service.");
+    const decline = async (service: { id: string; name: string }) => {
+      await core.revokeConsent("classification", service.id);
+      const at = new Date().toISOString();
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      try {
+        db.run(
+          `INSERT INTO data_flow_consents
+             (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+           VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
+          [randomUUID(), service.id, service.name, at, at],
+        );
+      } finally {
+        db.close();
+      }
+    };
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: openai.id, modelId: "small" },
+      },
+      automatic: false,
+    });
+    await decline(openai.service);
+    const requested: ApprovalRequest[] = [];
+    core.on("approval.requested", (request) => requested.push(request));
+    const result = await core.askInConversation({
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    await vi.waitFor(() => expect(requested).toHaveLength(1));
+    expect(requested[0] && "ask" in requested[0] ? requested[0].ask : null).toMatchObject({
+      reason: "organize",
+      service: "OpenAI",
+      declined: true,
+    });
+
+    await core.saveLibrarySettings({
+      classifier: {
+        kind: "chat",
+        choice: { providerId: anthropic.id, modelId: "claude-test" },
+      },
+      automatic: false,
+    });
+    await decline(anthropic.service);
+    const ended = answerEnded(core, result.answerId);
+    await core.respondToApproval(requested[0]?.requestId ?? "", "allow-once");
+    expect((await ended).event).toBe("finished");
+
+    expect(classified).toBe(0);
+    expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
+      [],
+    );
+    const consents = (await core.listDataFlows())
+      .filter((each) => each.flow.id === "classification")
+      .map((each) => [each.flow.service.id, each.consent]);
+    expect(consents).toContainEqual([openai.service.id, "declined"]);
+    expect(consents).toContainEqual([anthropic.service.id, "declined"]);
+  });
+
+  // protects=Organize above 20 Documents asks on its card, and files them when allowed (#2252, ADR-0013); fails_when=it runs without asking or files before the allow; no_claim=which Folder the classifier picks.
+  test("Organize above 20 Documents asks, then files them", async () => {
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Rent papers" },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(answers, MANY_DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    const requests = approvals(core, "allow-once");
+
+    await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0] && "ask" in requests[0] ? requests[0].ask : null).toMatchObject({
+      kind: "change",
+      reason: "organize",
+      count: 21,
+      into: "Leases",
+    });
+    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
+    expect(leases).toBeDefined();
+    expect(
+      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id),
+    ).toHaveLength(21);
+  });
+
+  // protects=Organize above 20 that the User doesn't allow moves nothing (#2252); fails_when=a Document is filed or a Folder made; no_claim=the card's words.
+  test("Organize above 20 not allowed moves nothing", async () => {
+    const model = calling(
+      run("documents.organize", { folder: "Leases", about: "Rent papers" }, false),
+    );
+    const { core, mind } = await setUpWithDocuments(model, MANY_DOCUMENTS);
+    const requests = approvals(core, "deny");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("Leases");
+    expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
+      [],
+    );
+    expect(commandCalls(answer).at(-1)?.approval).toBe("denied");
+  });
+
+  // protects="把讲租金的文档归到一起" does the same in Chinese: the Documents filed at once, one Undo back; fails_when=it leaves suggestions, asks for a small Organize, or Undo leaves them filed; no_claim=the Folder's name.
+  test("Organize files the Documents at once in Chinese too", async () => {
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: {
+                    command: "documents.organize",
+                    folder: "租赁",
+                    about: "租约和租金",
+                  },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split("。")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as {
+            groups?: { id: string; name: string }[];
+            document?: { text?: string };
+          };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const leases = data.groups.find((each) => each.name === "租赁");
+          const aboutRent = /rent/i.test(JSON.stringify(data.document ?? {}));
+          return {
+            text: JSON.stringify({
+              groupId: aboutRent && leases ? leases.id : "__unsorted__",
+              tags: [],
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind, documents } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    const requests = approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "把讲租金的文档归到一起",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(0);
+    const leases = (await core.getLibrary()).groups.find((each) => each.name === "租赁");
+    const aboutRent = documents
+      .filter((each) => !each.name.startsWith("Q3"))
+      .map((each) => each.id)
+      .sort();
+    expect(
+      (await core.getLibrary()).assignments
+        .filter((each) => each.groupId === leases?.id && !each.suggested)
+        .map((each) => each.documentId)
+        .sort(),
+    ).toEqual(aboutRent);
+    expect(answer.text).toContain("租赁");
+    expect(answer.text).not.toContain("已整理 3 个文档");
+    expect(answer.text).toContain("1 个文档未能整理。");
+
+    await core.undoCommands(runOf(answer));
+    expect((await core.getLibrary()).groups.map((each) => each.name)).not.toContain("租赁");
+  });
+
+  // protects=a list_commands that finds no Document still names the commands for Documents, so the assistant reaches Organize when the request names no Document (#2252); fails_when=the result says no command exists and the turn gives up; no_claim=which Folder the classifier picks.
+  test("a list_commands that finds no Document still names Documents' commands", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const made = call.results.filter((each) =>
+          /^(?:list_commands|run_command)$/.test(each.tool),
+        );
+        if (made.length === 0) {
+          return {
+            calls: [{ tool: "list_commands", input: { kind: "document", name: "organise" } }],
+          };
+        }
+        if (made.length === 1) {
+          const listed = call.results.filter((each) => each.tool === "list_commands").at(-1)?.text;
+          expect(listed).toContain("documents.organize");
+          return {
+            calls: [
+              {
+                tool: "run_command",
+                input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+              },
+            ],
+          };
+        }
+        return { text: "Filed them." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          const leases = data.groups?.find((each) => each.name === "Leases");
+          return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(
+      commandCalls(answer).some(
+        (call) => call.input?.command === "documents.organize" && call.status === "done",
+      ),
+    ).toBe(true);
+    expect(
+      (await core.getLibrary()).assignments.some(
+        (each) => each.groupId !== null && !each.suggested,
+      ),
+    ).toBe(true);
+  });
+
+  // protects=Organize with no Document in no Folder says so and makes no Folder, named or not (#2252); fails_when=a Folder is made or left in Recently deleted; no_claim=the card's words.
+  test("Organize with nothing to sort makes no Folder", async () => {
+    const answers = scriptedModel((call) => {
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      return ran.length === 0
+        ? {
+            calls: [
+              { tool: "run_command", input: { command: "documents.organize", folder: "Leases" } },
+            ],
+          }
+        : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+    });
+    const { core, mind } = await setUpWithDocuments(answers, []);
+    const requests = approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(requests).toHaveLength(0);
+    expect((await core.getLibrary()).groups).toEqual([]);
+    expect(await core.listDeleted()).toEqual([]);
+    expect(answer.text).toContain("nothing to sort");
+  });
+
+  // protects=Organize with no Folder named and nothing to sort doesn't fail asking for a Folder (#2252); fails_when=the call fails; no_claim=the card's words.
+  test("Organize with nothing to sort and no Folder named says so", async () => {
+    const answers = scriptedModel((call) => {
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      return ran.length === 0
+        ? { calls: [{ tool: "run_command", input: { command: "documents.organize" } }] }
+        : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+    });
+    const { core, mind } = await setUpWithDocuments(answers, []);
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(commandCalls(answer).at(-1)?.status).toBe("done");
+    expect((await core.getLibrary()).groups).toEqual([]);
+    expect(answer.text).toContain("nothing to sort");
+  });
+
+  // protects=Organize stops at the first model failure, puts every Document it never reached back, and says so (#2252); fails_when=one stays pending or classifying, a made Folder is left, or the reply counts them as sorted; no_claim=which Document the classifier fails on.
+  test("Organize stops at a failure and leaves the rest as they were", async () => {
+    let asked = 0;
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: {
+                    command: "documents.organize",
+                    folder: "Leases",
+                    about: "Lease papers",
+                  },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: () => {
+          asked++;
+          if (asked >= 2) throw new Error("The model went away.");
+          return { text: JSON.stringify({ groupId: null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const library = await core.getLibrary();
+    expect(
+      library.assignments.filter(
+        (each) => each.status === "pending" || each.status === "classifying",
+      ),
+    ).toEqual([]);
+    expect(library.groups).toEqual([]);
+    expect(await core.listDeleted()).toEqual([]);
+    expect(answer.text).toContain("were left as they were");
+  });
+
+  // protects=Stop during the second Document's classification puts the in-flight one and the rest back, leaving only the Document already read filed (#2252); fails_when=a Document stays pending or classifying, or one it never read is filed; no_claim=which Document the stop reaches.
+  test("Stop halfway through Organize leaves the rest as they were", async () => {
+    let classified = 0;
+    let started: () => void = () => undefined;
+    let release: () => void = () => undefined;
+    const second = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: "Done." };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          classified++;
+          const leases = data.groups.find((each) => each.name === "Leases");
+          const text = JSON.stringify({ groupId: leases?.id ?? null, tags: [] });
+          if (classified === 2) {
+            started();
+            return { text, until: gate };
+          }
+          return { text };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(answers, DOCUMENTS);
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const result = await core.askInConversation({
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    const ended = new Promise<string | undefined>((resolve) => {
+      const stops = [
+        core.on("answer.finished", (payload) => {
+          if (payload.answerId !== result.answerId) return;
+          for (const stop of stops) stop();
+          resolve(payload.status);
+        }),
+        core.on("answer.failed", (payload) => {
+          if (payload.answerId !== result.answerId) return;
+          for (const stop of stops) stop();
+          resolve("failed");
+        }),
+      ];
+    });
+    await second;
+    await core.stopConversationAnswer({
+      conversationId: result.conversation.id,
+      answerId: result.answerId,
+    });
+    release();
+
+    expect(await ended).toBe("stopped");
+    const first = (await core.listDocuments())[0]?.id;
+    await vi.waitFor(async () => {
+      const { assignments } = await core.getLibrary();
+      expect(
+        assignments.filter((each) => each.status === "pending" || each.status === "classifying"),
+      ).toEqual([]);
+      expect(
+        assignments
+          .filter((each) => each.groupId !== null && !each.suggested)
+          .map((each) => each.documentId),
+      ).toEqual([first]);
+    });
+  });
+
+  // protects=a Folder Organize made but filed nothing in is gone for good, not left in Recently deleted and brought back live and empty by Undo then Redo (#2252); fails_when=it is in Recently deleted after the run or in the Library after Redo; no_claim=which Folder the classifier picks.
+  test("a Folder Organize made but filed nothing in is gone for good", async () => {
+    const answers = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                },
+              ],
+            }
+          : { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const rent = data.groups.find((each) => each.name === "Rent");
+          return { text: JSON.stringify({ groupId: rent?.id ?? null, tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(answers, DOCUMENTS);
+    await core.createLibraryGroup({ name: "Rent", description: "" });
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const library = await core.getLibrary();
+    expect(library.groups.map((each) => each.name)).toEqual(["Rent"]);
+    expect((await core.listDeleted()).map((each) => each.name)).not.toContain("Leases");
+
+    await core.undoCommands(runOf(answer));
+    await core.redoCommands(runOf(answer));
+    const again = await core.getLibrary();
+    expect(again.groups.map((each) => each.name)).toEqual(["Rent"]);
+    expect((await core.listDeleted()).map((each) => each.name)).not.toContain("Leases");
+  });
+
+  // protects=a request to cut Tags merges them: one confirmation lists every merge once, Apply does them all, and one Undo brings every Tag and link back; fails_when=it asks once per Tag, merges without asking, names a Tag it left, or Undo leaves a Tag gone; no_claim=which Tags the model picks.
+  test("Tags merge behind one confirmation, and one Undo brings them all back", async () => {
+    const tagsAndMerge = scriptedModel((call) => {
+      const listed = call.results.filter((each) => each.tool === "list_commands").at(-1)?.text;
+      if (listed === undefined)
+        return { calls: [{ tool: "list_commands", input: { kind: "tag" } }] };
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      if (ran.length > 0) return { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      const idOf = (name: string) =>
+        [...listed.matchAll(/^- (\S+): “(.+?)”$/gm)].find((match) => match[2] === name)?.[1] ?? "";
+      return {
+        calls: [
+          {
+            tool: "run_command",
+            input: {
+              command: "tag.merge",
+              merges: [
+                { ids: [idOf("Harbours")], tag: "Harbour" },
+                { ids: [idOf("Docks")], tag: "Dock" },
+              ],
+            },
+          },
+        ],
+      };
+    });
+    const { core, mind, documents } = await setUpWithDocuments(tagsAndMerge, DOCUMENTS);
+    const harbourTag = await core.createTag({ name: "Harbour" });
+    const harboursTag = await core.createTag({ name: "Harbours" });
+    const dockTag = await core.createTag({ name: "Dock" });
+    await core.createTag({ name: "Docks" });
+    const unrelated = await core.createTag({ name: "Unrelated" });
+    const harbour = documents.find((each) => each.name === "Lease Harbour Street");
+    const mill = documents.find((each) => each.name === "Lease Mill Lane");
+    if (!harbour || !mill) throw new Error("No leases.");
+    await core.addTagToDocuments([harbour.id], harbourTag.id);
+    await core.addTagToDocuments([harbour.id], dockTag.id);
+    await core.addTagToDocuments([mill.id], harboursTag.id);
+    const requests = approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Reduce the number of tags",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    // One confirmation, listing every merge once, into each Tag kept.
+    expect(requests).toHaveLength(1);
+    const ask = requests[0] && "ask" in requests[0] ? requests[0].ask : null;
+    expect(ask).toMatchObject({
+      kind: "change",
+      reason: "merge",
+      into: null,
+      merges: [
+        { from: "Harbours", into: "Harbour" },
+        { from: "Docks", into: "Dock" },
+      ],
+    });
+    expect(ask?.kind === "change" ? ask.items.map((item) => item.name).sort() : null).toEqual([
+      "Docks",
+      "Harbours",
+    ]);
+
+    const ours = new Set(["Harbour", "Harbours", "Dock", "Docks", "Unrelated"]);
+    const tagNames = async () =>
+      (await core.listTags())
+        .map((each) => each.name)
+        .filter((name) => ours.has(name))
+        .sort();
+    expect(await tagNames()).toEqual(["Dock", "Harbour", "Unrelated"]);
+    const tagsOf = async (id: string) => {
+      const names = new Map((await core.listTags()).map((tag) => [tag.id, tag.name]));
+      const document = (await core.listDocuments()).find((each) => each.id === id);
+      return (document?.tags ?? []).flatMap((tag) => names.get(tag.tagId) ?? []).sort();
+    };
+    expect(await tagsOf(mill.id)).toEqual(["Harbour"]);
+    expect(await tagsOf(harbour.id)).toEqual(["Dock", "Harbour"]);
+    // The reply names the merges done, and no Tag it left alone.
+    expect(answer.text).toContain("Harbours");
+    expect(answer.text).toContain("Docks");
+    expect(answer.text).toContain("Harbour");
+    expect(answer.text).toContain("Dock");
+    expect(answer.text).not.toContain("Unrelated");
+    // The reply names the merges, so the app doesn't list them a second time.
+    expect(answer.text).not.toContain("Merged “Harbours” into “Harbour”");
+    // The record counts the Tags before and after, so a reply that says the count is backed.
+    const count = commandCalls(answer).at(-1)?.command?.tagCount;
+    expect(count?.after).toBe((count?.before ?? 0) - 2);
+
+    await core.undoCommands(runOf(answer));
+    expect(await tagNames()).toEqual(["Dock", "Docks", "Harbour", "Harbours", "Unrelated"]);
+    expect(await tagsOf(mill.id)).toEqual(["Harbours"]);
+    expect(await tagsOf(harbour.id)).toEqual(["Dock", "Harbour"]);
+    expect((await core.listTags()).some((tag) => tag.id === unrelated.id)).toBe(true);
+
+    // Redo merges them again, from the Tags and links the Undo brought back.
+    await core.redoCommands(runOf(answer));
+    expect(await tagNames()).toEqual(["Dock", "Harbour", "Unrelated"]);
+    expect(await tagsOf(mill.id)).toEqual(["Harbour"]);
+  });
+
+  // protects=the app ends the reply with the full recap when the model's own sentence leaves the Folders out (#2252); fails_when=the reply has no Folder or count; no_claim=which Folder the classifier picks.
+  test("the app's summary names the Folders when the reply doesn't", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: {
+                    command: "documents.organize",
+                    folder: "Leases",
+                    about: "Lease papers",
+                  },
+                },
+              ],
+            }
+          : { text: "Done." };
       },
       {
         generate: ({ prompt }) => {
@@ -420,7 +2232,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
         },
       },
     );
-    const { core, mind, documents } = await setUpWithDocuments(answers, DOCUMENTS);
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
     const provider = (await core.listChatProviders())[0];
     if (!provider) throw new Error("No provider.");
     const settings = (await core.getLibrary()).settings;
@@ -428,35 +2240,279 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
       automatic: settings.automatic,
     });
+    approvals(core, "allow-once");
 
     const answer = await askAssistant(core, {
-      text: "Put the documents about leases together",
+      text: "Re organise the files",
       mindId: mind.id,
       ...FROM_WINDOW,
     });
 
-    const leases = (await core.getLibrary()).groups.find((each) => each.name === "Leases");
-    expect(leases?.description).toBe("Lease papers: tenancies and rent");
-    const aboutRent = documents
-      .filter((each) => !each.name.startsWith("Q3"))
-      .map((each) => each.id)
-      .sort();
-    const waiting = async () =>
-      (await core.getLibrary()).assignments
-        .filter((each) => each.groupId === leases?.id)
-        .map((each) => ({ id: each.documentId, suggested: each.suggested, source: each.source }));
-    await vi.waitFor(
-      async () =>
-        expect((await waiting()).sort((a, b) => a.id.localeCompare(b.id))).toEqual(
-          aboutRent.map((id) => ({ id, suggested: true, source: "automatic" })),
-        ),
-      { timeout: 30_000 },
-    );
+    expect(answer.text).toContain("Sorted 3 Documents: 3 → Leases.");
+    expect(answer.text).toContain("1 Document couldn’t be sorted.");
+    expect(answer.text).not.toContain("Organize filed");
+  });
 
-    await core.undoCommands(runOf(answer));
-    const after = await core.getLibrary();
-    expect(after.groups.map((each) => each.name)).not.toContain("Leases");
-    expect(after.assignments.filter((each) => each.suggested)).toEqual([]);
+  // protects=a Folder named inside a longer word doesn't hide the app's summary, including a decomposed accent: "Rental" doesn't name "Rent", and "Café" (Cafe + U+0301) doesn't name "Cafe" (#2252); fails_when=the reply shows only the couldn't-be-sorted line; no_claim=which Folder the classifier picks.
+  test.each([
+    ["Rent", "Rental agreements are filed now."],
+    ["Cafe", "Cafe\u0301 papers are filed now."],
+  ])("a Folder named inside a longer word still gets the summary: %s", async (folder, reply) => {
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder, about: `${folder} papers` },
+                },
+              ],
+            }
+          : { text: reply };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as {
+            groups?: { id: string; name: string }[];
+            document?: { text?: string };
+          };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const into = data.groups.find((each) => each.name === folder);
+          const leases = !/Q3/i.test(JSON.stringify(data.document ?? {}));
+          return {
+            text: JSON.stringify({
+              groupId: leases && into ? into.id : "__unsorted__",
+              tags: [],
+            }),
+          };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createLibraryGroup({ name: folder, description: "" });
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(answer.text).toContain(reply);
+    expect(answer.text).toContain(`Sorted 3 Documents: 3 → ${folder}.`);
+    expect(answer.text).toContain("1 Document couldn’t be sorted.");
+  });
+
+  // protects=a Tag merge that fails on the second Tag puts the first merge back, so the User is not left with half of it (#2252); fails_when=the first merge stays or the failure is swallowed; no_claim=how the error reads.
+  test("a Tag merge that fails halfway puts the first one back", async () => {
+    const model = scriptedModel((call) => {
+      const listed = call.results.filter((each) => each.tool === "list_commands").at(-1)?.text;
+      if (listed === undefined)
+        return { calls: [{ tool: "list_commands", input: { kind: "tag" } }] };
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      if (ran.length > 0) return { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      const idOf = (name: string) =>
+        [...listed.matchAll(/^- (\S+): “(.+?)”$/gm)].find((match) => match[2] === name)?.[1] ?? "";
+      return {
+        calls: [
+          {
+            tool: "run_command",
+            input: {
+              command: "tag.merge",
+              merges: [
+                { ids: [idOf("Harbours")], tag: "Harbour" },
+                { ids: [idOf("Docks")], tag: "Dock" },
+              ],
+            },
+          },
+        ],
+      };
+    });
+    const { core, mind, documents } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createTag({ name: "Harbour" });
+    const harboursTag = await core.createTag({ name: "Harbours" });
+    const dockTag = await core.createTag({ name: "Dock" });
+    await core.createTag({ name: "Docks" });
+    const mill = documents.find((each) => each.name === "Lease Mill Lane");
+    if (!mill) throw new Error("No lease.");
+    await core.addTagToDocuments([mill.id], harboursTag.id);
+
+    // The second Tag is deleted while the merge card waits: its merge fails after the first ran.
+    core.on("approval.requested", (request) => {
+      void core
+        .deleteTag(dockTag.id)
+        .then(() => core.respondToApproval(request.requestId, "allow-once"));
+    });
+
+    const answer = await askAssistant(core, {
+      text: "Reduce the number of tags",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(commandCalls(answer).at(-1)?.status).toBe("failed");
+    const tagNames = (await core.listTags()).map((each) => each.name);
+    expect(tagNames).toContain("Harbours");
+    expect(tagNames).toContain("Docks");
+    expect(tagNames).not.toContain("Dock");
+    const again = (await core.listDocuments()).find((each) => each.id === mill.id);
+    expect(again?.tags.some((each) => each.tagId === harboursTag.id)).toBe(true);
+  });
+
+  // protects=the app's recap names every merge, in English and Chinese, when the model's own sentence leaves them out (#2252); fails_when=the lines are missing or double 合并; no_claim=which Tags are merged.
+  test.each([
+    [
+      "the app's recap names every merge (en)",
+      "en",
+      "Done.",
+      "Merged “Harbours” into “Harbour”, “Docks” into “Dock”.",
+    ],
+    [
+      "the app's recap names every merge (zh-CN)",
+      "zh-CN",
+      "完成。",
+      "已合并：“Harbours” → “Harbour”，“Docks” → “Dock”。",
+    ],
+    [
+      "a Tag named inside a longer one still gets the recap (en)",
+      "en",
+      "I merged Harbours and Docks.",
+      "Merged “Harbours” into “Harbour”, “Docks” into “Dock”.",
+    ],
+    [
+      "a Tag named inside a longer one still gets the recap (zh-CN)",
+      "zh-CN",
+      "我合并了“Harbours”和“Docks”。",
+      "已合并：“Harbours” → “Harbour”，“Docks” → “Dock”。",
+    ],
+  ])("%s", async (_title, language, reply, expected) => {
+    const model = scriptedModel((call) => {
+      const listed = call.results.filter((each) => each.tool === "list_commands").at(-1)?.text;
+      if (listed === undefined)
+        return { calls: [{ tool: "list_commands", input: { kind: "tag" } }] };
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      if (ran.length > 0) return { text: reply };
+      const idOf = (name: string) =>
+        [...listed.matchAll(/^- (\S+): “(.+?)”$/gm)].find((match) => match[2] === name)?.[1] ?? "";
+      return {
+        calls: [
+          {
+            tool: "run_command",
+            input: {
+              command: "tag.merge",
+              merges: [
+                { ids: [idOf("Harbours")], tag: "Harbour" },
+                { ids: [idOf("Docks")], tag: "Dock" },
+              ],
+            },
+          },
+        ],
+      };
+    });
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createTag({ name: "Harbour" });
+    await core.createTag({ name: "Harbours" });
+    await core.createTag({ name: "Dock" });
+    await core.createTag({ name: "Docks" });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: language === "zh-CN" ? "减少标签的数量" : "Reduce the number of tags",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(answer.text).toContain(expected);
+  });
+
+  // protects=a call that names one Tag in two merges is refused whole, so the User is never shown a merge the app didn't make; fails_when=a Tag goes; no_claim=the error's words.
+  test("a Tag named in two merges is refused", async () => {
+    const model = scriptedModel((call) => {
+      const listed = call.results.filter((each) => each.tool === "list_commands").at(-1)?.text;
+      if (listed === undefined)
+        return { calls: [{ tool: "list_commands", input: { kind: "tag" } }] };
+      const ran = call.results.filter((each) => each.tool === "run_command");
+      if (ran.length > 0) return { text: (ran.at(-1)?.text ?? "").split(".")[0] ?? "" };
+      const idOf = (name: string) =>
+        [...listed.matchAll(/^- (\S+): “(.+?)”$/gm)].find((match) => match[2] === name)?.[1] ?? "";
+      return {
+        calls: [
+          {
+            tool: "run_command",
+            input: {
+              command: "tag.merge",
+              merges: [
+                { ids: [idOf("Harbours")], tag: "Harbour" },
+                { ids: [idOf("Harbours")], tag: "Dock" },
+              ],
+            },
+          },
+        ],
+      };
+    });
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createTag({ name: "Harbour" });
+    await core.createTag({ name: "Harbours" });
+    await core.createTag({ name: "Dock" });
+
+    const answer = await askAssistant(core, {
+      text: "Reduce the number of tags",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(
+      (await core.listTags())
+        .map((each) => each.name)
+        .filter((name) => ["Harbour", "Harbours", "Dock"].includes(name))
+        .sort(),
+    ).toEqual(["Dock", "Harbour", "Harbours"]);
+    expect(commandCalls(answer).at(-1)?.status).toBe("failed");
+  });
+
+  // protects=a merge that can't run changes nothing and its reply names no merge; fails_when=a Tag goes, or the reply says it merged; no_claim=the error's words.
+  test("a Tag merge that can't run names no merge", async () => {
+    const model = calling(
+      () => ({
+        tool: "list_commands",
+        input: { kind: "tag" },
+      }),
+      (results) => {
+        const listed = results.filter((each) => each.tool === "list_commands").at(-1)?.text ?? "";
+        const [, id] = [...listed.matchAll(/^- (\S+): “(.+?)”$/gm)][0] ?? [];
+        return {
+          tool: "run_command",
+          input: { command: "tag.merge", ids: [id ?? ""], tag: "No such Tag" },
+        };
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createTag({ name: "Harbour" });
+    await core.createTag({ name: "Dock" });
+
+    const answer = await askAssistant(core, {
+      text: "Reduce the number of tags",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(
+      (await core.listTags())
+        .map((each) => each.name)
+        .filter((name) => ["Dock", "Harbour"].includes(name))
+        .sort(),
+    ).toEqual(["Dock", "Harbour"]);
+    expect(commandCalls(answer).at(-1)?.status).toBe("failed");
+    expect(answer.text).not.toMatch(/Merged/i);
   });
 
   // protects=a setting the User could change in Settings changes, and Undo puts it back; fails_when=it stays after Undo; no_claim=every setting.

@@ -1879,6 +1879,17 @@ export function createCore(adapters: CoreAdapters): Core {
       if (!api) throw new Error("The core isn't ready for commands yet.");
       return api;
     },
+    organizeAtOnce: (ids, signal, wall, permit) => {
+      const allowed = new Set(
+        library
+          .folders()
+          .filter((folder) => filedWithin(wall, folder.id)?.folderId === folder.id)
+          .map((folder) => folder.id),
+      );
+      return library.organizeAtOnce(ids, signal, allowed, permit);
+    },
+    proposeFolders: (ids, permit) => library.propose(ids, settings.get().language, permit),
+    allowCloudRead: (service) => consent.choose(["classification"], service),
     allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
       const refuse = () => {
@@ -3465,7 +3476,7 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new Error(error instanceof Error ? error.message : String(error), { cause: error });
       }
     },
-    async prepare(settings) {
+    async prepare(settings, permit) {
       const classifier = organizeModelOf(settings);
       if (!classifier) throw new TaggingNotReadyError({ key: "error.library.noClassifier" });
       if (decisionModelElsewhere(classifier)) throw notOnThisComputer(classifier);
@@ -3488,7 +3499,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (classifier.kind === "jev") {
         if (embedding.localOnly() && jev.service())
           throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-        const prepared = await jev.prepareGroups();
+        const prepared = await jev.prepareGroups(permit);
         if (embedding.localOnly() && !prepared.local)
           throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
         return prepared;
@@ -3497,7 +3508,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const ready = await chat.readiness(choice, "classification");
       if (embedding.localOnly() && "provider" in ready && ready.provider.service)
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      const prepared = await chat.prepareModel(choice, "classification");
+      const prepared = await chat.prepareModel(choice, "classification", undefined, permit);
       if (embedding.localOnly() && prepared.provider.service)
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
       // A scan's page images go only where the User allowed them (the "scan-images" flow).
@@ -3510,7 +3521,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
       if (imageModel && scanImagesAllowed(imageModel)) {
         chosen = withPageReader(chosen, async () => {
-          const reader = await chat.prepareModel(imageModel, "classification");
+          const reader = await chat.prepareModel(imageModel, "classification", undefined, permit);
           return {
             ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
             model: { id: imageModel.modelId, images: true, reason: "selected" as const },
@@ -6056,6 +6067,10 @@ export function createCore(adapters: CoreAdapters): Core {
       tagMany(documentIds, (id) => tags.addToDocument(id, tagId)),
     removeTagFromDocuments: async (documentIds, tagId) =>
       tagMany(documentIds, (id) => tags.removeFromDocument(id, tagId)),
+    listDocumentTagDecisions: async (documentIds) =>
+      [...new Set(parseIds(documentIds, "The Documents whose Tags are asked"))].map(
+        (documentId) => ({ documentId, tagIds: tags.owned(documentId) }),
+      ),
     revertDocumentTags: async (links) => {
       const changed = recentlyDeleted.revertTags(links);
       if (changed.length > 0) announceTagged(changed);

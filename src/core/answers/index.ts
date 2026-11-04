@@ -3453,7 +3453,7 @@ export function createAnswers(options: AnswersOptions) {
               shownUpTo,
               // A command that only acted on the window, or that is the User's alone, ends the
               // turn: its card is the reply (#1421), and a refusal's line follows it
-              // (`refusalSuffix`).
+              // (`appSuffix`).
               mayEndBlank: () =>
                 changedAMind() ||
                 [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
@@ -3492,13 +3492,100 @@ export function createAnswers(options: AnswersOptions) {
         // Every Answer, in the assistant or a Note, ends with its refusal lines after the model's
         // reply, after none, and after a reply asked again that then failed, so the reply and the
         // card never disagree and the card keeps only its button (#2252).
-        refusalSuffix: (reply) => {
+        appSuffix: (reply) => {
           const language = answerLanguage(context.question);
+          // What a command changed, in the app's own words, so the reply and the card agree
+          // (#2252): the Folders Organize filed the Documents into, and the Tags merged.
+          const resultLines: ((each: Language) => string)[] = [];
+          for (const done of commandsDone.values()) {
+            const folders = done.folders;
+            // The model's own sentence may already name every Folder: the app adds its line only
+            // when the reply doesn't (#2252), so the reply never says the same thing twice. A name
+            // inside a longer word is not named: "Rental" alone doesn't say "Rent".
+            const mentions = (name: string) => {
+              if (name === "") return false;
+              const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              return new RegExp(
+                `(?<![\\p{L}\\p{M}\\p{N}])${escaped}(?![\\p{L}\\p{M}\\p{N}])`,
+                "u",
+              ).test(reply);
+            };
+            if (
+              done.command === "documents.organize" &&
+              folders &&
+              folders.length > 0 &&
+              !folders.every((folder) => mentions(folder.name))
+            ) {
+              const count = folders.reduce((sum, folder) => sum + folder.count, 0);
+              resultLines.push((each) => {
+                const line = translate(
+                  each,
+                  count === 1 ? "library.review.summary.one" : "library.review.summary",
+                  {
+                    count,
+                    parts: folders
+                      .map((folder) =>
+                        translate(each, "library.review.part", {
+                          count: folder.count,
+                          folder: folder.name,
+                        }),
+                      )
+                      .join(translate(each, "library.review.separator")),
+                  },
+                );
+                // The summary is a card line: in a reply it ends as a sentence, and the line
+                // after it may follow with no space in Chinese.
+                return each === "zh-CN" ? `${line}。` : `${line}.`;
+              });
+            }
+            if (done.command === "documents.organize" && done.untouched) {
+              const count = done.untouched;
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "answer.commands.untouched.one" : "answer.commands.untouched",
+                  { count },
+                ),
+              );
+            }
+            if (done.command === "documents.organize" && done.unsorted) {
+              const count = done.unsorted;
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "answer.commands.unsorted.one" : "answer.commands.unsorted",
+                  { count },
+                ),
+              );
+            }
+            const merges = done.merges;
+            if (
+              done.command === "tag.merge" &&
+              merges &&
+              merges.length > 0 &&
+              !merges.every((pair) => mentions(pair.from) && mentions(pair.into))
+            ) {
+              resultLines.push((each) =>
+                translate(each, "answer.commands.merged", {
+                  parts: merges
+                    .map((pair) =>
+                      translate(each, "answer.commands.mergePart", {
+                        from: pair.from,
+                        into: pair.into,
+                      }),
+                    )
+                    .join(translate(each, "library.review.separator")),
+                }),
+              );
+            }
+          }
           // Said in either language, a line is said: a reply can copy an earlier Answer's.
-          const lines = refusalLines()
-            .filter((line) => !LANGUAGES.some((each) => reply.includes(line(each))))
-            .map((line) => line(language));
-          return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
+          const lines = [...resultLines, ...refusalLines()].filter(
+            (line) => !LANGUAGES.some((each) => reply.includes(line(each))),
+          );
+          return lines.length === 0
+            ? null
+            : lines.map((line) => line(language)).join(language === "zh-CN" ? "" : " ");
         },
         signal: controller.signal,
       })) {

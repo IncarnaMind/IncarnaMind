@@ -125,15 +125,26 @@ function WordReviewRows({
   draft,
   fromWord,
   othersFile,
+  myComments,
+  myCommentsOptional,
+  includeMine,
   onChange,
   onOthersChange,
+  onIncludeMine,
 }: {
   draft: WordExportPreferences;
   fromWord: boolean;
   /** A Note made by Verify from someone else's file: this Note's own comment switch (#110); null for the User's own. */
   othersFile: { checked: boolean } | null;
+  /** The User's own comments and replies in the Note (#328). */
+  myComments: number;
+  /** The file came from someone else: its export offers "Include my comments" (#328). */
+  myCommentsOptional: boolean;
+  /** This Note's own choice, if it was made here: another Note's choice doesn't show. */
+  includeMine: boolean;
   onChange(next: WordExportPreferences): void;
   onOthersChange(checked: boolean): void;
+  onIncludeMine(checked: boolean): void;
 }) {
   const t = useT();
   const author = useAppStore((state) => state.settings?.author ?? "");
@@ -167,6 +178,14 @@ function WordReviewRows({
           checked={draft.commentFailedChecks}
           onChange={(commentFailedChecks) => onChange({ ...draft, commentFailedChecks })}
           testId="export-comment-failed-checks"
+        />
+      )}
+      {myCommentsOptional && myComments > 0 && (
+        <SwitchRow
+          label={t("export.includeMyComments")}
+          checked={includeMine}
+          onChange={onIncludeMine}
+          testId="export-include-my-comments"
         />
       )}
     </>
@@ -417,6 +436,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     fromWord: boolean;
     othersFile: boolean;
     othersComments: boolean;
+    myComments: number;
+    myCommentsOptional: boolean;
     theirChanges: number;
     hiddenColumns: number;
   } | null>(null);
@@ -469,6 +490,8 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           fromWord: preview.fromWord,
           othersFile: preview.othersFile,
           othersComments: preview.othersComments,
+          myComments: preview.myComments,
+          myCommentsOptional: preview.myCommentsOptional,
           theirChanges: preview.theirChanges,
           hiddenColumns: preview.hiddenColumns,
         });
@@ -638,8 +661,19 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
             othersFile={
               counts?.othersFile ? { checked: othersComments ?? counts.othersComments } : null
             }
+            myComments={counts?.myComments ?? 0}
+            myCommentsOptional={counts?.myCommentsOptional ?? false}
+            includeMine={
+              draft.docx.myCommentsFile === mind.id && (draft.docx.includeMyComments ?? false)
+            }
             onChange={(docx) => setDraft({ ...draft, docx })}
             onOthersChange={setOthersComments}
+            onIncludeMine={(includeMyComments) =>
+              setDraft({
+                ...draft,
+                docx: { ...draft.docx, includeMyComments, myCommentsFile: mind.id },
+              })
+            }
           />
         )}
 

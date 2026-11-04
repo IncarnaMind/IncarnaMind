@@ -14,14 +14,17 @@
  * comma-separated, to run only those. Each request is asked in a Library of its own, set up as
  * the first one was.
  */
+import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
-import type {
-  ApprovalRequest,
-  ConversationAnswer,
-  Core,
-  UserQuestionRequest,
-  WindowCommandRequest,
+import {
+  type ApprovalRequest,
+  type ConversationAnswer,
+  type Core,
+  DATABASE_FILE,
+  type UserQuestionRequest,
+  type WindowCommandRequest,
 } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -30,6 +33,7 @@ import {
   type OllamaModels,
   outputTokensFor,
 } from "../../src/core/providers/ollamaModels";
+import { openDatabase } from "../../src/core/storage";
 import type { OfferedCommand, Yours } from "../../src/shared/commands";
 import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -156,6 +160,8 @@ interface Library {
   documents: string[];
   /** Each Document's Tags: adding an existing Tag to a Document changes none of the fields above. */
   documentTags: { id: string; tags: string[] }[];
+  /** Every Tag on every Document, by name, for a merge's Undo. */
+  tagLinks: { document: string; tag: string }[];
   folders: Record<string, string[]>;
   userFiled: string[];
   tags: string[];
@@ -183,6 +189,14 @@ async function libraryOf(core: Core, mindId: string): Promise<Library> {
     documentTags: documents
       .map((each) => ({ id: each.id, tags: each.tags.map((tag) => tag.tagId).sort() }))
       .sort((a, b) => a.id.localeCompare(b.id)),
+    tagLinks: documents
+      .flatMap((each) =>
+        each.tags.flatMap((tag) => {
+          const name = tags.find((one) => one.id === tag.tagId)?.name;
+          return name ? [{ document: each.name, tag: name }] : [];
+        }),
+      )
+      .sort((a, b) => `${a.document} ${a.tag}`.localeCompare(`${b.document} ${b.tag}`)),
     folders: Object.fromEntries(
       library.groups.map((group) => [
         group.name,
@@ -238,10 +252,68 @@ const openedBeside =
 const checked: Check = (seen) =>
   expect(windowRan(seen, "mind.check", "mind.checkEverySentence")).toBe(true);
 
+/**
+ * "Re organise the files": Organize runs, the Documents are filed as the User's choice (not left
+ * as suggestions), and the reply names a Folder that holds what moved. Nothing it says is flagged.
+ */
 const organized: Check = (seen) => {
   expect(ran(seen).some((done) => done.command === "documents.organize")).toBe(true);
-  // Organize only suggests: nothing is filed as the User's choice.
-  expect(seen.after.userFiled).toEqual(seen.before.userFiled);
+  expect(seen.after.userFiled.length).toBeGreaterThan(seen.before.userFiled.length);
+  const made = Object.entries(seen.after.folders)
+    .filter(([name, documents]) => documents.length > 0 && !(name in seen.before.folders))
+    .map(([name]) => name);
+  expect(made.some((name) => seen.answer.text.includes(name))).toBe(true);
+  expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
+  expect(seen.answer.steps?.unbackedClaims ?? []).toEqual([]);
+};
+
+/** Organize after a standing no: the card says it sends this time only, and the run still files. */
+const organizedAfterDecline: Check = (seen) => {
+  organized(seen);
+  const cards = seen.asked.filter(
+    (each) => "ask" in each && each.ask.kind === "change" && each.ask.reason === "organize",
+  );
+  expect(cards).toHaveLength(1);
+  expect(cards[0] && "ask" in cards[0] ? cards[0].ask : null).toMatchObject({ declined: true });
+};
+
+/** After "Re organise the files" is taken back once: the Library is as it was. */
+const organizedUndone = (seen: Seen, undone: Library) => {
+  expect(undone.userFiled).toEqual(seen.before.userFiled);
+  expect(undone.folders).toEqual(seen.before.folders);
+};
+
+/**
+ * "Reduce the number of tags": Tags merge, the reply names a Tag that went, and nothing it says is
+ * flagged. One Undo brings every Tag and link back.
+ */
+const merged: Check = (seen) => {
+  expect(ran(seen).some((done) => done.command === "tag.merge")).toBe(true);
+  // One confirmation: one merge call, one card. Two calls would mean two Apply cards.
+  const cards = seen.asked.filter(
+    (each) => "ask" in each && each.ask.kind === "change" && each.ask.reason === "merge",
+  );
+  expect(cards).toHaveLength(1);
+  const gone = seen.before.tags.filter((name) => !seen.after.tags.includes(name));
+  expect(gone.length).toBeGreaterThan(0);
+  expect(gone.some((name) => seen.answer.text.includes(name))).toBe(true);
+  expect(seen.answer.steps?.unbackedCommands ?? []).toEqual([]);
+  // Every link a merged-away Tag had is on the Tag it went into: a link left behind would be lost.
+  const pairs = seen.answer.toolCalls.flatMap((call) => call.command?.merges ?? []);
+  expect(pairs.length).toBeGreaterThan(0);
+  for (const pair of pairs) {
+    const now = new Set(
+      seen.after.tagLinks.filter((link) => link.tag === pair.into).map((link) => link.document),
+    );
+    for (const link of seen.before.tagLinks) {
+      if (link.tag === pair.from) expect(now.has(link.document)).toBe(true);
+    }
+  }
+};
+
+const mergedUndone = (seen: Seen, undone: Library) => {
+  expect(undone.tags).toEqual(seen.before.tags);
+  expect(undone.tagLinks).toEqual(seen.before.tagLinks);
 };
 
 const refused = (seen: Seen, what: Yours) => {
@@ -394,7 +466,16 @@ const renamedOnceBack =
     }
   };
 
-const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = [
+const REQUESTS: {
+  id: string;
+  text: string;
+  check: Check;
+  choose?: Choose;
+  /** What one Undo leaves, for a request that changes the Library. */
+  undone?: (seen: Seen, undone: Library) => void;
+  /** Classification was declined before the request, so the card is this-time-only. */
+  declined?: boolean;
+}[] = [
   {
     id: "folder-en",
     text: "Create a folder named Tenancies and file both lease documents in it",
@@ -415,6 +496,45 @@ const REQUESTS: { id: string; text: string; check: Check; choose?: Choose }[] = 
     id: "gather-en",
     text: "Gather everything that talks about rent into one place",
     check: organized,
+  },
+  // #2252's own two lines: the request reorganises the files, or merges the Tags.
+  {
+    id: "reorganise-files-en",
+    text: "Re organise the files",
+    check: organized,
+    undone: organizedUndone,
+  },
+  {
+    id: "reorganise-files-zh",
+    text: "重新整理一下这些文件",
+    check: organized,
+    undone: organizedUndone,
+  },
+  {
+    id: "reorganise-files-declined-en",
+    text: "Re organise the files",
+    check: organizedAfterDecline,
+    undone: organizedUndone,
+    declined: true,
+  },
+  {
+    id: "reorganise-files-declined-zh",
+    text: "重新整理一下这些文件",
+    check: organizedAfterDecline,
+    undone: organizedUndone,
+    declined: true,
+  },
+  {
+    id: "reduce-tags-en",
+    text: "Reduce the number of tags",
+    check: merged,
+    undone: mergedUndone,
+  },
+  {
+    id: "reduce-tags-zh",
+    text: "减少标签的数量",
+    check: merged,
+    undone: mergedUndone,
   },
   {
     id: "privacy-en",
@@ -703,7 +823,7 @@ const NOTE = [
 ];
 
 /** A Library as each request finds it, its own: what one request changed never reaches the next. */
-async function libraryFor(live: (typeof LIVE)[number], choose: Choose) {
+async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined = false) {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir, {
     createChatModel: createAiSdkChatModel,
@@ -719,7 +839,13 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose) {
   const asked: ApprovalRequest[] = [];
   core.on("approval.requested", (request) => {
     asked.push(request);
-    void core.respondToApproval(request.requestId, "deny");
+    // The User asked for the files to be sorted or the Tags merged, so they allow that once; every
+    // other card is declined, as a User who wasn't asked would leave it.
+    const own =
+      "ask" in request &&
+      request.ask.kind === "change" &&
+      (request.ask.reason === "organize" || request.ask.reason === "merge");
+    void core.respondToApproval(request.requestId, own ? "allow-once" : "deny");
   });
   const questions: Seen["questions"] = [];
   core.on("question.asked", (request) => {
@@ -765,6 +891,26 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose) {
   );
   await client.settled();
   const commands = await windowCommandsFor(core, mind.id);
+  if (declined) {
+    const classification = (await core.listDataFlows()).find(
+      (each) => each.flow.id === "classification",
+    );
+    if (!classification) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", classification.flow.service.id);
+    // Declined in a dialog before background flows stopped asking.
+    const at = new Date().toISOString();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `INSERT INTO data_flow_consents
+           (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+         VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
+        [randomUUID(), classification.flow.service.id, classification.flow.service.name, at, at],
+      );
+    } finally {
+      db.close();
+    }
+  }
   return { core, dataDir, mind, commands, window, asked, questions };
 }
 
@@ -774,7 +920,9 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
     { timeout: 3_600_000 },
     async () => {
       const only = process.env.INCARNAMIND_LIVE_ONLY?.split(",");
-      const requests = REQUESTS.filter((each) => !only || only.includes(each.id));
+      const requests = REQUESTS.filter(
+        (each) => (!only || only.includes(each.id)) && (!each.declined || !live.local),
+      );
       record(`## ${live.name} · ${live.model} · ${requests.length} requests`);
       let passed = 0;
       onTestFinished(() =>
@@ -784,6 +932,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
         const { core, dataDir, mind, commands, window, asked, questions } = await libraryFor(
           live,
           request.choose ?? first,
+          request.declined,
         );
         const before = await libraryOf(core, mind.id);
         let line = `- ${request.id} “${request.text}”`;
@@ -815,6 +964,12 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
           try {
             request.check(seen);
             ranOnce(seen);
+            if (request.undone) {
+              const run = ran(seen)[0]?.run;
+              if (!run) throw new Error("No command ran, so there is nothing to undo.");
+              await core.undoCommands(run);
+              request.undone(seen, await libraryOf(core, mind.id));
+            }
             passed++;
             line = `${line}\n  pass`;
           } catch (error) {
