@@ -803,7 +803,7 @@ console.log(JSON.stringify(results));
       },
     );
 
-    test("a prefix's lib that links inside the prefix is read where it really is; one that links anywhere else in the home opens nothing", async () => {
+    test("a prefix's lib that links to a lib folder of the prefix is read where it really is; one that links anywhere else opens nothing", async () => {
       const { root, home, data, canary } = await setUp();
       await mkdir(join(home, "Library", "Keychains"), { recursive: true });
       await writeFile(join(home, "Library", "Keychains", "login.keychain-db"), "KEYCHAIN SECRET");
@@ -844,10 +844,22 @@ console.log(JSON.stringify(results));
         await writeFile(join(prefix, "lib-3.12", "python3.12", "os.py"), "STDLIB\n");
         return join(prefix, "lib-3.12");
       };
+      // The prefix itself, with a keyring in its share folder beside lib.
+      const keyring = async (prefix: string) => {
+        await mkdir(join(prefix, "share", "keyrings"), { recursive: true });
+        await writeFile(join(prefix, "share", "keyrings", "login.keyring"), "KEYRING SECRET");
+        return prefix;
+      };
       const cases = [
         await run("inside", inside, join("python3.12", "os.py")),
         await run("to-elsewhere", async () => elsewhere, join("python3.12", "os.py")),
         await run("to-home", async () => home, join(".ssh", "id_canary")),
+        await run("to-own-prefix", keyring, join("share", "keyrings", "login.keyring")),
+        await run(
+          "to-share",
+          async (prefix) => join(await keyring(prefix), "share"),
+          join("keyrings", "login.keyring"),
+        ),
         await run("to-ssh", async () => join(home, ".ssh"), "id_canary"),
         await run(
           "to-keychains",
