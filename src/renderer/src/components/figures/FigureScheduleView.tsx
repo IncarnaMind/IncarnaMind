@@ -9,6 +9,7 @@ import {
   lineRef,
   lineShows,
   notCheckedYet,
+  rowOpens,
   type ScheduleLine,
   scheduleLines,
   selectedFigures,
@@ -180,16 +181,12 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
   };
   const open = (line: ScheduleLine) => {
     if (line.id === line.parent.id) {
-      // An Analysis's table opens to its columns whatever it shows: it is never checked as text (#2378).
-      if (line.parent.analysisTable) {
-        toggle(line.parent.id);
-        return;
-      }
-      if (line.parent.shown.state === "not-checked") {
+      const opens = rowOpens(line.parent);
+      if (opens === "notice") {
         useNotices.getState().confirm("figures.notCheckedNotice");
         return;
       }
-      if (line.parent.calculated) {
+      if (opens !== "source") {
         toggle(line.parent.id);
         return;
       }

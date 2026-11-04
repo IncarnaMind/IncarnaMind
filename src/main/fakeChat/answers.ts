@@ -700,7 +700,7 @@ function analysisReply(prompt: Prompt, question: string, searched: string): Repl
     'sales = step("Read the sales", inputs["sales"])',
     'sales["Revenue"] = pd.to_numeric(sales["Revenue"], errors="coerce")',
     'totals = sales.groupby("Region", sort=True)["Revenue"].sum()',
-    'result("by_region", totals, "Revenue by region")',
+    `result("by_region", totals, "${chinese ? "各地区收入" : "Revenue by region"}")`,
     'result("total", totals.sum(), "Total revenue")',
     ...(joining ? ['merged = sales.merge(inputs["regions"], on="Region", how="left")'] : []),
   ].join("\n");

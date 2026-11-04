@@ -20,7 +20,7 @@ import {
 import { resultFromParts } from "../shared/claimParts";
 import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
-import { calculatedFiguresIn, figureRunsFor, readTableBinding } from "../shared/figureRuns";
+import { calculatedFiguresIn, figureRunsFor, keptBinding } from "../shared/figureRuns";
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
 import { perBlock } from "../shared/memo";
@@ -84,6 +84,8 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   personId?: string | null;
   /** The interface's language, which an Analysis table's numbers are written in. */
   language?: Language;
+  /** The walled Folder that keeps a Document inside it, seen from this Note; null when it may read it. */
+  keptInside?: (documentId: string) => string | null;
 }
 
 /** A result worked out again from its parts or figures, with the sentence's record cites (#1709). */
@@ -692,8 +694,10 @@ function tableStateShown(shown: AnalysisTableShown): {
       return { shown: { state: "needs-recheck", why: state.why }, reason: "needs-recheck" };
     case "calculated":
       return { shown: { state: "not-checked", reason: "analysis" }, reason: null };
+    case "kept-inside":
+      return { shown: { state: "not-checked", reason: "kept-inside" }, reason: null };
     case "unavailable":
-      return { shown: { state: "not-checked", reason: "unread" }, reason: null };
+      return { shown: { state: "not-checked", reason: "analysis-gone" }, reason: null };
   }
 }
 
@@ -720,7 +724,7 @@ function analysisTableRows(
   if (!doc) return [];
   return blocks.toArray().flatMap((table) => {
     if (!(table instanceof Y.XmlElement) || table.nodeName !== "table") return [];
-    const binding = readTableBinding(table.getAttribute(ANALYSIS_TABLE_ATTRIBUTE));
+    const binding = keptBinding(doc, table.getAttribute(ANALYSIS_TABLE_ATTRIBUTE));
     const tableId = table.getAttribute("id");
     if (!binding || typeof tableId !== "string") return [];
     const node = nodeOf(table);
@@ -731,7 +735,13 @@ function analysisTableRows(
       console.error(`Mind ${input.mindId}: reading Analysis table ${tableId}'s run failed`, error);
     }
     const kept = boundTableFor(node, keptAnalysisTables(analyses));
-    const shown = analysisTableShown(node, kept, input.language ?? "en", input.versions);
+    const shown = analysisTableShown(
+      node,
+      kept,
+      input.language ?? "en",
+      input.versions,
+      input.keptInside ?? null,
+    );
     const caption = captionOf(table);
     const captionId = caption?.element.getAttribute("id");
     const title = caption ? plainText(caption.element).trim() : (kept?.label ?? "");
@@ -875,6 +885,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         null,
       result: occurrence.calculated?.figure.analysis?.result ?? null,
       versions: input.versions,
+      keptInside: input.keptInside ?? null,
     });
     if (
       shown.state !== "needs-recheck" &&

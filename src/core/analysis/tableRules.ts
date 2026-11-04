@@ -21,11 +21,11 @@ type TableInput = Extract<AnalysisInput, { kind: "table" }>;
 
 const AGGREGATES = ["sum", "mean", "min", "max"] as const;
 
-/** A label as the code groups by it: the same text or number, never one read as the other. */
+// "2023" and 2023 are two labels, as pandas groups them.
 const labelKey = (cell: AnalysisCell): string | null =>
   cell === null || cell === "" || typeof cell === "boolean" ? null : JSON.stringify(cell);
 
-/** Each label's rows of `input`, by their index there, grouped by `key`; null when a label has none. */
+/** Null when a label has no rows: no rule over the input's rows gives its cells. */
 function groupsOf(input: TableInput, key: number, labels: readonly string[]): number[][] | null {
   const wanted = new Map(labels.map((label) => [label, [] as number[]]));
   input.rows.forEach((row, index) => {
@@ -36,7 +36,7 @@ function groupsOf(input: TableInput, key: number, labels: readonly string[]): nu
   return groups.every((group) => group.length > 0) ? groups : null;
 }
 
-/** `how` of `input`'s `column` over each group's rows; null where the cells refuse it, as `recalculate` does. */
+/** Null where the cells refuse it, as `recalculate` does. */
 function worked(
   input: TableInput,
   column: number,
@@ -53,7 +53,6 @@ function worked(
   });
 }
 
-/** Whether `values` are the column's cells, row by row. */
 const reproduces = (values: readonly (number | null)[], cells: readonly AnalysisCell[]) =>
   cells.every((cell, at) => {
     const value = values[at];

@@ -11,17 +11,19 @@ import { getSchema } from "@tiptap/core";
 import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
   type CellFigurePlace,
   type KeptCitationText,
   MIND_CONTENT_FIELD,
   type UnreadFile,
 } from "../../core/api";
 import type { Language } from "../../core/language";
-import { liveVersions, tableNeedsLook, tableShownIn } from "../../shared/analysisTables";
+import { liveVersions, tableShownIn } from "../../shared/analysisTables";
 import { allOrigins } from "../../shared/blockOrigins";
 import { citationState, type LiveDocument } from "../../shared/citations";
 import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
 import { formatDateTime } from "../../shared/dates";
+import { keptBinding } from "../../shared/figureRuns";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { mindCheckOf } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -121,9 +123,9 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     // is named beside it rather than turning the whole Note back to Not checked (#2313).
     const settled =
       health.uncheckable.length + health.edited.length + health.notRecalculated.length;
-    // A figure an Analysis gave that couldn't be worked out again is settled as well as it can be.
-    const covered = health.supported + health.notRecalculated.length;
-    if (covered > 0 && settled === health.toCheck.length) {
+    // A figure an Analysis gave that couldn't be worked out again is settled as well as it can be,
+    // but earns no ✓: only a verdict a check gave does (#2378).
+    if (health.supported > 0 && settled === health.toCheck.length) {
       // A file a narrow check couldn't read could hold the evidence: the unread reading keeps the Note amber.
       if (unreadMatters) {
         return {
@@ -143,6 +145,22 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
         cantCheck: health.uncheckable.length,
         notRecalculated: health.notRecalculated.length,
         needsCheck: health.edited.length,
+      };
+    }
+    // Nothing to fix and nothing earned: the Note rests on what wasn't recalculated, never on ✓.
+    if (
+      health.notRecalculated.length > 0 &&
+      settled === health.toCheck.length &&
+      health.uncheckable.length + health.edited.length === 0 &&
+      !unreadMatters
+    ) {
+      return {
+        ...base,
+        kind: "not-checked",
+        look: 0,
+        tone: "neutral",
+        mark: "notChecked",
+        notRecalculated: health.notRecalculated.length,
       };
     }
     const mark: NoteStateMark = health.recheck.length > 0 ? "recheck" : "notChecked";
@@ -208,7 +226,17 @@ export function noteStateParts(
 ): readonly string[] {
   const count = (value: number) => new Intl.NumberFormat(language).format(value);
   const unread = noteStateShowsUnread(state) ? noteStateUnreadWords(state, t, language) : null;
-  if (state.kind === "not-checked") return [t("health.state.notChecked")];
+  if (state.kind === "not-checked")
+    return [
+      state.notRecalculated > 0
+        ? t(
+            state.notRecalculated === 1
+              ? "health.state.notRecalculated.one"
+              : "health.state.notRecalculated",
+            { count: count(state.notRecalculated) },
+          )
+        : t("health.state.notChecked"),
+    ];
   if (state.kind === "needs-look") {
     const parts: string[] = [];
     if (state.look > 0) {
@@ -308,8 +336,8 @@ export function readNoteState({
     skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
     omitted: opinionSentenceRanges(root, doc),
     citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
-    tableNeedsLook: (table) =>
-      tableNeedsLook(tableShownIn(doc, table.toJSON(), "en", liveVersions(documents))),
+    tableShown: (table) => tableShownIn(doc, table.toJSON(), "en", liveVersions(documents)),
+    tableKept: (table) => keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
   });
   const requests = new Set(
     claims.map((claim) => claim.check.request).filter((request) => request !== ""),
@@ -331,3 +359,56 @@ export function readNoteState({
     filedAnswers,
   };
 }
+
+/**
+ * What the green state leaves, in the badge's short form under 400 px: "1 file couldn't be read ·
+ * 1 figure not recalculated · …"; null when it leaves nothing.
+ */
+export function checkedCaveat(
+  state: NoteState,
+  t: Translate,
+  format: (value: number) => string,
+): string | null {
+  const parts = [
+    ...(state.cantCheck > 0
+      ? [
+          t(
+            state.cantCheck === 1
+              ? "health.state.cantCheck.short.one"
+              : "health.state.cantCheck.short",
+            { count: format(state.cantCheck) },
+          ),
+        ]
+      : []),
+    ...(state.notRecalculated > 0
+      ? [
+          t(
+            state.notRecalculated === 1
+              ? "health.state.notRecalculated.one"
+              : "health.state.notRecalculated",
+            { count: format(state.notRecalculated) },
+          ),
+        ]
+      : []),
+    ...(state.needsCheck > 0
+      ? [
+          t(
+            state.needsCheck === 1
+              ? "health.state.needsCheck.short.one"
+              : "health.state.needsCheck.short",
+            { count: format(state.needsCheck) },
+          ),
+        ]
+      : []),
+  ];
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Whether a line that reports the Note's state, as the export's does, has nothing to add: ✓ with nothing left. */
+export const nothingLeft = (state: NoteState | null): boolean =>
+  state === null ||
+  (state.kind === "checked" &&
+    state.unread === 0 &&
+    state.cantCheck === 0 &&
+    state.notRecalculated === 0 &&
+    state.needsCheck === 0);

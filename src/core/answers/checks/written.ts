@@ -206,7 +206,7 @@ const boundTable = (node: NodeJSON) =>
   node.type === "table" && readTableBinding(node.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) !== null;
 
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
-function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
+export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
   const visit = (
     nodes: readonly NodeJSON[],

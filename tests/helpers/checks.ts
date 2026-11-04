@@ -25,6 +25,8 @@ import {
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
+  /** What else the sentence asserts beside its Analysis's figures, as a model gives it, and its verdict. */
+  remainder?: { text: string; verdict: "supported" | "unsupported" };
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   /** The number of `quote` that backs the sentence's figure, as written: its first of a kind when absent. */
@@ -106,6 +108,20 @@ export function requestedFigures(call: ModelCall): {
     };
   });
 }
+
+/** What else the sentence asserts, as a plan gives it, in the Figures line's form. */
+const remainderOf = (plan: Plan) =>
+  plan.remainder
+    ? {
+        text: plan.remainder.text,
+        verdict: plan.remainder.verdict,
+        scope: "same",
+        topic: plan.remainder.verdict === "supported" ? "found" : "not found",
+        roles: "same",
+        says: null,
+        citation: null,
+      }
+    : null;
 
 /** The sentence a check Run is asked about. */
 /**
@@ -230,7 +246,9 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
               calculation: null,
             },
       );
-      return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
+      return {
+        text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: remainderOf(plan) })}`,
+      };
     }
     // Each figure from the cited quote's number of its own kind of unit, or its first.
     const numbers = readFigures(quote, documentFigureContext([{ text: quote }]));

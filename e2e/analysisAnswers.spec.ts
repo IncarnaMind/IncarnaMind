@@ -340,15 +340,22 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(marker).toHaveCount(1);
       await expect(marker).toHaveAttribute("data-state", "supported");
       await expect(table.getByTestId("citation")).toHaveCount(0);
+      // The caption is the table's title in the Note's language, with no lead-in that repeats it.
+      const caption = language === "en" ? "Revenue by region" : "各地区收入";
+      await expect(editor.locator("p").filter({ has: marker })).toHaveText(
+        new RegExp(`^${caption}\\s*=1$`),
+      );
+      await expect(editor.locator("p").filter({ hasText: `${caption}:` })).toHaveCount(0);
+      await expect(editor.locator("p").filter({ hasText: `${caption}：` })).toHaveCount(0);
 
       // Check, as the User presses it: the totals are the Analysis's, never claims to look for.
       await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
       const badge = window.getByTestId("check-badge");
       await expect(badge).toBeVisible({ timeout: 30_000 });
       await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
-      // The line above the table is the fake checker's to judge, as any sentence is: its cells aren't.
-      await expect(badge).toHaveAttribute("data-state", /^(checked|needs-look)$/);
-      await expect(table.locator(".claim-wash")).toHaveCount(0);
+      // The Note holds only the table, which its run vouches for: ✓, and nothing washed.
+      await expect(badge).toHaveAttribute("data-state", "checked");
+      await expect(editor.locator(".claim-wash")).toHaveCount(0);
       await expect(marker).toHaveAttribute("data-state", "supported");
 
       // Its card says how each column was worked out, in the figure card's words.
@@ -357,8 +364,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card).toBeVisible();
       await expect(card.getByTestId("analysis-table-column")).toHaveText([
         language === "en"
-          ? "Revenue: sum of 5 rows · recalculated"
-          : "Revenue：5 行的合计 · 已重新计算",
+          ? "Revenue: sum of 5 rows, by Region · recalculated"
+          : "Revenue：按 Region 计算 5 行的合计 · 已重新计算",
       ]);
       const evidence = process.env.INCARNAMIND_ANALYSIS_EVIDENCE_DIR;
       if (evidence) {

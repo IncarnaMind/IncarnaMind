@@ -420,6 +420,26 @@ const valueKey = (id: string, name: string) => JSON.stringify([id, name]);
 // Three parts, where a value's key has two: no result's name can make one.
 const tableKey = (id: string, key: AnalysisTableKey) => JSON.stringify([id, "table", key]);
 
+/**
+ * Whether the Note `doc` keeps the run a table is bound to, and that table of it (#2378): only then
+ * are its cells the run's. A table bound to a run the Note lost is a typed table, checked as one.
+ */
+export function tableKept(doc: Y.Doc, binding: AnalysisTableBinding): boolean {
+  const runs = doc.getMap<unknown>(MIND_FIGURE_RUNS_FIELD);
+  const metadata = runs.get(runKey(binding.id));
+  return (
+    isRecord(metadata) &&
+    metadata.id === binding.id &&
+    isRecord(runs.get(tableKey(binding.id, binding.table)))
+  );
+}
+
+/** A table Block's binding while the Note `doc` keeps its run; null for any other table. */
+export function keptBinding(doc: Y.Doc | null, value: unknown): AnalysisTableBinding | null {
+  const binding = readTableBinding(value);
+  return binding && doc && tableKept(doc, binding) ? binding : null;
+}
+
 /** Each run `blocks` name with a table, and which of its tables. */
 function tablesUsedIn(blocks: readonly NodeJSON[]): Map<string, AnalysisTableKey[]> {
   const used = new Map<string, AnalysisTableKey[]>();

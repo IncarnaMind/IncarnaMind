@@ -10,7 +10,7 @@ import { chartCheckText, chartPoints, fromAnalysisOnly, readChart } from "../../
 import { citationAttributesOf } from "../../../shared/citations";
 import { keptOn, readClaimCheck } from "../../../shared/claimChecks";
 import { partCitations, readClaimParts } from "../../../shared/claimParts";
-import { readTableBinding } from "../../../shared/figureRuns";
+import { keptBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextPiece,
   type InlineTextProjection,
@@ -345,10 +345,13 @@ export function inTableHeader(element: Y.XmlElement): boolean {
   return false;
 }
 
-/** An Analysis's own table, and every cell of it: its run's, never claims to check against the Documents (#2378). */
+/**
+ * An Analysis's own table, and every cell of it, while the Note keeps its run: its run's, never
+ * claims to check against the Documents (#2378).
+ */
 export function inAnalysisTable(element: Y.XmlElement): boolean {
   for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent)
-    if (at.nodeName === "table" && readTableBinding(at.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)))
+    if (at.nodeName === "table" && keptBinding(at.doc, at.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)))
       return true;
   return false;
 }

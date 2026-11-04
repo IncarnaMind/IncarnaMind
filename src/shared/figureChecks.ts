@@ -2,6 +2,7 @@ import type {
   CheckFigure,
   ClaimCheckAttributes,
   ClaimCheckBasis,
+  ClaimCheckFailure,
   ClaimCheckPart,
   ClaimJudgment,
   FigureCheckAttributes,
@@ -250,6 +251,12 @@ function sourceFootingOf(value: unknown): FigureSourceFooting | null {
   };
 }
 
+/** An Analysis figure's Not checked, which no check can change: its run's, or its record gone (#2378). */
+export const ANALYSIS_REASONS: ReadonlySet<ClaimCheckFailure> = new Set([
+  "analysis",
+  "analysis-gone",
+]);
+
 /** Missing remainder is not evidence that the sentence has no other assertion. */
 export function aggregateFigureStates(
   figures: readonly ClaimCheckShown[],
@@ -265,7 +272,7 @@ export function aggregateFigureStates(
   // part that couldn't be checked, or a remainder never given, is what the sentence shows.
   const unchecked = all.filter((each) => each.state === "not-checked");
   const other = unchecked.find(
-    (each) => each.state === "not-checked" && each.reason !== "analysis",
+    (each) => each.state === "not-checked" && !ANALYSIS_REASONS.has(each.reason),
   );
   if (other) return other;
   if (remainder === undefined) return { state: "not-checked", reason: "malformed" };

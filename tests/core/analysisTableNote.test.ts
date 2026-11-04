@@ -6,9 +6,12 @@
  * Analysis's values and inputs once the write is checked; and the table goes in once.
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
+import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { createElement, nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
 import {
@@ -19,14 +22,21 @@ import {
   MIND_FIGURE_RUNS_FIELD,
 } from "../../src/core/api";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
-import { noAnalysisOutput } from "../../src/shared/analysis";
+import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import { columnLine, differingLine, footedLine } from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { chartSources, readChart } from "../../src/shared/charts";
 import { readClaimCheck } from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
-import { checkGenerate, checkReply, isCheckRun, listedSentences } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkReply,
+  isCheckRun,
+  listedSentences,
+  type Plan,
+  sentenceOf,
+} from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
@@ -110,7 +120,7 @@ const WORDS = {
     chart: "Total amount by region",
     note: "Calculated by the Analysis “Orders by region” from 40 rows of Orders.",
     notRecalculated: "1 figure not recalculated",
-    column: "amount: sum of 40 rows · recalculated",
+    column: "amount: sum of 40 rows, by region · recalculated",
     differs: "North: 9,999 in the note, 9,450 in the Analysis",
     footed: "The rows above add to 35,550",
     notIn: "Total: 35,551 in the note, not in the Analysis",
@@ -124,7 +134,7 @@ const WORDS = {
     chart: "各地区金额合计",
     note: "由数据分析“按地区汇总订单”根据“Orders”的 40 行计算得出。",
     notRecalculated: "1 个数字未重新计算",
-    column: "amount：40 行的合计 · 已重新计算",
+    column: "amount：按 region 计算 40 行的合计 · 已重新计算",
     differs: "North：笔记中为 9,999，数据分析中为 9,450",
     footed: "上面各行相加为 35,550",
     notIn: "合计：笔记中为 35,551，数据分析中没有",
@@ -142,11 +152,17 @@ function writingModel(
   asksChart: boolean,
   again: string | null,
   rewrite: { part: string; content: string } | null,
+  plan: (sentence: string) => Plan | undefined,
 ) {
   const words = WORDS[language];
   return scriptedModel(
     (call: ModelCall) => {
-      if (isCheckRun(call)) return checkReply(call, {});
+      if (isCheckRun(call)) {
+        if (!call.results.some((result) => result.tool === "search_documents"))
+          sent.push(sentenceOf(call));
+        const planned = plan(sentenceOf(call));
+        return checkReply(call, planned ? { [sentenceOf(call)]: planned } : {});
+      }
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search) return { calls: [{ tool: "search_documents", input: { query: "Central" } }] };
       if (!call.results.some((result) => result.tool === "run_analysis")) {
@@ -221,9 +237,10 @@ async function walked(
   again: string | null = null,
   given: FakeAnswer = ANALYSIS(WORDS[language].caption),
   rewrite: { part: string; content: string } | null = null,
+  plan: (sentence: string) => Plan | undefined = () => undefined,
 ) {
   const sent: string[] = [];
-  const model = writingModel(language, content, sent, asksChart, again, rewrite);
+  const model = writingModel(language, content, sent, asksChart, again, rewrite, plan);
   const printer = fakePrinter();
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -258,13 +275,23 @@ async function walked(
 const blocksOf = (client: MindClient): NodeJSON[] => topLevelBlocks(client.blocks).map(nodeOf);
 
 /** Every claim check's mark in the Note, by the words it marks. */
-function marks(client: MindClient): { text: string; state: string; failure?: string }[] {
-  const found: { text: string; state: string }[] = [];
+function marks(client: MindClient): { text: string; state: string; reason: string | null }[] {
+  const found: { text: string; state: string; reason: string | null }[] = [];
   const visit = (node: NodeJSON) => {
     for (const mark of node.marks ?? []) {
       if (mark.type !== CLAIM_CHECK_MARK) continue;
       const check = readClaimCheck(mark.attrs);
-      if (check) found.push({ text: node.text ?? "", state: check.state });
+      if (check)
+        found.push({
+          text: node.text ?? "",
+          state: check.state,
+          reason:
+            check.state === "unsupported"
+              ? (check.unsupported?.reason ?? null)
+              : check.state === "not-checked"
+                ? check.reason
+                : null,
+        });
     }
     for (const child of node.content ?? []) visit(child);
   };
@@ -314,8 +341,9 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
       expect(sent.some((each) => each.includes(new Intl.NumberFormat("en").format(total)))).toBe(
         false,
       );
-    // Nor its caption, which names it as a heading does.
+    // Nor its caption, which names it as a heading does, nor its chart, whose values are the run's.
     expect(sent.some((each) => each.includes(WORDS[language].caption))).toBe(false);
+    expect(sent.some((each) => each.includes('"kind":"bar"'))).toBe(false);
     expect(marks(client).filter((mark) => /\d,\d{3}$/.test(mark.text))).toEqual([]);
     const schedule = await core.getFigureSchedule(madeId);
     const tables = schedule.rows.filter((row) => row.analysisTable);
@@ -686,6 +714,362 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
         each.differs.map((cell) => differingLine(cell, language)),
       ),
     ).toEqual([WORDS[language].notIn]);
+    core.close();
+  });
+});
+
+/** Each region's rows in Orders.csv, as an Analysis names them: their row numbers in the sheet. */
+function regionRows(): Map<string, number[]> {
+  const lines = readFileSync(ORDERS, "utf8").trim().split("\n").slice(1);
+  const rows = new Map<string, number[]>();
+  lines.forEach((line, at) => {
+    const cells = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+    const region = cells[3] ?? "";
+    rows.set(region, [...(rows.get(region) ?? []), at + 2]);
+  });
+  return rows;
+}
+
+/** A `figure()` figure of Central's rows, as the walk's code gives one, worked out again by the core. */
+function centralFigure(name: string, how: "sum" | "mean", label: string): AnalysisValue {
+  const rows = regionRows().get("Central") ?? [];
+  const amounts = TOTALS.find(([region]) => region === "Central")?.[1] ?? 0;
+  return {
+    kind: "figure",
+    name,
+    label,
+    unit: "",
+    value: how === "sum" ? amounts : amounts / rows.length,
+    of: {
+      input: "orders",
+      columns: ["amount"],
+      rows: rows.reduce<[number, number][]>((runs, row) => {
+        const last = runs.at(-1);
+        if (last && row === last[1] + 1) last[1] = row;
+        else runs.push([row, row]);
+        return runs;
+      }, []),
+      count: rows.length,
+      how,
+    },
+  };
+}
+
+const NAMED = {
+  en: {
+    total: "Total amount, Central",
+    mean: "Average amount, Central",
+    right: "Central's total amount is [=6].",
+    swapped: "North's total amount is [=6].",
+    asTotal: "In Central, the total amount was [=7].",
+    extra: "Central's total amount is [=6], and revenue doubled.",
+    reworded: "South's total amount is ",
+    gone: "The Analysis it came from is no longer available",
+    misnamed: (label: string) => `The sentence doesn’t say this figure is ${label}`,
+    rests: "1 figure not recalculated",
+    two: "2 figures not recalculated",
+    whole: "North's total is [=3], of [=6] in all.",
+  },
+  "zh-CN": {
+    total: "中部地区金额合计",
+    mean: "中部地区平均金额",
+    right: "中部地区金额合计为 [=6]。",
+    swapped: "北部地区金额合计为 [=6]。",
+    asTotal: "在中部地区，金额合计是 [=7]。",
+    extra: "中部地区金额合计为 [=6]，而且收入翻了一番。",
+    reworded: "南部地区金额合计为 ",
+    gone: "它所来自的数据分析已不可用",
+    misnamed: (label: string) => `句中没有写明这个数字是${label}`,
+    rests: "1 个数字未重新计算",
+    two: "2 个数字未重新计算",
+    whole: "North地区合计为 [=3]，全部合计为 [=6]。",
+  },
+} as const;
+
+describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#2378)", (language) => {
+  const words = NAMED[language];
+  const withFigures = (): Answered => {
+    const base = ANALYSIS(WORDS[language].caption);
+    return {
+      ...base,
+      output: {
+        ...noAnalysisOutput(),
+        ...base.output,
+        results: [
+          ...(base.output?.results ?? []),
+          centralFigure("central_sum", "sum", words.total),
+          centralFigure("central_mean", "mean", words.mean),
+        ],
+      },
+    };
+  };
+  const lines = (...said: string[]) => [`# ${WORDS[language].title}`, "", ...said].join("\n\n");
+  /** The mark on the sentence `said` starts with: its first words before the figure. */
+  const stateOf = (client: MindClient, said: string) =>
+    marks(client).find((mark) => mark.text.trim().length > 1 && said.startsWith(mark.text));
+  const reading = async (core: Core, client: MindClient) =>
+    readNoteState({
+      doc: client.doc,
+      cellFigures: [],
+      documents: await core.listDocuments(),
+      keptCitationTexts: [],
+      folderId: null,
+    }).state;
+  const parts = (state: NonNullable<Awaited<ReturnType<typeof reading>>>) =>
+    noteStateParts(state, (key, params) => translate(language, key, params), language);
+
+  test("a figure worked out again is Supported only under every word of its label; another region's or another measure's name needs a look, saying what the figure is", async () => {
+    const content = lines(words.right, words.swapped, words.asTotal);
+    const { core, madeId, client } = await walked(language, content, false, null, withFigures());
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)?.state).toBe("supported");
+    expect(stateOf(client, words.swapped)).toMatchObject({
+      state: "unsupported",
+      reason: words.misnamed(words.total),
+    });
+    expect(stateOf(client, words.asTotal)).toMatchObject({
+      state: "unsupported",
+      reason: words.misnamed(words.mean),
+    });
+    // It holds the badge: never quietly green.
+    expect((await reading(core, client))?.kind).toBe("needs-look");
+    core.close();
+  });
+
+  test("a sentence the User rewords to another name is checked again and needs a look", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)?.state).toBe("supported");
+    const paragraph = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement =>
+          each instanceof Y.XmlElement &&
+          each.toString().includes(language === "en" ? "Central" : "中部"),
+      );
+    const text = paragraph?.toArray().find((each): each is Y.XmlText => each instanceof Y.XmlText);
+    if (!text) throw new Error("No sentence.");
+    client.doc.transact(() => {
+      text.delete(0, text.toString().indexOf(language === "en" ? " amount" : "金额"));
+      text.insert(0, language === "en" ? "South's total" : "南部地区");
+    });
+    await client.settled();
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" });
+    await client.settled();
+    expect(stateOf(client, words.reworded)).toMatchObject({
+      state: "unsupported",
+      reason: words.misnamed(words.total),
+    });
+    core.close();
+  });
+
+  test("a correctly named figure beside a claim the Documents don't make is never Supported", async () => {
+    const claim = language === "en" ? "revenue doubled" : "收入翻了一番";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.extra),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.includes(claim)
+          ? { remainder: { text: claim, verdict: "unsupported" } }
+          : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.extra)?.state).toBe("unsupported");
+    core.close();
+  });
+
+  test("a figure whose record is gone reads Not checked, and a Note with nothing earned rests on what wasn't recalculated, with no ✓", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    client.doc.transact(() => {
+      const runs = client.doc.getMap(MIND_FIGURE_RUNS_FIELD);
+      for (const key of [...runs.keys()]) runs.delete(key);
+    });
+    await client.settled();
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    const mark = stateOf(client, words.right);
+    expect(mark).toMatchObject({ state: "not-checked", reason: "analysis-gone" });
+    expect(translate(language, "claim.reason.analysis-gone")).toBe(words.gone);
+    const state = await reading(core, client);
+    expect(state).toMatchObject({ kind: "not-checked", tone: "neutral" });
+    expect(state && parts(state)).toEqual([words.rests]);
+    core.close();
+  });
+
+  test("a Note whose only figure is the slope rests on it, with no ✓ and no amber", async () => {
+    const { core, madeId, client } = await walked(language, lines(WORDS[language].slope), false);
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    const state = await reading(core, client);
+    expect(state).toMatchObject({ kind: "not-checked", tone: "neutral" });
+    expect(state && parts(state)).toEqual([words.rests]);
+    core.close();
+  });
+
+  test("each column not recalculated counts as one figure, beside the slope, on the green line", async () => {
+    const base = ANALYSIS(WORDS[language].caption);
+    const shares: Answered = {
+      ...base,
+      output: {
+        ...noAnalysisOutput(),
+        ...base.output,
+        results: (base.output?.results ?? []).map((result) =>
+          result.kind === "table"
+            ? {
+                ...result,
+                table: {
+                  columns: ["region", "amount", "share"],
+                  rows: TOTALS.map(([region, total]) => [region, total, total / 35550]),
+                  rowCount: 4,
+                  columnCount: 3,
+                },
+              }
+            : result,
+        ),
+      },
+    };
+    const { core, madeId, client } = await walked(language, CONTENT(language), false, null, shares);
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    const state = await reading(core, client);
+    expect(state?.kind).toBe("checked");
+    expect(state && parts(state)[1]).toBe(words.two);
+    core.close();
+  });
+
+  test("a whole figure is written out, never rounded to a scale word", async () => {
+    const base = ANALYSIS(WORDS[language].caption);
+    const total: AnalysisValue = {
+      kind: "figure",
+      name: "all_total",
+      label: language === "en" ? "Total amount, all orders" : "全部订单金额合计",
+      unit: "",
+      value: 35550,
+    };
+    const given: Answered = {
+      ...base,
+      output: {
+        ...noAnalysisOutput(),
+        ...base.output,
+        results: [...(base.output?.results ?? []), total],
+      },
+    };
+    const { client, core } = await walked(language, lines(words.whole), false, null, given);
+    expect(JSON.stringify(blocksOf(client))).toContain('"shown":"9,450"');
+    expect(JSON.stringify(blocksOf(client))).toContain('"shown":"35,550"');
+    core.close();
+  });
+
+  test("a bound table whose run the Note no longer keeps is a typed table: its cells are checked", async () => {
+    const { core, madeId, client } = await walked(language, CONTENT(language), false);
+    client.doc.transact(() => {
+      const runs = client.doc.getMap(MIND_FIGURE_RUNS_FIELD);
+      for (const key of [...runs.keys()]) if (key.includes('"table"')) runs.delete(key);
+    });
+    await client.settled();
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    const schedule = await core.getFigureSchedule(madeId);
+    expect(schedule.rows.filter((row) => row.analysisTable)).toEqual([]);
+    expect(schedule.rows.filter((row) => row.place.table).length).toBeGreaterThan(0);
+    core.close();
+  });
+
+  test("behind a walled Folder the Note is outside, the run backs nothing; inside it, it does again", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      [CONTENT(language), "", words.right].join("\n"),
+      false,
+      null,
+      withFigures(),
+    );
+    // Another Document the Note may read, so its Check has somewhere to look.
+    const elsewhere = join(await createTempDataFolder(), "Notes.txt");
+    await writeFile(elsewhere, "Meeting notes on the regions.\n");
+    await addAndProcess(core, [elsewhere]);
+    const orders = (await core.listDocuments()).find((each) => each.name.startsWith("Orders"));
+    if (!orders) throw new Error("No Orders.");
+    const matter = await core.createLibraryGroup({ name: "Matter", description: "" });
+    await core.assignDocumentGroup(orders.id, matter.id);
+    await core.updateLibraryGroup(matter.id, { name: "Matter", description: "", keepInside: true });
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)).toMatchObject({
+      state: "not-checked",
+      reason: "kept-inside",
+    });
+    const outside = await core.getFigureSchedule(madeId);
+    expect(outside.rows.find((row) => row.analysisTable)?.shown).toEqual({
+      state: "not-checked",
+      reason: "kept-inside",
+    });
+    expect(
+      outside.rows.filter((row) => !row.analysisTable).map((row) => row.shown.state),
+    ).not.toContain("supported");
+    await core.moveToFolder({ mindIds: [madeId], folderId: matter.id });
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)?.state).toBe("supported");
+    const inside = await core.getFigureSchedule(madeId);
+    expect(inside.rows.find((row) => row.analysisTable)?.shown.state).toBe("supported");
+    core.close();
+  });
+
+  test("the caption is the table's title, and a line above it that only says the same is dropped", async () => {
+    const content = [
+      `# ${WORDS[language].title}`,
+      "",
+      `${WORDS[language].caption}:`,
+      "",
+      "[=table 1]",
+    ].join("\n");
+    const { core, client } = await walked(language, content, false);
+    expect(blocksOf(client).map((block) => block.type)).toEqual(["heading", "paragraph", "table"]);
+    expect(blocksOf(client)[1]?.content?.[0]?.text).toBe(WORDS[language].caption);
+    core.close();
+  });
+
+  test("two chart markers draw two charts, and a chart of the same rows sorted adds no table", async () => {
+    const base = ANALYSIS(WORDS[language].caption);
+    const [chart] = base.output?.charts ?? [];
+    if (!chart) throw new Error("No chart.");
+    const sorted = { ...chart, table: { ...chart.table, rows: [...chart.table.rows].reverse() } };
+    const given: Answered = {
+      ...base,
+      output: { ...noAnalysisOutput(), ...base.output, charts: [chart, sorted] },
+    };
+    const content = [
+      `# ${WORDS[language].title}`,
+      "",
+      "[=table 1]",
+      "",
+      "[=chart 1]",
+      "",
+      "[=chart 2]",
+    ].join("\n");
+    const { core, client } = await walked(language, content, false, null, given);
+    const types = blocksOf(client).map((block) => block.type);
+    expect(types.filter((type) => type === "table")).toHaveLength(1);
+    expect(types.filter((type) => type === CHART_NODE)).toHaveLength(2);
     core.close();
   });
 });

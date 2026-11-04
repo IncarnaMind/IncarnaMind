@@ -10,11 +10,20 @@ import {
   tableSpot,
   unavailable,
 } from "../editor/tableCommands";
+import { readMindHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
-/** The note's keymap gives a command the Block at the cursor as its focus. */
+/**
+ * The note's keymap gives a command the Block at the cursor as its focus; ⌘K, with nothing chosen,
+ * acts on the table the cursor is in, in the Note in front.
+ */
 function tableNote(ctx: CommandContext): Editor | null {
-  const editor = ctx.focus?.kind === "block" ? noteHolding(ctx.focus.id) : null;
+  const editor =
+    ctx.focus?.kind === "block"
+      ? noteHolding(ctx.focus.id)
+      : ctx.focus === null && ctx.selection.length === 0
+        ? (readMindHandle.current?.editor ?? null)
+        : null;
   return editor && !editor.isDestroyed && isInTable(editor.state) ? editor : null;
 }
 
@@ -25,7 +34,6 @@ export const tableCommands: readonly Command[] = [
       label: action.label,
       ...(action.keys && { shortcut: { keys: action.keys } }),
       group: action.id.startsWith("delete") ? "danger" : "main",
-      appliesTo: ["block"],
       // The note's own undo (⌘Z) takes it back.
       reversible: true,
       when: (ctx) => {

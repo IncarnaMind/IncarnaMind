@@ -54,6 +54,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "local-mode": true,
   "kept-inside": true,
   analysis: true,
+  "analysis-gone": true,
   "absence-read-limit": true,
   "absence-unconfirmed": true,
   "absence-other-document": true,
@@ -178,7 +179,9 @@ export function readClaimCalculation(value: unknown): ClaimCalculation | null {
 export function readUnsupportedReason(value: unknown): UnsupportedReason | null {
   if (!isRecord(value)) return null;
   return {
-    ...((value.kind === "forecast-certainty" || value.kind === "unbacked-cause") && {
+    ...((value.kind === "forecast-certainty" ||
+      value.kind === "unbacked-cause" ||
+      value.kind === "analysis-name") && {
       kind: value.kind,
     }),
     reason: text(value.reason),

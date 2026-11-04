@@ -32,7 +32,7 @@ import {
   useMindCheckRun,
 } from "../mindCheck";
 import { useFade } from "../motion";
-import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
+import { checkedCaveat, type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
@@ -589,40 +589,12 @@ function BadgePill({
           <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>
         )}
         {/* Under 400 px the full words are hidden, so what is left is said in its short form. */}
-        {state.kind === "checked" &&
-          (state.cantCheck > 0 || state.notRecalculated > 0 || state.needsCheck > 0) && (
-            <span className="check-badge-short check-badge-short-caveat">
-              {" · "}
-              {state.cantCheck > 0
-                ? t(
-                    state.cantCheck === 1
-                      ? "health.state.cantCheck.short.one"
-                      : "health.state.cantCheck.short",
-                    { count: format(state.cantCheck) },
-                  )
-                : null}
-              {state.cantCheck > 0 && state.notRecalculated > 0 ? " · " : null}
-              {state.notRecalculated > 0
-                ? t(
-                    state.notRecalculated === 1
-                      ? "health.state.notRecalculated.one"
-                      : "health.state.notRecalculated",
-                    { count: format(state.notRecalculated) },
-                  )
-                : null}
-              {(state.cantCheck > 0 || state.notRecalculated > 0) && state.needsCheck > 0
-                ? " · "
-                : null}
-              {state.needsCheck > 0
-                ? t(
-                    state.needsCheck === 1
-                      ? "health.state.needsCheck.short.one"
-                      : "health.state.needsCheck.short",
-                    { count: format(state.needsCheck) },
-                  )
-                : null}
-            </span>
-          )}
+        {state.kind === "checked" && checkedCaveat(state, t, format) && (
+          <span className="check-badge-short check-badge-short-caveat">
+            {" · "}
+            {checkedCaveat(state, t, format)}
+          </span>
+        )}
         {resting.slice(1).map((part) => (
           <span key={part} className="check-badge-more">
             <span className="check-badge-sep" aria-hidden="true">

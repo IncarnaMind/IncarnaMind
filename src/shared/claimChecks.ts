@@ -681,14 +681,26 @@ export function analysisFigureShown(
     result: string | null;
     /** Each live Document's version now; null while they aren't known. */
     versions: ReadonlyMap<string, string> | null;
+    /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
+    keptInside?: ((documentId: string) => string | null) | null;
   },
 ): ClaimCheckShown {
   if (figure.result === null || shown.state === "kept") return shown;
   const value = figure.run?.values.find((each) => each.name === figure.result);
+  // Its run read a Document a wall keeps from this Note (#1934): it backs nothing here.
+  if (
+    figure.keptInside &&
+    (figure.run?.inputs ?? []).some((input) => {
+      const citation = input.kind === "figure" ? input.input.citation : input.citation;
+      return figure.keptInside?.(citation.documentId) != null;
+    })
+  )
+    return { state: "not-checked", reason: "kept-inside" };
   // A figure that names an Analysis whose record the Note no longer keeps reads as its value and
   // Not checked: a recalculation can't stand for a record that is gone, and an earlier build could
   // take one away (#2378).
-  if (value?.check?.kind !== "same") return { state: "not-checked", reason: "unread" };
+  if (!value) return { state: "not-checked", reason: "analysis-gone" };
+  if (value.check?.kind !== "same") return { state: "not-checked", reason: "analysis" };
   for (const input of figure.run?.inputs ?? []) {
     const citation = input.kind === "figure" ? input.input.citation : input.citation;
     const current = figure.versions?.get(citation.documentId);

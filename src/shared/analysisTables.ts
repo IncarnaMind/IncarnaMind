@@ -24,6 +24,7 @@ import type { Language } from "../core/language";
 import {
   type AnalysisCell,
   type AnalysisColumnCheck,
+  type AnalysisColumnRule,
   type AnalysisTable,
   type AnalysisTableKey,
   sameTableKey,
@@ -286,6 +287,15 @@ export function holdsTableAgain(block: NodeJSON, match: AnalysisTableMatch): boo
   });
 }
 
+/** A line's words as a title reads them: its case, spacing and a closing colon aside. */
+const leadIn = (text: string): string =>
+  text
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[:：]$/u, "")
+    .trim()
+    .toLocaleLowerCase();
+
 /** A caption line: the Analysis's name for its table, ending with the table's marker. */
 export function captionOf(match: Pick<AnalysisTableMatch, "binding" | "label">): NodeJSON {
   return {
@@ -329,20 +339,30 @@ export function withAnalysisTables(
   if (runs.length === 0) return [...blocks];
   const tables = analysisTablesOf(runs);
   if (tables.length === 0) return [...blocks];
-  return blocks.flatMap((block) => {
-    if (readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE])) return [block];
-    const found = analysisTableFor(block, tables);
-    if (!found) return [block];
-    const bound = {
+  const out: NodeJSON[] = [];
+  for (const block of blocks) {
+    const found = readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE])
+      ? null
+      : analysisTableFor(block, tables);
+    if (!found) {
+      out.push(block);
+      continue;
+    }
+    // The caption is the table's title: a line above it that only says the same is dropped.
+    const above = out.at(-1);
+    if (above?.type === "paragraph" && leadIn(textOf(above)) === leadIn(found.label)) out.pop();
+    out.push(captionOf(found), {
       ...block,
       attrs: { ...block.attrs, [ANALYSIS_TABLE_ATTRIBUTE]: found.binding },
-    };
-    return [captionOf(found), bound];
-  });
+    });
+  }
+  return out;
 }
 
 /** A cell of an Analysis's table whose text in the Note isn't what the Analysis gave. */
 export interface DifferingCell {
+  /** Its row among the Note's table's rows below the headings, from 0. */
+  row: number;
   /** Its row's label in the Note. */
   label: string;
   /** As the Note writes it. */
@@ -375,11 +395,15 @@ export type AnalysisTableState =
   | { kind: "calculated" }
   | { kind: "differs" }
   | { kind: "needs-recheck"; why: "new-version" | "document-removed" }
+  /** Its run read a Document kept inside a walled Folder the Note is outside (#1934): it backs nothing here. */
+  | { kind: "kept-inside"; folder: string }
   | { kind: "unavailable" };
 
 export interface AnalysisTableShown {
   state: AnalysisTableState;
   columns: AnalysisTableColumn[];
+  /** Rows the run gave that the Note's table no longer holds, as when the User deleted them. */
+  missing: number;
 }
 
 const cellKey = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -394,8 +418,9 @@ export function analysisTableShown(
   kept: AnalysisTableMatch | null,
   language: string,
   versions: ReadonlyMap<string, string> | null,
+  keptInside: ((documentId: string) => string | null) | null = null,
 ): AnalysisTableShown {
-  if (!kept) return { state: { kind: "unavailable" }, columns: [] };
+  if (!kept) return { state: { kind: "unavailable" }, columns: [], missing: 0 };
   const grid = gridOf(block);
   const [headings = [], ...rows] = grid;
   const given = kept.table;
@@ -415,6 +440,7 @@ export function analysisTableShown(
     seen.set(label, nth + 1);
     return runRows.get(label)?.[nth];
   });
+  const missing = given.rows.length - new Set(runRowOf.filter((at) => at !== undefined)).size;
   // Its headings say what its numbers are: renamed, or beside a column the run never gave, the
   // table is the User's words over the Analysis's numbers, which no rule vouches for.
   const shaped =
@@ -447,6 +473,7 @@ export function analysisTableShown(
           continue;
         }
         differs.push({
+          row: index,
           label,
           note,
           analysis:
@@ -456,35 +483,67 @@ export function analysisTableShown(
       return {
         column,
         heading: headings[column] ?? given.columns[column] ?? "",
-        rule: shaped ? (check?.rule ?? null) : null,
+        rule: shaped && check?.rule && earned(check.rule) ? check.rule : null,
         rows: shaped ? (check?.rows ?? 0) : 0,
         differs,
         footed,
       };
     });
+  const wall = keptInside
+    ? kept.citations.map((citation) => keptInside(citation.documentId)).find(Boolean)
+    : null;
+  if (wall) return { state: { kind: "kept-inside", folder: wall }, columns, missing };
   const differs = columns.some((column) => column.differs.length > 0);
-  if (differs) return { state: { kind: "differs" }, columns };
+  if (differs) return { state: { kind: "differs" }, columns, missing };
   for (const citation of kept.citations) {
     const current = versions?.get(citation.documentId);
     if (versions && current === undefined)
-      return { state: { kind: "needs-recheck", why: "document-removed" }, columns };
+      return { state: { kind: "needs-recheck", why: "document-removed" }, columns, missing };
     if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
-      return { state: { kind: "needs-recheck", why: "new-version" }, columns };
+      return { state: { kind: "needs-recheck", why: "new-version" }, columns, missing };
   }
-  const recalculated = columns.length > 0 && columns.every((column) => column.rule !== null);
-  return { state: { kind: recalculated ? "recalculated" : "calculated" }, columns };
+  // A table with none of its rows left holds nothing a rule reproduced.
+  const recalculated =
+    rows.length > 0 && columns.length > 0 && columns.every((column) => column.rule !== null);
+  return { state: { kind: recalculated ? "recalculated" : "calculated" }, columns, missing };
 }
+
+/**
+ * A rule a column's line can stand on (#2378): one over a column and a key it can name. A count is
+ * never one: what is counted can't be read from its heading, and small whole counts coincide.
+ */
+const earned = (rule: AnalysisColumnRule): rule is AnalysisColumnRule & { how: Aggregate } =>
+  rule.how !== "count" && rule.value.trim() !== "" && rule.key.trim() !== "";
+
+type Aggregate = Exclude<AnalysisColumnRule["how"], "count">;
 
 /** A column's line on the table's card and under its Figure schedule row, in the figure card's words. */
 export function columnLine(column: AnalysisTableColumn, language: Language): string {
-  const heading = column.heading;
-  if (!column.rule) return translate(language, "figures.table.notRecalculated", { heading });
+  const { heading, rule } = column;
+  if (!rule || !earned(rule))
+    return translate(language, "figures.table.notRecalculated", { heading });
   const plural = column.rows === 1 ? "one" : "other";
-  return translate(language, `figures.table.recalculated.${column.rule.how}.${plural}`, {
-    heading,
-    count: figureText(language, column.rows),
-  });
+  // Named under another heading, the line says what it sums, so "Net" over gross sums can't pass.
+  const named = cellKey(heading).toLowerCase() !== cellKey(rule.value).toLowerCase();
+  return translate(
+    language,
+    `figures.table.recalculated.${rule.how}${named ? ".named" : ""}.${plural}`,
+    {
+      heading,
+      column: rule.value,
+      key: rule.key,
+      count: figureText(language, column.rows),
+    },
+  );
 }
+
+/** The line that says how many of the run's rows the Note's table no longer holds; null for none. */
+export const missingLine = (missing: number, language: Language): string | null =>
+  missing === 0
+    ? null
+    : translate(language, `figures.table.rowsMissing.${missing === 1 ? "one" : "other"}`, {
+        count: figureText(language, missing),
+      });
 
 /** A cell whose text in the Note isn't the Analysis's, under its column. */
 export function differingLine(cell: DifferingCell, language: Language): string {
@@ -503,6 +562,7 @@ export function tableShownIn(
   table: NodeJSON,
   language: string,
   versions: ReadonlyMap<string, string> | null,
+  keptInside: ((documentId: string) => string | null) | null = null,
 ): AnalysisTableShown {
   let kept: AnalysisTableMatch | null = null;
   try {
@@ -510,7 +570,7 @@ export function tableShownIn(
   } catch (error) {
     console.error("Reading an Analysis table's run failed:", error);
   }
-  return analysisTableShown(table, kept, language, versions);
+  return analysisTableShown(table, kept, language, versions, keptInside);
 }
 
 /** Whether a table's state needs a look: a cell differs, or a Document it read changed. */

@@ -59,7 +59,8 @@ export function createAnalysisRecorder(options: AnalysisRecorderOptions) {
       literals: [],
       scales: [],
     };
-    // A count a model gives (its observations, a cluster's size) is whole: "29", not "29.00".
+    // A count a model gives (its observations, a cluster's size) is whole: "29", not "29.00", and
+    // a whole total is written out, "9,450", never rounded to a scale word (#2378).
     const whole = unit.kind === "plain" && Number.isInteger(result.value);
     const show = { language: options.language, as: null, decimals: whole ? 0 : null, scale: null };
     const shown = showResult(worked, show);
@@ -74,7 +75,7 @@ export function createAnalysisRecorder(options: AnalysisRecorderOptions) {
         ? String(result.value)
         : unit.kind === "plain" && result.value !== 0 && Math.abs(result.value) < TINY
           ? String(Number(result.value.toPrecision(2)))
-          : shown.ok
+          : shown.ok && !whole
             ? shown.shown
             : figureText(options.language, result.value),
       show,

@@ -39,6 +39,7 @@ import { useTabPlace } from "../components/tabs/tabItems";
 import { useLanguage, useT } from "../i18n";
 import { openCited, quoteSaysSo } from "../openCited";
 import { useAppStore } from "../store";
+import { useKeptInsideOf } from "../turnWall";
 import { ChartFoot } from "./ChartFoot";
 import { ChartKindMenu } from "./ChartKindMenu";
 import { ChartPlot, type PointEvents, type PointRef, samePoint } from "./ChartPlot";
@@ -190,6 +191,12 @@ export function ChartView({
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
+  const keptInside = useKeptInsideOf();
+  const stateOfCitation = useCallback(
+    (citation: CitationAttributes) =>
+      citationState(citation, documents, kept, keptInside(citation.documentId ?? null)),
+    [documents, kept, keptInside],
+  );
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const { card, peek, hold, pin, dismiss } = usePointCard();
@@ -202,10 +209,10 @@ export function ChartView({
       if (!value || value.figure) return [];
       return valueCitations(value).map((citation) => ({
         citation,
-        state: citationState(citation, documents, kept),
+        state: stateOfCitation(citation),
       }));
     },
-    [documents, kept],
+    [stateOfCitation],
   );
   const worstOf = useCallback(
     (value: ChartValue | null | undefined) => {
@@ -224,7 +231,7 @@ export function ChartView({
   /** A calculated value's mark is its Inputs' worst check, said as calculated, never one Input's (#2307). */
   const markOf = (value: ChartValue): { check: CitationCheck | null; label: string } => {
     if (value.figure) {
-      const states = valueCitations(value).map((each) => citationState(each, documents, kept));
+      const states = valueCitations(value).map(stateOfCitation);
       return {
         check: checksOf(states).check,
         label: calculatedFrom(inputsOf([value.figure]), documents, t, language),
@@ -258,9 +265,7 @@ export function ChartView({
   const findButton = useRef<HTMLButtonElement>(null);
   const checks = checksOf(
     chartCells(chart).flatMap(({ value }) =>
-      value.value === null
-        ? []
-        : valueCitations(value).map((each) => citationState(each, documents, kept)),
+      value.value === null ? [] : valueCitations(value).map(stateOfCitation),
     ),
   );
 

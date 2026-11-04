@@ -28,7 +28,12 @@ import {
 import { costOf } from "../../src/core/cost/price";
 import { catalogModel } from "../../src/core/providers/catalog";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
-import { columnLine, liveVersions, tableShownIn } from "../../src/shared/analysisTables";
+import {
+  columnLine,
+  keptAnalysisTables,
+  liveVersions,
+  tableShownIn,
+} from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { readCalculatedFigureAttributes } from "../../src/shared/calculatedFigures";
 import { chartSources, readChart } from "../../src/shared/charts";
@@ -137,11 +142,45 @@ const counting: ChatModelFactory = (spec) => {
   });
 };
 
-/** The figure an Answer's number is, among the reference's: the nearest within its rounding. */
-function referenced(value: number, reference: ReadonlyMap<string, number>): string | null {
-  for (const [name, known] of reference)
-    if (Math.abs(known - value) <= Math.max(1e-9, Math.abs(known) * 1e-9)) return name;
-  return null;
+const near = (known: number, value: number) =>
+  Math.abs(known - value) <= Math.max(1e-9, Math.abs(known) * 1e-9);
+
+/**
+ * Whether a figure is the reference's entry its words name (#2378): an entry of the same value
+ * whose group ("Northside", "Leeds") the figure's sentence or label names. A number another group
+ * also has, said of the wrong one, is never right.
+ */
+function named(value: number, words: string, reference: ReadonlyMap<string, number>): boolean {
+  const said = words.toLowerCase();
+  return [...reference].some(([name, known]) => {
+    const parts = name.split(":");
+    const group =
+      parts[0] === "share"
+        ? parts.at(-1)
+        : ["all", "fit", "trend"].includes(parts[0] ?? "")
+          ? undefined
+          : parts[1];
+    return near(known, value) && (group === undefined || said.includes(group.toLowerCase()));
+  });
+}
+
+/** Whether every cell of a column a rule reproduced is the reference's value for its row. */
+function columnRight(
+  rule: { key: string; value: string; how: string },
+  rows: readonly (readonly unknown[])[],
+  column: number,
+  reference: ReadonlyMap<string, number>,
+): boolean {
+  const value = rule.value.replace(/_kg$/, "");
+  return rows.every((row) => {
+    const cell = row[column];
+    const key =
+      rule.how === "count"
+        ? `${rule.key}:${String(row[0])}:count`
+        : `${rule.key}:${String(row[0])}:${value}:${rule.how}`;
+    const known = reference.get(key);
+    return typeof cell === "number" && known !== undefined && near(known, cell);
+  });
 }
 
 interface Counts {
@@ -152,6 +191,8 @@ interface Counts {
   figuresRecalculated: number;
   figuresWithRows: number;
   falseSupported: string[];
+  /** A column shown recalculated whose cells aren't the reference's for their rows. */
+  columnsWrong: string[];
   lookOnAnalysis: string[];
   charts: number;
   chartValuesUncited: number;
@@ -175,6 +216,7 @@ async function noteCounts(
     figuresRecalculated: 0,
     figuresWithRows: 0,
     falseSupported: [],
+    columnsWrong: [],
     lookOnAnalysis: [],
     charts: 0,
     chartValuesUncited: 0,
@@ -197,21 +239,59 @@ async function noteCounts(
     counts.tables++;
     const shown = tableShownIn(doc, block, language, versions);
     lines.push(`- table: ${shown.state.kind}`);
+    const [kept] = keptAnalysisTables(figureRunsFor(doc, [block]));
     for (const column of shown.columns) {
       counts.columns++;
       if (column.rule) counts.columnsRecalculated++;
+      if (
+        column.rule &&
+        reference &&
+        kept &&
+        !columnRight(column.rule, kept.table.rows, column.column, reference)
+      )
+        counts.columnsWrong.push(`${column.heading} (${column.rule.how} of ${column.rule.value})`);
       lines.push(
         `  - ${columnLine(column, language)}${column.rule ? ` (${column.rule.how} of ${column.rule.value} by ${column.rule.key})` : ""}`,
       );
     }
   }
   const schedule = await core.getFigureSchedule(mindId);
-  const figures = (nodes: readonly NodeJSON[]): NodeJSON[] =>
+  const textIn2 = (node: NodeJSON): string =>
+    node.type === "text"
+      ? (node.text ?? "")
+      : node.type === CALCULATED_FIGURE_NODE
+        ? (readCalculatedFigureAttributes(node.attrs ?? {})?.figure.shown ?? "")
+        : (node.content ?? []).map(textIn2).join(" ");
+  // Each figure, with the line it is in: its paragraph, or its table row.
+  const figures = (
+    nodes: readonly NodeJSON[],
+    line: NodeJSON | null,
+  ): { node: NodeJSON; line: NodeJSON | null }[] =>
     nodes.flatMap((node) => [
-      ...(node.type === CALCULATED_FIGURE_NODE ? [node] : []),
-      ...figures(node.content ?? []),
+      ...(node.type === CALCULATED_FIGURE_NODE ? [{ node, line }] : []),
+      ...figures(
+        node.content ?? [],
+        node.type === "paragraph" && line?.type !== "tableRow"
+          ? node
+          : node.type === "tableRow"
+            ? node
+            : line,
+      ),
     ]);
-  for (const node of figures(blocks)) {
+  /** The state of the sentence check that holds figure `id`, in `line`. */
+  const sentenceOf = (line: NodeJSON | null, id: string): string | null => {
+    let found: string | null = null;
+    const visit = (node: NodeJSON) => {
+      for (const mark of node.marks ?? []) {
+        const check = mark.type === CLAIM_CHECK_MARK ? readClaimCheck(mark.attrs) : null;
+        if (check?.figures?.some((figure) => figure.calculated?.id === id)) found = check.state;
+      }
+      for (const child of node.content ?? []) visit(child);
+    };
+    if (line) visit(line);
+    return found;
+  };
+  for (const { node, line } of figures(blocks, null)) {
     const attributes = readCalculatedFigureAttributes(node.attrs ?? {});
     if (!attributes?.figure.analysis) continue;
     counts.figures++;
@@ -219,10 +299,13 @@ async function noteCounts(
     const value = run?.values.find((each) => each.name === attributes.figure.analysis?.result);
     if (value?.of) counts.figuresWithRows++;
     const row = schedule.rows.find((each) => each.id === attributes.id);
-    if (row?.shown.state === "supported") {
-      counts.figuresRecalculated++;
+    if (row?.shown.state === "supported") counts.figuresRecalculated++;
+    // Supported where the User reads it: its sentence's check, or its row in a table.
+    const sentence = sentenceOf(line, attributes.id);
+    if (row?.shown.state === "supported" && (sentence === null || sentence === "supported")) {
       const numeric = typeof attributes.figure.value === "number" ? attributes.figure.value : NaN;
-      if (reference && referenced(numeric, reference) === null)
+      const words = `${line ? textIn2(line) : ""} ${attributes.figure.label}`;
+      if (reference && !named(numeric, words, reference))
         counts.falseSupported.push(`${attributes.figure.shown} ${attributes.figure.label}`);
     }
     lines.push(
@@ -356,6 +439,7 @@ test.skipIf(KEY === undefined).each(ALL.map((held) => ({ ...held })))(
       await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${report.join("\n")}\n`);
     core.close();
     expect(counts?.falseSupported ?? []).toEqual([]);
+    expect(counts?.columnsWrong ?? []).toEqual([]);
     expect(counts?.lookOnAnalysis ?? []).toEqual([]);
   },
 );

@@ -23,6 +23,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
+import { type AnalysisTableShown, tableNeedsLook } from "../../../shared/analysisTables";
 import {
   chartCheckText,
   chartPoints,
@@ -40,6 +41,7 @@ import {
   keptOn,
   supportedByOwnNotesOnly,
 } from "../../../shared/claimChecks";
+import { ANALYSIS_REASONS } from "../../../shared/figureChecks";
 import { readTableBinding } from "../../../shared/figureRuns";
 import { readFigures } from "../../../shared/figures";
 import { memoized } from "../../../shared/memo";
@@ -139,12 +141,17 @@ export interface SentenceInput {
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
   omitted?: readonly KeptMark[];
+  /** Whether the Note keeps the run a bound table names; one it lost is counted as a typed table. */
+  tableKept?: (table: ProseMirrorNode) => boolean;
 }
 
 export interface NoteHealthInput extends SentenceInput {
   citationCheck: (attributes: CitationAttributes) => CitationCheck;
-  /** Whether an Analysis's own table needs a look (#2378): it counts once, as one figure. */
-  tableNeedsLook?: (table: ProseMirrorNode) => boolean;
+  /**
+   * What an Analysis's own table shows (#2378): it needs a look once, as one figure; a column not
+   * recalculated counts as one figure not recalculated; one worked out again is a verdict earned.
+   */
+  tableShown?: (table: ProseMirrorNode) => AnalysisTableShown | null;
 }
 
 /** One sentence a check reads, where it is and how it counts. */
@@ -207,7 +214,11 @@ function eachSentence(
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
     // An Analysis's own table and its caption are its run's, never sentences to check (#2378).
-    if (node.type.name === "table" && readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE])) {
+    if (
+      node.type.name === "table" &&
+      readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) &&
+      (input.tableKept?.(node) ?? true)
+    ) {
       visitTable?.(node, pos);
       return false;
     }
@@ -326,7 +337,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         if (state.why === "failed") {
           health.failed.push(from);
           if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
-          if (claim?.shown.state === "not-checked" && claim.shown.reason === "analysis")
+          if (claim?.shown.state === "not-checked" && ANALYSIS_REASONS.has(claim.shown.reason))
             health.notRecalculated.push(from);
         } else if (state.why === "recheck") {
           health.recheck.push(from);
@@ -379,7 +390,22 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       }
     },
     (table, pos) => {
-      if (input.tableNeedsLook?.(table)) health.lookClaims.push(pos);
+      const shown = input.tableShown?.(table);
+      if (!shown) return;
+      const { kind } = shown.state;
+      if (kind === "kept-inside" || kind === "unavailable") return;
+      health.checkable++;
+      if (tableNeedsLook(shown)) {
+        health.lookClaims.push(pos);
+        return;
+      }
+      const unearned = shown.columns.filter((column) => column.rule === null).length;
+      if (shown.columns.length > unearned) health.supported++;
+      for (let at = 0; at < unearned; at++) {
+        health.toCheck.push(pos);
+        health.failed.push(pos);
+        health.notRecalculated.push(pos);
+      }
     },
   );
   health.lookClaims.sort((a, b) => a - b);

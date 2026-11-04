@@ -33,6 +33,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { rowsKey } from "../../../shared/analysis";
 import {
   type AnalysisTableMatch,
   analysisTableFor,
@@ -1491,7 +1492,7 @@ export function mindTools(options: MindToolsOptions): {
         one.id === other.id &&
         a !== undefined &&
         b !== undefined &&
-        JSON.stringify(a.table.rows) === JSON.stringify(b.table.rows)
+        rowsKey(a.table.rows) === rowsKey(b.table.rows)
       );
     };
     const typedAgain = (binding: AnalysisTableBinding) => {
@@ -1761,8 +1762,8 @@ export function mindTools(options: MindToolsOptions): {
       chartsPlaced,
       ...notes
     } = content;
-    // A chart's marker asks for its chart, beneath its table, as `chart` does (#2378).
-    const chart = chartGiven ?? chartsPlaced?.[0] ?? null;
+    // Each chart's marker asks for its chart, beneath its table, as `chart` does (#2378).
+    const charts = chartGiven ? [chartGiven] : [...(chartsPlaced ?? [])];
     let writer = stream?.writer ?? null;
     const unmade = blocks.some(unmadeTable);
     const again = made ? "call create_mind again" : "call add_to_mind again";
@@ -1800,9 +1801,14 @@ export function mindTools(options: MindToolsOptions): {
     minds.writing(writer.mind.id, null);
     logPointersLeft(alone.left, writer.mind.id, toolCallId);
     // A chart drawn before `cite` records its table's markers would draw values with no Citation.
-    const later = chart !== null && unrecorded > 0 && markdown !== null;
-    const drawn =
-      chart && !later ? drawChart(writer, blocks, chart, markdown, analysisTables) : null;
+    const later = charts.length > 0 && unrecorded > 0 && markdown !== null;
+    const drawAll = (settled: readonly NodeJSON[]) => {
+      const results = charts.map((chart) =>
+        drawChart(writer, settled, chart, markdown, analysisTables),
+      );
+      return results.find((each) => each.problem) ?? results[0] ?? null;
+    };
+    const drawn = later ? null : drawAll(blocks);
     // Markers `cite` may still record in this step count as left out only once the Run is done.
     const change = {
       ...changeOf(writer, made),
@@ -1819,10 +1825,7 @@ export function mindTools(options: MindToolsOptions): {
         markdown,
         change: () => changeOf(writer, made),
         sent: change,
-        chart:
-          later && chart
-            ? (settled) => drawChart(writer, settled, chart, markdown, analysisTables)
-            : null,
+        chart: later ? (settled) => drawAll(settled) ?? { said: "" } : null,
       });
     }
     const charted = later
@@ -1848,12 +1851,12 @@ export function mindTools(options: MindToolsOptions): {
     analysisTables: readonly AnalysisTableMatch[],
   ): { said: string; problem?: ChartProblem } => {
     // A chart's marker charts the rows its Analysis drew: the table that holds them, wherever it is.
-    const at = asked.rows
-      ? blocks.findIndex(
-          (block) =>
-            JSON.stringify(boundTableFor(block, analysisTables)?.table.rows) ===
-            JSON.stringify(asked.rows),
-        )
+    const rows = asked.rows ? rowsKey(asked.rows) : null;
+    const at = rows
+      ? blocks.findIndex((block) => {
+          const bound = boundTableFor(block, analysisTables);
+          return bound !== null && rowsKey(bound.table.rows) === rows;
+        })
       : blocks.findLastIndex((block) => block.type === "table");
     const table = blocks[at];
     const tableId = writer.ids[at];

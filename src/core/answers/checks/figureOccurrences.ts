@@ -11,7 +11,7 @@ import {
   readChart,
   type SourceGrid,
 } from "../../../shared/charts";
-import { figureRunsFor, readTableBinding } from "../../../shared/figureRuns";
+import { figureRunsFor, keptBinding } from "../../../shared/figureRuns";
 import {
   type FigureContext,
   type FigureFacts,
@@ -238,9 +238,11 @@ function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
   try {
     const [run] = figureRunsFor(doc, [nodeOf(node)]);
     const value = run?.values.find((each) => each.name === figure.figure.analysis?.result);
+    // No record of it: the Analysis it came from is gone.
+    if (!run || !value) return undefined;
     return {
-      recalculated: value?.check?.kind === "same",
-      citations: run ? analysisInputCitations(run.inputs) : [],
+      recalculated: value.check?.kind === "same",
+      citations: analysisInputCitations(run.inputs),
     };
   } catch (error) {
     console.error("Reading an Analysis figure's record for its check failed:", error);
@@ -371,7 +373,10 @@ function figuresOfBlock(
       ? `${noteKey}\u0000${plainText(before)}`
       : noteKey;
   // An Analysis's own table counts once, as its run's, never cell by cell (#2378).
-  if (block.nodeName === "table" && readTableBinding(block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)))
+  if (
+    block.nodeName === "table" &&
+    keptBinding(block.doc, block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
+  )
     return [];
   const read = readFiguresOf(block);
   if (read.readWith === key) return read.figures;

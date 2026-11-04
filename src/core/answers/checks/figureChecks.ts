@@ -307,21 +307,54 @@ export function figureJudgment(
   };
 }
 
+/** The words a figure's label names it by (#2378): each of three letters or more, and each Han character. */
+function labelWords(label: string): string[] {
+  const han = label.match(/\p{Script=Han}/gu) ?? [];
+  const words = (label.replace(/\p{Script=Han}/gu, " ").match(/[\p{L}\p{M}]+/gu) ?? []).filter(
+    (word) => [...word].length >= 3,
+  );
+  return [...words, ...han].map((word) => word.toLowerCase());
+}
+
 /**
  * An Analysis's figure in a sentence, judged by its run as the Note keeps it (#2378), never by the
- * Documents' text, which never holds it: Supported when IncarnaMind worked it out again to the same
- * number, while the Documents it read are as they were; Not checked otherwise.
+ * Documents' text, which never holds it. Supported only when IncarnaMind worked it out again to the
+ * same number, the Documents it read are as they were, and the sentence holds every word its label
+ * names it by: no model reads the naming, so a figure called another's is Unsupported, never green.
+ * Not checked when it wasn't worked out again, or its record is gone.
  */
-function analysisJudgment(target: CheckFigure, facts: Facts): ClaimJudgment {
+function analysisJudgment(
+  target: CheckFigure,
+  claim: string,
+  facts: Facts,
+  options: Pick<FigureCheckOptions, "misnamed" | "keptInside">,
+): ClaimJudgment {
   const record = target.analysisRecord;
   const read = (record?.citations ?? []).map(({ documentId, contentHash }) => ({
     documentId,
     contentHash,
   }));
   const known = { ...facts, versions: [...facts.versions, ...read] };
-  const [evidence] = record?.citations ?? [];
-  if (!record?.recalculated || !evidence)
+  if (!record) return { verdict: "not-checked", reason: "analysis-gone", detail: null, ...known };
+  // Its run read a Document kept inside a walled Folder this check is outside: nothing of it counts.
+  const wall = record.citations.map((each) => options.keptInside(each.documentId)).find(Boolean);
+  if (wall) return { verdict: "not-checked", reason: "kept-inside", detail: wall, ...known };
+  const [evidence] = record.citations;
+  if (!record.recalculated || !evidence)
     return { verdict: "not-checked", reason: "analysis", detail: null, ...known };
+  const label = target.calculated?.figure.label ?? "";
+  const said = claim.toLowerCase();
+  if (!labelWords(label).every((word) => said.includes(word)))
+    return {
+      verdict: "unsupported",
+      evidence: null,
+      says: null,
+      unsupported: options.misnamed(label),
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      ...known,
+    };
   return {
     verdict: "supported",
     evidence,
@@ -361,6 +394,10 @@ export interface FigureCheckOptions {
   around(citation: Citation): readonly string[];
   /** Why a figure isn't backed by a source number (`amount`) that measures something else (#2255). */
   otherMeasure(amount: string, measured: string, claimed: string): UnsupportedReason;
+  /** Why an Analysis's figure isn't backed by its run: the sentence doesn't name it as `label` does. */
+  misnamed(label: string): UnsupportedReason;
+  /** The walled Folder that keeps a Document inside it, outside this check's scope; null otherwise. */
+  keptInside(documentId: string): string | null;
   signal: AbortSignal;
 }
 
@@ -543,7 +580,10 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
   for (const original of requested) {
     let target = original;
     if (target.calculated?.figure.analysis) {
-      rows.push({ ...finding(target), result: analysisJudgment(target, options.facts()) });
+      rows.push({
+        ...finding(target),
+        result: analysisJudgment(target, options.claim, options.facts(), options),
+      });
       continue;
     }
     const item = items.get(target.id);

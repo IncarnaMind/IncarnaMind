@@ -1,7 +1,14 @@
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, NodeSelection } from "@tiptap/pm/state";
-import { BLOCK_ID_ATTRIBUTE, CHART_NODE } from "../../../core/api";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
+import type * as Y from "yjs";
+import { ANALYSIS_TABLE_ATTRIBUTE, BLOCK_ID_ATTRIBUTE, CHART_NODE } from "../../../core/api";
+import {
+  type AnalysisTableMatch,
+  boundTableFor,
+  keptAnalysisTables,
+} from "../../../shared/analysisTables";
 import {
   type ChartAttributes,
   type ChartData,
@@ -17,7 +24,9 @@ import {
   type SourceLine,
   sourceLineOf,
   switchedChart,
+  withAnalysisValues,
 } from "../../../shared/charts";
+import { figureRunsFor, keptBinding } from "../../../shared/figureRuns";
 import { asOwnUndoStep } from "./selectionCommands";
 
 const readText = (node: ProseMirrorNode): SourceLine => sourceLineOf(node.toJSON());
@@ -41,11 +50,34 @@ function headingAbove(doc: ProseMirrorNode, topLevel: number): string {
   return title;
 }
 
-export function chartOfTable(state: EditorState, language: string): ChartAttributes | null {
+/** The Analysis's own table `table` is, from the run the Note `doc` keeps; null for any other table. */
+function keptAnalysisTable(
+  doc: Y.Doc | undefined,
+  table: ProseMirrorNode,
+): AnalysisTableMatch | null {
+  if (!doc || keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) === null) return null;
+  const json = table.toJSON();
+  try {
+    return boundTableFor(json, keptAnalysisTables(figureRunsFor(doc, [json])));
+  } catch (error) {
+    console.error("Reading an Analysis table's run for its chart failed:", error);
+    return null;
+  }
+}
+
+export function chartOfTable(
+  state: EditorState,
+  language: string,
+  doc: Y.Doc | undefined = ySyncPluginKey.getState(state)?.binding?.doc,
+): ChartAttributes | null {
   const table = tableAround(state);
   if (!table) return null;
   const id = table.node.attrs[BLOCK_ID_ATTRIBUTE];
-  return chartFromTable(tableGrid(table.node), {
+  // An Analysis's own table is charted from its run, never from its cells' text (#2378): its values
+  // are then the Analysis's, which Check leaves to the run.
+  const analysis = keptAnalysisTable(doc, table.node);
+  const grid = tableGrid(table.node);
+  return chartFromTable(analysis ? withAnalysisValues(grid, analysis) : grid, {
     blockId: typeof id === "string" ? id : null,
     title: headingAbove(state.doc, state.doc.resolve(table.pos).index(0)),
     language,

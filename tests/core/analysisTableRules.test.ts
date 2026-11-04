@@ -121,6 +121,19 @@ describe("a column worked out again from the input's rows (#2378)", () => {
     expect(checkTableColumns(withTotal, [orders(ROWS)])[0]?.rule).toBeNull();
   });
 
+  test("a label given twice, as a group by two keys gives it, leaves the column not recalculated", () => {
+    // Central's two rows sum to 465 as a pair: read by the label, each row would be both.
+    const twice = table(
+      ["region", "amount"],
+      [
+        ["Central", 465],
+        ["Central", 465],
+        ["North", 465],
+      ],
+    );
+    expect(checkTableColumns(twice, [orders(ROWS)])).toEqual([{ column: 1, rule: null, rows: 0 }]);
+  });
+
   test("cells read from a scan are never worked out again", () => {
     const totals = table(
       ["region", "amount"],

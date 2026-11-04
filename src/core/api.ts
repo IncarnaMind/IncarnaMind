@@ -333,8 +333,15 @@ export interface CreateMindInput {
  *   `comments` map. An older version would strip the mark, so it opens these
  *   Notes read-only. Older content is version 49 content as it is: a Note
  *   written before has no comments.
+ * - 51: an Analysis's table is one calculated object (#2378): the table Block
+ *   carries its binding to the run (`analysisTable`), its caption ends with an
+ *   `analysisTable` marker node, and the Note's Analysis records keep the
+ *   run's tables and what IncarnaMind made of each column. An older editor
+ *   would drop the node and the attribute, so it opens these Notes read-only.
+ *   Older content is version 50 content as it is: a table written before is a
+ *   typed table, checked as one.
  */
-export const CONTENT_SCHEMA_VERSION = 50;
+export const CONTENT_SCHEMA_VERSION = 51;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -6530,11 +6537,14 @@ export type ClaimCheckFailure =
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
   | "other-cell"
   /** An Analysis's figure that IncarnaMind didn't work out again: its code's, from the saved run (#2378). */
-  | "analysis";
+  | "analysis"
+  /** An Analysis's figure whose run the Note no longer keeps, as when its Analysis was deleted (#2378). */
+  | "analysis-gone";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
-  kind?: "forecast-certainty" | "unbacked-cause";
+  /** "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378). */
+  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name";
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */

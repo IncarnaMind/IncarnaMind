@@ -881,19 +881,38 @@ export const zhCN = {
   "figures.analysisRows.list.other": "第 {runs} 行",
   "figures.analysisRows.separator": "、",
   "figures.table.label": "计算所得表格 {number}：{title}",
-  "figures.table.recalculated.sum.one": "{heading}：{count} 行的合计 · 已重新计算",
-  "figures.table.recalculated.sum.other": "{heading}：{count} 行的合计 · 已重新计算",
-  "figures.table.recalculated.mean.one": "{heading}：{count} 行的平均值 · 已重新计算",
-  "figures.table.recalculated.mean.other": "{heading}：{count} 行的平均值 · 已重新计算",
-  "figures.table.recalculated.min.one": "{heading}：{count} 行的最小值 · 已重新计算",
-  "figures.table.recalculated.min.other": "{heading}：{count} 行的最小值 · 已重新计算",
-  "figures.table.recalculated.max.one": "{heading}：{count} 行的最大值 · 已重新计算",
-  "figures.table.recalculated.max.other": "{heading}：{count} 行的最大值 · 已重新计算",
-  "figures.table.recalculated.count.one": "{heading}：{count} 行的计数 · 已重新计算",
-  "figures.table.recalculated.count.other": "{heading}：{count} 行的计数 · 已重新计算",
+  "figures.table.recalculated.sum.one": "{heading}：按 {key} 计算 {count} 行的合计 · 已重新计算",
+  "figures.table.recalculated.sum.other": "{heading}：按 {key} 计算 {count} 行的合计 · 已重新计算",
+  "figures.table.recalculated.sum.named.one":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的合计 · 已重新计算",
+  "figures.table.recalculated.sum.named.other":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的合计 · 已重新计算",
+  "figures.table.recalculated.mean.one": "{heading}：按 {key} 计算 {count} 行的平均值 · 已重新计算",
+  "figures.table.recalculated.mean.other":
+    "{heading}：按 {key} 计算 {count} 行的平均值 · 已重新计算",
+  "figures.table.recalculated.mean.named.one":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的平均值 · 已重新计算",
+  "figures.table.recalculated.mean.named.other":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的平均值 · 已重新计算",
+  "figures.table.recalculated.min.one": "{heading}：按 {key} 计算 {count} 行的最小值 · 已重新计算",
+  "figures.table.recalculated.min.other":
+    "{heading}：按 {key} 计算 {count} 行的最小值 · 已重新计算",
+  "figures.table.recalculated.min.named.one":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的最小值 · 已重新计算",
+  "figures.table.recalculated.min.named.other":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的最小值 · 已重新计算",
+  "figures.table.recalculated.max.one": "{heading}：按 {key} 计算 {count} 行的最大值 · 已重新计算",
+  "figures.table.recalculated.max.other":
+    "{heading}：按 {key} 计算 {count} 行的最大值 · 已重新计算",
+  "figures.table.recalculated.max.named.one":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的最大值 · 已重新计算",
+  "figures.table.recalculated.max.named.other":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的最大值 · 已重新计算",
   "figures.table.notRecalculated": "{heading}：来自数据分析 · 未重新计算",
   "figures.table.differs": "{label}：笔记中为 {written}，数据分析中为 {analysis}",
   "figures.table.notInAnalysis": "{label}：笔记中为 {written}，数据分析中没有",
+  "figures.table.rowsMissing.one": "数据分析中有 {count} 行不在笔记里",
+  "figures.table.rowsMissing.other": "数据分析中有 {count} 行不在笔记里",
   "figures.inline.code": "查看保留的代码",
   "figures.inline.literal": "{value}，公式中的固定数字",
   "figures.inline.raw": "单元格原始值：{value}",
@@ -1223,6 +1242,8 @@ export const zhCN = {
   "claim.reason.unread": "不显示结论：模型没有读取你的文档。",
   "claim.reason.other-cell": "不显示结论：模型给这个数字写的是文档表格中另一行或另一列的名称。",
   "claim.reason.analysis": "来自数据分析 · 未重新计算",
+  "claim.reason.analysis-gone": "它所来自的数据分析已不可用",
+  "claim.analysisName": "句中没有写明这个数字是{label}",
   "claim.reason.rate-limit": "模型服务暂时繁忙，请稍后重新核对。",
   "claim.reason.cost-cap": "核对这句话可能超出你设置的每月上限。",
   "claim.reason.plan-limit": "已达到套餐的用量上限。",

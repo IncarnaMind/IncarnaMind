@@ -904,19 +904,39 @@ export const en = {
   "figures.analysisRows.list.other": "rows {runs}",
   "figures.analysisRows.separator": ", ",
   "figures.table.label": "Calculated table {number}: {title}",
-  "figures.table.recalculated.sum.one": "{heading}: sum of {count} row · recalculated",
-  "figures.table.recalculated.sum.other": "{heading}: sum of {count} rows · recalculated",
-  "figures.table.recalculated.mean.one": "{heading}: average of {count} row · recalculated",
-  "figures.table.recalculated.mean.other": "{heading}: average of {count} rows · recalculated",
-  "figures.table.recalculated.min.one": "{heading}: lowest value of {count} row · recalculated",
-  "figures.table.recalculated.min.other": "{heading}: lowest value of {count} rows · recalculated",
-  "figures.table.recalculated.max.one": "{heading}: highest value of {count} row · recalculated",
-  "figures.table.recalculated.max.other": "{heading}: highest value of {count} rows · recalculated",
-  "figures.table.recalculated.count.one": "{heading}: count of {count} row · recalculated",
-  "figures.table.recalculated.count.other": "{heading}: count of {count} rows · recalculated",
+  "figures.table.recalculated.sum.one": "{heading}: sum of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.sum.other": "{heading}: sum of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.sum.named.one":
+    "{heading}: sum of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.sum.named.other":
+    "{heading}: sum of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.mean.one": "{heading}: average of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.mean.other":
+    "{heading}: average of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.mean.named.one":
+    "{heading}: average of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.mean.named.other":
+    "{heading}: average of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.min.one": "{heading}: lowest value of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.min.other":
+    "{heading}: lowest value of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.min.named.one":
+    "{heading}: lowest value of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.min.named.other":
+    "{heading}: lowest value of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.max.one":
+    "{heading}: highest value of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.max.other":
+    "{heading}: highest value of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.max.named.one":
+    "{heading}: highest value of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.max.named.other":
+    "{heading}: highest value of {column} over {count} rows, by {key} · recalculated",
   "figures.table.notRecalculated": "{heading}: from the Analysis · not recalculated",
   "figures.table.differs": "{label}: {written} in the note, {analysis} in the Analysis",
   "figures.table.notInAnalysis": "{label}: {written} in the note, not in the Analysis",
+  "figures.table.rowsMissing.one": "1 row of the Analysis isn’t in the note",
+  "figures.table.rowsMissing.other": "{count} rows of the Analysis aren’t in the note",
   "figures.inline.code": "Show saved code",
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
@@ -1261,6 +1281,8 @@ export const en = {
   "claim.reason.other-cell":
     "Verdict hidden: the model named another row or column of the Document’s table for this number.",
   "claim.reason.analysis": "From the Analysis · not recalculated",
+  "claim.reason.analysis-gone": "The Analysis it came from is no longer available",
+  "claim.analysisName": "The sentence doesn’t say this figure is {label}",
   "claim.reason.rate-limit": "The model’s service is busy for now. Check again in a moment.",
   "claim.reason.cost-cap": "Checking it could pass your monthly cap.",
   "claim.reason.plan-limit": "Your plan’s usage limit is reached.",

@@ -14,7 +14,11 @@ import {
 import { InvalidInputError } from "../../../core/errors";
 import type { NodeJSON } from "../../../shared/blockJson";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
-import { calculatedFiguresIn, readFigureRunClosure } from "../../../shared/figureRuns";
+import {
+  boundTablesIn,
+  calculatedFiguresIn,
+  readFigureRunClosure,
+} from "../../../shared/figureRuns";
 import { withoutInertBrackets } from "../../../shared/inertBrackets";
 import type { SourceContext } from "../../../shared/sources";
 import { languageNow } from "../i18n";
@@ -148,7 +152,11 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
                 span.hidden = true;
                 out.appendChild(span);
               };
-              if (calculatedFiguresIn(blocks).some(({ figure }) => figure.analysis)) {
+              // An Analysis's table goes with the record of its run, as an Analysis figure does (#2378).
+              if (
+                calculatedFiguresIn(blocks).some(({ figure }) => figure.analysis) ||
+                boundTablesIn(blocks).length > 0
+              ) {
                 // Each Analysis figure is tried on its own: one whose saved inputs are complete
                 // keeps its node and record, whatever shares its Block (#2378).
                 const plain = new Set<string>();

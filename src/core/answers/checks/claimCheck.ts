@@ -1284,6 +1284,20 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           uncovered: null,
           found: true,
         }),
+        keptInside: (documentId) =>
+          deps.walledDocument(documentId) !== null &&
+          (scope.documentIds === null ||
+            !scope.documentIds.includes(documentId) ||
+            scope.excluded.has(documentId))
+            ? (deps.walledFolderName(documentId) ?? documentId)
+            : null,
+        misnamed: (label) => ({
+          kind: "analysis-name",
+          reason: translate(deps.language(), "claim.analysisName", { label }),
+          covered: null,
+          uncovered: null,
+          found: true,
+        }),
         signal,
         remainder: (remainder) =>
           judged(

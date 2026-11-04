@@ -7,7 +7,11 @@ import {
   type AnswerAnalysis,
   type Citation,
 } from "../../src/core/api";
-import { type AnalysisTable, noAnalysisOutput } from "../../src/shared/analysis";
+import {
+  type AnalysisColumnRule,
+  type AnalysisTable,
+  noAnalysisOutput,
+} from "../../src/shared/analysis";
 import {
   type AnalysisTableMatch,
   analysisTableFor,
@@ -16,9 +20,11 @@ import {
   analysisTablesOf,
   columnLine,
   holdsTableAgain,
+  missingLine,
   withAnalysisTables,
 } from "../../src/shared/analysisTables";
 import { citationNode, type NodeJSON } from "../../src/shared/blockJson";
+import { withoutChecks } from "../../src/shared/figureRuns";
 
 const citation: Citation = {
   passageId: "p1",
@@ -327,7 +333,7 @@ describe("a bound table reads as its run while the Note keeps the run's headings
     const read = shown(tableBlock(rows));
     expect(read.state.kind).toBe("recalculated");
     expect(read.columns.map((column) => columnLine(column, "en"))).toEqual([
-      "Revenue: sum of 24 rows · recalculated",
+      "Revenue: sum of 24 rows, by Region · recalculated",
     ]);
   });
 
@@ -353,5 +359,107 @@ describe("a bound table reads as its run while the Note keeps the run's headings
     const read = shown(tableBlock(twice), twice);
     expect(read.columns.flatMap((column) => column.differs)).toEqual([]);
     expect(read.state.kind).toBe("recalculated");
+  });
+});
+
+describe("a column's line names what it was worked out from (#2378)", () => {
+  const binding = { id: "run-1", table: { result: "by_region" } };
+  const bound = (block: NodeJSON): NodeJSON => ({
+    ...block,
+    attrs: { [ANALYSIS_TABLE_ATTRIBUTE]: binding },
+  });
+  const kept = (rule: AnalysisColumnRule, given = rows) =>
+    analysisTableMatch(
+      binding,
+      "Revenue by region",
+      table(given),
+      [citation],
+      [{ column: 1, rule, rows: 24 }],
+    );
+  const sum: AnalysisColumnRule = { input: "sales", key: "Region", value: "Revenue", how: "sum" };
+
+  test.each([
+    ["en", "Revenue: sum of 24 rows, by Region · recalculated"],
+    ["zh-CN", "Revenue：按 Region 计算 24 行的合计 · 已重新计算"],
+  ] as const)(
+    "%s: under its own heading, the line counts the source rows and names the key",
+    (language, line) => {
+      const read = analysisTableShown(bound(tableBlock(rows)), kept(sum), language, null);
+      expect(read.columns.map((column) => columnLine(column, language))).toEqual([line]);
+    },
+  );
+
+  test.each([
+    ["en", "Net: sum of Gross over 24 rows, by Region · recalculated"],
+    ["zh-CN", "Net：按 Region 计算 24 行中 Gross 的合计 · 已重新计算"],
+  ] as const)("%s: under another heading, the line names the input it sums", (language, line) => {
+    const column = {
+      column: 1,
+      heading: "Net",
+      rule: { ...sum, value: "Gross" },
+      rows: 24,
+      differs: [],
+      footed: [],
+    };
+    expect(columnLine(column, language)).toBe(line);
+  });
+
+  test.each([
+    ["en", "Revenue: from the Analysis · not recalculated"],
+    ["zh-CN", "Revenue：来自数据分析 · 未重新计算"],
+  ] as const)("%s: a count never reads recalculated, though its counts match", (language, line) => {
+    const counted: AnalysisColumnRule = { ...sum, value: "Region", how: "count" };
+    const read = analysisTableShown(bound(tableBlock(rows)), kept(counted), language, null);
+    expect(read.state.kind).toBe("calculated");
+    expect(read.columns.map((column) => columnLine(column, language))).toEqual([line]);
+  });
+
+  test.each([
+    ["en", "1 row of the Analysis isn’t in the note", "2 rows of the Analysis aren’t in the note"],
+    ["zh-CN", "数据分析中有 1 行不在笔记里", "数据分析中有 2 行不在笔记里"],
+  ] as const)(
+    "%s: rows the User deletes are named, and a table with none left is never recalculated",
+    (language, one, two) => {
+      const [north] = rows;
+      const less = analysisTableShown(
+        bound(tableBlock(north ? [north] : [])),
+        kept(sum),
+        language,
+        null,
+      );
+      expect(less.state.kind).toBe("recalculated");
+      expect(missingLine(less.missing, language)).toBe(one);
+      const none = analysisTableShown(bound(tableBlock([])), kept(sum), language, null);
+      expect(none.state.kind).toBe("calculated");
+      expect(missingLine(none.missing, language)).toBe(two);
+    },
+  );
+
+  test("a row the User adds is footed only when it is a total, never a row the Analysis could have given", () => {
+    const sumOf = rows.reduce((total, [, value]) => total + Number(value), 0);
+    const footed = analysisTableShown(
+      bound(tableBlock([...rows, ["Total", sumOf]])),
+      kept(sum),
+      "en",
+      null,
+    );
+    expect(footed.columns[0]?.footed.map((each) => each.label)).toEqual(["Total"]);
+    const detail = analysisTableShown(
+      bound(tableBlock([...rows, ["East", sumOf]])),
+      kept(sum),
+      "en",
+      null,
+    );
+    expect(detail.columns[0]?.footed).toEqual([]);
+    expect(detail.columns[0]?.differs.map((each) => each.label)).toEqual(["East"]);
+  });
+
+  test("a clipboard's column rules are never read: a pasted table's columns are worked out again when its Analysis runs", () => {
+    const record = {
+      tables: [{ key: { result: "by_region" }, columns: [{ column: 1, rule: sum, rows: 24 }] }],
+      values: [],
+    };
+    const [read] = withoutChecks([record]) as { tables: { columns: { rule: unknown }[] }[] }[];
+    expect(read?.tables[0]?.columns.map((column) => column.rule)).toEqual([null]);
   });
 });

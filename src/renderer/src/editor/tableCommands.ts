@@ -321,3 +321,26 @@ export const TableKeys = Extension.create<Record<string, never>, TableKeysStorag
     ];
   },
 });
+
+// Open first, as every object's menu has it (docs/agents/interaction.md, rule 5).
+const MENU_GROUPS: readonly (readonly (TableActionId | "chart")[])[] = [
+  ["openCalculation"],
+  ["rowAbove", "rowBelow", "columnLeft", "columnRight"],
+  ["headerRow", "totalRow", "totalColumn"],
+  ["chart", "convertToText"],
+  ["deleteRow", "deleteColumn", "deleteTable"],
+];
+
+/**
+ * The table menu's groups, each item on its own (#2378): only an Analysis's own table has a
+ * calculation to open or convert to text, whatever else the table can do; Chart from table shows
+ * where the table can be charted.
+ */
+export function tableMenuGroups(
+  analysis: boolean,
+  chartable: boolean,
+): (TableActionId | "chart")[][] {
+  const shows = (id: TableActionId | "chart") =>
+    id === "chart" ? chartable : (id !== "openCalculation" && id !== "convertToText") || analysis;
+  return MENU_GROUPS.map((group) => group.filter(shows)).filter((group) => group.length > 0);
+}

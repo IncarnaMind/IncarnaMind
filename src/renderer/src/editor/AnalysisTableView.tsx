@@ -1,3 +1,4 @@
+import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeViewWrapper, type ReactNodeViewProps, useEditorState } from "@tiptap/react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -14,45 +15,56 @@ import {
   differingLine,
   footedLine,
   liveVersions,
+  missingLine,
   tableShownIn,
 } from "../../../shared/analysisTables";
 import { readTableBinding, sameBinding } from "../../../shared/figureRuns";
-import type { MessageKey } from "../../../shared/i18n";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
+import { useKeptInsideOf } from "../turnWall";
+import { TABLE_DATA_STATE, TABLE_STATE_WORDS } from "./analysisTableCommands";
 import { tableNumberOf } from "./citationNumbers";
 import { Popover } from "./Popover";
 import { useCitationPeek } from "./peek";
 import { focusQuietly } from "./quietFocus";
 import "./calculatedFigure.css";
 
-/** The table a caption's marker names: the next Block holding the same binding. */
+/** The table a caption's marker names: the next Block holding the same binding, and where it is. */
 function boundTable(doc: ProseMirrorNode, from: number, binding: AnalysisTableBinding) {
-  let found: ProseMirrorNode | null = null;
+  let found: { node: ProseMirrorNode; pos: number } | null = null;
   doc.forEach((node, offset) => {
     if (found || offset < from || node.type.name !== "table") return;
     const named = readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
-    if (named && sameBinding(named, binding)) found = node;
+    if (named && sameBinding(named, binding)) found = { node, pos: offset };
   });
-  return found as ProseMirrorNode | null;
+  return found as { node: ProseMirrorNode; pos: number } | null;
 }
 
-/** What the table's state reads as, in the figure card's words. */
-const STATE_WORDS: Record<AnalysisTableShown["state"]["kind"], MessageKey> = {
-  recalculated: "claim.state.supported",
-  calculated: "claim.state.not-checked",
-  differs: "figures.filter.look",
-  "needs-recheck": "claim.state.needs-recheck",
-  unavailable: "claim.state.not-checked",
-};
-
-const DATA_STATE: Record<AnalysisTableShown["state"]["kind"], string> = {
-  recalculated: "supported",
-  calculated: "not-checked",
-  differs: "unsupported",
-  "needs-recheck": "needs-recheck",
-  unavailable: "not-checked",
-};
+/**
+ * A differing cell's one action (#2378): its text becomes the Analysis's value, as written in the
+ * interface's language, with one Undo. No model is asked.
+ */
+export function writeAnalysisValue(
+  editor: Editor,
+  table: number,
+  cell: { row: number; column: number; text: string },
+): boolean {
+  const node = editor.state.doc.nodeAt(table);
+  const row = node?.type.name === "table" ? node.maybeChild(cell.row + 1) : null;
+  const target = row?.maybeChild(cell.column);
+  if (!node || !row || !target) return false;
+  let pos = table + 1;
+  for (let at = 0; at <= cell.row; at++) pos += node.child(at).nodeSize;
+  pos += 1;
+  for (let at = 0; at < cell.column; at++) pos += row.child(at).nodeSize;
+  const { schema } = editor.state;
+  const paragraph = schema.nodes.paragraph?.create(null, schema.text(cell.text));
+  if (!paragraph) return false;
+  return editor.commands.command(({ tr }) => {
+    tr.replaceWith(pos + 1, pos + target.nodeSize - 1, paragraph);
+    return true;
+  });
+}
 
 /** The marker that ends an Analysis table's caption (#2378): its number, and the table's card. */
 export function AnalysisTableView({
@@ -68,6 +80,7 @@ export function AnalysisTableView({
     state.status.kind === "ready" ? state.documents : null,
   );
   const number = tableNumberOf(decorations);
+  const keptInside = useKeptInsideOf();
   const marker = useRef<HTMLButtonElement>(null);
   const [pinned, setPinned] = useState(false);
   const { peeking, hold, clear } = useCitationPeek();
@@ -86,14 +99,19 @@ export function AnalysisTableView({
       const at = getPos();
       return binding && typeof at === "number" ? boundTable(current.state.doc, at, binding) : null;
     },
+    equalityFn: (a, b) => a?.node === b?.node && a?.pos === b?.pos,
   });
   // biome-ignore lint/correctness/useExhaustiveDependencies: revision observes the kept runs.
   const shown = useMemo(
     () =>
       doc && table
-        ? tableShownIn(doc, table.toJSON(), language, liveVersions(documents))
-        : ({ state: { kind: "unavailable" }, columns: [] } satisfies AnalysisTableShown),
-    [doc, table, language, documents, revision],
+        ? tableShownIn(doc, table.node.toJSON(), language, liveVersions(documents), keptInside)
+        : ({
+            state: { kind: "unavailable" },
+            columns: [],
+            missing: 0,
+          } satisfies AnalysisTableShown),
+    [doc, table, language, documents, revision, keptInside],
   );
   const title = useEditorState({
     editor,
@@ -113,7 +131,7 @@ export function AnalysisTableView({
       className="calculated-figure"
       contentEditable={false}
       data-testid="analysis-table-marker"
-      data-state={DATA_STATE[shown.state.kind]}
+      data-state={TABLE_DATA_STATE[shown.state.kind]}
     >
       <button
         ref={marker}
@@ -153,7 +171,17 @@ export function AnalysisTableView({
             onPointerEnter={() => hold("card", true)}
             onPointerLeave={() => hold("card", false)}
           >
-            <AnalysisTableCard title={title} shown={shown} />
+            <AnalysisTableCard
+              title={title}
+              shown={shown}
+              onUse={
+                table && editor.isEditable
+                  ? (cell) => {
+                      if (writeAnalysisValue(editor, table.pos, cell)) dismiss();
+                    }
+                  : undefined
+              }
+            />
           </Popover>,
           editor.view.dom.ownerDocument.body,
         )}
@@ -162,19 +190,31 @@ export function AnalysisTableView({
 }
 
 /** An Analysis table's card (#2378): its state, then one line per column, a differing cell under its column. */
-export function AnalysisTableCard({ title, shown }: { title: string; shown: AnalysisTableShown }) {
+export function AnalysisTableCard({
+  title,
+  shown,
+  onUse,
+}: {
+  title: string;
+  shown: AnalysisTableShown;
+  /** Writes the Analysis's value into a differing cell; absent where the Note can't be edited. */
+  onUse?: (cell: { row: number; column: number; text: string }) => void;
+}) {
   const t = useT();
   const language = useLanguage();
   const { kind } = shown.state;
+  const missing = missingLine(shown.missing, language);
   return (
     <>
       <h3>
         {t("figures.calculated")} · <strong>{title}</strong>
       </h3>
-      <p className="calculated-figure-state" data-state={DATA_STATE[kind]}>
-        {kind === "differs"
-          ? `${t("figures.filter.look")} · ${t("claim.why.differsFromAnalysis")}`
-          : t(STATE_WORDS[kind])}
+      <p className="calculated-figure-state" data-state={TABLE_DATA_STATE[kind]}>
+        {shown.state.kind === "kept-inside"
+          ? t("citation.reason.kept-inside", { folder: shown.state.folder })
+          : kind === "differs"
+            ? `${t("figures.filter.look")} · ${t("claim.why.differsFromAnalysis")}`
+            : t(TABLE_STATE_WORDS[kind])}
       </p>
       {shown.columns.map((column) => (
         <div
@@ -188,17 +228,35 @@ export function AnalysisTableCard({ title, shown }: { title: string; shown: Anal
               {footedLine(footed, language)}
             </p>
           ))}
-          {column.differs.map((cell) => (
-            <p
-              key={`${cell.label}\u0000${cell.note}`}
-              className="calculated-figure-problem"
-              data-testid="analysis-table-differs"
-            >
-              {differingLine(cell, language)}
-            </p>
-          ))}
+          {column.differs.map((cell) => {
+            const value = cell.analysis;
+            return (
+              <p
+                key={`${cell.row}\u0000${cell.note}`}
+                className="calculated-figure-problem"
+                data-testid="analysis-table-differs"
+              >
+                {differingLine(cell, language)}
+                {onUse && value !== null && (
+                  <button
+                    type="button"
+                    className="citation-card-action"
+                    data-testid="analysis-table-use"
+                    onClick={() => onUse({ row: cell.row, column: column.column, text: value })}
+                  >
+                    {t("claim.useFigure", { figure: value })}
+                  </button>
+                )}
+              </p>
+            );
+          })}
         </div>
       ))}
+      {missing && (
+        <p className="calculated-figure-note" data-testid="analysis-table-missing">
+          {missing}
+        </p>
+      )}
     </>
   );
 }

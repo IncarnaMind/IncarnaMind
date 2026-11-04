@@ -68,6 +68,7 @@ import {
   cutSentence,
   cutUnsupported,
   keepAsView,
+  misnamesFigure,
   offersFindSources,
   offersFixes,
   offersKeepAsView,
@@ -1310,16 +1311,19 @@ export function ClaimCard({
             {t("claim.cutUnsupported")}
           </button>
         )}
-        {state === "unsupported" && searchedLess(claim) && !decisionMissing && (
-          <button
-            type="button"
-            data-testid="claim-search-all"
-            className={`citation-card-action ${cuttable ? "" : "citation-card-action--primary"}`}
-            onClick={() => onCheckAgain(true)}
-          >
-            {t("claim.searchAll")}
-          </button>
-        )}
+        {state === "unsupported" &&
+          searchedLess(claim) &&
+          !decisionMissing &&
+          !misnamesFigure(claim) && (
+            <button
+              type="button"
+              data-testid="claim-search-all"
+              className={`citation-card-action ${cuttable ? "" : "citation-card-action--primary"}`}
+              onClick={() => onCheckAgain(true)}
+            >
+              {t("claim.searchAll")}
+            </button>
+          )}
         {(notFound || check.action === "check-against-document") && verified === null && mindId && (
           <DocumentCheckAction
             editor={editor}

@@ -446,6 +446,10 @@ export function readFigureRows(raw: unknown): AnalysisFigureRows | null {
   return { input, columns: raw.columns.map(label), rows, count, how };
 }
 
+/** A table's rows as a set, whatever their order: a chart drawn of the rows sorted holds the same table (#2378). */
+export const rowsKey = (rows: readonly (readonly AnalysisCell[])[]): string =>
+  JSON.stringify(rows.map((row) => JSON.stringify(row)).sort());
+
 export function readAnalysisTableKey(raw: unknown): AnalysisTableKey | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.result === "string" && raw.result !== "" && raw.chart === undefined)

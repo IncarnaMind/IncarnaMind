@@ -13,9 +13,11 @@ import { messageReference } from "../../src/core/references";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
+  checkedCaveat,
   noteStateOf,
   noteStateParts,
   noteStateUnreadWords,
+  nothingLeft,
   readNoteState,
   unreadForCard,
 } from "../../src/renderer/src/noteState";
@@ -209,6 +211,22 @@ describe("A note's state (D266)", () => {
     expect(noteStateOf(health({ ...slope, toCheck: [4, 9], failed: [4, 9] }))?.kind).toBe(
       "not-checked",
     );
+    // Under 400 px the green line's short form names it, as the export's line does.
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate("en", key, params);
+    expect(checkedCaveat(state, t, String)).toBe("1 figure not recalculated");
+    expect(nothingLeft(state)).toBe(false);
+    expect(nothingLeft({ ...state, notRecalculated: 0 })).toBe(true);
+  });
+
+  test("✓ needs a verdict earned: a Note whose only figures weren't recalculated rests on them, with no ✓ and no amber", () => {
+    const only = health({ checkable: 1, toCheck: [9], failed: [9], notRecalculated: [9] });
+    const state = noteStateOf(only) ?? fail();
+    expect(state).toMatchObject({ kind: "not-checked", tone: "neutral", notRecalculated: 1 });
+    const words = (language: "en" | "zh-CN") =>
+      noteStateParts(state, (key, params) => translate(language, key, params), language);
+    expect(words("en")).toEqual(["1 figure not recalculated"]);
+    expect(words("zh-CN")).toEqual(["1 个数字未重新计算"]);
   });
 
   test("says the words of each state in English and Chinese, the times from dates.ts", () => {

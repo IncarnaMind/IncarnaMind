@@ -80,7 +80,10 @@ const QUOTES: readonly DocQuote[] = [
   {
     page: "check",
     key: "figures.table.recalculated.sum.other",
-    params: { en: { heading: "Amount", count: "40" }, "zh-CN": { heading: "Amount", count: "40" } },
+    params: {
+      en: { heading: "Amount", count: "40", key: "Region" },
+      "zh-CN": { heading: "Amount", count: "40", key: "Region" },
+    },
   },
   {
     page: "check",

@@ -762,10 +762,10 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     body,
     text: reply([{ ...item(), source: null }]),
   });
-  // An Analysis's figure with no record of its run is the Analysis's, not recalculated (#2378).
+  // An Analysis's figure with no record of its run: the Analysis it came from is gone (#2378).
   expect(retained.result.figures?.[0]?.result).toMatchObject({
     verdict: "not-checked",
-    reason: "analysis",
+    reason: "analysis-gone",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
 });

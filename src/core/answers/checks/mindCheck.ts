@@ -27,7 +27,7 @@ import { citedCases } from "../../../shared/caseCitations";
 import type { SourceGrid } from "../../../shared/charts";
 import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
 import { withFigureFacts } from "../../../shared/claimParts";
-import { beginFigureCheck } from "../../../shared/figureChecks";
+import { ANALYSIS_REASONS, beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -508,8 +508,12 @@ export function createMindCheck(options: MindCheckOptions) {
           skipped: leftOut(sentence),
           kept: keptAsView(marks, sentence),
         });
-        // A figure an Analysis gave that IncarnaMind couldn't work out again: no check changes it (#2378).
-        if (mark && shown?.state === "not-checked" && shown.reason === "analysis") {
+        // An Analysis's figure no check can change (#2378): not worked out again, its record gone,
+        // or named otherwise than its label. An edit of the sentence shows it to check again.
+        const settled =
+          (shown?.state === "not-checked" && ANALYSIS_REASONS.has(shown.reason)) ||
+          (shown?.state === "unsupported" && mark?.check.unsupported?.kind === "analysis-name");
+        if (mark && settled) {
           held.push(mark.check.checkedAt);
           continue;
         }

@@ -625,3 +625,16 @@ export function figurePlaceText(row: FigureScheduleRow, language: Language): str
       : translate(language, "figures.paragraph", { number: paragraph });
   return heading ? translate(language, "figures.place", { heading, place }) : place;
 }
+
+/**
+ * What opening a Figure schedule row does: an Analysis's table opens to its columns whatever it
+ * shows, as it is never checked as text (#2378); a figure no check reached says so; a calculated
+ * figure opens to its inputs; any other opens its source.
+ */
+export function rowOpens(
+  row: Pick<FigureScheduleRow, "analysisTable" | "shown" | "calculated">,
+): "columns" | "notice" | "inputs" | "source" {
+  if (row.analysisTable) return "columns";
+  if (row.shown.state === "not-checked") return "notice";
+  return row.calculated ? "inputs" : "source";
+}

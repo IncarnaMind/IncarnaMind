@@ -25,7 +25,7 @@ import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { partWithResult, resultFromParts } from "../../src/shared/claimParts";
 import { aggregateFigureResults } from "../../src/shared/figureChecks";
-import { childrenOf, lineShows } from "../../src/shared/figureSchedule";
+import { childrenOf, lineShows, rowOpens } from "../../src/shared/figureSchedule";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { addSignOff, figureSignOffBasis } from "../../src/shared/signOffs";
 
@@ -1146,3 +1146,16 @@ function scheduleInput(blocks: Y.XmlFragment) {
     scope: null,
   };
 }
+
+test("an Analysis table's row opens to its columns whatever it shows (#2378)", () => {
+  const columns = { title: "Total amount by region", columns: [] };
+  for (const shown of [
+    { state: "supported" },
+    { state: "unsupported" },
+    { state: "not-checked", reason: "analysis" },
+  ] as const)
+    expect(rowOpens({ analysisTable: columns, shown, calculated: null })).toBe("columns");
+  expect(rowOpens({ shown: { state: "not-checked", reason: "unread" }, calculated: null })).toBe(
+    "notice",
+  );
+});

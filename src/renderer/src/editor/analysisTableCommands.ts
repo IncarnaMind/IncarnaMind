@@ -1,13 +1,24 @@
 import { type Editor, Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { type EditorState, Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import {
+  type EditorState,
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  type Transaction,
+} from "@tiptap/pm/state";
+import { Mapping } from "@tiptap/pm/transform";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
-import { ANALYSIS_TABLE_ATTRIBUTE, ANALYSIS_TABLE_NODE } from "../../../core/api";
+import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
+  type AnalysisTableBinding,
+  BLOCK_ID_ATTRIBUTE,
+} from "../../../core/api";
+import type { AnalysisTableShown } from "../../../shared/analysisTables";
 import { readTableBinding, sameBinding } from "../../../shared/figureRuns";
+import type { MessageKey } from "../../../shared/i18n";
 import { tableAround } from "./chartCommands";
-
-/** A transaction with this meta may take an Analysis table's marker away: its Convert to text. */
-const CONVERTING = "analysisTable.convert";
 
 /** Whether the table at the cursor is an Analysis's own (#2378). */
 export function inAnalysisTable(state: EditorState): boolean {
@@ -54,70 +65,219 @@ export function convertAnalysisTable(editor: Editor): boolean {
   return editor.commands.command(({ tr }) => {
     tr.setNodeAttribute(table.pos, ANALYSIS_TABLE_ATTRIBUTE, null);
     if (marker !== null) tr.delete(marker, marker + 1);
-    tr.setMeta(CONVERTING, true);
     return true;
   });
 }
 
-const boundTables = (doc: ProseMirrorNode) => {
-  const bindings: unknown[] = [];
-  doc.descendants((node) => {
-    if (node.type.name === "table") {
-      bindings.push(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
-      return false;
+/**
+ * `fragment` with every Analysis table's binding and caption marker taken off (#2378): pasted with
+ * no record of its run, a table is the typed table its cells read as, and is checked as one.
+ */
+export function withoutTableBindings(fragment: Fragment): Fragment {
+  const nodes: ProseMirrorNode[] = [];
+  fragment.forEach((node) => {
+    if (node.type.name === ANALYSIS_TABLE_NODE) return;
+    if (node.isText) {
+      nodes.push(node);
+      return;
     }
-    return true;
+    const attrs =
+      node.type.name === "table" && node.attrs[ANALYSIS_TABLE_ATTRIBUTE] != null
+        ? { ...node.attrs, [ANALYSIS_TABLE_ATTRIBUTE]: null }
+        : node.attrs;
+    nodes.push(node.type.create(attrs, withoutTableBindings(node.content), node.marks));
   });
-  return bindings.flatMap((each) => readTableBinding(each) ?? []);
-};
+  return Fragment.fromArray(nodes);
+}
 
-const markersIn = (doc: ProseMirrorNode) => {
-  let count = 0;
-  doc.descendants((node) => {
-    if (node.type.name === ANALYSIS_TABLE_NODE) count++;
-    return true;
+function markersIn(doc: ProseMirrorNode): { pos: number; binding: AnalysisTableBinding }[] {
+  const found: { pos: number; binding: AnalysisTableBinding }[] = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name !== ANALYSIS_TABLE_NODE) return true;
+    const binding = readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
+    if (binding) found.push({ pos, binding });
+    return false;
   });
-  return count;
-};
+  return found;
+}
 
 /**
- * An Analysis table's marker goes only with Convert to text, as a figure's does (#2378): an edit
- * that would delete it while its table stays bound keeps it. Deleting the table with it, a sync
- * from the Note's other windows and Undo are left alone.
+ * What keeps each Analysis table's caption whole after a change (#2378): a marker stands at the end
+ * of the paragraph just above its table. Typing over the marker with the caption's words puts it
+ * back at the caption's end; a marker whose table is gone, or that stands anywhere else, goes; a
+ * table whose caption line is gone, or that never had one, is a typed table, as Convert to text
+ * leaves it. Null when every table's caption is whole.
+ */
+function captionsKept(
+  transactions: readonly Transaction[],
+  before: EditorState,
+  after: EditorState,
+): Transaction | null {
+  const { doc } = after;
+  const tables: { pos: number; index: number; binding: AnalysisTableBinding }[] = [];
+  doc.forEach((node, pos, index) => {
+    const binding =
+      node.type.name === "table" ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) : null;
+    if (binding) tables.push({ pos, index, binding });
+  });
+  const captionOf = (table: (typeof tables)[number]) => {
+    const above = table.index > 0 ? doc.child(table.index - 1) : null;
+    return above?.type.name === "paragraph"
+      ? { node: above, from: table.pos - above.nodeSize, to: table.pos }
+      : null;
+  };
+  const markers = markersIn(doc);
+  const onCaption = (pos: number, binding: AnalysisTableBinding) =>
+    tables.some((table) => {
+      const caption = captionOf(table);
+      return (
+        caption !== null &&
+        sameBinding(table.binding, binding) &&
+        pos > caption.from &&
+        pos < caption.to
+      );
+    });
+  const markerType = doc.type.schema.nodes[ANALYSIS_TABLE_NODE];
+  const mapping = new Mapping();
+  for (const tr of transactions) mapping.appendMapping(tr.mapping);
+  const steps: { at: number; run: (tr: Transaction) => void }[] = markers
+    .filter(({ pos, binding }) => !onCaption(pos, binding))
+    .map(({ pos }) => ({ at: pos, run: (tr) => tr.delete(pos, pos + 1) }));
+  for (const table of tables) {
+    const caption = captionOf(table);
+    if (
+      markers.some(
+        ({ pos, binding }) =>
+          caption !== null &&
+          sameBinding(binding, table.binding) &&
+          pos > caption.from &&
+          pos < caption.to,
+      )
+    )
+      continue;
+    // The paragraph its marker ended before the change: still the line above, its words were typed
+    // over. A line with no id yet is followed through the change by its place.
+    const was = markersIn(before.doc).find(({ binding }) => sameBinding(binding, table.binding));
+    const line = was ? before.doc.resolve(was.pos).parent.attrs[BLOCK_ID_ATTRIBUTE] : undefined;
+    const mapped = was ? mapping.map(was.pos, -1) : -1;
+    const same =
+      caption !== null &&
+      was !== undefined &&
+      (typeof line === "string"
+        ? caption.node.attrs[BLOCK_ID_ATTRIBUTE] === line
+        : mapped > caption.from && mapped < caption.to);
+    const end = caption ? caption.to - 1 : null;
+    if (caption && end !== null && markerType && same) {
+      steps.push({
+        at: end,
+        run: (tr) =>
+          tr.insert(end, markerType.create({ [ANALYSIS_TABLE_ATTRIBUTE]: table.binding })),
+      });
+    } else {
+      steps.push({
+        at: table.pos,
+        run: (tr) => tr.setNodeAttribute(table.pos, ANALYSIS_TABLE_ATTRIBUTE, null),
+      });
+    }
+  }
+  if (steps.length === 0) return null;
+  const tr = after.tr;
+  // From the end back, so each position is still the one it was read at.
+  for (const step of steps.sort((a, b) => b.at - a.at)) step.run(tr);
+  return tr;
+}
+
+/** The marker just before or after the cursor in a caption line; null where there is none. */
+function markerBeside(state: EditorState, side: "before" | "after"): number | null {
+  const { selection } = state;
+  if (!selection.empty) return null;
+  const { $from } = selection;
+  const node = side === "before" ? $from.nodeBefore : $from.nodeAfter;
+  if (node?.type.name !== ANALYSIS_TABLE_NODE) return null;
+  return side === "before" ? $from.pos - node.nodeSize : $from.pos;
+}
+
+/** Convert to text for the table a selected caption marker names: the marker goes, with its binding. */
+function convertMarked(editor: Editor): boolean {
+  const { selection } = editor.state;
+  if (!(selection instanceof NodeSelection) || selection.node.type.name !== ANALYSIS_TABLE_NODE)
+    return false;
+  const binding = readTableBinding(selection.node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
+  if (!binding) return false;
+  let table: number | null = null;
+  editor.state.doc.forEach((node, pos) => {
+    const named =
+      node.type.name === "table" ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) : null;
+    if (table === null && pos > selection.from && named && sameBinding(named, binding)) table = pos;
+  });
+  const at = table;
+  return editor.commands.command(({ tr }) => {
+    if (at !== null) tr.setNodeAttribute(at, ANALYSIS_TABLE_ATTRIBUTE, null);
+    tr.delete(selection.from, selection.to);
+    return true;
+  });
+}
+
+/**
+ * The caption's marker, kept whole as a field is in Word (#2378): Backspace or Delete beside it
+ * selects it, a second press takes it away, as Convert to text does, with one Undo. Every other edit
+ * goes through: typing over the caption's words keeps the marker at its end (`captionsKept`).
  */
 export const AnalysisTableGuard = Extension.create({
   name: "analysisTableGuard",
+  // Ahead of the editor's own Backspace, which would delete the marker as any character.
+  priority: 1000,
+  addKeyboardShortcuts() {
+    const press = (side: "before" | "after") => () => {
+      const { editor } = this;
+      if (convertMarked(editor)) return true;
+      const at = markerBeside(editor.state, side);
+      if (at === null) return false;
+      editor.view.dispatch(
+        editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, at)),
+      );
+      return true;
+    };
+    return { Backspace: press("before"), Delete: press("after") };
+  },
   addProseMirrorPlugins() {
     return [
       new Plugin({
         key: new PluginKey("analysisTableGuard"),
-        filterTransaction(tr: Transaction) {
-          if (!tr.docChanged || tr.getMeta(CONVERTING)) return true;
+        appendTransaction(transactions, before, after) {
+          if (!transactions.some((tr) => tr.docChanged)) return null;
           // The Note's other windows, the core and Undo change it through Yjs, which is the record.
           if (
-            (tr.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined)?.isChangeOrigin
+            transactions.some(
+              (tr) =>
+                (tr.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined)
+                  ?.isChangeOrigin,
+            )
           )
-            return true;
-          if (markersIn(tr.doc) >= markersIn(tr.before)) return true;
-          const kept = boundTables(tr.doc);
-          let removed = false;
-          tr.before.descendants((node) => {
-            if (removed || node.type.name !== ANALYSIS_TABLE_NODE) return true;
-            const named = readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
-            let still = false;
-            tr.doc.descendants((now) => {
-              if (still || now.type.name !== ANALYSIS_TABLE_NODE) return true;
-              const same = readTableBinding(now.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
-              still = named !== null && same !== null && sameBinding(named, same);
-              return !still;
-            });
-            if (!still && named && kept.some((binding) => sameBinding(binding, named)))
-              removed = true;
-            return !removed;
-          });
-          return !removed;
+            return null;
+          return captionsKept(transactions, before, after);
         },
       }),
     ];
   },
 });
+
+/** What an Analysis table's state reads as on its card, in the figure card's words (#2378). */
+export const TABLE_STATE_WORDS: Record<AnalysisTableShown["state"]["kind"], MessageKey> = {
+  recalculated: "claim.state.supported",
+  calculated: "claim.state.not-checked",
+  differs: "figures.filter.look",
+  "needs-recheck": "claim.state.needs-recheck",
+  "kept-inside": "claim.state.not-checked",
+  unavailable: "claim.state.not-checked",
+};
+
+/** The state an Analysis table's marker gives as `data-state`, as a figure's marker does. */
+export const TABLE_DATA_STATE: Record<AnalysisTableShown["state"]["kind"], string> = {
+  recalculated: "supported",
+  calculated: "not-checked",
+  differs: "unsupported",
+  "needs-recheck": "needs-recheck",
+  "kept-inside": "not-checked",
+  unavailable: "not-checked",
+};

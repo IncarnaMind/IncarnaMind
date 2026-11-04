@@ -2689,6 +2689,12 @@ export function createCore(adapters: CoreAdapters): Core {
         scope,
         personId: settings.get().user.personId,
         language: settings.get().language,
+        keptInside: (documentId) => {
+          const wall = walledDocument(documentId);
+          return wall === null || wall === walledFolder(mind.id)
+            ? null
+            : (walledFolderName(documentId) ?? documentId);
+        },
       });
     });
   }
