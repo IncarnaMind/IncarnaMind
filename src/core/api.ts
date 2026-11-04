@@ -8417,6 +8417,15 @@ export const dataFlowIds = [
 export type DataFlowId = (typeof dataFlowIds)[number];
 
 /**
+ * Consent a command's Allow gives for one run only, to one service and flow; it is never stored
+ * (#2252). Nothing else may send: the standing decision and the automatic switch stay as they are.
+ */
+export interface CloudReadPermit {
+  flow: DataFlowId;
+  serviceId: string;
+}
+
+/**
  * The flows choosing the chat model's provider allows (ADR-0022): what runs
  * by itself, as the line above "Use this provider" says. That line is made from
  * this list, so a flow added here needs its words (`chosenFlowLines`). Tagging and

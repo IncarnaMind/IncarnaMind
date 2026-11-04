@@ -12,6 +12,7 @@ import { displayName } from "../../../shared/documentNames";
 import { mindName } from "../../../shared/naming";
 import { tagLinks } from "../../../shared/tagLinks";
 import type {
+  CloudReadPermit,
   CommandAsk,
   CommandDone,
   CommandItem,
@@ -70,7 +71,6 @@ export type CommandsCore = Pick<
   | "updateTag"
   | "classifyDocuments"
   | "acceptAssignments"
-  | "proposeFolders"
   | "mergeTags"
   | "getTaggingRoute"
   | "listDataFlows"
@@ -112,7 +112,10 @@ export interface CommandsHost {
     ids: readonly string[],
     signal: AbortSignal,
     wall: string | null,
+    permit?: CloudReadPermit,
   ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
+  /** Suggests Folders for these Documents, with the run's permit when it has one (#2252). */
+  proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<LibraryGroup[]>;
   /** The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022). */
   allowCloudRead(service: ExternalService): void;
   /**
@@ -213,7 +216,7 @@ export interface CheckedCommand {
   cloud?: ExternalService;
   /** The User said no to sending Documents for sorting before: this Allow is for this request only (#2252). */
   cloudDeclined?: boolean;
-  run(asking: CommandAsking, signal: AbortSignal): Promise<Ran>;
+  run(asking: CommandAsking, signal: AbortSignal, permit?: CloudReadPermit): Promise<Ran>;
 }
 
 export const IN_APP: Effect[] = [{ action: "write", scope: { kind: "library" } }];
@@ -399,7 +402,7 @@ export const inApp = (
   command: CommandId,
   items: CommandItem[],
   into: string | null,
-  run: (asking: CommandAsking, signal: AbortSignal) => Promise<Ran>,
+  run: (asking: CommandAsking, signal: AbortSignal, permit?: CloudReadPermit) => Promise<Ran>,
   confirm: "organize" | "merge" | null = null,
 ): CheckedCommand => ({
   command,

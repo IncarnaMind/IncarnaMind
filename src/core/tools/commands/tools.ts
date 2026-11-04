@@ -11,6 +11,7 @@
  */
 import { COMMAND_TARGETS, type CommandTarget, type OfferedCommand } from "../../../shared/commands";
 import {
+  type CloudReadPermit,
   COMMAND_AT_ONCE,
   type CommandAsk,
   type CommandDone,
@@ -362,13 +363,19 @@ export function commandTools(options: CommandToolsOptions): {
       const ask = options.ask;
       let ran: Awaited<ReturnType<CheckedCommand["run"]>>;
       // The card named the cloud service and what goes to it: the User's Allow is that consent.
-      // A standing no is theirs to change in Settings: this Allow sends this request only.
-      if (command.cloud && !command.cloudDeclined) options.host.allowCloudRead(command.cloud);
+      // A standing no is theirs to change in Settings: this Allow carries a permit for this run
+      // only, and stores nothing.
+      let permit: CloudReadPermit | undefined;
+      if (command.cloud) {
+        if (command.cloudDeclined) permit = { flow: "classification", serviceId: command.cloud.id };
+        else options.host.allowCloudRead(command.cloud);
+      }
       try {
         ran = await inTurn(() =>
           command.run(
             ask ? (question) => ask(toolCallId, question(options.language), signal) : null,
             signal,
+            permit,
           ),
         );
       } catch (error) {

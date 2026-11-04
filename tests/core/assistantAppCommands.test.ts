@@ -1382,7 +1382,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     ).toHaveLength(4);
   });
 
-  // protects=a declined classification makes the Organize card send this time only: the no and the automatic switch stay, background work still sends nothing, and the next request asks again (#2252, ADR-0022); fails_when=Allow stores accepted, turns the switch on, or lets background sorting send; no_claim=which Folder the classifier picks.
+  // protects=a declined classification makes the Organize card send this time only: the run sorts and files, Undo and Redo restore them, the no and the automatic switch stay, background work still sends nothing, and the next request asks again (#2252, ADR-0022); fails_when=Allow stores accepted, turns the switch on, files nothing, or lets background sorting send; no_claim=which Folder the classifier picks.
   test("a standing no makes the card send this time only, and asks again next time", async () => {
     let classified = 0;
     const answers = scriptedModel(
@@ -1393,7 +1393,7 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
               calls: [
                 {
                   tool: "run_command",
-                  input: { command: "documents.organize", folder: "Leases", about: "Lease papers" },
+                  input: { command: "documents.organize", about: "Lease papers" },
                 },
               ],
             }
@@ -1401,12 +1401,24 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       },
       {
         generate: ({ prompt }) => {
-          let data: { groups?: { id: string; name: string }[] };
+          let data: {
+            groups?: { id: string; name: string }[];
+            documents?: unknown;
+            folders?: string[];
+          };
           try {
-            data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+            data = JSON.parse(prompt) as {
+              groups?: { id: string; name: string }[];
+              documents?: unknown;
+              folders?: string[];
+            };
           } catch {
             return { text: JSON.stringify({ tags: [] }) };
           }
+          if (data.documents && data.folders)
+            return {
+              text: JSON.stringify({ folders: [{ name: "Leases", description: "Lease papers" }] }),
+            };
           if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
           classified += 1;
           const leases = data.groups.find((each) => each.name === "Leases");
@@ -1445,8 +1457,9 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     }
     const automatic = (await core.getLibrary()).settings.automatic;
     const requests = approvals(core, "allow-once");
+    const classifiedBefore = classified;
 
-    await askAssistant(core, {
+    const answer = await askAssistant(core, {
       text: "Re organise the files",
       mindId: mind.id,
       ...FROM_WINDOW,
@@ -1463,6 +1476,25 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
     expect(await consent()).toBe("declined");
     expect((await core.getLibrary()).settings.automatic).toBe(automatic);
+    // The permit carried from Allow reaches the classifier: the run sorts and files all four.
+    expect(classified - classifiedBefore).toBe(4);
+    const leasesOf = async () =>
+      (await core.getLibrary()).groups.find((each) => each.name === "Leases");
+    const leases = await leasesOf();
+    expect(leases).toBeDefined();
+    const filedIn = async () =>
+      (await core.getLibrary()).assignments.filter((each) => each.groupId === leases?.id).length;
+    expect(await filedIn()).toBe(4);
+    // One Undo takes the run back, and Redo files them again, with the decline still stored.
+    const run = runOf(answer);
+    await core.undoCommands(run);
+    expect(await leasesOf()).toBeUndefined();
+    expect((await core.getLibrary()).assignments.filter((each) => each.groupId !== null)).toEqual(
+      [],
+    );
+    await core.redoCommands(run);
+    expect(await filedIn()).toBe(4);
+    expect(await consent()).toBe("declined");
 
     const beforeSorts = classified;
     const sources = await createTempDataFolder();
@@ -1489,6 +1521,9 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
       reason: "organize",
       declined: true,
     });
+    // The second request carried its own permit: it sorted the new Document too.
+    expect(classified).toBeGreaterThan(beforeSorts);
+    expect(await filedIn()).toBe(5);
   });
 
   // protects=Organize above 20 Documents asks on its card, and files them when allowed (#2252, ADR-0013); fails_when=it runs without asking or files before the allow; no_claim=which Folder the classifier picks.

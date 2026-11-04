@@ -14,14 +14,17 @@
  * comma-separated, to run only those. Each request is asked in a Library of its own, set up as
  * the first one was.
  */
+import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
-import type {
-  ApprovalRequest,
-  ConversationAnswer,
-  Core,
-  UserQuestionRequest,
-  WindowCommandRequest,
+import {
+  type ApprovalRequest,
+  type ConversationAnswer,
+  type Core,
+  DATABASE_FILE,
+  type UserQuestionRequest,
+  type WindowCommandRequest,
 } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -30,6 +33,7 @@ import {
   type OllamaModels,
   outputTokensFor,
 } from "../../src/core/providers/ollamaModels";
+import { openDatabase } from "../../src/core/storage";
 import type { OfferedCommand, Yours } from "../../src/shared/commands";
 import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -263,6 +267,16 @@ const organized: Check = (seen) => {
   expect(seen.answer.steps?.unbackedClaims ?? []).toEqual([]);
 };
 
+/** Organize after a standing no: the card says it sends this time only, and the run still files. */
+const organizedAfterDecline: Check = (seen) => {
+  organized(seen);
+  const cards = seen.asked.filter(
+    (each) => "ask" in each && each.ask.kind === "change" && each.ask.reason === "organize",
+  );
+  expect(cards).toHaveLength(1);
+  expect(cards[0] && "ask" in cards[0] ? cards[0].ask : null).toMatchObject({ declined: true });
+};
+
 /** After "Re organise the files" is taken back once: the Library is as it was. */
 const organizedUndone = (seen: Seen, undone: Library) => {
   expect(undone.userFiled).toEqual(seen.before.userFiled);
@@ -459,6 +473,8 @@ const REQUESTS: {
   choose?: Choose;
   /** What one Undo leaves, for a request that changes the Library. */
   undone?: (seen: Seen, undone: Library) => void;
+  /** Classification was declined before the request, so the card is this-time-only. */
+  declined?: boolean;
 }[] = [
   {
     id: "folder-en",
@@ -493,6 +509,20 @@ const REQUESTS: {
     text: "重新整理一下这些文件",
     check: organized,
     undone: organizedUndone,
+  },
+  {
+    id: "reorganise-files-declined-en",
+    text: "Re organise the files",
+    check: organizedAfterDecline,
+    undone: organizedUndone,
+    declined: true,
+  },
+  {
+    id: "reorganise-files-declined-zh",
+    text: "重新整理一下这些文件",
+    check: organizedAfterDecline,
+    undone: organizedUndone,
+    declined: true,
   },
   {
     id: "reduce-tags-en",
@@ -793,7 +823,7 @@ const NOTE = [
 ];
 
 /** A Library as each request finds it, its own: what one request changed never reaches the next. */
-async function libraryFor(live: (typeof LIVE)[number], choose: Choose) {
+async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined = false) {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir, {
     createChatModel: createAiSdkChatModel,
@@ -861,6 +891,26 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose) {
   );
   await client.settled();
   const commands = await windowCommandsFor(core, mind.id);
+  if (declined) {
+    const classification = (await core.listDataFlows()).find(
+      (each) => each.flow.id === "classification",
+    );
+    if (!classification) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", classification.flow.service.id);
+    // Declined in a dialog before background flows stopped asking.
+    const at = new Date().toISOString();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `INSERT INTO data_flow_consents
+           (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+         VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
+        [randomUUID(), classification.flow.service.id, classification.flow.service.name, at, at],
+      );
+    } finally {
+      db.close();
+    }
+  }
   return { core, dataDir, mind, commands, window, asked, questions };
 }
 
@@ -870,7 +920,9 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
     { timeout: 3_600_000 },
     async () => {
       const only = process.env.INCARNAMIND_LIVE_ONLY?.split(",");
-      const requests = REQUESTS.filter((each) => !only || only.includes(each.id));
+      const requests = REQUESTS.filter(
+        (each) => (!only || only.includes(each.id)) && (!each.declined || !live.local),
+      );
       record(`## ${live.name} · ${live.model} · ${requests.length} requests`);
       let passed = 0;
       onTestFinished(() =>
@@ -880,6 +932,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
         const { core, dataDir, mind, commands, window, asked, questions } = await libraryFor(
           live,
           request.choose ?? first,
+          request.declined,
         );
         const before = await libraryOf(core, mind.id);
         let line = `- ${request.id} “${request.text}”`;

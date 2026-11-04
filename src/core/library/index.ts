@@ -10,6 +10,7 @@ import {
 import { libraryPresetKeys } from "../../shared/libraryPresets";
 import { sameName } from "../../shared/names";
 import type {
+  CloudReadPermit,
   DocumentKind,
   ExternalService,
   FolderDeletion,
@@ -343,7 +344,7 @@ export function createLibrary(options: {
   tagged(ids: string[]): void;
   /** Organize made new Tags: the list of Tags is to be read again. */
   tagsMade?(): void;
-  prepare(settings: LibrarySettings): Promise<GroupClassifier>;
+  prepare(settings: LibrarySettings, permit?: CloudReadPermit): Promise<GroupClassifier>;
   providerExists(id: string): boolean;
   /**
    * Whether a model that tags reads a PDF's pages, so it can organize one with
@@ -935,6 +936,8 @@ export function createLibrary(options: {
       applied?(id: string, links: readonly TagLinkChange[]): void;
       /** The Folders it may choose, when a wall keeps it to some (#1934); none: all of them. */
       allowedGroups?: ReadonlySet<string>;
+      /** The one service this run's Allow covers, without storing consent (#2252). */
+      permit?: CloudReadPermit;
     },
   ): Promise<void> {
     const initial = assignment(id);
@@ -975,7 +978,7 @@ export function createLibrary(options: {
       }
       state(id, "classifying");
       const settingsNow = getSettings();
-      const classifier = await options.prepare(settingsNow);
+      const classifier = await options.prepare(settingsNow, call.permit);
       if (classifier.local) call.runsLocally();
       if (stale()) return;
       // Checked on where this request goes, as prepared; the User's own Organize goes.
@@ -1693,7 +1696,11 @@ export function createLibrary(options: {
      * `language` and makes them; Organize then sorts the Documents into them (`classify`).
      * Returns the Folders made. Throws InvalidInputError when Organize's model can't name Folders.
      */
-    async propose(input: unknown, language: Language): Promise<LibraryGroup[]> {
+    async propose(
+      input: unknown,
+      language: Language,
+      permit?: CloudReadPermit,
+    ): Promise<LibraryGroup[]> {
       const settings = getSettings();
       if (!organizeModelOf(settings))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
@@ -1702,7 +1709,7 @@ export function createLibrary(options: {
         .map(document)
         .filter(hasContent);
       if (docs.length === 0) return [];
-      const classifier = await options.prepare(settings);
+      const classifier = await options.prepare(settings, permit);
       if (!classifier.proposeFolders)
         throw new InvalidInputError({ key: "error.library.cantPropose" });
       const existing = groups().map((each) => each.name);
@@ -1744,6 +1751,7 @@ export function createLibrary(options: {
       input: unknown,
       signal: AbortSignal,
       allowedGroups?: ReadonlySet<string>,
+      permit?: CloudReadPermit,
     ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }> {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
@@ -1773,6 +1781,7 @@ export function createLibrary(options: {
           },
           applied: (_id, links) => tagChanges.push(...links),
           allowedGroups,
+          permit,
         });
         // Stopped during this one: it goes back as it was, like the ones after it.
         if (signal.aborted && !lifetime.signal.aborted) break;

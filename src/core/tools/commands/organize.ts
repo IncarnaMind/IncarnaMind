@@ -120,7 +120,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
       "documents.organize",
       items,
       requested,
-      async (_asking, signal) => {
+      async (_asking, signal, permit) => {
         // Nothing to sort: no Folder is made or taken away for it.
         if (ids.length === 0) {
           return {
@@ -137,13 +137,18 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
           named = folder;
           if (created) made.push(folder);
         } else if ((await core.getLibrary()).groups.length === 0) {
-          made.push(...(await core.proposeFolders(ids)));
+          made.push(...(await host.proposeFolders(ids, permit)));
         }
         let failed: unknown | null = null;
         let untouched = 0;
         let tagChanges: TagLinkChange[] = [];
         try {
-          ({ failed, untouched, tagChanges } = await host.organizeAtOnce(ids, signal, wallId));
+          ({ failed, untouched, tagChanges } = await host.organizeAtOnce(
+            ids,
+            signal,
+            wallId,
+            permit,
+          ));
         } catch (error) {
           for (const folder of made) {
             if (!(await holdsAny(core, folder.id))) await unmake(core, "folder", folder.id);
