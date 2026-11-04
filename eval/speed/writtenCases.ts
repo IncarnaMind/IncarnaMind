@@ -446,7 +446,7 @@ export const WRITTEN_ITEMS: readonly WrittenItem[] = [
   en({
     id: "en-condition-only",
     kind: "condition",
-    sentence: "A trained operator may drive the excavators.",
+    sentence: "Any operator may drive the excavators.",
     quote: OPERATOR,
     expected: "not stated",
   }),
@@ -705,7 +705,7 @@ export const WRITTEN_ITEMS: readonly WrittenItem[] = [
   zh({
     id: "zh-condition-only",
     kind: "condition",
-    sentence: "经过培训的操作员可以驾驶挖掘机。",
+    sentence: "任何操作员都可以驾驶挖掘机。",
     quote: ZH_OPERATOR,
     expected: "not stated",
   }),
