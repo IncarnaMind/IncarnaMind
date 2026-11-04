@@ -1259,3 +1259,85 @@ test.each(["paragraph", "blockquote"])(
     expect(accepted.filter((row) => row.Sentence === words)).toHaveLength(2);
   },
 );
+
+describe("A sentence whose parts were judged on different models", () => {
+  const SPLIT = "Spring tides come at new moon and neap tides at half moon.";
+  const FIRST = "Spring tides come at new moon";
+  const LATER = "2026-10-15T15:05:00.000Z";
+
+  async function writeSplit(setup: Setup) {
+    const sentence = checked(setup.tides, SPLIT, "supported", setup.haikuModel, {
+      checkedAt: LATER,
+    });
+    const judged = (start: number, end: number, by: Model, at: string) => ({
+      ...pendingPart({ span: { start, end }, kind: "fact" }),
+      verdict: "supported" as const,
+      evidence: sentence.evidence ? [sentence.evidence] : [],
+      decidingEvidence: 0,
+      ...by,
+      checkedAt: at,
+    });
+    writeMind(setup.client, [
+      paragraph(
+        randomUUID(),
+        text(SPLIT, {
+          type: "claimCheck",
+          attrs: {
+            ...sentence,
+            parts: [
+              judged(0, FIRST.length, setup.localModel, CHECKED),
+              judged(FIRST.length + 5, SPLIT.length - 1, setup.haikuModel, LATER),
+            ],
+          },
+        }),
+      ),
+    ]);
+    await setup.client.settled();
+  }
+
+  // protects=the record keeps each part's own model and time, oldest first, where a sentence's parts were judged on different models, and counts the sentence once for each model (#1667); fails_when=the record names only the sentence's latest model and time; no_claim=how parts come to differ, which the check's own tests show.
+  test("the CSV lists each part's model, service and time, in the same order", async () => {
+    const setup = await setUp();
+    await writeSplit(setup);
+
+    const csv = readFileSync((await saveRecord(setup, "csv")).path, "utf8");
+
+    const row = recordRows(csv).find((each) => each.Sentence === SPLIT);
+    expect(row).toMatchObject({
+      Model: "local-model; Claude Haiku 5.5",
+      Service: "On this computer; Anthropic",
+      "Checked (UTC)": `${CHECKED}; ${LATER}`,
+    });
+    expect(summaryOf(csv).get("Models")).toBe(
+      "Claude Haiku 5.5 (Anthropic), 1 sentence check; local-model (On this computer), 1 sentence check",
+    );
+  });
+
+  test.each([
+    [
+      "en",
+      "Checked by</span> local-model (On this computer) · 15 Oct 2026, 14:20 UTC</p>",
+      "Checked by</span> Claude Haiku 5.5 (Anthropic) · 15 Oct 2026, 15:05 UTC</p>",
+    ],
+    [
+      "zh-CN",
+      "核对方式</span> local-model（在这台电脑上） · 2026年10月15日 14:20 UTC</p>",
+      "核对方式</span> Claude Haiku 5.5（Anthropic） · 2026年10月15日 15:05 UTC</p>",
+    ],
+  ] as const)(
+    "the PDF names each part's checker with its own time (%s)",
+    async (language, first, second) => {
+      const { printed, printer } = fakePrinter();
+      const setup = await setUp({ printer });
+      await writeSplit(setup);
+      await setup.core.updateSettings({ user: { language } });
+
+      await saveRecord(setup, "pdf");
+
+      const body = printed[0]?.body ?? "";
+      expect(body).toContain(first);
+      expect(body).toContain(second);
+      expect(body.indexOf(first)).toBeLessThan(body.indexOf(second));
+    },
+  );
+});

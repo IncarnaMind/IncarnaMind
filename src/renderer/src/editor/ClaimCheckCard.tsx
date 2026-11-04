@@ -26,6 +26,7 @@ import { formulaText } from "../../../shared/formula";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { stoppedAtBudget } from "../../../shared/readBudget";
 import { comparableSentence } from "../../../shared/sentences";
+import { unreadFiguresOf } from "../../../shared/unreadFigures";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
@@ -80,6 +81,7 @@ import {
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ChangedCitations } from "./ChangedSourceNotice";
+import { CheckedByLine } from "./CheckedByLine";
 import { ChooseCitationAction } from "./ChooseCitationAction";
 import { ClaimOutline } from "./ClaimOutline";
 import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
@@ -775,6 +777,12 @@ export function ClaimCard({
   const stopDetail = sentenceStopped ? check.detail : (stoppedPart?.detail ?? null);
   const stopLine =
     sentenceStopped || stoppedPart ? reasonText(t, language, "read-budget", stopDetail) : null;
+  // Figures the check couldn't read open where they are, for the User to read them there.
+  const unread =
+    shown.state === "not-checked" && shown.reason === "figures-not-read"
+      ? unreadFiguresOf(check.detail)
+      : null;
+  const unreadLocation = unread ? citationLocation(unread) : null;
   const reason =
     shown.state === "not-checked"
       ? reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
@@ -1299,6 +1307,26 @@ export function ClaimCard({
             {t(`citation.open.${openKind(location)}`)}
           </button>
         )}
+        {unread && (
+          <button
+            type="button"
+            data-testid="claim-open-unread"
+            className="citation-card-action citation-card-action--primary"
+            onClick={() => {
+              void openCited(
+                { ...unread, quote: "" },
+                {
+                  check: "not-checked",
+                  withQuote: false,
+                  label: unreadLocation ? formatLocation(unreadLocation, t) : null,
+                },
+              );
+              onOpen();
+            }}
+          >
+            {t(`citation.open.${openKind(unreadLocation)}`)}
+          </button>
+        )}
         {differs && (
           <button
             type="button"
@@ -1426,6 +1454,7 @@ export function ClaimCard({
           onPickerChange={onSourcePickerChange}
         />
       )}
+      <CheckedByLine check={check} shown={state} />
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}

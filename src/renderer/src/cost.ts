@@ -2,7 +2,9 @@ import type { ClaimCheckFailure, Money, RunEstimate, RunStop } from "../../core/
 import type { Language } from "../../core/language";
 import { formatDateTime } from "../../shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
+import { citationLocation, formatLocation } from "../../shared/locations";
 import { budgetStopOf } from "../../shared/readBudget";
+import { unreadFiguresOf } from "../../shared/unreadFigures";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -59,8 +61,8 @@ export const atLineStart = (text: string): string =>
 /**
  * What a check's reason says (`claim.reason.*`): a whole read stopped at its budget says what it
  * spent, kept in `detail`, or that it stopped there when the detail can't be read; the most it
- * may spend goes on the action that reads the rest (`readRestText`). Any other reason says its
- * `detail` as it is.
+ * may spend goes on the action that reads the rest (`readRestText`). Figures that couldn't be read
+ * name the Document and the place kept in `detail`; any other reason says its `detail` as it is.
  */
 export function reasonText(
   t: Translate,
@@ -69,6 +71,7 @@ export function reasonText(
   detail: string | null,
   params: MessageParams = {},
 ): string {
+  if (reason === "figures-not-read") return figuresNotReadText(t, detail);
   if (reason !== "read-budget")
     return t(`claim.reason.${reason}`, { detail: detail ?? "", ...params });
   const stop = budgetStopOf(detail);
@@ -95,6 +98,18 @@ export const perHundredAnswers = (
   language: Language,
 ): string | null =>
   estimateText({ ...perAnswer, amount: perAnswer.amount * 100 }, null, t, language);
+
+function figuresNotReadText(t: Translate, detail: string | null): string {
+  const place = unreadFiguresOf(detail);
+  if (!place) return t("claim.reason.figures-not-read.unknown");
+  const location = citationLocation(place);
+  return location
+    ? t("claim.reason.figures-not-read", {
+        document: place.documentName,
+        location: formatLocation(location, t),
+      })
+    : t("claim.reason.figures-not-read.whole", { document: place.documentName });
+}
 
 /** Amounts in one or two currencies: "$3.20", "$3.20 and ¥1.40"; null for none. */
 export function formatSpent(

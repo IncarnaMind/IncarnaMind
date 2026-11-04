@@ -2812,6 +2812,7 @@ export function createCore(adapters: CoreAdapters): Core {
     modelInUse: (own) => chat.modelInUse(own),
     recordAiUse: (inputs) => void aiUse.record(inputs),
     chat,
+    ...(adapters.checkPaths && { checkPaths: adapters.checkPaths }),
     consent,
     localOnly: () => embedding.localOnly(),
     resolveScope,
@@ -2836,6 +2837,8 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.pageTexts(documentId, contentHash, from, to),
       unitCounts: (documentIds) => documents.unitCounts(documentIds),
       documentDate: (documentId) => documents.documentDate(documentId),
+      othersHoldTerms: (text, except, documentIds, leftOut) =>
+        documents.othersHoldTerms(text, except, documentIds, leftOut),
     },
     engine: answerEngine,
     retention,
