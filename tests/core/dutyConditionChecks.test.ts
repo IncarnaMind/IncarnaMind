@@ -30,7 +30,7 @@ const BERTHS = {
     "",
     "The marina office can store spare sails for berth holders.",
     "",
-    "Berth holders may run a pump for 3 hours a day only if the pontoon is dry.",
+    "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
     "",
   ].join("\n"),
 };
@@ -231,27 +231,27 @@ describe("a duty put another way, or a rule without its condition, is never Supp
       "supported",
     ],
     [
-      "en, a figure's rule without its condition",
+      "en, a figure's rule without its exception",
       {
-        sentence: "Berth holders may run a pump for 3 hours a day.",
-        quote: "Berth holders may run a pump for 3 hours a day only if the pontoon is dry.",
+        sentence: "Berth holders get a 10% discount on fuel.",
+        quote: "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
         verdict: "supported",
-        duty: "may / may, same",
-        condition: "none / only if the pontoon is dry, differs",
-        number: "3",
+        duty: "none / none, same",
+        condition: "none / unless they pay their fees late, differs",
+        number: "10%",
       },
       BERTHS,
       "unsupported",
     ],
     [
-      "en, a figure's rule with its condition",
+      "en, a figure's rule with its exception",
       {
-        sentence: "Berth holders may run a pump for 3 hours a day if the pontoon is dry.",
-        quote: "Berth holders may run a pump for 3 hours a day only if the pontoon is dry.",
+        sentence: "Berth holders get a 10% discount on fuel unless they pay their fees late.",
+        quote: "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
         verdict: "supported",
-        duty: "may / may, same",
-        condition: "if the pontoon is dry / only if the pontoon is dry, same",
-        number: "3",
+        duty: "none / none, same",
+        condition: "unless they pay their fees late / unless they pay their fees late, same",
+        number: "10%",
       },
       BERTHS,
       "supported",
@@ -348,6 +348,8 @@ describe("a duty put another way, or a rule without its condition, is never Supp
     const checked = await check(each, document);
     expect(checked?.state).toBe(state);
     if (state === "unsupported") expect(checked?.state).not.toBe("contradicted");
+    // A sentence with a figure is checked figure by figure: its reply's lines still decide.
+    if (each.number) expect(checked?.figures).toHaveLength(1);
   });
 
   test.each<[string, Case, typeof BERTHS]>([
@@ -422,12 +424,12 @@ describe("a Supported reply without its Duty or Condition line is asked once, an
     [
       "a figure's sentence with no Condition line, still none when asked",
       {
-        sentence: "Berth holders may run a pump for 3 hours a day if the pontoon is dry.",
-        quote: "Berth holders may run a pump for 3 hours a day only if the pontoon is dry.",
+        sentence: "Berth holders get a 10% discount on fuel unless they pay their fees late.",
+        quote: "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
         verdict: "supported",
-        duty: "may / may, same",
+        duty: "none / none, same",
         condition: null,
-        number: "3",
+        number: "10%",
       },
       "not-checked",
       1,
@@ -449,5 +451,6 @@ describe("a Supported reply without its Duty or Condition line is asked once, an
     const checked = await check(each, BERTHS, calls);
     expect(checked?.state).toBe(state);
     expect(asks(calls)).toHaveLength(asked);
+    if (each.number) expect(checked?.figures).toHaveLength(1);
   });
 });
