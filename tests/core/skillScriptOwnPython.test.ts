@@ -40,17 +40,19 @@ async function standIn(folder: string, name: string, script: string) {
   await chmod(join(folder, name), 0o755);
 }
 
-/** The runtime as a download that finished leaves it: unpacked, imported once, and marked ready. */
+/**
+ * The runtime as a download that finished leaves it: unpacked, imported once, and marked ready for
+ * the archive it came from (`marked`: the SHA-256 its ready.json names; null, no ready.json).
+ */
 async function placeRuntime(
   dataDir: string,
   interpreter: string,
-  { ready = true }: { ready?: boolean } = {},
+  { marked = MANIFEST.sha256 }: { marked?: string | null } = {},
 ) {
   const folder = pythonRuntimeFolder(dataDir, MANIFEST.sha256);
   const prefix = join(folder, "files", "python");
   await standIn(join(prefix, "bin"), "python3", interpreter);
-  if (ready)
-    await writeFile(join(folder, "ready.json"), JSON.stringify({ sha256: MANIFEST.sha256 }));
+  if (marked !== null) await writeFile(join(folder, "ready.json"), JSON.stringify({ sha256: marked }));
   return { command: join(prefix, "bin", "python3"), prefix };
 }
 
@@ -88,7 +90,7 @@ function toldOfScripts(model: ReturnType<typeof whereModel>["model"]) {
 
 async function setUp(
   options: {
-    runtime?: { interpreter: string; ready?: boolean };
+    runtime?: { interpreter: string; marked?: string | null };
     scriptRuntimes?: CoreAdapters["scriptRuntimes"];
     language?: "en" | "zh-CN";
   } = {},
@@ -207,7 +209,19 @@ describe.skipIf(process.platform === "win32")(
 
     test("one unpacked but never marked ready, as a failed check or first import leaves it, isn't used", async () => {
       const { requests, fetched, results, runWhere } = await setUp({
-        runtime: { interpreter: OWN_PYTHON, ready: false },
+        runtime: { interpreter: OWN_PYTHON, marked: null },
+      });
+
+      await runWhere();
+
+      expect(results[0]).toContain("PATH python3: ");
+      expect(requests.map(({ command }) => command)).toEqual(["python3"]);
+      expect(fetched).toEqual([]);
+    });
+
+    test("one marked ready for another archive than this build's isn't used", async () => {
+      const { requests, fetched, results, runWhere } = await setUp({
+        runtime: { interpreter: OWN_PYTHON, marked: "d".repeat(64) },
       });
 
       await runWhere();
