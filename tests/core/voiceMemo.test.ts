@@ -642,7 +642,7 @@ describe("Record a voice memo (#1568)", { timeout: 60_000 }, () => {
         readMind(client).forEach((node) => {
           if (node.type.name === "paragraph") paragraphs.push(node.textContent.trim());
         });
-        expect(paragraphs).toEqual(expect.arrayContaining(thoughts));
+        expect(paragraphs).toEqual(expect.arrayContaining([...thoughts]));
       });
       if (fill.mode === "memo") {
         expect(citationsIn(readMind(client)).map((citation) => citation.check)).toEqual([

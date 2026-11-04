@@ -56,6 +56,7 @@ interface Call {
   facts: Fact[];
   microphoneOnly?: boolean;
   requireSections?: boolean;
+  openQuestions?: boolean;
   notDecided?: RegExp[];
   sectionHeadings?: Partial<Record<"summary" | "decisions" | "actions", string>>;
 }
@@ -69,6 +70,7 @@ const CALLS: Call[] = [
     language: "en",
     microphoneOnly: true,
     requireSections: true,
+    openQuestions: true,
     notes: [note("Museum call with Nia and Ellis: agree the display opening and next steps.")],
     turns: [
       me("Nia here. We need to settle the museum display opening and share the work."),
@@ -115,6 +117,7 @@ const CALLS: Call[] = [
     language: "zh-CN",
     microphoneOnly: true,
     requireSections: true,
+    openQuestions: true,
     notes: [note("博物馆会议，和小倪、老易：定开幕日期，分好工。")],
     turns: [
       me("我是小倪，今天定展览开幕的日期，再分一下工。"),
@@ -148,6 +151,7 @@ const CALLS: Call[] = [
     id: "sections-en-workshop",
     language: "en",
     requireSections: true,
+    openQuestions: true,
     sectionHeadings: { actions: "Action items" },
     notes: [note("workshop venue"), heading(2, "Action items")],
     turns: [
@@ -192,6 +196,7 @@ const CALLS: Call[] = [
     id: "sections-zh-workshop",
     language: "zh-CN",
     requireSections: true,
+    openQuestions: true,
     sectionHeadings: { actions: "待办" },
     notes: [note("维修课场地"), heading(2, "待办")],
     turns: [
@@ -902,6 +907,7 @@ const FINAL_CALLS: Call[] = [
     id: "in-place-en-ticket-launch",
     language: "en",
     requireSections: true,
+    openQuestions: false,
     notes: [note("launch date"), note("UK fee")],
     turns: [
       me("Let's settle the launch date and UK fee for the ticket booking service."),
@@ -950,6 +956,7 @@ const FINAL_CALLS: Call[] = [
     id: "in-place-zh-ticket-launch",
     language: "zh-CN",
     requireSections: true,
+    openQuestions: false,
     notes: [note("上线日期"), note("英国费用")],
     turns: [
       me("今天确定订票服务的上线日期和英国每单的费用。"),
@@ -996,6 +1003,7 @@ const FINAL_CALLS: Call[] = [
         language: "en",
         microphoneOnly: true,
         requireSections: true,
+        openQuestions: false,
         notes: [
           note(
             "Harbour barrier call with Tom Okafor and Priya Raman: decide the crest raise and agree next steps.",
@@ -1037,6 +1045,7 @@ const FINAL_CALLS: Call[] = [
         language: "zh-CN",
         microphoneOnly: true,
         requireSections: true,
+        openQuestions: false,
         notes: [note("防波堤会议，和汤姆、普丽娅：定加高方案，分好工")],
         turns: [
           me("汤姆、普丽娅你们好，今天要定防波堤加高的方案，再把下一步分好工。"),
@@ -1070,6 +1079,7 @@ const FINAL_CALLS: Call[] = [
     id: "final-en-launch",
     language: "en",
     requireSections: true,
+    openQuestions: false,
     notes: [note("launch date")],
     turns: [
       me("Hi Sam. Let's pick the launch date for the booking app."),
@@ -1109,6 +1119,7 @@ const FINAL_CALLS: Call[] = [
     id: "final-zh-launch",
     language: "zh-CN",
     requireSections: true,
+    openQuestions: false,
     notes: [note("上线日期")],
     turns: [
       me("小孙你好，我们把小程序的上线日期定一下。"),
@@ -1136,6 +1147,7 @@ const FINAL_CALLS: Call[] = [
     id: "final-en-cleaning",
     language: "en",
     requireSections: true,
+    openQuestions: true,
     notes: [note("cleaning quotes")],
     turns: [
       me(
@@ -1173,6 +1185,7 @@ const FINAL_CALLS: Call[] = [
     id: "final-zh-cleaning",
     language: "zh-CN",
     requireSections: true,
+    openQuestions: true,
     notes: [note("保洁报价")],
     turns: [
       me("罗经理你好，签约之前想先把几家保洁公司的报价过一遍。"),
@@ -1196,6 +1209,7 @@ const FINAL_CALLS: Call[] = [
     id: "final-en-summary",
     language: "en",
     requireSections: true,
+    openQuestions: false,
     sectionHeadings: { summary: "Summary" },
     notes: [heading(2, "Summary"), note("staffing")],
     turns: [
@@ -1223,6 +1237,7 @@ const FINAL_CALLS: Call[] = [
     id: "final-zh-summary",
     language: "zh-CN",
     requireSections: true,
+    openQuestions: false,
     sectionHeadings: { summary: "摘要" },
     notes: [heading(2, "摘要"), note("人手")],
     turns: [
@@ -1697,6 +1712,10 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
           unit.citations.some((citation) => citation.check === "found"),
       );
       const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
+      const questions = units.filter(
+        (each) =>
+          each.ai && each.section === translate(call.language, "meetings.fill.section.questions"),
+      );
       const counts = {
         decisions: scored.filter((each) => each.fact.kind === "decision" && each.count > 0).length,
         actions: scored.filter((each) => each.fact.kind === "action" && each.count > 0).length,
@@ -1716,6 +1735,7 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
             decisions.some((unit) => citesRightly(unit, fact, call, cues)),
         ).length,
         inPlace: scored.filter((each) => each.fact.underLine && each.inPlace).length,
+        questions: questions.length,
       };
       if (REPORT) {
         const rows = scored
@@ -1781,6 +1801,11 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
         );
         expect(counts.decisionsInSection).toBe(expected);
         expect(counts.invented).toBe(0);
+        if (call.openQuestions !== undefined)
+          expect(
+            questions.length > 0,
+            "Open questions only when the call explicitly left one unanswered",
+          ).toBe(call.openQuestions);
         expect(once, "Every fact occurs once with the right Citation").toBe(call.facts.length);
         expect(uncited).toBe(0);
         const headings: string[] = [];
