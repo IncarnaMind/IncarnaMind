@@ -22,6 +22,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
+import { CONFIRMED_SETS } from "./nearCopyConfirmed.cases";
 import { NEAR_COPY_SETS, type NearCopyDocument } from "./nearCopyHeldout.cases";
 import { WALK_SHAPE_SETS } from "./nearCopyWalkShape.cases";
 
@@ -37,7 +38,8 @@ const AT_ONCE = 3;
 interface Case {
   key: string;
   kind: string;
-  shape: "whole" | "walk";
+  /** One fact, two parts with a probe, or one of the misses reported on the issues. */
+  shape: "whole" | "walk" | "confirmed";
   document: string;
   sentence: string;
   parts: readonly string[];
@@ -148,22 +150,21 @@ function loggingModel(cases: readonly Case[], log: () => Logged[]) {
   return createChatModel;
 }
 
-/** A check reply's lines the code reads, and each judgement's word: what decided the verdict. */
+/** Each check reply's lines the code reads, and each judgement's word: what decided the verdict. */
 function pathOf(logged: readonly Logged[]) {
-  const checks = logged.filter((each) => each.kind === "check" && each.reply.trim() !== "");
-  const fields = (checks.at(-1)?.reply ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => /^(?:verdict|scope|topic|roles|time|absence|evidence)\b/i.test(line))
-    .concat(
-      (checks.at(-1)?.reply ?? "")
-        .split("\n")
-        .filter((line) => /^\s*figures:/i.test(line))
-        .map((line) => line.trim().slice(0, 400)),
-    );
+  const read = (reply: string) =>
+    reply
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) =>
+        /^(?:verdict|scope|topic|roles|time|absence|evidence|figures)\b/i.test(line),
+      )
+      .map((line) => line.slice(0, 400));
   return {
     requests: logged.map((each) => each.kind),
-    fields,
+    replies: logged
+      .filter((each) => each.kind === "check" && read(each.reply).length > 0)
+      .map((each) => read(each.reply)),
     judgements: logged
       .filter((each) => each.kind !== "check")
       .map((each) => `${each.kind}: ${each.reply.trim().slice(0, 300)}`),
@@ -266,6 +267,7 @@ describe("held-out near copies on the judge", () => {
       const report = [];
       for (const set of NEAR_COPY_SETS.filter((each) => LANGUAGES.includes(each.language))) {
         const walks = WALK_SHAPE_SETS.find((each) => each.language === set.language)?.cases ?? [];
+        const confirmed = CONFIRMED_SETS.find((each) => each.language === set.language);
         const cases: Case[] = [
           ...set.cases.map((each) => ({
             key: each.key,
@@ -287,11 +289,21 @@ describe("held-out near copies on the judge", () => {
             probe: each.parts[1],
             decoy: each.decoy,
           })),
+          ...(confirmed?.cases ?? []).map((each) => ({
+            key: each.key,
+            kind: each.kind,
+            shape: "confirmed" as const,
+            document: each.document,
+            sentence: each.text,
+            parts: [each.text],
+            probe: each.text,
+            decoy: each.decoy,
+          })),
         ];
         for (const each of cases) {
           expect(each.parts.every((part) => each.sentence.includes(part))).toBe(true);
         }
-        const libraries = [...set.documents];
+        const libraries = [...set.documents, ...(confirmed?.documents ?? [])];
         const done: Awaited<ReturnType<typeof checkLibrary>>[] = [];
         while (libraries.length > 0) {
           const batch = libraries.splice(0, AT_ONCE);
