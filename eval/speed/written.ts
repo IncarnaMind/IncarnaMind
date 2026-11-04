@@ -9,7 +9,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
-import { vi } from "vitest";
 import type { ChatModelFactory, Core } from "../../src/core";
 import { mayLookFirst } from "../../src/core/answers/checks/fastPaths";
 import { keywordTerms } from "../../src/core/documents/keywords";
@@ -191,7 +190,12 @@ async function writeOne(
       // A sentence with a figure or a time, or one another Document holds, is never looked at first.
       ...(plan.neverAsked && path === "quick" ? ["looked-at-first"] : []),
     ],
-    text: `${path} ${outcome}: ${plan.sentence} | ${writer.cited()}`,
+    // The Passage the verdict rests on, so a Supported that cites another Document shows as one.
+    text: `${path} ${outcome}: ${plan.sentence} | cites “${writer.cited()}” | rests on ${
+      mark?.evidence
+        ? `${mark.evidence.documentName ?? "a Document"}: “${mark.evidence.quote ?? ""}”`
+        : "no Passage"
+    }`,
   };
 }
 
@@ -223,38 +227,27 @@ function item(
   };
 }
 
-/** What a set's Library holds, the example's Documents beside, as a newcomer's first run has them. */
+/**
+ * A Library of the case's own Documents only, one per case: a check that searched another case's
+ * Documents could rest a Supported on one that says the decoy's words.
+ */
 async function openWith(
   base: GroupOptions,
   name: string,
   language: "en" | "zh-CN",
   writer: ReturnType<typeof scriptedWriter>,
   write: (folder: string) => Promise<EvalDocument[]>,
-  examples: string,
 ) {
   const folder = await mkdtemp(join(tmpdir(), "incarnamind-paired-written-"));
   const library = await openLibrary({
     ...base,
     name,
     documents: await write(folder),
-    examples,
     chatModels: (inner) =>
       base.chatModels ? base.chatModels(writer.chatModels(inner)) : writer.chatModels(inner),
   });
   const { core } = library;
   await core.updateSettings({ user: { language } });
-  await core.createExamples();
-  await vi.waitFor(
-    async () => {
-      const all = await core.listDocuments();
-      if (
-        all.length <= library.documents.size ||
-        all.some((each) => !["ready", "failed", "no-text"].includes(each.status))
-      )
-        throw new Error("The example's Documents are still being read.");
-    },
-    { timeout: 10 * 60_000, interval: 1000 },
-  );
   return {
     library,
     async close() {
@@ -272,47 +265,34 @@ const planOf = (each: WrittenItem): Plan & { neverAsked: boolean } => ({
   neverAsked: each.fastPath === "none",
 });
 
-export function writtenSet(root: string): PairedGroup[] {
-  const examples = join(root, "resources", "examples");
+export function writtenSet(): PairedGroup[] {
   const heldOut = (
     [
       ["written", WRITTEN_ITEMS, WRITTEN_DOCUMENTS],
       ["written2", HELD_OUT_ITEMS, HELD_OUT_DOCUMENTS],
     ] as const
   ).flatMap(([setName, setItems, setDocuments]) =>
-    (["en", "zh-CN"] as const).flatMap((language) =>
-      (["terms", "editions", "deposition"] as const).map((libraryName): PairedGroup => {
-        const writer = scriptedWriter();
-        const items = setItems.filter(
-          (each) => each.language === language && each.library === libraryName,
-        );
-        return {
-          name: `${setName}-${language}-${libraryName}`,
-          items: items.map((each) =>
-            item(each.id, each.kind, language, planOf(each), each.expected === "stated", writer),
-          ),
-          open: (base) =>
-            openWith(
-              base,
-              `paired-${setName}-${language}-${libraryName}`,
-              language,
-              writer,
-              async (folder) => {
-                const written: EvalDocument[] = [];
-                for (const document of setDocuments) {
-                  if (document.language !== language || !document.libraries.includes(libraryName))
-                    continue;
-                  const path = join(folder, document.file);
-                  await writeFile(path, buildPdf(document.pages));
-                  written.push({ key: document.file, path });
-                }
-                return written;
-              },
-              examples,
-            ),
-        };
-      }),
-    ),
+    setItems.map((each): PairedGroup => {
+      const writer = scriptedWriter();
+      const { language, library } = each;
+      return {
+        name: `${setName}-${language}-${each.id}`,
+        items: [
+          item(each.id, each.kind, language, planOf(each), each.expected === "stated", writer),
+        ],
+        open: (base) =>
+          openWith(base, `paired-${setName}-${each.id}`, language, writer, async (folder) => {
+            const written: EvalDocument[] = [];
+            for (const document of setDocuments) {
+              if (document.language !== language || !document.libraries.includes(library)) continue;
+              const path = join(folder, document.file);
+              await writeFile(path, buildPdf(document.pages));
+              written.push({ key: document.file, path });
+            }
+            return written;
+          }),
+      };
+    }),
   );
   const forty = CHECK_SETS.filter((set) => FORTY.includes(set.id)).map((set): PairedGroup => {
     const writer = scriptedWriter();
@@ -334,13 +314,8 @@ export function writtenSet(root: string): PairedGroup[] {
           ),
         ),
       open: (base) =>
-        openWith(
-          base,
-          `paired-written-${set.id}`,
-          set.language,
-          writer,
-          (folder) => writeDocuments(folder, set),
-          examples,
+        openWith(base, `paired-written-${set.id}`, set.language, writer, (folder) =>
+          writeDocuments(folder, set),
         ),
     };
   });

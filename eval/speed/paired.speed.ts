@@ -109,7 +109,7 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
     case "checks":
       return checksSet(ROOT);
     case "written":
-      return writtenSet(ROOT);
+      return writtenSet();
   }
 }
 
