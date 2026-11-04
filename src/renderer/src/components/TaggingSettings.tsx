@@ -14,6 +14,7 @@ import { formatTime } from "../../../shared/dates";
 import type { MessageKey } from "../../../shared/i18n";
 import { supportsLibraryImages } from "../../../shared/libraryModels";
 import { core } from "../core";
+import { estimateText } from "../cost";
 import { errorMessage } from "../errors";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { useSettingsTarget } from "../settingsTarget";
@@ -55,11 +56,12 @@ const labelClass =
 const sameClassifier = (a: LibraryClassifier, b: LibraryClassifier) =>
   JSON.stringify(a) === JSON.stringify(b);
 
-/** About what 100 Documents cost, in plain words: rough, as tokenizers differ. */
+/** About what 100 Documents cost, in plain words: rough, as tokenizers differ. Null for nothing. */
 function costText(
   cost: TaggingCost,
   t: (key: MessageKey, params?: Record<string, string | number>) => string,
-): string {
+  language: Language,
+): string | null {
   switch (cost.kind) {
     case "free":
       return t("tagging.cost.free");
@@ -67,19 +69,10 @@ function costText(
       return t("tagging.cost.plan");
     case "unknown":
       return t("tagging.cost.unknown");
-    case "estimate":
-      if (cost.currency === "CNY") {
-        return cost.amount < 0.01
-          ? t("tagging.cost.underYuan")
-          : t("tagging.cost.yuan", { amount: cost.amount.toFixed(2) });
-      }
-      if (cost.amount < 0.01) return t("tagging.cost.underCent");
-      if (cost.amount < 1)
-        return t("tagging.cost.cents", { amount: Math.round(cost.amount * 100) });
-      return t("tagging.cost.dollars", {
-        amount: cost.amount.toFixed(2),
-        dollars: `$${cost.amount.toFixed(2)}`,
-      });
+    case "estimate": {
+      const about = estimateText(cost, null, t, language);
+      return about && t("tagging.cost.estimate", { cost: about });
+    }
   }
 }
 
@@ -379,7 +372,7 @@ function ModelRow({
             option.goodForTagging && <span className={labelClass}>{t("tagging.label.good")}</span>
           )}
         </span>
-        <span className={choiceTextClass}>{costText(option.cost, t)}</span>
+        <span className={choiceTextClass}>{costText(option.cost, t, language)}</span>
         {provider && option.group !== "local" && (
           <span className={choiceTextClass} data-testid="tagging-option-sends">
             {t("setup.sorting.sends", { service: provider })}

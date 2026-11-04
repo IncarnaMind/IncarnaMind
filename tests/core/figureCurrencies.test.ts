@@ -1318,8 +1318,9 @@ describe("The reason in Chinese", () => {
     expect(translate("zh-CN", "claim.unsupported.unit", params)).toBe(shown);
   });
 
-  test("a value after a sign the template writes takes no space", () => {
-    expect(translate("zh-CN", "tagging.cost.yuan", { amount: "0.12" })).toBe(
+  test("an amount with its sign takes no space inside, nor one where Chinese meets Chinese", () => {
+    const about = translate("zh-CN", "cost.estimate.price", { cost: "¥0.12" });
+    expect(translate("zh-CN", "tagging.cost.estimate", { cost: about })).toBe(
       "每 100 个文档约 ¥0.12",
     );
   });

@@ -1,24 +1,55 @@
 import type { ClaimCheckFailure, Money, RunEstimate, RunStop } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatDateTime } from "../../shared/dates";
-import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { budgetStopOf } from "../../shared/readBudget";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+const CENT = 0.01;
+
 /**
- * An amount in its currency, in cents: an amount under a cent shows as one cent rather than
- * "$0.00", so one short Answer still shows, and never to more figures than cents (#1554). Each
- * currency has its one symbol in every language: "$", never "US$", and "¥".
+ * An amount in its currency, in cents, wherever the app shows money: one under a cent reads
+ * "under $0.01" (不到 $0.01), as "$0.01" would overstate it and "$0.00" call it free (#1554).
+ * Each currency has its one symbol in every language: "$", never "US$", and "¥".
  */
 export function formatMoney({ amount, currency }: Money, language: Language): string {
-  return new Intl.NumberFormat(language, {
-    style: "currency",
-    currency,
-    currencyDisplay: "narrowSymbol",
-    minimumFractionDigits: amount === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(amount > 0 && amount < 0.01 ? 0.01 : amount);
+  const shown = (value: number) =>
+    new Intl.NumberFormat(language, {
+      style: "currency",
+      currency,
+      currencyDisplay: "narrowSymbol",
+      minimumFractionDigits: value === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  return amount > 0 && amount < CENT
+    ? translate(language, "cost.underCent", { amount: shown(CENT) })
+    : shown(amount);
+}
+
+/**
+ * What an estimate from `cost` up to `most` says: "About $1.40", "About $0.40, up to $0.55";
+ * "Up to $0.55" when only its low end is under a cent, and "Under $0.01" when all of it is, never
+ * "About under $0.01". Null for a cost of exactly nothing, which shows no amount.
+ */
+export function estimateText(
+  cost: Money,
+  most: Money | null,
+  t: Translate,
+  language: Language,
+): string | null {
+  const top = most && most.amount > cost.amount ? most : cost;
+  if (top.amount === 0) return null;
+  if (top.amount < CENT) {
+    return t("cost.estimate.under", {
+      amount: formatMoney({ amount: CENT, currency: top.currency }, language),
+    });
+  }
+  if (cost.amount < CENT) return t("cost.estimate.upTo", { most: formatMoney(top, language) });
+  const about = formatMoney(cost, language);
+  return top === cost
+    ? t("cost.estimate.price", { cost: about })
+    : t("cost.estimate.priceUpTo", { cost: about, most: formatMoney(top, language) });
 }
 
 /**
@@ -148,11 +179,7 @@ export function estimateLine(
           ...(aside ? [aside] : []),
         ]
       : [];
-  const cost = estimate.cost && formatMoney(estimate.cost, language);
-  const price =
-    cost && most && estimate.cost && most.amount > estimate.cost.amount
-      ? t("cost.estimate.priceUpTo", { cost, most: formatMoney(most, language) })
-      : cost && t("cost.estimate.price", { cost });
+  const price = estimate.cost && estimateText(estimate.cost, most, t, language);
   const run = price ? [price, tokens] : [tokens];
   const parts = [...run, ...month];
   return { parts, title: joinMeta(parts) };

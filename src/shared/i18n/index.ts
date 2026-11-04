@@ -18,7 +18,8 @@ const dictionaries: { readonly [L in Language]: Dictionary } = {
 
 /**
  * Values that can be Chinese or Latin, so a space beside one depends on the value
- * (docs/agents/zh-CN.md): "文档写的是 2万美元，不是人民币两万元。"
+ * (docs/agents/zh-CN.md): "文档写的是 2万美元，不是人民币两万元。", "已花 $0.38 后停止",
+ * "已花不到 $0.01 后停止".
  */
 const NAMES: ReadonlySet<string> = new Set([
   "agent",
@@ -28,6 +29,8 @@ const NAMES: ReadonlySet<string> = new Set([
   "person",
   "label",
   "amount",
+  "spent",
+  "cost",
   "figure",
   "measure",
   "claimed",

@@ -526,9 +526,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+Shift+K");
       const card = window.getByTestId("claim-card");
       const stop = card.getByTestId("claim-read-stopped");
-      // An amount under a cent shows in cents.
+      // An amount under a cent says so, never "$0.01" or "$0.00".
       await expect(stop).toContainText(
-        t("claim.reason.read-budget", { spent: "$0.01", most: "$0.50" }),
+        language === "en"
+          ? "Stopped after under $0.01; this read may spend up to $0.50."
+          : "已花不到 $0.01 后停止，这次读取最多可花 $0.50。",
       );
       const words = await linesOf(stop.locator(".meta-part").first());
       const action = await card.getByTestId("claim-read-continue").boundingBox();
