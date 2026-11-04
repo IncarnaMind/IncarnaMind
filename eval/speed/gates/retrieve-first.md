@@ -22,7 +22,7 @@ Written and committed on 2026-11-04, before any run it gates. A model is on the 
 | Judged right | 2 fewer | 6 fewer |
 | Every Citation found | 2 fewer | 6 fewer |
 
-A guard over fewer items counts its own items: 29 of them allow none. The everyday requests have no expected Passages or judged grade, so the runner counts none of these three there (corrected on 2026-11-04, before any everyday run: this table first gave them everyday columns); they are held to the lines below.
+A guard over fewer items counts its own items: 29 of them allow none. The rule is one item in 30 of the items both arms finished, rounded down; the counts in the table are for the sizes expected. The hard tier asked 224 Questions when it ran, so 7 were allowed there. The everyday requests have no expected Passages or judged grade, so the runner counts none of these three there (corrected on 2026-11-04, before any everyday run: this table first gave them everyday columns); they are held to the lines below.
 
 And none new, on every set:
 

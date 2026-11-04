@@ -3344,8 +3344,8 @@ export function createAnswers(options: AnswersOptions) {
         (input.toolSet ?? "answer") === "answer" &&
         !writesMinds &&
         (options.retrievesFirst?.(prepared, flow) ?? false);
-      // Retrieving first doesn't bring writing first with it: a model the write-then-cite list
-      // doesn't name keeps citing first, rather than citing in a way it wasn't admitted to (#1633).
+      // A model cites as the write-then-cite list says, whichever way it searches, so it never
+      // cites in a way that list didn't admit it to (#1633).
       const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
       for await (const event of engine.generate({
         instructions: (
