@@ -3,7 +3,9 @@
  * or found, or those in no Folder, with the Folder the request names among those it may choose,
  * made for it if there is none, and Folders proposed when there are none at all. The User asked,
  * so it asks once in place and then files them, the way Accept all does (#2252): one Undo puts
- * every Document back and takes away the Folders it made.
+ * every Document back and takes away the Folders it made. With no model chosen for Organize it
+ * takes the one the Library offers as "Use {company}", asks where that Library question would, and
+ * keeps it as Organize's model; under a standing no it only lends it for the run (#2252).
  */
 import type {
   AssignmentChange,
@@ -17,6 +19,7 @@ import type {
 } from "../../api";
 import { classifyProviderError } from "../../providers/providerErrors";
 import {
+  type CheckedCommand,
   type Checker,
   type CommandsCore,
   documentItem,
@@ -105,8 +108,11 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
     input.ids.length > 0 ? await documentsOf(core, input.ids) : await inNoFolder(core);
   const items = documents.map((each) => documentItem(each));
   const ids = documents.map((each) => each.id);
+  const picked = ids.length > 0 ? await host.offeredOrganizeModel() : null;
   const route =
-    ids.length > 0 ? await core.getTaggingRoute("classification") : { where: "none" as const };
+    ids.length === 0
+      ? { where: "none" as const }
+      : (picked?.route ?? (await core.getTaggingRoute("classification")));
   const flow =
     route.where === "cloud"
       ? (await core.listDataFlows()).find(
@@ -115,12 +121,31 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
       : null;
   const cloud = route.where === "cloud" && flow?.consent !== "accepted" ? route.service : null;
   const cloudDeclined = route.where === "cloud" && flow?.consent === "declined";
+  /**
+   * Runs with the pick as Organize's model: kept, as the Library keeps "Use {company}", except
+   * under a standing no, where this Allow is for this run only and the model is lent, not kept.
+   */
+  const withPick =
+    (run: CheckedCommand["run"]): CheckedCommand["run"] =>
+    async (asking, signal, permit) => {
+      if (!picked) return run(asking, signal, permit);
+      if (!cloudDeclined) {
+        await host.keepOrganizeModel(picked.classifier);
+        return run(asking, signal, permit);
+      }
+      const giveBack = host.lendOrganizeModel(picked.classifier);
+      try {
+        return await run(asking, signal, permit);
+      } finally {
+        giveBack();
+      }
+    };
   return {
     ...inApp(
       "documents.organize",
       items,
       requested,
-      async (_asking, signal, permit) => {
+      withPick(async (_asking, signal, permit) => {
         // Nothing to sort: no Folder is made or taken away for it.
         if (ids.length === 0) {
           return {
@@ -328,7 +353,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                 ? `Organize sorted no Document: ${reason ?? "no Folder fitted"}${madeSaid}.`
                 : `Organize filed ${plural(moved.length, "Document")}: ${parts.join(", ")}.${madeSaid}${unsorted > 0 ? ` ${plural(unsorted, "Document")} couldn't be sorted: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} Name each Folder and its count in your reply, not a list under it.`,
         };
-      },
+      }),
       documents.length > 0 ? "organize" : null,
     ),
     changes: true,

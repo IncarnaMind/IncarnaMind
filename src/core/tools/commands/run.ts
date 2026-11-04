@@ -26,6 +26,8 @@ import type {
   MarkAiTextChoice,
   Mind,
   SavedFile,
+  TaggingClassifier,
+  TaggingRoute,
   TagLinkChange,
   UserAnswer,
   UserQuestion,
@@ -116,8 +118,27 @@ export interface CommandsHost {
   ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }>;
   /** Suggests Folders for these Documents, with the run's permit when it has one (#2252). */
   proposeFolders(ids: readonly string[], permit?: CloudReadPermit): Promise<LibraryGroup[]>;
-  /** The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022). */
-  allowCloudRead(service: ExternalService): void;
+  /**
+   * The User allowed a cloud model to read the Documents for this Organize (#2252, ADR-0022):
+   * stores the consent and tells the window, so the Privacy page shows it.
+   */
+  allowCloudRead(service: ExternalService): Promise<void>;
+  /**
+   * With no model chosen for Organize, the one the Library offers as "Use {company}" (Automatic's
+   * pick) and where it sends; null when one is chosen or Automatic has none (#2252).
+   */
+  offeredOrganizeModel(): Promise<{ classifier: TaggingClassifier; route: TaggingRoute } | null>;
+  /**
+   * Saves that pick as Organize's model. It records no consent and lifts no decline: the card's
+   * Allow is the consent, and the Library's "Use {company}" is the answer that does both.
+   */
+  keepOrganizeModel(classifier: TaggingClassifier): Promise<void>;
+  /**
+   * Organize uses that pick until the returned function is called, and nothing is stored: a
+   * standing no keeps no model, and a quit mid-run leaves none behind. A model the User chooses
+   * meanwhile is used instead.
+   */
+  lendOrganizeModel(classifier: TaggingClassifier): () => void;
   /**
    * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
    * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.

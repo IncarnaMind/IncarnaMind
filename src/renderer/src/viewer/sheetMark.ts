@@ -13,6 +13,25 @@ export interface MarkSize {
   height: number;
 }
 
+/** A mark's measure with the number and label it was taken for. */
+export interface MarkMeasure {
+  full: number;
+  compact: number;
+  number: number | undefined;
+  label: string | undefined;
+}
+
+/**
+ * `measure` when it was taken for a mark of this `number` and `label`, else null: the next
+ * Citation of the same row has the same label but a number a digit wider.
+ */
+export const measureOf = (
+  measure: MarkMeasure | null,
+  number: number | undefined,
+  label: string | undefined,
+): MarkMeasure | null =>
+  measure && measure.number === number && measure.label === label ? measure : null;
+
 export interface MarkPlace {
   left: number;
   top: number;
