@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
 import {
+  adoptedMembers,
   type Classified,
   classify,
   createRunSweeper,
@@ -252,6 +253,36 @@ describe("the sweep's stops, through a stopper that records", () => {
   });
 });
 
+describe("the run's processes launchd took over, counted against its limits while it runs", () => {
+  test("are the orphans with the run's profile; each orphan is asked once, however often it is looked for", async () => {
+    // 601 is the run's daemon, 602 its child, 603 another program's orphan, 604 the program's own.
+    const table = [
+      ...APP,
+      row(601),
+      row(602, { ppid: 601 }),
+      row(603),
+      row(604, { ppid: 600, group: 600 }),
+    ];
+    const { deps } = computer(table, new Set([601, 602, 604]));
+    const asked: number[] = [];
+    const check = deps.check;
+    deps.check = async (questions) => {
+      asked.push(...new Set(questions.map((question) => question.pid)));
+      return check(questions);
+    };
+    const known = new Map<string, boolean>();
+    expect(await adoptedMembers(RUN, 600, deps, known)).toEqual([601]);
+    table.push(row(605));
+    expect(await adoptedMembers(RUN, 600, deps, known)).toEqual([601]);
+    expect(asked).toEqual([601, 603, 605]);
+  });
+
+  test("on Linux there are none: bubblewrap's PID namespace keeps them under the program", async () => {
+    const { deps } = computer([...APP, row(601)], new Set([601]), "linux");
+    expect(await adoptedMembers(RUN, 600, deps, new Map())).toEqual([]);
+  });
+});
+
 describe("the app's stopper", () => {
   test("never asks the system to signal a pid that reads as more than one process, or the app", () => {
     // Stood in for, so a guard that failed couldn't signal anything.
@@ -372,7 +403,7 @@ describe("the sweeper: runs a crash left, and runs it couldn't end", () => {
       },
       computer: fakeComputer(rows, { [id]: [800] }),
     });
-    const sweep = await sweeper.begin(id, join(records, "incarnamind-code-y", "work"));
+    const { sweep } = await sweeper.begin(id, join(records, "incarnamind-code-y", "work"));
     // The program's end finds nothing left, and the record goes.
     await sweep(600);
     expect(await readdir(records)).toEqual([]);

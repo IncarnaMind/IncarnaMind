@@ -1280,6 +1280,55 @@ console.log(JSON.stringify(results));
       expect(run).toMatchObject({ exitCode: 0, stdout: "canary denied\nTrue\n", error: null });
     });
 
+    test("a daemon's memory, and files a daemon or the program holds open with no name left, count against its limits while it runs, run after run", async () => {
+      const { executor } = await setUp();
+      const run = (script: string) =>
+        executor.run({
+          ...shell(script),
+          timeoutMs: 30_000,
+          limits: { memoryBytes: 400_000_000, folderBytes: 50_000_000 },
+        });
+      const random = 'open(my $r, "<", "/dev/urandom") or die;';
+      const unlinked = (count: number) =>
+        `my @f; for my $i (1..${count}) { open(my $f, ">", "gone$i") or die; read($r, my $b, 30_000_000); syswrite($f, $b) or die; unlink "gone$i"; push @f, $f; }`;
+      const held = (count: number) =>
+        `my @held; for (1..${count}) { read($r, my $b, 100_000_000); push @held, $b; }`;
+      // Its parent and its parent's parent gone, in a group of its own: launchd's child, out of the
+      // program's tree and group.
+      const daemon = (body: string) =>
+        `perl -MPOSIX -e 'defined(my $p = fork) or die; if ($p) { waitpid($p, 0); exit 0 } POSIX::setsid(); defined(my $q = fork) or die; if ($q) { POSIX::_exit(0) } open STDIN, "<", "/dev/null"; open STDOUT, ">", "/dev/null"; open STDERR, ">", "/dev/null"; ${random} ${body} open(my $ready, ">", "ready"); close $ready; sleep 600' incarnamind-daemon-2351`;
+      const waitForIt = "until [ -e ready ]; do sleep 0.1; done";
+
+      for (let round = 1; round <= 10; round++) {
+        // 90 MB in three unlinked files, a 50 MB folder limit.
+        expect([round, await run(`${daemon(unlinked(3))}; sleep 40`)]).toMatchObject([
+          round,
+          { limit: "folder", timedOut: false },
+        ]);
+        // 800 MB of random bytes, which macOS can't compress, against a 400 MB memory limit.
+        expect([round, await run(`${daemon(held(8))}; sleep 40`)]).toMatchObject([
+          round,
+          { limit: "memory", timedOut: false },
+        ]);
+        expect([
+          round,
+          await run(`perl -e '${random} ${unlinked(3)} sleep 40' incarnamind-daemon-2351`),
+        ]).toMatchObject([round, { limit: "folder", timedOut: false }]);
+        // 30 MB unlinked and 200 MB held, under both: the program ends as it would.
+        const under = await run(`${daemon(`${unlinked(1)} ${held(2)}`)}; ${waitForIt}; echo held`);
+        expect([round, under]).toMatchObject([round, { exitCode: 0, stdout: "held\n" }]);
+        expect(under.limit).toBeUndefined();
+      }
+      const { execFileSync } = await import("node:child_process");
+      await expect
+        .poll(() =>
+          execFileSync("ps", ["-A", "-ww", "-o", "command="], { encoding: "utf8" })
+            .split("\n")
+            .filter((line) => line.includes("incarnamind-daemon-2351")),
+        )
+        .toEqual([]);
+    }, 600_000);
+
     test("a program that asks for the network is refused before it runs, never run unconfined", async () => {
       const { executor, skillDir, outside } = await setUp();
       const marker = join(outside, "ran.txt");

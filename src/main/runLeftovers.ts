@@ -329,6 +329,28 @@ export async function sweepRun(run: RunRecord, group: number, deps: SweepDeps): 
   return left.map((each) => each.pid);
 }
 
+/**
+ * The run's processes launchd took over when their parents ended (a daemon), which the program's
+ * tree no longer holds: each orphan is asked once, as the sweep asks of a member, and `known` keeps
+ * the answer. On Linux none: bubblewrap's PID namespace keeps them under the program.
+ */
+export async function adoptedMembers(
+  run: RunRecord,
+  group: number,
+  deps: SweepDeps,
+  known: Map<string, boolean>,
+): Promise<number[]> {
+  if (deps.platform !== "darwin") return [];
+  const key = (each: { pid: number; startedMs: number }) => `${each.pid}@${each.startedMs}`;
+  const orphans = (await deps.list()).filter((each) => each.ppid === 1);
+  const context = { platform: deps.platform, uid: deps.uid, app: deps.app, group };
+  const unasked = orphans.filter((each) => !known.has(key(each)));
+  for (const each of await classify(unasked, run, context, deps.check)) {
+    known.set(key(each), each.verdict === "member");
+  }
+  return orphans.filter((each) => known.get(key(each)) === true).map((each) => each.pid);
+}
+
 /** Where runs are recorded until their sweep is done: a folder of this User's own. */
 async function recordsFolder(folder: string): Promise<string> {
   await mkdir(folder, { recursive: true, mode: 0o700 });
@@ -346,9 +368,17 @@ function runFolder(folder: string): string | null {
   return null;
 }
 
+/** A run as its sweeper knows it once recorded. */
+export interface SweptRun {
+  /** Stops what the run left; never rejects. */
+  sweep(group: number): Promise<void>;
+  /** Its processes launchd adopted (`adoptedMembers`), while the program runs. */
+  adopted(group: number): Promise<number[]>;
+}
+
 export interface RunSweeper {
-  /** Records run `id` before its program starts; what it returns sweeps what the run leaves. */
-  begin(id: string, folder: string): Promise<(group: number) => Promise<void>>;
+  /** Records run `id` before its program starts. */
+  begin(id: string, folder: string): Promise<SweptRun>;
   /** Why no run may start now: a process of an earlier one that couldn't be stopped. */
   stuck(): Promise<string | null>;
 }
@@ -472,7 +502,11 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
       await writeFile(join(await records, `${run.id}.json`), JSON.stringify(run), {
         mode: 0o600,
       });
-      return (group) => sweepAndForget(run, group).catch(report);
+      const known = new Map<string, boolean>();
+      return {
+        sweep: (group) => sweepAndForget(run, group).catch(report),
+        adopted: (group) => adoptedMembers(run, group, deps, known),
+      };
     },
     async stuck() {
       await stale;

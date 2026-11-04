@@ -27,7 +27,7 @@ import { afterAll, describe, expect, onTestFinished, test, vi } from "vitest";
 import type { ExecAllow, ExecRequest, Executor, ProcessLauncher } from "../../src/core";
 import { createLocalExecutor, declaredAccess, WORKING_FOLDER } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
-import { footprints, programMeter, treeMemory } from "../../src/main/programMeter";
+import { footprints, programMeter, treeMemory, unlinkedFiles } from "../../src/main/programMeter";
 import { loadOsSandbox } from "../../src/main/sandbox";
 import { isRunning } from "../helpers/connectors";
 import { createTempDataFolder } from "../helpers/core";
@@ -598,12 +598,20 @@ describe("a program's memory, as its limit counts it", () => {
   ].join("\n");
 
   test("counts its group and every process under it, in a session of its own or not", () => {
-    expect(treeMemory(LISTING, 100)).toBe((1000 + 2000 + 4000 + 8000) * 1024);
+    expect(treeMemory(LISTING, [100])).toBe((1000 + 2000 + 4000 + 8000) * 1024);
   });
 
   test("counts nothing of another program's", () => {
-    expect(treeMemory(LISTING, 300)).toBe(16000 * 1024);
-    expect(treeMemory(LISTING, 999)).toBe(0);
+    expect(treeMemory(LISTING, [300])).toBe(16000 * 1024);
+    expect(treeMemory(LISTING, [999])).toBe(0);
+  });
+
+  test("counts a process of the run's that launchd took over, with every process under it", () => {
+    const adopted = `${LISTING}400     1   350  32000\n401   400   350  64000\n`;
+    expect(treeMemory(adopted, [100, 400])).toBe(
+      (1000 + 2000 + 4000 + 8000 + 32000 + 64000) * 1024,
+    );
+    expect(treeMemory(adopted, [100])).toBe((1000 + 2000 + 4000 + 8000) * 1024);
   });
 
   test("counts what macOS swapped or compressed, by each process's footprint where it is larger", () => {
@@ -613,7 +621,7 @@ describe("a program's memory, as its limit counts it", () => {
       [201, 1024],
       [300, 5_000_000_000],
     ]);
-    expect(treeMemory(LISTING, 100, held)).toBe(
+    expect(treeMemory(LISTING, [100], held)).toBe(
       1000 * 1024 + 3_000_000_000 + 4000 * 1024 + 8000 * 1024,
     );
   });
@@ -652,8 +660,55 @@ test("a folder the program made unreadable counts as more than any folder limit"
   await mkdir(join(folder, "hide"));
   await writeFile(join(folder, "hide", "a"), "x".repeat(1000));
   await writeFile(join(folder, "seen"), "x".repeat(10));
-  expect(await programMeter.folder(folder)).toBe(1010);
+  expect(await programMeter.folder(folder, [], failOnError)).toBe(1010);
   await chmod(join(folder, "hide"), 0o300);
   onTestFinished(() => chmod(join(folder, "hide"), 0o700));
-  expect(await programMeter.folder(folder)).toBe(Number.POSITIVE_INFINITY);
+  expect(await programMeter.folder(folder, [], failOnError)).toBe(Number.POSITIVE_INFINITY);
+});
+
+test("a file held open with no name left counts once, however many hold it; one with a name doesn't", () => {
+  // lsof -F ftDisk: 4101 holds an unlinked file twice and a named one; 4102 holds the first too.
+  const listing = [
+    "p4101",
+    "f3",
+    "tREG",
+    "D0x1000011",
+    "s30000000",
+    "i884122529",
+    "k0",
+    "f4",
+    "tREG",
+    "D0x1000011",
+    "s30000000",
+    "i884122529",
+    "k0",
+    "f5",
+    "tREG",
+    "D0x1000011",
+    "s7000",
+    "i884122530",
+    "k1",
+    "f6",
+    "tPIPE",
+    "s0",
+    "k0",
+    "p4102",
+    "f3",
+    "tREG",
+    "D0x1000011",
+    "s30000000",
+    "i884122529",
+    "k0",
+    "f7",
+    "tREG",
+    "D0x1000012",
+    "s5000",
+    "i12",
+    "k0",
+    "",
+  ].join("\n");
+  expect([...unlinkedFiles(listing)]).toEqual([
+    ["0x1000011:884122529", 30000000],
+    ["0x1000012:12", 5000],
+  ]);
 });

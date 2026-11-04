@@ -570,8 +570,8 @@ function osConfinement(
         const run = randomUUID();
         const metered = request.limits?.memoryBytes !== undefined;
         const program = await wrap(sandbox, script, config, run, metered);
-        const sweep = await sweeper.begin(run, working);
-        return { ...program, env: request.env, sweep };
+        const { sweep, adopted } = await sweeper.begin(run, working);
+        return { ...program, env: request.env, sweep, adopted };
       } catch (error) {
         throw startFailed(error);
       }

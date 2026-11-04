@@ -94,6 +94,12 @@ export interface ConfinedProgram extends Program {
    * never rejects.
    */
   sweep?(group: number): Promise<void>;
+  /**
+   * This run's processes the system took over when their parents ended (a daemon), which only
+   * the confinement can tell from other programs': its limits count each with every process under
+   * it, as they count the program's own. Asked while the program runs, with its process group.
+   */
+  adopted?(group: number): Promise<number[]>;
 }
 
 /**
@@ -208,12 +214,19 @@ const WATCH_MS = 250;
 /** Measures a running program against its limits: the host's, which reads its processes. */
 export interface ProgramMeter {
   /**
-   * The memory, in bytes, of the program started as `root` and every process under it;
+   * The memory, in bytes, of the processes started as `roots` and every process under each;
    * `unmeasured` hears why a part of it couldn't be read.
    */
-  memory(root: number, unmeasured: (error: unknown) => void): Promise<number>;
-  /** The bytes the files under `folder` hold; links aren't followed. */
-  folder(folder: string): Promise<number>;
+  memory(roots: readonly number[], unmeasured: (error: unknown) => void): Promise<number>;
+  /**
+   * The bytes the files under `folder` hold, links not followed, and the files those processes
+   * hold open that no folder names any more; `unmeasured` hears why a part couldn't be read.
+   */
+  folder(
+    folder: string,
+    roots: readonly number[],
+    unmeasured: (error: unknown) => void,
+  ): Promise<number>;
 }
 
 /**
@@ -228,6 +241,7 @@ function watchLimits(
   over: (limit: NonNullable<ExecResult["limit"]>) => void,
   report: (error: unknown) => void,
   meter: ProgramMeter | undefined,
+  adopted: ConfinedProgram["adopted"],
 ): () => void {
   const { memoryBytes, folderBytes } = request.limits ?? {};
   const { pid } = child;
@@ -246,9 +260,18 @@ function watchLimits(
     if (measuring) return;
     measuring = true;
     try {
-      if (memoryBytes !== undefined && (await meter.memory(pid, reportOnce)) > memoryBytes) {
+      // What can't be told about adopted processes is reported; the program's own still count.
+      const others = await (adopted?.(pid) ?? Promise.resolve([])).catch((error: unknown) => {
+        reportOnce(error);
+        return [];
+      });
+      const roots = [pid, ...others];
+      if (memoryBytes !== undefined && (await meter.memory(roots, reportOnce)) > memoryBytes) {
         over("memory");
-      } else if (folderBytes !== undefined && (await meter.folder(cwd)) > folderBytes) {
+      } else if (
+        folderBytes !== undefined &&
+        (await meter.folder(cwd, roots, reportOnce)) > folderBytes
+      ) {
         over("folder");
       }
     } catch (error) {
@@ -271,6 +294,7 @@ const collect = (
   leftovers: () => Promise<void>,
   report: (error: unknown) => void,
   meter: ProgramMeter | undefined,
+  adopted: ConfinedProgram["adopted"],
 ) =>
   new Promise<ExecResult>((resolve) => {
     const stdout = new Head(request.maxOutputBytes);
@@ -293,6 +317,7 @@ const collect = (
       },
       report,
       meter,
+      adopted,
     );
     const finish = (code: number | null) => {
       if (settled) return;
@@ -396,7 +421,15 @@ export function createLocalExecutor(options: LocalExecutorOptions): Executor {
             processGroup: true,
           });
           group = child.pid ?? 0;
-          return await collect(child, request, cwd, leftovers, options.reportError, options.meter);
+          return await collect(
+            child,
+            request,
+            cwd,
+            leftovers,
+            options.reportError,
+            options.meter,
+            program.adopted,
+          );
         } finally {
           // Also when it couldn't start: the run's record goes only once a sweep has found it over.
           await leftovers();

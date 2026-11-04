@@ -1,11 +1,12 @@
 /**
  * How the OS sandbox's Executor measures a running program against its memory and folder limits
- * (ADR-0025): its processes from `ps`, and on macOS each one's footprint, and the files of its
- * working folder. Windows has no `ps`; its Job Object will hold these limits.
+ * (ADR-0025): its processes from `ps`, and on macOS each one's footprint, the files of its
+ * working folder, and the files its processes hold open that no folder names any more. Windows
+ * has no `ps`; its Job Object will hold these limits.
  */
 import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { lstat, readdir } from "node:fs/promises";
+import { lstat, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ProgramMeter } from "../core/execution";
@@ -32,32 +33,40 @@ function readListing(listing: string): ProcessListing {
 }
 
 /**
- * The program started as `root` and everything under it: its process group, and every process
+ * The processes started as `roots` and all under each: its process group, and every process
  * descended from it, since bubblewrap starts the sandboxed program in a session of its own
  * (`--new-session`).
  */
-function programPids({ parents, groups }: ProcessListing, root: number): number[] {
+function programPids({ parents, groups }: ProcessListing, roots: readonly number[]): number[] {
   const counted = (pid: number): boolean => {
     for (let at = pid, hops = 0; at > 1 && hops < 4096; at = parents.get(at) ?? 0, hops++) {
-      if (at === root || groups.get(at) === root) return true;
+      if (roots.includes(at) || roots.includes(groups.get(at) ?? 0)) return true;
     }
     return false;
   };
   return [...parents.keys()].filter(counted);
 }
 
+/** `ps`'s listing of every process. */
+async function listing(): Promise<string> {
+  const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid=,pgid=,rss="], {
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return stdout;
+}
+
 /**
- * The memory of the program started as `root` and everything under it, in bytes, from a `ps`
- * listing: each process counts the larger of its resident memory and its footprint in `held`.
+ * The memory of the processes started as `roots` and everything under each, in bytes, from a
+ * `ps` listing: each process counts the larger of its resident memory and its footprint in `held`.
  */
 export function treeMemory(
   listing: string,
-  root: number,
+  roots: readonly number[],
   held: ReadonlyMap<number, number> = new Map(),
 ): number {
   const read = readListing(listing);
   let bytes = 0;
-  for (const pid of programPids(read, root)) {
+  for (const pid of programPids(read, roots)) {
     bytes += Math.max(read.resident.get(pid) ?? 0, held.get(pid) ?? 0);
   }
   return bytes;
@@ -102,17 +111,87 @@ async function macFootprints(pids: number[]): Promise<Map<number, number>> {
  * The program's memory, in bytes; where its footprint can't be read, its resident memory alone,
  * and `unmeasured` is told why.
  */
-async function programMemory(root: number, unmeasured: (error: unknown) => void): Promise<number> {
-  const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid=,pgid=,rss="], {
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  const held = await macFootprints(programPids(readListing(stdout), root)).catch(
+async function programMemory(
+  roots: readonly number[],
+  unmeasured: (error: unknown) => void,
+): Promise<number> {
+  const stdout = await listing();
+  const held = await macFootprints(programPids(readListing(stdout), roots)).catch(
     (error: unknown) => {
       unmeasured(error);
       return new Map<number, number>();
     },
   );
-  return treeMemory(stdout, root, held);
+  return treeMemory(stdout, roots, held);
+}
+
+/**
+ * Each regular file with no link left in an `lsof -F ftDisk` listing, by device and inode (a file
+ * two processes hold, or one holds twice, counts once), with its size in bytes.
+ */
+export function unlinkedFiles(listing: string): Map<string, number> {
+  const files = new Map<string, number>();
+  let file: Record<string, string> = {};
+  const done = () => {
+    if (file.t === "REG" && file.k === "0" && file.D !== undefined && file.i !== undefined) {
+      files.set(`${file.D}:${file.i}`, Number(file.s ?? 0));
+    }
+    file = {};
+  };
+  for (const line of listing.split("\n")) {
+    const field = line.slice(0, 1);
+    if (field === "p" || field === "f") done();
+    if (field !== "") file[field] = line.slice(1);
+  }
+  done();
+  return files;
+}
+
+/** lsof's exit status when some of what it was asked for isn't there, such as a pid that has ended. */
+const SOME_NOT_FOUND = 1;
+
+async function macUnlinked(pids: readonly number[]): Promise<Map<string, number>> {
+  const args = ["-n", "-P", "-w", "-a", "+L1", "-p", pids.join(","), "-F", "ftDisk"];
+  try {
+    const { stdout } = await execFileAsync("/usr/sbin/lsof", args, { maxBuffer: 16 * 1024 * 1024 });
+    return unlinkedFiles(stdout);
+  } catch (error) {
+    const { code, stdout } = error as { code?: unknown; stdout?: unknown };
+    if (code === SOME_NOT_FOUND && typeof stdout === "string") return unlinkedFiles(stdout);
+    throw error;
+  }
+}
+
+const gone = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
+
+async function procUnlinked(pids: readonly number[]): Promise<Map<string, number>> {
+  const files = new Map<string, number>();
+  for (const pid of pids) {
+    const fds = await readdir(`/proc/${pid}/fd`).catch((error: unknown) => {
+      if (gone(error)) return [];
+      throw error;
+    });
+    for (const fd of fds) {
+      const info = await stat(`/proc/${pid}/fd/${fd}`).catch((error: unknown) => {
+        if (gone(error)) return null;
+        throw error;
+      });
+      if (info?.isFile() && info.nlink === 0) files.set(`${info.dev}:${info.ino}`, info.size);
+    }
+  }
+  return files;
+}
+
+/**
+ * The bytes of the files `pids` hold open that no folder names any more: written in the working
+ * folder and unlinked, they still take the disk, but no walk of the folder finds them.
+ */
+async function unlinkedBytes(pids: readonly number[]): Promise<number> {
+  if (pids.length === 0) return 0;
+  const files = process.platform === "darwin" ? await macUnlinked(pids) : await procUnlinked(pids);
+  let bytes = 0;
+  for (const size of files.values()) bytes += size;
+  return bytes;
 }
 
 /**
@@ -141,4 +220,25 @@ async function folderSize(folder: string): Promise<number> {
   return total;
 }
 
-export const programMeter: ProgramMeter = { memory: programMemory, folder: folderSize };
+/**
+ * The working folder's files, and those the program's processes hold with no name left; where
+ * those can't be read, the folder's alone, and `unmeasured` is told why.
+ */
+async function programFolder(
+  folder: string,
+  roots: readonly number[],
+  unmeasured: (error: unknown) => void,
+): Promise<number> {
+  const named = await folderSize(folder);
+  if (named === Number.POSITIVE_INFINITY) return named;
+  const pids = programPids(readListing(await listing()), roots);
+  return (
+    named +
+    (await unlinkedBytes(pids).catch((error: unknown) => {
+      unmeasured(error);
+      return 0;
+    }))
+  );
+}
+
+export const programMeter: ProgramMeter = { memory: programMemory, folder: programFolder };
