@@ -52,7 +52,9 @@ import {
   holdsText,
   mindSearchScope,
   NO_SCOPE,
+  oneFolderOf,
   type ScopeKind,
+  scopeName,
 } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
@@ -68,6 +70,7 @@ import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
+import type { LibraryListing } from "./answers/checks/libraryFacts";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -1772,6 +1775,48 @@ export function createCore(adapters: CoreAdapters): Core {
       : kind === "tag"
         ? (tags.list().find((tag) => tag.id === id)?.name ?? null)
         : (documents.getMany([id])[0]?.name ?? null);
+  /**
+   * What a check's scope sees of the Library (#2525), from a Note in `mindId`: the Documents the
+   * scope covers, the Folders, Tags and other notes it may see, with Folder walls applied both
+   * ways, so a walled Folder's Documents are never counted or named for a Note outside it.
+   */
+  const libraryListing = (mindId: string | null, searched: SearchScope | null): LibraryListing => {
+    const ownWall = walledFolder(mindId);
+    const counted = documents.getMany(scopeDocuments(searched, mindId) ?? documents.ids({}));
+    const ids = new Set(counted.map((document) => document.id));
+    const one = oneFolderOf(searched);
+    const within = one === null ? null : new Set(library.subtree(one));
+    const seen = (folderId: string | null) =>
+      walledFolderId(folderId) === ownWall && (within === null || within.has(folderId ?? ""));
+    const named = searched && hasSearchScope(searched) ? scopeName(searched, scopeItemName) : null;
+    const walls = library.folders().filter((folder) => folder.keepInside).length;
+    const folders = library
+      .folders()
+      .filter((folder) => folder.id !== one && seen(folder.id))
+      .map((folder) => ({
+        name: folder.name,
+        count: library.treeDocumentIds(folder.id).filter((id) => ids.has(id)).length,
+      }));
+    const notes = minds.list().filter((mind) => mind.id !== mindId && seen(mind.folderId));
+    const unfiled = new Set(library.unfiledDocumentIds());
+    return {
+      source: named
+        ? { kind: "scope", name: named.name ?? "", more: named.more }
+        : ownWall === null && walls > 0
+          ? { kind: "left-out", folders: walls }
+          : { kind: "library" },
+      documents: counted.map(({ name, kind }) => ({ name, kind })),
+      folders,
+      unfiled: one === null ? counted.filter((document) => unfiled.has(document.id)).length : null,
+      tags: tags.list().flatMap((tag) => {
+        const count = counted.filter((document) =>
+          document.tags.some((each) => each.tagId === tag.id),
+        ).length;
+        return count > 0 ? [{ name: tag.name, count }] : [];
+      }),
+      notes: { count: notes.length, names: notes.map(mindName).filter((name) => name !== "") },
+    };
+  };
   // A Folder of the Library holds no file that isn't a Document, so it names the folders on disk
   // its Documents are in: a Linked folder filed into it whole names the Linked folder.
   const foldersOnDisk = (folderIds: readonly string[]) => {
@@ -2799,6 +2844,7 @@ export function createCore(adapters: CoreAdapters): Core {
     walledFolderName,
     searchedScope,
     pickedDocuments,
+    libraryListing,
     originalOf: (mindId) => {
       const original = wordImports.originalOf(mindId);
       const duplicated = minds.duplicatedFrom(mindId);
@@ -5604,6 +5650,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
+    libraryFactsNow: async (mindId) => checks.libraryFactsNow(mindId),
 
     getSecretStorage: async () => secrets.status(),
     acceptPlainTextSecretStorage: async () => secrets.acceptPlainText(),

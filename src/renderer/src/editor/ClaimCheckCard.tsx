@@ -92,6 +92,7 @@ import { badgeCorner, claimCardPlace } from "./claimCardPlace";
 import { claimPartRows, markOf, type ShownClaim } from "./claimChecks";
 import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
+import { LibrarySource } from "./LibrarySource";
 import { MindIdContext } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
@@ -713,8 +714,14 @@ export function ClaimCard({
   const location = evidence ? citationLocation(evidence) : null;
   // A file's properties decided it (#2458): its row names the property and opens the info panel.
   const property = location?.kind === "properties" ? location : null;
+  // The Library's facts decided it (#2525): its row names the fact and where it is from.
+  const library = location?.kind === "library" ? location : null;
   const already = decision.kind === "already" ? decision.citation : null;
-  const citedQuote = already?.attributes.quote ? already.attributes : property ? null : evidence;
+  const citedQuote = already?.attributes.quote
+    ? already.attributes
+    : property || library
+      ? null
+      : evidence;
   const quote = useReadableQuote(citedQuote);
   const where = location ? formatLocation(location, t) : null;
   const decisionUnchecked = partRows
@@ -969,7 +976,14 @@ export function ClaimCard({
                 onOpen={onOpen}
               />
             )}
-            {evidence && !property && (
+            {evidence && library && (
+              <LibrarySource
+                location={library}
+                className="citation-card-source claim-property"
+                testId="claim-library"
+              />
+            )}
+            {evidence && !property && !library && (
               <p data-testid="claim-source" className="citation-card-source">
                 {[
                   citedName(
@@ -1277,7 +1291,7 @@ export function ClaimCard({
             {t("claim.useFigure", { figure: calculation.figure.shown })}
           </button>
         )}
-        {!partRows && !property && evidence?.documentId && (
+        {!partRows && !property && !library && evidence?.documentId && (
           <button
             type="button"
             data-testid="claim-open"

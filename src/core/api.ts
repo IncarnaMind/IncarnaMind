@@ -2504,7 +2504,38 @@ export type CitationLocation =
    * file itself. `value` is the property as the file gives it: an ISO 8601 date, the author, a
    * count, the size in bytes, or the name.
    */
-  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea);
+  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea)
+  /**
+   * The Library's own facts, not a Document's text (#2525): a check's evidence for a sentence
+   * about the Library itself, as the check's scope saw it, Folder walls applied.
+   */
+  | ({ kind: "library"; source: LibrarySource; fact: LibraryFact } & MaybeArea);
+
+/**
+ * Where a check's Library facts come from, in the scope chip's words (#2525): the whole Library,
+ * every Document but the walled Folders a Note outside them leaves out, or a Search scope by the
+ * name its first Folder, Tag or Document has and how many more it names.
+ */
+export type LibrarySource =
+  | { kind: "library" }
+  | { kind: "left-out"; folders: number }
+  | { kind: "scope"; name: string; more: number };
+
+/**
+ * One fact of the Library a check can cite (#2525). Every count is of the Documents, Folders,
+ * Tags or notes the check's scope sees; "notes" leaves out the note being checked.
+ */
+export type LibraryFact =
+  | { kind: "documents"; count: number }
+  | { kind: "folder"; name: string; count: number }
+  | { kind: "unfiled"; count: number }
+  | { kind: "format"; format: DocumentKind; count: number }
+  | { kind: "name"; name: string; count: number }
+  | { kind: "folders"; count: number }
+  | { kind: "tags"; count: number }
+  | { kind: "tag"; name: string; count: number }
+  | { kind: "notes"; count: number }
+  | { kind: "note"; name: string };
 
 /** A stretch of words, and whether the Document has it where the Answer's quoted words were looked for. */
 export interface QuotedPiece {
@@ -6488,6 +6519,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "figures-not-read": the figures in a text of a Document the check read couldn't be read; its
  *   detail is where, as `src/shared/unreadFigures.ts` writes it, or null when that isn't known.
  * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
+ * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
+ *   reading of its Documents' names (#2525). No check can change that.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -6521,7 +6554,8 @@ export type ClaimCheckFailure =
   | "figures-not-read"
   | "sentence-figures-not-read"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
-  | "other-cell";
+  | "other-cell"
+  | "library-unsettled";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -6612,6 +6646,11 @@ export interface ClaimPartSpan {
 export interface ClaimPartPlan {
   span: ClaimPartSpan;
   kind: "fact" | "opinion";
+  /**
+   * An "opinion" part that is about the note or Answer it is in, not the Documents ("listed
+   * below", #2525): set aside as an opinion is, and never called one.
+   */
+  itself?: true;
 }
 
 export interface ClaimPartCoverageMember {
@@ -12473,6 +12512,11 @@ export interface CoreApi {
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
+  /**
+   * The Library's facts the Mind's checks rest on (#2525), as the Library gives them now, by each
+   * fact's version id: what the window compares a check's versions with. Sends nothing.
+   */
+  libraryFactsNow(mindId: string): Promise<Record<string, string>>;
 
   getSecretStorage(): Promise<SecretStorageStatus>;
   /** The User accepts storing keys without keyring protection on this device. */
@@ -13641,6 +13685,7 @@ const methods: Record<CoreApiMethod, true> = {
   getFigureScheduleChange: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
+  libraryFactsNow: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
   detectOllama: true,

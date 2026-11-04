@@ -148,7 +148,7 @@ const FIGURE_INSTRUCTIONS = [
 
 /** A check with no sorted parts sorts its sentence in its first turn, so a one-fact sentence costs no sorting request (#1635). */
 const PARTS_FIRST = [
-  'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact or opinion only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion or advice.',
+  'Before your first search, in that same turn, write one line: Parts: and one JSON array of the sentence\'s ordered literal parts, [{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}], with kind fact, opinion or about-this-text only. Use [] only for a heading, greeting, question or other text with no factual assertion, opinion, advice or words about the text itself.',
   ...PART_RULES,
   "",
 ];
@@ -654,6 +654,8 @@ const REASON_KIND =
   /^[\s>*_#`'"“”-]*(?:reason kind|原因类型)[\s*_]*[:：][\s*_]*(forecast-certainty|unbacked-cause)\s*$/i;
 /** "Property: modified", the file properties a sentence states (./fileProperties), on a line of its own. */
 export const PROPERTY = /^[\s>*_#`'"“”-]*(?:property|属性)[\s*_]*[:：][\s*_]*(.*)$/i;
+/** "Library: documents", the Library's facts a sentence states (./libraryFacts), on a line of its own. */
+export const LIBRARY_LINE_FIELD = /^[\s>*_#`'"“”-]*(?:library|资料库)[\s*_]*[:：][\s*_]*(.*)$/i;
 const FIELDS = [
   PARTS_LINE,
   COVERED,
@@ -670,6 +672,7 @@ const FIELDS = [
   COVERAGE,
   REASON_KIND,
   PROPERTY,
+  LIBRARY_LINE_FIELD,
   FIGURES,
 ];
 const MAX_PHRASE = 120;

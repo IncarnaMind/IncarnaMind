@@ -17,6 +17,7 @@ import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
 import { propertyWords } from "../../shared/fileProperties";
 import { translate } from "../../shared/i18n";
+import { factWords, sourceWords } from "../../shared/libraryFacts";
 import { citationLocation, type Translate } from "../../shared/locations";
 import { mindCommentsOf } from "../../shared/mindComments";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -284,9 +285,10 @@ export function createExports(deps: ExportsDependencies) {
         sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
         quoteOf: (passage) => {
           const location = citationLocation(passage);
-          return location?.kind === "properties"
-            ? propertyWords(location, (key, params) => translate(language, key, params), language)
-            : (passage.quote ?? "");
+          const t: Translate = (key, params) => translate(language, key, params);
+          if (location?.kind === "properties") return propertyWords(location, t, language);
+          if (location?.kind === "library") return factWords(location.fact, t, language);
+          return passage.quote ?? "";
         },
       });
       checkedOf = checkedLines(fragment, documents, language);
@@ -1136,6 +1138,11 @@ export function footnoteOf(
         }
       : null;
   const web = documents.find((each) => each.id === state.documentId)?.web;
+  const ofLibrary = citationLocation(attributes);
+  // The Library's facts are no Document's: the note names where they came from (#2525).
+  if (ofLibrary?.kind === "library") {
+    return { source: sourceWords(ofLibrary.source, t, language), unverified: false };
+  }
   if (!web) {
     return {
       // A file's properties are no place in its text: a plain note says what was read (#2458).

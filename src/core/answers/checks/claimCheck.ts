@@ -60,6 +60,7 @@ import type {
   PassageSearchResult,
   ProviderError,
   RecordAiUseInput,
+  SearchScope,
   ThirdPartyReason,
   UnsupportedReason,
 } from "../../api";
@@ -115,6 +116,7 @@ import {
   withSentenceVerdict,
 } from "./figureChecks";
 import { type FilePropertySearch, withFileProperties } from "./fileProperties";
+import { type LibraryFactSearch, type LibraryListing, withLibraryFacts } from "./libraryFacts";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
@@ -175,6 +177,10 @@ export interface ClaimCheckDependencies {
   };
   /** The Run's searches may show the Documents' file properties (./fileProperties). */
   fileProperties?: FilePropertySearch;
+  /** What a scope sees of the Library, Folder walls applied, from a Note in `mindId` (./libraryFacts). */
+  libraryListing?(mindId: string | null, searched: SearchScope | null): LibraryListing;
+  /** The Run's searches may show the Library's own facts (./libraryFacts). */
+  libraryFacts?: LibraryFactSearch;
 }
 
 /** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
@@ -194,6 +200,11 @@ export interface ClaimCheckRequest {
   context?: string;
   cited?: readonly CheckedCitation[];
   scope: EvidenceScope;
+  /**
+   * The Search scope `scope` was resolved from, as its chip names it; null for every Document.
+   * Only a check that gives it may be shown the Library's facts (./libraryFacts).
+   */
+  searched?: SearchScope | null;
   model: PreparedChatModel;
   /** The Run reads the document being checked (#97): it is third-party from its start. */
   thirdParty?: readonly ThirdPartyReason[];
@@ -599,7 +610,9 @@ export function checkRunStart(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
-  return withFileProperties(deps, createSentenceCheck);
+  return withLibraryFacts(deps, (withLibrary) =>
+    withFileProperties(withLibrary, createSentenceCheck),
+  );
 }
 
 function createSentenceCheck(deps: ClaimCheckDependencies) {
@@ -658,10 +671,13 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const matched = (request.window ?? found?.passages ?? []).filter(
           (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
         );
-        const passages =
-          options?.properties && deps.fileProperties
-            ? [...matched, ...deps.fileProperties.add(matched, within, options)]
-            : matched;
+        const passages = [
+          ...matched,
+          ...(options?.properties && deps.fileProperties
+            ? deps.fileProperties.add(matched, within, options)
+            : []),
+          ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add(query) : []),
+        ];
         if (!request.window) {
           for (const passage of passages) read.set(passage.documentId, passage.contentHash);
         }
@@ -726,15 +742,17 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       },
       documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
       ...(deps.fileProperties && { fileProperties: true }),
+      ...(deps.libraryFacts && { libraryFacts: true }),
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
         searches++;
         if (!request.window) {
-          const found = session.tools.searchDocuments(query, searchSignal, options);
-          const { fileProperties } = deps;
-          return options?.properties && fileProperties
-            ? found.then((result) => fileProperties.told(result, options))
-            : found;
+          const { fileProperties, libraryFacts } = deps;
+          return session.tools.searchDocuments(query, searchSignal, options).then((found) => {
+            const told =
+              options?.properties && fileProperties ? fileProperties.told(found, options) : found;
+            return options?.library && libraryFacts ? libraryFacts.told(told) : told;
+          });
         }
         // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
         // search returned the whole window again: its verdict request carried it two or three
@@ -1135,6 +1153,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         // In a window of a whole read every search returns that window: the read is the search.
         ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
         ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
+        ...(deps.libraryFacts ? [deps.libraryFacts.turnCheck] : []),
         ...figuresReplied(
           request,
           figures,
@@ -1182,6 +1201,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (!failed) hear(heard);
     deps.fileProperties?.replied(replyAcrossTurns(reply, setAside));
+    deps.libraryFacts?.replied(replyAcrossTurns(reply, setAside));
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {

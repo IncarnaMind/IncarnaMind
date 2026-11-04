@@ -106,6 +106,8 @@ export const PART_RULES = [
   "A mixed sentence keeps its factual parts even when an opinion comes before or after them. Each separate opinion prefix or suffix is one opinion part. Do not label a whole mixed sentence opinion and lose the fact between its opinions.",
   "Keep each fact's subject, negation, scope, comparison, certainty and qualification. Keep a causal assertion together with the events and causal link; two separate true events do not establish the cause. Keep conditions with their outcomes, and all/every/always/most, consecutive periods and superlative comparison domains with the assertion they qualify. Do not split these into simpler statements that lose their relationship.",
   'For "Costs rose, so profit fell" or "成本上涨，因此利润下降", keep the causal assertion and both events together as one factual part. Do not return "therefore", "因此", or a pronoun-only cause clause as a separate fact detached from the events it relates. Independent facts without an asserted relationship remain separate parts.',
+  "A sentence about the User's Library itself, such as how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, or its Folders, Tags and notes, is a fact.",
+  'Words about the text they are in, the note or Answer itself, are kind about-this-text: how it is laid out or grouped, what it lists, shows or leaves out, or how it was made ("set out in the table below", "This summary is grouped by file type", "如下表所示", "本笔记按文件类型分组"). Neither a Document nor the Library could state them. A fact or opinion beside them keeps its own part.',
   "Use the smallest exact original substring that states each part, preserving its original language. Separate independent factual clauses, retaining their literal pronouns; the checker also receives the whole original sentence as context. Connector words and punctuation between parts need not form parts.",
 ];
 
@@ -120,7 +122,7 @@ const SORT_PARTS = [
   "Each number is an identifier from the whole document. A batch can contain one sentence or many, and its numbers can start above 1. Copy the supplied numbers unchanged; do not restart numbering or ask for the document in another format.",
   "Decide every sentence, in order. Return every supplied sentence once, using its number. Split it into ordered literal parts that a reader can check separately, without rewriting any words.",
   ...PART_RULES,
-  'Reply with one JSON object and nothing else: {"sentences":[{"number":1,"parts":[{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}]}]}. Use kind fact or opinion only. Every sentence needs its full part inventory; use an empty parts array only for a heading, greeting, question or other text with no factual assertion, opinion or advice. Never deduplicate equal sentences.',
+  'Reply with one JSON object and nothing else: {"sentences":[{"number":1,"parts":[{"kind":"fact","text":"exact original words"},{"kind":"opinion","text":"exact original words"}]}]}. Use kind fact, opinion or about-this-text only. Every sentence needs its full part inventory; use an empty parts array only for a heading, greeting, question or other text with no factual assertion, opinion, advice or words about the text itself. Never deduplicate equal sentences.',
 ];
 
 export const FIND_CLAIMS_INSTRUCTIONS = [
@@ -224,6 +226,8 @@ export function readPartsLine(text: string, sentence: string): readonly ClaimPar
   }
 }
 
+const ABOUT_ITSELF = "about-this-text";
+
 function literalParts(value: unknown, sentence: string): readonly ClaimPartPlan[] | null {
   if (!Array.isArray(value)) return null;
   const plans: ClaimPartPlan[] = [];
@@ -231,11 +235,17 @@ function literalParts(value: unknown, sentence: string): readonly ClaimPartPlan[
   for (const part of value) {
     if (typeof part !== "object" || part === null) return null;
     const { kind, text } = part as Record<string, unknown>;
-    if ((kind !== "fact" && kind !== "opinion") || typeof text !== "string" || text.trim() === "")
+    if (
+      (kind !== "fact" && kind !== "opinion" && kind !== ABOUT_ITSELF) ||
+      typeof text !== "string" ||
+      text.trim() === ""
+    )
       return null;
     const at = sentence.indexOf(text, from);
     if (at < 0) return null;
-    plans.push({ kind, span: { start: at, end: at + text.length } });
+    const span = { start: at, end: at + text.length };
+    // Set aside as an opinion is, in words of its own (#2525).
+    plans.push(kind === ABOUT_ITSELF ? { kind: "opinion", itself: true, span } : { kind, span });
     from = at + text.length;
   }
   return readPartPlans(withLeftWords(sentence, plans), sentence);
@@ -308,7 +318,7 @@ const saysSomething = (text: string) =>
  * punctuation between parts stay between them.
  */
 function withLeftWords(sentence: string, plans: readonly ClaimPartPlan[]): ClaimPartPlan[] {
-  const parts = plans.map(({ kind, span }) => ({ kind, span: { ...span } }));
+  const parts = plans.map((plan) => ({ ...plan, span: { ...plan.span } }));
   for (let index = 0; index <= parts.length; index++) {
     const before = parts[index - 1];
     const after = parts[index];

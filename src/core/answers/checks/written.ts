@@ -40,6 +40,7 @@ import * as Y from "yjs";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { citationAttributesOf } from "../../../shared/citations";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
+import { planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import {
   type InlineTextPiece,
@@ -768,6 +769,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         ...read,
         cited: options.citedNow(sentence.cited),
         scope: scope.scope,
+        searched: scope.wanted,
         model: prepared,
         mindId,
         recordClaim: sentence.rawText,
@@ -972,7 +974,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
         landings.push({
           sentence,
-          opinion: result.parts.map(({ span, kind }) => ({ span, kind })),
+          opinion: result.parts.map(planOf),
         });
         return;
       }
