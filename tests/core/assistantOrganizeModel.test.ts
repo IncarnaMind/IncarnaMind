@@ -426,6 +426,42 @@ const consentTo = (flows: readonly RegisteredDataFlow[] | null) =>
     ?.find((each) => each.id === "classification")
     ?.services.find((each) => each.flow.service.name === "Anthropic")?.consent ?? "not-asked";
 
+/**
+ * A new User under a standing no whose first Organize was allowed, with a request to the model
+ * still waiting: the run, and the model it lends, are going on.
+ */
+async function waitingUnderStandingNo(keychain = createMemoryKeychain()) {
+  const held = Promise.withResolvers<void>();
+  const waiting = scriptedModel(
+    (call) =>
+      call.results.some((each) => each.tool === "run_command")
+        ? { text: "Done." }
+        : { calls: [{ tool: "run_command", input: { command: "documents.organize" } }] },
+    { generate: (call) => ({ ...classifying(call), until: held.promise }) },
+  );
+  const user = await newUser({ model: waiting, keychain });
+  if (!user.provider.service) throw new Error("No service.");
+  decline(user.dataDir, user.provider.service);
+  approvals(user.core);
+  const asked = await user.core.askInConversation({
+    text: "Put my Documents into Folders.",
+    mindId: user.mind.id,
+  });
+  if (!asked.asked) throw new Error("The Question wasn't asked.");
+  await vi.waitFor(() => expect(requestsWith(waiting, "Harbour Street")).toBeGreaterThan(0));
+  return user;
+}
+
+/** The model the Library stored for Organize; null when it stored none. */
+const storedOrganizeWith = (dataDir: string) => {
+  const [row] = queryDatabase<{ value: string }>(
+    dataDir,
+    "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+  );
+  const stored = JSON.parse(row?.value ?? "{}") as { organizeWith?: unknown };
+  return stored.organizeWith ?? null;
+};
+
 describe("The first Organize tells the window and leaves nothing behind (#2252)", {
   timeout: 60_000,
 }, () => {
@@ -479,24 +515,7 @@ describe("The first Organize tells the window and leaves nothing behind (#2252)"
   // protects=quitting while a request waits under a standing no leaves no model kept, so the Library's own "Use {company}" question is still offered at the next start; fails_when=the next start has a model for Organize or the decision is no longer no; no_claim=which Folder the classifier picks.
   test("quitting during a run under a standing no keeps no model", async () => {
     const keychain = createMemoryKeychain();
-    const held = Promise.withResolvers<void>();
-    const waiting = scriptedModel(
-      (call) =>
-        call.results.some((each) => each.tool === "run_command")
-          ? { text: "Done." }
-          : { calls: [{ tool: "run_command", input: { command: "documents.organize" } }] },
-      { generate: (call) => ({ ...classifying(call), until: held.promise }) },
-    );
-    const user = await newUser({ model: waiting, keychain });
-    if (!user.provider.service) throw new Error("No service.");
-    decline(user.dataDir, user.provider.service);
-    approvals(user.core);
-    const asked = await user.core.askInConversation({
-      text: "Put my Documents into Folders.",
-      mindId: user.mind.id,
-    });
-    if (!asked.asked) throw new Error("The Question wasn't asked.");
-    await vi.waitFor(() => expect(requestsWith(waiting, "Harbour Street")).toBeGreaterThan(0));
+    const user = await waitingUnderStandingNo(keychain);
     user.core.close();
 
     const restarted = scriptedModels(
@@ -510,4 +529,40 @@ describe("The first Organize tells the window and leaves nothing behind (#2252)"
     expect(requestsWith(restarted.model, "Harbour Street")).toBe(0);
     core.close();
   });
+
+  // protects=a save that leaves the Organize model out leaves it as the User had it, also while a run lends one under a standing no; fails_when=the lent model is stored as the User's choice; no_claim=which Folder the classifier picks.
+  test("a save that leaves the model out stores none while a run lends one", async () => {
+    const { core, dataDir } = await waitingUnderStandingNo();
+
+    await core.saveLibrarySettings({ classifier: { kind: "automatic" }, automatic: false });
+
+    expect(storedOrganizeWith(dataDir)).toBeNull();
+  });
+
+  // protects=the Library's Use {company} records the answer the same during a run under a standing no as outside one, so Organize never has a model with the no still standing; fails_when=during the run the model is saved but the consent isn't recorded; no_claim=which Folder the classifier picks.
+  test.each([
+    ["outside a run", false],
+    ["during a run", true],
+  ] as const)(
+    "the Library's Use records the consent %s under a standing no",
+    async (_name, running) => {
+      const { core, dataDir, provider } = running
+        ? await waitingUnderStandingNo()
+        : await newUser();
+      if (!running) {
+        if (!provider.service) throw new Error("No service.");
+        decline(dataDir, provider.service);
+      }
+      const pick = (await core.getTaggingModels()).automatic;
+      if (!pick) throw new Error("Automatic has no pick.");
+      const { settings } = await core.getLibrary();
+      expect(settings.organizeWith).toBeNull();
+
+      await core.saveLibrarySettings({ ...settings, organizeWith: pick.classifier });
+
+      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+      expect(flow?.consent).toBe("accepted");
+      expect(storedOrganizeWith(dataDir)).toEqual(pick.classifier);
+    },
+  );
 });
