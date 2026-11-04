@@ -148,20 +148,20 @@ test("a two-line highlight's comment and colour stay when the read's quote break
 test("a highlight keeps its row as its words move pages, and comes back", async () => {
   const { document, store, read, db } = await harness();
   const row = highlight("The first line of the note.");
-  read("version-a", [row], (unit, text) => found(1, text));
+  read("version-a", [row], (_unit, text) => found(1, text));
   const [before] = store.list(document.id);
   if (!before) throw new Error("The highlight wasn't read.");
   store.update(before.id, { note: "Mine", colour: "pink" });
 
-  read("version-b", [row], (unit, text) => found(2, text));
+  read("version-b", [row], (_unit, text) => found(2, text));
   expect(store.list(document.id)).toMatchObject([
     { id: before.id, pageFrom: 2, note: "Mine", colour: "pink", missing: false },
   ]);
-  read("version-c", [row], (unit, text) => found(3, text));
+  read("version-c", [row], (_unit, text) => found(3, text));
   expect(store.list(document.id)).toMatchObject([
     { id: before.id, pageFrom: 3, note: "Mine", colour: "pink", missing: false },
   ]);
-  read("version-b", [row], (unit, text) => found(2, text));
+  read("version-b", [row], (_unit, text) => found(2, text));
   expect(store.list(document.id)).toMatchObject([{ id: before.id, pageFrom: 2, missing: false }]);
   db.close();
 });
@@ -169,7 +169,7 @@ test("a highlight keeps its row as its words move pages, and comes back", async 
 test("a highlight a new version lacks says it is missing, and comes back in place", async () => {
   const { document, store, read, db } = await harness();
   const row = highlight("The first line of the note.");
-  read("version-a", [row], (unit, text) => found(1, text));
+  read("version-a", [row], (_unit, text) => found(1, text));
   const [before] = store.list(document.id);
   if (!before) throw new Error("The highlight wasn't read.");
 
@@ -178,7 +178,7 @@ test("a highlight a new version lacks says it is missing, and comes back in plac
     { id: before.id, missing: true, check: "not-found" },
   ]);
 
-  read("version-a", [row], (unit, text) => found(1, text));
+  read("version-a", [row], (_unit, text) => found(1, text));
   expect(store.list(document.id)).toMatchObject([
     { id: before.id, missing: false, check: "found" },
   ]);
