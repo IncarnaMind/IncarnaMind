@@ -336,6 +336,159 @@ describe("literal sentence parts", () => {
     },
   );
 
+  test.each([
+    {
+      name: "en",
+      claim: "Under the lease, the Tenant pays the Landlord's repair costs.",
+      first: "Under the lease",
+      part: "the Tenant pays the Landlord's repair costs",
+      quote: "Under the lease, the Landlord pays the Tenant's repair costs.",
+      own: "the Tenant pays the Landlord's repair costs",
+      other: "the Landlord pays the Tenant's repair costs",
+    },
+    {
+      name: "zh-CN",
+      claim: "根据协议，人力资源总监向乙方汇报。",
+      first: "根据协议",
+      part: "人力资源总监向乙方汇报",
+      quote: "根据协议，乙方向人力资源总监汇报。",
+      own: "人力资源总监向乙方汇报",
+      other: "乙方向人力资源总监汇报",
+    },
+  ])(
+    "a part whose Roles line copies the Passage, then says same, is not Supported ($name, #2313)",
+    async ({ claim, first, part, quote, own, other }) => {
+      const run = (side: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: first },
+            { kind: "fact", text: part },
+          ],
+          {
+            [first]: { quotes: [quote] },
+            [part]: {
+              quotes: [quote],
+              reply: `Verdict: contradicted\nRoles: ${side} / ${side}, same\nThe Document gives it the other way.\nEvidence: [1]`,
+              judgement: "same",
+            },
+          },
+        );
+      const judged = (
+        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+      expect(judged((await run(other)).result.parts ?? [])).not.toBe("supported");
+      // Paired: with its own words as the Roles line's first side, the part is Supported.
+      expect(judged((await run(own)).result.parts ?? [])).toBe("supported");
+    },
+  );
+
+  test("a part whose own detail is only part of a quote's word, or its negation, stays Unsupported (#2313)", async () => {
+    const claim = "The harbour office publishes the times of high water every week.";
+    const first = "The harbour office publishes the times of high water";
+    const part = "every week";
+    const judged = (
+      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+    ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+    const run = (quote: string) =>
+      check(
+        claim,
+        [
+          { kind: "fact", text: first },
+          { kind: "fact", text: part },
+        ],
+        {
+          [first]: { quotes: [quote] },
+          [part]: {
+            quotes: [quote],
+            reply: `Verdict: contradicted\nThe Document gives it another way.\nEvidence: [1]`,
+            judgement: "same",
+          },
+        },
+      );
+    expect(
+      judged(
+        (await run("The harbour office publishes the times of high water every weekday.")).result
+          .parts ?? [],
+      ),
+    ).not.toBe("supported");
+    expect(
+      judged(
+        (await run("The harbour office publishes the times of high water every week.")).result
+          .parts ?? [],
+      ),
+    ).toBe("supported");
+
+    const negated = "The fee is not capped.";
+    const negatedPart = "not capped";
+    const judgedNegated = (
+      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+    ) =>
+      parts.find((each) => negated.slice(each.span.start, each.span.end) === negatedPart)?.verdict;
+    const runNegated = (quote: string) =>
+      check(
+        negated,
+        [
+          { kind: "fact", text: "The fee is" },
+          { kind: "fact", text: negatedPart },
+        ],
+        {
+          "The fee is": { quotes: [quote] },
+          [negatedPart]: {
+            quotes: [quote],
+            reply: `Verdict: contradicted\nThe Document gives it another way.\nEvidence: [1]`,
+            judgement: "same",
+          },
+        },
+      );
+    expect(judgedNegated((await runNegated("The fee is capped.")).result.parts ?? [])).not.toBe(
+      "supported",
+    );
+    expect(judgedNegated((await runNegated("The fee is not capped.")).result.parts ?? [])).toBe(
+      "supported",
+    );
+  });
+
+  test("a part settled by its working keeps the working's Citation, not the reply's quote (#2313)", async () => {
+    const claim = "According to the covenant, the leverage was 3.25x.";
+    const first = "According to the covenant";
+    const part = "the leverage was 3.25x";
+    const calculation = {
+      stated: "3.25x",
+      formula: "n1 / n2",
+      inputs: [
+        { name: "n1", quote: "Net debt of £528.9m", number: "528.9" },
+        { name: "n2", quote: "EBITDA of £162.7m", number: "162.7" },
+      ],
+    };
+    const { result } = await check(
+      claim,
+      [
+        { kind: "fact", text: first },
+        { kind: "fact", text: part },
+      ],
+      {
+        [first]: { quotes: ["The leverage was 3.25x."] },
+        [part]: {
+          quotes: ["The leverage was 3.25x."],
+          calculation,
+          reply: `Verdict: contradicted\nThe Document gives it another way.\nCalculation: 3.25x\nEvidence: [1]`,
+          judgement: "same",
+        },
+      },
+    );
+
+    const judged = result.parts?.[1];
+    expect(judged?.verdict).toBe("supported");
+    // Its working read the two figures: the card names that quote first, never the reply's own.
+    expect(judged?.evidence[0]?.quote).toBe("Net debt of £528.9m");
+    expect(judged?.calculation?.figure.inputs.map((input) => input.citation.quote)).toEqual([
+      "Net debt of £528.9m",
+      "EBITDA of £162.7m",
+    ]);
+  });
+
   test("a part whose own detail the quote does not state stays Unsupported (#2313)", async () => {
     const claim = "The harbour office publishes the times of high water every year.";
     const first = "The harbour office publishes the times of high water";
