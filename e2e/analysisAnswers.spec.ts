@@ -259,16 +259,17 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card.locator(".calculated-figure-state")).toContainText(
         t("figures.inline.retained"),
       );
-      // The core worked this figure out again from its cells: its check is shown, not left grey.
+      // The core worked this number out again from its cells, as the card says; whether a sentence
+      // names it is a check's, which an Answer has none of, so it has no verdict (#2378).
       await expect(card.locator(".calculated-figure-state")).toContainText(
-        t("claim.state.supported"),
+        t("claim.state.not-checked"),
       );
       await expect(card.locator(".calculated-figure-state")).toHaveAttribute(
         "data-state",
-        "supported",
+        "not-checked",
       );
       // The inline figure says what its card says: the state is worked out once (#2378).
-      await expect(markers.nth(1).locator("xpath=..")).toHaveAttribute("data-state", "supported");
+      await expect(markers.nth(1).locator("xpath=..")).toHaveAttribute("data-state", "not-checked");
       if (evidence) {
         await expect(card).toHaveCSS("opacity", "1");
         await window.screenshot({ path: join(evidence, `${language}-total-card.png`) });
