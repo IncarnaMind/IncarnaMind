@@ -1005,7 +1005,10 @@ function parseExportOptions(input: unknown): ParsedExportOptions {
     throw new InvalidInputError("includeQuestions must be true or false.");
   }
   if (input.includeMyComments !== undefined && typeof input.includeMyComments !== "boolean") {
-    throw new InvalidInputError("includeMyComments must be true or false.");
+    throw new InvalidInputError({
+      key: "error.export.choice",
+      values: { name: "includeMyComments" },
+    });
   }
   if (theirChanges !== undefined && theirChanges !== "shown" && theirChanges !== "accepted") {
     throw new InvalidInputError({ key: "error.export.theirChanges" });

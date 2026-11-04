@@ -166,13 +166,15 @@ test("Import a Word file… asks whose it is, then opens the Mind with what is k
   await box.hover();
   await expect(label).toHaveText("Text box · kept as is");
   await expect(label).toHaveCSS("opacity", "1");
-  // Someone else's change waits to be accepted or rejected (#108); their comment is read-only.
+  // Someone else's change waits to be accepted or rejected (#108); their comment is the Note's own
+  // on its words, with its author, in the Comments list and beside them where there is room (#328).
   await expect(editor.locator("ins.proposal-theirs")).toHaveText(" at the earliest");
   await expect(window.getByTestId("their-changes-count")).toHaveText("1 change from Marcus Hale");
-  await expect(editor.locator('[data-kind="comment"]')).toHaveAttribute(
-    "title",
-    /Comment · Marcus Hale · .*\nIs spring realistic\?/,
-  );
+  await expect(editor.locator(".comment-mark")).toHaveText("spring 2027");
+  await pointAndClick(window, window.getByTestId("comments-count"));
+  await expect(window.getByTestId("comments-list")).toContainText("Marcus Hale");
+  await expect(window.getByTestId("comments-list")).toContainText("Is spring realistic?");
+  await window.keyboard.press("Escape");
   await screenshot(pane, "word-import-mind");
 
   // Typing beside an atom goes beside it, never into it.
