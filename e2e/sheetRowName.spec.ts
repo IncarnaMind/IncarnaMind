@@ -155,7 +155,7 @@ for (const width of [1600, 900]) {
     await expectMark(
       window,
       debtors,
-      { row: 8, shown: "Trade debtors", location: "Trial balance, row 8 · Trade debtors" },
+      { row: 8, shown: "Trade debtors", location: "Trial balance, row 8: Trade debtors" },
       `row-name-${width}`,
     );
     // The label comes from the cited row, not from the scroll: scrolled back towards column A,
@@ -184,7 +184,7 @@ for (const width of [1600, 900]) {
     await expectMark(
       window,
       chinese,
-      { row: 10, shown: "银行存款", location: "Trial balance, row 10 · 银行存款" },
+      { row: 10, shown: "银行存款", location: "Trial balance, row 10: 银行存款" },
       `row-name-chinese-${width}`,
     );
     const numbers = await ask(window, "In each sheet, where is 4012?");
@@ -202,7 +202,7 @@ for (const width of [1600, 900]) {
       {
         row: 7,
         shown: "Trial balance, rows 7–9",
-        location: "Trial balance, rows 7–9 · Ledger 1007, Trade debtors, Ledger 1009",
+        location: "Trial balance, rows 7–9: Ledger 1007, Trade debtors, Ledger 1009",
       },
       `row-name-rows-${width}`,
     );
@@ -211,7 +211,7 @@ for (const width of [1600, 900]) {
     await expectMark(
       window,
       debtors,
-      { row: 8, shown: "Trade debtors", location: "Trial balance，第 8 行 · Trade debtors" },
+      { row: 8, shown: "Trade debtors", location: "Trial balance，第 8 行：Trade debtors" },
       `row-name-${width}-zh`,
     );
     await expectMark(
@@ -220,7 +220,7 @@ for (const width of [1600, 900]) {
       {
         row: 7,
         shown: "Trial balance，第 7–9 行",
-        location: "Trial balance，第 7–9 行 · Ledger 1007、Trade debtors、Ledger 1009",
+        location: "Trial balance，第 7–9 行：Ledger 1007、Trade debtors、Ledger 1009",
       },
       `row-name-rows-${width}-zh`,
     );

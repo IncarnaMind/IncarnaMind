@@ -72,7 +72,7 @@ describe("the rows a quote covers, each with its name", () => {
       ),
     );
 
-  test("every text cell left of the first quoted figure, in column order, joined by ' · '", () => {
+  test("every text cell left of the last quoted figure, in column order, joined by ' · '", () => {
     const cases: [Sheet, string][] = [
       [row("Current liabilities", "VAT", 1200), "Current liabilities · VAT"],
       [row("AR01", "Receivables", 1234), "AR01 · Receivables"],
@@ -86,10 +86,26 @@ describe("the rows a quote covers, each with its name", () => {
     }
   });
 
-  test("a figure between texts: left of the first quoted figure only", () => {
+  test("a figure between two texts: the text left of the last quoted figure, both of them", () => {
     const sheet = row("Name", 100, "Note", 200);
     expect(citedRowNames(sheet, ["D4"])).toEqual([{ row: 4, name: "Name · Note" }]);
-    expect(citedRowNames(sheet, ["B4", "D4"])).toEqual([{ row: 4, name: "Name" }]);
+    expect(citedRowNames(sheet, ["B4", "D4"])).toEqual([{ row: 4, name: "Name · Note" }]);
+    expect(citedRowNames(sheet, ["B4"])).toEqual([{ row: 4, name: "Name" }]);
+  });
+
+  test("a numeric code between two names, the whole row quoted: both names", () => {
+    const sheet = row("Category", 4007, "Account", 1200);
+    expect(citedRowNames(sheet, ["A4", "B4", "C4", "D4"])).toEqual([
+      { row: 4, name: "Category · Account" },
+    ]);
+    expect(citedRowNames(sheet, ["B4"])).toEqual([{ row: 4, name: "Category" }]);
+  });
+
+  test("a row with one text cell and several quoted figures keeps its one name", () => {
+    expect(citedRowNames(row("Cash at bank", 1234), ["B4"])).toEqual([
+      { row: 4, name: "Cash at bank" },
+    ]);
+    expect(citedRowNames(row("Rent", 100, 200), ["B4", "C4"])).toEqual([{ row: 4, name: "Rent" }]);
   });
 
   test("an account code stored as a number neither joins the name nor hides it", () => {
@@ -171,7 +187,7 @@ describe("the rows a quote covers, each with its name", () => {
       text(4, 3, "Note 3"),
       figure(4, 4, "10.00"),
     ]);
-    expect(citedRowNames(sheet, ["C4", "E4"])).toEqual([{ row: 4, name: "Rent" }]);
+    expect(citedRowNames(sheet, ["C4"])).toEqual([{ row: 4, name: "Rent" }]);
   });
 
   test("a merged cell's text counts once, for each row the merge covers", () => {
@@ -188,7 +204,7 @@ describe("a row's name on its mark", () => {
     expect(shortRowName("Cash at bank")).toBe("Cash at bank");
   });
 
-  test("a long name cut at a word, with an ellipsis, within 24 columns", () => {
+  test("a long name cut at a word, with an ellipsis, within 28 columns", () => {
     const shown = shortRowName("Amounts owed by group undertakings and participating interests");
     expect(shown).toBe("Amounts owed by group…");
   });
@@ -225,9 +241,9 @@ describe("a sheet Citation's mark with its rows' names", () => {
   });
 
   test("one row: the mark shows its name, and the tooltip's label adds it", () => {
-    expect(withRowNames(mark, trialBalance, found("A7", "B7", "C7", "D7"), ", ")).toEqual({
+    expect(withRowNames(mark, trialBalance, found("A7", "B7", "C7", "D7"), ", ", ": ")).toEqual({
       ...mark,
-      label: "Trial balance, row 7 · Cash at bank",
+      label: "Trial balance, row 7: Cash at bank",
       shown: "Cash at bank",
     });
   });
@@ -250,6 +266,7 @@ describe("a sheet Citation's mark with its rows' names", () => {
         sheet,
         found("C4"),
         ", ",
+        ": ",
       );
       expect(marked?.shown, label).toBe(label);
     }
@@ -262,29 +279,42 @@ describe("a sheet Citation's mark with its rows' names", () => {
       figure(4, 2, "1,000.00"),
     ]);
     const row = { label: "Trial balance, row 4" };
-    expect(withRowNames(row, sheet, found("C4"), ", ")).toEqual({
-      label: "Trial balance, row 4 · Amounts owed by group undertakings · Note 14",
+    expect(withRowNames(row, sheet, found("C4"), ", ", ": ")).toEqual({
+      label: "Trial balance, row 4: Amounts owed by group undertakings · Note 14",
       shown: "Amounts owed by group…",
     });
   });
 
   test("several rows: the mark keeps its range, and the tooltip names each row", () => {
     const rows = { ...mark, label: "Trial balance, rows 7–8" };
-    expect(withRowNames(rows, trialBalance, found("D7", "D8"), "、")).toEqual({
+    expect(withRowNames(rows, trialBalance, found("D7", "D8"), ", ", ": ")).toEqual({
       ...rows,
-      label: "Trial balance, rows 7–8 · Cash at bank、Trade debtors",
+      label: "Trial balance, rows 7–8: Cash at bank, Trade debtors",
       shown: "Trial balance, rows 7–8",
+    });
+  });
+
+  test("in Chinese the place and the name are separated by a full-width colon, the rows' names by 、", () => {
+    const one = { label: "Trial balance，第 8 行" };
+    expect(withRowNames(one, trialBalance, found("D8"), "、", "：")).toEqual({
+      label: "Trial balance，第 8 行：Trade debtors",
+      shown: "Trade debtors",
+    });
+    const rows = { label: "Trial balance，第 7–8 行" };
+    expect(withRowNames(rows, trialBalance, found("D7", "D8"), "、", "：")).toEqual({
+      label: "Trial balance，第 7–8 行：Cash at bank、Trade debtors",
+      shown: "Trial balance，第 7–8 行",
     });
   });
 
   test("several rows, one without a name: no names at all, so none is read against the wrong row", () => {
     const rows = { ...mark, label: "Trial balance, rows 7–9" };
-    expect(withRowNames(rows, trialBalance, found("C7", "D8", "C9"), ", ")).toEqual(rows);
+    expect(withRowNames(rows, trialBalance, found("C7", "D8", "C9"), ", ", ": ")).toEqual(rows);
   });
 
   test("a row with no name keeps the mark as it was", () => {
     const row = { ...mark, label: "Trial balance, row 9" };
-    expect(withRowNames(row, trialBalance, found("A9", "C9"), ", ")).toEqual(row);
+    expect(withRowNames(row, trialBalance, found("A9", "C9"), ", ", ": ")).toEqual(row);
   });
 
   test("a quote across two sheets is named by the cells on the sheet it opens on", () => {
@@ -293,6 +323,6 @@ describe("a sheet Citation's mark with its rows' names", () => {
       cells: new Set(["Trial balance!D8", "Bank rec!B3", "Bank rec!A3"]),
     };
     expect(cellsOn(across)).toEqual(["D8"]);
-    expect(withRowNames(mark, trialBalance, across, ", ")?.shown).toBe("Trade debtors");
+    expect(withRowNames(mark, trialBalance, across, ", ", ": ")?.shown).toBe("Trade debtors");
   });
 });
