@@ -87,7 +87,8 @@ export function checkedBy(
     return { name: t("checkRecord.checker"), place: t("checkRecord.thisComputer") };
   }
   if (!item.check) return null;
-  const { model } = item.check;
+  const { model, wordForWord } = item.check;
+  if (wordForWord) return { name: t("checks.wordForWord"), place: null };
   return model
     ? { name: model.name, place: placeText(model.place, t) }
     : { name: t("checkRecord.notRecorded"), place: null };

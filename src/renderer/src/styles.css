@@ -5822,6 +5822,13 @@
     padding-left: 22px;
     color: var(--color-ink-secondary);
   }
+  /* What checked the sentence, and when: the card's last line. */
+  .claim-card-checked-by {
+    padding: 0 0 2px 22px;
+    font-size: var(--text-meta);
+    line-height: var(--text-meta--line-height);
+    color: var(--color-ink-meta);
+  }
   /* A figure a check worked out (#707): how, then each input's Citation. */
   .claim-card-working {
     display: flex;

@@ -126,7 +126,11 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
           )
         : [t("checkRecord.summary.allDocuments")];
       for (const name of names) searched.add(name);
-      const label = check.model ? modelLabel(check.model, t) : t("checkRecord.notRecorded");
+      const label = check.wordForWord
+        ? t("checks.wordForWord")
+        : check.model
+          ? modelLabel(check.model, t)
+          : t("checkRecord.notRecorded");
       models.set(label, (models.get(label) ?? 0) + 1);
     }
 

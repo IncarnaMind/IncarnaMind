@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { CheckPathsOverride, ClaimCheckAttributes, Core } from "../../src/core";
 import {
@@ -11,6 +13,7 @@ import { askAssistant } from "../helpers/assistant";
 import { checkGenerate, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { recordRows } from "../helpers/csv";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
@@ -141,7 +144,7 @@ async function write(writing: Writing) {
   const sentenceChecks = (await core.listAiUse()).filter(
     (each) => each.kind === "sentence-checked",
   );
-  return { core, marks, checkRuns, quickCalls, sentenceChecks, specs: models.specs };
+  return { core, mindId: change?.mindId ?? "", marks, checkRuns, quickCalls, sentenceChecks };
 }
 
 describe("the copy test, with no model", () => {
@@ -232,6 +235,56 @@ describe("the copy test, with no model", () => {
     expect(checkRuns).toBe(1);
     expect(marks[0]).toMatchObject({ state: "supported", modelId: "local-model" });
     expect(marks[0]?.wordForWord).toBeUndefined();
+  });
+});
+
+describe("what says the copy test checked a sentence", () => {
+  /** The AI use statement's text and the check record's rows, in the interface language. */
+  async function told(core: Core, mindId: string) {
+    const made = await core.createAiUseStatement(mindId);
+    const client = await connectToMind(core, made.id);
+    await client.settled();
+    const out = await createTempDataFolder();
+    await core.setOutputLocation(out);
+    const saved = await core.saveCheckRecord(mindId);
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const csv = readFileSync(join(out, saved.file.name.replace(/\.pdf$/, ".csv")), "utf8");
+    return { statement: readMind(client).textContent, csv, rows: recordRows(csv) };
+  }
+
+  // protects=the AI use statement's Model cell and the check record's Model column and Models line say no AI model checked a copy, in English and Chinese, and the statement counts no use of AI for it (#1667); fails_when=either names a model, says "Not recorded", or counts the copy as a check by a model; no_claim=none beyond protects.
+  test.each([
+    {
+      language: "en" as const,
+      content: `## Notes\n\n${DELIVERY}[^1]`,
+      quote: DELIVERY,
+      terms: TERMS,
+      said: "No AI model: matched its quote word for word",
+      model: "Model",
+      models: "No AI model: matched its quote word for word, 1 sentence check",
+    },
+    {
+      language: "zh-CN" as const,
+      content: `## 笔记\n\n${ZH_DELIVERY}[^1]`,
+      quote: ZH_DELIVERY,
+      terms: ZH_TERMS,
+      said: "未使用 AI 模型：与引文逐字一致",
+      model: "模型",
+      models: "未使用 AI 模型：与引文逐字一致，1 次句子核对",
+    },
+  ])("the statement and the record say no AI model ($language)", async (each) => {
+    const { core, mindId } = await write({
+      ...each,
+      documents: [{ name: "Terms.md", contents: each.terms }],
+      before: (core) =>
+        core.updateSettings({ user: { language: each.language } }).then(() => undefined),
+    });
+    const { statement, csv, rows } = await told(core, mindId);
+
+    expect(statement).toContain(each.said);
+    expect(statement).not.toContain("local-model");
+    expect(rows.map((row) => row[each.model])).toEqual([each.said]);
+    expect(csv).toContain(each.models);
   });
 });
 
