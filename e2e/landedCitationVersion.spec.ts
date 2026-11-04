@@ -369,10 +369,6 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // Checked, the sentence's own card says the Document changed after it was cited.
       await pointAndClick(window, (await checkCard(window)).getByTestId("badge-check-mind"));
-      await pointAndClick(
-        window,
-        card.getByTestId("mind-check-ask").getByTestId("mind-check-check"),
-      );
       const mark = window.getByTestId("claim-mark").first();
       await expect(mark).toBeVisible();
       await window.mouse.move(0, 0);

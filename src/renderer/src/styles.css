@@ -1853,6 +1853,16 @@
     margin: 0;
     padding: 0 8px 6px;
   }
+  /* The run's price, under the rows and in the card's text column (#1941). */
+  .check-card-estimate {
+    padding: 2px 8px 4px;
+
+    /* A part that begins a wrapped line begins with its dot: the line clips it at its start. */
+    & .meta-line {
+      margin: 0;
+      padding-left: 0;
+    }
+  }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
@@ -1881,7 +1891,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 4px 12px;
-    padding: 2px;
+    padding: 2px 8px;
   }
   .check-card-link {
     padding: 2px 4px;
