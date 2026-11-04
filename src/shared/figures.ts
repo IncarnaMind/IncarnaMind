@@ -2265,8 +2265,11 @@ const SIGN_BEFORE =
  */
 const NEGATIVE_WORD =
   /(?<![A-Za-z])(?:minus|negative(?! pledge))(?![A-Za-z])|(?<!自)负(?![责担债面])/i;
-/** A clause's end; the point or comma inside a number ("98,000", "1.5万") is none. */
-const CLAUSE_MARK = /(?<!\d)[.,]|[.,](?!\d)|[;，；。]/g;
+/**
+ * A sentence's end, which a sign word before it doesn't reach past. A comma is none ("a negative
+ * balance, after all adjustments, of …"), nor the stop inside a number or after one letter ("U.S.").
+ */
+const CLAUSE_MARK = /(?<!\b[A-Za-z])(?:(?<!\d)\.|\.(?!\d))|[;；。]/g;
 
 /** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …", a table's "Less" cell. */
 const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*(?:[:：]|\t|\|)/i;
@@ -2311,11 +2314,14 @@ function restates(
     const marks = [...lead.matchAll(CLAUSE_MARK)];
     const clause = lead.slice((marks.at(-1)?.index ?? -1) + 1);
     const unseen = start === reach && reach > 0 && s[reach - 1] !== "\n" && marks.length === 0;
+    // "减", a tab, "已付定金": the tab beside a Chinese character is gone from the text read.
+    const label = /^[\s|]*减/.exec(lead)?.[0].length;
     return (
       unseen ||
       SIGN_BEFORE.test(lead.slice(-24)) ||
       NEGATIVE_WORD.test(clause) ||
-      DEDUCTION_LINE.test(lead)
+      DEDUCTION_LINE.test(lead) ||
+      (label !== undefined && prepared.tabbed.has(start + label))
     );
   };
   // A bare "$" is whichever dollar the words name: "Australian Dollars ($98,000)".
