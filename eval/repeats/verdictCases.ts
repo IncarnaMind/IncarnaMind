@@ -189,7 +189,10 @@ export const VERDICT_SETS: readonly RepeatSet[] = [
     mind: "Licence in other words",
     sentences: faithful([
       ["receives", "The Licensor receives a fee of 2,400 a year from the Licensee."],
-      ["passive", "Damaged equipment is reported by the Licensee to the Studio Manager."],
+      [
+        "passive",
+        "Damaged equipment is reported by the Licensee to the Studio Manager within 48 hours.",
+      ],
       ["allowed", "The Licensee is allowed to bring up to two guests to each session."],
       ["obliged", "The Licensee is obliged to give 30 days' written notice to end this licence."],
       ["period-covered", "In 2026 the Licensee may use Studio B for 12 hours a week."],
