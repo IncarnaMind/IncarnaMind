@@ -1,7 +1,7 @@
 /**
  * Filling a Meeting's notes in after Stop (#142): each of the User's lines gets the transcript's
- * first line under it, cited, then a summary and a decision citing it when the prompt asks for
- * them (#2306). A voice memo (#1568) gets its first line's first words as its title, and that
+ * first line under it, cited, then sections citing it, routed to the fixture's headings when
+ * present (#2306). A voice memo (#1568) gets its first line's first words as its title, and that
  * line, cited. In the call's language, as its lines are said.
  */
 import { passagesIn, recordFor, withSurroundingWords } from "./passages";
@@ -35,9 +35,16 @@ export function fillReply(prompt: Prompt, tools: readonly string[]): Reply | nul
   }
   const markers = [...asked.matchAll(/^(L\d+): /gm)].map((match) => match[1] as string);
   const lines = markers.map((marker) => `### ${marker}\n${said}${cite}.`);
+  const headings = [...asked.matchAll(/^(H\d+) \(heading\): (.+)$/gm)];
   const sections = [
-    /^### SUMMARY:/m.test(asked) && `### SUMMARY\n${said}${cite}.`,
-    /^### DECISIONS:/m.test(asked) && `### DECISIONS\n- ${said}${cite}.`,
-  ].filter((part) => part !== false);
+    { marker: "SUMMARY", title: /^(?:Summary|摘要)$/i },
+    { marker: "DECISIONS", title: /^(?:Decisions|决定)$/i },
+    { marker: "ACTIONS", title: /^(?:Action items|待办|待办事项)$/i },
+  ].flatMap(({ marker, title }) => {
+    if (!new RegExp(`^### ${marker}:`, "m").test(asked)) return [];
+    const heading = headings.find((line) => title.test(line[2] ?? ""));
+    const where = `${marker}${heading ? ` ${heading[1]}` : ""}`;
+    return [`### ${where}\n${marker === "SUMMARY" ? "" : "- "}${said}${cite}.`];
+  });
   return { text: [...lines, ...sections].join("\n\n") };
 }

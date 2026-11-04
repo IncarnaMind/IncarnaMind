@@ -21,10 +21,8 @@ import { LANGUAGE_NAMES, LANGUAGES } from "../language";
 export interface FillLine {
   marker: string;
   text: string;
-  /** A heading the User wrote: shown for where lines belong, never filled in itself. */
+  /** A heading Block the model may use as a section's place. */
   heading: boolean;
-  /** The section the line names ("Action items", "待办"): that section is written under it. */
-  section: FillSection | null;
 }
 
 /** The meeting's sections, in order. `claims` is checked afterwards. */
@@ -38,48 +36,6 @@ export const SECTION_TITLES = {
   questions: "meetings.fill.section.questions",
   claims: "meetings.fill.section.claims",
 } as const satisfies Record<FillSection, MessageKey>;
-
-/** What else a User may call a section in their notes, besides its title in each language. */
-const SECTION_NAMES: Readonly<Record<FillSection, readonly string[]>> = {
-  summary: ["overview", "recap", "总结", "概要", "小结", "概述"],
-  decisions: ["decision", "decided", "agreed", "what we agreed", "决策", "决议", "结论", "共识"],
-  actions: [
-    "actions",
-    "action item",
-    "next steps",
-    "to do",
-    "todo",
-    "to dos",
-    "todos",
-    "follow ups",
-    "待办",
-    "行动项",
-    "后续步骤",
-    "下一步",
-  ],
-  questions: ["questions", "open issues", "待解决问题", "待解决的问题", "未决问题", "问题", "疑问"],
-  claims: [],
-};
-
-const plain = (text: string) =>
-  text
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[\p{P}\p{S}\s]+/gu, " ")
-    .trim();
-
-/** The section a line of the User's notes is named for, by its whole text, in either language. */
-export function sectionNamed(text: string): FillSection | null {
-  const name = plain(text);
-  if (name === "") return null;
-  const names = (section: FillSection) => [
-    ...LANGUAGES.map((language) => translate(language, SECTION_TITLES[section])),
-    ...SECTION_NAMES[section],
-  ];
-  return (
-    FILL_SECTIONS.find((section) => names(section).some((each) => plain(each) === name)) ?? null
-  );
-}
 
 const SECTION_MARKERS: Readonly<Record<FillSection, string>> = {
   summary: "SUMMARY",
@@ -104,10 +60,12 @@ export const lineMarker = (index: number) => `L${index + 1}`;
 /** Asked with the User's notes, so that each fact is written once in all of them (#2306). */
 const NOTES_SECTION_ASKS: Readonly<Record<FillSection, string>> = {
   ...SECTION_ASKS,
+  decisions:
+    "every final choice actually agreed in the call, a bullet each with its agreed figures, dates and terms; not an agenda item, question, hypothetical, rejected option or a superseded choice",
   questions:
     "what the call left unanswered, a bullet each: never what was decided or what someone will do",
   summary:
-    "one sentence on what the call was about, with no figure or date in it; then, a bullet each, any figure, date or term said in the call that nothing above has",
+    "one short overview sentence on what the call was about; then, only if needed, bullets for figures, dates or terms that belong neither to another section nor to any ordinary line; never repeat facts already allocated elsewhere, and no commentary about the notes or missing information",
 };
 
 /**
@@ -145,26 +103,26 @@ const rules = [
 
 /** Under each of the User's lines, what the call said about it; then the sections, each fact once. */
 export function notesContext(lines: readonly FillLine[], question: string): QuestionContext {
-  const shown = lines.map((line) => {
-    if (line.section)
-      return `(heading: ### ${SECTION_MARKERS[line.section]} goes under it) ${line.text}`;
-    return line.heading ? `(heading) ${line.text}` : `${line.marker}: ${line.text}`;
-  });
+  const shown = lines.map(
+    (line) => `${line.marker}${line.heading ? " (heading)" : ""}: ${line.text}`,
+  );
   const framing = [
     callIntro,
     "The User took the notes below during the call, a line each. Fill them in from the transcript:",
-    "- For each line, write where the call ended up about it, not each offer on the way: one to three short sentences. What someone will do goes in ACTIONS, not under a line, unless the line is that action itself.",
-    '- Start each line\'s part with its marker alone as a heading ("### L3"), in the order of the notes. Leave out a line the call said nothing about.',
-    "- Never repeat or reword the User's line: write only what goes under it. Write nothing for a heading.",
-    "Then, after the lines' parts, write these sections, each starting with its marker alone as a heading, in this order:",
-    ...WRITTEN_ORDER.map(
+    "- Read the notes and transcript before allocating facts. Final agreed choices go in DECISIONS, commitments in ACTIONS, unresolved matters in QUESTIONS. Include each choice's agreed figures, dates and terms there, not as background somewhere else. An agenda or topic is not a completed decision and does not cover a section.",
+    "- Only a line marked (heading) can cover a template section. Match its purpose, not its exact wording, to the overview, agreed choices, commitments, unresolved matters or claims to check. If it serves one of those purposes, append its heading marker to that section's marker (### ACTIONS H1, for example) and write the section there once, not under both markers. Only a heading that serves none of those purposes just groups the lines below it; write nothing for that heading. An ordinary paragraph never covers a section, even if its words are a section's name.",
+    "First write these sections in this order, before filling ordinary lines. Each starts with its section marker as a heading, followed by the existing H marker when that section belongs under the User's heading. One heading may host only its matching section, never another section too. Keep these machine markers in English, in SECTION H order, even when the notes are in another language:",
+    ...WRITTEN_ORDER.filter((section) => section !== "claims").map(
       (section) => `### ${SECTION_MARKERS[section]}: ${NOTES_SECTION_ASKS[section]}.`,
     ),
-    "- Each fact goes in the notes once. Before you write a sentence or a bullet in a section, look at everything written above it: if its figure, date, decision or action is there already, leave it out.",
-    "- Every action goes in ACTIONS, once, with the one person who will do it.",
-    "- CLAIMS alone lists the facts again, to be checked.",
-    "- Leave out a section with nothing in it.",
+    "- Each complete fact goes in the notes once, in its allocated place. Sharing a date, figure, name or topic does not make two different facts duplicates. Do not suppress DECISIONS because an ordinary line mentions their topic: put the agreed choices in DECISIONS and the other details under the line.",
+    "- Every action goes in ACTIONS, once, with all owners explicitly named and its deadline if said; do not invent an owner or deadline.",
+    "- Always write SUMMARY, or fill the User's Summary heading, with a short overview of the call, not a second list of decisions and actions. Cite the transcript line stating the call's purpose at the end of that overview sentence; an uncited overview cannot be included. A filled-out agenda line is not a substitute for SUMMARY.",
+    "- Leave out DECISIONS only when the call made no decision; leave out ACTIONS or QUESTIONS only when the call contains none. Never turn an undecided proposal into a decision just to fill a section.",
+    "Then fill each ordinary line in the order of the notes, starting its part with its marker alone as a heading (### L3, for example). Add only the related background and details NOT already written in the sections. A figure, date, term, decision or action already there must not appear again under an ordinary line, even as a quotation or an earlier offer. Leave out a line with no remaining details. Never repeat or reword the User's own line.",
+    `Finally write ### CLAIMS: ${NOTES_SECTION_ASKS.claims}. CLAIMS alone lists the facts again, to be checked. If a User heading covers it, append that heading's H marker as for the other sections.`,
     ...rules,
+    "- Each Citation quote must be contiguous words from one transcript line, without its time or speaker label. When the words occur more than once, set the cite record's location to the timestamp of the occurrence you mean.",
     // Notes this long were sent without their records one time in five: the Citations asked for
     // afterwards then missed some, and what they missed was dropped.
     "- Then, in the same reply, call cite once with a record for every marker in the notes.",
@@ -197,14 +155,20 @@ function markerOf(node: NodeJSON): string | null {
   const text = textOf(node)
     .replace(/[*_`#:]/g, "")
     .trim();
-  if (/^L\d+$/i.test(text)) return text.toUpperCase();
-  const section = FILL_SECTIONS.find((each) => SECTION_MARKERS[each] === text.toUpperCase());
-  return section ? SECTION_MARKERS[section] : null;
+  if (/^[LH]\d+$/i.test(text)) return text.toUpperCase();
+  const upper = text.toUpperCase();
+  const reversed = /^(H\d+) ([A-Z]+)$/.exec(upper);
+  const marker = reversed && sectionOf(reversed[2] ?? "") ? `${reversed[2]} ${reversed[1]}` : upper;
+  if (sectionOf(marker)) return marker;
+  return /^(H\d+)\s/.exec(upper)?.[1] ?? null;
 }
 
 /** The section a section marker names. */
 export const sectionOf = (marker: string): FillSection | null =>
-  FILL_SECTIONS.find((each) => SECTION_MARKERS[each] === marker) ?? null;
+  FILL_SECTIONS.find((each) => new RegExp(`^${SECTION_MARKERS[each]}(?: H\\d+)?$`).test(marker)) ??
+  null;
+
+export const headingOf = (marker: string): string | null => / (H\d+)$/.exec(marker)?.[1] ?? null;
 
 /**
  * The reply's Blocks by the marker heading each comes under, in order; Blocks before the first
@@ -227,7 +191,8 @@ export function partsOf(blocks: readonly NodeJSON[]): Map<string, NodeJSON[]> {
 }
 
 const hasCitation = (node: NodeJSON): boolean =>
-  node.type === CITATION_NODE || (node.content ?? []).some(hasCitation);
+  (node.type === CITATION_NODE && node.attrs?.check === "found") ||
+  (node.content ?? []).some(hasCitation);
 
 /** What of a reply goes into the notes: only what cites the Transcript, never a line uncited. */
 export function citedOnly(blocks: readonly NodeJSON[]): NodeJSON[] {

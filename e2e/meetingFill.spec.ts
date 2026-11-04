@@ -5,9 +5,12 @@ import type { CoreBridge } from "../src/core/api";
 import {
   createDataFolder,
   dismissChatSetup,
+  focusSettled,
   launchApp,
+  pointAndClick,
   recordMeeting,
   removeDataFolder,
+  setWindowSize,
   startRecording,
   useLocalChatModel,
 } from "./app";
@@ -36,6 +39,9 @@ const LINES = {
     undone: "Fill-in undone",
     again: "Fill in again",
     summary: "Summary",
+    decisions: "Decisions",
+    actions: "Action items",
+    notes: ["Launch date", "UK fee"],
   },
   "zh-CN": {
     filled: "已补全笔记",
@@ -43,52 +49,74 @@ const LINES = {
     undone: "已撤销补全",
     again: "重新补全",
     summary: "摘要",
+    decisions: "决定",
+    actions: "待办",
+    notes: ["上线日期", "英国费用"],
   },
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=after Stop, with no click, the line the User typed during the call gets what the call said under it, as AI text with a Citation, the sections the notes don't cover follow (#2306), the line says so with Undo, and Undo takes all of it back, leaving the User's line, in English and Chinese (#142); fails_when=nothing is filled in, no section follows, the User's line changes, the addition isn't AI text or uncited, or Undo leaves any of it; no_claim=a real model's wording, which the unit tests and a hand check cover.
-  test(`after Stop, the User's line is filled in under it, cited, the sections follow, and Undo takes it back (${language})`, async () => {
+  // protects=after Stop, typed lines and an Action items heading are filled in place as cited AI text, Summary and Decisions follow, and one Undo restores the heading and lines in English and Chinese (#142, #2306); fails_when=a section is missing or repeated, typed text changes, additions are uncited or not AI text, or Undo leaves an addition; no_claim=a real model's wording or allocation of facts.
+  test(`after Stop, typed lines and an Action items heading are filled in place, sections follow, and one Undo restores them (${language})`, async () => {
     const words = LINES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 1280, 900);
     await dismissChatSetup(window);
     await useLocalChatModel(window);
 
     const bar = await startRecording(window, await recordMeeting(window), { notice: true });
     await expect(bar.getByTestId("meeting-transcript-toggle")).toBeEnabled({ timeout: 20_000 });
     const notes = window.getByTestId("mind-editor");
-    await notes.click();
-    await window.keyboard.type("Launch date");
-    const typed = notes.locator("p").filter({ hasText: /^Launch date$/ });
-    await expect(typed).toBeVisible();
+    await pointAndClick(window, notes);
+    await focusSettled(window, notes);
+    for (const text of words.notes) {
+      await window.keyboard.type(text);
+      await window.keyboard.press("Enter");
+    }
+    await window.keyboard.type(`## ${words.actions}`);
+    const heading = notes.locator("h2:not(:has(.generated-text))");
+    await expect(heading).toHaveText(words.actions);
+    await expect(notes.locator("p")).toHaveText(words.notes);
+    const blocks = notes.locator(":scope > *");
+    const original = await blocks.allTextContents();
 
     // The menus above are named in English; what follows Stop is read in the language chosen.
     await window.evaluate(async (chosen) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.updateSettings({ user: { language: chosen } });
     }, language);
-    await bar.getByTestId("meeting-stop").click();
+    await pointAndClick(window, bar.getByTestId("meeting-stop"));
     const line = window.getByTestId("meeting-fill-line");
     await expect(line).toContainText(words.filled, { timeout: 30_000 });
     await expect(line.getByTestId("meeting-fill-undo")).toHaveText(words.undo);
-    // Right under the User's line: AI text, with its Citation; then the sections follow.
     const added = notes.locator(".generated-text");
-    const lineAdded = notes.locator("p:has(.generated-text)").first();
-    await expect(lineAdded.getByTestId("citation")).toHaveCount(1);
-    await expect(notes.locator("h2:has(.generated-text)").first()).toHaveText(words.summary);
+    await expect(notes.locator("h2")).toHaveText([words.actions, words.summary, words.decisions]);
+    await expect(heading).toHaveText(words.actions);
+    const actions = notes.locator("h2:not(:has(.generated-text)) + ul");
+    await expect(actions).toHaveCount(1);
+    await expect(actions.locator(".generated-text")).not.toHaveCount(0);
+    await expect(actions.getByTestId("citation")).toHaveCount(1);
     await shot(window, `meeting-fill-sections-${language}`);
-    const order = await notes
-      .locator("p")
-      .evaluateAll((all) => all.map((each) => each.querySelector(".generated-text") !== null));
-    const userAt = await notes
-      .locator("p")
-      .evaluateAll((all) => all.findIndex((each) => each.textContent === "Launch date"));
-    expect(order[userAt + 1]).toBe(true);
-    await expect(typed).toHaveText("Launch date");
+    const paragraphs = await notes.locator(":scope > p").evaluateAll((all) =>
+      all.map((each) => ({
+        text: each.textContent,
+        generated: each.querySelector(".generated-text") !== null,
+        citations: each.querySelectorAll('[data-testid="citation"]').length,
+      })),
+    );
+    for (const text of words.notes) {
+      const userAt = paragraphs.findIndex((each) => each.text === text);
+      expect(userAt).toBeGreaterThanOrEqual(0);
+      expect(paragraphs[userAt]).toMatchObject({ generated: false, citations: 0 });
+      expect(paragraphs[userAt + 1]).toMatchObject({ generated: true, citations: 1 });
+    }
 
-    await line.getByTestId("meeting-fill-undo").click();
+    await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
     await expect(added).toHaveCount(0);
-    await expect(typed).toHaveText("Launch date");
+    await expect(blocks).toHaveText(original);
+    await expect(notes.locator("h2")).toHaveText([words.actions]);
+    await expect(notes.locator("p")).toHaveText(words.notes);
+    await expect(notes.getByTestId("citation")).toHaveCount(0);
     await expect(line).toContainText(words.undone);
     await expect(line.getByTestId("meeting-fill-again")).toHaveText(words.again);
     await app.close();

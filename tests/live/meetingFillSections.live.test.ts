@@ -7,13 +7,15 @@
  * them by design), each cited to a transcript line that says it with that line's speaker; and the
  * tokens and what they cost. The counts, notes and costs go to INCARNAMIND_LIVE_REPORT when set.
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (INCARNAMIND_LIVE_ANTHROPIC_MODEL, Claude Haiku
- * 5.5 by default; INCARNAMIND_LIVE_CALLS picks calls by id, comma-separated).
+ * 5.5 by default; INCARNAMIND_LIVE_CALLS picks calls by id, comma-separated), or with
+ * INCARNAMIND_LIVE_OLLAMA_MODEL for a Local-mode check with an 8,192-token window.
  */
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
+import { evalOllamaModels } from "../../eval/lib/citations";
 import type { Core, Meeting, MeetingFill } from "../../src/core";
 import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
 import { costOf } from "../../src/core/cost/price";
@@ -27,7 +29,8 @@ import { heading, note, readMind, writeMind } from "../helpers/minds";
 import { transcribingCore } from "../helpers/transcription";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
-const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
+const LOCAL_MODEL = process.env.INCARNAMIND_LIVE_OLLAMA_MODEL;
+const MODEL = LOCAL_MODEL ?? process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const PICKED = process.env.INCARNAMIND_LIVE_CALLS?.split(",").map((each) => each.trim());
 
@@ -129,7 +132,12 @@ const CALLS: Call[] = [
         said: [3],
       },
       { name: "周三发邀请函初稿", kind: "action", pattern: [/邀请/, /周三/, /小倪/], said: [4] },
-      { name: "预约灯光验收人员", kind: "action", pattern: [/预约/, /验收/, /老易/, /明天/], said: [5] },
+      {
+        name: "预约灯光验收人员",
+        kind: "action",
+        pattern: [/预约/, /验收/, /老易/, /明天/],
+        said: [5],
+      },
       { name: "小乔周五送展签", kind: "action", pattern: [/展签/, /周五/, /小乔/], said: [6] },
     ],
     notDecided: [/(?:定|选)(?:在)?(?:四月四日|4\s*月\s*4\s*日)开幕/],
@@ -986,7 +994,7 @@ const FINAL_CALLS: Call[] = [
       {
         name: "launch on 17 March",
         kind: "decision",
-        pattern: /\b17(?:th)?\b|seventeenth/i,
+        pattern: [/\b17(?:th)?\b|seventeenth/i, /launch|release|go live/i],
         said: [4, 5],
       },
       {
@@ -1023,7 +1031,7 @@ const FINAL_CALLS: Call[] = [
       {
         name: "三月十七日上线",
         kind: "decision",
-        pattern: /17\s*日|十七日|3\s*月\s*17/,
+        pattern: [/17\s*日|十七日|3\s*月\s*17/, /上线|发布/],
         said: [4, 5],
       },
       { name: "今天告诉市场部", kind: "action", pattern: [/市场部/, /今天/], said: [6] },
@@ -1111,7 +1119,7 @@ const FINAL_CALLS: Call[] = [
       {
         name: "hire students for Saturdays",
         kind: "decision",
-        pattern: [/student/i, /Saturday/i],
+        pattern: [/student/i, /Saturday/i, /hire|employ|recruit|take on/i],
         said: [4],
       },
       { name: "Hannah runs the till", kind: "action", pattern: [/Hannah/i, /till/i], said: [6] },
@@ -1165,7 +1173,7 @@ interface Usage {
 /** Real Anthropic models, each request's tokens counted and priced at its prompt's tier. */
 function countedModels(usage: Usage) {
   const price = catalogModel("anthropic", MODEL)?.price;
-  if (!price) throw new Error(`The catalog has no price for ${MODEL}.`);
+  if (!price && !LOCAL_MODEL) throw new Error(`The catalog has no price for ${MODEL}.`);
   const add = (counted: {
     inputTokens: { total?: number; cacheRead?: number; cacheWrite?: number };
     outputTokens: { total?: number; reasoning?: number };
@@ -1181,7 +1189,7 @@ function countedModels(usage: Usage) {
     usage.cached += tokens.cachedInputTokens;
     usage.written += tokens.cacheWriteTokens;
     usage.output += tokens.outputTokens;
-    usage.dollars += costOf(tokens, price, new Date(), { cacheWrites: true });
+    if (price) usage.dollars += costOf(tokens, price, new Date(), { cacheWrites: true });
   };
   return (spec: Parameters<typeof createAiSdkChatModel>[0]) =>
     wrapLanguageModel({
@@ -1267,6 +1275,33 @@ function unitsOf(doc: ProseMirrorNode): Unit[] {
 const says = (fact: Fact, text: string) =>
   (Array.isArray(fact.pattern) ? fact.pattern : [fact.pattern]).every((each) => each.test(text));
 
+const occurrences = (fact: Fact, text: string) =>
+  Math.min(
+    ...(Array.isArray(fact.pattern) ? fact.pattern : [fact.pattern]).map(
+      (pattern) =>
+        [...text.matchAll(new RegExp(pattern.source, `${pattern.flags.replace(/g/g, "")}g`))]
+          .length,
+    ),
+  );
+
+test("meeting scores count repeated facts inside one paragraph, not just matching paragraphs", () => {
+  const fact: Fact = {
+    name: "raise the crest by 40 cm",
+    kind: "decision",
+    pattern: [/crest/i, /40|forty/i],
+    said: [0],
+  };
+  expect(occurrences(fact, "Raise the crest by 40 centimetres.")).toBe(1);
+  expect(
+    occurrences(
+      fact,
+      'Raise the crest by 40 centimetres. They agreed to "raise the crest by forty centimetres".',
+    ),
+  ).toBe(2);
+  expect(occurrences(fact, "Raise the crest by forty centimetres; the crest is damaged.")).toBe(1);
+  expect(occurrences(fact, "The crest is damaged.")).toBe(0);
+});
+
 const plain = (text: string) =>
   text
     .replace(/\[[^\]]*\]/g, "")
@@ -1336,11 +1371,26 @@ async function run(call: Call) {
       ],
     },
     createChatModel: countedModels(usage),
+    ...(LOCAL_MODEL && {
+      ollamaModels:
+        evalOllamaModels({
+          kind: "ollama",
+          modelId: MODEL,
+          apiKey: null,
+          baseUrl: "http://127.0.0.1:11434",
+          endpoint: null,
+          numCtx: 8_192,
+          citing: null,
+        }) ?? undefined,
+    }),
   });
   await core.updateSettings({
     user: { language: call.language, monthlyCap: { amount: 0.25, currency: "USD" } },
   });
-  await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
+  if (LOCAL_MODEL) {
+    await core.saveChatProvider({ kind: "ollama", modelId: MODEL });
+    await core.setLocalOnly(true);
+  } else await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
   const meeting = await core.createMeeting();
   const client = await connectToMind(core, meeting.mindId);
   if (call.notes.length > 0) writeMind(client, call.notes);
@@ -1371,8 +1421,8 @@ async function run(call: Call) {
     const found = outside.filter((each) => says(fact, each.text));
     return {
       fact,
-      count: found.length,
-      inClaims: inClaims.filter((each) => says(fact, each.text)).length,
+      count: found.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
+      inClaims: inClaims.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
       cited: found.length > 0 && found.every((each) => citesRightly(each, fact, call)),
     };
   });
@@ -1427,7 +1477,7 @@ const chosen = [...CALLS, ...FINAL_CALLS, ...UNTYPED].filter(
   (call) => !PICKED || PICKED.includes(call.id),
 );
 
-describe.skipIf(!KEY)(
+describe.skipIf(!KEY && !LOCAL_MODEL)(
   "Notes typed in a call, filled in on a real model (#2306)",
   {
     timeout: 900_000,
@@ -1440,16 +1490,31 @@ describe.skipIf(!KEY)(
         call.sectionHeadings?.[section] ??
         translate(call.language, `meetings.fill.section.${section}`);
       const summary = units.filter((each) => each.ai && each.section === title("summary"));
+      const overviews = usage.replies.flatMap((reply) =>
+        reply.text.split(/^### /m).flatMap((part) => {
+          const [marker, ...lines] = part.split("\n");
+          if (!/^(?:SUMMARY(?: H\d+)?|H\d+ SUMMARY)$/i.test(marker?.trim() ?? "")) return [];
+          const first = lines.find((line) => line.trim() !== "");
+          return first ? [plain(first.replace(/\[\^\d+\]/g, ""))] : [];
+        }),
+      );
+      const overview = summary.some(
+        (unit) =>
+          overviews.includes(plain(unit.text)) &&
+          unit.citations.some((citation) => citation.check === "found"),
+      );
       const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
       const counts = {
         decisions: scored.filter((each) => each.fact.kind === "decision" && each.count > 0).length,
         actions: scored.filter((each) => each.fact.kind === "action" && each.count > 0).length,
         duplicates: scored.reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
-        invented: decisions.filter((each) =>
-          call.notDecided?.some((pattern) => pattern.test(each.text)) &&
-          !call.facts.some((fact) => fact.kind === "decision" && says(fact, each.text)),
+        invented: decisions.filter(
+          (each) =>
+            call.notDecided?.some((pattern) => pattern.test(each.text)) &&
+            !call.facts.some((fact) => fact.kind === "decision" && says(fact, each.text)),
         ).length,
         summary: summary.length,
+        overview,
         decisionsSection: decisions.length,
         undone,
         decisionsInSection: call.facts.filter(
@@ -1478,11 +1543,13 @@ describe.skipIf(!KEY)(
             rows,
             "",
             "```",
-             shownNote(doc),
-             "```",
-             ...(fill.state === "filled" && once === call.facts.length ? [] : [
-               `Citation details: ${JSON.stringify(units.map((unit) => ({ text: unit.text, citations: unit.citations })))}`,
-             ]),
+            shownNote(doc),
+            "```",
+            ...(fill.state === "filled" && once === call.facts.length
+              ? []
+              : [
+                  `Citation details: ${JSON.stringify(units.map((unit) => ({ text: unit.text, citations: unit.citations })))}`,
+                ]),
             "",
             ...(fill.state === "filled" && !process.env.INCARNAMIND_LIVE_REPLIES
               ? []
@@ -1503,6 +1570,10 @@ describe.skipIf(!KEY)(
       if (call.requireSections) {
         expect(undone).toBe(true);
         expect(summary.length, "Summary is present").toBeGreaterThan(0);
+        expect(
+          overview,
+          "The generated overview was placed, not just details under a Summary heading",
+        ).toBe(true);
         const expected = call.facts.filter((fact) => fact.kind === "decision").length;
         expect(decisions.length > 0, "Decisions only when the call decided something").toBe(
           expected > 0,
