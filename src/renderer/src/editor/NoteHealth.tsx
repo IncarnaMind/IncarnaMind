@@ -354,10 +354,8 @@ export function HealthCard({
     problem: problem !== undefined,
     unread: state?.unreadMatters === true ? state.unread : 0,
   });
-  // The summary's line keeps its place from the moment a run starts here, empty until its
-  // result lands, so the card keeps one height as a check's results arrive (#1312, #1941).
-  // The line the run will fill keeps its place from the card's open, so the body's height at the
-  // press is its height all run: the check's start adds nothing that clips what was shown.
+  // The summary's line keeps its place from the card's open, empty until its result lands, so a
+  // run's start adds no height and its results never make the card jump (#1312, #1941, #2313).
   const summaryShown =
     summary?.kind === "all" || (summary?.kind === "left" && summary.summary.supported > 0);
   const summarySpace = !summaryShown && problem === undefined && health.checkable > 0;
@@ -470,11 +468,11 @@ export function HealthCard({
         />
       )}
       {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
-      {/* One line of note, in one place, from the moment the check starts: what has landed so
-          far while it runs, then when it was checked. The foot carries the run's progress. It
-          stays once a run has started here: a run ends a moment before its record reaches the
-          Mind, and the line must not go in between. The card's body keeps its opening height, so
-          what is above it stays put as the run ends (#1312). */}
+      {/* One line of note, in one place, from the card's open: what has landed so far while a run
+          is on, then when it was checked. The foot carries the run's progress. It stays once a
+          run has started here: a run ends a moment before its record reaches the Mind, and the
+          line must not go in between. The card's body keeps its opening height, so what is above
+          it stays put as the run ends (#1312). */}
       {(running || checkedAll || ranHere || (problem === undefined && health.checkable > 0)) && (
         <div className="check-card-note">
           {running
