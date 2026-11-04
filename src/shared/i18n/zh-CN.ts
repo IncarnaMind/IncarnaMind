@@ -3479,7 +3479,6 @@ export const zhCN = {
   "answer.sourceNotKept": "（未能保留来源）",
   "answer.status.stopped": "已停止",
   "answer.stop": "停止",
-  "answer.wait.still": "仍在处理",
   "answer.wait.usually.seconds": "用 {model} 通常要 {count} 秒左右",
   "answer.wait.usually.minute": "用 {model} 通常要 1 分钟左右",
   "answer.wait.usually.minutes": "用 {model} 通常要 {count} 分钟左右",

@@ -29,6 +29,14 @@ test.afterEach(async () => {
 const NAMES = ["Lease Harbour Street", "Lease Mill Lane", "Board minutes"];
 const FOUR = ["Lease Harbour Street", "Lease Mill Lane", "Boiler service report", "Board minutes"];
 
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+async function screenshot(window: Page, name: string): Promise<void> {
+  if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+}
+
+/** The Answer's ink, the AI grey (DESIGN.md, `ink-answer`). */
+const INK_ANSWER = "rgb(59, 64, 72)";
+
 /** Documents added in this order, three by default, so the newest is Board minutes. */
 async function setUp(
   app: ElectronApplication,
@@ -94,8 +102,11 @@ test("asked which Documents to summarise, the User ticks one more and goes on", 
   await expect(card).toHaveCount(0);
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-  await expect(answer.getByTestId("answer-asked")).toHaveText(
-    "You chose: Board minutes, Lease Mill Lane, Lease Harbour Street",
+  await expect(answer.getByTestId("answer-asked-question")).toHaveText(
+    "Which Documents should I summarise?",
+  );
+  await expect(answer.getByTestId("answer-asked-answer")).toContainText(
+    "Board minutes, Lease Mill Lane, Lease Harbour Street",
   );
   const editor = window.locator('[data-testid="mind-editor"]:visible');
   await expect(editor).toContainText("The main points of “Lease Harbour Street”.");
@@ -110,7 +121,7 @@ for (const [how, act, said] of [
       await card.getByTestId("question-other").fill("the boiler one");
       await card.getByTestId("question-option").nth(1).click();
     },
-    "You chose: All 3 Documents",
+    "All 3 Documents",
   ],
   [
     "words typed in Other… untick the ticked row and are sent alone",
@@ -121,7 +132,7 @@ for (const [how, act, said] of [
       await expect(ticked).toHaveAttribute("aria-checked", "false");
       await card.getByTestId("question-other").press("Enter");
     },
-    "You chose: “the boiler one”",
+    "the boiler one",
   ],
 ] as const) {
   test(`in a single choice, ${how}`, async () => {
@@ -137,8 +148,107 @@ for (const [how, act, said] of [
     await expect(card).toHaveCount(0);
     const answer = assistantAnswers(window).last();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-    await expect(answer.getByTestId("answer-asked")).toHaveText(said);
+    await expect(answer.getByTestId("answer-asked-answer")).toContainText(said);
     await expect(window.getByRole("alert")).toHaveCount(0);
+    await app.close();
+  });
+}
+
+const ANSWER_CARD = {
+  en: {
+    asked: "Summarise the main documents slowly",
+    question: "Which Documents should I summarise?",
+    answer: "Board minutes, Lease Mill Lane",
+    reply: "Summarised the Documents you chose.",
+    waiting: "Waiting for your answer below",
+  },
+  "zh-CN": {
+    asked: "总结主要的文档 slowly",
+    question: "要总结哪几份文档？",
+    answer: "Board minutes、Lease Mill Lane",
+    reply: "已写好你选的文档的摘要。",
+    waiting: "等你在下方回答",
+  },
+} as const;
+
+for (const [language, width, height] of [
+  ["en", 900, 760],
+  ["en", 1440, 900],
+  ["zh-CN", 900, 760],
+  ["zh-CN", 1440, 900],
+] as const) {
+  test(`after the User answers a question card, their own bubble, one step line and the reply, in ${language} at ${width} × ${height}`, async () => {
+    test.setTimeout(180_000);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setUp(app, window, language);
+    await setWindowSize(app, window, width, height);
+    const said = ANSWER_CARD[language];
+
+    const card = await ask(window, said.asked);
+    await expect(card).toContainText(said.question);
+    await pointAndClick(window, card.getByTestId("question-continue"));
+    await expect(card).toHaveCount(0);
+    const answer = assistantAnswers(window).last();
+
+    // The answered card folds to the assistant's question, in the Answer's ink, its options gone.
+    const question = answer.getByTestId("answer-asked-question");
+    await expect(question).toHaveText(said.question);
+    await expect(question).toHaveCSS("color", INK_ANSWER);
+    await expect(answer.getByTestId("question-option")).toHaveCount(0);
+    await expect(answer.getByTestId("answer-asked")).toHaveCount(0);
+
+    // The User's answer is their own bubble, right-aligned as the Question above it.
+    const bubble = answer.getByTestId("answer-asked-answer").locator(".assistant-question-bubble");
+    await expect(bubble).toHaveText(said.answer);
+    await expect(answer.getByTestId("answer-asked-answer")).toHaveCSS(
+      "justify-content",
+      "flex-end",
+    );
+    const asked = window
+      .getByTestId("assistant-question")
+      .last()
+      .locator(".assistant-question-bubble");
+    const askedBox = await asked.boundingBox();
+    const bubbleBox = await bubble.boundingBox();
+    expect(askedBox).not.toBeNull();
+    expect(bubbleBox).not.toBeNull();
+    if (askedBox && bubbleBox) {
+      expect(
+        Math.abs(bubbleBox.x + bubbleBox.width - (askedBox.x + askedBox.width)),
+      ).toBeLessThanOrEqual(1);
+    }
+
+    // One step line, and no second Stop: the composer's ■ is the one Stop.
+    await expect(answer.getByTestId("answer-steps-live")).toHaveCount(1);
+    await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
+    await expect(answer).not.toContainText("Still working");
+    await expect(window.getByTestId("composer-stop")).toBeVisible();
+    // The line goes on with the run, never saying it waits over the User's answer.
+    await expect(answer.getByTestId("answer-writing")).not.toHaveText(said.waiting, {
+      timeout: 10_000,
+    });
+    await screenshot(window, `answered-waiting-${language}-${width}`);
+
+    // The reply streams under that one line.
+    await expect(answer.getByTestId("assistant-answer-text")).toContainText(/\p{L}/u, {
+      timeout: 30_000,
+    });
+    await screenshot(window, `answered-${language}-${width}`);
+
+    // The reply comes under that one line; the question, the bubble, the line and the reply hold that order.
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    await expect(answer.getByTestId("assistant-answer-text")).toContainText(said.reply);
+    const line = await answer.getByTestId("answer-steps").boundingBox();
+    const text = await answer.getByTestId("assistant-answer-text").boundingBox();
+    const questionBox = await question.boundingBox();
+    const kept = await bubble.boundingBox();
+    expect((line?.height ?? 0) < 30).toBe(true);
+    expect((questionBox?.y ?? 0) < (kept?.y ?? 0)).toBe(true);
+    expect((kept?.y ?? 0) < (line?.y ?? 0)).toBe(true);
+    expect((line?.y ?? 0) < (text?.y ?? 0)).toBe(true);
+    await screenshot(window, `answered-done-${language}-${width}`);
     await app.close();
   });
 }
@@ -405,8 +515,9 @@ test("in Chinese, the question and its rows, at a narrow window", async () => {
   await card.getByTestId("question-other").press("Enter");
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-  await expect(answer.getByTestId("answer-asked")).toHaveText(
-    "你选择了：Board minutes、Lease Mill Lane、“还有那份锅炉的”",
+  await expect(answer.getByTestId("answer-asked-question")).toHaveText("要总结哪几份文档？");
+  await expect(answer.getByTestId("answer-asked-answer")).toContainText(
+    "Board minutes、Lease Mill Lane、还有那份锅炉的",
   );
   await app.close();
 });

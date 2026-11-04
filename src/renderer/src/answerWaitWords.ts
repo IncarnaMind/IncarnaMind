@@ -11,14 +11,17 @@ export const setSilentWaitMs = (ms: number): void => {
 export const silentWaitMs = (): number => silentMs;
 
 /**
- * The line's words: how long the model usually takes, in the rough measures
- * people say ("about 40 seconds", "about a minute", "about 3 minutes"), when
- * that is more than the wait so far; else that it is still working.
+ * The wait part of an Answer's step line (#2530): how long the model usually
+ * takes, in the rough measures people say ("about 40 seconds", "about a
+ * minute", "about 3 minutes"), when that is more than the wait so far; null
+ * when it isn't known, so the line keeps its step alone.
  */
-export function waitText(t: Translate, usualSeconds: number | null, model: string | null): string {
-  if (usualSeconds === null || model === null || usualSeconds * 1000 <= silentMs) {
-    return t("answer.wait.still");
-  }
+export function waitText(
+  t: Translate,
+  usualSeconds: number | null,
+  model: string | null,
+): string | null {
+  if (usualSeconds === null || model === null || usualSeconds * 1000 <= silentMs) return null;
   const tens = Math.round(usualSeconds / 10) * 10;
   if (tens < 60) return t("answer.wait.usually.seconds", { count: tens, model });
   const minutes = Math.round(usualSeconds / 60);

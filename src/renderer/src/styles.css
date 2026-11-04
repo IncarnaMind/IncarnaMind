@@ -4209,6 +4209,23 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  .answer-asked {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* The question the assistant asked, folded to its words in the Answer's ink (#2530); its options are gone. */
+  .answer-asked-question {
+    margin: 0;
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--color-ink-answer);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .answer-asked-turn .assistant-question {
+    margin-top: 0;
+  }
   .answer-asked-line {
     font-size: 13px;
     line-height: 20px;
@@ -8645,22 +8662,14 @@
     background: var(--color-attention);
     animation: none;
   }
+  /*
+   * The wait that joins the live line after 15 seconds (#2530): it gives way
+   * first, so a narrow line keeps the step's own words and seconds.
+   */
   .answer-steps-wait {
-    max-width: calc(100% - 20px);
-    margin: 0 0 0 20px;
-    font-size: 13px;
-    line-height: 18px;
-    color: var(--color-ink-meta);
-  }
-  .answer-steps-wait-stop {
-    padding: 0;
-    border-radius: 4px;
-    font-weight: 600;
-    color: var(--color-ink-secondary);
-
-    &:hover {
-      color: var(--color-ink);
-    }
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
   }
   .answer-timeline {
     display: flex;

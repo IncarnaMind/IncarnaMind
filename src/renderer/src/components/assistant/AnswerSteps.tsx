@@ -10,6 +10,7 @@ import {
 import type {
   AnswerToolCall,
   AskedFrom,
+  ChatModelChoice,
   ConversationAnswer,
   ConversationQuestion,
   EmbeddingModelStatus,
@@ -41,6 +42,7 @@ import {
   mindStepText,
 } from "../../answerStepWords";
 import { useAnswers } from "../../answers";
+import { waitText } from "../../answerWaitWords";
 import { stepsScope } from "../../assistantContext";
 import { namedMind } from "../../changeProblems";
 import { commandCallText } from "../../commandFacts";
@@ -67,7 +69,6 @@ import {
   SparkLineIcon,
 } from "../lineIcons";
 import { LineAction, ProblemLine } from "../ProblemLine";
-import { AnswerWait } from "./AnswerWait";
 import { askCallText } from "./AskCall";
 import { CheckTheRest } from "./CheckTheRest";
 import { mindCallText } from "./MindCall";
@@ -76,10 +77,10 @@ import { mindCallText } from "./MindCall";
 const SHOWN_SOURCES = 3;
 
 /**
- * An Answer's steps in the assistant (#391), at the top of the Answer: while
- * it is written, the step it is on; once written, one folded line, as
- * Claude's and ChatGPT's "Thought for 5s ›", which opens, at once, to a
- * timeline of what it did, with Regenerate at its end.
+ * An Answer's steps in the assistant (#391): while it is written, the step it
+ * is on; once written, one folded line, as Claude's and ChatGPT's "Thought for
+ * 5s ›", which opens, at once, to a timeline of what it did, with Regenerate at
+ * its end.
  */
 export function AnswerSteps({
   answer,
@@ -135,9 +136,9 @@ export function AnswerSteps({
           step={step}
           scope={scopeOf(0)}
           askedFrom={askedFrom}
+          wait={wait ? { usual: wait.usual, model: answer.model ?? null } : null}
           toggle={{ open, onToggle, ref: toggle, ...focus }}
         />
-        {wait && <AnswerWait answer={answer} usual={wait.usual} />}
         {open && (
           <Timeline
             rows={stepRows({ answer, askedFrom, meeting, selection }, step, checking.current)}
@@ -204,12 +205,15 @@ export function LiveLine({
   step,
   scope,
   askedFrom = null,
+  wait = null,
   toggle,
 }: {
   step: LiveStep;
   scope: string;
   /** The Mind the Question was asked from: the one a Minds' Tool changes when it names none. */
   askedFrom?: AskedFrom | null;
+  /** How long this model usually takes, once the line has had no words long enough (#2530). */
+  wait?: { usual: number | null; model: ChatModelChoice | null } | null;
   /** Opens and folds the steps, by a button over the whole line. */
   toggle?: {
     open: boolean;
@@ -221,6 +225,7 @@ export function LiveLine({
 }) {
   const t = useT();
   const shown = useHeldStep(step);
+  const line = useRef<HTMLParagraphElement | null>(null);
   const minds = useAppStore((state) => state.minds);
   // A Minds' Tool's call names its Mind once it has changed it; before, by its input, else the one asked from.
   const mindOf = (call: AnswerToolCall) => {
@@ -239,6 +244,7 @@ export function LiveLine({
   const waiting = shown.kind === "waiting" || shown.kind === "consent";
   return (
     <p
+      ref={line}
       role="status"
       data-testid="answer-steps-live"
       data-step={shown.kind}
@@ -275,6 +281,7 @@ export function LiveLine({
           {t("steps.live.seconds", { seconds: waitingSeconds })}
         </span>
       )}
+      {!waiting && wait && <WaitPart usual={wait.usual} model={wait.model} line={line} />}
       {toggle && (
         <button
           type="button"
@@ -291,6 +298,58 @@ export function LiveLine({
         </button>
       )}
     </p>
+  );
+}
+
+/**
+ * The wait part of the live line (#2530): how long the model usually takes, joined
+ * after the step's words and seconds. A line that cannot hold it whole leaves it
+ * out first, so the step's own words always show.
+ */
+function WaitPart({
+  usual,
+  model,
+  line,
+}: {
+  usual: number | null;
+  model: ChatModelChoice | null;
+  line: { current: HTMLParagraphElement | null };
+}) {
+  const t = useT();
+  const nameOf = useModelNames();
+  const text = waitText(t, usual, model ? nameOf(model.modelId, model.providerId).name : null);
+  const part = useRef<HTMLSpanElement | null>(null);
+  const [shown, setShown] = useState(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new wait gets a new chance to show.
+  useLayoutEffect(() => {
+    setShown(true);
+  }, [text]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: it is measured when its words or its showing change, and while it is squeezed.
+  useLayoutEffect(() => {
+    const element = part.current;
+    if (!element) return;
+    const clipped = () => element.scrollWidth > element.clientWidth + 1;
+    if (clipped()) setShown(false);
+    const observer = new ResizeObserver(() => {
+      if (clipped()) setShown(false);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, shown]);
+  // A line with room again shows the wait again.
+  useEffect(() => {
+    const element = line.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setShown(true));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [line]);
+  if (text === null || !shown) return null;
+  return (
+    <span ref={part} data-testid="answer-steps-wait" className="answer-steps-wait">
+      <span aria-hidden="true">{"\u00a0·\u00a0"}</span>
+      {text}
+    </span>
   );
 }
 
