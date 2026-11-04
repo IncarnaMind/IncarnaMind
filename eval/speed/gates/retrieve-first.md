@@ -16,13 +16,13 @@ Written and committed on 2026-11-04, before any run it gates. A model is on the 
 
 `INCARNAMIND_EVAL_SPEED_MARGIN=1`: on the items both arms finished, per model and set, the candidate may have up to one item in 30 fewer (rounded down) than the loop on each of these:
 
-| Guard | gating (65) | hard (180) | everyday (30) | everyday (whole set, n) |
-|---|---|---|---|---|
-| Expected Passages cited | 2 fewer | 6 fewer | 1 fewer | n / 30 fewer |
-| Judged right | 2 fewer | 6 fewer | 1 fewer | n / 30 fewer |
-| Every Citation found | 2 fewer | 6 fewer | 1 fewer | n / 30 fewer |
+| Guard | gating (65) | hard (180) |
+|---|---|---|
+| Expected Passages cited | 2 fewer | 6 fewer |
+| Judged right | 2 fewer | 6 fewer |
+| Every Citation found | 2 fewer | 6 fewer |
 
-A guard over fewer items counts its own items: 29 of them allow none.
+A guard over fewer items counts its own items: 29 of them allow none. The everyday requests have no expected Passages or judged grade, so the runner counts none of these three there (corrected on 2026-11-04, before any everyday run: this table first gave them everyday columns); they are held to the lines below.
 
 And none new, on every set:
 
