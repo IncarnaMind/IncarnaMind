@@ -9,6 +9,7 @@ import { catalogProvider, kindOfCatalogId } from "../../src/core/providers/catal
 import { openDatabase } from "../../src/core/storage";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
+import { answerEnded } from "../helpers/citations";
 import {
   createMemoryKeychain,
   createTempDataFolder,
@@ -109,14 +110,31 @@ async function newUser({
   return { core, models, provider, mind, dataDir: folder };
 }
 
-const approvals = (core: Core) => {
+const approvals = (core: Core, asking: () => void = () => undefined) => {
   const asked: ApprovalRequest[] = [];
   core.on("approval.requested", (request) => {
     asked.push(request);
+    asking();
     void core.respondToApproval(request.requestId, "allow-once");
   });
   return asked;
 };
+
+/** The User said no to sending Documents for sorting to this service, before. */
+function decline(dataDir: string, service: { id: string; name: string }) {
+  const at = new Date().toISOString();
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  try {
+    db.run(
+      `INSERT INTO data_flow_consents
+         (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
+       VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
+      [randomUUID(), service.id, service.name, at, at],
+    );
+  } finally {
+    db.close();
+  }
+}
 
 const commandCalls = (answer: ConversationAnswer) =>
   answer.toolCalls.filter((call) => call.source === "commands");
@@ -130,10 +148,13 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     ["en", "Put my Documents into Folders."],
     ["zh-CN", "把我的文档放进文件夹。"],
   ] as const)("%s: the first request asks, then files them", async (language, text) => {
-    const { core, provider, mind } = await newUser({ language });
+    const { core, models, provider, mind } = await newUser({ language });
     const premise = (await core.getTaggingModels()).automatic;
     expect(premise).toMatchObject({ name: "Claude Haiku 5.5", group: "keys" });
-    const requests = approvals(core);
+    const sentBeforeAllow: number[] = [];
+    const requests = approvals(core, () =>
+      sentBeforeAllow.push(requestsWith(models.model, "Harbour Street")),
+    );
 
     const answer = await askAssistant(core, { text, mindId: mind.id });
 
@@ -146,6 +167,8 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
       reason: "organize",
       service: "Anthropic",
     });
+    expect(sentBeforeAllow).toEqual([0]);
+    expect(requestsWith(models.model, "Harbour Street")).toBeGreaterThan(0);
     expect(await filed(core)).toHaveLength(4);
     expect((await core.getLibrary()).settings.organizeWith).toEqual({
       kind: "chat",
@@ -177,13 +200,14 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
 
   // protects=Don't allow on that card sends nothing and keeps no model for Organize; fails_when=a Document is filed, a Folder is made, or the model is kept without the User's yes; no_claim=the card's words.
   test("not allowed, nothing is sent and no model is kept", async () => {
-    const { core, mind } = await newUser();
+    const { core, models, mind } = await newUser();
     core.on("approval.requested", (request) => {
       void core.respondToApproval(request.requestId, "deny");
     });
 
     await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
 
+    expect(requestsWith(models.model, "Harbour Street")).toBe(0);
     const library = await core.getLibrary();
     expect(library.settings.organizeWith).toBeNull();
     expect(library.groups).toEqual([]);
@@ -196,18 +220,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
   test("a standing no is still a no after the card's Allow", async () => {
     const { core, provider, mind, dataDir } = await newUser();
     if (!provider.service) throw new Error("No service.");
-    const at = new Date().toISOString();
-    const db = openDatabase(join(dataDir, DATABASE_FILE));
-    try {
-      db.run(
-        `INSERT INTO data_flow_consents
-           (id, flow, service_id, service_name, decision, data_kinds, created_at, updated_at)
-         VALUES (?, 'classification', ?, ?, 'declined', '[]', ?, ?)`,
-        [randomUUID(), provider.service.id, provider.service.name, at, at],
-      );
-    } finally {
-      db.close();
-    }
+    decline(dataDir, provider.service);
     const requests = approvals(core);
 
     await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
@@ -222,6 +235,39 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
     expect(flow?.consent).toBe("declined");
     expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+  });
+
+  // protects=a model the User picks with the Library's "Use {company}" while the card waits is the one Organize uses and keeps, with or without a standing no; fails_when=Allow keeps Automatic's pick over theirs, or puts the Organize model back to none; no_claim=which Folder the classifier picks.
+  test.each([
+    ["no standing no", false],
+    ["a standing no", true],
+  ] as const)("%s: a model picked while the card waits is kept", async (_name, declined) => {
+    const { core, models, provider, mind, dataDir } = await newUser();
+    if (!provider.service) throw new Error("No service.");
+    if (declined) decline(dataDir, provider.service);
+    const waiting = Promise.withResolvers<ApprovalRequest>();
+    core.on("approval.requested", (request) => waiting.resolve(request));
+    const result = await core.askInConversation({
+      text: "Put my Documents into Folders.",
+      mindId: mind.id,
+    });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    const request = await waiting.promise;
+    const theirs = {
+      kind: "chat",
+      choice: { providerId: provider.id, modelId: "claude-sonnet-5-5" },
+    } as const;
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({ ...settings, organizeWith: theirs });
+    const asked = models.specs.length;
+
+    const ended = answerEnded(core, result.answerId);
+    await core.respondToApproval(request.requestId, "allow-once");
+
+    expect((await ended).event).toBe("finished");
+    expect((await core.getLibrary()).settings.organizeWith).toEqual(theirs);
+    expect(await filed(core)).toHaveLength(4);
+    expect(models.specs.slice(asked).map((spec) => spec.modelId)).toContain("claude-sonnet-5-5");
   });
 
   // protects=a model chosen in Settings is the one Organize uses, with no question when its service is allowed, and Automatic's pick is not kept over it; fails_when=it asks again, uses Haiku, or sets the model Organize keeps; no_claim=which Folder the classifier picks.

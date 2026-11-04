@@ -125,8 +125,13 @@ export interface CommandsHost {
    * pick) and where it sends; null when one is chosen or Automatic has none (#2252).
    */
   offeredOrganizeModel(): Promise<{ classifier: TaggingClassifier; route: TaggingRoute } | null>;
-  /** Keeps that pick as Organize's model, as the Library's "Use {company}" does; sends nothing. */
+  /**
+   * Saves that pick as Organize's model. It records no consent and lifts no decline: the card's
+   * Allow is the consent, and the Library's "Use {company}" is the answer that does both.
+   */
   keepOrganizeModel(classifier: TaggingClassifier): Promise<void>;
+  /** Puts Organize back with no model, when the pick is still the one kept. */
+  dropOrganizeModel(classifier: TaggingClassifier): Promise<void>;
   /**
    * Refuses a command that would cross the Folder wall the Answer was asked behind (#1934): each
    * id it names, as one of the kinds it `touches`, must be on the turn's side of the wall.

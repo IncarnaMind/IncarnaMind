@@ -1873,17 +1873,21 @@ export function createCore(adapters: CoreAdapters): Core {
     offeredOrganizeModel: async () => {
       if (organizeModelOf(library.settings())) return null;
       const { automatic } = await taggingModels();
-      if (!automatic) return null;
-      const service = tagging.service(automatic.classifier);
-      return {
-        classifier: automatic.classifier,
-        route: service ? { where: "cloud", service } : { where: "local" },
-      };
+      return (
+        automatic && { classifier: automatic.classifier, route: routeOf(automatic.classifier) }
+      );
     },
     keepOrganizeModel: async (classifier) => {
       const saved = library.settings();
       if (organizeModelOf(saved)) return;
       library.saveSettings({ ...saved, organizeWith: classifier });
+      await dataFlowsChanged();
+      await taggingChanged();
+    },
+    dropOrganizeModel: async (classifier) => {
+      const saved = library.settings();
+      if (JSON.stringify(saved.organizeWith) !== JSON.stringify(classifier)) return;
+      library.saveSettings({ ...saved, organizeWith: null });
       await dataFlowsChanged();
       await taggingChanged();
     },
@@ -4778,6 +4782,10 @@ export function createCore(adapters: CoreAdapters): Core {
   // Everything a Task needs is up: those a quit or a crash left go on, or wait for the User.
   tasks.settleOrphans();
 
+  const routeOf = (classifier: TaggingClassifier): TaggingRoute => {
+    const service = tagging.service(classifier);
+    return service ? { where: "cloud", service } : { where: "local" };
+  };
   const taggingModels = async (): Promise<TaggingModels> => {
     const hadModel = tagsWith() !== null;
     const models = await tagging.models();
@@ -5791,8 +5799,7 @@ export function createCore(adapters: CoreAdapters): Core {
         if (!model) return { where: "none" };
         return model.service ? { where: "cloud", service: model.service } : { where: "local" };
       }
-      const service = tagging.service(classifier);
-      return service ? { where: "cloud", service } : { where: "local" };
+      return routeOf(classifier);
     },
     proposeFolders: async (ids) => library.propose(ids, settings.get().language),
     classifyDocuments: async (ids) => {

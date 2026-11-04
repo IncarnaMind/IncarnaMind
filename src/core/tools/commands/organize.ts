@@ -5,7 +5,7 @@
  * so it asks once in place and then files them, the way Accept all does (#2252): one Undo puts
  * every Document back and takes away the Folders it made. With no model chosen for Organize it
  * takes the one the Library offers as "Use {company}", asks where that Library question would, and
- * keeps it as Organize's model once it runs (#2252).
+ * keeps it as Organize's model while it runs, for good unless the User had said no (#2252).
  */
 import type {
   AssignmentChange,
@@ -19,6 +19,7 @@ import type {
 } from "../../api";
 import { classifyProviderError } from "../../providers/providerErrors";
 import {
+  type CheckedCommand,
   type Checker,
   type CommandsCore,
   documentItem,
@@ -120,12 +121,27 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
       : null;
   const cloud = route.where === "cloud" && flow?.consent !== "accepted" ? route.service : null;
   const cloudDeclined = route.where === "cloud" && flow?.consent === "declined";
+  /**
+   * Runs with the pick kept as Organize's model. Under a standing no the Allow stores nothing, so
+   * the model goes back after the run, and the Library still offers its own question.
+   */
+  const withPick =
+    (run: CheckedCommand["run"]): CheckedCommand["run"] =>
+    async (asking, signal, permit) => {
+      if (!picked) return run(asking, signal, permit);
+      await host.keepOrganizeModel(picked.classifier);
+      try {
+        return await run(asking, signal, permit);
+      } finally {
+        if (cloudDeclined) await host.dropOrganizeModel(picked.classifier);
+      }
+    };
   return {
     ...inApp(
       "documents.organize",
       items,
       requested,
-      async (_asking, signal, permit) => {
+      withPick(async (_asking, signal, permit) => {
         // Nothing to sort: no Folder is made or taken away for it.
         if (ids.length === 0) {
           return {
@@ -134,7 +150,6 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
             said: "No Document is in no Folder, so Organize had nothing to sort.",
           };
         }
-        if (picked) await host.keepOrganizeModel(picked.classifier);
         const before = await assignmentsOf(core, ids);
         const made: LibraryGroup[] = [];
         let named: LibraryGroup | null = null;
@@ -334,7 +349,7 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
                 ? `Organize sorted no Document: ${reason ?? "no Folder fitted"}${madeSaid}.`
                 : `Organize filed ${plural(moved.length, "Document")}: ${parts.join(", ")}.${madeSaid}${unsorted > 0 ? ` ${plural(unsorted, "Document")} couldn't be sorted: ${reason ?? "no Folder fitted"}.` : ""}${untouched > 0 ? ` It stopped at “${reason ?? "a failure"}”; the other ${plural(untouched, "Document")} stayed as they were.` : ""} Name each Folder and its count in your reply, not a list under it.`,
         };
-      },
+      }),
       documents.length > 0 ? "organize" : null,
     ),
     changes: true,
