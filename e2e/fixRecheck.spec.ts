@@ -5,6 +5,7 @@ import type { Editor } from "@tiptap/core";
 import type { CitationAttributes, CoreBridge } from "../src/core/api";
 import {
   addDocuments,
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -14,6 +15,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  tokenColor,
   useLocalChatModel,
 } from "./app";
 
@@ -51,7 +53,11 @@ const TEXT = {
     deck: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
     document: "Quarterly Research Update",
     fix: "Change to 4.2 per cent",
+    needsRecheck: "Needs a look · Needs re-check",
+    changed: "The sentence has changed since it was checked.",
     checkAgain: "Check again",
+    unchanged: "Nothing changed",
+    supported: "Supported",
   },
   "zh-CN": {
     sentence: "客户流失率在 2025 年第 2 季度降至 3.9%，时点在引导流程重新设计之后。",
@@ -62,7 +68,11 @@ const TEXT = {
     deck: "客户流失率在 2025 年第 2 季度降至 4.2%，时点在引导流程重新设计之后。",
     document: "季度研究更新",
     fix: "改为 4.2%",
+    needsRecheck: "需要留意：需重新核对",
+    changed: "核对之后，这句话改过了。",
     checkAgain: "重新核对",
+    unchanged: "没有改动",
+    supported: "有依据",
   },
 } as const;
 
@@ -188,17 +198,36 @@ for (const [language, width] of [
     // The earlier check was made on the old words: the sentence says it needs a re-check, and
     // the card offers to check it instead of cutting words the fix made exact.
     await expect(mark).toHaveAttribute("data-check", "needs-recheck");
+    // The margin mark draws the ↻ in ink-meta, never the amber "!" or the red "≠" from before
+    // the fix, and the card says in so many words that the sentence needs a re-check.
+    await expect(mark).toHaveCSS("color", await tokenColor(window, "--color-ink-meta"));
+    await expect(mark.locator("svg path").first()).toHaveAttribute(
+      "d",
+      "M18.5 12a6.5 6.5 0 1 1-1.9-4.6",
+    );
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "needs-recheck");
+    await expect(card.getByTestId("claim-badge")).toContainText(words.needsRecheck);
+    await expect(card).toContainText(words.changed);
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
     await expect(card.getByTestId("claim-check-again")).toHaveText(words.checkAgain);
     await screenshot(window, `fix-recheck-after-${language}-${width}`);
+
+    // The fix counts as a change: the one Check has the sentence to read, and never says
+    // "Nothing changed since …".
+    await window.keyboard.press("Escape");
+    const badgeCard = await checkCard(window);
+    await expect(badgeCard).not.toContainText(words.unchanged);
+    await expect(badgeCard.getByTestId("badge-check-mind")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await pointAndClick(window, mark);
 
     // The card's Check again reads the whole sentence as it is now.
     await pointAndClick(window, card.getByTestId("claim-check-again"));
     await expect(mark).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "supported");
+    await expect(card.getByTestId("claim-badge")).toContainText(words.supported);
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
     await screenshot(window, `fix-recheck-checked-${language}-${width}`);
     await app.close();

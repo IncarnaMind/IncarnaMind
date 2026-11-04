@@ -705,9 +705,9 @@ describe("Correct a contradiction from the Documents", () => {
       to: "4.2%",
       fixed: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
     },
-  ])(
+  ] as const)(
     "a fix leaves the sentence needing a re-check and its card never offers Cut on it ($language)",
-    ({ text, first, timing, from, to, fixed }) => {
+    ({ language, text, first, timing, from, to, fixed }) => {
       const correction = { from, choices: [{ wording: to, evidence: evidence("deck") }] };
       const attrs = checkWithParts(basis("one", text), [
         contradictedPart(0, first.length, from, correction.choices),
@@ -736,6 +736,14 @@ describe("Correct a contradiction from the Documents", () => {
         "unsupported",
       ]);
       expect(offersFixes(editor, corrected)).toBe(false);
+      expect(translate(language, "claim.state.needs-recheck")).toBe(
+        language === "en" ? "Needs a look · Needs re-check" : "需要留意：需重新核对",
+      );
+      expect(translate(language, "claim.recheck.edited")).toBe(
+        language === "en"
+          ? "The sentence has changed since it was checked."
+          : "核对之后，这句话改过了。",
+      );
     },
   );
 });
