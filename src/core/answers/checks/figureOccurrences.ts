@@ -254,6 +254,11 @@ function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
       label: value.label,
       of: value.of ?? null,
       siblings: [...new Set(siblings)],
+      vocabulary: [
+        ...(value.of ? [value.of.input, ...value.of.columns] : []),
+        ...(value.unit ? [value.unit] : []),
+        ...(run.tables ?? []).flatMap((kept) => kept.table.columns),
+      ],
       code: run.code.slice(0, JUDGED_CODE),
     };
   } catch (error) {

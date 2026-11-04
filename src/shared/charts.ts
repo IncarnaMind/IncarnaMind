@@ -500,6 +500,11 @@ export interface ChartSources {
   /** Values that are calculated figures (#2307): never counted as quoted, nor as having no Citation. */
   calculated: number;
   inputs: ChartInputs;
+  /**
+   * Values an Analysis worked out (#2378): its run's, never counted as quoted, though the rows its
+   * inputs cite stay among the places, as an export's Sources.
+   */
+  analysis: number;
 }
 
 type Placed = Pick<
@@ -616,6 +621,7 @@ export function chartSources(
   const uncitedCells: ChartSources["uncitedCells"] = [];
   let notDrawn = 0;
   let noUnit = 0;
+  let analysis = 0;
   const unitless = new Map(
     chosenSeries(chart).map((series) => [series, unitlessRows(chart.data, series)]),
   );
@@ -633,6 +639,8 @@ export function chartSources(
       figures.push(value.figure);
       continue;
     }
+    // Counted apart from quoted values, though the rows it read are still its Sources.
+    if (value.fromAnalysis) analysis++;
     if (!value.citation && !value.citations && !value.inputs) {
       uncitedCells.push({ row, series });
       continue;
@@ -651,6 +659,7 @@ export function chartSources(
     documents: quoted.documents,
     calculated: figures.length,
     inputs: inputsOf(figures),
+    analysis,
   };
 }
 

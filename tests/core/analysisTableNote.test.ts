@@ -444,6 +444,71 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     core.close();
   });
 
+  test("with its chart beside it, a table with every row deleted, or deleted, leaves the badge with no ✓", async () => {
+    const { core, madeId, client } = await walked(language, CONTENT(language));
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    const state = async () =>
+      readNoteState({
+        doc: client.doc,
+        cellFigures: [],
+        documents: await core.listDocuments(),
+        keptCitationTexts: [],
+        folderId: null,
+      }).state?.kind;
+    expect(blocksOf(client).some((block) => block.type === CHART_NODE)).toBe(true);
+    expect(await state()).toBe("checked");
+    const table = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement => each instanceof Y.XmlElement && each.nodeName === "table",
+      );
+    if (!table) throw new Error("No table.");
+    client.doc.transact(() => table.delete(1, table.length - 1));
+    await client.settled();
+    expect(await state()).not.toBe("checked");
+    client.doc.transact(() => {
+      const at = client.blocks.toArray().indexOf(table);
+      client.blocks.delete(at, 1);
+    });
+    await client.settled();
+    expect(await state()).not.toBe("checked");
+    core.close();
+  });
+
+  test("a line put between the caption and its table keeps the table's note and its schedule row's caption", async () => {
+    const { core, madeId, client } = await walked(language, CONTENT(language));
+    const blocks = client.blocks.toArray();
+    const at = blocks.findIndex(
+      (each) => each instanceof Y.XmlElement && each.nodeName === "table",
+    );
+    client.doc.transact(() => {
+      const line = new Y.XmlElement("paragraph");
+      line.setAttribute("id", randomUUID());
+      line.insert(0, [
+        new Y.XmlText(language === "en" ? "Read with the notes below." : "请结合下面的说明阅读。"),
+      ]);
+      client.blocks.insert(at, [line]);
+    });
+    await client.settled();
+    const files = unzip((await core.exportMind(madeId, { format: "docx" })).data);
+    const footnotes = Object.values(footnotesOf(part(files, "word/footnotes.xml")));
+    expect(footnotes.filter((each) => each.includes(WORDS[language].note))).toHaveLength(1);
+    const row = (await core.getFigureSchedule(madeId)).rows.find((each) => each.analysisTable);
+    const caption = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement =>
+          each instanceof Y.XmlElement &&
+          each
+            .toArray()
+            .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE),
+      );
+    // The row opens at the caption's marker, not at the line put above the table.
+    expect(row?.locator).toMatchObject({ from: { blockId: caption?.getAttribute("id") } });
+    core.close();
+  });
+
   test("a table whose cell the User changed, or a caption left without its table, exports no note that the Analysis worked it out", async () => {
     const { core, madeId, client } = await walked(language, CONTENT(language));
     const noted = async () => {
@@ -553,7 +618,13 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     );
     const sources = chartSources(drawn);
     expect(sources.uncited).toBe(0);
+    // The Analysis's values, never "each quoted" from the rows it read, which their cards still name.
+    expect(sources.analysis).toBe(TOTALS.length);
     expect(sources.places.map((place) => place.citation.documentName)).toEqual(["Orders"]);
+    expect(drawn.data.rows[0]?.values[0]?.inputs?.[0]?.documentName).toBe("Orders");
+    expect(translate(language, `chart.source.byAnalysis.other`, { count: sources.analysis })).toBe(
+      language === "en" ? "4 values, calculated by the Analysis" : "4 个数值，由数据分析计算得出",
+    );
     core.close();
   });
 

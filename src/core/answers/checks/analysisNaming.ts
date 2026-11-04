@@ -1,9 +1,10 @@
 /**
  * Whether a sentence's own words for an Analysis's figure can stand as naming it (#2378). It is a
  * filter on the claim judge's "same", never a judge: it only ever takes Supported away, leaving the
- * figure Not checked. No code reads a name well enough to call it right; this one only refuses
- * clauses that leave a word of the label out, or that also name another of the run's figures, a
- * negation or a comparison.
+ * figure Not checked. No code reads a name well enough to call it right, so this one reads a closed
+ * set of words: the figure's own clause holds every word of its label, and nothing else but the
+ * Analysis's own words for its input and columns and words that only link a figure to its name.
+ * Any other word, a qualifier, a period, a change, a negation or another group, leaves it unchecked.
  */
 import type { CheckFigure } from "../../api";
 
@@ -16,115 +17,90 @@ const TOKEN = /[\p{L}\p{M}\p{N}]+/gu;
 /** Short words a label leaves no trace of when a sentence words it otherwise ("Revenue by region"). */
 const FUNCTION_WORDS = new Set(["a", "an", "as", "at", "by", "in", "of", "on", "or", "to"]);
 
-const NEGATIONS = [
-  "not",
-  "no",
-  "never",
-  "neither",
-  "nor",
-  "isn",
-  "aren",
-  "wasn",
-  "weren",
-  "doesn",
-  "don",
-  "didn",
-  "below",
-  "above",
-  "under",
-  "over",
-  "less",
-  "fewer",
-  "more",
-  "greater",
-  "higher",
-  "lower",
-  "than",
-  "exceed",
-  "exceeds",
-  "exceeded",
-  "beyond",
-  "unlike",
-  "except",
-  "excluding",
-  "ahead",
-  "behind",
-  "trails",
-  "trailed",
-];
-const HAN_NEGATIONS = [
-  "不",
-  "没",
-  "未",
-  "无",
-  "非",
-  "低于",
-  "高于",
-  "超过",
-  "少于",
-  "多于",
-  "相比",
-  "领先",
-  "落后",
+/** Words that only link a figure to its name: they say nothing of what it is. */
+const LINKING = new Set([
+  ...FUNCTION_WORDS,
+  "s",
+  "is",
+  "was",
+  "were",
+  "are",
+  "be",
+  "been",
+  "the",
+  "its",
+  "their",
+  "for",
+  "from",
+  "with",
+  "and",
+  "that",
+  "this",
+  "it",
+  "there",
+  "came",
+  "comes",
+  "come",
+  "reached",
+  "reaches",
+  "reach",
+  "stood",
+  "stands",
+  "stand",
+  "recorded",
+  "records",
+  "has",
+  "had",
+  "have",
+  "totalled",
+  "totaled",
+  "amounted",
+  "out",
+  "all",
+  "works",
+  "worked",
+  "took",
+  "brought",
+  "logged",
+  "placed",
+  "closes",
+  "closed",
+  "equal",
+  "equals",
+]);
+/** The same in Chinese, longest first, so 而言 goes before 而 could be read alone. */
+const HAN_LINKING = [
+  "而言",
+  "达到",
+  "共有",
+  "一共",
+  "总共",
+  "约为",
+  "录得",
+  "停在",
+  "所有",
+  "全部",
+  "为",
+  "是",
+  "的",
+  "达",
+  "共",
+  "有",
+  "在",
+  "就",
+  "约",
+  "了",
+  "其",
+  "该",
 ];
 
-/**
- * Words that make a figure another quantity than its label's: a net or a gross one, one per day or
- * after tax, a forecast. "Per" and "each" only make an average, so a mean's clause may hold them.
- */
-const QUALIFIERS = [
-  "net",
-  "gross",
-  "median",
-  "adjusted",
-  "excluding",
-  "minus",
-  "plus",
-  "after",
-  "before",
-  "daily",
-  "weekly",
-  "monthly",
-  "annual",
-  "yearly",
-  "cumulative",
-  "projected",
-  "forecast",
-  "estimated",
-  "expected",
-  "target",
-  "budget",
-  "budgeted",
-];
-const HAN_QUALIFIERS = [
-  "净",
-  "毛",
-  "中位",
-  "扣除",
-  "除去",
-  "不含",
-  "税后",
-  "税前",
-  "预计",
-  "预测",
-  "估计",
-  "目标",
-  "预算",
-  "累计",
-  "日均",
-  "月均",
-  "年均",
-];
-const PER = ["per", "each", "every"];
-const HAN_PER = ["每"];
-
-/** The words that name each way a figure is worked out, so a sum called an average is told apart. */
+/** The words for each way a figure is worked out: a sum's own clause may call it a total. */
 const AGGREGATES: Record<string, readonly string[]> = {
   sum: ["total", "sum", "合计", "总计", "总额"],
-  mean: ["average", "mean", "avg", "平均", "均值"],
+  mean: ["average", "mean", "平均", "均值"],
   min: ["lowest", "minimum", "smallest", "最低", "最小"],
   max: ["highest", "maximum", "largest", "最高", "最大"],
-  count: ["count", "number", "次数", "数量", "个数", "笔数"],
+  count: ["number", "count", "数量", "个数"],
 };
 
 interface Terms {
@@ -158,24 +134,13 @@ const plurals = (word: string) => [word, `${word}s`, `${word}es`, word.replace(/
 const sameWord = (word: string, token: string) =>
   plurals(word).includes(token) || plurals(token).includes(word);
 
-/** Characters that make a region's name another region's just before it: 东北部 is not 北部. */
-const COMPASS = /[东南西北中华]/u;
-
-function holdsTerm(
-  clause: string,
-  tokens: readonly string[],
-  term: string,
-  exact = false,
-): boolean {
-  if (HAN.test(term))
-    return [...clause.matchAll(new RegExp(term, "gu"))].some(
-      (found) => found.index === 0 || !COMPASS.test(clause[found.index - 1] ?? ""),
-    );
-  if (exact) return tokens.includes(term);
+/** Whether `token` is `term`: a word with a digit exactly, a short word in its case, any other as a word or its plural. */
+function isTerm(token: string, term: string, exact: boolean): boolean {
+  if (exact) return token === term;
   const lower = term.toLowerCase();
-  return tokens.some((token) =>
-    /\p{N}/u.test(lower) ? token.toLowerCase() === lower : sameWord(lower, token.toLowerCase()),
-  );
+  return /\p{N}/u.test(lower)
+    ? token.toLowerCase() === lower
+    : sameWord(lower, token.toLowerCase());
 }
 
 const tokensOf = (text: string) =>
@@ -186,6 +151,11 @@ const allTerms = (terms: Terms) => [
   ...terms.exact.map((term) => ({ term, exact: true })),
   ...terms.han.map((term) => ({ term, exact: false })),
 ];
+
+function holds(clause: string, term: string, exact: boolean): boolean {
+  if (HAN.test(term)) return clause.includes(term);
+  return tokensOf(clause).some((token) => isTerm(token, term, exact));
+}
 
 /**
  * Each figure's own clause of `claim`, by id: from the figure before it, or a break, to the next,
@@ -224,12 +194,27 @@ function clausesOf(claim: string, figures: readonly CheckFigure[]): Map<string, 
   return clauses;
 }
 
+/** What of `clause` no label word, word of the Analysis's or linking word accounts for. */
+function unaccounted(clause: string, known: readonly { term: string; exact: boolean }[]): string[] {
+  const words = tokensOf(clause).filter(
+    (token) =>
+      !LINKING.has(token.toLowerCase()) &&
+      !known.some(({ term, exact }) => !HAN.test(term) && isTerm(token, term, exact)),
+  );
+  let han = clause.replace(/[^\p{Script=Han}]+/gu, " ");
+  const hanKnown = [
+    ...known.map(({ term }) => term).filter((term) => HAN.test(term)),
+    ...HAN_LINKING,
+  ].sort((a, b) => b.length - a.length);
+  for (const term of hanKnown) han = han.replaceAll(term, " ");
+  return [...words, ...(han.match(HAN_RUN) ?? [])];
+}
+
 /**
  * Whether `figure`'s own clause in `claim` can stand as naming it: it holds every word of its label
- * (in a table, its cell's row and column headings count), and none that only another of its run's
- * figures, or another figure of the sentence, is named by, no negation, no comparison, no word
- * that makes it another quantity (net, per day, a forecast), and no word for another way of working
- * it out than its own. False also when its clause can't be found.
+ * (in a table, its cell's row and column headings count), none that only another of its run's
+ * figures, or another figure of the sentence, is named by, and no word but those, the Analysis's
+ * own words for its input and columns, and linking words. False also when its clause can't be found.
  */
 export function namingHolds(
   claim: string,
@@ -238,16 +223,12 @@ export function namingHolds(
 ): boolean {
   const record = figure.analysisRecord;
   const label = record?.label ?? figure.calculated?.figure.label ?? "";
-  const own = termsOf(label);
-  const terms = allTerms(own);
+  const terms = allTerms(termsOf(label));
   if (terms.length === 0) return false;
   const found = clausesOf(claim, figures).get(figure.id);
   if (found === undefined) return false;
   const clause = `${found} ${figure.label ?? ""}`;
-  if (!terms.every(({ term, exact }) => holdsTerm(clause, tokensOf(clause), term, exact)))
-    return false;
-  const tokens = tokensOf(found);
-  const lowered = tokens.map((token) => token.toLowerCase());
+  if (!terms.every(({ term, exact }) => holds(clause, term, exact))) return false;
   const mine = new Set(terms.map(({ term }) => term.toLowerCase()));
   const others = [
     ...(record?.siblings ?? []),
@@ -258,18 +239,16 @@ export function namingHolds(
   const sibling = others
     .flatMap((each) => allTerms(termsOf(each)))
     .filter(({ term }) => !mine.has(term.toLowerCase()));
-  if (sibling.some(({ term, exact }) => holdsTerm(found, tokens, term, exact))) return false;
-  if (NEGATIONS.some((word) => lowered.includes(word))) return false;
-  if (HAN_NEGATIONS.some((word) => found.includes(word))) return false;
-  const how = record?.of?.how ?? null;
-  const unlabelled = (word: string) => !mine.has(word) && !label.toLowerCase().includes(word);
-  const qualifiers = [...QUALIFIERS, ...(how === "mean" ? [] : PER)].filter(unlabelled);
-  if (qualifiers.some((word) => lowered.includes(word))) return false;
-  const hanQualifiers = [...HAN_QUALIFIERS, ...(how === "mean" ? [] : HAN_PER)].filter(unlabelled);
-  if (hanQualifiers.some((word) => found.includes(word))) return false;
-  const elsewhere = Object.entries(AGGREGATES)
-    .filter(([each]) => how !== null && each !== how)
-    .flatMap(([, words]) => words)
-    .filter((word) => !mine.has(word) && !label.includes(word));
-  return !elsewhere.some((word) => holdsTerm(found, tokens, word));
+  if (sibling.some(({ term, exact }) => holds(found, term, exact))) return false;
+  const how = record?.of?.how;
+  const vocabulary = [
+    ...(record?.vocabulary ?? []).flatMap((each) => allTerms(termsOf(each))),
+    ...(how ? (AGGREGATES[how] ?? []) : []).map((term) => ({ term, exact: false })),
+    // A cell's own words beside its number, a unit such as 次, are its headings' to say.
+    ...[...(figure.label ?? "").matchAll(/\p{Script=Han}/gu)].map(([term]) => ({
+      term,
+      exact: false,
+    })),
+  ];
+  return unaccounted(found, [...terms, ...vocabulary]).length === 0;
 }

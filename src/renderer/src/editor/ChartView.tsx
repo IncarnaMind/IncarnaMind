@@ -263,9 +263,10 @@ export function ChartView({
     of: string;
   } | null>(null);
   const findButton = useRef<HTMLButtonElement>(null);
+  // An Analysis's values are its run's: the rows its inputs cite are found or not, never them.
   const checks = checksOf(
     chartCells(chart).flatMap(({ value }) =>
-      value.value === null ? [] : valueCitations(value).map(stateOfCitation),
+      value.value === null || value.fromAnalysis ? [] : valueCitations(value).map(stateOfCitation),
     ),
   );
 

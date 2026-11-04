@@ -15,14 +15,16 @@ import type { Command, CommandContext } from "./registry";
 
 /**
  * The note's keymap gives a command the Block at the cursor as its focus; ⌘K, with nothing chosen,
- * acts on the table the cursor is in, in the Note in front.
+ * gives the Note in front, and acts on the table the cursor is in there.
  */
 function tableNote(ctx: CommandContext): Editor | null {
+  const inFront = readMindHandle.current;
   const editor =
     ctx.focus?.kind === "block"
       ? noteHolding(ctx.focus.id)
-      : ctx.focus === null && ctx.selection.length === 0
-        ? (readMindHandle.current?.editor ?? null)
+      : ctx.selection.length === 0 &&
+          (ctx.focus === null || (ctx.focus.kind === "mind" && ctx.focus.id === inFront?.mindId))
+        ? (inFront?.editor ?? null)
         : null;
   return editor && !editor.isDestroyed && isInTable(editor.state) ? editor : null;
 }

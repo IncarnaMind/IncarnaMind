@@ -5,6 +5,7 @@ import {
   NodeSelection,
   Plugin,
   PluginKey,
+  TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
 import { Mapping } from "@tiptap/pm/transform";
@@ -118,7 +119,8 @@ function captionsKept(
   const tables: { pos: number; binding: AnalysisTableBinding }[] = [];
   const lines: { node: ProseMirrorNode; from: number; to: number }[] = [];
   doc.forEach((node, pos) => {
-    if (node.type.name === "paragraph") lines.push({ node, from: pos, to: pos + node.nodeSize });
+    // A caption made a heading is still its table's caption.
+    if (node.isTextblock) lines.push({ node, from: pos, to: pos + node.nodeSize });
     const binding =
       node.type.name === "table" ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) : null;
     if (binding) tables.push({ pos, binding });
@@ -127,6 +129,8 @@ function captionsKept(
   const markers = markersIn(doc);
   const captioned = new Set<number>();
   const steps: { at: number; run: (tr: Transaction) => void }[] = [];
+  // Where the caret goes once the steps have run: set by the step that restores a marker.
+  const caret: { at: { pos: number; from: number } | null } = { at: null };
   const markerType = doc.type.schema.nodes[ANALYSIS_TABLE_NODE];
   const mapping = new Mapping();
   for (const tr of transactions) mapping.appendMapping(tr.mapping);
@@ -153,8 +157,12 @@ function captionsKept(
       const end = line.to - 1;
       steps.push({
         at: end,
-        run: (tr) =>
-          tr.insert(end, markerType.create({ [ANALYSIS_TABLE_ATTRIBUTE]: table.binding })),
+        run: (tr) => {
+          tr.insert(end, markerType.create({ [ANALYSIS_TABLE_ATTRIBUTE]: table.binding }));
+          // Typing over the caption: the next letter goes before the marker, not behind it.
+          if (after.selection.empty && after.selection.from === end)
+            caret.at = { pos: end, from: tr.mapping.maps.length };
+        },
       });
     } else {
       steps.push({
@@ -169,6 +177,9 @@ function captionsKept(
   const tr = after.tr;
   // From the end back, so each position is still the one it was read at.
   for (const step of steps.sort((a, b) => b.at - a.at)) step.run(tr);
+  const typed = caret.at;
+  if (typed)
+    tr.setSelection(TextSelection.create(tr.doc, tr.mapping.slice(typed.from).map(typed.pos, -1)));
   return tr;
 }
 

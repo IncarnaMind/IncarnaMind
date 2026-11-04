@@ -797,6 +797,8 @@ export const zhCN = {
     "{count} 个数值，由 {documents} 个文档中的 {inputs}计算得出",
   "chart.source.analysis.one": "1 个数值，来自分析",
   "chart.source.analysis.other": "{count} 个数值，来自分析",
+  "chart.source.byAnalysis.one": "1 个数值，由数据分析计算得出",
+  "chart.source.byAnalysis.other": "{count} 个数值，由数据分析计算得出",
   "chart.inputs.cells.one": "1 个单元格",
   "chart.inputs.cells.other": "{count} 个单元格",
   "chart.inputs.numbers.one": "1 个引用的数字",

@@ -136,13 +136,32 @@ describe("a clause that can't stand as naming the figure", () => {
       ["西部地区每笔订单的金额合计为 9,075。", "西部地区金额合计"],
     ] as const)
       expect(holds(sentence, "9,075", { label, how: "sum" })).toBe(false);
-    // An average is one per order: "per" says no more than its label does.
+    // A word no label, Analysis or linking word accounts for leaves it unchecked, right or not.
     expect(
       holds("West's average amount per order is 907.5.", "907.5", {
         label: "Average amount, West",
         how: "mean",
       }),
+    ).toBe(false);
+    expect(
+      holds("West's average amount is 907.5.", "907.5", {
+        label: "Average amount, West",
+        how: "mean",
+      }),
     ).toBe(true);
+  });
+
+  test("any word no label, Analysis or linking word accounts for: a period, a change, a rate", () => {
+    for (const [sentence, label, how] of [
+      ["Central's total amount in its first week was 8,325.", "Total amount, Central", "sum"],
+      ["North's highest amount for a single day was 8,325.", "Highest amount, North", "max"],
+      ["West's average amount rose to 8,325.", "Average amount, West", "mean"],
+      ["West's total amount fell short of 8,325.", "Total amount, West", "sum"],
+      ["中部地区第一周的金额合计为 8,325。", "中部地区金额合计", "sum"],
+      ["北部地区单日最高金额为 8,325。", "北部地区最高金额", "max"],
+      ["北部地区每位客户的平均金额为 8,325。", "北部地区平均金额", "mean"],
+    ] as const)
+      expect(holds(sentence, "8,325", { label, how })).toBe(false);
   });
 
   test("two figures each under the other's words, and each in its own clause", () => {

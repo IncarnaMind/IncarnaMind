@@ -86,6 +86,7 @@ import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
   ANSWER_BLOCK,
+  type AnalysisTableBinding,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
   type CalculatedFigureAttributes,
@@ -127,6 +128,19 @@ import {
   WORD_CHANGE_ID,
 } from "./api";
 import { isRecord } from "./errors";
+
+/** The table a caption's marker names: the one top-level table bound as the marker is (#2378). */
+function boundTableOf(marker: Y.XmlElement, binding: AnalysisTableBinding): Y.XmlElement | null {
+  let at: unknown = marker.parent;
+  while (at instanceof Y.XmlElement) at = at.parent;
+  if (!(at instanceof Y.XmlFragment)) return null;
+  for (const each of at.toArray()) {
+    if (!(each instanceof Y.XmlElement) || each.nodeName !== "table") continue;
+    const bound = readTableBinding(each.getAttribute(ANALYSIS_TABLE_ATTRIBUTE));
+    if (bound && sameBinding(bound, binding)) return each;
+  }
+  return null;
+}
 
 export interface Marks {
   bold: boolean;
@@ -1296,15 +1310,10 @@ function readInlineElement(
       const node = { type: ANALYSIS_TABLE_NODE, attrs: { [ANALYSIS_TABLE_ATTRIBUTE]: binding } };
       // A run the Note lost leaves its table with no note to say where it came from (#2378).
       const run = binding ? figureRunsFor(doc, [node])[0] : undefined;
-      // The note speaks for the table beneath its caption: none once that table is gone.
-      const table = child.parent instanceof Y.XmlElement ? child.parent.nextSibling : null;
-      const below =
-        table instanceof Y.XmlElement && table.nodeName === "table"
-          ? readTableBinding(table.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
-          : null;
-      const beneath = binding !== null && below !== null && sameBinding(below, binding);
-      const note =
-        run && beneath && table instanceof Y.XmlElement ? options.tableNote(run, table) : null;
+      // The note speaks for its caption's table, found by its binding wherever the caption is:
+      // none once that table is gone.
+      const table = binding ? boundTableOf(child, binding) : null;
+      const note = run && table ? options.tableNote(run, table) : null;
       if (!run || note === null) break;
       if (options.trimBeforeFootnote ?? options.trimBeforeCitation) trimTrailingSpace(content);
       add({

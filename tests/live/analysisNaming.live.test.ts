@@ -3,9 +3,10 @@
  * one sentence into a Note of its own, from a scripted Answer whose Analysis gave the figure, and
  * Check judges it on the model: never a false Supported, and how many right names read Supported.
  *
- * INCARNAMIND_LIVE_ANTHROPIC_KEY runs it; INCARNAMIND_LIVE_SET picks "probes" (development) or
- * "held-out" (the gate); INCARNAMIND_LIVE_RIGHT_ONLY=1 runs only the right names, as main is
- * scored on; INCARNAMIND_LIVE_REPORT appends a line per case.
+ * INCARNAMIND_LIVE_ANTHROPIC_KEY runs it. INCARNAMIND_LIVE_SET picks "probes" (development),
+ * "held-out" (the first held-out set, built against since) or "gate" (the set the change is gated
+ * on); INCARNAMIND_LIVE_RIGHT_ONLY=1 runs only the right names, as main is scored on;
+ * INCARNAMIND_LIVE_REPORT appends a line per case.
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import type { ChatModelFactory } from "../../src/core/providers/models";
 import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { readClaimCheck } from "../../src/shared/claimChecks";
+import { NAMING_GATE } from "../helpers/analysisNamingGate";
 import { NAMING_HELD_OUT } from "../helpers/analysisNamingHeldOut";
 import {
   type How,
@@ -39,7 +41,12 @@ import { type ModelCall, scriptedModel } from "../helpers/models";
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
 const MAX_USD = Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? Number.POSITIVE_INFINITY);
-const SET = process.env.INCARNAMIND_LIVE_SET === "held-out" ? NAMING_HELD_OUT : NAMING_PROBES;
+const SET =
+  process.env.INCARNAMIND_LIVE_SET === "gate"
+    ? NAMING_GATE
+    : process.env.INCARNAMIND_LIVE_SET === "held-out"
+      ? NAMING_HELD_OUT
+      : NAMING_PROBES;
 const RIGHT_ONLY = process.env.INCARNAMIND_LIVE_RIGHT_ONLY === "1";
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const { createChatModel: real, spent } = billedModels(MODEL);

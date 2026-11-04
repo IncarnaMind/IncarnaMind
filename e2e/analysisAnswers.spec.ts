@@ -389,6 +389,36 @@ for (const language of ["en", "zh-CN"] as const) {
       await app.close();
     }
   });
+
+  test(`${language}: a column of counts in the Analysis's table is never recalculated, though its counts match`, async () => {
+    test.setTimeout(240_000);
+    const { app, window } = await launchWithSheets(language, 1200);
+    try {
+      await askInAssistant(
+        window,
+        language === "en"
+          ? "What was revenue by region, and how many sales? Put the table in the note."
+          : "按地区汇总 Revenue，各有多少笔，把表格写进笔记。",
+        { timeout: 120_000 },
+      );
+      const editor = window.getByTestId("mind-editor");
+      const marker = editor.getByTestId("analysis-table-marker");
+      await expect(marker).toHaveCount(1);
+      await pointAndClick(window, marker.locator("button"));
+      const card = window.locator(".calculated-figure-card");
+      await expect(card).toBeVisible();
+      await expect(card.getByTestId("analysis-table-column")).toHaveText(
+        language === "en"
+          ? [
+              "Revenue: sum of 5 rows, by Region · recalculated",
+              "Sales: from the Analysis · not recalculated",
+            ]
+          : ["Revenue：按 Region 计算 5 行的合计 · 已重新计算", "Sales：来自数据分析 · 未重新计算"],
+      );
+    } finally {
+      await app.close();
+    }
+  });
 }
 
 test("an Analysis that joins two sheets reports the rows that matched and those that didn't", async () => {

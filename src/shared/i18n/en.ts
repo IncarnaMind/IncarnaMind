@@ -816,6 +816,8 @@ export const en = {
     "{count} values, calculated from {inputs} in {documents} Documents",
   "chart.source.analysis.one": "1 value, from an Analysis",
   "chart.source.analysis.other": "{count} values, from an Analysis",
+  "chart.source.byAnalysis.one": "1 value, calculated by the Analysis",
+  "chart.source.byAnalysis.other": "{count} values, calculated by the Analysis",
   "chart.inputs.cells.one": "1 cell",
   "chart.inputs.cells.other": "{count} cells",
   "chart.inputs.numbers.one": "1 cited number",

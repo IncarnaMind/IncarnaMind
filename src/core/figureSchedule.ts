@@ -20,7 +20,13 @@ import {
 import { resultFromParts } from "../shared/claimParts";
 import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
-import { calculatedFiguresIn, figureRunsFor, keptBinding } from "../shared/figureRuns";
+import {
+  calculatedFiguresIn,
+  figureRunsFor,
+  keptBinding,
+  readTableBinding,
+  sameBinding,
+} from "../shared/figureRuns";
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
 import { perBlock } from "../shared/memo";
@@ -44,6 +50,7 @@ import { type FigureOccurrence, figuresInMind } from "./answers/checks/figureOcc
 import { checkedSentences } from "./answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "./answers/citations";
 import type {
+  AnalysisTableBinding,
   ClaimCheckResult,
   FigureCheckAttributes,
   FigureCheckResult,
@@ -701,14 +708,26 @@ function tableStateShown(shown: AnalysisTableShown): {
   }
 }
 
-/** The caption line above a table that ends with its marker, and the marker's offset in it. */
-function captionOf(table: Y.XmlElement): { element: Y.XmlElement; at: number } | null {
-  const before = table.prevSibling;
-  if (!(before instanceof Y.XmlElement) || before.nodeName !== "paragraph") return null;
-  const marker = partsOf(before).find(
-    ({ node }) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE,
-  );
-  return marker ? { element: before, at: marker.start } : null;
+/**
+ * A table's caption line, the top-level line whose marker is bound as the table is, wherever it
+ * stands, and the marker's offset in it.
+ */
+function captionOf(
+  blocks: Y.XmlFragment,
+  binding: AnalysisTableBinding,
+): { element: Y.XmlElement; at: number } | null {
+  for (const line of blocks.toArray()) {
+    if (!(line instanceof Y.XmlElement) || line.nodeName === "table") continue;
+    const marker = partsOf(line).find(({ node }) => {
+      const bound =
+        node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE
+          ? readTableBinding(node.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
+          : null;
+      return bound !== null && sameBinding(bound, binding);
+    });
+    if (marker) return { element: line, at: marker.start };
+  }
+  return null;
 }
 
 /**
@@ -742,7 +761,7 @@ function analysisTableRows(
       input.versions,
       input.keptInside ?? null,
     );
-    const caption = captionOf(table);
+    const caption = captionOf(blocks, binding);
     const captionId = caption?.element.getAttribute("id");
     const title = caption ? plainText(caption.element).trim() : (kept?.label ?? "");
     const at =

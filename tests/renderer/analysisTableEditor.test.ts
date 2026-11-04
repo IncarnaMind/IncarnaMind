@@ -188,6 +188,20 @@ test("typing over the caption's words edits them and keeps the marker at the cap
   expect(inAnalysisTable(editor.state)).toBe(true);
 });
 
+test.each([
+  ["Totals", "Totals"],
+  ["合计表", "合计表"],
+])("retyping the caption key by key keeps every letter before the marker: %s", (typed, caption) => {
+  const editor = editorOf(NOTE);
+  const end = markerAt(editor) + 1;
+  const start = end - 1 - "Total amount by region".length;
+  editor.commands.setTextSelection({ from: start, to: end });
+  for (const letter of typed) editor.commands.insertContent(letter);
+  expect(captionText(editor)).toBe(caption);
+  expect(editor.state.doc.child(1).lastChild?.type.name).toBe(ANALYSIS_TABLE_NODE);
+  expect(markers(editor)).toBe(1);
+});
+
 test("Backspace beside the marker selects it, and a second takes it away as Convert to text does, with one Undo", () => {
   const editor = editorOf(NOTE);
   editor.commands.setTextSelection(markerAt(editor) + 1);
@@ -214,6 +228,16 @@ test("Enter at the caption's end opens a line above the table, and the table sta
   expect(editor.state.doc.child(1).lastChild?.type.name).toBe(ANALYSIS_TABLE_NODE);
   expect(editor.state.doc.child(2).textContent).toBe("Read with the notes below.");
   expect(editor.state.doc.child(3).type.name).toBe("table");
+  intoTable(editor);
+  expect(inAnalysisTable(editor.state)).toBe(true);
+});
+
+test("a caption made a heading keeps its marker, and its table stays the Analysis's", () => {
+  const editor = editorOf(NOTE);
+  editor.commands.setTextSelection(markerAt(editor));
+  editor.commands.toggleHeading({ level: 2 });
+  expect(editor.state.doc.child(1).type.name).toBe("heading");
+  expect(markers(editor)).toBe(1);
   intoTable(editor);
   expect(inAnalysisTable(editor.state)).toBe(true);
 });
@@ -324,9 +348,16 @@ test("the cursor's table says whether it is an Analysis's own", () => {
 test("⌘K reaches the table at the cursor of the Note in front, its calculation's commands only on an Analysis's own", () => {
   const editor = editorOf(NOTE);
   intoTable(editor);
-  readMindHandle.current = { editor } as unknown as NonNullable<typeof readMindHandle.current>;
+  readMindHandle.current = { editor, mindId: "mind-1" } as unknown as NonNullable<
+    typeof readMindHandle.current
+  >;
   try {
-    const palette = { selection: [], focus: null, surface: "mind" as const };
+    // The context ⌘K gives: the Note in front as its focus.
+    const palette = {
+      selection: [],
+      focus: { kind: "mind" as const, id: "mind-1" },
+      surface: "palette" as const,
+    };
     const command = (id: string) => tableCommands.find((each) => each.id === id);
     const open = command("table.openCalculation");
     const remove = command("table.delete");

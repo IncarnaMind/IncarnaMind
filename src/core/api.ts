@@ -6866,6 +6866,8 @@ export interface CheckFigure {
     of?: AnalysisFigureRows | null;
     /** What the run called its other figures, so a sentence naming one of them is told apart. */
     siblings?: string[];
+    /** The Analysis's own words for its input, its columns and the figure's unit. */
+    vocabulary?: string[];
     /** The run's code, cut to a few thousand characters: the claim judge's evidence of its rule. */
     code?: string;
   };
