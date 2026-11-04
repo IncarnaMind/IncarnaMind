@@ -44,11 +44,11 @@ export function splitWords(text: string): string[] {
 export type Step = "equal" | "delete" | "insert";
 
 /**
- * Whether the old token at `kept` carries more marks than the one at `given`. Of two equal spaces a
- * removal could keep either of, it keeps the plainer: the one outside the code, bold or link it
- * cuts, not the one inside (#2362).
+ * Of two equal spaces, old tokens `early` and `late`, either of which a removal between them could
+ * keep, whether it keeps the later. Text alone can't tell them apart, but marks can: the space
+ * inside the code, bold or link the removal cuts goes with it, and the one outside stays (#2362).
  */
-export type Heavier = (kept: number, given: number) => boolean;
+export type KeepsLater = (early: number, late: number) => boolean;
 
 /**
  * The shortest way from `a` to `b` (Myers, 1986), as steps in order. Past
@@ -59,7 +59,7 @@ export function diffSteps(
   a: readonly string[],
   b: readonly string[],
   maxCost = 4_000,
-  heavier: Heavier = () => false,
+  keepsLater: KeepsLater = () => false,
 ): Step[] {
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
@@ -74,7 +74,7 @@ export function diffSteps(
     [...Array<Step>(start).fill("equal"), ...middle, ...Array<Step>(a.length - endA).fill("equal")],
     a,
     b,
-    heavier,
+    keepsLater,
   );
 }
 
@@ -85,13 +85,13 @@ const SPACE = /^\s+$/;
  * reads better with the space after it ("and [really ]regular"): a run of
  * removals, or of additions, that starts with a space the token after it
  * repeats moves on by one, as far as it can. A removal moves back, or stays,
- * to keep the plainer of two such spaces (`Heavier`).
+ * where `keepsLater` says.
  */
 function slideOffSpaces(
   steps: Step[],
   a: readonly string[],
   b: readonly string[],
-  heavier: Heavier,
+  keepsLater: KeepsLater,
 ): Step[] {
   let x = 0;
   let y = 0;
@@ -114,7 +114,7 @@ function slideOffSpaces(
       steps[at - 1] === "equal" &&
       SPACE.test(a[x - 1] ?? "") &&
       a[x - 1] === a[x + length - 1] &&
-      heavier(x - 1, x + length - 1)
+      keepsLater(x - 1, x + length - 1)
     ) {
       at--;
       end--;
@@ -129,7 +129,7 @@ function slideOffSpaces(
       steps[end] === "equal" &&
       SPACE.test(tokens[from] ?? "") &&
       tokens[from] === tokens[from + length] &&
-      !(removes && heavier(from, from + length))
+      !(removes && keepsLater(from, from + length))
     ) {
       steps[at] = "equal";
       steps[end] = kind;

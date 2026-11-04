@@ -81,7 +81,7 @@ import {
   unescapeNames,
   unnameRemovals,
 } from "../edits/prompt";
-import { diffSteps, type Heavier, hunksOf, type Step, splitWords } from "./diff";
+import { diffSteps, hunksOf, type KeepsLater, type Step, splitWords } from "./diff";
 import {
   CITING,
   type CitingNodes,
@@ -1780,7 +1780,7 @@ function writeHunks(
       looked ? lookedKey(token.key, token.text, token.look ?? {}) : token.key,
     ),
     undefined,
-    heavierOf(segment.tokens),
+    keepsLaterOf(segment.tokens),
   );
   let hunks = hunksOf(steps, joinsAcross(segment.tokens));
   if (
@@ -1808,10 +1808,20 @@ function writeHunks(
   }
 }
 
-/** Whether one old token carries more marks than another; none holds a Proposal's (`tokensIn`). */
-function heavierOf(old: readonly OldToken[]): Heavier {
-  const marks = (at: number) => Object.keys(old[at]?.attributes ?? {}).length;
-  return (kept, given) => marks(kept) > marks(given);
+/**
+ * Spaces alike in their marks keep the place they always had. Otherwise a space with the marks of
+ * the removed word beside it is inside the span being cut, and goes with it; when both are, or
+ * neither, the plainer stays. No old token holds a Proposal's marks (`tokensIn`).
+ */
+function keepsLaterOf(old: readonly OldToken[]): KeepsLater {
+  const marks = (at: number) => old[at]?.attributes ?? {};
+  const count = (at: number) => Object.keys(marks(at)).length;
+  return (early, late) => {
+    if (sameMarks(marks(early), marks(late))) return false;
+    const earlyCut = sameMarks(marks(early), marks(early + 1));
+    const lateCut = sameMarks(marks(late), marks(late - 1));
+    return earlyCut === lateCut ? count(early) > count(late) : earlyCut;
+  };
 }
 
 /**

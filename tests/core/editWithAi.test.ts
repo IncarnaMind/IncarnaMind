@@ -6007,7 +6007,7 @@ describe("A rewrite of text marked as code (#2362)", () => {
     return runs;
   };
 
-  // protects=a removal that cuts the end or the start of a span of code, bold or a link keeps the space outside the span, so after Accept the span ends at its last word, the space beside it is plain and Markdown writes the code closed; English and Chinese; fails_when=the span keeps the space ("`npm run dev `in"), or a span cut at its start loses the plain space before it; no_claim=which words a model keeps.
+  // protects=a removal that cuts the end or the start of a span of code, bold or a link keeps the space outside the span, so after Accept the span ends at its last word, the space beside it has the marks of the words around it and Markdown writes the code closed; in plain text and in AI text, with words beyond the span taken out too, and a word changed before it; English and Chinese; fails_when=the span keeps the space ("`npm run dev `in"), or a span cut at its start loses the space before it; no_claim=which words a model keeps.
   test.each([
     {
       case: "the end of code",
@@ -6030,6 +6030,43 @@ describe("A rewrite of text marked as code (#2362)", () => {
         ["", " it with "],
         ["code", "npm run dev"],
         ["", " in a terminal."],
+      ],
+    },
+    {
+      case: "the end of code in AI text",
+      content: [
+        text("Start it with ", "generated"),
+        code("npm run dev --open"),
+        text(" in a terminal.", "generated"),
+      ],
+      reply: "Start it with npm run dev in a terminal.",
+      line: "Start it with `npm run dev` in a terminal.",
+      runs: [
+        ["generated", "Start it with "],
+        ["code", "npm run dev"],
+        ["generated", " in a terminal."],
+      ],
+    },
+    {
+      case: "the end of code and the words after it",
+      content: [text("Start it with "), code("npm run dev --open"), text(" now in a terminal.")],
+      reply: "Start it with npm run dev in a terminal.",
+      line: "Start it with `npm run dev` in a terminal.",
+      runs: [
+        ["", "Start it with "],
+        ["code", "npm run dev"],
+        ["", " in a terminal."],
+      ],
+    },
+    {
+      case: "the start of code and the words before it",
+      content: [text("Run it now "), code("--open npm run dev"), text(" today.")],
+      reply: "Run it npm run dev today.",
+      line: "Run it `npm run dev` today.",
+      runs: [
+        ["", "Run it "],
+        ["code", "npm run dev"],
+        ["", " today."],
       ],
     },
     {
@@ -6104,7 +6141,7 @@ describe("A rewrite of text marked as code (#2362)", () => {
     expect(runsOf(client)).toEqual(runs);
   });
 
-  // protects=a removal beside spaces that carry no mark, or the same marks, is written where it always was: plain text, code or bold elsewhere in the line, a double space, a tab, a no-break space; English and Chinese; fails_when=a change starts or ends at another place, or Accept gives other words; no_claim=none beyond protects.
+  // protects=a removal between spaces that carry no mark, or the same marks, is written where it always was: plain text, code or bold elsewhere in the line, a double space, a tab, a no-break space; English and Chinese; fails_when=a change starts or ends at another place, or Accept gives other words; no_claim=none beyond protects.
   test.each([
     {
       content: [text("Start it with npm run dev --open in a terminal.")],
@@ -6129,6 +6166,22 @@ describe("A rewrite of text marked as code (#2362)", () => {
       reply: "**Note:** type npm and wait for it.",
       shown: "Note: type npm [-run build -]and wait for it.",
       after: "Note: type npm and wait for it.",
+    },
+    {
+      content: [
+        text("Read the notes and more "),
+        text("bold", "bold"),
+        text(" words in the margin."),
+      ],
+      reply: "Read the notes and words in the margin.",
+      shown: "Read the notes and [-more bold -]words in the margin.",
+      after: "Read the notes and words in the margin.",
+    },
+    {
+      content: [text("Type npm run build and wait for it.", "bold")],
+      reply: "**Type npm and wait for it.**",
+      shown: "Type npm [-run build -]and wait for it.",
+      after: "Type npm and wait for it.",
     },
     {
       content: [text("Type npm run build  and wait for it.")],
@@ -6167,7 +6220,7 @@ describe("A rewrite of text marked as code (#2362)", () => {
       after: "先运行npm test，然后检查全部日志。",
     },
   ])(
-    "a removal beside spaces with no mark of their own is written as before: $reply",
+    "a removal between spaces alike in their marks is written as before: $reply",
     async ({ content, reply, shown, after }) => {
       const note = paragraph(...content);
       const { core, mind, client, before } = await noteOf([note], () => reply);
