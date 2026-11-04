@@ -221,7 +221,92 @@ describe("A rewrite changes only the value that differs", () => {
       "Change 1: Northgate Holdings\nTo 1: Westmarch Commercial Property Investments Limited Trading As Westmarch Lettings",
       "The Landlord is Westmarch Commercial Property Investments Limited Trading As Westmarch Lettings.",
     ],
+    [
+      "a name with a word in capitals that isn't a company's",
+      "The Landlord is Northgate Holdings.",
+      "Change 1: Northgate Holdings\nTo 1: Westmarch Limited UNLESS Terminated",
+      "The Landlord is Westmarch Limited UNLESS Terminated.",
+    ],
+    [
+      "a Chinese name and others",
+      "项目负责人为李明。",
+      "Change 1: 李明\nTo 1: 王芳等",
+      "项目负责人为王芳等。",
+    ],
+    [
+      "a Chinese surname and title",
+      "项目负责人为李明。",
+      "Change 1: 李明\nTo 1: 王总",
+      "项目负责人为王总。",
+    ],
+    [
+      "two words that only start with a surname",
+      "价格以黄金计。",
+      "Change 1: 黄金\nTo 1: 林木",
+      "价格以林木计。",
+    ],
   ])("refuses %s", (_, sentence, reply, quote) => {
+    expect(rewritten(sentence, reply, quote)).toEqual({ kind: "kept" });
+  });
+
+  test.each([
+    [
+      "another unit after the figure",
+      "The engineer works 40 hours a week.",
+      "Change 1: 40\nTo 1: 5",
+      "The engineer works 5 days a week.",
+    ],
+    [
+      "another area after the figure",
+      "Rent is $40 per square foot.",
+      "Change 1: $40\nTo 1: $45",
+      "Rent is $45 per square metre.",
+    ],
+    [
+      "another rate in short",
+      "Rent is $12,000/yr.",
+      "Change 1: $12,000\nTo 1: $14,250",
+      "Rent is $14,250/month.",
+    ],
+    [
+      "another rate per annum",
+      "Interest is 5% p.a.",
+      "Change 1: 5%\nTo 1: 6%",
+      "Interest is 6% per month.",
+    ],
+    [
+      "another rate in the subject, in Chinese",
+      "年租金为12万元。",
+      "Change 1: 12万元\nTo 1: 1.5万元",
+      "月租金为1.5万元。",
+    ],
+    [
+      "another rate before the figure, in Chinese",
+      "租金按年支付，为12万元。",
+      "Change 1: 12万元\nTo 1: 1万元",
+      "租金按月支付，为1万元。",
+    ],
+    ["a fall for a rise", "Revenue fell by 5%.", "Change 1: 5%\nTo 1: 8%", "Revenue rose by 8%."],
+    [
+      "a loss for a profit",
+      "The company made a loss of $2 million.",
+      "Change 1: $2 million\nTo 1: $3 million",
+      "The company made a profit of $3 million.",
+    ],
+    ["a fall for a rise, in Chinese", "营收下降5%。", "Change 1: 5%\nTo 1: 8%", "营收增长8%。"],
+    [
+      "another thing's name, whose quote names both",
+      "The Deposit is $14,250.",
+      "Change 1: Deposit\nTo 1: Rent",
+      "The Rent is $14,250 and the Deposit is $42,750.",
+    ],
+    [
+      "the other party's name, in Chinese",
+      "出租人为张伟。",
+      "Change 1: 张伟\nTo 1: 李明",
+      "出租人为王芳，承租人为李明。",
+    ],
+  ])("refuses %s, from the words beside the value", (_, sentence, reply, quote) => {
     expect(rewritten(sentence, reply, quote)).toEqual({ kind: "kept" });
   });
 
@@ -245,6 +330,19 @@ describe("A rewrite changes only the value that differs", () => {
       "The Landlord is Westmarch Commercial Property Investments Limited.",
     ],
     ["a Chinese name", "项目负责人为李明。", "Change 1: 李明\nTo 1: 王芳", "项目负责人为王芳。"],
+    [
+      "a Chinese name of the same surname",
+      "项目负责人为李明。",
+      "Change 1: 李明\nTo 1: 李华",
+      "项目负责人为李华。",
+    ],
+    [
+      "a figure from a numbered clause, whose number is no figure of it",
+      "The Tenant pays a monthly rent of $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "1. The Tenant shall pay a monthly rent of $14,250.",
+    ],
+    ["a rise for a rise", "Revenue rose by 5%.", "Change 1: 5%\nTo 1: 8%", "Revenue rose by 8%."],
   ])("keeps %s for one", (_, sentence, reply, quote) => {
     expect(rewritten(sentence, reply, quote)).toMatchObject({ kind: "rewritten" });
   });

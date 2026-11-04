@@ -388,6 +388,16 @@ describe("Use as Citation", () => {
     });
   });
 
+  test("asks for the words' Citation for the Note the sentence is in, which a Folder wall may refuse", async () => {
+    editorWith([marked(SENTENCE, unsupported({ evidence: null }))]);
+    useCitationPick.setState({ pick });
+    const cite = vi.fn((_mindId: string) => Promise.resolve(CITED));
+
+    expect(await citeChosenWords(pick, rent, cite)).toBe(true);
+
+    expect(cite).toHaveBeenCalledWith("mind");
+  });
+
   test("refuses words a scan may have misread, and cites nothing", async () => {
     const { editor } = editorWith([marked(SENTENCE, unsupported({ evidence: null }))]);
     useCitationPick.setState({ pick });

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { DocumentGroupAssignment, LibraryGroup } from "../../src/core/api";
-import { readableFrom } from "../../src/renderer/src/components/documentOrFolder";
-import type { ScopeLibrary } from "../../src/renderer/src/scope";
+import type { Document, DocumentGroupAssignment, LibraryGroup } from "../../src/core/api";
+import {
+  type ReadableLibrary,
+  readableFrom,
+} from "../../src/renderer/src/components/documentOrFolder";
 
 /*
  * What a sentence's Document actions may open or read for a Note (#1554): ⌘K, the assistant and
@@ -28,21 +30,10 @@ const filed = (documentId: string, groupId: string): DocumentGroupAssignment => 
   error: null,
   model: null,
 });
-const document = (id: string, status = "ready") =>
-  ({
-    id,
-    name: id,
-    kind: "pdf",
-    status,
-    fileStatus: "available",
-    folderId: null,
-    tags: [],
-  }) as never;
+const document = (id: string, status: Document["status"] = "ready") => ({ id, status });
 
-const library: ScopeLibrary = {
-  folders: [],
+const library: ReadableLibrary = {
   groups: [folder("wall", "Client A", true), folder("general", "General")],
-  tags: [],
   documents: [document("lease"), document("notice"), document("scan", "no-text")],
   assignments: [filed("lease", "wall"), filed("notice", "general")],
 };

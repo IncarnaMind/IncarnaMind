@@ -420,6 +420,70 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+/** Files the Document named `name` in a new Folder that keeps its work inside it, as the Library's menu does. */
+const wallOff = (window: Page, name: string) =>
+  window.evaluate(async (named) => {
+    const core = (
+      globalThis as unknown as {
+        incarnamind: {
+          listDocuments(): Promise<{ id: string; name: string }[]>;
+          createLibraryGroup(input: { name: string; description: string }): Promise<{ id: string }>;
+          assignDocumentGroup(documentId: string, groupId: string): Promise<unknown>;
+          updateLibraryGroup(
+            id: string,
+            patch: { name: string; description: string; keepInside: boolean },
+          ): Promise<unknown>;
+        };
+      }
+    ).incarnamind;
+    const document = (await core.listDocuments()).find((each) => each.name === named);
+    if (!document) throw new Error(`No Document ${named}.`);
+    const folder = await core.createLibraryGroup({ name: "Client A", description: "" });
+    await core.assignDocumentGroup(document.id, folder.id);
+    await core.updateLibraryGroup(folder.id, {
+      name: "Client A",
+      description: "",
+      keepInside: true,
+    });
+  }, name);
+
+test("a Document filed behind a Folder wall the Note is outside is never cited or opened for its sentence", async () => {
+  test.setTimeout(240_000);
+  const { app, window, editor } = await launchNote("en");
+  const card = await checkSentence(window, editor, DIFFERENT);
+  await pointAndClick(window, card.getByTestId("claim-choose-citation"));
+  const line = window.getByTestId("citation-pick-line");
+  await expect(line).toBeVisible();
+  // The close Passage's Document goes behind a wall while the sentence waits in it.
+  await wallOff(window, "Harbour times");
+  await selectOwn(window);
+  await pointAndClick(
+    window,
+    window.getByTestId("viewer-selection-menu").getByTestId("viewer-selection-cite"),
+  );
+  await expect(window.getByTestId("error-notice-message")).toContainText(
+    "This Folder keeps its work inside it.",
+  );
+  expect(await noteText(editor)).toBe(DIFFERENT);
+  await pointAndClick(window, line.getByTestId("citation-pick-cancel"));
+  await expect(line).toHaveCount(0);
+
+  // Asked again, Choose the Citation… opens the picker, where that Document can't be chosen.
+  await pointAndClick(window, editor.getByText("publish forecasts"));
+  await window.keyboard.press("ControlOrMeta+Shift+K");
+  await pointAndClick(
+    window,
+    window.getByTestId("claim-card").getByTestId("claim-choose-citation"),
+  );
+  const picker = window.getByTestId("citation-document-picker");
+  await expect(picker).toBeVisible();
+  await expect(picker.locator('[role="option"][aria-disabled="true"]')).toContainText(
+    "Harbour times",
+  );
+  await expect(picker.locator('[role="option"]:not([aria-disabled])')).toContainText("Seabirds");
+  await app.close();
+});
+
 test("the assistant checks the sentence against a Document it names, and opens one for its Citation", async () => {
   test.setTimeout(300_000);
   const { app, window, editor } = await launchNote("en", 1440, "Seabirds");
