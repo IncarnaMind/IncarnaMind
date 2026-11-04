@@ -1276,6 +1276,10 @@ export const zhCN = {
   "claim.reason.workbook-unsupported": "它用到了 IncarnaMind 无法计算的公式，因此无法核对这个数。",
   "claim.reason.workbook-changed":
     "按工作簿现在的单元格，已得不出这个数。请重新提问，按工作簿现在的内容再算一次。",
+  "claim.reason.figures-not-read": "无法读取“{document}”{location}中的数字。",
+  "claim.reason.figures-not-read.whole": "无法读取“{document}”中的数字。",
+  "claim.reason.figures-not-read.unknown": "无法读取某个文档中的数字。",
+  "claim.reason.sentence-figures-not-read": "无法读取这句话中的数字。",
   "claim.readBudget.continue": "继续",
   "claim.recheck.edited": "核对之后，这句话改过了。",
   "claim.recheck.new-version": "核对时用到的文档有了新版本。",
