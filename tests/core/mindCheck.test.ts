@@ -1428,6 +1428,28 @@ describe("Checking selected figures in one sentence", () => {
     expect(model.doGenerateCalls).toHaveLength(0);
   });
 
+  test("a plan of chosen figures counts only the sentences that hold them", async () => {
+    const { core, client, mindId, rows } = await fixture();
+    const [, , cash] = await rows();
+    if (!cash) throw new Error("Missing cash figure.");
+    editMind(client, (blocks) => [
+      ...blocks,
+      { type: "paragraph", attrs: { id: "extra" }, content: [text("The audit was complete.")] },
+    ]);
+    await client.settled();
+
+    expect(await core.planMindCheck(mindId, "all", false)).toMatchObject({
+      kind: "ready",
+      sentences: 2,
+    });
+    expect(await core.planMindCheck(mindId, "all", false, [cash.id])).toMatchObject({
+      kind: "ready",
+      sentences: 1,
+      findsClaims: false,
+    });
+    await expect(core.planMindCheck(mindId, "all", false, ["unknown-figure"])).rejects.toThrow();
+  });
+
   test("stopping a selected recheck settles only its pending child", async () => {
     const { core, client, mindId, rows, owner, keep, holdNext } = await fixture();
     await core.checkMind(request(mindId, "all", "initial"));

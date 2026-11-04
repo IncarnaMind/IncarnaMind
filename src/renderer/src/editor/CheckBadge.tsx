@@ -174,6 +174,17 @@ function MindBadge({
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
       holds={!askingNow && (ready || heldOnce)}
+      actions={
+        <CheckActions
+          editor={editor}
+          doc={doc}
+          mindId={mindId}
+          askingMind={askingMind}
+          planned={planned}
+          estimate={estimate}
+          estimateState={estimateState}
+        />
+      }
     >
       <p className="check-card-title">{t("health.label")}</p>
       <HealthCard
@@ -185,21 +196,11 @@ function MindBadge({
         figures={figures}
       />
       <ContradictionLine doc={doc} mindId={mindId} />
-      <div className="check-card-sep" />
-      <CheckActions
-        editor={editor}
-        doc={doc}
-        mindId={mindId}
-        askingMind={askingMind}
-        planned={planned}
-        estimate={estimate}
-        estimateState={estimateState}
-      />
     </BadgeFrame>
   );
 }
 
-function CheckActions({
+export function CheckActions({
   editor,
   doc,
   mindId,
@@ -371,6 +372,7 @@ function BadgeFrame({
   onStop,
   foot,
   holds = true,
+  actions,
   children,
 }: {
   mindId: string;
@@ -383,9 +385,11 @@ function BadgeFrame({
   foot?: ReactNode;
   /**
    * Whether the card holds its opening height. False while its content is still on its way (a
-   * question, a problem, an estimate), so the price line and the press show in full.
+   * question, a problem, an estimate).
    */
   holds?: boolean;
+  /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const t = useT();
@@ -465,6 +469,12 @@ function BadgeFrame({
               </>
             )}
           </div>
+          {actions && (
+            <>
+              <div className="check-card-sep" />
+              {actions}
+            </>
+          )}
         </Popover>
       )}
     </div>
