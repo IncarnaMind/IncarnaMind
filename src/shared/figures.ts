@@ -2260,23 +2260,11 @@ const SIGN_BEFORE =
   /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除)[ \u00a0]*[为了]?$|-$|[△▲▽▼][ \u00a0]*$/i;
 
 /**
- * "minus", "negative" or 负 anywhere in an amount's clause: "a negative closing balance of". Not a
+ * "minus", "negative" or 负 in the text before an amount: "a negative closing balance of". Not a
  * "negative pledge", nor 负责, 负担, 负债, 负面 or 自负.
  */
 const NEGATIVE_WORD =
   /(?<![A-Za-z])(?:minus|negative(?! pledge))(?![A-Za-z])|(?<!自)负(?![责担债面])/i;
-/**
- * A sentence's end, which a sign word before it doesn't reach past: a semicolon, 。, or a stop
- * before a capital or a Chinese character that follows a lowercase word or its ellipsis, a digit,
- * ")", "%", a closing quote or a Chinese character. No list of titles is ever complete, so a stop
- * after a capitalised word or one letter ("St. Louis", "Acme Co. Ltd.", "U.S. Treasury", "e.g.
- * Fund A"), or after a short lowercase abbreviation ("vs. Beta"), is taken as an abbreviation's.
- * Where a sentence does end there ("for Acme Inc. The fee"), or at "!" or "?", the bracket keeps
- * its minus. A comma is none ("a negative balance, after all adjustments, of …"), nor a stop
- * before a lowercase word, a digit or a bracket ("(see Note 5.)").
- */
-const CLAUSE_MARK =
-  /(?:(?<=(?:^|[^A-Za-z])[a-z]{2,}(?:\.\.)?)(?<!(?:^|[^A-Za-z])(?:vs|etc|cf|al|viz|incl|excl|approx|esp|ca|no|ref))|(?<=[\d)%"'\p{Script=Han}]))\.(?=[ \u00a0]+[A-Z]|\p{Script=Han})|[;；。]/gu;
 
 /** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …", a table's "Less" cell. */
 const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*(?:[:：]|\t|\|)/i;
@@ -2314,19 +2302,17 @@ function restates(
   for (let at = end; at <= bracket; at++)
     if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return null;
   const signed = (from: number) => {
-    // A clause reaches further back than words do; past this the reader can't see where it starts.
-    const reach = Math.max(0, from - 400);
-    const start = reach + s.slice(reach, from).lastIndexOf("\n") + 1;
+    // A sign word can be lines or sentences before the amount it gives a sign to ("The balance was
+    // negative. It was …"), and a stop can't tell a sentence's end from an abbreviation's ("St.
+    // Louis", "acct. A12"), so all the text before the words counts. Past 400 characters the reader
+    // doesn't look, and the bracket keeps its minus.
+    if (from > 400 || NEGATIVE_WORD.test(s.slice(0, from))) return true;
+    const start = s.lastIndexOf("\n", from - 1) + 1;
     const lead = s.slice(start, from);
-    const marks = [...lead.matchAll(CLAUSE_MARK)];
-    const clause = lead.slice((marks.at(-1)?.index ?? -1) + 1);
-    const unseen = start === reach && reach > 0 && s[reach - 1] !== "\n" && marks.length === 0;
     // "减", a tab, "已付定金": the tab beside a Chinese character is gone from the text read.
     const label = /^[\s|]*减/.exec(lead)?.[0].length;
     return (
-      unseen ||
       SIGN_BEFORE.test(lead.slice(-24)) ||
-      NEGATIVE_WORD.test(clause) ||
       DEDUCTION_LINE.test(lead) ||
       (label !== undefined && prepared.tabbed.has(start + label))
     );
