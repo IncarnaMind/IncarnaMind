@@ -6,12 +6,18 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { vi } from "vitest";
 import type { ChatModelChoice, CoreEventName } from "../../src/core";
-import { DATABASE_FILE } from "../../src/core";
+import { COMPARISON_CELL_NODE, DATABASE_FILE } from "../../src/core";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import { openDatabase } from "../../src/core/storage";
+import { citationAttributesOf } from "../../src/shared/citations";
+import { comparisonCellOf } from "../../src/shared/comparisons";
+import { compare } from "../../tests/helpers/comparisons";
 import { queryDatabase } from "../../tests/helpers/core";
+import { connectToMind } from "../../tests/helpers/mindClient";
+import { readMind } from "../../tests/helpers/minds";
 import { type CaseResult, fetchPapers, fetchReserves, reports, runCase } from "../everyday/asking";
 import { CASES, type LibraryName } from "../everyday/cases";
 import { writeDatedDocuments } from "../everyday/dated";
@@ -31,7 +37,7 @@ import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
 
-export const SET_IDS = ["gating", "hard", "everyday", "checks"] as const;
+export const SET_IDS = ["gating", "hard", "everyday", "checks", "cells"] as const;
 export type SetId = (typeof SET_IDS)[number];
 export type Language = "en" | "zh-CN";
 
@@ -245,6 +251,102 @@ export function hardSet(root: string, cacheDir: string, timeoutMs: number): Pair
         );
         db.close();
         return { library, leftOut, close: () => library.close() };
+      },
+    },
+  ];
+}
+
+/**
+ * The gating set's Questions whose Passages are all in one Document, each asked as a comparison
+ * table's one cell over that Document (#1631), as a Task asks it: cited when a found Citation in
+ * the cell covers each Passage's pages in that Document.
+ */
+export function cellsSet(root: string, timeoutMs: number): PairedGroup[] {
+  const set = loadEvaluationSet(root);
+  const items = set.questions.flatMap((question): PairedItem[] => {
+    const needed = neededPassages(question);
+    const [key, ...others] = [...new Set(needed.map((each) => each.document))];
+    if (key === undefined || others.length > 0) return [];
+    return [
+      {
+        set: "cells",
+        id: question.id,
+        kind: groupOfQuestion(question),
+        language: languageOf(question.language),
+        words: "events",
+        async run({ library, grade, arm }) {
+          const document = library.documents.get(key);
+          if (!document) throw new Error(`No Document ${key} in the library.`);
+          const { core } = library;
+          const mind = await core.createMind({ title: `${question.id} (${arm})` });
+          const client = await connectToMind(core, mind.id);
+          library.timings?.begin();
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([
+            compare(core, client, {
+              mindId: mind.id,
+              documentIds: [document.id],
+              questions: [question.question],
+            }),
+            new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error("The cell took too long.")), timeoutMs);
+            }),
+          ]).finally(() => clearTimeout(timer));
+          let cell: ProseMirrorNode | null = null;
+          readMind(client).descendants((node) => {
+            if (node.type.name === COMPARISON_CELL_NODE) cell ??= node;
+            return cell === null;
+          });
+          if (cell === null) throw new Error("The table has no cell.");
+          const filled: ProseMirrorNode = cell;
+          const { status, problem } = comparisonCellOf(filled.attrs);
+          const citations: ReturnType<typeof citationAttributesOf>[] = [];
+          filled.descendants((node) => {
+            if (node.type.name === "citation") citations.push(citationAttributesOf(node.attrs));
+          });
+          const found = citations.filter((each) => each.check === "found");
+          const text = filled.textBetween(0, filled.content.size, " ", " ").trim();
+          const answered = status === "done" || problem === "not-found";
+          return {
+            ...NOTHING,
+            status: answered ? "done" : "failed",
+            error: answered ? null : `${status}: ${problem ?? ""}`,
+            citations: citations.length,
+            found: found.length,
+            cited: needed.every((expected) =>
+              found.some(
+                (each) =>
+                  each.documentName === document.name &&
+                  each.pageFrom != null &&
+                  each.pageTo != null &&
+                  each.pageFrom <= expected.pages[1] &&
+                  expected.pages[0] <= each.pageTo,
+              ),
+            ),
+            grade: answered
+              ? await grade(
+                  { question: question.question, quotes: needed.map((each) => each.quote) },
+                  text,
+                )
+              : null,
+            failures: toolTextIn(text).length > 0 ? ["tool-text"] : [],
+            text,
+          };
+        },
+      },
+    ];
+  });
+  return [
+    {
+      name: "cells",
+      items,
+      async open(base) {
+        const library = await openLibrary({
+          ...base,
+          name: "paired-cells",
+          documents: set.documents,
+        });
+        return { library, close: () => library.close() };
       },
     },
   ];
