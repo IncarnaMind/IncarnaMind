@@ -304,12 +304,14 @@ export interface Planned {
  * place if it can't or another window checks it. `ask` is the question before a run whose price
  * is above $1 or that has a spending cap, which the card's own Check skips (#2313). `forceAsk`
  * asks without a price, for the card's press before its estimate arrived or after it failed.
+ * `priced` is the plan the card's press showed the price for: a plan made since asks again.
  */
 async function start(
   mindId: string,
   planned: () => Promise<Planned>,
   ask = true,
   forceAsk = false,
+  priced?: Planned,
 ): Promise<CheckOutcome> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
@@ -338,6 +340,7 @@ async function start(
       },
       ask,
       forceAsk,
+      priced,
     );
     keeps = outcome !== null && outcome.kind === "asked";
     return outcome;
@@ -457,8 +460,8 @@ export async function checkEstimate(mindId: string, planned: Planned): Promise<C
 }
 
 /** The card's one Check: the price line it shows before the press is the User's OK (#2313). */
-export const startCheck = (mindId: string): Promise<CheckOutcome> =>
-  start(mindId, () => planCheckThisMind(mindId), false);
+export const startCheck = (mindId: string, priced?: Planned): Promise<CheckOutcome> =>
+  start(mindId, () => planCheckThisMind(mindId), false, false, priced);
 
 /** The card's Check when its price failed or hasn't arrived: it asks, with the couldn't-estimate line. */
 export const startCheckUnpriced = (mindId: string): Promise<CheckOutcome> =>
@@ -591,9 +594,20 @@ async function runCheck(mindId: string, requestId: string, run: CheckToRun): Pro
   }
 }
 
+/** Whether the plan made at the press is the one the card showed a price for. */
+function samePriced(priced: Planned, run: CheckToRun, plan: MindCheckPlan): boolean {
+  return (
+    priced.mode === run.mode &&
+    priced.allDocuments === run.allDocuments &&
+    JSON.stringify(priced.plan) === JSON.stringify(plan) &&
+    JSON.stringify(priced.watch) === JSON.stringify(run.watch)
+  );
+}
+
 /**
  * A Check that did not run on its one press asks when its price is above $1 or a spending cap is
- * set, and runs at once below that; an estimate that failed asks without a price (#2313).
+ * set, and runs at once below that; an estimate that failed asks without a price (#2313). A plan
+ * made since the price shown asks again, so the press never runs on an old price.
  */
 async function askOrCheck(
   mindId: string,
@@ -603,6 +617,7 @@ async function askOrCheck(
   started: () => void,
   ask: boolean,
   forceAsk = false,
+  priced?: Planned,
 ): Promise<CheckOutcome> {
   // A check of this Note that started while this one was held and planned has the badge, with
   // Stop: this one changes nothing beside it (#2302).
@@ -647,6 +662,9 @@ async function askOrCheck(
     }));
     return { kind: "asked", requestId };
   }
+  // The card's press carries the plan it priced: an edit or paste since makes another plan, whose
+  // own estimate is asked for rather than running on the old price (#2313).
+  if (!ask && priced !== undefined && !samePriced(priced, run, plan)) ask = true;
   // The one Check runs from its one press; the price line it shows is its card's, never a
   // question before the run (#2313).
   if (!ask) {

@@ -497,6 +497,33 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+// protects=#2313: a part whose check read a Passage and judged it keeps Unsupported even with no quote; fails_when=a read Passage is called found nothing; no_claim=the same part with no Passage found.
+test.each(["en", "zh-CN"] as const)(
+  "a part that read a Passage stays Unsupported with no quote in %s",
+  (language) => {
+    const { editor } = editorHolding([paragraph("Revenue rose and costs fell")]);
+    const judged = partOf(17, 27, "unsupported", {
+      unsupported: {
+        reason: "The lease says costs rose.",
+        covered: null,
+        uncovered: null,
+        found: true,
+      },
+    });
+    const empty = partOf(17, 27, "unsupported");
+    const claim = partsClaim(editor, 0, 0, [
+      partOf(0, 12, "supported", { evidence: [partCitation] }),
+      judged,
+    ]);
+    const part = (each: unknown) => each as Parameters<typeof partFoundNothing>[0];
+    const words = HEAD_WORDS[language];
+    expect(partFoundNothing(part(claim.check.parts?.[1]))).toBe(false);
+    expect(rowWord(language, part(claim.check.parts?.[1]))).toBe(words.unsupported);
+    expect(partFoundNothing(part(empty))).toBe(true);
+    expect(rowWord(language, part(empty))).toBe(words.notFound);
+  },
+);
+
 // protects=#2313: one part Supported keeps the sentence Unsupported, never Not found, in English and Chinese; fails_when=the header or a supported row reads Not found; no_claim=the supported row's Citation.
 test.each(["en", "zh-CN"] as const)(
   "one part Supported keeps the sentence Unsupported in %s",

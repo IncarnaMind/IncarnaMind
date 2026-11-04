@@ -268,7 +268,7 @@ function CheckActions({
           onClick={() =>
             void (checkPressOf(estimateState) === "ask"
               ? startCheckUnpriced(mindId)
-              : startCheck(mindId))
+              : startCheck(mindId, planned ?? undefined))
           }
         >
           {t("mindCheck.command")}

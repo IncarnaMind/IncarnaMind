@@ -155,6 +155,14 @@ test("the parts card keeps one height as verdicts land, scrolls a longer result,
     expect(
       await again.evaluate((element) => element.scrollHeight <= element.clientHeight + 1),
     ).toBe(true);
+
+    // A part that found nothing says so in its own row, drawn from that part.
+    await write("unsupported", [
+      part(0, 12, "supported", { evidence: [evidence] }),
+      part(17, 27, "unsupported"),
+    ]);
+    await expect(rows.nth(0)).toContainText("Supported");
+    await expect(rows.nth(1)).toContainText("Not found");
   } finally {
     await app.close();
   }
