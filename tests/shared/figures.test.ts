@@ -1337,7 +1337,7 @@ describe("a currency written next to a scale", () => {
     "I'm the seller's agent.",
     "M. Smith",
     "Room 000",
-    "万科",
+    "万栖",
     "一千",
     "工作单位",
     "Sale price £385,000.00",
