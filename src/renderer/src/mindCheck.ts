@@ -116,6 +116,15 @@ export function dismissMindCheck(mindId: string): void {
   void freeAskedNote(mindId);
 }
 
+/** The card closed on the question (Esc, ×, or the Note closing): it goes as the User's no. */
+export function closeMindCheckAsk(mindId: string): void {
+  const asking = useMindCheck.getState().asking[mindId];
+  if (!asking) return;
+  clearAsk(mindId);
+  settle(asking.requestId, { kind: "closed" });
+  void releaseHold(asking.requestId);
+}
+
 async function freeAskedNote(mindId: string): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
   clearAsk(mindId);
@@ -135,7 +144,7 @@ async function releaseHold(requestId: string): Promise<void> {
 /** How a Check the window started ended: its result, a failure, or the question it asked. */
 type CheckEnd = CheckMindResult | { kind: "threw"; error: unknown };
 type CheckOutcome = CheckEnd | { kind: "asked"; requestId: string } | null;
-type CheckAnswer = CheckEnd | { kind: "declined" };
+type CheckAnswer = CheckEnd | { kind: "declined" } | { kind: "closed" };
 
 /** What each Check that asked a question comes to, by the request it asked for. */
 const answers = new Map<
@@ -536,16 +545,22 @@ export async function checkFromAssistant(
     ? await startMindCheck(mindId, "all")
     : await startCheckAsking(mindId);
   if (outcome?.kind === "asked") {
-    if (reply) throw new TranslatableError({ key: "mindCheck.waitingForOk" });
+    if (!reply) return;
+    endAs(await answerOf(outcome.requestId));
     return;
   }
   endAs(outcome ?? null);
 }
 
+/** What the Note's question comes to: its run's result, Not now, or the card closing first. */
+const answerOf = (requestId: string): Promise<CheckAnswer> =>
+  answers.get(requestId)?.promise ?? Promise.resolve({ kind: "closed" });
+
 /** Ends the assistant's Check as what it came to: only a run that checked is ever "Done". */
 function endAs(outcome: CheckAnswer | null): void {
   if (outcome === null) throw new TranslatableError({ key: "mindCheck.nothingToCheck" });
-  if (outcome.kind === "declined") throw new TranslatableError({ key: "commands.denied" });
+  if (outcome.kind === "declined") throw new TranslatableError({ key: "mindCheck.declined" });
+  if (outcome.kind === "closed") throw new TranslatableError({ key: "mindCheck.closed" });
   if (outcome.kind === "threw") {
     throw outcome.error instanceof Error
       ? outcome.error

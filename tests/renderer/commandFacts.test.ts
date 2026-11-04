@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, ApprovalReadText, CommandDone } from "../../src/core/api";
 import {
+  checkWaiting,
   commandCallText,
   doneText,
   organizeAskWhy,
@@ -367,22 +368,49 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     );
   });
 
-  // protects=a Check that asks on the note says it waits for the User's OK as its whole line, in English and Chinese (#2252); fails_when=it reads "Didn't run:" before the waiting sentence; no_claim=when it asks.
-  test("a Check that asks says it waits for the User's OK on the note", () => {
-    const asking = {
-      id: "call",
-      tool: "run_command",
-      source: "commands",
-      input: {},
-      status: "failed",
-      commandProblem: {
-        command: "mind.check",
-        message: "",
-        wording: { key: "mindCheck.waitingForOk", values: {} },
-      },
-    } as unknown as Parameters<typeof commandCallText>[1];
-    expect(commandCallText(en, asking)).toBe("The check starts when you confirm it on the note.");
-    expect(commandCallText(zh, asking)).toBe("在笔记里确认后，核对才会开始。");
+  // protects=a Check that asks, one declined on the note and one whose question closed each say so as its whole line, in English and Chinese (#2252); fails_when=it reads "Didn't run:" before the app's sentence; no_claim=when each happens.
+  test("a Check that asks, is declined or is closed says its line whole", () => {
+    const ended = (key: string) =>
+      ({
+        id: "call",
+        tool: "run_command",
+        source: "commands",
+        input: {},
+        status: "failed",
+        commandProblem: { command: "mind.check", message: "", wording: { key, values: {} } },
+      }) as unknown as Parameters<typeof commandCallText>[1];
+    expect(commandCallText(en, ended("mindCheck.waitingForOk"))).toBe(
+      "The check starts when you confirm it on the note.",
+    );
+    expect(commandCallText(zh, ended("mindCheck.waitingForOk"))).toBe(
+      "在笔记里确认后，核对才会开始。",
+    );
+    expect(commandCallText(en, ended("mindCheck.declined"))).toBe(
+      "The check didn’t run: you chose Not now on the note.",
+    );
+    expect(commandCallText(zh, ended("mindCheck.declined"))).toBe(
+      "核对未开始：你在笔记里选择了“暂不”。",
+    );
+    expect(commandCallText(en, ended("mindCheck.closed"))).toBe(
+      "The check didn’t run: the question on the note was closed.",
+    );
+    expect(commandCallText(zh, ended("mindCheck.closed"))).toBe("核对未开始：笔记里的提问已关闭。");
+  });
+
+  // protects=a Check whose Note still shows its question keeps the waiting line, and one on another Note or one answered does not (#2252); fails_when=it says Running while the User is still deciding, or stayed waiting after an answer; no_claim=when the question shows.
+  test("a Check waits only while its own Note shows the question", () => {
+    const checking = done({
+      command: "mind.check",
+      mindId: "mind-1",
+      window: { changed: false, running: true },
+    });
+    expect(checkWaiting([checking], { "mind-1": {} })).toBe(true);
+    expect(checkWaiting([checking], { "mind-2": {} })).toBe(false);
+    expect(checkWaiting([checking], {})).toBe(false);
+    expect(checkWaiting([{ ...checking, mindId: undefined }], { "mind-1": {} })).toBe(false);
+    expect(
+      checkWaiting([done({ command: "document.rename", mindId: "mind-1" })], { "mind-1": {} }),
+    ).toBe(false);
   });
 
   // protects=what came back from Recently deleted says so, in both languages, and Undo can take it back; fails_when=it reads as a delete or offers no Undo; no_claim=which items.
@@ -397,7 +425,6 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(doneText(zh, done({ command: "deleted.deletePermanently", yours: "permanent" }))).toBe(
       "彻底删除只能由你来做，我不能做。在“回收站”里。",
     );
-    // The refusal says where, and its button takes the User there (#2252).
     expect(doneText(en, done({ command: "deleted.deletePermanently", yours: "permanent" }))).toBe(
       "Deleting for good is yours to do, not mine. It’s in Recently deleted.",
     );

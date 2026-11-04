@@ -25,6 +25,7 @@ import { useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import {
+  closeMindCheckAsk,
   type Planned,
   startCheck,
   startCheckUnpriced,
@@ -358,6 +359,17 @@ function VerifyBadge({
   );
 }
 
+/** Whether the Note has a tab anywhere: false once its tab closed, true while another tab is in front. */
+function noteHasTab(mindId: string): boolean {
+  return (
+    useAppStore
+      .getState()
+      .layout?.groups.some((group) =>
+        group.tabs.some((tab) => tab.item.kind === "mind" && tab.item.mindId === mindId),
+      ) ?? false
+  );
+}
+
 /**
  * The badge and its card. The card opens by itself when `ask` turns on: a
  * question before a paid run, or a problem with a check the User started.
@@ -419,12 +431,20 @@ function BadgeFrame({
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);
-  useEffect(() => () => setCheckCardOpen(place, false), [place]);
+  useEffect(
+    () => () => {
+      setCheckCardOpen(place, false);
+      // A tab that only stopped showing keeps its question; its Note closed takes it away.
+      if (!noteHasTab(mindId)) closeMindCheckAsk(mindId);
+    },
+    [place, mindId],
+  );
   const close = (refocus: boolean) => {
     // Closed from inside, the card would leave the focus nowhere: it goes back to the badge.
     if (refocus && document.activeElement?.closest(".check-card")) {
       (anchor?.querySelector("button") ?? anchor)?.focus();
     }
+    closeMindCheckAsk(mindId);
     setCheckCardOpen(place, false);
   };
   // The card is placed from this box's right edge, and the badge in it keeps one width while
@@ -439,7 +459,10 @@ function BadgeFrame({
           open={open}
           running={running}
           stable={badge.running || badge.checked !== null || open}
-          onToggle={() => setCheckCardOpen(place, !open)}
+          onToggle={() => {
+            if (open) closeMindCheckAsk(mindId);
+            setCheckCardOpen(place, !open);
+          }}
           onStop={onStop}
         />
       ) : (

@@ -3,6 +3,7 @@ import type { CommandDone, CommandItem, ConversationAnswer } from "../../../../c
 import { type Yours, yoursWordsOf } from "../../../../shared/commands";
 import { keptWords, undoRun, useCommandRuns } from "../../assistantCommands";
 import {
+  checkWaiting,
   commandCallText,
   commandRuns,
   refusalsOf,
@@ -15,6 +16,7 @@ import { LIBRARY_DELETED } from "../../deletedItems";
 import { showFileLabelKey } from "../../fileInfo";
 import { openFolderMenu } from "../../folderMenu";
 import { useT } from "../../i18n";
+import { useMindCheck } from "../../mindCheck";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
 import { CheckLineIcon, ShieldLineIcon } from "../lineIcons";
@@ -58,6 +60,7 @@ export function CommandsCard({
   streaming: boolean;
 }) {
   const t = useT();
+  const asking = useMindCheck((state) => state.asking);
   const runs = useMemo(() => commandRuns(answer), [answer]);
   const unrun = answer.toolCalls.filter(
     (call) => call.tool === "run_command" && call.status === "failed",
@@ -83,6 +86,8 @@ export function CommandsCard({
       ))}
       {changed.map(({ run, done: all }) => {
         const done = all.filter((each) => !each.yours);
+        // A Check alone, waiting on the Note's question, says so until the answer changes its line.
+        const waits = done.length === 1 && checkWaiting(done, asking);
         // What only showed, or made the Folder or Tag its line names, lists nothing under it.
         const items = done.flatMap((each) =>
           each.command === "mind.export" ||
@@ -111,7 +116,7 @@ export function CommandsCard({
                   title={saved.map((file) => file.path).join("\n") || undefined}
                   className="mind-changes-title"
                 >
-                  {runText(t, done)}
+                  {waits ? t("mindCheck.waitingForOk") : runText(t, done)}
                 </span>
                 {undone[run] ? (
                   <>
