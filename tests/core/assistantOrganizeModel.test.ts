@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
-import type { ApprovalRequest, ConversationAnswer, Core } from "../../src/core";
+import type { ApprovalRequest, ConversationAnswer, Core, RegisteredDataFlow } from "../../src/core";
 import { DATABASE_FILE } from "../../src/core";
 import type { Language } from "../../src/core/language";
 import { catalogProvider, kindOfCatalogId } from "../../src/core/providers/catalog/providers";
@@ -409,5 +409,102 @@ describe("The first Organize leaves the switch as the User set it (#2252, #2308)
     const start = await nextStart({ switchedOn: true });
 
     expect(start.sent).toBe(1);
+  });
+});
+
+/** What a window showing the Privacy page was last told about sending Documents for sorting to Anthropic. */
+const watchingPrivacy = (core: Core) => {
+  let last: RegisteredDataFlow[] | null = null;
+  core.on("dataFlows.changed", (flows) => {
+    last = flows;
+  });
+  return () => consentTo(last);
+};
+
+const consentTo = (flows: readonly RegisteredDataFlow[] | null) =>
+  flows
+    ?.find((each) => each.id === "classification")
+    ?.services.find((each) => each.flow.service.name === "Anthropic")?.consent ?? "not-asked";
+
+describe("The first Organize tells the window and leaves nothing behind (#2252)", {
+  timeout: 60_000,
+}, () => {
+  // protects=an open Settings > Privacy page is told when the card's Allow is stored, so it never shows "not asked" for a service the Documents went to; fails_when=the last thing the window was told says not-asked after the run, or it differs from what the core lists; no_claim=which Folder the classifier picks.
+  test("the Privacy page is told the Allow, and says what the core lists", async () => {
+    const { core, mind } = await newUser();
+    const shown = watchingPrivacy(core);
+    approvals(core);
+
+    await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
+
+    expect(shown()).toBe("accepted");
+    expect(consentTo(await core.listRegisteredDataFlows())).toBe("accepted");
+  });
+
+  // protects=the window is told "accepted" only when the User allowed; fails_when=Don't allow leaves the Privacy page, or the core, saying accepted; no_claim=the card's words.
+  test("not allowed, the Privacy page still says not asked", async () => {
+    const { core, mind } = await newUser();
+    const shown = watchingPrivacy(core);
+    core.on("approval.requested", (request) => {
+      void core.respondToApproval(request.requestId, "deny");
+    });
+
+    await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
+
+    expect(shown()).toBe("not-asked");
+    expect(consentTo(await core.listRegisteredDataFlows())).toBe("not-asked");
+  });
+
+  // protects=under a standing no the Allow lets this one request send and stores nothing at all: the Library keeps no record of a model or a switch; fails_when=the Library's record exists after the run; no_claim=which Folder the classifier picks.
+  test("a standing no leaves no record in the Library", async () => {
+    const { core, provider, mind, dataDir } = await newUser();
+    if (!provider.service) throw new Error("No service.");
+    decline(dataDir, provider.service);
+    approvals(core);
+
+    await askAssistant(core, { text: "Put my Documents into Folders.", mindId: mind.id });
+
+    expect(await filed(core)).toHaveLength(4);
+    expect(
+      queryDatabase(
+        dataDir,
+        "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+      ),
+    ).toEqual([]);
+  });
+
+  // protects=quitting while a request waits under a standing no leaves no model kept, so the Library's own "Use {company}" question is still offered at the next start; fails_when=the next start has a model for Organize or the decision is no longer no; no_claim=which Folder the classifier picks.
+  test("quitting during a run under a standing no keeps no model", async () => {
+    const keychain = createMemoryKeychain();
+    const held = Promise.withResolvers<void>();
+    const waiting = scriptedModel(
+      (call) =>
+        call.results.some((each) => each.tool === "run_command")
+          ? { text: "Done." }
+          : { calls: [{ tool: "run_command", input: { command: "documents.organize" } }] },
+      { generate: (call) => ({ ...classifying(call), until: held.promise }) },
+    );
+    const user = await newUser({ model: waiting, keychain });
+    if (!user.provider.service) throw new Error("No service.");
+    decline(user.dataDir, user.provider.service);
+    approvals(user.core);
+    const asked = await user.core.askInConversation({
+      text: "Put my Documents into Folders.",
+      mindId: user.mind.id,
+    });
+    if (!asked.asked) throw new Error("The Question wasn't asked.");
+    await vi.waitFor(() => expect(requestsWith(waiting, "Harbour Street")).toBeGreaterThan(0));
+    user.core.close();
+
+    const restarted = scriptedModels(
+      scriptedModel(() => ({ text: "Not asked." }), { generate: classifying }),
+    );
+    const core = startCore(user.dataDir, { keychain, createChatModel: restarted.createChatModel });
+
+    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
+    const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+    expect(flow?.consent).toBe("declined");
+    expect(requestsWith(restarted.model, "Harbour Street")).toBe(0);
+    core.close();
   });
 });
