@@ -21,6 +21,8 @@ export interface SentenceCheckContext {
   scopeItemName(kind: ScopeKind, id: string): string | null;
   /** A Passage's Document and Location, as a footnote says it. */
   sourceOf(passage: Partial<CitationAttributes>): string;
+  /** What a Citation quotes, in the export's words when it is a file's property (#2458). */
+  quoteOf(passage: Partial<CitationAttributes>): string;
 }
 
 function recordCiteComments(
@@ -91,7 +93,7 @@ export function failedSentences(
               }
             : null,
         quoted: evidence?.quote
-          ? { quote: evidence.quote, source: context.sourceOf(evidence) }
+          ? { quote: context.quoteOf(evidence), source: context.sourceOf(evidence) }
           : null,
       });
     } else if (shown.state === "unsupported" && check.citedCaseUnchecked) {
@@ -115,12 +117,12 @@ export function failedSentences(
             : null,
         scope: looked && scopeName(looked, context.scopeItemName),
         nearest: evidence?.quote
-          ? { quote: evidence.quote, source: context.sourceOf(evidence) }
+          ? { quote: context.quoteOf(evidence), source: context.sourceOf(evidence) }
           : null,
         covers: covers && {
           covered: covers.covered,
           uncovered: covers.uncovered,
-          quote: covers.quote,
+          quote: context.quoteOf(covers.quoted),
           source: context.sourceOf(covers.quoted),
         },
         notFound: saysNotFound(shown, check, cited.length),

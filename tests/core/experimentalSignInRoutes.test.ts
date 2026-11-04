@@ -77,16 +77,18 @@ describe("The experimental sign-in routes", () => {
     }
   });
 
-  test("leave Copilot no way to sign in in a build without them, until IncarnaMind's own app has a client ID", async () => {
+  test("leave Copilot only IncarnaMind's own app in a build without them", async () => {
     const folder = await mkdtemp(join(tmpdir(), "copilot-config-"));
     onTestFinished(() => rm(folder, { recursive: true, force: true }));
     const file = join(folder, "config.mjs");
     await writeFile(file, await bundle("src/core/providers/copilot/config.ts", false));
-    const built: { COPILOT_PROFILES: Record<string, unknown> } = await import(
-      pathToFileURL(file).href
-    );
+    const built: {
+      COPILOT_PROFILES: Record<string, { clientId: string; experimental?: boolean }>;
+    } = await import(pathToFileURL(file).href);
 
-    expect(Object.keys(built.COPILOT_PROFILES)).toEqual([]);
+    expect(Object.keys(built.COPILOT_PROFILES)).toEqual(["own"]);
+    expect(built.COPILOT_PROFILES.own).toMatchObject({ clientId: "Ov23liF4c8fKcl0K4ziJ" });
+    expect(built.COPILOT_PROFILES.own?.experimental).toBeUndefined();
   });
 
   test("are named only in their config module", async () => {

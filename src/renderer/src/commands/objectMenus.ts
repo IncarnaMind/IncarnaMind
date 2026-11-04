@@ -63,6 +63,7 @@ registerMenu("document", [
 registerMenu("folder", [
   "folder.open",
   "folder.newMind",
+  "folder.addDocuments",
   "folder.newInside",
   "folder.ask",
   "folder.organize",

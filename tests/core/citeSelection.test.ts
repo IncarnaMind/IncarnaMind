@@ -509,3 +509,143 @@ describe("citeSelection", () => {
     expect(cited).toMatchObject({ check: "cant-check", checkReason: "document-removed" });
   });
 });
+
+describe("citeSelection, for an area of a page (#118)", () => {
+  const AREA = { x: 0.1, y: 0.2, width: 0.5, height: 0.3 };
+
+  test("an area over a page's words is found there, and its region is kept", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addPaper(core);
+
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [{ unit: 2, text: REPEATED, linesBefore: 2, linesAfter: 1 }],
+      area: AREA,
+      unit: 2,
+    });
+
+    expect(cited).toMatchObject({ check: "found", pageFrom: 2, pageTo: 2, quote: REPEATED });
+    expect(cited.location).toEqual({ kind: "page", from: 2, to: 2, area: AREA });
+  });
+
+  test("an area over a picture holds no words, so it is cited as a picture that can't be checked", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addPaper(core);
+
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [],
+      area: AREA,
+      unit: 2,
+    });
+
+    expect(cited).toMatchObject({
+      check: "cant-check",
+      checkReason: "picture",
+      pageFrom: 2,
+      pageTo: 2,
+      quote: "",
+    });
+    expect(cited.location).toEqual({ kind: "page", from: 2, to: 2, area: AREA });
+  });
+
+  test("a picture area whose view names no Unit is placed by the words just before it", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addPaper(core);
+
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [],
+      area: AREA,
+      unit: null,
+      around: { before: "Pooling the cuts, the recovery peaks in the second quarter." },
+    });
+
+    expect(cited).toMatchObject({
+      check: "cant-check",
+      checkReason: "picture",
+      pageFrom: 2,
+      pageTo: 2,
+    });
+    expect(cited.location).toEqual({ kind: "page", from: 2, to: 2, area: AREA });
+  });
+
+  test("a picture area with nothing around it names no place, never the first page", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addPaper(core);
+
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [],
+      area: AREA,
+      unit: null,
+    });
+
+    expect(cited).toMatchObject({ checkReason: "picture", pageFrom: null, pageTo: null });
+    expect(cited.location).toBeNull();
+  });
+
+  test("an area under a line two sections repeat names no section, not the first", async () => {
+    const core = startCore(await createTempDataFolder());
+    const line = "Source: company filings and our own estimates.";
+    const [document] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createSourceFolder(),
+        "Sections.md",
+        `# Costs\n\nThe first section.\n\n${line}\n\n# Revenue\n\nThe second section.\n\n${line}\n`,
+      ),
+    ]);
+    if (!document) throw new Error("The file wasn't added.");
+
+    const picture = await core.citeSelection({
+      documentId: document.id,
+      parts: [],
+      area: AREA,
+      unit: null,
+      around: { before: line },
+    });
+    expect(picture).toMatchObject({ checkReason: "picture", pageFrom: null, pageTo: null });
+    expect(picture.location).toBeNull();
+
+    const words = await core.citeSelection({
+      documentId: document.id,
+      parts: [{ unit: null, text: line }],
+      area: AREA,
+      unit: null,
+    });
+    expect(words).toMatchObject({ check: "not-found", checkReason: "in-several-places" });
+    expect(words.location).toBeNull();
+  });
+
+  test("an area on a deleted Document can't be checked", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addPaper(core);
+    await core.deleteDocuments([document.id]);
+
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [],
+      area: AREA,
+      unit: 1,
+    });
+
+    expect(cited).toMatchObject({ check: "cant-check", checkReason: "document-removed" });
+  });
+
+  test("an area without a region is refused as before", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addPaper(core);
+
+    await expect(
+      core.citeSelection({ documentId: document.id, parts: [], unit: 1 }),
+    ).rejects.toThrow("No text is selected.");
+    await expect(
+      core.citeSelection({
+        documentId: document.id,
+        parts: [],
+        area: { x: -0.1, y: 0, width: 0.5, height: 0.5 },
+        unit: 1,
+      }),
+    ).rejects.toThrow("No text is selected.");
+  });
+});

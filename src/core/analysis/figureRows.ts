@@ -43,7 +43,9 @@ function reduce(how: Exclude<FigureHow, "count">, values: readonly number[]): nu
   if (how === "sum") return sum(values);
   if (values.length === 0) return null;
   if (how === "mean") return sum(values) / values.length;
-  return how === "min" ? Math.min(...values) : Math.max(...values);
+  // Folded, not spread: a spread of every row overflows the stack past about 120,000 rows.
+  const pick = how === "min" ? Math.min : Math.max;
+  return values.reduce((kept, value) => pick(kept, value));
 }
 
 /**
@@ -133,6 +135,17 @@ export function notNumbersText(count: number, column: string, where: string): st
 export function cellsText(cells: readonly NotNumber[], count: number): string {
   const listed = cells.map((each) => `row ${each.row} ${each.value ? `"${each.value}"` : "empty"}`);
   return `${listed.join(", ")}${count > cells.length ? ", …" : ""}`;
+}
+
+/** Row numbers as runs of rows in a row, in order. */
+export function rowRuns(rows: Iterable<number>): [number, number][] {
+  const runs: [number, number][] = [];
+  for (const row of [...new Set(rows)].sort((a, b) => a - b)) {
+    const last = runs.at(-1);
+    if (last && row === last[1] + 1) last[1] = row;
+    else runs.push([row, row]);
+  }
+  return runs;
 }
 
 /** "rows 2–9, 11, 14–41", the first few runs only: for the model's report. */

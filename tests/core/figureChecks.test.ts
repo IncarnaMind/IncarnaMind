@@ -203,6 +203,8 @@ async function checkWith(options: {
   body?: string;
   quotes?: readonly string[];
   units?: UnitText[];
+  /** Its Document has no pages, as a whole TXT or Markdown file cited before Units. */
+  pagesless?: boolean;
   calculations?: readonly unknown[];
   judgement?: string;
   failure?: { status: number; message: string };
@@ -323,8 +325,8 @@ async function checkWith(options: {
     documentKind: options.units?.some((unit) => unit.kind === "rows") ? "xlsx" : "pdf",
     contentHash: "hash-1",
     text: body,
-    pageFrom: 1,
-    pageTo: 1,
+    pageFrom: options.pagesless ? null : 1,
+    pageTo: options.pagesless ? null : 1,
     documentDeleted: false,
     notCited: false,
   };
@@ -1539,6 +1541,30 @@ test.each([
     expect(result.figures?.[0]?.result.verdict).toBe(verdict);
   },
 );
+
+// protects=a quote cited with no pages is placed in its Document, not in itself, so a table's cell quoted alone is named by its own row there, and another row's label names another number (#2255); fails_when=a pages-less quote is read as its whole text, so the other row's label goes unseen; no_claim=none beyond protects.
+test.each([
+  { words: "Revenue growth", verdict: "supported" },
+  { words: "Operating margin", verdict: "not-checked" },
+])("a quote cited with no pages is placed in its Document: $words", async ({ words, verdict }) => {
+  const claim = `${words} was 12% in 2025.`;
+  const { result } = await checkWith({
+    figures: [target("f1", "12%", claim)],
+    claim,
+    body: "| Measure | 2025 |\n| --- | --- |\n| Revenue growth | 12% |\n| Operating margin | 9% |",
+    quotes: ["12%"],
+    pagesless: true,
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "12%", unitQuote: null },
+        measure: { sentence: words, quote: words, match: "same" },
+      },
+    ]),
+  });
+  expect(result.figures?.[0]?.source?.pageFrom).toBeNull();
+  expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+});
 
 test("a quoted heading states the scale and currency the bare digits lack", async () => {
   const body = "Net debt (£m)\n528.9";
