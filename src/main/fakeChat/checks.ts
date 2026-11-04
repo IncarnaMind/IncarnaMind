@@ -148,8 +148,11 @@ export function fakePresence(options: GenerateOptions): string | null {
 
 const absenceLine = (sentence: string) => `Absence: ${ABSENCE_WORDS.test(sentence) ? "yes" : "no"}`;
 
+/** The reply's own Duty and Condition lines: the scripted check reads a clause as the sentence puts it. */
+const SAME_DETAIL = "Duty: none / none, same\nCondition: none / none, same";
+
 const withAbsence = (sentence: string, verdict: string): Reply => ({
-  text: `${verdict}\n${absenceLine(sentence)}`,
+  text: `${verdict}\n${absenceLine(sentence)}\n${SAME_DETAIL}`,
 });
 
 /**
@@ -400,6 +403,6 @@ function figuresReply(
     };
   });
   return {
-    text: `Verdict: supported\n${absenceLine(sentence)}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
+    text: `Verdict: supported\n${absenceLine(sentence)}\n${SAME_DETAIL}\nFigures: ${JSON.stringify({ items, remainder: null })}`,
   };
 }

@@ -13,6 +13,7 @@ import {
   checkReply,
   isCheckRun,
   type Plan,
+  SAME_DETAIL,
   sentenceOf,
 } from "../helpers/checks";
 import {
@@ -800,7 +801,9 @@ describe("One claim check", () => {
             calls: [cite("Spring tides happen every week")],
           };
         }
-        return cites === 1 ? { calls: [cite(quote)] } : { text: "Verdict: supported\nAbsence: no" };
+        return cites === 1
+          ? { calls: [cite(quote)] }
+          : { text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}` };
       },
       { generate: checkGenerate(PLANS) },
     );
@@ -2693,8 +2696,7 @@ describe("When the model can't check a sentence", () => {
 describe("A reply whose verdict is written in the turn that calls cite (#1673)", () => {
   const SPRING_QUOTE = "Spring tides happen at new moon and at full moon";
   const SAYS = "Tides says spring tides happen at new and full moon.";
-  const LINES =
-    "Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: Spring tides come / Spring tides happen, same";
+  const LINES = `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: Spring tides come / Spring tides happen, same\n${SAME_DETAIL}`;
   const CONTRACT = {
     name: "劳动合同书.md",
     contents:
@@ -2952,7 +2954,7 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
       language: "zh-CN" as const,
       sentence: "乙方每年有15天带薪年休假。",
       quote: LEAVE_QUOTE,
-      earlier: "Verdict: supported\nScope: 乙方, same\nTopic: found\nRoles: none, same",
+      earlier: `Verdict: supported\nScope: 乙方, same\nTopic: found\nRoles: none, same\n${SAME_DETAIL}`,
       later: "Verdict: contradicted\nScope: 乙方, same\nTopic: found\nRoles: none, same",
       says: LEAVE_SAYS,
       state: "contradicted",

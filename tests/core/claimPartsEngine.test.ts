@@ -3,7 +3,7 @@ import { periodCounts, statedFigure } from "../../src/core/answers/checks/calcul
 import { readClaimParts } from "../../src/core/answers/checks/claims";
 import { readEvidence, readVerdict } from "../../src/core/answers/checks/prompt";
 import { wholeNumberWords } from "../../src/shared/numberWords";
-import { listedSentences, sentenceOf } from "../helpers/checks";
+import { listedSentences, SAME_DETAIL, sentenceOf } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
 
@@ -24,6 +24,8 @@ type Outcome = {
   repair?: Outcome["calculation"];
   /** An empty calculate list sent beside the cite, as Claude Haiku 5.5 sends one. */
   emptyCalculate?: boolean;
+  /** `reply` is sent as written; otherwise one with no Duty line gets the same Duty and Condition. */
+  asWritten?: true;
 };
 
 /** Requests whose Run was still going when they were made: one made after it stopped never leaves the computer. */
@@ -113,10 +115,11 @@ async function check(
           ],
         };
       }
+      const text =
+        outcome.reply ??
+        `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${sentenceOf(call)} / ${outcome.quotes.join(" ")}, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`;
       return {
-        text:
-          outcome.reply ??
-          `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${sentenceOf(call)} / ${outcome.quotes.join(" ")}, same\nThe Documents establish this.\nEvidence: ${JSON.stringify(outcome.quotes.map((_, index) => index + 1))}\nCalculation: ${outcome.repair?.stated ?? outcome.calculation?.stated ?? "none"}`,
+        text: outcome.asWritten || /^Duty:/m.test(text) ? text : `${text}\n${SAME_DETAIL}`,
       };
     },
     {
@@ -1610,6 +1613,7 @@ describe("a part the quote states keeps its own duty and condition (#1766, #1708
           quotes: [quote],
           reply: `Verdict: contradicted\nRoles: berth holders may run / berth holders may run, same\nTime: none / none, same\nScope: none, same\n${fields}\nThe Document gives another price.\nEvidence: [1]`,
           judgement: "same",
+          asWritten: true,
         },
       },
     );

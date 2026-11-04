@@ -1,6 +1,6 @@
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
-import { checkGenerate } from "../helpers/checks";
+import { checkGenerate, SAME_DETAIL } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
 
@@ -91,7 +91,7 @@ async function fixture(
       return {
         text: refuses
           ? "I cannot repair the calculation, so I cannot check this sentence."
-          : `Verdict: ${verdict}\nThe accounts support this sentence. [^1]${declare ? `\nCalculation: ${example.stated}` : ""}`,
+          : `Verdict: ${verdict}\n${SAME_DETAIL}\nThe accounts support this sentence. [^1]${declare ? `\nCalculation: ${example.stated}` : ""}`,
       };
     },
     { generate: checkGenerate({ [example.claim]: { judgement: "conflict" } }) },
