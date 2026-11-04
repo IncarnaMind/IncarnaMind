@@ -401,7 +401,9 @@ test.skipIf(KEY === undefined).each(ALL.map((held) => ({ ...held })))(
     await addAndProcess(core, [file]);
     const before = spent();
     const answer = await ask(core, held.question);
-    const made = answer.toolCalls.find((call) => call.mindChange?.created)?.mindChange?.mindId;
+    // The Note a call finished: a failed call may have streamed part of one before it failed.
+    const made = answer.toolCalls.find((call) => call.status === "done" && call.mindChange?.created)
+      ?.mindChange?.mindId;
     const report = [
       `## ${held.name} (${held.language}) · ${MODEL}`,
       `Read for: ${held.read}`,
