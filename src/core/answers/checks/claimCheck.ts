@@ -1786,11 +1786,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         verdict.roles !== "differs" &&
         verdict.time !== "differs" &&
         verdict.scope !== "wider" &&
-        !comparesOtherWords(
-          { ...verdict, verdict: "supported" },
-          request.claim,
-          askedForOwnWords,
-        ) &&
+        !comparesOtherWords({ ...verdict, verdict: "supported" }, request.claim, true) &&
         sentence !== undefined &&
         isPartOf(sentence, request.claim) &&
         evidence !== null &&
@@ -1859,7 +1855,7 @@ const ROLES_OWN_WORDS =
  * sentence's party or term: a figure's or a cell's sentence often names neither ("Scope: none,
  * same" for 杠杆率仍应在3.25倍的契约上限之内), but one that names the Tenant has its words to copy.
  */
-function comparesOtherWords(verdict: ReadVerdict, claim: string, asked: boolean): boolean {
+export function comparesOtherWords(verdict: ReadVerdict, claim: string, asked: boolean): boolean {
   if (verdict.verdict !== "supported") return false;
   const sides = verdict.rolesSides;
   if (sides === undefined) return asked;
@@ -2069,7 +2065,7 @@ const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : 
  * Whether `claim` is one part of `sentence`, not the whole sentence but for spaces and punctuation
  * around it, as the part path tells a part from the sentence it fills (#2313).
  */
-function isPartOf(sentence: string, claim: string): boolean {
+export function isPartOf(sentence: string, claim: string): boolean {
   const at = sentence.indexOf(claim);
   return (
     at >= 0 && !/^[\s\p{P}]*$/u.test(sentence.slice(0, at) + sentence.slice(at + claim.length))
@@ -2118,18 +2114,23 @@ const DETAIL_LINKS = new Set([
  * Chinese, each of its characters) is there. One judgement called "every week" against "every
  * year" the same, and the part read Supported (#2313).
  */
-function quoteStatesDetail(claim: string, quote: string): boolean {
-  const words = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+export function quoteStatesDetail(claim: string, quote: string): boolean {
+  const words = (text: string) =>
+    text.toLowerCase().match(/\p{Script=Han}+|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu) ?? [];
   const stated = new Set(words(quote));
   const text = quote.toLowerCase();
+  const own = claim.toLowerCase();
+  const negations = (each: string) =>
+    [...each.matchAll(/\b(?:not|no|never|without|nor|cannot)\b|n't\b|[不未没无非]/gu)].length;
+  if (negations(text) > negations(own)) return false;
   for (const word of words(claim)) {
     if (/^\p{Script=Han}+$/u.test(word)) {
-      for (const character of word) if (!text.includes(character)) return false;
+      // A Han run stands whole: 每年 isn't stated by 每周, though both share 每 and the quote
+      // has 年 elsewhere in 年起.
+      if (!text.includes(word)) return false;
       continue;
     }
-    // A token mixing letters and digits is a figure's notation ("1m", "1,500"): its digits are
-    // the part's own, and the figure rules compare them.
-    if (/\p{L}/u.test(word) && /\p{N}/u.test(word)) continue;
+    if (/^\d+(?:\.\d+)?[a-z]{1,2}$/u.test(word)) continue;
     if (word.length < 2 || DETAIL_LINKS.has(word)) continue;
     // Whole words only: "week" isn't stated by "weekday"; a negation must be there too.
     if (!stated.has(word)) return false;
