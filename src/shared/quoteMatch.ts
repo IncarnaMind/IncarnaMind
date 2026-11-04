@@ -16,11 +16,14 @@
  *   quote that starts mid-sentence is often given a capital;
  * - the quote marks and dashes the shared normaliser leaves alone ("‹", "›",
  *   "ʼ", "⸺", "⸻") are unified too;
- * - a double quotation mark reads as a single one, as a quote nested in a
- *   quote is written in the other kind of mark ("the ‘soft weights’ property"
- *   for the page's “soft weights”, #2504). Not after a digit, in any script
- *   and with or without a space between, where the marks are inches and feet,
- *   or seconds and minutes ("6\"", "12 '", "٦'");
+ * - a typographic double quotation mark matches a single one as well as a
+ *   double one, as a quote nested in a quote is written in the other kind of
+ *   mark ("the ‘soft weights’ property" for the page's “soft weights”,
+ *   #2504): an opening one (“ „ « 「 『) always, a closing corner or
+ *   guillemet (」 』 ») always, and a closing ” only when it closes one opened
+ *   before it. An ASCII " and a double prime ″ match only a double mark, and
+ *   so does a ” that closes nothing: they are inches, seconds, a second
+ *   derivative or code ("6\"", "f\"(x)", "echo \"$HOME\"", "6”");
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
@@ -135,7 +138,21 @@ const SOFT_HYPHEN_AT_LINE_END =
 const ELLIPSIS = / ?\.{3,} ?/;
 
 const DIGIT = /^[0-9]$/;
-const DECIMAL_DIGIT = /^\p{Nd}$/u;
+/**
+ * A typographic double quotation mark, as matching reads it: it matches a double mark or a single
+ * one (see `sameChar`). A noncharacter, so no text has it of its own.
+ */
+const QUOTATION_MARK = "\uFDD0";
+
+/** Whether a text's character and a quote's match: equal, or a quotation mark against either mark. */
+const sameChar = (text: string, quote: string | undefined): boolean =>
+  text === quote ||
+  (text === QUOTATION_MARK && (quote === '"' || quote === "'")) ||
+  (quote === QUOTATION_MARK && (text === '"' || text === "'"));
+
+/** Typographic double quotation marks that open a quote, and closers that are never a measure's mark. */
+const OPENING_DOUBLE = new Set(["“", "„", "«", "「", "『"]);
+const CLOSING_DOUBLE = new Set(["»", "」", "』"]);
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/gu;
 
 /**
@@ -271,18 +288,15 @@ function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
     cellBreaksAsSpaces(text.replace(SOFT_HYPHEN_AT_LINE_END, "-")),
   );
   const folded = units.map((unit) => ({ ...unit, char: fold(unit.char) }));
-  // The two live characters before each one, to tell a measure's mark from a quotation mark.
-  let last: string | undefined;
-  let beforeLast: string | undefined;
+  // The normaliser made every double mark '"': the text's own character says which were quotes.
+  let open = 0;
   for (const unit of folded) {
-    if (unit.char === '"') {
-      const measured =
-        DECIMAL_DIGIT.test(last ?? "") || (last === " " && DECIMAL_DIGIT.test(beforeLast ?? ""));
-      if (!measured) unit.char = "'";
-    }
-    if (unit.removed) continue;
-    beforeLast = last;
-    last = unit.char;
+    if (unit.char !== '"') continue;
+    const mark = text.slice(unit.start, unit.end);
+    if (OPENING_DOUBLE.has(mark)) open++;
+    else if (mark === "”" && open > 0) open--;
+    else if (!CLOSING_DOUBLE.has(mark)) continue;
+    unit.char = QUOTATION_MARK;
   }
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
@@ -358,7 +372,7 @@ function matchAt(units: readonly NormalisedUnit[], needle: string, first: number
     at++;
     if (unit.optional && needle[index] !== "-") continue; // skip a line-end hyphen
     if (!unit.optional && unit.removed) continue;
-    if (unit.char !== needle[index]) return -1;
+    if (!sameChar(unit.char, needle[index])) return -1;
     last = at - 1;
     index++;
     // The line break after a line-end hyphen, copied as a space ("inter- national").
@@ -376,7 +390,7 @@ function findFrom(
 ): { first: number; last: number } | null {
   for (let first = from; first < units.length; first++) {
     const unit = units[first] as NormalisedUnit;
-    if (unit.removed || unit.char !== needle[0]) continue;
+    if (unit.removed || !sameChar(unit.char, needle[0])) continue;
     const last = matchAt(units, needle, first);
     if (last >= 0 && (!accept || accept(needle, first, last))) return { first, last };
   }

@@ -346,3 +346,71 @@ describe("a quote nested in a quote, in the other kind of mark (#2504)", () => {
     expect(findQuote(text, "the ‘refund period’ lasts 14 days")).toBeNull();
   });
 });
+
+describe("which double marks are quotation marks (#2504)", () => {
+  test("an ASCII double quote, a double prime, and a ” that closes nothing stay apart from '", () => {
+    expect(
+      findQuote(
+        'The second derivative f"(x) is positive.',
+        "the second derivative f'(x) is positive",
+      ),
+    ).toBeNull();
+    expect(
+      findQuote(
+        "The second derivative f”(x) is positive.",
+        "the second derivative f’(x) is positive",
+      ),
+    ).toBeNull();
+    expect(
+      findQuote(
+        "Run echo '$HOME' to print the word itself.",
+        'run echo "$HOME" to print the word itself',
+      ),
+    ).toBeNull();
+    expect(
+      findQuote(
+        'Filter with WHERE name = "total" on the column.',
+        "filter with where name = 'total' on the column",
+      ),
+    ).toBeNull();
+    expect(findQuote('二阶导数f"(x)在区间上为正。', "二阶导数f'(x)在区间上为正")).toBeNull();
+    expect(findQuote("管道直径为6”。", "管道直径为6’")).toBeNull();
+    // The same marks as the page has are found.
+    expect(covered('Run echo "$HOME" to print it.', 'run echo "$HOME" to print it')).toBe(
+      'Run echo "$HOME" to print it',
+    );
+    expect(covered('二阶导数f"(x)在区间上为正。', '二阶导数f"(x)在区间上为正')).toBe(
+      '二阶导数f"(x)在区间上为正',
+    );
+  });
+
+  test("an opening mark after a number and a space is a quote's", () => {
+    expect(
+      covered(
+        "In 2024 “growth” slowed in every region.",
+        "in 2024 ‘growth’ slowed in every region",
+      ),
+    ).toBe("In 2024 “growth” slowed in every region");
+    expect(covered("报告说 2024 “增长”放缓了。", "报告说 2024 ‘增长’放缓了")).not.toBeNull();
+    expect(
+      findQuote(
+        "In 2024 “growth” slowed in every region.",
+        "in 2025 ‘growth’ slowed in every region",
+      ),
+    ).toBeNull();
+    expect(findQuote("报告说 2024 “增长”放缓了。", "报告说 2025 ‘增长’放缓了")).toBeNull();
+  });
+
+  test("a ” after a digit that closes a quote opened before it is a quote's", () => {
+    expect(covered("The “Top 10” list is out.", "the ‘Top 10’ list is out")).toBe(
+      "The “Top 10” list is out",
+    );
+    expect(covered("这是“愿景2030”计划的一部分。", "这是‘愿景2030’计划的一部分")).toBe(
+      "这是“愿景2030”计划的一部分",
+    );
+    expect(covered("他称之为「方案3」。", "他称之为‘方案3’")).toBe("他称之为「方案3」");
+    expect(findQuote("The “Top 10” list is out.", "the ‘Top 11’ list is out")).toBeNull();
+    expect(findQuote("这是“愿景2030”计划的一部分。", "这是‘愿景2035’计划的一部分")).toBeNull();
+    expect(findQuote("Use a 6” pipe under the road.", "use a 6’ pipe under the road")).toBeNull();
+  });
+});
