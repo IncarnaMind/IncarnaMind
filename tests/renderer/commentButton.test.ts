@@ -29,7 +29,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("Comment in the selection menu (#328)", () => {
   test("its tooltip and accessible name carry the command's keys, in English and Chinese", () => {
     expect(commentCommandName(t("en"), "⌥⌘M")).toBe("Comment (⌥⌘M)");
-    expect(commentCommandName(t("zh-CN"), "⌥⌘M")).toBe("添加批注（⌥⌘M）");
+    expect(commentCommandName(t("zh-CN"), "⌥⌘M")).toBe("批注（⌥⌘M）");
   });
 
   test("the keys the button shows are the comment command's own", () => {

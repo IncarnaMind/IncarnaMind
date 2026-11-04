@@ -561,3 +561,55 @@ test("a PDF's own highlights and notes are shown, marked From the file, and a ne
     window.getByTestId("annotations-panel").getByTestId("annotation-missing").first(),
   ).toContainText("Text not found in this version");
 });
+
+test("a plain-text Document draws its highlight and its comment mark", async () => {
+  const path = join(sources, "Notes.txt");
+  await writeFile(path, "First line of the note.\nSecond line of it.\n");
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await addDocuments(window, [path]);
+  await expectReadyDocuments(window, 1);
+  await openDocumentAt(window, { documentId: await documentIdOf(window) });
+  const viewer = window.getByTestId("viewer");
+  await expect(viewer.getByTestId("viewer-text")).toBeVisible();
+
+  const words = "First line of the note.";
+  const line = viewer.locator("[data-unit]").filter({ hasText: words }).first();
+  await slideSelect(window, line, words);
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+  await pointAndClick(window, window.getByTestId("viewer-selection-highlight-yellow"));
+  await expect(viewer.locator("[data-annotation-id]").first()).toContainText(words);
+
+  await pointAndClick(window, viewer.locator("[data-annotation-note]").first());
+  await expect(window.getByTestId("annotation-note")).toBeVisible();
+  await app.close();
+});
+
+test("a PDF zoom closes a selection's menu with its words", async () => {
+  const path = join(sources, "Zoom.pdf");
+  await writeFile(path, buildPdf([{ lines: ["The recovery peaks in the second quarter."] }]));
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await addDocuments(window, [path]);
+  await expectReadyDocuments(window, 1);
+  await openDocumentAt(window, { documentId: await documentIdOf(window) });
+  const viewer = window.getByTestId("viewer");
+  const page = viewer.locator('[data-page-number="1"]');
+  await expect(page).toHaveAttribute("data-drawn", "true");
+
+  const words = "The recovery peaks";
+  const line = page.locator(".textLayer span").filter({ hasText: words }).first();
+  await slideSelect(window, line, words);
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+
+  const box = await line.boundingBox();
+  if (!box) throw new Error("The line isn't in view.");
+  await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await window.keyboard.down("Control");
+  await window.mouse.wheel(0, -100);
+  await window.keyboard.up("Control");
+  await expect(window.getByTestId("viewer-selection-menu")).toHaveCount(0);
+  await app.close();
+});

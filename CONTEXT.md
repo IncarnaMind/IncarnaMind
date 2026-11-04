@@ -58,9 +58,9 @@ _Avoid_: file, doc, source
 Words in a Document's viewer that the User marked, kept with their Citation so they can be searched, added to a Note and collected; on a PDF, a drawn region is a highlight too. A PDF's own highlights are the file's content and are listed as "From the file".
 _Avoid_: annotation, mark, markup
 
-**Comment**:
-The User's own words on a Highlight, opened from its small mark or the Highlights and comments list. It has no reply and no Resolve, because it is the User's note on their own source, not a conversation.
-_Avoid_: note (a Note is the notebook), annotation
+**Comment** (批注):
+Words a User attaches to selected text. In a Note it has replies, Resolve and Reopen, and goes back and forth with Word's comments. On a Document's highlight it stands alone, with no replies or Resolve.
+_Avoid_: note (a Note is the notebook), annotation, remark (and 评论 in Chinese)
 
 **Highlights and comments**:
 The pane on the right of a Document's tab, listing every Highlight and Comment in that Document. On screen the feature is never called annotations.
@@ -100,10 +100,6 @@ _Avoid_: private Document, hidden Document, excluded Document
 **Citation**:
 A reference, anchored in the text of an Answer, to the Passage a claim was drawn from: the Location it cites, and a quote from the Passage that is checked against the text at that Location. Copied into your text, it stays a Citation; Question context shows it as a reference to its Document with an id, by which an Answer keeps it as the same Citation. It names its Document as the Document is named now, so a rename shows in every Citation of it, on screen, in exports and in what a model or an outside agent reads; the name it was made with is kept, never rewritten, and shown only when the Document can't be found. A History comparison keeps each Checkpoint's own names.
 _Avoid_: source, reference
-
-**Comment**:
-A remark attached to words in a Note, by the User or by a Word file's author, with replies, that can be resolved and reopened. A Word file's comments arrive as the Note's comments and go back as Word comments. Not a Citation, a check or AI text.
-_Avoid_: annotation, remark (and 评论 in Chinese)
 
 **Calculated figure**:
 A number in an Answer or in your text that IncarnaMind worked out from numbers quoted from Documents, by a formula (or, later, an Analysis), rather than the AI working it out itself. It keeps its Inputs, each with its Citation, its formula and its result as shown. The AI writes a marker where it goes and never the number; the interface says "Calculated".

@@ -39,20 +39,18 @@ export const commentCommands: readonly Command[] = [
     // The comment's own Undo line takes it back, one step.
     reversible: true,
     when(ctx) {
-      if (viewerComment()) return true;
       const editor = openNote(ctx);
-      return editor !== null && !editor.state.selection.empty;
+      return editor !== null && !editor.state.selection.empty ? true : viewerComment() !== null;
     },
     run(ctx) {
-      const viewer = viewerComment();
-      if (viewer) {
-        viewer.note?.();
-        return;
-      }
       const editor = openNote(ctx);
       const mindId = mindShown(ctx);
       const doc = editor && editorDoc(editor);
-      if (editor && mindId && doc) commentOnSelection(editor, mindId, doc);
+      if (editor && mindId && doc && !editor.state.selection.empty) {
+        commentOnSelection(editor, mindId, doc);
+        return;
+      }
+      viewerComment()?.note?.();
     },
   },
   {

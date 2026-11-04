@@ -239,7 +239,13 @@ export function SelectionMenu({
     if (!held || !section) return;
     const range = held.range;
     const observer = new MutationObserver(() => {
-      if (range.startContainer.isConnected && section.contains(range.startContainer)) return;
+      if (
+        !range.collapsed &&
+        range.startContainer.isConnected &&
+        section.contains(range.startContainer)
+      ) {
+        return;
+      }
       setOpen(false);
       setHeld(null);
     });

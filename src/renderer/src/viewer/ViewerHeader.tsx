@@ -147,6 +147,7 @@ export function ViewerHeader({
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
   const panelOpen = useAnnotations((state) => state.panelOpen);
+  const room = useAnnotations((state) => state.room);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const areaMode = useContext(AreaModeContext);
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
@@ -269,7 +270,12 @@ ${sourceOf(document)}`
             data-testid="viewer-annotations-toggle"
             aria-pressed={panelOpen}
             aria-label={t("annotations.open")}
-            title={t(panelOpen ? "annotations.close" : "annotations.open")}
+            title={
+              !room && !panelOpen
+                ? t("annotations.needsRoom")
+                : t(panelOpen ? "annotations.close" : "annotations.open")
+            }
+            disabled={!room && !panelOpen}
             onClick={() => togglePanel(!panelOpen)}
             className="viewer-icon-button viewer-annotations-toggle"
           >

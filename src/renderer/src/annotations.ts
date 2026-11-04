@@ -42,6 +42,9 @@ interface AnnotationsState {
   colour: AnnotationColour;
   /** The Document tab's Annotations list is open. */
   panelOpen: boolean;
+  /** The viewer is wide enough for the list beside a page that keeps its toolbar whole. */
+  room: boolean;
+  setRoom(room: boolean): void;
   togglePanel(open: boolean): void;
   /** Reads a Document's annotations, unless they are being read now. */
   load(documentId: string): Promise<void>;
@@ -60,7 +63,10 @@ export const useAnnotations = create<AnnotationsState>()((set) => ({
   showExport: (exported) => set({ exported }),
   colour: rememberedColour(),
   panelOpen: false,
-  togglePanel: (open) => set({ panelOpen: open }),
+  room: true,
+  setRoom: (room) => set({ room }),
+  togglePanel: (open) =>
+    set((state) => (open && !state.room ? { panelOpen: false } : { panelOpen: open })),
   load: async (documentId) => {
     if (documentId === "") return;
     if (loading.has(documentId)) {

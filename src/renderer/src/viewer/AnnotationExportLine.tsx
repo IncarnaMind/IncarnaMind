@@ -3,13 +3,16 @@
  * it is ("Saved “{name}” in {folder}") with Open and Show in Finder, over the
  * page's foot (#327).
  */
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAnnotations } from "../annotations";
 import { files } from "../core";
+import { useDismissOnEscape } from "../escapeDismiss";
 import { showFileLabelKey } from "../fileInfo";
 import { useT } from "../i18n";
+import { enter } from "../motion";
 import { savedFolderLabel } from "../outputFiles";
 import { useAppStore } from "../store";
+import { useHeld } from "../useHeld";
 
 const SHOWN_MS = 10_000;
 
@@ -18,11 +21,18 @@ export function AnnotationExportLine({ documentId }: { documentId: string }) {
   const exported = useAnnotations((state) => state.exported);
   const showExport = useAnnotations((state) => state.showExport);
   const shown = exported?.documentId === documentId ? exported : null;
+  const line = useRef<HTMLParagraphElement>(null);
+  const held = useHeld(line, { focusHolds: true });
+  useDismissOnEscape(shown !== null, () => showExport(null));
   useEffect(() => {
     if (!shown) return;
+    if (line.current) enter(line.current, { y: 8 });
+  }, [shown]);
+  useEffect(() => {
+    if (!shown || held) return;
     const timer = setTimeout(() => showExport(null), SHOWN_MS);
     return () => clearTimeout(timer);
-  }, [shown, showExport]);
+  }, [shown, held, showExport]);
   if (!shown) return null;
   const said = t("export.doneIn", {
     name: "\u0000",
@@ -30,7 +40,12 @@ export function AnnotationExportLine({ documentId }: { documentId: string }) {
   });
   const [before = "", after = ""] = said.split("\u0000");
   return (
-    <p role="status" data-testid="annotation-export-line" className="annotation-export-line">
+    <p
+      ref={line}
+      role="status"
+      data-testid="annotation-export-line"
+      className="annotation-export-line"
+    >
       <span className="min-w-0 break-words">
         {before}
         <span className="font-semibold text-ink">{shown.name}</span>

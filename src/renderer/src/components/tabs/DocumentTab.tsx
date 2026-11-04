@@ -19,6 +19,10 @@ import { DocumentRemoved } from "../../viewer/ViewerMessage";
 
 /** How far the User scrolls a preview, at least, to keep it: the jump to the quote doesn't count. */
 const KEEP_AFTER_SCROLL_PX = 120;
+/** The page a list beside it must leave: its toolbar's own give-way needs this to keep ⋯ and Open. */
+const LEAST_PAGE_WITH_LIST = 600;
+/** The list's width, as `viewer.css` sets it. */
+const LIST_WIDTH = 280;
 
 /**
  * What the viewer shows of a Document's file, as a key that changes when
@@ -178,6 +182,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
   const [section, setSection] = useState<HTMLElement | null>(null);
+  const setRoom = useAnnotations((state) => state.setRoom);
   const panelOpen = useAnnotations((state) => state.panelOpen);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const loadAnnotations = useAnnotations((state) => state.load);
@@ -195,6 +200,19 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   // A reader is a function: kept as one, not called as an update.
   const lendReader = useCallback((lent: SelectionReader | null) => setReader(() => lent), []);
   useKeepOnReading(section, tab.id, tab.preview);
+  // The list is a pane: it opens only where a page keeps the width its toolbar needs.
+  useEffect(() => {
+    if (!section) return;
+    const measure = () => {
+      const room = section.clientWidth - LIST_WIDTH >= LEAST_PAGE_WITH_LIST;
+      setRoom(room);
+      if (!room) useAnnotations.getState().togglePanel(false);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, [section, setRoom]);
   const areaMode = useMemo(
     () => ({
       active: areaActive,

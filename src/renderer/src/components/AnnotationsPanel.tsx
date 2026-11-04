@@ -87,7 +87,6 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
         <span className="annotation-row-edit">
           <TypingTextarea
             value={draft}
-            // biome-ignore lint/a11y/noAutofocus: the field replaces the button the focus was on.
             autoFocus
             aria-label={t("annotations.note.placeholder")}
             placeholder={t("annotations.note.placeholder")}
@@ -206,6 +205,19 @@ export function AnnotationsPanel({
       className="annotations-panel"
       data-testid="annotations-panel"
       aria-label={t("annotations.title")}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        const target = event.target;
+        if (
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          (target instanceof HTMLElement && target.isContentEditable)
+        ) {
+          return;
+        }
+        event.preventDefault();
+        onClose();
+      }}
     >
       <header className="annotations-panel-head">
         <h2 className="annotations-panel-title">{t("annotations.title")}</h2>
@@ -258,7 +270,7 @@ export function AnnotationsPanel({
               annotation={annotation}
               onGo={(chosen) => {
                 if (chosen.missing) {
-                  setNotHere(null);
+                  setNotHere(chosen.id);
                   return;
                 }
                 if (scrollToAnnotation(container ?? null, chosen)) {

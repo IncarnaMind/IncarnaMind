@@ -489,13 +489,26 @@ function PlainText({
         data-area-unit={unit.page}
         data-heading={headings?.get(unit.page)}
       >
-        <Slice source={source} start={unit.start} end={unit.end} highlight={highlight} />
+        <Slice
+          source={source}
+          start={unit.start}
+          end={unit.end}
+          highlight={highlight}
+          annotations={annotations}
+        />
       </span>,
     );
     at = unit.end;
   }
   parts.push(
-    <Slice key={`gap${at}`} source={source} start={at} end={source.length} highlight={highlight} />,
+    <Slice
+      key={`gap${at}`}
+      source={source}
+      start={at}
+      end={source.length}
+      highlight={highlight}
+      annotations={annotations}
+    />,
   );
   return <>{parts}</>;
 }
