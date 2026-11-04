@@ -695,6 +695,48 @@ test("⌘K's Cite… and Link a Document are not offered with the caret in a Que
   }
 });
 
+test("⌘K Cite… with the panel open puts a fresh one at the caret, and the same place keeps its words", async () => {
+  const { app, window, editor } = await started();
+  try {
+    await window.keyboard.type(`${SENTENCE} /`);
+    const search = await chooseCite(window);
+    const field = search.getByTestId("cite-query");
+    await expect(field).toHaveValue(SENTENCE);
+    await field.fill("tide tables");
+    await expect(search.getByTestId("cite-result").first()).toBeVisible();
+
+    // ⌘K Cite… with nothing closed in between: the panel is a new one, at the caret after the
+    // "/", with the sentence there rather than the words typed in the panel it was opened from.
+    const palette = window.getByTestId("palette");
+    const askCite = async () => {
+      await window.keyboard.press("ControlOrMeta+k");
+      await palette.getByTestId("palette-search").fill(">cite a passage");
+      await window.keyboard.press("Enter");
+      await expect(search).toBeVisible();
+    };
+    await askCite();
+    await expect(field).toHaveValue(`${SENTENCE} /`);
+
+    // Asked again where it stands, the panel is kept, with the words typed in it.
+    await field.fill("harbours publish");
+    await askCite();
+    await expect(field).toHaveValue("harbours publish");
+
+    // Its Citation lands where the caret was: after the "/", which stays in the Note.
+    await expect(search.getByTestId("cite-result").first()).toBeVisible();
+    await field.press("Enter");
+    await expect(search).toHaveCount(0);
+    const citation = editor.getByTestId("citation");
+    await expect(citation).toHaveCount(1);
+    await expect(citation.getByTestId("citation-chip")).toHaveText("1");
+    await expect(editor.locator(":scope > p").first()).toHaveText(
+      new RegExp(`^${SENTENCE} /\\s*1$`),
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test("a later search shows it is looking, and its rows follow", async () => {
   const { app, window } = await started();
   try {
