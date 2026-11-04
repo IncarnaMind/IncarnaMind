@@ -1786,7 +1786,7 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("$75,000.00", 75000, { unit: "USD" })],
     ],
     [
-      `The amount ${"of the fund held for the tenant ".repeat(14)}in total, is ninety-five thousand dollars ($95,000.00)`,
+      `The amount ${"of the fund held for the tenant ".repeat(14)}was set. The rent is ninety-five thousand dollars ($95,000.00)`,
       EN,
       [f("$95,000.00", 95000, { unit: "USD" })],
     ],
@@ -1826,14 +1826,48 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("$4,000.00", 4000, { unit: "USD" })],
     ],
     [
-      "Despite a negative outlook, the rent is sixty-two thousand dollars ($62,000.00).",
+      "There was a negative outlook. The rent is sixty-two thousand dollars ($62,000.00).",
       EN,
       [f("$62,000.00", 62000, { unit: "USD" })],
     ],
     [
-      "尽管前景为负，租金为人民币六万二千元（¥62,000）",
+      "The balance was negative; the fee was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "前景为负。租金为人民币六万二千元（¥62,000）",
       ZH,
       [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "The account had a balance, after all adjustments, of seventy-five thousand dollars ($75,000.00).",
+      EN,
+      [f("$75,000.00", 75000, { unit: "USD" })],
+    ],
+    [
+      "The balance, which was settled, was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "The Group held a U.S. dollar balance of ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "账户为正余额，经调整后为人民币九万五千元（¥95,000）。",
+      ZH,
+      [f("人民币九万五千元", 95000, { unit: "CNY" }), f("¥95,000", 95000, { unit: "CNY" })],
+    ],
+    [
+      "余额为3.5万元，即人民币三万五千元（¥35,000）。",
+      ZH,
+      [
+        f("3.5万元", 35000, { unit: "CNY", scale: "万" }),
+        f("人民币三万五千元", 35000, { unit: "CNY" }),
+        f("¥35,000", 35000, { unit: "CNY" }),
+      ],
     ],
     [
       "The account had a balance of sixty-two thousand dollars ($62,000.00).",
@@ -2202,6 +2236,84 @@ describe("a bracket right after an amount (#2341)", () => {
       "| Less | Four Thousand Dollars ($4,000.00) |",
       EN,
       [f("($4,000.00)", -4000, { unit: "USD" })],
+    ],
+    [
+      "Despite a negative outlook, the rent is sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "尽管前景为负，租金为人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      `The amount ${"of the fund held for the tenant ".repeat(14)}in total, is ninety-five thousand dollars ($95,000.00)`,
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The account had a negative balance, after all adjustments, of seventy-five thousand dollars ($75,000.00).",
+      EN,
+      [f("($75,000.00)", -75000, { unit: "USD" })],
+    ],
+    [
+      "The fund showed a negative position, net of fees, of sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The balance, which was negative, was ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The reserve, then negative, stood at forty-one thousand dollars ($41,000.00).",
+      EN,
+      [f("($41,000.00)", -41000, { unit: "USD" })],
+    ],
+    [
+      "The Group held a negative U.S. dollar balance of ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "The negative U.K. sterling position was sixty-two thousand pounds (£62,000).",
+      EN,
+      [f("(£62,000)", -62000, { unit: "GBP" })],
+    ],
+    [
+      "账户为负余额，经调整后为人民币九万五千元（¥95,000）。",
+      ZH,
+      [f("人民币九万五千元", 95000, { unit: "CNY" }), f("（¥95,000）", -95000, { unit: "CNY" })],
+    ],
+    [
+      "该科目出现负值，调整后为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "负余额为3.5万元，即人民币三万五千元（¥35,000）。",
+      ZH,
+      [
+        f("3.5万元", 35000, { unit: "CNY", scale: "万" }),
+        f("人民币三万五千元", 35000, { unit: "CNY" }),
+        f("（¥35,000）", -35000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "负现金流为6.2万元，即人民币六万二千元（¥62,000）。",
+      ZH,
+      [
+        f("6.2万元", 62000, { unit: "CNY", scale: "万" }),
+        f("人民币六万二千元", 62000, { unit: "CNY" }),
+        f("（¥62,000）", -62000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "减\t已付定金人民币四千元（¥4,000）",
+      ZH,
+      [f("人民币四千元", 4000, { unit: "CNY" }), f("（¥4,000）", -4000, { unit: "CNY" })],
     ],
     [
       "The account had a negative closing cash balance of sixty-two thousand dollars ($62,000.00).",
