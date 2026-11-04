@@ -143,6 +143,12 @@ export interface FigureContext {
    */
   accounts?: boolean;
   /**
+   * The Document says amounts in brackets are negative ("Amounts in brackets are negative"), so a
+   * bracket after an amount is never read as giving that amount again. Left out, it is worked out
+   * from the text read.
+   */
+  negativeBrackets?: boolean;
+  /**
    * The text starts inside a line of its Document, as a quote from the middle of one does: a
    * number at its start is neither a list's nor a heading's (#1969).
    */
@@ -646,6 +652,7 @@ export interface FigureFacts {
   cny: boolean;
   jpy: boolean;
   accounts: boolean;
+  negativeBrackets: boolean;
 }
 
 export function figureFactsOf(text: string, language: string | null): FigureFacts {
@@ -656,6 +663,7 @@ export function figureFactsOf(text: string, language: string | null): FigureFact
     cny: CNY_WORDS.test(s),
     jpy: JPY_WORDS.test(s),
     accounts: writesAccounts(s, statementsIn(prepared, text, settle({ language }))),
+    negativeBrackets: SAYS_BRACKETS_NEGATIVE.test(s),
   };
 }
 
@@ -683,6 +691,7 @@ export function figureContextOfFacts(
     separators: separatorsFrom(evidence),
     yen: disputed ? "unsure" : (settled ?? (cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null)),
     accounts: parts.some((part) => part.accounts),
+    negativeBrackets: parts.some((part) => part.negativeBrackets),
   };
 }
 
@@ -733,6 +742,7 @@ interface Settled {
   dates: boolean;
   chinese: boolean;
   accounts: boolean;
+  negativeBrackets: boolean;
 }
 
 function settle(context: FigureContext): Settled {
@@ -757,6 +767,7 @@ function settle(context: FigureContext): Settled {
     dates: context.dates === true,
     chinese: tag?.language === "zh",
     accounts: context.accounts === true,
+    negativeBrackets: context.negativeBrackets === true,
   };
 }
 
@@ -2163,7 +2174,9 @@ function coreAt(s: string, at: number, settled: Settled): Core[] | null {
   return [found];
 }
 
+// "a" as in "a hundred thousand".
 const EN_NUMBER_WORDS: ReadonlyMap<string, number> = new Map([
+  ["a", 1],
   ...(
     "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen " +
     "fifteen sixteen seventeen eighteen nineteen"
@@ -2184,31 +2197,44 @@ const isNumberWord = (word: string) =>
   EN_NUMBER_WORDS.has(word) || EN_WORD_SCALES.has(word) || word === "hundred" || word === "and";
 
 /**
- * The amount English words end `text` with, and the currencies they name: "Seventy-Five Thousand
- * Dollars" is 75,000 in dollars, and "Twelve Thousand and 50/100 Dollars" 12,000.50. Null when no
- * number word ends it.
+ * The amount English words end `text` with, the currencies they name and where they start:
+ * "Seventy-Five Thousand Dollars" is 75,000 in dollars, "a hundred thousand" 100,000, and "Twelve
+ * Thousand and 50/100 Dollars" 12,000.50. Null when no number word ends it.
  */
-function amountInWords(text: string, settled: Settled): { value: number; codes: string[] } | null {
-  const words = text.split(/[\s-]+/);
+function amountInWords(
+  text: string,
+  settled: Settled,
+): { value: number; codes: string[]; start: number } | null {
+  const words = [...text.matchAll(/[^\s,-]+/g)].map((match) => ({
+    word: match[0],
+    lower: match[0].toLowerCase(),
+    at: match.index,
+  }));
+  const takeCents = () => {
+    const digits = /^(\d{2})\/100$/.exec(words.at(-1)?.word ?? "")?.[1];
+    if (digits === undefined) return undefined;
+    words.pop();
+    if (words.at(-1)?.lower === "and") words.pop();
+    return digits;
+  };
+  let cents = takeCents();
   let codes: string[] = [];
-  const named = !isNumberWord(words.at(-1)?.toLowerCase() ?? "");
-  for (const size of named ? [3, 2, 1] : []) {
+  for (const size of isNumberWord(words.at(-1)?.lower ?? "") ? [] : [3, 2, 1]) {
     if (words.length <= size) continue;
-    codes = currencyCodes(words.slice(-size).join(" "), settled);
+    const phrase = words.slice(-size).map((each) => each.word);
+    codes = currencyCodes(phrase.join(" "), settled);
     if (codes.length > 0) {
       words.splice(-size);
       break;
     }
   }
-  const cents = /^(\d{2})\/100$/.exec(words.at(-1) ?? "")?.[1];
-  if (cents) words.pop();
+  cents ??= takeCents();
   let start = words.length;
-  while (start > 0 && isNumberWord(words[start - 1]?.toLowerCase() ?? "")) start--;
+  while (start > 0 && isNumberWord(words[start - 1]?.lower ?? "")) start--;
   let total = 0;
   let group = 0;
   let counted = false;
-  for (const word of words.slice(start)) {
-    const lower = word.toLowerCase();
+  for (const { lower } of words.slice(start)) {
     const unit = EN_NUMBER_WORDS.get(lower);
     const scale = EN_WORD_SCALES.get(lower);
     if (unit !== undefined) {
@@ -2220,15 +2246,30 @@ function amountInWords(text: string, settled: Settled): { value: number; codes: 
       group = 0;
     }
   }
-  return counted ? { value: Number(`${total + group}.${cents ?? 0}`), codes } : null;
+  const first = words[start];
+  return counted && first
+    ? { value: Number(`${total + group}.${cents ?? 0}`), codes, start: first.at }
+    : null;
 }
+
+/**
+ * A word right before an amount that may give it a sign the reader doesn't read as one ("minus",
+ * "less", "a deficit of", "亏损", "减少"), or a minus written on it: "-sixty-four thousand".
+ */
+const SIGN_BEFORE =
+  /(?:(?<![A-Za-z])(?:minus|negative|less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失)[)）:：]?[ \u00a0]*[为了]?$|-$/i;
+
+/** The Document says amounts in brackets are negative: "Amounts in brackets are negative", "括号内数字为负数". */
+const SAYS_BRACKETS_NEGATIVE =
+  /(?<![A-Za-z])(?:brackets?|parenthes[ie]s)(?![A-Za-z])[^.\n]{0,60}(?<![A-Za-z])negative(?![A-Za-z])|(?<![A-Za-z])negative(?![A-Za-z])[^.\n]{0,60}(?<![A-Za-z])(?:brackets?|parenthes[ie]s)(?![A-Za-z])|括号[^。\n]{0,20}负|负数[^。\n]{0,20}括号/i;
 
 /**
  * Whether a figure in brackets gives again the amount written right before it, in figures:
  * "人民币九万八千元（¥98,000）", "USD 1.2 million ($1,200,000)", "Seventy-Five Thousand Dollars
  * ($75,000.00)". Only an amount in words or with a scale word is given again so: two cells of a
  * statement line write one form twice, as an elimination's "3,600 (3,600)" does, and a tab or a
- * line between them parts two cells.
+ * line between them parts two cells. Where the words may give the amount a sign, or the Document
+ * says brackets are negative, the bracket is read as before.
  */
 function restates(
   prepared: Prepared,
@@ -2239,31 +2280,39 @@ function restates(
   settled: Settled,
 ): boolean {
   const { s } = prepared;
+  if (settled.negativeBrackets) return false;
   const value = readingOf({ ...inner, negative: false }).value;
   const line = s.lastIndexOf("\n", bracket - 1) + 1;
-  const gap = /[ \u00a0]*$/.exec(s.slice(Math.max(floor, line), bracket))?.[0].length ?? 0;
+  // "人民币九万八千元整（¥98,000.00）": 整 closes an amount in words.
+  const gap = /整?[ \u00a0]*$/.exec(s.slice(Math.max(floor, line), bracket))?.[0].length ?? 0;
   const end = bracket - gap;
   for (let at = end; at <= bracket; at++)
     if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return false;
+  const signed = (from: number) => SIGN_BEFORE.test(s.slice(Math.max(line, from - 24), from));
+  // A bare "$" is whichever dollar the words name: "Australian Dollars ($98,000)".
+  const sign = inner.currencyAt ? s.slice(inner.currencyAt.from, inner.currencyAt.to) : "";
+  const codes = [...inner.currencies, ...(SIGN_CURRENCIES[sign] ?? [])];
   if (before && before.to === end) {
     if (!before.core.chinese && before.scaleWord === null) return false;
     const unitsAgree =
       before.unit.kind === "plain" ||
       inner.unit.kind === "plain" ||
       (before.unit.kind === "currency" && inner.unit.kind === "currency"
-        ? before.currencies.some((code) => inner.currencies.includes(code))
+        ? before.currencies.some((code) => codes.includes(code))
         : JSON.stringify(before.unit) === JSON.stringify(inner.unit));
-    return unitsAgree && readingOf(before).value === value;
+    return unitsAgree && readingOf(before).value === value && !signed(before.from);
   }
-  // Back to the line's start, not to the last figure ("and 50/100" may have been read as a date),
-  // and no further than one amount's words reach.
-  const words = amountInWords(s.slice(Math.max(line, end - 160), end), settled);
+  // Back to the line's or the cell's start, not to the last figure ("and 50/100" may have been
+  // read as a date), and no further than one amount's words reach.
+  const from = Math.max(line, s.lastIndexOf("\t", end - 1) + 1, end - 160);
+  const words = amountInWords(s.slice(from, end), settled);
   return (
     words !== null &&
     words.value === value &&
     (words.codes.length === 0 ||
       inner.currencies.length === 0 ||
-      words.codes.some((code) => inner.currencies.includes(code)))
+      words.codes.some((code) => codes.includes(code))) &&
+    !signed(from + words.start)
   );
 }
 
@@ -2869,6 +2918,7 @@ export function readFigures(text: string, context: FigureContext = {}): Figure[]
   const settled = {
     ...plain,
     accounts: context.accounts ?? writesAccounts(s, [...statements, ...header]),
+    negativeBrackets: context.negativeBrackets ?? SAYS_BRACKETS_NEGATIVE.test(s),
   };
   const dateSpans = datesIn(s);
   const blocked = [...statements, ...dateSpans].sort((a, b) => a.from - b.from);
