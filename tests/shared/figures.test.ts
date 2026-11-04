@@ -1749,6 +1749,83 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("港币六万四千元", 64000, { unit: "HKD" }), f("$64,000", 64000, { unit: "HKD" })],
     ],
     [
+      "The balance fell from 98,000 to ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("98,000", 98000), f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "余额从8,000元增至人民币九万五千元（¥95,000）。",
+      ZH,
+      [
+        f("8,000元", 8000, { unit: "CNY" }),
+        f("人民币九万五千元", 95000, { unit: "CNY" }),
+        f("¥95,000", 95000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "余额由1.5万元变为人民币九万五千元（¥95,000）",
+      ZH,
+      [
+        f("1.5万元", 15000, { unit: "CNY", scale: "万" }),
+        f("人民币九万五千元", 95000, { unit: "CNY" }),
+        f("¥95,000", 95000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "The balance moved from $1.5 million to $1.2 million ($1,200,000).",
+      EN,
+      [
+        f("$1.5 million", 1500000, { unit: "USD", scale: "million" }),
+        f("$1.2 million", 1200000, { unit: "USD", scale: "million" }),
+        f("$1,200,000", 1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "The movement recorded over the full year for the combined portfolio of the Group's subsidiaries in all of its regions after all adjustments was seventy-five thousand dollars ($75,000.00).",
+      EN,
+      [f("$75,000.00", 75000, { unit: "USD" })],
+    ],
+    [
+      `The amount ${"of the fund held for the tenant ".repeat(14)}in total, is ninety-five thousand dollars ($95,000.00)`,
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      `Paid: ${"the deposit held for the tenant ".repeat(6)}four thousand dollars ($4,000.00)`,
+      EN,
+      [f("$4,000.00", 4000, { unit: "USD" })],
+    ],
+    [
+      "公司负债总额为人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "负面清单项目金额为人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "实行自负盈亏的项目预算为人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "由乙方负担的费用为人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "The negative pledge covers debt of ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("$95,000.00", 95000, { unit: "USD" })],
+    ],
+    [
+      "| Deposit | Four Thousand Dollars ($4,000.00) |",
+      EN,
+      [f("$4,000.00", 4000, { unit: "USD" })],
+    ],
+    [
       "Despite a negative outlook, the rent is sixty-two thousand dollars ($62,000.00).",
       EN,
       [f("$62,000.00", 62000, { unit: "USD" })],
@@ -2068,6 +2145,63 @@ describe("a bracket right after an amount (#2341)", () => {
         f("$2.6 million", 2600000, { unit: "USD", scale: "million" }),
         f("($2,600,000)", -2600000, { unit: "USD" }),
       ],
+    ],
+    [
+      "The negative balance fell from 98,000 to ninety-five thousand dollars ($95,000.00).",
+      EN,
+      [f("98,000", 98000), f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      "负数余额从8,000元增至人民币九万五千元（¥95,000）。",
+      ZH,
+      [
+        f("8,000元", 8000, { unit: "CNY" }),
+        f("人民币九万五千元", 95000, { unit: "CNY" }),
+        f("（¥95,000）", -95000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "负余额由1.5万元变为人民币九万五千元（¥95,000）",
+      ZH,
+      [
+        f("1.5万元", 15000, { unit: "CNY", scale: "万" }),
+        f("人民币九万五千元", 95000, { unit: "CNY" }),
+        f("（¥95,000）", -95000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "The negative balance moved from $1.5 million to $1.2 million ($1,200,000).",
+      EN,
+      [
+        f("$1.5 million", 1500000, { unit: "USD", scale: "million" }),
+        f("$1.2 million", 1200000, { unit: "USD", scale: "million" }),
+        f("($1,200,000)", -1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "The negative movement recorded over the full year for the combined portfolio of the Group's subsidiaries in all of its regions after all adjustments was seventy-five thousand dollars ($75,000.00).",
+      EN,
+      [f("($75,000.00)", -75000, { unit: "USD" })],
+    ],
+    [
+      `The amount ${"of the fund held for the tenant ".repeat(14)}is ninety-five thousand dollars ($95,000.00)`,
+      EN,
+      [f("($95,000.00)", -95000, { unit: "USD" })],
+    ],
+    [
+      `Less: ${"the deposit held for the tenant ".repeat(6)}four thousand dollars ($4,000.00)`,
+      EN,
+      [f("($4,000.00)", -4000, { unit: "USD" })],
+    ],
+    [
+      "Item\tAmount\nLess\tdeposit paid four thousand dollars ($4,000.00)",
+      EN,
+      [f("($4,000.00)", -4000, { unit: "USD" })],
+    ],
+    [
+      "| Less | Four Thousand Dollars ($4,000.00) |",
+      EN,
+      [f("($4,000.00)", -4000, { unit: "USD" })],
     ],
     [
       "The account had a negative closing cash balance of sixty-two thousand dollars ($62,000.00).",
