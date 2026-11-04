@@ -224,6 +224,17 @@ export function CheckActions({
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
   const language = useLanguage();
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  // The price line stays laid out under the progress line that replaces it, so the foot keeps
+  // the taller line from the press on; it is the line the card's own plan would show, if any.
+  const [lastPrice, setLastPrice] = useState<EstimateLine | null>(estimate);
+  useEffect(() => {
+    if (!running) setLastPrice(estimate);
+  }, [estimate, running]);
+  const price = running ? lastPrice : estimate;
+  // The progress line's room is kept before a run too: a check that runs with no price line must
+  // not grow the foot when it starts, and its widest words are its last ones.
+  const reserve = planned?.plan.kind === "ready" ? planned.plan.sentences : 0;
   const correctable = useEditorState({
     editor,
     selector: ({ editor: current }) => correctableCount(current),
@@ -235,11 +246,46 @@ export function CheckActions({
       {unchanged && planned?.plan.kind === "unchanged" && (
         <MindUnchanged mindId={mindId} since={planned.plan.since} />
       )}
-      {estimate && !running && (
-        <div className="check-card-estimate">
-          <MetaLine data-testid="check-estimate" parts={estimate.parts} title={estimate.title} />
+      <div className="check-card-foot-line">
+        {price && (
+          <div
+            className="check-card-estimate"
+            data-hidden={running ? "" : undefined}
+            aria-hidden={running || undefined}
+          >
+            <MetaLine
+              data-testid={running ? undefined : "check-estimate"}
+              parts={price.parts}
+              title={price.title}
+            />
+          </div>
+        )}
+        <div
+          className="check-card-progress"
+          data-testid="card-foot-progress"
+          data-hidden={running ? undefined : ""}
+          aria-hidden={running ? undefined : true}
+        >
+          {running ? (
+            <RunningText editor={editor} mindId={mindId} testId="card-foot-progress-words" />
+          ) : (
+            <span className="tabular-nums">
+              {t("badge.checking", { done: format(reserve), total: format(reserve) })}
+            </span>
+          )}
+          <span className="check-card-progress-sep" aria-hidden="true">
+            ·
+          </span>
+          <button
+            type="button"
+            data-testid="card-foot-stop"
+            className="check-card-stop"
+            onClick={() => stopCheck(mindId)}
+          >
+            {t("checks.stop")}
+          </button>
         </div>
-      )}
+      </div>
       <div className="check-card-actions">
         {correctable > 0 && (
           <button
@@ -416,6 +462,22 @@ function BadgeFrame({
     const element = body.current;
     if (element) setHeldHeight(element.offsetHeight);
   }, [open, holds, heldHeight]);
+  // Its cut edge fades while there is more under it, and not when everything fits.
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const element = body.current;
+    if (!element) {
+      setCut(false);
+      return;
+    }
+    if (typeof ResizeObserver === "undefined") return;
+    const measure = () => setCut(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    for (const child of element.children) observer.observe(child);
+    return () => observer.disconnect();
+  });
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);
@@ -458,7 +520,7 @@ function BadgeFrame({
         >
           <div
             ref={body}
-            className="check-card-body"
+            className={cut ? "check-card-body scroll-fade" : "check-card-body"}
             style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
           >
             {children}
@@ -472,7 +534,7 @@ function BadgeFrame({
           {actions && (
             <>
               <div className="check-card-sep" />
-              {actions}
+              <div data-testid="check-card-foot">{actions}</div>
             </>
           )}
         </Popover>

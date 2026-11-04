@@ -1863,6 +1863,44 @@
       padding-left: 0;
     }
   }
+  /* The foot's one line: the price before a press, the run's progress after, in one room, so the
+     foot is as tall as the taller of them from the start (#2313). */
+  .check-card-foot-line {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+
+    & > * {
+      grid-area: 1 / 1;
+    }
+    & > [data-hidden] {
+      visibility: hidden;
+    }
+  }
+  .check-card-progress {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 4px;
+    padding: 2px 8px 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .check-card-stop {
+    padding: 0 4px;
+    border-radius: 4px;
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+    outline: none;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
+  }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
@@ -7439,18 +7477,17 @@
       border-radius: 4px;
       background: var(--color-rule-strong) padding-box;
     }
-
-    /* The last 12px above the composer fade to the sheet, so text never meets its edge. */
-    &::after {
-      content: "";
-      position: sticky;
-      bottom: 0;
-      display: block;
-      height: 12px;
-      margin-top: -12px;
-      background: linear-gradient(to bottom, transparent, var(--color-sheet));
-      pointer-events: none;
-    }
+  }
+  /* A scrolling frame's last 12px fade to the sheet, so a cut line never meets its edge (#614). */
+  .scroll-fade::after {
+    content: "";
+    position: sticky;
+    bottom: 0;
+    display: block;
+    height: 12px;
+    margin-top: -12px;
+    background: linear-gradient(to bottom, transparent, var(--color-sheet));
+    pointer-events: none;
   }
   .assistant-empty {
     margin: 0;

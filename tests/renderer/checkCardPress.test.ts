@@ -13,7 +13,11 @@ import type { Planned } from "../../src/renderer/src/mindCheck";
  * plan's cost, unseen. A press with no price yet asks with the couldn't-estimate line instead.
  */
 
-const pressed = vi.hoisted(() => ({ check: vi.fn(), unpriced: vi.fn() }));
+const pressed = vi.hoisted(() => ({
+  check: vi.fn(),
+  unpriced: vi.fn(),
+  running: { value: false },
+}));
 vi.mock("../../src/renderer/src/mindCheck", () => ({
   startCheck: pressed.check,
   startCheckUnpriced: pressed.unpriced,
@@ -31,7 +35,12 @@ vi.mock("@tiptap/react", () => ({
 }));
 vi.mock("@tiptap/y-tiptap", () => ({ ySyncPluginKey: {} }));
 vi.mock("../../src/renderer/src/checks", () => ({
-  useChecks: () => undefined,
+  useChecks: (selector: (state: { running: Record<string, unknown> }) => unknown) =>
+    selector({
+      running: pressed.running.value
+        ? { mind: { requestId: "check-1", action: "whole-mind" } }
+        : {},
+    }),
   setCheckCardOpen: vi.fn(),
   stopCheck: vi.fn(),
 }));
@@ -172,6 +181,7 @@ beforeEach(async () => {
   root = createRoot(container);
   pressed.check.mockClear();
   pressed.unpriced.mockClear();
+  pressed.running.value = false;
   const modulePath = "../../src/renderer/src/editor/CheckBadge.tsx";
   const module: { CheckActions: ComponentType<PressProps> } = await import(modulePath);
   Press = module.CheckActions;
@@ -200,4 +210,29 @@ test("the card's press with no price asks instead", async () => {
 
   expect(pressed.unpriced).toHaveBeenCalledWith("mind");
   expect(pressed.check).not.toHaveBeenCalled();
+});
+
+// protects=#2313: the foot keeps the progress line's room before a run, in the badge's own words; fails_when=the line is drawn only once the run starts, so the foot grows by its height at the press; no_claim=the card's press.
+test("the foot keeps the progress line's room before a run", async () => {
+  await render("price", planned);
+  const progress = container.querySelector('[data-testid="card-foot-progress"]');
+  if (!progress) throw new Error("The foot keeps no line.");
+  expect(progress.getAttribute("data-hidden")).toBe("");
+  expect(progress.textContent).toContain("badge.checking");
+  expect(progress.textContent).toContain("checks.stop");
+});
+
+// protects=#2313: while the run is on the price line stays laid out under the progress line; fails_when=the price line is removed at the press, so the foot can shrink to the progress line; no_claim=the room kept before the run above.
+test("the price line keeps its room under the running progress line", async () => {
+  await render("price", planned);
+  pressed.running.value = true;
+  await render("price", planned);
+
+  const price = container.querySelector(".check-card-estimate");
+  if (!price) throw new Error("The price line's room went at the press.");
+  expect(price.getAttribute("data-hidden")).toBe("");
+  expect(container.querySelector('[data-testid="check-estimate"]')).toBeNull();
+  expect(
+    container.querySelector('[data-testid="card-foot-progress"]')?.getAttribute("data-hidden"),
+  ).toBeNull();
 });
