@@ -432,6 +432,7 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
     (state.kind === "checked" &&
       state.unread === 0 &&
       state.cantCheck === 0 &&
+      state.notRecalculated === 0 &&
       state.needsCheck === 0)
       ? []
       : noteStateParts(state, t, language);

@@ -12,6 +12,7 @@ import {
   type AnalysisTableShown,
   columnLine,
   differingLine,
+  footedLine,
   liveVersions,
   tableShownIn,
 } from "../../../shared/analysisTables";
@@ -182,6 +183,11 @@ export function AnalysisTableCard({ title, shown }: { title: string; shown: Anal
           data-testid="analysis-table-column"
         >
           <p>{columnLine(column, language)}</p>
+          {column.footed.map((footed) => (
+            <p key={footed.label} className="calculated-figure-note">
+              {footedLine(footed, language)}
+            </p>
+          ))}
           {column.differs.map((cell) => (
             <p
               key={`${cell.label}\u0000${cell.note}`}

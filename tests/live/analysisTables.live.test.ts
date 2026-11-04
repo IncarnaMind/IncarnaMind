@@ -215,23 +215,30 @@ async function noteCounts(
       `- figure ${attributes.figure.shown} ${attributes.figure.label}: ${row?.shown.state ?? "?"}${value?.of ? `, rows named (${value.of.count})` : ", no rows named"}`,
     );
   }
-  // After Check: a mark that needs a look on words holding an Analysis's figure.
-  const marked = (node: NodeJSON, inFigure: boolean) => {
+  // After Check: an Analysis's figure judged against the text, and every mark that needs a look.
+  const seen = new Set<string>();
+  const marked = (node: NodeJSON) => {
     for (const mark of node.marks ?? []) {
       if (mark.type !== CLAIM_CHECK_MARK) continue;
       const check = readClaimCheck(mark.attrs);
-      if (check && (check.state === "unsupported" || check.state === "contradicted") && inFigure)
-        counts.lookOnAnalysis.push(`${check.state}: ${check.text}`);
+      if (!check || seen.has(check.id)) continue;
+      seen.add(check.id);
+      const rows = (check.figures ?? []).map(
+        (figure) =>
+          `${figure.reading.chars}${figure.calculated?.figure.analysis ? " (Analysis)" : ""} ${figure.state}`,
+      );
+      if (check.state === "unsupported" || check.state === "contradicted")
+        lines.push(`- needs a look, ${check.state}: ${check.text} [${rows.join("; ")}]`);
+      for (const figure of check.figures ?? [])
+        if (
+          figure.calculated?.figure.analysis &&
+          (figure.state === "unsupported" || figure.state === "contradicted")
+        )
+          counts.lookOnAnalysis.push(`${figure.reading.chars}: ${check.text}`);
     }
-    for (const child of node.content ?? []) marked(child, inFigure);
+    for (const child of node.content ?? []) marked(child);
   };
-  for (const block of blocks)
-    marked(
-      block,
-      figures([block]).some(
-        (node) => readCalculatedFigureAttributes(node.attrs ?? {})?.figure.analysis,
-      ),
-    );
+  for (const block of blocks) marked(block);
   return { counts, lines };
 }
 
@@ -279,7 +286,7 @@ test.skipIf(KEY === undefined).each(ALL.map((held) => ({ ...held })))(
     core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
     await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
     if (held.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
-    const walk = WALK.includes(held);
+    const walk = WALK.some((each) => each.name === held.name);
     const file = walk
       ? join(process.cwd(), "tests/fixtures/formats/Orders.csv")
       : await writeSourceFile(
@@ -295,6 +302,9 @@ test.skipIf(KEY === undefined).each(ALL.map((held) => ({ ...held })))(
       `## ${held.name} (${held.language}) · ${MODEL}`,
       `Read for: ${held.read}`,
       `Tools: ${answer.toolCalls.map((call) => `${call.tool} ${call.status}`).join(", ")}`,
+      ...answer.toolCalls
+        .filter((call) => call.source === "minds" || call.tool === "run_analysis")
+        .map((call) => `  ${call.tool}: ${JSON.stringify(call.input).slice(0, 900)}`),
       "",
       answer.text,
       "",

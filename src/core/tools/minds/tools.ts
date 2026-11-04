@@ -47,7 +47,12 @@ import { type ChartData, gridOfTable, readChart, redrawnData } from "../../../sh
 import { closeTitles } from "../../../shared/closeTitles";
 import { formatShortDate } from "../../../shared/dates";
 import { FIGURE_MARKER, type PlacedFigure } from "../../../shared/figureMarkers";
-import { figureRunsFor } from "../../../shared/figureRuns";
+import {
+  boundTablesIn,
+  figureRunsFor,
+  readTableBinding,
+  sameBinding,
+} from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { holdsNothing } from "../../../shared/madeMind";
 import { looksLikeTable } from "../../../shared/markdownTables";
@@ -73,6 +78,7 @@ import type { ContextCitations } from "../../answers/contextCitations";
 import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import { withoutPointersBack } from "../../answers/pointersBack";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
   CHART_NODE,
@@ -1457,6 +1463,35 @@ export function mindTools(options: MindToolsOptions): {
     return beside === null ? null : { text: beside, kind: "applied" };
   };
 
+  /**
+   * An Analysis's table the Note already holds, written again by a later call (#2378): the same
+   * table twice. Its caption's words; null when `blocks` bring no table the Note has.
+   */
+  const tableHeldIn = (writer: Writer, blocks: readonly NodeJSON[]): string | null => {
+    const written = blocks.flatMap((block, at) => {
+      const binding =
+        block.type === "table" ? readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) : null;
+      return binding ? [{ binding, caption: blocks[at - 1] }] : [];
+    });
+    if (written.length === 0) return null;
+    // What this call has written already, as its content streamed in, is this same table.
+    const own = new Set(writer.ids);
+    const held = minds.read(writer.mind.id, (note) =>
+      boundTablesIn(
+        topLevelBlocks(note)
+          .filter((each) => !own.has(idOf(each)))
+          .map(nodeOf),
+      ),
+    );
+    const again = written.find(({ binding }) => held.some((each) => sameBinding(each, binding)));
+    if (!again) return null;
+    const words = (again.caption?.content ?? [])
+      .map((node) => (node.type === "text" ? (node.text ?? "") : ""))
+      .join("")
+      .trim();
+    return words || again.binding.id;
+  };
+
   const repeatRefusal = (mind: ChangeableMind, repeat: Repeat) => {
     const shown = repeat.text.length > 80 ? `${repeat.text.slice(0, 80)}…` : repeat.text;
     return new Refusal(
@@ -1713,10 +1748,15 @@ export function mindTools(options: MindToolsOptions): {
     writer ??= writerFor(mind, after, made);
     if (typeof given !== "string") writer.origin = given.origin;
     const copy = stream?.copy ?? repeatIn(writer, blocks);
-    if (copy !== null) {
+    const held = copy === null ? tableHeldIn(writer, blocks) : null;
+    if (copy !== null || held !== null) {
       withdraw(writer);
       minds.writing(writer.mind.id, null);
-      throw repeatRefusal(mind, copy);
+      if (copy !== null) throw repeatRefusal(mind, copy);
+      throw new Refusal(
+        { kind: "copy", mindId: mind.id, text: held ?? "" },
+        `Nothing was added to “${mind.name}”: it holds this Analysis's table, “${held}”, already. Write each table once; to chart it, call add_to_mind with chart and content empty.`,
+      );
     }
     writeMore(writer, blocks);
     minds.writing(writer.mind.id, null);

@@ -19,6 +19,7 @@ import {
   MAX_CHART_VALUES,
   readChart,
   readChartData,
+  redrawnData,
   type SourceCell,
   type SourceGrid,
   seriesName,
@@ -1242,6 +1243,38 @@ describe("an Analysis's own values in a chart (#2378)", () => {
       title: "Amounts",
       language: "en",
     }) as ChartAttributes | null;
+
+  test("drawn again from its table, as the core does once a write is checked, keeps the Analysis's values and inputs (#2378)", () => {
+    const shown = table([
+      ["Region", "Amount"],
+      ["Central", "8,325"],
+      ["North", "9,450"],
+    ]);
+    const chart = chartOf(
+      withAnalysisValues(
+        gridOfTable(shown),
+        match([orders], (row, column) => (column === 1 ? ([8325.4, 9450][row] ?? null) : null)),
+      ),
+    );
+    if (!chart) throw new Error("The table drew no chart.");
+    // Its table as it is: nothing to draw again, so the values and their inputs stay.
+    expect(redrawnData(gridOfTable(shown), chart, "en")).toBeNull();
+    // A row renamed is drawn again from its words; the other keeps the Analysis's value and inputs.
+    const renamed = redrawnData(
+      gridOfTable(
+        table([
+          ["Region", "Amount"],
+          ["Central", "8,325"],
+          ["Nord", "9,450"],
+        ]),
+      ),
+      chart,
+      "en",
+    );
+    expect(renamed?.rows.map((row) => row.values[0]?.value)).toEqual([8325.4, 9450]);
+    expect(renamed?.rows[0]?.values[0]?.inputs).toEqual([orders]);
+    expect(renamed?.rows[1]?.values[0]?.inputs).toBeUndefined();
+  });
 
   test("draws the Analysis's own value, never the number its rounded display reads as", () => {
     const grid = withAnalysisValues(

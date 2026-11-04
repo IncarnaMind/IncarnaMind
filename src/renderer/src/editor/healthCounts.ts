@@ -88,6 +88,11 @@ export interface NoteHealth {
   failed: number[];
   /** The failed checks running again cannot settle: a Citation kept inside another Folder. */
   uncheckable: number[];
+  /**
+   * The sentences whose figure an Analysis gave and IncarnaMind couldn't work out again (#2378):
+   * no check can change them, so they never hold the Note back from Checked.
+   */
+  notRecalculated: number[];
   recheck: number[];
   /** The rechecks a change to their sentence made, which a check of it can settle. */
   edited: number[];
@@ -288,6 +293,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     toCheck: [],
     failed: [],
     uncheckable: [],
+    notRecalculated: [],
     recheck: [],
     edited: [],
     checking: [],
@@ -320,6 +326,8 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         if (state.why === "failed") {
           health.failed.push(from);
           if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
+          if (claim?.shown.state === "not-checked" && claim.shown.reason === "analysis")
+            health.notRecalculated.push(from);
         } else if (state.why === "recheck") {
           health.recheck.push(from);
           // An edit marks a check that ran and would still hold with its own words; one that never

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
-import { nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
+import { createElement, nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
@@ -18,11 +18,13 @@ import {
   CLAIM_CHECK_MARK,
   MIND_FIGURE_RUNS_FIELD,
 } from "../../src/core/api";
+import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { noAnalysisOutput } from "../../src/shared/analysis";
-import { columnLine, differingLine } from "../../src/shared/analysisTables";
+import { columnLine, differingLine, footedLine } from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { chartSources, readChart } from "../../src/shared/charts";
 import { readClaimCheck } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { checkGenerate, checkReply, isCheckRun, listedSentences } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -96,8 +98,11 @@ const WORDS = {
     slope: "A linear fit of amount against order date gives a slope of [=1] per day.",
     chart: "Total amount by region",
     note: "Calculated by the Analysis “Orders by region” from 40 rows of Orders.",
+    notRecalculated: "1 figure not recalculated",
     column: "amount: sum of 40 rows · recalculated",
-    differs: "North: 9,999 in the Note, 9,450 in the Analysis",
+    differs: "North: 9,999 in the note, 9,450 in the Analysis",
+    footed: "The rows above add to 35,550",
+    notIn: "Total: 35,551 in the note, not in the Analysis",
   },
   "zh-CN": {
     question:
@@ -107,13 +112,22 @@ const WORDS = {
     slope: "金额对下单日期的线性拟合斜率为每天 [=1]。",
     chart: "各地区金额合计",
     note: "由数据分析“按地区汇总订单”根据“Orders”的 40 行计算得出。",
+    notRecalculated: "1 个数字未重新计算",
     column: "amount：40 行的合计 · 已重新计算",
     differs: "North：笔记中为 9,999，数据分析中为 9,450",
+    footed: "上面各行相加为 35,550",
+    notIn: "合计：笔记中为 35,551，数据分析中没有",
   },
 } as const;
 
 /** A sort and check model that keeps every sentence it is sent, and finds none in the Documents. */
-function writingModel(language: Language, content: string, sent: string[], asksChart: boolean) {
+function writingModel(
+  language: Language,
+  content: string,
+  sent: string[],
+  asksChart: boolean,
+  again: string | null,
+) {
   const words = WORDS[language];
   return scriptedModel(
     (call: ModelCall) => {
@@ -151,6 +165,10 @@ function writingModel(language: Language, content: string, sent: string[], asksC
             },
           ],
         };
+      if (again !== null && !call.results.some((result) => result.tool === "add_to_mind"))
+        return {
+          calls: [{ tool: "add_to_mind", input: { mind: words.title, content: again } }],
+        };
       return { text: language === "en" ? "Written." : "已写入。" };
     },
     {
@@ -173,9 +191,14 @@ function writingModel(language: Language, content: string, sent: string[], asksC
   );
 }
 
-async function walked(language: Language, content: string, asksChart = true) {
+async function walked(
+  language: Language,
+  content: string,
+  asksChart = true,
+  again: string | null = null,
+) {
   const sent: string[] = [];
-  const model = writingModel(language, content, sent, asksChart);
+  const model = writingModel(language, content, sent, asksChart, again);
   const printer = fakePrinter();
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -198,7 +221,8 @@ async function walked(language: Language, content: string, asksChart = true) {
     analyse: true,
   });
   const madeId = answer.toolCalls.find((call) => call.tool === "create_mind")?.mindChange?.mindId;
-  if (!madeId) throw new Error("The Answer made no Note.");
+  if (!madeId)
+    throw new Error(`The Answer made no Note: ${JSON.stringify(answer.toolCalls).slice(0, 1500)}`);
   const client = await connectToMind(core, madeId);
   await client.settled();
   await resolveChanges(client, "accept");
@@ -330,10 +354,27 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     expect(slope.length).toBeGreaterThan(0);
     expect(slope.map((mark) => mark.state)).not.toContain("unsupported");
     expect(new Set(slope.map((mark) => mark.state))).toEqual(new Set(["not-checked"]));
+    // No check can change it, so the Note reads Checked, naming the figure not recalculated.
+    const { state } = readNoteState({
+      doc: client.doc,
+      cellFigures: [],
+      documents: await core.listDocuments(),
+      keptCitationTexts: [],
+      folderId: null,
+    });
+    expect(state?.kind).toBe("checked");
+    expect(
+      state &&
+        noteStateParts(state, (key, params) => translate(language, key, params), language)[1],
+    ).toBe(WORDS[language].notRecalculated);
+    // A Check of what changed has nothing to send.
+    expect(
+      (await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" })).kind,
+    ).toBe("nothing");
     core.close();
   });
 
-  test("the chart keeps the Analysis's values and inputs once the write is checked", async () => {
+  test("the chart draws the Analysis's values, cited to the rows it read", async () => {
     const { core, answer, client } = await walked(language, CONTENT(language));
     const created = answer.toolCalls.find((call) => call.tool === "create_mind");
     expect(created?.mindChange?.chartNotDrawn).toBeUndefined();
@@ -368,7 +409,13 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
   });
 
   test("a chart's marker in the content draws its chart beneath its one table, as the chart option does", async () => {
-    const content = [`# ${WORDS[language].title}`, "", "[=chart 1]", "", WORDS[language].slope].join("\n");
+    const content = [
+      `# ${WORDS[language].title}`,
+      "",
+      "[=chart 1]",
+      "",
+      WORDS[language].slope,
+    ].join("\n");
     const { core, answer, client } = await walked(language, content, false);
     const blocks = blocksOf(client);
     expect(blocks.map((block) => block.type)).toEqual([
@@ -381,6 +428,57 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     const created = answer.toolCalls.find((call) => call.tool === "create_mind");
     expect(created?.mindChange?.charts).toBe(1);
     expect(created?.mindChange?.chartNotDrawn).toBeUndefined();
+    core.close();
+  });
+
+  test("a later call that writes the table again is refused: the Note holds it once", async () => {
+    const { core, answer, client } = await walked(language, CONTENT(language), true, "[=table 1]");
+    const added = answer.toolCalls.find((call) => call.tool === "add_to_mind");
+    expect(added?.status).toBe("failed");
+    expect(added?.mindProblem).toMatchObject({ kind: "copy", text: WORDS[language].caption });
+    expect(blocksOf(client).filter((block) => block.type === "table")).toHaveLength(1);
+    core.close();
+  });
+
+  test("a total row the User adds is footed, never flagged; one that doesn't add up isn't the Analysis's", async () => {
+    const { core, madeId, client } = await walked(language, CONTENT(language));
+    const total = language === "en" ? "Total" : "合计";
+    const table = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement => each instanceof Y.XmlElement && each.nodeName === "table",
+      );
+    const row = (value: string) =>
+      createElement({
+        type: "tableRow",
+        content: [total, value].map((text) => ({
+          type: "tableCell",
+          attrs: { colspan: 1, rowspan: 1 },
+          content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+        })),
+      });
+    client.doc.transact(() => table?.push([row("35,550")]));
+    await client.settled();
+    const footed = (await core.getFigureSchedule(madeId)).rows.find((each) => each.analysisTable);
+    expect(footed?.shown.state).toBe("supported");
+    expect(
+      footed?.analysisTable?.columns.flatMap((each) =>
+        each.footed.map((one) => footedLine(one, language)),
+      ),
+    ).toEqual([WORDS[language].footed]);
+
+    client.doc.transact(() => {
+      table?.delete((table?.length ?? 1) - 1, 1);
+      table?.push([row("35,551")]);
+    });
+    await client.settled();
+    const off = (await core.getFigureSchedule(madeId)).rows.find((each) => each.analysisTable);
+    expect(off?.reason).toBe("differs-from-analysis");
+    expect(
+      off?.analysisTable?.columns.flatMap((each) =>
+        each.differs.map((cell) => differingLine(cell, language)),
+      ),
+    ).toEqual([WORDS[language].notIn]);
     core.close();
   });
 });

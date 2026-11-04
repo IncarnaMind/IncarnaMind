@@ -62,6 +62,8 @@ export interface NoteState {
   checkable: number;
   /** Sentences whose check couldn't settle them, named after the time: something is left, not the whole Note. */
   cantCheck: number;
+  /** Sentences whose figure an Analysis gave and IncarnaMind didn't work out again, named after the time (#2378). */
+  notRecalculated: number;
   /** Sentences a change made since their check, named after the time while the rest holds. */
   needsCheck: number;
 }
@@ -88,6 +90,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     unreadMatters,
     checkable: health.checkable,
     cantCheck: 0,
+    notRecalculated: 0,
     needsCheck: 0,
   };
   if (health.contradicted.length > 0) {
@@ -116,8 +119,11 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
   if (health.toCheck.length > 0) {
     // A claim a check covered holds; what a check could not settle, or a change made need one,
     // is named beside it rather than turning the whole Note back to Not checked (#2313).
-    const settled = health.uncheckable.length + health.edited.length;
-    if (health.supported > 0 && settled === health.toCheck.length) {
+    const settled =
+      health.uncheckable.length + health.edited.length + health.notRecalculated.length;
+    // A figure an Analysis gave that couldn't be worked out again is settled as well as it can be.
+    const covered = health.supported + health.notRecalculated.length;
+    if (covered > 0 && settled === health.toCheck.length) {
       // A file a narrow check couldn't read could hold the evidence: the unread reading keeps the Note amber.
       if (unreadMatters) {
         return {
@@ -135,6 +141,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
         tone: "success",
         mark: "checked",
         cantCheck: health.uncheckable.length,
+        notRecalculated: health.notRecalculated.length,
         needsCheck: health.edited.length,
       };
     }
@@ -225,6 +232,16 @@ export function noteStateParts(
           t(state.cantCheck === 1 ? "health.state.cantCheck.one" : "health.state.cantCheck", {
             count: count(state.cantCheck),
           }),
+        ]
+      : []),
+    ...(state.notRecalculated > 0
+      ? [
+          t(
+            state.notRecalculated === 1
+              ? "health.state.notRecalculated.one"
+              : "health.state.notRecalculated",
+            { count: count(state.notRecalculated) },
+          ),
         ]
       : []),
     ...(state.needsCheck > 0

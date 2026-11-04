@@ -27,6 +27,7 @@ import {
   sameTableKey,
 } from "./analysis";
 import type { NodeJSON } from "./blockJson";
+import { labelRole } from "./figureFooting";
 import { figureRunId, figureRunsFor, readTableBinding, sameBinding } from "./figureRuns";
 import { figureCellText, figureText, rawColumn } from "./figures";
 import { translate } from "./i18n";
@@ -315,6 +316,8 @@ export interface AnalysisTableColumn {
   rule: AnalysisColumnCheck["rule"];
   rows: number;
   differs: DifferingCell[];
+  /** A total row the User added that adds up the Analysis's rows above it: its footing's sum. */
+  footed: { label: string; sum: string }[];
 }
 
 /**
@@ -364,13 +367,27 @@ export function analysisTableShown(
     .map((column) => {
       const check = kept.columns.find((each) => each.column === column);
       const differs: DifferingCell[] = [];
+      const footed: AnalysisTableColumn["footed"] = [];
+      let above = 0;
       for (const row of rows) {
         const label = row[0] ?? "";
         const note = cellKey(row[column] ?? "");
         const at = runRow.get(cellKey(label));
         const value = at === undefined ? undefined : given.rows[at]?.[column];
-        if (value !== undefined && written(value, column).includes(note)) continue;
+        if (value !== undefined && written(value, column).includes(note)) {
+          if (typeof value === "number") above += value;
+          continue;
+        }
         if (value === undefined && note === "") continue;
+        // A total the User added is footed, as a table they typed is: it adds up the rows above it.
+        if (
+          value === undefined &&
+          labelRole(label) !== "detail" &&
+          written(above, column).includes(note)
+        ) {
+          footed.push({ label, sum: figureCellText(language, above, raw[column] ?? false) });
+          continue;
+        }
         differs.push({
           label,
           note,
@@ -384,6 +401,7 @@ export function analysisTableShown(
         rule: check?.rule ?? null,
         rows: check?.rows ?? 0,
         differs,
+        footed,
       };
     });
   const differs = columns.some((column) => column.differs.length > 0);
@@ -413,10 +431,10 @@ export function columnLine(column: AnalysisTableColumn, language: Language): str
 /** A cell whose text in the Note isn't the Analysis's, under its column. */
 export function differingLine(cell: DifferingCell, language: Language): string {
   return cell.analysis === null
-    ? translate(language, "figures.table.notInAnalysis", { label: cell.label, note: cell.note })
+    ? translate(language, "figures.table.notInAnalysis", { label: cell.label, written: cell.note })
     : translate(language, "figures.table.differs", {
         label: cell.label,
-        note: cell.note,
+        written: cell.note,
         analysis: cell.analysis,
       });
 }
@@ -471,3 +489,7 @@ export function analysisTableNote(
       : `${named.slice(0, -1).join(translate(language, "export.table.comma"))}${translate(language, "export.table.and")}${last}`;
   return translate(language, "export.table.analysis", { title: run.title, sources });
 }
+
+/** A footed total under its column: "The rows above add to 35,550", in footing's own words. */
+export const footedLine = (footed: AnalysisTableColumn["footed"][number], language: Language) =>
+  translate(language, "figures.foot.rows", { value: footed.sum });

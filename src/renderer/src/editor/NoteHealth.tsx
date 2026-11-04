@@ -64,6 +64,7 @@ const NO_HEALTH: Health = {
   toCheck: [],
   failed: [],
   uncheckable: [],
+  notRecalculated: [],
   recheck: [],
   edited: [],
   checking: [],
