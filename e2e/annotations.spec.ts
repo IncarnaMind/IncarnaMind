@@ -117,6 +117,10 @@ const paragraph = (viewer: Locator, words: string) =>
 
 const noteMark = (viewer: Locator) => viewer.locator("[data-annotation-note]").first();
 
+// A press inside the words still selected would drag them away rather than select anew.
+const clearSelection = (window: Page) =>
+  window.evaluate(() => globalThis.getSelection()?.removeAllRanges());
+
 async function openPanel(window: Page, viewer: Locator): Promise<Locator> {
   const panel = window.getByTestId("annotations-panel");
   // It stays open across a viewer's reload, as a new version makes.
@@ -225,6 +229,8 @@ test("by the keyboard: ⌘K highlights the selection and finds a highlight's wor
   await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("viewer-selection-menu")).toHaveCount(0);
+  // The first drag's words are still selected: a press inside them would drag them, so clear.
+  await clearSelection(window);
   await slideSelect(window, paragraph(viewer, words), words);
   await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
   await runCommand(window, "viewer.selection.highlight", "Highlight the selected text");

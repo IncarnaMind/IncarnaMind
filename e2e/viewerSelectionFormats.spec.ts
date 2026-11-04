@@ -131,6 +131,7 @@ test("PowerPoint: a slide's text, over its bullet points, and its speaker notes 
 
   const notes = slide.getByTestId("viewer-slide-notes");
   await pointAndClick(window, notes.locator("summary"));
+  await clearSelection(window);
   const spoken = await addToNote(window, notes, "it was 6.8 per cent a year ago");
   await expect(citedAt(spoken)).toHaveAttribute("aria-label", /slide 2/);
 });
