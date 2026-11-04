@@ -608,8 +608,10 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
       contentHash: string,
       found: readonly FileAnnotation[],
     ): void {
-      const existing = db.all<AnnotationRow & { deleted_at: string | null }>(
-        `SELECT ${COLUMNS}, a.deleted_at ${FROM} WHERE a.document_id = ? AND a.source = 'file'`,
+      const existing = db.all<AnnotationRow & { deleted_at: string | null; seq: number }>(
+        `SELECT ${COLUMNS}, a.deleted_at, a.seq ${FROM}
+         WHERE a.document_id = ? AND a.source = 'file'
+         ORDER BY a.page_from, a.created_at, a.seq`,
         [documentId],
       );
       const at = now();
@@ -638,46 +640,73 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         };
         const pageOf = (mark: Mark) =>
           mark.there && mark.cited?.pageFrom != null ? mark.cited.pageFrom : mark.annotation.page;
-        /** Groups pair in page order for one count and one shift, else only the same version on the same page. */
+        /** Groups pair in page order for one count and one shift; then a page's own copy, then a missing row. */
         const pairGroups = (
           rowsByKey: Map<string, Row[]>,
           marksByKey: Map<string, Mark[]>,
           rowPage: (row: Row) => number,
           markPage: (mark: Mark) => number,
+          samePageAnyVersion: boolean,
         ) => {
           for (const [key, group] of marksByKey) {
             const all = (rowsByKey.get(key) ?? []).filter((row) => !taken.has(row.id));
-            // Rows a read already left missing are not this group's place any more.
             const live = all.filter((row) => row.paired_hash !== null);
-            const rows = live.length > 0 ? live : all;
-            const byPageRows = [...rows].sort(
-              (a, b) =>
-                rowPage(a) - rowPage(b) ||
-                a.created_at.localeCompare(b.created_at) ||
-                a.id.localeCompare(b.id),
-            );
-            const byPageMarks = [...group].sort((a, b) => markPage(a) - markPage(b));
-            const shifts = byPageMarks.map(
-              (mark, index) =>
-                markPage(mark) - (byPageRows[index] ? rowPage(byPageRows[index]) : 0),
-            );
-            if (
-              byPageRows.length === byPageMarks.length &&
-              byPageRows.length > 0 &&
-              shifts.every((shift) => shift === shifts[0])
-            ) {
+            const attempt = (candidates: Row[]): number => {
+              const open = group.filter((mark) => !matched.has(mark));
+              const byPageRows = [...candidates].sort(
+                (a, b) => rowPage(a) - rowPage(b) || a.seq - b.seq,
+              );
+              const byPageMarks = [...open].sort((a, b) => markPage(a) - markPage(b));
+              const shifts = byPageMarks.map(
+                (mark, index) =>
+                  markPage(mark) - (byPageRows[index] ? rowPage(byPageRows[index]) : 0),
+              );
+              if (
+                byPageRows.length !== byPageMarks.length ||
+                byPageRows.length === 0 ||
+                !shifts.every((shift) => shift === shifts[0])
+              ) {
+                return 0;
+              }
+              // A copy still on a page that already held one did not move with the rest: fail closed.
+              if (
+                samePageAnyVersion &&
+                shifts[0] !== 0 &&
+                byPageMarks.some((mark) =>
+                  byPageRows.some((row) => rowPage(row) === markPage(mark)),
+                )
+              ) {
+                return 0;
+              }
               for (const [index, mark] of byPageMarks.entries()) {
                 const row = byPageRows[index];
                 if (row) pair(mark, row);
               }
-              continue;
-            }
-            for (const mark of byPageMarks) {
-              const row = rows.find(
+              return byPageMarks.length;
+            };
+            if (live.length > 0 && attempt(live) > 0) continue;
+            if (attempt(all) > 0) continue;
+            // The page it is on still has its row: that copy stayed where it was.
+            for (const mark of group) {
+              if (matched.has(mark)) continue;
+              const row = all.find(
                 (each) =>
                   !taken.has(each.id) &&
-                  each.content_hash === contentHash &&
+                  (samePageAnyVersion || each.content_hash === contentHash) &&
                   rowPage(each) === markPage(mark),
+              );
+              if (row) pair(mark, row);
+            }
+            // A missing row holding nothing of the User's is better than another row.
+            for (const mark of group) {
+              if (matched.has(mark)) continue;
+              const row = all.find(
+                (each) =>
+                  !taken.has(each.id) &&
+                  each.missing === 1 &&
+                  each.paired_hash === null &&
+                  each.note === each.file_note &&
+                  each.colour === each.file_colour,
               );
               if (row) pair(mark, row);
             }
@@ -701,6 +730,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           noteMarksByText,
           (row) => row.page_from ?? 0,
           (mark) => mark.annotation.page,
+          false,
         );
         // A page's only other note takes a leftover only when the User hasn't rewritten it.
         const freeRowsByPage = new Map<number, Row[]>();
@@ -734,7 +764,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           const key = collapsed(mark.quote);
           markGroups.set(key, [...(markGroups.get(key) ?? []), mark]);
         }
-        pairGroups(rowGroups, markGroups, (row) => row.page_from ?? 0, pageOf);
+        pairGroups(rowGroups, markGroups, (row) => row.page_from ?? 0, pageOf, true);
 
         for (const { mark, row } of pairs) {
           const { annotation, cited, there, quote } = mark;

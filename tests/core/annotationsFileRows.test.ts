@@ -225,7 +225,7 @@ test("a file highlight a version lacks keeps the current version and no Passage"
   db.close();
 });
 
-test("the same words twice keep their comments in page order when a page is inserted", async () => {
+test("the same words twice, with a page inserted, fail closed rather than move a comment", async () => {
   const { document, store, read, db } = await harness();
   const quote = "About page one.";
   read("version-a", [highlight(quote, 1), highlight(quote, 2)]);
@@ -237,11 +237,14 @@ test("the same words twice keep their comments in page order when a page is inse
   store.update(second.id, { note: "second" });
 
   read("version-b", [highlight(quote, 2), highlight(quote, 3)]);
-  const reread = store.list(document.id).sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
-  expect(reread).toMatchObject([
-    { id: first.id, pageFrom: 2, note: "first", missing: false },
-    { id: second.id, pageFrom: 3, note: "second", missing: false },
-  ]);
+  const reread = store.list(document.id);
+  // A copy still on its page did not move with the rest: the comments stay where they were.
+  expect(reread.find((row) => row.id === second.id)).toMatchObject({
+    pageFrom: 2,
+    note: "second",
+    missing: false,
+  });
+  expect(reread.find((row) => row.id === first.id)).toMatchObject({ note: "first", missing: true });
   db.close();
 });
 
@@ -322,11 +325,10 @@ test("identical words that did not pair do not add missing rows on each version"
   read("version-a", [highlight(quote, 1), highlight(quote, 2), highlight(quote, 3)]);
   // Three words, two marks: no count match, so the new read makes its own rows.
   read("version-b", [highlight(quote, 1), highlight(quote, 3)]);
-  const twice = store.list(document.id);
-  expect(twice).toHaveLength(5);
-  // Read again: the live rows of the last read pair, and the missing ones stay as they were.
+  expect(store.list(document.id)).toHaveLength(3);
+  // Read again: the rows pair in place, and no empty row is added.
   read("version-c", [highlight(quote, 1), highlight(quote, 3)]);
-  expect(store.list(document.id)).toHaveLength(5);
+  expect(store.list(document.id)).toHaveLength(3);
   db.close();
 });
 
@@ -513,6 +515,49 @@ test("a second re-read writes no database change", async () => {
   const before = changes();
   read("version-a", rows);
   expect(changes()).toBe(before);
+  db.close();
+});
+
+test("two copies of the same words on one page keep their own comments on a re-read", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "the Seller";
+  read("version-a", [
+    highlight(quote, 1, "First mention."),
+    highlight(quote, 1, "Second mention."),
+  ]);
+  const first = store.list(document.id).find((row) => row.note === "First mention.");
+  if (!first) throw new Error("The first copy wasn't read.");
+  store.update(first.id, { note: "Mine about the first." });
+  const changes = () => db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0;
+  const before = changes();
+  read("version-a", [
+    highlight(quote, 1, "First mention."),
+    highlight(quote, 1, "Second mention."),
+  ]);
+  expect(store.list(document.id).find((row) => row.id === first.id)?.note).toBe(
+    "Mine about the first.",
+  );
+  expect(changes()).toBe(before);
+  db.close();
+});
+
+test("a file flipping between two copies and one stops growing rows", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const two = () => [highlight(quote, 1), highlight(quote, 2)];
+  read("version-two", two());
+  const first = store.list(document.id).find((row) => row.pageFrom === 1);
+  if (!first) throw new Error("The page-1 copy wasn't read.");
+  store.update(first.id, { note: "Mine on page 1." });
+
+  read("version-one", [highlight(quote, 1)]);
+  expect(store.list(document.id)).toHaveLength(2);
+  read("version-two-again", two());
+  expect(store.list(document.id)).toHaveLength(2);
+  const pageOne = store.list(document.id).find((row) => row.id === first.id);
+  expect(pageOne).toMatchObject({ note: "Mine on page 1.", missing: false });
+  read("version-one-again", [highlight(quote, 1)]);
+  expect(store.list(document.id)).toHaveLength(2);
   db.close();
 });
 
