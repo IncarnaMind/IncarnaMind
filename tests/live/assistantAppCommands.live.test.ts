@@ -15,7 +15,7 @@
  * the first one was.
  */
 import { randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 import {
@@ -155,6 +155,8 @@ interface Seen {
   /** The ids of the Documents, Folders and Tags, and the settings, before the request. */
   before: Library;
   after: Library;
+  /** A folder outside the Output location, empty before the request, that a request may name. */
+  exportTo: string;
 }
 
 interface Library {
@@ -492,9 +494,44 @@ const exportedThisNote =
     expect(windowRan(seen, ...EXPORT_AS)).toBe(false);
   };
 
-/** Saved into a folder outside the Output location, the export waits for the User: here it is declined. */
+/** The core's export of the Note asked from was called in this format, and no Export as… ran. */
+const exportCalls = (seen: Seen, format: string) => {
+  const calls = seen.answer.toolCalls.filter(
+    (call) => call.tool === "run_command" && call.input.command === "mind.export",
+  );
+  expect(calls.map((call) => call.input.format)).toEqual([format]);
+  expect(windowRan(seen, ...EXPORT_AS)).toBe(false);
+  return calls;
+};
+
+/** As `exportedThisNote`, for a format whose file's extension another format shares. */
+const exportedThisNoteAs =
+  (format: string, extension: string): Check =>
+  (seen) => {
+    exportCalls(seen, format);
+    exportedThisNote(extension)(seen);
+  };
+
+/** A source pack of a Note that cites nothing is refused in plain words, and nothing is saved. */
+const packRefused: Check = (seen) => {
+  const [call] = exportCalls(seen, "source-pack");
+  expect(call?.commandProblem?.wording?.key).toBe("export.pack.empty");
+  expect(ran(seen).some((each) => each.command === "mind.export")).toBe(false);
+};
+
+/**
+ * Saved into a folder outside the Output location, a PDF of the Note waits for the User, asked for
+ * that folder: here it is declined, so nothing is saved there or anywhere.
+ */
 const exportAsked: Check = (seen) => {
-  expect(seen.asked.some((each) => "ask" in each && each.ask.kind === "export")).toBe(true);
+  const asks = seen.asked.flatMap((each) =>
+    "ask" in each && each.ask.kind === "export" ? [each.ask] : [],
+  );
+  expect(asks.map((ask) => [ask.mind.name, ask.format, ask.folder])).toEqual([
+    ["Lease review", "pdf", realpathSync(seen.exportTo)],
+  ]);
+  expect(readdirSync(seen.exportTo)).toEqual([]);
+  expect(ran(seen).some((each) => each.command === "mind.export")).toBe(false);
   expect(windowRan(seen, ...EXPORT_AS)).toBe(false);
 };
 
@@ -811,6 +848,18 @@ const REQUESTS: {
   { id: "export-pdf-en", text: "Save this note as a PDF", check: exportedThisNote(".pdf") },
   { id: "export-folder-en", text: "Save this note as a PDF in {folder}", check: exportAsked },
   { id: "export-folder-zh", text: "把这篇笔记导出成 PDF，存到 {folder}", check: exportAsked },
+  // Held out for the formats only Export as… offered before (#1421): written before any run.
+  {
+    id: "export-share-en",
+    text: "Export this note as a web page I can share",
+    check: exportedThisNoteAs("share-page", ".html"),
+  },
+  {
+    id: "export-share-zh",
+    text: "把这篇笔记导出成可以分享的网页",
+    check: exportedThisNoteAs("share-page", ".html"),
+  },
+  { id: "export-pack-en", text: "Make a PDF of the pages this note cites", check: packRefused },
 ];
 
 async function ask(core: Core, text: string, mindId: string, commands: OfferedCommand[]) {
@@ -989,6 +1038,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
             questions,
             before,
             after: await libraryOf(core, mind.id),
+            exportTo,
           };
           const calls = answer.toolCalls
             .filter((call) => call.source === "commands")
