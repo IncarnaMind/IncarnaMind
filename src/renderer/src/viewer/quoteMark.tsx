@@ -2,6 +2,7 @@ import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState }
 import type { ViewerCitation } from "../../../shared/documentViewer";
 import { useT } from "../i18n";
 import { ExclamationIcon, NotEqualIcon, QuestionIcon, TickIcon } from "./icons";
+import { type MarkMeasure, measureOf } from "./sheetMark";
 
 /**
  * How a quote is washed: green, the colour of a found Citation's check, unless
@@ -88,11 +89,7 @@ export function CitationMark({
   const t = useT();
   const fullCopy = useRef<HTMLSpanElement>(null);
   const compactCopy = useRef<HTMLSpanElement>(null);
-  const [size, setSize] = useState<{
-    full: number;
-    compact: number;
-    of: string | undefined;
-  } | null>(null);
+  const [size, setSize] = useState<MarkMeasure | null>(null);
   const shown = mark.shown ?? mark.label;
   const fits = room === undefined || size === null || size.full <= room;
   const word = (
@@ -114,15 +111,17 @@ export function CitationMark({
   useLayoutEffect(() => {
     const full = fullCopy.current?.offsetWidth ?? 0;
     const compact = compactCopy.current?.offsetWidth ?? 0;
-    setSize((previous) =>
-      previous?.full === full && previous.compact === compact && previous.of === shown
-        ? previous
-        : { full, compact, of: shown },
-    );
+    setSize((previous) => {
+      const same = measureOf(previous, mark.number, shown);
+      return same?.full === full && same.compact === compact
+        ? same
+        : { full, compact, number: mark.number, label: shown };
+    });
   }, [room, mark.number, shown]);
   useLayoutEffect(() => {
-    if (size && size.of === shown) onSize?.({ full: size.full, compact: size.compact });
-  }, [size, shown, onSize]);
+    const taken = measureOf(size, mark.number, shown);
+    if (taken) onSize?.({ full: taken.full, compact: taken.compact });
+  }, [size, mark.number, shown, onSize]);
 
   const Icon =
     mark.tone === "found"

@@ -144,5 +144,6 @@ describe("the mark's measure, read only for the mark it was taken for", () => {
     expect(measureOf(nine, 9, "Cash at bank")).toBeNull();
     expect(measureOf(nine, 9, undefined)).toBeNull();
     expect(measureOf(null, 9, "Trade debtors")).toBeNull();
+    expect(measureOf(null, undefined, undefined)).toBeNull();
   });
 });

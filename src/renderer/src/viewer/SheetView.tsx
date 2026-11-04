@@ -54,7 +54,14 @@ import {
   fontCss,
   rowHeightFor,
 } from "./sheetGeometry";
-import { type MarkPlace, markGutter, placeSheetMark, scrollAcross } from "./sheetMark";
+import {
+  type MarkMeasure,
+  type MarkPlace,
+  markGutter,
+  measureOf,
+  placeSheetMark,
+  scrollAcross,
+} from "./sheetMark";
 import { cellsOn, withRowNames } from "./sheetRowNames";
 import { isInRange, rangeBetween, rangeParts, rangeSize, rangeTable } from "./sheetSelection";
 import { useDocumentFile } from "./useDocumentFile";
@@ -557,13 +564,6 @@ function edgeCss(edge: Edge, side: "right" | "bottom", css: CSSProperties, shado
   }
 }
 
-/** The Citation's mark as measured, with its label and without, and the label it was measured with. */
-interface MarkMeasure {
-  full: number;
-  compact: number;
-  label: string | undefined;
-}
-
 /** Rows not drawn, above or below the view: one empty row of their height. */
 function Spacer({ height, columns }: { height: number; columns: number }) {
   return height > 0 ? (
@@ -604,19 +604,20 @@ function Grid({
   const [menuAnchor, setMenuAnchor] = useState<VirtualElement | null>(null);
   const keys = useRef<HTMLButtonElement>(null);
   const markLabel = mark?.shown ?? mark?.label;
+  const markNumber = mark?.number;
   const [markSize, setMarkSize] = useState<MarkMeasure | null>(null);
   const measuredMark = useCallback(
     (size: { full: number; compact: number }) =>
       setMarkSize((previous) =>
         previous?.full === size.full &&
         previous.compact === size.compact &&
-        previous.label === markLabel
+        measureOf(previous, markNumber, markLabel)
           ? previous
-          : { ...size, label: markLabel },
+          : { ...size, number: markNumber, label: markLabel },
       ),
-    [markLabel],
+    [markNumber, markLabel],
   );
-  const measured = mark && markSize?.label === markLabel ? markSize : null;
+  const measured = mark ? measureOf(markSize, markNumber, markLabel) : null;
   const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
   const applied = useRef<number | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);
