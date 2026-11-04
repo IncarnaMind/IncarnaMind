@@ -739,57 +739,81 @@ for (const language of ["en", "zh-CN"] as const) {
           comma: comma
             ? grown((text) => widthOf(text) <= width - 0.5 && widthOf(`${text},`) > width + 0.5)
             : null,
+          // 0.5 to 3 px narrower than the room, with what follows it: it must stay on one line.
+          under: grown((text) => {
+            const whole = widthOf(comma ? `${text},` : text);
+            return whole <= width - 0.5 && whole > width - 3;
+          }),
         };
       },
       { ...room, comma: language === "en" },
     );
     expect(near?.over, "a name just past the room").toBeTruthy();
+    expect(near?.under, "a name just inside the room").toBeTruthy();
     const edge = [
-      { id: "check-over", name: near?.over ?? "" },
-      ...(near?.comma ? [{ id: "check-comma", name: near.comma }] : []),
+      { id: "check-over", name: near?.over ?? "", lines: 2 },
+      { id: "check-under", name: near?.under ?? "", lines: 1 },
+      ...(near?.comma ? [{ id: "check-comma", name: near.comma, lines: 2 }] : []),
     ];
     if (language === "en") expect(near?.comma, "a name that fits but for its comma").toBeTruthy();
     await insert(edge.map(({ id, name }) => checkedBy(id, name)));
-    for (const { id } of edge) {
+    for (const { id, lines } of edge) {
       await open(id);
       const name = line.locator(".claim-card-checked-by-name");
-      expect(await linesOf(name), `${id} wraps`).toBe(2);
+      expect(await linesOf(name), `${id} takes ${lines} lines`).toBe(lines);
       expect((await overrun(name))?.line ?? 1).toBeLessThanOrEqual(0.5);
     }
 
-    // While the card opens it is drawn smaller; the name must not flip between one and two lines.
-    await window.keyboard.press("Escape");
-    await expect(card).toHaveCount(0);
-    const sampled = window.evaluate(
-      () =>
-        new Promise<number[]>((settle) => {
-          const counts: number[] = [];
-          const began = performance.now();
-          let seen: number | null = null;
-          // From the card's first frame, through its opening and a while after.
-          const sample = () => {
-            const name = document.querySelector(
-              "[data-testid='claim-card'] [data-testid='claim-checked-by'] .claim-card-checked-by-name",
-            );
-            if (name) {
-              seen ??= performance.now();
-              const range = document.createRange();
-              range.selectNodeContents(name);
-              const tops = Array.from(range.getClientRects(), (rect) => Math.round(rect.top));
-              counts.push(new Set(tops).size);
-            }
-            const now = performance.now();
-            if ((seen === null && now - began < 15_000) || (seen !== null && now - seen < 800))
-              requestAnimationFrame(sample);
-            else settle(counts);
-          };
-          requestAnimationFrame(sample);
-        }),
-    );
-    await pointAndClick(window, markOf("check-over"));
-    const counts = await sampled;
-    expect(counts.length, "the card was drawn while it opened").toBeGreaterThan(0);
-    expect(new Set(counts), "one line count all through the opening").toEqual(new Set([2]));
+    // While the card opens it is drawn smaller; a name must keep its line count all the way.
+    const linesWhileOpening = async (id: string) => {
+      await window.keyboard.press("Escape");
+      await expect(card).toHaveCount(0);
+      const sampled = window.evaluate(
+        () =>
+          new Promise<number[]>((settle) => {
+            const counts: number[] = [];
+            const began = performance.now();
+            let seen: number | null = null;
+            // From the card's first frame, through its opening and a while after.
+            const sample = () => {
+              const name = document.querySelector(
+                "[data-testid='claim-card'] [data-testid='claim-checked-by'] .claim-card-checked-by-name",
+              );
+              if (name) {
+                seen ??= performance.now();
+                const range = document.createRange();
+                range.selectNodeContents(name);
+                const tops = Array.from(range.getClientRects(), (rect) => Math.round(rect.top));
+                counts.push(new Set(tops).size);
+              }
+              const now = performance.now();
+              if ((seen === null && now - began < 15_000) || (seen !== null && now - seen < 800))
+                requestAnimationFrame(sample);
+              else settle(counts);
+            };
+            requestAnimationFrame(sample);
+          }),
+      );
+      await pointAndClick(window, markOf(id));
+      return sampled;
+    };
+    for (const { id, lines } of edge.slice(0, 2)) {
+      const counts = await linesWhileOpening(id);
+      expect(counts.length, `${id} was drawn while it opened`).toBeGreaterThan(0);
+      expect(new Set(counts), `${id} keeps ${lines} lines all through the opening`).toEqual(
+        new Set([lines]),
+      );
+    }
+
+    // The line can narrow while its card is open, as when a scrollbar comes: its names are
+    // measured again, and one that no longer fits wraps.
+    const under = line.locator(".claim-card-checked-by-name");
+    expect(await linesOf(under)).toBe(1);
+    await card.locator(".citation-card").evaluate((element) => {
+      (element as HTMLElement).style.width = `${element.getBoundingClientRect().width - 40}px`;
+    });
+    await expect.poll(() => linesOf(under), "a name that no longer fits wraps").toBe(2);
+    expect((await overrun(under))?.line ?? 1).toBeLessThanOrEqual(0.5);
     await app.close();
   });
 }
