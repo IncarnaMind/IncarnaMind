@@ -2192,7 +2192,12 @@ export async function pointAndClick(
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
     if (!scrolled) {
-      await target.scrollIntoViewIfNeeded();
+      // The selection menu is placed beside its words inside the window: scrolling the page
+      // under it would carry its anchor, and the menu with it, so there is nothing to bring in.
+      const inSelectionMenu = await target.evaluate(
+        (element) => element.closest(".viewer-selection-menu") !== null,
+      );
+      if (!inSelectionMenu) await target.scrollIntoViewIfNeeded();
       scrolled = true;
     }
     const held = await target.evaluate(async (element) => {

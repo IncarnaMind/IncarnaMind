@@ -135,46 +135,6 @@ test("PowerPoint: a slide's text, over its bullet points, and its speaker notes 
   await expect(citedAt(spoken)).toHaveAttribute("aria-label", /slide 2/);
 });
 
-test("the selection menu's Add to note holds still for five seconds on this runner", async () => {
-  test.setTimeout(120_000);
-  const path = join(sources, "Quarterly Research Update.pptx");
-  await copyFile(join(FORMATS, "Quarterly Research Update.pptx"), path);
-  const window = await openBesideMind([path], "Quarterly Research");
-  const slide = window.getByTestId("viewer-slide").filter({ hasText: "Key findings" });
-  const notes = slide.getByTestId("viewer-slide-notes");
-  await pointAndClick(window, notes.locator("summary"));
-  const words = "it was 6.8 per cent a year ago".split(" ");
-  await slideSelect(window, notes, words.slice(0, 2).join(" "), {
-    line: notes,
-    words: words.slice(-2).join(" "),
-  });
-  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
-  await motionSettled(window);
-  const moves = await window.evaluate(async () => {
-    const item = document.querySelector<HTMLElement>('[data-testid="viewer-selection-add"]');
-    const scroller = document.querySelector<HTMLElement>('[data-testid="viewer-slides"]');
-    const seen: string[] = [];
-    let last = "";
-    const started = performance.now();
-    while (performance.now() - started < 5000) {
-      await new Promise((next) => setTimeout(next, 100));
-      const box = item?.getBoundingClientRect();
-      const selection = globalThis.getSelection()?.getRangeAt(0).getBoundingClientRect();
-      const key = `${box?.left.toFixed(1)},${box?.top.toFixed(1)},${box?.width.toFixed(
-        1,
-      )},${box?.height.toFixed(1)} scroll=${scroller?.scrollTop ?? -1} sel=${selection?.left.toFixed(
-        0,
-      )},${selection?.top.toFixed(0)}`;
-      if (key !== last) {
-        if (last !== "") seen.push(`${Math.round(performance.now() - started)}ms ${key}`);
-        last = key;
-      }
-    }
-    return seen;
-  });
-  expect(moves).toEqual([]);
-});
-
 test("Markdown: across bold and a link, the note has the words as shown, cited in their section", async () => {
   const path = join(sources, "Review.md");
   await writeFile(
