@@ -381,11 +381,11 @@ export function interpreterRoots(options: Pick<ReadDeniedOptions, "platform" | "
 /**
  * What is read back inside the denied folders for the interpreter, no wider than the interpreter:
  * for the command as it is run, its own folder, and the venv above it where there is one (whose
- * packages it reads); for its real path, the install it belongs to (`<prefix>` of
- * `<prefix>/bin/python3`; the app bundle's Contents for Electron), else its own folder. Never a
- * folder that holds a denied one, nor one inside a denied folder but where interpreters are
- * installed (`interpreterRoots`); nothing for one outside every denied folder, readable already.
- * Every path here is canonical.
+ * packages it reads); for its real path, its own folder and, of the install it belongs to
+ * (`<prefix>` of `<prefix>/bin/python3`), the bin and lib folders only, never the rest of a prefix
+ * such as ~/.local; a venv or the app bundle's Contents whole. Never a folder that holds a denied
+ * one, nor one inside a denied folder but where interpreters are installed (`interpreterRoots`);
+ * nothing for one outside every denied folder, readable already. Every path here is canonical.
  */
 export async function installFolders(
   command: string,
@@ -402,16 +402,28 @@ export async function installFolders(
     );
     return innermost !== null && roots.includes(innermost);
   };
+  const there = (path: string) =>
+    access(path).then(
+      () => true,
+      () => false,
+    );
   const own = dirname(command);
   const venv = dirname(own);
-  const named = (await access(join(venv, "pyvenv.cfg")).then(
-    () => true,
-    () => false,
-  ))
-    ? [venv, own]
-    : [own];
-  const install = [dirname(dirname(real)), dirname(real)].find(reopens);
-  return [...new Set([...named.filter(reopens), ...(install === undefined ? [] : [install])])];
+  const named = (await there(join(venv, "pyvenv.cfg"))) ? [venv, own] : [own];
+  const prefix = dirname(dirname(real));
+  const whole =
+    (await there(join(prefix, "pyvenv.cfg"))) ||
+    (basename(prefix) === "Contents" && dirname(prefix).endsWith(".app"));
+  const installed = !reopens(prefix)
+    ? [dirname(real)]
+    : whole
+      ? [prefix]
+      : [dirname(real), join(prefix, "bin"), join(prefix, "lib")];
+  const folders = [...new Set([...named, ...installed])].filter(reopens);
+  // bubblewrap refuses to start with a folder to read that isn't there.
+  return (
+    await Promise.all(folders.map(async (each) => ((await there(each)) ? each : null)))
+  ).filter((each): each is string => each !== null);
 }
 
 const execFileAsync = promisify(execFile);

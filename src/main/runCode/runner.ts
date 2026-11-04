@@ -290,12 +290,16 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
   const timeLimitMs = options.timeLimitMs ?? RUN_CODE_TIME_LIMIT_MS;
   void removeLeftBehind(options.tempDir, options.reportError);
   const helperSha256 = sha256(`${options.helper}\n${runnerSource}`);
-  // The sandbox is given canonical paths only. The font's is found once it is there, before any
-  // run makes a folder that a failure here would leave behind.
-  let font: string | null | undefined;
-  const fontPath = async () => {
-    font ??= options.font === null ? null : await canonicalPath(options.font, { mustExist: true });
-    return font;
+  // The sandbox is given canonical paths only. The plot font's is found once it is there, and
+  // only a Python run that draws reads it: while it can't be found, its path goes to the run as it
+  // was given, unreadable, so a run that draws stops naming it and every other run goes ahead.
+  let foundFont: string | undefined;
+  const fontPath = async (): Promise<{ path: string; found: boolean } | null> => {
+    if (options.font === null) return null;
+    foundFont ??= await canonicalPath(options.font, { mustExist: true }).catch(() => undefined);
+    return foundFont === undefined
+      ? { path: options.font, found: false }
+      : { path: foundFont, found: true };
   };
 
   async function stage(
@@ -416,7 +420,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
         };
       }
       request.signal.throwIfAborted();
-      const font = await fontPath();
+      const font = request.language === "python" ? await fontPath() : null;
       const made = await mkdtemp(join(options.tempDir, "incarnamind-code-"));
       try {
         // Every path the code is handed, in its arguments, environment and job, is canonical.
@@ -458,7 +462,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
             JSON.stringify({
               code: request.code,
               limits: ANALYSIS_LIMITS,
-              font,
+              font: font?.path ?? null,
               tableMegabytes: TABLE_FILE_BYTES / 1024 / 1024,
               inputsFolder: join(run, "inputs"),
               result,
@@ -504,7 +508,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
               lib,
               WORKING_FOLDER,
               ...(prefix ? [prefix] : []),
-              ...(font ? [dirname(font)] : []),
+              ...(font?.found ? [dirname(font.path)] : []),
             ],
             write: [WORKING_FOLDER],
             network: "none",
