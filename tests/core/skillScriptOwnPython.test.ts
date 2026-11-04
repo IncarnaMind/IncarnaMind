@@ -52,7 +52,8 @@ async function placeRuntime(
   const folder = pythonRuntimeFolder(dataDir, MANIFEST.sha256);
   const prefix = join(folder, "files", "python");
   await standIn(join(prefix, "bin"), "python3", interpreter);
-  if (marked !== null) await writeFile(join(folder, "ready.json"), JSON.stringify({ sha256: marked }));
+  if (marked !== null)
+    await writeFile(join(folder, "ready.json"), JSON.stringify({ sha256: marked }));
   return { command: join(prefix, "bin", "python3"), prefix };
 }
 
