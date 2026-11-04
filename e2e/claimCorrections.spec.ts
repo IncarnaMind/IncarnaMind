@@ -227,7 +227,7 @@ for (const [language, width] of [
     await expect(firstLine).not.toContainText("36.8%");
     await expect(firstLine.getByTestId("citation")).toHaveCount(1);
     await expect(firstLine.locator("[data-generated]")).toHaveText("38.6%");
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "needs-recheck");
+    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
     await expect(window.getByTestId("undo-line")).toContainText(
       translate(language, "claim.usedDocumentWording"),
     );
@@ -243,7 +243,7 @@ for (const [language, width] of [
       "check.correctContradiction",
       translate(language, "claim.correction.command"),
     );
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "needs-recheck");
+    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
     await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
 
@@ -295,7 +295,7 @@ for (const [language, width] of [
       await expect(line).toContainText("38.6%");
       await expect(line.getByTestId("citation")).toHaveCount(1);
       await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
-      await expect(mark).toHaveAttribute("data-check", "needs-recheck");
+      await expect(mark).toHaveAttribute("data-check", "supported");
     };
     const before = async () => {
       await expect(line).toContainText("36.8%");
@@ -375,8 +375,8 @@ for (const [language, width] of [
     await screenshot(window, `correction-badge-${language}`);
     await pointAndClick(window, correct);
 
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "needs-recheck");
-    await expect(marks.nth(1)).toHaveAttribute("data-check", "needs-recheck");
+    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
+    await expect(marks.nth(1)).toHaveAttribute("data-check", "supported");
     await expect(marks.nth(2)).toHaveAttribute("data-check", "contradicted");
     await expect(editor.locator(":scope > p").nth(0)).toContainText("38.6%");
     await expect(editor.locator(":scope > p").nth(1)).toContainText("39.4%");
@@ -464,16 +464,14 @@ for (const [language, width] of [
     await pointAndClick(window, rows.nth(1).getByTestId("claim-part-correct"));
     await expect(line).toContainText(language === "en" ? "30 days" : "30 天");
     await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");
-    // The fixed sentence is read again before any other part of the earlier check counts: its
-    // card offers the check, not a Cut on the words the fix left (#2313).
-    await expect(mark).toHaveAttribute("data-check", "needs-recheck");
+    await expect(mark).toHaveAttribute("data-check", "contradicted");
+
     await pointAndClick(window, mark);
-    await expect(card.getByTestId("claim-part")).toHaveCount(2);
-    await expect(card.getByTestId("claim-part-correct")).toHaveCount(0);
-    await expect(card.getByTestId("claim-cut")).toHaveCount(0);
-    await expect(card.getByTestId("claim-check-again")).toBeVisible();
-    await withinCard(window);
-    await screenshot(window, `correction-parts-after-fix-${language}`);
+    await expect(card.getByTestId("claim-part-correct")).toHaveCount(1);
+    await pointAndClick(window, card.getByTestId("claim-part-correct"));
+    await expect(line).toContainText(language === "en" ? "$57,000" : "57,000");
+    await expect(mark).toHaveAttribute("data-check", "supported");
+    await expect(line.getByTestId("citation")).toHaveCount(2);
 
     await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");

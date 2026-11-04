@@ -61,11 +61,17 @@ const PENGUINS = "Penguins nest on the cliffs above the harbour.";
 const QUESTION = "Does high water come at noon on Sundays?";
 const OPINION = "We think the harbour office is very helpful.";
 
-const FIXED = "Spring tides come at the new and full moon.";
+const FULL = "Spring tides come at the full moon.";
+const STOPLESS = FULL.slice(0, -1);
 
 const PLANS: Record<string, Plan> = {
   [MOON]: { verdict: "supported", quote: MOON },
-  [FIXED]: { verdict: "supported", quote: MOON },
+  [STOPLESS]: {
+    verdict: "contradicted",
+    quote: MOON,
+    says: "The quote gives it another way.",
+    judgement: "same",
+  },
   [YEARLY]: {
     verdict: "contradicted",
     quote: "The harbour office publishes the times of high water every week.",
@@ -767,23 +773,46 @@ describe("Check this note", () => {
     ).toEqual(["unsupported", "contradicted", "unsupported"]);
   });
 
-  test("a fixed sentence is checked again whole, and no part of its earlier check decides it (#2313)", async () => {
-    const { core, client, mindId, folderId, checks, finds } = await setUp();
-    await core.checkMind(request(mindId, "all"));
-    const runsBefore = runsIn(checks).length;
-    const findsBefore = finds.length;
-    const OLD = "Spring tides come at new moon.";
-    const OLD_PART = "come at new moon";
-    const stale: ClaimCheckAttributes = {
-      id: "fixed",
-      request: "before-the-fix",
+  test("a whole sentence whose stored part drops its closing stop is no part (#2313)", async () => {
+    const { core, client, mindId, folderId } = await setUp();
+    const quote = {
+      passageId: "passage-tides",
+      documentId: "tides",
+      documentName: "Tides",
+      contentHash: "hash-tides",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: MOON,
+      check: "found" as const,
+      checkReason: null,
+    };
+    const part = {
+      span: { start: 0, end: STOPLESS.length },
+      kind: "fact" as const,
+      verdict: "contradicted" as const,
+      evidence: [quote],
+      decidingEvidence: 0,
+      says: "The quote gives it another way.",
+      unsupported: null,
+      calculation: null,
+      reason: null,
+      detail: null,
+      versions: [],
+      excluded: [],
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+    };
+    const check: ClaimCheckAttributes = {
+      id: "stopless",
+      request: "before",
       action: "check-against-documents",
-      state: "unsupported",
+      state: "contradicted",
       reason: null,
       detail: null,
       providerId: null,
       modelId: null,
-      text: OLD,
+      text: FULL,
       evidence: null,
       says: null,
       unsupported: null,
@@ -794,77 +823,31 @@ describe("Check this note", () => {
       versions: [],
       excluded: [],
       checkedAt: "2026-10-02T13:00:00.000Z",
-      parts: [
-        {
-          span: { start: 0, end: OLD.length },
-          kind: "fact",
-          verdict: "unsupported",
-          evidence: [],
-          says: "The sentence's link is otherwise as stated.",
-          unsupported: {
-            reason: "The sentence's link is otherwise as stated.",
-            covered: "the link",
-            uncovered: "the rest",
-            found: true,
-          },
-          calculation: null,
-          reason: null,
-          detail: null,
-          versions: [],
-          excluded: [],
-          citedCaseUnchecked: false,
-          citedCaseFound: false,
-        },
-      ],
+      parts: [part],
     };
-    // The words a fix leaves: the sentence is the Document's now, its mark still holds the check
-    // made on the old words, with one part Unsupported.
     editMind(client, (blocks) => [
       ...blocks,
       {
         type: "paragraph",
-        attrs: { id: "fixed" },
-        content: [{ type: "text", text: FIXED, marks: [{ type: CLAIM_CHECK_MARK, attrs: stale }] }],
+        attrs: { id: "stopless" },
+        content: [{ type: "text", text: FULL, marks: [{ type: CLAIM_CHECK_MARK, attrs: check }] }],
       },
     ]);
     await client.settled();
     expect(
-      (await shownChecks(core, client, mindId, folderId)).filter(
-        ({ shown }) => shown.state === "needs-recheck",
-      ),
-    ).toHaveLength(1);
+      claimSpans(readMind(client))
+        .filter((span) => span.sentence.text === FULL)
+        .map((span) => [span.check.state, span.check.parts?.length, span.check.text]),
+      "stored",
+    ).toContainEqual(["contradicted", 1, FULL]);
 
-    // The fix counts as a change: the earlier check doesn't stand, so the one Check plans it.
-    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
-      kind: "ready",
-      sentences: 1,
-      findsClaims: true,
-    });
+    await core.checkMind(request(mindId, "all"));
 
-    expect(await core.checkMind(request(mindId, "changed"))).toMatchObject({
-      kind: "checked",
-      sentences: 1,
-      checked: 1,
-    });
-    const called = runsIn(checks).slice(runsBefore).map(sentenceOf);
-    expect(called).toEqual([FIXED]);
-    expect(called).not.toContain(OLD);
-    expect(called).not.toContain(OLD_PART);
-    // The sentence is sorted and checked again, not its earlier part: the old Unsupported verdict
-    // is gone and the fixed sentence is Supported on the Document's own words.
-    expect(finds.length).toBe(findsBefore + 1);
-    expect(listedSentences(finds.at(-1)?.prompt ?? "").map(({ text }) => text)).toEqual([FIXED]);
-    const fixed = (await shownChecks(core, client, mindId, folderId)).filter(
-      ({ sentence, shown }) => sentence === FIXED && shown.state === "supported",
+    const [shown] = (await shownChecks(core, client, mindId, folderId)).filter(
+      ({ sentence }) => sentence === FULL,
     );
-    expect(fixed).toHaveLength(1);
-    const rewritten = claimSpans(readMind(client)).find(
-      (span) => span.sentence.text === FIXED && span.check.id !== "fixed",
-    );
-    expect(rewritten?.check.parts?.map((part) => [part.verdict, part.span])).toEqual([
-      ["supported", { start: 0, end: FIXED.length }],
-    ]);
-    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
+    expect(shown?.shown.state).not.toBe("supported");
+    expect(shown?.shown.state).toBe("unsupported");
   });
 
   // protects=a sentence the User keeps as their own view (#1111) isn't checked again, in any mode, until its words change; fails_when=a run sends it, or an edit of it doesn't bring it back; no_claim=how the card sets it.

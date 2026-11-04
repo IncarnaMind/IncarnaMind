@@ -5,7 +5,6 @@ import type { Editor } from "@tiptap/core";
 import type { CitationAttributes, CoreBridge } from "../src/core/api";
 import {
   addDocuments,
-  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -15,14 +14,13 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  tokenColor,
   useLocalChatModel,
 } from "./app";
 
 /*
- * A one-click fix's own sentence (#2313). The check is written into the page, so the card's
- * fix, its re-check and the Check again after it run without a model until the Check again,
- * which the scripted model answers.
+ * The walk's sentence (#2313): its figure's part is contradicted and the part that says when it
+ * happened is Supported on the Document, as the judge now reads it. One press on Change leaves
+ * the sentence Supported, and the card never offers Cut on the words the Document states.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -53,11 +51,8 @@ const TEXT = {
     deck: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
     document: "Quarterly Research Update",
     fix: "Change to 4.2 per cent",
-    needsRecheck: "Needs a look · Needs re-check",
-    changed: "The sentence has changed since it was checked.",
-    checkAgain: "Check again",
-    unchanged: "Nothing changed",
     supported: "Supported",
+    cut: "Cut the unsupported part",
   },
   "zh-CN": {
     sentence: "客户流失率在 2025 年第 2 季度降至 3.9%，时点在引导流程重新设计之后。",
@@ -68,11 +63,8 @@ const TEXT = {
     deck: "客户流失率在 2025 年第 2 季度降至 4.2%，时点在引导流程重新设计之后。",
     document: "季度研究更新",
     fix: "改为 4.2%",
-    needsRecheck: "需要留意：需重新核对",
-    changed: "核对之后，这句话改过了。",
-    checkAgain: "重新核对",
-    unchanged: "没有改动",
     supported: "有依据",
+    cut: "删去无依据的部分",
   },
 } as const;
 
@@ -82,15 +74,14 @@ for (const [language, width] of [
   ["zh-CN", 1440],
   ["zh-CN", 900],
 ] as const) {
-  test(`a fix leaves its own sentence for a check, never a Cut, and the Check again reads it Supported (${language}, ${width}px)`, async () => {
+  test(`the walk's sentence ends Supported after the one press, never Cut (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const words = TEXT[language];
     await writeFile(
       join(sources, `${words.document}.md`),
       `# ${words.document}\n\n${words.deck}\n`,
     );
-    const running = await launchApp(dataDir, { fakeChat: true });
-    const { app, window } = running;
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
@@ -102,7 +93,7 @@ for (const [language, width] of [
     if (!document) throw new Error("The deck isn't among the Documents.");
     await newMind(window);
 
-    const evidence: CitationAttributes = {
+    const deck: CitationAttributes = {
       passageId: "passage-deck",
       documentId: document.id,
       documentName: words.document,
@@ -137,37 +128,26 @@ for (const [language, width] of [
         providerId: "anthropic",
         modelId: "claude-haiku-5-5",
         text: words.sentence,
-        ...result([evidence]),
+        ...result([deck]),
         scope: { folderId: null, widened: false },
         checkedAt: new Date(Date.now() + 60_000).toISOString(),
         parts: [
           {
-            ...result([evidence]),
+            ...result([deck]),
             span: { start: 0, end: words.first.length },
             kind: "fact",
             verdict: "contradicted",
-            evidence: [evidence],
+            evidence: [deck],
             decidingEvidence: 0,
-            correction: {
-              from: words.from,
-              choices: [{ wording: words.to, evidence }],
-            },
+            correction: { from: words.from, choices: [{ wording: words.to, evidence: deck }] },
           },
           {
-            ...result([]),
+            ...result([deck]),
             span: { start: timingAt, end: timingAt + words.timing.length },
             kind: "fact",
-            verdict: "unsupported",
-            evidence: [],
-            decidingEvidence: null,
-            says: "The sentence's onboarding-redesign link is otherwise as stated in that Document.",
-            unsupported: {
-              reason:
-                "The sentence's onboarding-redesign link is otherwise as stated in that Document.",
-              covered: words.timing,
-              uncovered: words.first,
-              found: true,
-            },
+            verdict: "supported",
+            evidence: [deck],
+            decidingEvidence: 0,
           },
         ],
       },
@@ -184,52 +164,29 @@ for (const [language, width] of [
     const mark = window.getByTestId("claim-mark");
     const card = window.getByTestId("claim-card");
 
-    // Before the fix: the card says what the deck says, and offers the change on its row.
+    // Before: the Document's own words for "after the onboarding redesign" are Supported, and the
+    // figure's row offers the change.
     await pointAndClick(window, mark);
+    const timingRow = card.getByTestId("claim-part").nth(1);
+    await expect(timingRow).toContainText(words.supported);
     const contradicting = card.getByTestId("claim-part").first();
     await expect(contradicting.getByTestId("claim-part-correct")).toHaveText(words.fix);
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
-    await screenshot(window, `fix-recheck-before-${language}-${width}`);
+    await expect(card).not.toContainText(words.cut);
+    await screenshot(window, `fix-judge-before-${language}-${width}`);
 
     await pointAndClick(window, contradicting.getByTestId("claim-part-correct"));
     await expect(line).toContainText(words.to);
     await expect(line).not.toContainText(words.from);
     await expect(line.getByTestId("citation")).toHaveCount(1);
-    // The earlier check was made on the old words: the sentence says it needs a re-check, and
-    // the card offers to check it instead of cutting words the fix made exact.
-    await expect(mark).toHaveAttribute("data-check", "needs-recheck");
-    // The margin mark draws the ↻ in ink-meta, never the amber "!" or the red "≠" from before
-    // the fix, and the card says in so many words that the sentence needs a re-check.
-    await expect(mark).toHaveCSS("color", await tokenColor(window, "--color-ink-meta"));
-    await expect(mark.locator("svg path").first()).toHaveAttribute(
-      "d",
-      "M18.5 12a6.5 6.5 0 1 1-1.9-4.6",
-    );
-    await pointAndClick(window, mark);
-    await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "needs-recheck");
-    await expect(card.getByTestId("claim-badge")).toContainText(words.needsRecheck);
-    await expect(card).toContainText(words.changed);
-    await expect(card.getByTestId("claim-cut")).toHaveCount(0);
-    await expect(card.getByTestId("claim-check-again")).toHaveText(words.checkAgain);
-    await screenshot(window, `fix-recheck-after-${language}-${width}`);
-
-    // The fix counts as a change: the one Check has the sentence to read, and never says
-    // "Nothing changed since …".
-    await window.keyboard.press("Escape");
-    const badgeCard = await checkCard(window);
-    await expect(badgeCard).not.toContainText(words.unchanged);
-    await expect(badgeCard.getByTestId("badge-check-mind")).toBeVisible();
-    await window.keyboard.press("Escape");
-    await pointAndClick(window, mark);
-
-    // The card's Check again reads the whole sentence as it is now.
-    await pointAndClick(window, card.getByTestId("claim-check-again"));
-    await expect(mark).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
+    await expect(mark).toHaveAttribute("data-check", "supported");
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "supported");
     await expect(card.getByTestId("claim-badge")).toContainText(words.supported);
+    await expect(card.getByTestId("claim-part").nth(1)).toContainText(words.supported);
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
-    await screenshot(window, `fix-recheck-checked-${language}-${width}`);
+    await expect(card).not.toContainText(words.cut);
+    await screenshot(window, `fix-judge-after-${language}-${width}`);
     await app.close();
   });
 }

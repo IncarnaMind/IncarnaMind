@@ -5,6 +5,7 @@ import { DOMParser } from "linkedom";
 import { beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
+import { markedSentences } from "../../src/core/answers/checks/sentences";
 import {
   CITATION_NODE,
   type Citation,
@@ -28,6 +29,7 @@ import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
 import {
   ClaimChecks,
   paragraphPlaces,
+  setClaimContext,
   shownClaims,
 } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -36,6 +38,7 @@ import { useNotices } from "../../src/renderer/src/notices";
 import type { Translate } from "../../src/renderer/src/objects";
 import { nextToRedo, useUndo } from "../../src/renderer/src/undo";
 import { offersFixes } from "../../src/renderer/src/unsupportedFixes";
+import { claimCheckShown } from "../../src/shared/claimChecks";
 import { checkWithParts } from "../../src/shared/claimParts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
@@ -229,10 +232,12 @@ beforeEach(() => {
   useNotices.setState({ errors: [], confirmation: null });
 });
 
+const claim0 = (check: ClaimCheckAttributes) => check.parts?.[0]?.verdict;
+
 const undoManager = (editor: Editor) => yUndoPluginKey.getState(editor.state)?.undoManager;
 
 describe("Correct a contradiction from the Documents", () => {
-  test("replaces only the old words, cites them before the stop, and leaves the sentence needing a re-check", () => {
+  test("replaces only the old words, cites them before the stop, and keeps the sentence Supported", () => {
     const attrs = check("one", "The rate is 36.8%.");
     const { editor } = editorWith([
       {
@@ -249,15 +254,14 @@ describe("Correct a contradiction from the Documents", () => {
     expect(generatedText(editor)).toEqual(["38.6%"]);
     expect(citationsOf(editor)).toEqual([expect.objectContaining({ documentId: "report" })]);
     const corrected = claim(editor, "one");
-    expect(corrected.shown).toEqual({ state: "needs-recheck", why: "edited" });
-    // The check made on the old words isn't rewritten as a verdict on the new ones: the next
-    // Check reads the whole sentence and every part again (#2313).
+    expect(corrected.shown.state).toBe("supported");
     expect(corrected.check).toMatchObject({
-      state: "contradicted",
-      text: "The rate is 36.8%.",
-      parts: [{ span: { start: 0, end: 18 }, verdict: "contradicted" }],
+      state: "supported",
+      text: "The rate is 38.6%.",
+      evidence: { documentId: "report" },
+      parts: [{ span: { start: 0, end: 18 }, verdict: "supported" }],
     });
-    expect(corrected.check.correction).toBeDefined();
+    expect(corrected.check.correction).toBeUndefined();
     expect(recordAiUse).toHaveBeenCalledWith([
       expect.objectContaining({
         mindId: "mind",
@@ -272,6 +276,124 @@ describe("Correct a contradiction from the Documents", () => {
     expect(textOf(editor)).toBe("The rate is 36.8%.");
     expect(claim(editor, "one").shown.state).toBe("contradicted");
     expect(claim(editor, "one").check.correction).toEqual(attrs.correction);
+  });
+
+  test.each([
+    { name: "the figure it corrects", corrects: "figure" },
+    { name: "a figure its words write over", corrects: "remainder" },
+  ])("settles $name and gives every figure its id in the corrected sentence", ({ corrects }) => {
+    const text = "The rate is 36.8%.";
+    const reading = readFigures("36.8%", { language: "en" })[0];
+    if (!reading) throw new Error("The fixture has no figure.");
+    const source = evidence();
+    const contradicted = contradictedPart(0, text.length);
+    const attrs = checkWithParts(basis("one", text), [
+      {
+        ...contradicted,
+        figures: [
+          {
+            id: JSON.stringify(["text", "block-one", "old", 12, 17, "36.8%"]),
+            locator: {
+              kind: "text",
+              from: { blockId: "block-one", offset: 12 },
+              to: { blockId: "block-one", offset: 17 },
+            },
+            reading: { ...reading, start: 12, end: 17 },
+            calculated: null,
+            context: text,
+            sourceInput: null,
+            roundedFrom: null,
+            difference: 0.018,
+            footing: [],
+            result:
+              corrects === "figure"
+                ? {
+                    verdict: "contradicted",
+                    evidence: source,
+                    correction: contradicted.correction,
+                    says: "The Document says 38.6%.",
+                    unsupported: null,
+                    calculation: null,
+                    citedCaseUnchecked: false,
+                    citedCaseFound: false,
+                    versions: [],
+                    excluded: [],
+                  }
+                : {
+                    verdict: "unsupported",
+                    evidence: null,
+                    says: null,
+                    unsupported: { reason: null, covered: null, uncovered: null, found: true },
+                    calculation: null,
+                    citedCaseUnchecked: false,
+                    citedCaseFound: false,
+                    versions: [],
+                    excluded: [],
+                  },
+          },
+        ],
+        remainder:
+          corrects === "figure"
+            ? null
+            : {
+                verdict: "contradicted",
+                evidence: source,
+                correction: contradicted.correction,
+                says: "The Document says 38.6%.",
+                unsupported: null,
+                calculation: null,
+                citedCaseUnchecked: false,
+                citedCaseFound: false,
+                versions: [],
+                excluded: [],
+              },
+      },
+    ]);
+    expect(claim0(attrs)).toBe("contradicted");
+    const { editor, doc } = editorWith([
+      { type: "paragraph", attrs: { id: "block-one" }, content: [marked(text, attrs)] },
+    ]);
+
+    expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+
+    const corrected = claim(editor, "one");
+    expect(corrected.shown.state).toBe("supported");
+    const occurrences = figuresInMind(doc.getXmlFragment(MIND_CONTENT_FIELD));
+    expect(occurrences.map((occurrence) => occurrence.reading.chars)).toEqual(["38.6%"]);
+    expect(corrected.check.figures?.map((figure) => figure.id)).toEqual(
+      occurrences.map((occurrence) => occurrence.id),
+    );
+    expect(corrected.check.figures?.[0]).toMatchObject({
+      state: "supported",
+      reading: { chars: "38.6%" },
+      evidence: { documentId: "report" },
+    });
+    const figureContexts = new Map(
+      occurrences.map((occurrence) => [occurrence.id, occurrence.context]),
+    );
+    setClaimContext(editor.view, {
+      versions: null,
+      folderId: null,
+      scope: null,
+      figureContexts,
+      figurePlaces: null,
+    });
+    expect(claim(editor, "one").shown.state).toBe("supported");
+
+    const reopened = new Y.Doc();
+    Y.applyUpdate(reopened, Y.encodeStateAsUpdate(doc));
+    const [stored] = markedSentences(reopened.getXmlFragment(MIND_CONTENT_FIELD));
+    if (!stored) throw new Error("The reopened Note has no checked sentence.");
+    expect(
+      claimCheckShown(stored.check, {
+        text: corrected.sentence.text,
+        versions: null,
+        folderId: null,
+        scope: null,
+        figureContexts,
+      }),
+    ).toEqual({ state: "supported" });
+    reopened.destroy();
   });
 
   test.each([
@@ -291,7 +413,7 @@ describe("Correct a contradiction from the Documents", () => {
       to: "800元",
       after: "人民币800元",
     },
-  ])("leaves a figure the old words cover to the re-check ($language)", (each) => {
+  ])("reads again a figure the old words cover part of ($language)", (each) => {
     const at = each.text.indexOf(each.shown);
     const reading = readFigures(each.shown, { language: each.language })[0];
     if (!reading) throw new Error("The fixture has no figure.");
@@ -325,11 +447,10 @@ describe("Correct a contradiction from the Documents", () => {
             difference: null,
             footing: [],
             result: {
-              verdict: "contradicted",
-              evidence: source,
-              correction: contradicted.correction,
-              says: "The Document says so.",
-              unsupported: null,
+              verdict: "unsupported",
+              evidence: null,
+              says: null,
+              unsupported: { reason: null, covered: null, uncovered: null, found: true },
               calculation: null,
               citedCaseUnchecked: false,
               citedCaseFound: false,
@@ -338,6 +459,18 @@ describe("Correct a contradiction from the Documents", () => {
             },
           },
         ],
+        remainder: {
+          verdict: "contradicted",
+          evidence: source,
+          correction: contradicted.correction,
+          says: null,
+          unsupported: null,
+          calculation: null,
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+          versions: [],
+          excluded: [],
+        },
       },
     ]);
     const { editor, doc } = editorWith([
@@ -350,11 +483,10 @@ describe("Correct a contradiction from the Documents", () => {
     const occurrences = figuresInMind(doc.getXmlFragment(MIND_CONTENT_FIELD));
     expect(occurrences.map((occurrence) => occurrence.reading.chars)).toEqual([each.after]);
     const corrected = claim(editor, "one");
-    // The corrected words are the sentence's now; the old check's figure verdict isn't moved onto
-    // them, and the next Check reads the figure where it now is.
-    expect(corrected.shown).toEqual({ state: "needs-recheck", why: "edited" });
-    expect(corrected.check.text).toBe(each.text);
-    expect(corrected.check.parts?.[0]?.figures?.[0]?.result.verdict).toBe("contradicted");
+    expect(corrected.check.figures?.map((figure) => [figure.id, figure.state])).toEqual(
+      occurrences.map((occurrence) => [occurrence.id, "supported"]),
+    );
+    expect(corrected.shown.state).toBe("supported");
   });
 
   test("changes the words in the contradicted part, not the same words in another part", () => {
@@ -370,12 +502,17 @@ describe("Correct a contradiction from the Documents", () => {
     expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
 
     expect(textOf(editor)).toBe(`Sales rose 36.8%, and the rate is 40.25%${INLINE_NODE}.`);
-    const corrected = claim(editor, "one");
-    expect(corrected.shown).toEqual({ state: "needs-recheck", why: "edited" });
-    expect(corrected.check.text).toBe(text);
+    expect(claim(editor, "one").check).toMatchObject({
+      state: "supported",
+      text: "Sales rose 36.8%, and the rate is 40.25%.",
+      parts: [
+        { span: { start: 0, end: 16 }, verdict: "supported" },
+        { span: { start: 22, end: 40 }, verdict: "supported" },
+      ],
+    });
   });
 
-  test("keeps the earlier check's parts as they were, so no verdict made on the old words decides the new", () => {
+  test("moves the parts after the old words by the new wording's length", () => {
     const text = "The rate is 36.8%, and the board approved the plan.";
     const choices = [{ wording: "40.25%", evidence: evidence("report", "The rate is 40.25%.") }];
     const attrs = checkWithParts(basis("one", text), [
@@ -387,12 +524,12 @@ describe("Correct a contradiction from the Documents", () => {
     expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
 
     const corrected = claim(editor, "one");
-    expect(corrected.shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(corrected.shown.state).toBe("supported");
     expect(corrected.check.parts?.map((each) => each.span)).toEqual([
-      { start: 0, end: 17 },
-      { start: 23, end: 50 },
+      { start: 0, end: 18 },
+      { start: 24, end: 51 },
     ]);
-    expect(corrected.check.text).toBe(text);
+    expect(corrected.check.text.slice(24, 51)).toBe("the board approved the plan");
   });
 
   test("puts a new Citation at the sentence's end, not between the corrected value and its context", () => {
@@ -404,8 +541,7 @@ describe("Correct a contradiction from the Documents", () => {
     expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
 
     expect(textOf(editor)).toBe(`The rate is 38.6% in Q3${INLINE_NODE}.`);
-    expect(claim(editor, "one").check.text).toBe("The rate is 36.8% in Q3.");
-    expect(claim(editor, "one").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "one").check.text).toBe("The rate is 38.6% in Q3.");
   });
 
   test("keeps an existing Citation of the same Passage instead of adding a second", () => {
@@ -422,7 +558,7 @@ describe("Correct a contradiction from the Documents", () => {
 
     expect(citationsOf(editor)).toEqual([expect.objectContaining(source)]);
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
-    expect(claim(editor, "one").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "one").shown.state).toBe("supported");
   });
 
   test("finds the old words past an inline footnote without moving or deleting it", () => {
@@ -447,7 +583,7 @@ describe("Correct a contradiction from the Documents", () => {
 
     expect(textOf(editor)).toBe(`See ${INLINE_NODE} the rate is 38.6%${INLINE_NODE}.`);
     expect(editor.state.doc.firstChild?.child(1).type.name).toBe(FOOTNOTE_NODE);
-    expect(claim(editor, "one").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "one").shown.state).toBe("supported");
   });
 
   test("uses the first, newest Document's choice when two Documents disagree", () => {
@@ -463,7 +599,7 @@ describe("Correct a contradiction from the Documents", () => {
 
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
     expect(citationsOf(editor).map((each) => each.documentId)).toEqual(["newer"]);
-    expect(claim(editor, "one").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "one").check.evidence?.documentId).toBe("newer");
   });
 
   test("adds no space between Chinese wording and its Citation", () => {
@@ -477,7 +613,7 @@ describe("Correct a contradiction from the Documents", () => {
     expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
 
     expect(textOf(editor)).toBe(`比率是 百分之三十八点六${INLINE_NODE}。`);
-    expect(claim(editor, "one").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "one").shown.state).toBe("supported");
   });
 
   test("corrects a check of the whole sentence, as the background watch writes it", () => {
@@ -495,12 +631,12 @@ describe("Correct a contradiction from the Documents", () => {
     expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
 
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
-    expect(claim(editor, "one").shown).toEqual({ state: "needs-recheck", why: "edited" });
     expect(claim(editor, "one").check).toMatchObject({
-      state: "contradicted",
-      text: "The rate is 36.8%.",
+      state: "supported",
+      text: "The rate is 38.6%.",
+      evidence: { documentId: "report" },
     });
-    expect(claim(editor, "one").check.correction).toEqual(whole.correction);
+    expect(claim(editor, "one").check.correction).toBeUndefined();
   });
 
   test("a sentence whose words no longer match gets a problem and no edit", () => {
@@ -548,8 +684,8 @@ describe("Correct a contradiction from the Documents", () => {
     expect(textOf(editor)).toBe(
       `The first rate is 38.6%${INLINE_NODE}.\nThe second rate is 38.6%${INLINE_NODE}.`,
     );
-    expect(claim(editor, "first").shown).toEqual({ state: "needs-recheck", why: "edited" });
-    expect(claim(editor, "second").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "first").shown.state).toBe("supported");
+    expect(claim(editor, "second").shown.state).toBe("supported");
 
     expect(undoManager(editor)?.undoStack).toHaveLength(1);
     undoManager(editor)?.undo();
@@ -567,7 +703,56 @@ describe("Correct a contradiction from the Documents", () => {
     expect(citationsOf(editor)).toEqual([]);
   });
 
-  test("a fix leaves the sentence needing a re-check, and its other part is corrected after that check", () => {
+  test.each([
+    {
+      language: "en",
+      text: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      first: "Customer churn fell to 3.9 per cent",
+      timing: "after the onboarding redesign",
+      from: "3.9 per cent",
+      to: "4.2 per cent",
+      fixed: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+    },
+    {
+      language: "zh-CN",
+      text: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
+      first: "客户流失率降至 3.9%",
+      timing: "时点在引导流程重新设计之后",
+      from: "3.9%",
+      to: "4.2%",
+      fixed: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
+    },
+  ])(
+    "the walk's sentence ends Supported after the one press, never Cut, in $language (#2313)",
+    ({ text, first, timing, from, to, fixed }) => {
+      // The check the fixed judge writes: the figure's part contradicted, the part that says when
+      // it happened Supported on the Document's own words.
+      const deck = evidence("deck", fixed);
+      const attrs = checkWithParts(basis("one", text), [
+        contradictedPart(0, first.length, from, [{ wording: to, evidence: deck }]),
+        part(text.indexOf(timing), text.indexOf(timing) + timing.length, "supported", {
+          evidence: [deck],
+        }),
+      ]);
+      const { editor } = editorWith([{ type: "paragraph", content: [marked(text, attrs)] }]);
+      const shown = claim(editor, "one");
+      expect(shown.shown.state).toBe("contradicted");
+      expect(shown.check.parts?.[1]?.verdict).toBe("supported");
+
+      expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+
+      expect(textOf(editor)).toBe(`${fixed.slice(0, -1)}${INLINE_NODE}${fixed.slice(-1)}`);
+      const corrected = claim(editor, "one");
+      expect(corrected.shown.state).toBe("supported");
+      expect(corrected.check.parts?.map((each) => each.verdict)).toEqual([
+        "supported",
+        "supported",
+      ]);
+      expect(offersFixes(editor, corrected)).toBe(false);
+    },
+  );
+
+  test("corrects each contradicted part of a two-part sentence on its own, then the other", () => {
     const text = "The break fee is $75,000, and the deposit is returned within 60 days.";
     const fee = {
       wording: "$57,000",
@@ -599,17 +784,23 @@ describe("Correct a contradiction from the Documents", () => {
     expect(textOf(editor)).toBe(
       `The break fee is $75,000, and the deposit is returned within 30 days${INLINE_NODE}.`,
     );
-    // The earlier check, and its verdict on the other part, were made on the words before the fix:
-    // none of them stands until the whole sentence is checked again (#2313).
-    const corrected = claim(editor, "two");
-    expect(corrected.shown).toEqual({ state: "needs-recheck", why: "edited" });
-    expect(corrected.check.parts?.map((each) => each.verdict)).toEqual([
+    expect(claim(editor, "two").shown.state).toBe("contradicted");
+    expect(claim(editor, "two").check.parts?.map((each) => each.verdict)).toEqual([
       "contradicted",
-      "contradicted",
+      "supported",
     ]);
-    expect(correctionsFor(editor, corrected)).toEqual([]);
-    expect(applyCorrection(editor, "mind", corrected, { start: 0, end: 24 })).toBe(false);
-    expect(useNotices.getState().errors.at(-1)?.message).toBe("error.check.partChanged");
+    expect(correctionsFor(editor, claim(editor, "two"))).toHaveLength(1);
+
+    expect(applyCorrection(editor, "mind", claim(editor, "two"), { start: 0, end: 24 })).toBe(true);
+
+    expect(textOf(editor)).toBe(
+      `The break fee is $57,000, and the deposit is returned within 30 days${INLINE_NODE}${INLINE_NODE}.`,
+    );
+    expect(citationsOf(editor).map((each) => each.quote)).toEqual([
+      "The Landlord shall return it within 30 days.",
+      "paying a break fee of $57,000",
+    ]);
+    expect(claim(editor, "two").shown.state).toBe("supported");
   });
 
   test("the badge corrects every part of every sentence, citing each Passage once, in one Undo", () => {
@@ -639,8 +830,8 @@ describe("Correct a contradiction from the Documents", () => {
     expect(textOf(editor)).toBe(
       `The break fee is $57,000, and the deposit is returned within 30 days${INLINE_NODE}${INLINE_NODE}.\nThe rate is 38.6%${INLINE_NODE}.`,
     );
-    expect(claim(editor, "two").shown).toEqual({ state: "needs-recheck", why: "edited" });
-    expect(claim(editor, "one").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "two").shown.state).toBe("supported");
+    expect(claim(editor, "one").shown.state).toBe("supported");
     expect(generatedText(editor)).toEqual(["$57,000", "30 days", "38.6%"]);
 
     expect(undoManager(editor)?.undoStack).toHaveLength(1);
@@ -676,76 +867,15 @@ describe("Correct a contradiction from the Documents", () => {
 
     expect(correctableCount(editor)).toBe(2);
     expect(correctContradictions(editor, "mind")).toBe(2);
-    expect(claim(editor, "valid").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "valid").shown.state).toBe("supported");
     expect(claim(editor, "legacy").shown.state).toBe("contradicted");
     expect(claim(editor, "unsupported").shown.state).toBe("unsupported");
-    expect(claim(editor, "halfway").shown).toEqual({ state: "needs-recheck", why: "edited" });
+    expect(claim(editor, "halfway").shown.state).toBe("unsupported");
     expect(claim(editor, "halfway").check.parts?.map((each) => each.verdict)).toEqual([
-      "contradicted",
+      "supported",
       "unsupported",
     ]);
   });
-
-  test.each([
-    {
-      language: "en",
-      text: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
-      first: "Customer churn fell to 3.9 per cent",
-      timing: "after the onboarding redesign",
-      from: "3.9 per cent",
-      to: "4.2 per cent",
-      fixed: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
-    },
-    {
-      language: "zh-CN",
-      text: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
-      first: "客户流失率降至 3.9%",
-      timing: "时点在引导流程重新设计之后",
-      from: "3.9%",
-      to: "4.2%",
-      fixed: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
-    },
-  ] as const)(
-    "a fix leaves the sentence needing a re-check and its card never offers Cut on it ($language)",
-    ({ language, text, first, timing, from, to, fixed }) => {
-      const correction = { from, choices: [{ wording: to, evidence: evidence("deck") }] };
-      const attrs = checkWithParts(basis("one", text), [
-        contradictedPart(0, first.length, from, correction.choices),
-        part(text.indexOf(timing), text.indexOf(timing) + timing.length, "unsupported", {
-          unsupported: {
-            reason:
-              "The sentence's onboarding-redesign link is otherwise as stated in that Document.",
-            covered: timing.slice(0, 8),
-            uncovered: first,
-            found: true,
-          },
-        }),
-      ]);
-      const { editor } = editorWith([{ type: "paragraph", content: [marked(text, attrs)] }]);
-      expect(claim(editor, "one").shown.state).toBe("contradicted");
-
-      expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
-
-      expect(textOf(editor)).toBe(`${fixed.slice(0, -1)}${INLINE_NODE}${fixed.slice(-1)}`);
-      const corrected = claim(editor, "one");
-      // The earlier part verdict, and the reason that named the claim as stated, no longer decide
-      // the sentence: it reads as changed since it was checked, and no Cut is offered (#2313).
-      expect(corrected.shown).toEqual({ state: "needs-recheck", why: "edited" });
-      expect(corrected.check.parts?.map((each) => each.verdict)).toEqual([
-        "contradicted",
-        "unsupported",
-      ]);
-      expect(offersFixes(editor, corrected)).toBe(false);
-      expect(translate(language, "claim.state.needs-recheck")).toBe(
-        language === "en" ? "Needs a look · Needs re-check" : "需要留意：需重新核对",
-      );
-      expect(translate(language, "claim.recheck.edited")).toBe(
-        language === "en"
-          ? "The sentence has changed since it was checked."
-          : "核对之后，这句话改过了。",
-      );
-    },
-  );
 });
 
 describe("Old words a correction leaves alone (#1481)", () => {
@@ -853,11 +983,7 @@ describe("A fix taken back and done again from outside the note (#2402)", () => 
     mark: claim(editor, "one").shown.state,
   });
   const before = { text: "The rate is 36.8%.", cited: [], mark: "contradicted" };
-  const fixed = {
-    text: `The rate is 38.6%${INLINE_NODE}.`,
-    cited: ["report"],
-    mark: "needs-recheck",
-  };
+  const fixed = { text: `The rate is 38.6%${INLINE_NODE}.`, cited: ["report"], mark: "supported" };
 
   beforeEach(() => {
     useUndo.setState({ done: [], undone: [], line: null, running: null, making: 0, places: [] });
