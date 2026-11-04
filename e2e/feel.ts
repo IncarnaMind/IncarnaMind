@@ -52,7 +52,7 @@ export const KNOWN: readonly Known[] = [
   { flow: "library-2000", step: "show all 2,000", kind: "long-task", max: 2500, issue: 1313 },
   {
     // A subpixel rounding as the check's card opens and the badge's words settle; the same step
-    // shows a 0.0017 tab-group shift on main. Bounded at 0.005 px, far under a rendered pixel.
+    // sums to 0.0017 moving the tab group on main. Bounded at a layout-shift score of 0.005.
     flow: "first-open",
     step: "check the Mind",
     kind: "shift",

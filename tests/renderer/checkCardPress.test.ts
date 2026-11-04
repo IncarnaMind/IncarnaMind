@@ -56,7 +56,12 @@ vi.mock("../../src/renderer/src/correctionFixes", () => ({
 vi.mock("../../src/renderer/src/editWithAi", () => ({ useEdits: () => undefined }));
 vi.mock("../../src/renderer/src/i18n", () => ({
   useLanguage: () => "en",
-  useT: () => (key: string) => key,
+  useT: () => (key: string, params?: Record<string, unknown>) =>
+    params === undefined
+      ? key
+      : `${key}(${Object.entries(params)
+          .map(([name, value]) => `${name}=${value}`)
+          .join(",")})`,
 }));
 vi.mock("../../src/renderer/src/layoutSlice", () => ({
   frontTabOfMind: () => null,
@@ -119,6 +124,10 @@ const planned: Planned = {
   },
 };
 const price: CheckEstimateView["line"] = { parts: ["About $1.40"], title: "About $1.40" };
+const bigPlan: Planned = {
+  ...planned,
+  plan: { kind: "ready", sentences: 1_024, findsClaims: true, inFolder: true, model: null },
+};
 
 /** As the card takes them; the card itself is imported at run time, as a .tsx file. */
 interface PressProps {
@@ -234,7 +243,7 @@ test("the foot keeps every run wording's room before a run", async () => {
 test("the price line keeps its room under the running progress line", async () => {
   await render("price", planned);
   pressed.running.value = true;
-  await render("price", planned);
+  await render("price", null);
 
   const price = container.querySelector(".check-card-estimate");
   if (!price) throw new Error("The price line's room went at the press.");
@@ -246,11 +255,21 @@ test("the price line keeps its room under the running progress line", async () =
   expect(container.querySelector('[data-testid="card-foot-stop"]')).not.toBeNull();
 });
 
+// protects=#2313: the foot keeps the room the plan's own count needs while the run is on; fails_when=the count goes back to 0 at the press, so a long count can wrap the foot to a new row; no_claim=the room kept before the run above.
+test("the progress line keeps the plan's count while the run is on", async () => {
+  await render("none", bigPlan, null);
+  pressed.running.value = true;
+  await render("none", null, null);
+
+  const progress = container.querySelector('[data-testid="card-foot-progress"]');
+  expect(progress?.textContent).toContain("badge.checking(done=1,024,total=1,024)");
+});
+
 // protects=#2313: after the run ends a card with no new price keeps the last price line laid out, hidden; fails_when=the price line goes at the end of the run, so the card jumps; no_claim=the room kept during the run above.
 test("the last price line keeps its room after the run ends", async () => {
   await render("price", planned);
   pressed.running.value = true;
-  await render("price", planned);
+  await render("price", null);
   pressed.running.value = false;
   await render("none", planned, null);
 

@@ -236,7 +236,14 @@ export function CheckActions({
   const priceShown = estimate !== null && !running;
   // Every line a run can show keeps its room, so the finding step, the checking step and a longer
   // wording never move the foot. A card that never showed a price line keeps no room at rest.
-  const reserve = planned?.plan.kind === "ready" ? planned.plan.sentences : 0;
+  // The plan goes while the run is on; its count stays as the room the progress line keeps, so a
+  // longer count never wraps the foot to a new row mid-run.
+  const [lastReserve, setLastReserve] = useState(0);
+  useEffect(() => {
+    if (!running && planned?.plan.kind === "ready") setLastReserve(planned.plan.sentences);
+  }, [planned, running]);
+  const reserve =
+    planned?.plan.kind === "ready" ? planned.plan.sentences : running ? lastReserve : 0;
   const runWords = [
     t("badge.checking", { done: format(reserve), total: format(reserve) }),
     t("verify.finding"),

@@ -449,24 +449,23 @@ for (const language of ["en", "zh-CN"] as const) {
     // card's fixed foot, never scrolled away with them, and the body's last 12px fade to the
     // sheet so the cut line reads as more below.
     expect(await inside(press, health)).toBe(true);
+    const fading = () => body.evaluate((element) => element.classList.contains("scroll-fade"));
+    await expect.poll(fading).toBe(true);
     const after = await body.evaluate((element) => {
       const edge = getComputedStyle(element, "::after");
       return {
         cut: element.scrollHeight > element.clientHeight + 1,
-        fade: element.classList.contains("scroll-fade"),
         height: edge.height,
         content: edge.content,
         background: edge.backgroundImage,
       };
     });
     expect(after.cut).toBe(true);
-    expect(after.fade).toBe(true);
     expect(after.height).toBe("12px");
     expect(after.content).toBe('""');
     expect(after.background).toContain("linear-gradient");
     await screenshotOf(body, `card-body-${language}-900-cut`);
     // At the scroll's end nothing is cut below, so the fade goes; at the top it is back.
-    const fading = () => body.evaluate((element) => element.classList.contains("scroll-fade"));
     await body.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
@@ -477,7 +476,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(fading).toBe(true);
     await setWindowSize(app, window, 1440, 900);
     expect(await inside(press, health)).toBe(true);
-    expect(await fading()).toBe(true);
+    await expect.poll(fading).toBe(true);
     await app.close();
   });
 }
