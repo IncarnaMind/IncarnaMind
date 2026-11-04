@@ -93,6 +93,26 @@ export function checkedBy(
     : { name: t("checkRecord.notRecorded"), place: null };
 }
 
+/**
+ * Each model that checked a sentence, where it runs, and when: one for each model and time its
+ * parts were judged by when they differ (#1667), else the one check's.
+ */
+export function checkersOf(
+  item: RecordItem | RecordCiteItem,
+  t: Translator,
+): { name: string; place: string | null; at: string | null }[] {
+  if (item.kind === "sentence" && item.check?.parts) {
+    return item.check.parts.map(({ model, at }) => ({
+      ...(model
+        ? { name: model.name, place: placeText(model.place, t) }
+        : { name: t("checkRecord.notRecorded"), place: null }),
+      at,
+    }));
+  }
+  const by = checkedBy(item, t);
+  return by ? [{ ...by, at: item.kind === "citation" ? null : (item.check?.at ?? null) }] : [];
+}
+
 /** A moment as the PDF writes it: always with its year, and in UTC so that wherever it is read it is the same time. */
 export function recordTime(moment: string, language: Language, t: Translator): string {
   return t("checkRecord.time", {

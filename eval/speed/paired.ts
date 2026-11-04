@@ -36,7 +36,7 @@ import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
 
-export const SET_IDS = ["gating", "hard", "everyday", "checks", "cells"] as const;
+export const SET_IDS = ["gating", "hard", "everyday", "checks", "cells", "written"] as const;
 export type SetId = (typeof SET_IDS)[number];
 export type Language = "en" | "zh-CN";
 
@@ -50,6 +50,8 @@ export interface ArmRun {
   modelCalls: number;
   /** Of them, the Answer's own: not its search rewrite, translation or checks. */
   answerCalls: number;
+  /** The searches the Answer made, one made before the first call included; null: not counted. */
+  searches: number | null;
   inputTokens: number;
   outputTokens: number;
   citations: number;
@@ -121,12 +123,35 @@ export interface PairedGroup {
 
 export type GroupOptions = Omit<LibraryOptions, "name" | "documents">;
 
+/**
+ * The group's library opened once for each arm, each a core on its own data folder: in one core,
+ * the second arm found the first arm's Note of the same title and wrote into it.
+ */
+export async function openForArms(
+  group: Pick<PairedGroup, "open">,
+  options: (which: 0 | 1) => GroupOptions,
+): Promise<[OpenedGroup, OpenedGroup]> {
+  const first = await group.open(options(0));
+  try {
+    return [first, await group.open(options(1))];
+  } catch (error) {
+    await first.close().catch((closing: unknown) => {
+      console.error(
+        "The first arm's library didn't close after the second failed to open:",
+        closing,
+      );
+    });
+    throw error;
+  }
+}
+
 const languageOf = (language: "en" | "zh" | "zh-CN"): Language =>
   language === "en" ? "en" : "zh-CN";
 
 const NOTHING: Measured = {
   status: "done",
   error: null,
+  searches: null,
   citations: 0,
   found: 0,
   cited: null,
@@ -161,6 +186,7 @@ function questionItem(
           : answer.error
             ? `${answer.error.kind}: ${answer.error.message}`
             : answer.status,
+        searches: answer.searches.length,
         citations: answer.citations.length,
         found: answer.citations.filter((citation) => citation.outcome === "found").length,
         cited: done && answer.expected ? answer.expected.cited === answer.expected.needed : null,
@@ -177,7 +203,16 @@ function questionItem(
         duplicate: answer.timing?.writtenTwice ?? false,
         // A Tool's call written as text that still shows fails the Answer, whatever it is graded.
         failures: toolTextIn(answer.text).length > 0 ? ["tool-text"] : [],
-        text: answer.text,
+        // Each Citation not found, to tell a quote the model changed from one it put on the wrong page.
+        text: [
+          answer.text,
+          ...answer.citations
+            .filter((citation) => citation.outcome !== "found")
+            .map(
+              (citation) =>
+                `[${citation.outcome}] “${citation.quote}” (${citation.documentName}, p. ${citation.pageFrom ?? "?"}–${citation.pageTo ?? "?"}; on p. ${citation.quoteOn?.join("–") ?? "none"}; ${citation.checkReason ?? citation.check})`,
+            ),
+        ].join("\n"),
       };
     },
   };

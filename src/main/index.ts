@@ -582,7 +582,7 @@ app.whenReady().then(async () => {
   const held = await storage;
   try {
     if (held) throw held;
-    const adapters = createElectronAdapters(logger);
+    const adapters = await createElectronAdapters(logger);
     logger.info("app.startup.adaptersReady");
     core = createCore({
       ...adapters,

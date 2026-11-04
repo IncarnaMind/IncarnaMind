@@ -1,10 +1,13 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { type Core, InvalidInputError } from "../../src/core";
 import { createFileKeychain, SECRETS_FILE } from "../../src/main/secretsFile";
 import { createFakeCipher } from "../helpers/cipher";
+import { answerEnded } from "../helpers/citations";
 import { createMemoryKeychain, createTempDataFolder, nextEvent, startCore } from "../helpers/core";
+import { connectToMind } from "../helpers/mindClient";
+import { question, writeMind } from "../helpers/minds";
 import { failingModel, replyingModel, scriptedModels, unreachableModel } from "../helpers/models";
 
 const OPENAI_KEY = "sk-test-0123456789-do-not-store-in-sqlite";
@@ -292,6 +295,107 @@ describe("Chat providers", () => {
       modelId: "gpt-5.4-mini",
     });
   });
+
+  test("a key that can't be opened is offered again, and the stored value is left as it was", async () => {
+    const dataDir = await createTempDataFolder();
+    const secretsFile = join(dataDir, SECRETS_FILE);
+    const before = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, createFakeCipher()),
+    });
+    const provider = await before.saveChatProvider({
+      kind: "openai",
+      apiKey: OPENAI_KEY,
+      modelId: "gpt-5.4-mini",
+    });
+    before.close();
+    const stored = await readFile(secretsFile);
+
+    // The keyring that wrote the value is gone, as after a profile is copied to another computer.
+    const keychain = createFileKeychain(secretsFile, {
+      ...createFakeCipher(),
+      decrypt: async () => {
+        throw new Error("The keyring changed.");
+      },
+    });
+    const after = startCore(dataDir, { keychain });
+    const logged: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      logged.push(args.map(String).join(" "));
+    });
+
+    const unreadable = { ...provider, hasApiKey: false, apiKeyUnreadable: true };
+    expect(await after.listChatProviders()).toEqual([unreadable]);
+    expect(await after.getChatReadiness()).toEqual({
+      ready: false,
+      reason: "api-key-unreadable",
+      provider: unreadable,
+      modelId: "gpt-5.4-mini",
+    });
+    expect((await readFile(secretsFile)).equals(stored)).toBe(true);
+
+    // The failure is logged once per secret per run, and the log never holds the key.
+    expect(await after.listChatProviders()).toEqual([unreadable]);
+    expect(await after.getChatReadiness()).toMatchObject({ reason: "api-key-unreadable" });
+    const mentions = logged.filter((line) => line.includes(provider.id));
+    expect(mentions).toHaveLength(1);
+    expect(logged.join("\n")).not.toContain(OPENAI_KEY);
+    spy.mockRestore();
+
+    // Entering the key again is what replaces the stored value, and only then.
+    await after.saveChatProvider({
+      kind: "openai",
+      apiKey: OPENAI_KEY,
+      modelId: "gpt-5.4-mini",
+    });
+    after.close();
+    const recovered = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, createFakeCipher()),
+    });
+    expect(await recovered.listChatProviders()).toEqual([{ ...provider, hasApiKey: true }]);
+    expect(
+      await createFileKeychain(secretsFile, createFakeCipher()).get(
+        `chat-provider:${provider.id}:api-key`,
+      ),
+    ).toBe(OPENAI_KEY);
+  });
+
+  test("an Answer whose key becomes unreadable before it starts says the key can't be read", async () => {
+    const dataDir = await createTempDataFolder();
+    const secretsFile = join(dataDir, SECRETS_FILE);
+    const before = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, createFakeCipher()),
+    });
+    await before.saveChatProvider({
+      kind: "openai",
+      apiKey: OPENAI_KEY,
+      modelId: "gpt-5.4-mini",
+    });
+    before.close();
+
+    // Readable for the Question's readiness check, then the keyring changes before the model is prepared.
+    let reads = 0;
+    const working = createFakeCipher();
+    const keychain = createFileKeychain(secretsFile, {
+      ...working,
+      decrypt: async (bytes) => {
+        reads += 1;
+        if (reads > 2) throw new Error("The keyring changed.");
+        return working.decrypt(bytes);
+      },
+    });
+    const core = startCore(dataDir, { keychain });
+    const mind = await core.createMind({ title: "Tides" });
+    const client = await connectToMind(core, mind.id);
+    const asked = question("What is the tide?");
+    writeMind(client, [asked]);
+    await client.settled();
+    const result = await core.askQuestion({ mindId: mind.id, questionId: asked.attrs.id });
+    if (!result.asked) throw new Error("The Question wasn't asked.");
+    const ended = await answerEnded(core, result.answerId);
+    expect(ended.event).toBe("failed");
+    if (ended.event !== "failed") throw new Error("The Answer didn't fail.");
+    expect(ended.payload.error.kind).toBe("api-key-unreadable");
+  });
 });
 
 describe("Test connection", () => {
@@ -318,6 +422,40 @@ describe("Test connection", () => {
       },
     ]);
     expect(models.model.doGenerateCalls).toHaveLength(1);
+  });
+
+  test("a saved key that can't be read is reported before any request", async () => {
+    const dataDir = await createTempDataFolder();
+    const secretsFile = join(dataDir, SECRETS_FILE);
+    const before = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, createFakeCipher()),
+    });
+    await before.saveChatProvider({
+      kind: "openai",
+      apiKey: OPENAI_KEY,
+      modelId: "gpt-5.4-mini",
+    });
+    before.close();
+
+    const models = scriptedModels(replyingModel());
+    const core = startCore(dataDir, {
+      keychain: createFileKeychain(secretsFile, {
+        ...createFakeCipher(),
+        decrypt: async () => {
+          throw new Error("The keyring changed.");
+        },
+      }),
+      createChatModel: models.createChatModel,
+    });
+
+    expect(await core.testChatConnection({ kind: "openai", modelId: "gpt-5.4-mini" })).toEqual({
+      ok: false,
+      error: {
+        kind: "api-key-unreadable",
+        message: "The saved key can’t be read. Enter it again.",
+      },
+    });
+    expect(models.specs).toEqual([]);
   });
 
   test("testing doesn't save anything", async () => {

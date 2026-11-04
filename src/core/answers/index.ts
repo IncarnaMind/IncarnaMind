@@ -996,9 +996,11 @@ function failureOf(error: unknown): ProviderError {
     const kind =
       reason === "consent-declined" || reason === "local-mode"
         ? reason
-        : reason === "missing-api-key"
-          ? "auth"
-          : "model";
+        : reason === "api-key-unreadable"
+          ? "api-key-unreadable"
+          : reason === "missing-api-key"
+            ? "auth"
+            : "model";
     return { kind, message: error.message };
   }
   return classifyProviderError(error);
@@ -3344,8 +3346,9 @@ export function createAnswers(options: AnswersOptions) {
         (input.toolSet ?? "answer") === "answer" &&
         !writesMinds &&
         (options.retrievesFirst?.(prepared, flow) ?? false);
-      // Its one call writes the Answer and then cites it (#1633 on #489's contract).
-      const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared, flow) ?? false);
+      // A model cites as the write-then-cite list says, whichever way it searches, so it never
+      // cites in a way that list didn't admit it to (#1633).
+      const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
       for await (const event of engine.generate({
         instructions: (
           mode,

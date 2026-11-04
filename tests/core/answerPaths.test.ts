@@ -53,19 +53,21 @@ describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
     },
   );
 
-  test("Claude Haiku 5.5 retrieves first in a Question's Answer; Sonnet 5.5, models not in the catalog and other flows don't", () => {
+  test("no model retrieves first by the list, in any flow; an override still can", () => {
     const haiku = { catalogId: "anthropic", modelId: "claude-haiku-5-5" };
-    expect(retrievesFirst(haiku, "question")).toBe(true);
-    expect(
-      retrievesFirst({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" }, "question"),
-    ).toBe(false);
-    expect(retrievesFirst({ catalogId: null, modelId: "claude-haiku-5-5" }, "question")).toBe(
-      false,
-    );
-    for (const flow of ["outside-agent", "task-answer", "check", "call-help"] as const) {
+    for (const flow of [
+      "question",
+      "outside-agent",
+      "task-answer",
+      "check",
+      "call-help",
+    ] as const) {
       expect(retrievesFirst(haiku, flow)).toBe(false);
+      expect(retrievesFirst({ catalogId: "anthropic", modelId: "claude-sonnet-5-5" }, flow)).toBe(
+        false,
+      );
     }
-    expect(retrievesFirst(haiku, "question", { retrievesFirst: () => false })).toBe(false);
+    expect(retrievesFirst(haiku, "question", { retrievesFirst: () => true })).toBe(true);
   });
 
   test("an override decides over the list, and one that says nothing leaves it to the list", () => {

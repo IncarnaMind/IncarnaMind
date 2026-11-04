@@ -204,6 +204,7 @@ const STATUSES: readonly AnswerStatus[] = ["streaming", "done", "stopped", "fail
 const SUPPORTS: readonly CitationSupport[] = ["tools", "structured-output", "none"];
 const ERROR_KINDS: Record<ProviderErrorKind, true> = {
   auth: true,
+  "api-key-unreadable": true,
   model: true,
   "rate-limit": true,
   network: true,

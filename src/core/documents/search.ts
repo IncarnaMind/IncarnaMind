@@ -10,7 +10,7 @@
 import type { DocumentKind, DocumentTextMatch, PassageSearchResult } from "../api";
 import type { Database } from "../storage";
 import { excerptOf, searchTerms, termQuery } from "../wordSearch";
-import { keywordQuery } from "./keywords";
+import { keywordQuery, keywordTerms } from "./keywords";
 
 /** Reciprocal rank fusion's k: a Passage at rank r (from 1) in a list scores 1 / (k + r). */
 export const RRF_K = 60;
@@ -99,6 +99,49 @@ export function keywordSearch(
     .sort((a, b) => a[1].score - b[1].score || a[1].position - b[1].position || a[0] - b[0])
     .slice(0, limit)
     .map(([seq]) => seq);
+}
+
+/**
+ * Whether a live Passage of a Document other than `except`, and not a copy of its file, holds at
+ * least half the search terms of `text`, among `documentIds` (undefined: every Document) but
+ * `leftOut` (#1667). A Document that says that much of the same thing, such as an amendment or
+ * another edition, may say otherwise. A text with no terms can't be compared, so it counts as held.
+ */
+export function othersHoldTerms(
+  db: Database,
+  text: string,
+  except: string,
+  documentIds: readonly string[] | undefined,
+  leftOut: readonly string[],
+): boolean {
+  const terms = keywordTerms(text);
+  if (terms.length === 0) return true;
+  const enough = Math.ceil(terms.length / 2);
+  const held = new Map<number, number>();
+  for (const term of terms) {
+    const rows = db.all<{ seq: number }>(
+      `SELECT p.seq FROM passages_fts
+       JOIN passages p ON p.seq = passages_fts.rowid
+       JOIN documents d ON d.id = p.document_id
+       WHERE passages_fts MATCH ? AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+         AND d.id <> ? AND d.content_hash IS NOT (SELECT content_hash FROM documents WHERE id = ?)
+         AND d.id NOT IN (SELECT value FROM json_each(?))
+         ${scopeClause(documentIds)}`,
+      [
+        `"${term.replaceAll('"', '""')}"`,
+        except,
+        except,
+        JSON.stringify(leftOut),
+        ...scopeParams(documentIds),
+      ],
+    );
+    for (const { seq } of rows) {
+      const count = (held.get(seq) ?? 0) + 1;
+      if (count >= enough) return true;
+      held.set(seq, count);
+    }
+  }
+  return false;
 }
 
 /** How many of a Document's best Passages a text search looks at for one that holds the words. */

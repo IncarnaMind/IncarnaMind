@@ -14,7 +14,12 @@ import {
   liveDocumentOf,
   shownDocumentName,
 } from "../../shared/citations";
-import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
+import {
+  checkJudges,
+  claimCheckShown,
+  type SentenceResult,
+  sentenceResultOf,
+} from "../../shared/claimChecks";
 import { withoutInertBrackets } from "../../shared/inertBrackets";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -80,6 +85,8 @@ export interface SentenceCheck {
   model: ModelDescription | null;
   at: string | null;
   scope: ClaimCheckScope;
+  /** Each model and time that judged a part of it, oldest first, when they differ (#1667). */
+  parts?: { model: ModelDescription | null; at: string }[];
 }
 
 export type SentenceItem = RecordItemFields & {
@@ -287,6 +294,14 @@ export function readRecord(sources: RecordSources): {
       at: check.checkedAt === "" ? null : check.checkedAt,
       scope: check.scope,
     };
+    const judges = [
+      ...new Map(
+        checkJudges(check).map((judge) => [
+          `${judge.providerId}\u0000${judge.modelId}\u0000${judge.checkedAt}`,
+          judge,
+        ]),
+      ).values(),
+    ];
     sentences.push({
       kind: "sentence",
       text: recordSentence(sentence),
@@ -294,7 +309,18 @@ export function readRecord(sources: RecordSources): {
       origin,
       says: check.says,
       evidence: check.evidence ? documentOf(check.evidence, sources) : null,
-      check: result === "notChecked" ? null : checked,
+      check:
+        result === "notChecked"
+          ? null
+          : judges.length > 1
+            ? {
+                ...checked,
+                parts: judges.map((judge) => ({
+                  model: model(judge.providerId, judge.modelId),
+                  at: judge.checkedAt,
+                })),
+              }
+            : checked,
     });
     for (const cite of check.recordCites ?? []) {
       recordCites.push({

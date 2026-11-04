@@ -63,6 +63,7 @@ const paragraph = (id: string, text: string, check?: ClaimCheckAttributes): JSON
     { type: "text", text, ...(check && { marks: [{ type: "claimCheck", attrs: check }] }) },
   ],
 });
+const CHECKED_AT = "2026-10-28T20:00:00.000Z";
 const checked = (id: string, text: string, parts: ClaimCheckPart[]): ClaimCheckAttributes => ({
   id,
   text,
@@ -83,8 +84,12 @@ const checked = (id: string, text: string, parts: ClaimCheckPart[]): ClaimCheckA
   scope: { folderId: null, widened: false },
   versions: [],
   excluded: [],
-  checkedAt: "2026-10-28T20:00:00.000Z",
+  checkedAt: CHECKED_AT,
 });
+
+/** A part kept when another part is checked keeps the model and time of the check that judged it (#1667). */
+const keptAsJudged = (part: ClaimCheckPart | undefined) =>
+  part && { ...part, providerId: null, modelId: null, checkedAt: CHECKED_AT };
 
 async function setContent(window: Page, content: JSONContent[]) {
   await window.getByTestId("mind-editor").evaluate((dom, blocks) => {
@@ -462,7 +467,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await terminalPart(window, "mixed-check", 1);
           await expect(card).toBeVisible();
           expect(await selectedWords(window)).toBe(words.opinion);
-          expect((await partsOfCheck(window, "mixed-check"))?.[0]).toEqual(factBefore);
+          expect((await partsOfCheck(window, "mixed-check"))?.[0]).toEqual(
+            keptAsJudged(factBefore),
+          );
           const completed = await checkCard(window);
           await expect(completed.getByTestId("opinions-line")).toHaveCount(0);
           await window.keyboard.press("Escape");
@@ -491,7 +498,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await terminalPart(window, "menu-check", 1);
           await expect(card).toBeVisible();
           expect(await selectedWords(window)).toBe(words.opinion);
-          expect((await partsOfCheck(window, "menu-check"))?.[0]).toEqual(menuFactBefore);
+          expect((await partsOfCheck(window, "menu-check"))?.[0]).toEqual(
+            keptAsJudged(menuFactBefore),
+          );
           const menuDone = await checkCard(window);
           await expect(menuDone.getByTestId("opinions-line")).toHaveCount(0);
           await window.keyboard.press("Escape");

@@ -19,7 +19,7 @@ import { DATABASE_FILE } from "../../src/core/core";
 import { createMeter, type MeteredModel } from "../../src/core/cost/meter";
 import { openDatabase } from "../../src/core/storage";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { readClaimCheck } from "../../src/shared/claimChecks";
+import { checkedWith, readClaimCheck } from "../../src/shared/claimChecks";
 import {
   checkGenerate,
   checkingModel,
@@ -973,6 +973,42 @@ describe("Check against a Document, part by part", () => {
         within: within([pets.id]),
       });
       expect(unsorted).toMatchObject({ kind: "ready", parts: null });
+    },
+  );
+
+  // protects=a part read again on another model keeps the other part's model and time, and the card's line names both, oldest first, with the newer time (#1667); fails_when=the mark names only the newer model, or the kept part takes the new check's time; no_claim=the names the model menu gives, which the card's own test reads.
+  test.each(PARTS)(
+    "a part read on another model keeps the other part's model and time ($language)",
+    async (example) => {
+      const { core, client, mind, block, pets, before } = await parted(example);
+      const provider = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (!provider.service) throw new Error("The test provider has no service.");
+      await core.allowDataFlow("document-check", provider.service.id);
+
+      await core.checkSentences(
+        await readInput(core, mind.id, block, example.sentence, within([pets.id]), undefined, {
+          model: { providerId: provider.id, modelId: "claude-haiku-5-5" },
+        }),
+      );
+
+      const check = await onlyMark(client);
+      expect(verdicts(check)).toEqual(["supported", "supported"]);
+      expect(check.parts?.map(({ modelId, checkedAt }) => ({ modelId, checkedAt }))).toEqual([
+        { modelId: "local-model", checkedAt: before.checkedAt },
+        { modelId: "claude-haiku-5-5", checkedAt: check.checkedAt },
+      ]);
+      expect(check.checkedAt > before.checkedAt).toBe(true);
+      expect(checkedWith(check)).toEqual({
+        models: [
+          { providerId: before.providerId, modelId: "local-model" },
+          { providerId: provider.id, modelId: "claude-haiku-5-5" },
+        ],
+        checkedAt: check.checkedAt,
+      });
     },
   );
 

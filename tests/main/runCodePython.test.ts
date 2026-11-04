@@ -297,6 +297,51 @@ describe.skipIf(process.platform === "win32")("run_code's own Python", () => {
     expect(runtime.status().state).toBe("failed");
   });
 
+  test("an archive already downloaded and checked is never shown downloading again", async () => {
+    // Its packages import from the second try on, as after a first import that was stopped.
+    const { manifest, served } = await release({
+      interpreter: [
+        "#!/bin/sh",
+        'tried="$MPLCONFIGDIR/../tried"',
+        '[ -f "$tried" ] || { touch "$tried"; exit 3; }',
+        "",
+      ].join("\n"),
+    });
+    const { statuses, make } = await runtimeFor(manifest);
+    const runtime = make();
+    expect(await runtime.ensure(new AbortController().signal)).toMatchObject({
+      ok: false,
+      error: { kind: "load" },
+    });
+    statuses.length = 0;
+
+    expect((await runtime.ensure(new AbortController().signal)).ok).toBe(true);
+    expect(served()).toBe(1);
+    const preparing = statuses.filter((status) => status.state === "downloading");
+    expect(preparing.length).toBeGreaterThan(0);
+    expect(manifest.size).toBe(261);
+    expect(preparing.map((status) => status.downloadedBytes)).toEqual(preparing.map(() => 261));
+    expect(statuses.at(-1)).toMatchObject({ state: "ready" });
+  });
+
+  test("an archive of the right size but other bytes is downloaded again, and shown downloading from 0", async () => {
+    const { manifest, served } = await release();
+    const { dataDir, statuses, make } = await runtimeFor(manifest);
+    const download = join(pythonRuntimeFolder(dataDir, manifest.sha256), "download");
+    await mkdir(download, { recursive: true });
+    await writeFile(join(download, manifest.file), Buffer.alloc(manifest.size));
+
+    expect((await make().ensure(new AbortController().signal)).ok).toBe(true);
+    expect(served()).toBe(1);
+    const shown = statuses
+      .filter((status) => status.state === "downloading")
+      .map((status) => status.downloadedBytes);
+    expect(manifest.size).toBe(241);
+    expect(shown[0]).toBe(241);
+    expect(shown.indexOf(0)).toBeGreaterThan(0);
+    expect(statuses.at(-1)).toMatchObject({ state: "ready" });
+  });
+
   test("a new runtime removes the one it replaces once it is ready", async () => {
     const { manifest } = await release();
     const { dataDir, make } = await runtimeFor(manifest);
