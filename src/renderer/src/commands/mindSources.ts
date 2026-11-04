@@ -17,7 +17,7 @@ export const mindSourceCommands: readonly Command[] = [
         : t("mind.useAsSource");
     },
     group: "main",
-    appliesTo: ["mind"],
+    appliesTo: ["mind", "tab"],
     when: (ctx) => everyMind(ctx, (mindId) => !sourceOf(mindId)),
     reversible: true,
     run: (ctx) => saveAsSources(mindsOf(ctx)),
@@ -31,7 +31,7 @@ export const mindSourceCommands: readonly Command[] = [
         : t("mind.updateSnapshot");
     },
     group: "main",
-    appliesTo: ["mind"],
+    appliesTo: ["mind", "tab"],
     when: (ctx) => everyMind(ctx, (mindId) => !!sourceOf(mindId)),
     reversible: true,
     run: (ctx) => updateSnapshots(mindsOf(ctx)),
@@ -45,7 +45,7 @@ export const mindSourceCommands: readonly Command[] = [
         : t("mind.removeAsSource");
     },
     group: "main",
-    appliesTo: ["mind"],
+    appliesTo: ["mind", "tab"],
     when: (ctx) => everyMind(ctx, (mindId) => !!sourceOf(mindId)),
     reversible: true,
     run: (ctx) => removeAsSources(mindsOf(ctx)),

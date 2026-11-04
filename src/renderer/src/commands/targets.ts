@@ -26,9 +26,13 @@ export function everyDocument(ctx: CommandContext, test: (document: Document) =>
   return count > 0 && documents.length === count && documents.every(test);
 }
 
-/** The Minds a menu or ⌘K acts on, in the store's order. */
+/** The Minds a menu or ⌘K acts on, in the store's order: a tab shows its Mind. */
 export function mindsOf(ctx: CommandContext): Mind[] {
   const ids = new Set(idsOf(ctx, "mind"));
+  for (const tabId of idsOf(ctx, "tab")) {
+    const item = findTab(useAppStore.getState().layout, tabId)?.item;
+    if (item?.kind === "mind") ids.add(item.mindId);
+  }
   return useAppStore.getState().minds.filter((mind) => ids.has(mind.id));
 }
 
