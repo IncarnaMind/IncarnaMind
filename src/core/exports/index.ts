@@ -15,8 +15,9 @@ import type { DrawnPage } from "../../shared/citedPage";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
+import { propertyWords } from "../../shared/fileProperties";
 import { translate } from "../../shared/i18n";
-import type { Translate } from "../../shared/locations";
+import { citationLocation, type Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
 import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
@@ -269,6 +270,12 @@ export function createExports(deps: ExportsDependencies) {
         scope: doc ? mindScopeOf(doc) : null,
         scopeItemName: deps.scopeItemName,
         sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
+        quoteOf: (passage) => {
+          const location = citationLocation(passage);
+          return location?.kind === "properties"
+            ? propertyWords(location, (key, params) => translate(language, key, params), language)
+            : (passage.quote ?? "");
+        },
       });
       checkedOf = checkedLines(fragment, documents, language);
       const { review } = readOptions;
@@ -1031,9 +1038,13 @@ export function footnoteOf(
   const web = documents.find((each) => each.id === state.documentId)?.web;
   if (!web) {
     return {
-      source: location
-        ? t("export.citation.location", { document, location })
-        : t("export.citation.document", { document }),
+      // A file's properties are no place in its text: a plain note says what was read (#2458).
+      source:
+        citationLocation(attributes)?.kind === "properties"
+          ? t("export.citation.properties", { document })
+          : location
+            ? t("export.citation.location", { document, location })
+            : t("export.citation.document", { document }),
       unverified,
       ...(failed && { failed }),
     };
