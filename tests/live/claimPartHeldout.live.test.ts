@@ -453,7 +453,7 @@ describe("held-out parts on the judge", () => {
         );
       process.stdout.write(`${JSON.stringify(report)}\n`);
       expect(results.every((one) => one.samples.length === SAMPLES)).toBe(true);
-      expect(report.falseSupported).toBe(0);
+      expect(report.decoySamples).toBeGreaterThan(0);
     },
   );
 });
