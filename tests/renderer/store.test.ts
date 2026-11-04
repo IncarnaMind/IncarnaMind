@@ -1099,6 +1099,7 @@ describe("making a Mind", () => {
           ],
           focusedGroupId: "group",
           reopenable: 0,
+          conversationId: null,
           assistant: DEFAULT_ASSISTANT,
         } satisfies WindowLayout,
       });

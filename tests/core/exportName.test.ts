@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test } from "vitest";
 import { messageReference } from "../../src/core";
+import type { ExportFormat } from "../../src/core/api";
 import { createTempDataFolder, startCore } from "../helpers/core";
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
@@ -35,10 +36,13 @@ async function fromAnAnswer(
   return mind;
 }
 
-const fileName = async (core: ReturnType<typeof startCore>, mindId: string) =>
-  (await core.previewMindExport(mindId, { format: "docx" })).fileName;
+const fileName = async (
+  core: ReturnType<typeof startCore>,
+  mindId: string,
+  format: ExportFormat = "docx",
+) => (await core.previewMindExport(mindId, { format })).fileName;
 
-describe("What a note's export file is called (#1945)", () => {
+describe("What a note's export file is called (#2418)", () => {
   test("the title the User gave it, before anything the note says", async () => {
     const core = await setUp();
     const mind = await core.createMind({ title: "Harbourline note" });
@@ -51,14 +55,69 @@ describe("What a note's export file is called (#1945)", () => {
     expect(await fileName(core, mind.id)).toBe("Harbourline note.docx");
   });
 
-  test("the Question that made it, when an Answer wrote the first line", async () => {
+  test("the first line the Note shows names it, even when an Answer wrote it", async () => {
     const core = await setUp();
     const mind = await fromAnAnswer(
       core,
       "Revenue reached £4.025 million in 2025, up 12% on the year before.",
       "How did Harbourline's revenue move in 2025?",
     );
-    expect(await fileName(core, mind.id)).toBe("How did Harbourline's revenue move in 2025.docx");
+    expect(await fileName(core, mind.id)).toBe("Revenue reached £4.025 million in 2025.docx");
+  });
+
+  test("a Chinese Note is named by its own first line, not the Question that made it", async () => {
+    const core = await setUp();
+    const mind = await fromAnAnswer(
+      core,
+      "收入达到 402.5 万英镑。",
+      "2025 年 Harbourline 的收入变化如何，主要来自哪些业务？",
+    );
+    expect(await fileName(core, mind.id)).toBe("收入达到 402.5 万英镑.docx");
+  });
+
+  test("a renamed Note exports under its new name, not its first line", async () => {
+    const core = await setUp();
+    const mind = await fromAnAnswer(
+      core,
+      "Revenue reached £4.025 million in 2025.",
+      "How did Harbourline's revenue move in 2025?",
+    );
+    await core.renameMind(mind.id, "Harbourline, 2025 revenue");
+    expect(await fileName(core, mind.id)).toBe("Harbourline, 2025 revenue.docx");
+  });
+
+  test("Word, PDF and the source pack all take the Note's name, in English and Chinese", async () => {
+    const core = await setUp();
+    const english = await fromAnAnswer(
+      core,
+      "The membership costs 48 pounds a month. To cancel, write to the club.",
+      "How much is the membership, and how do I cancel it?",
+    );
+    expect(await fileName(core, english.id, "docx")).toBe(
+      "The membership costs 48 pounds a month. To cancel.docx",
+    );
+    expect(await fileName(core, english.id, "pdf")).toBe(
+      "The membership costs 48 pounds a month. To cancel.pdf",
+    );
+    expect(await fileName(core, english.id, "source-pack")).toBe(
+      "The membership costs 48 pounds a month. To cancel - source pack.pdf",
+    );
+
+    const chinese = await fromAnAnswer(
+      core,
+      "会员费每月 48 英镑，取消请写信给俱乐部。",
+      "会员费是多少，怎么取消？",
+    );
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    expect(await fileName(core, chinese.id, "docx")).toBe(
+      "会员费每月 48 英镑，取消请写信给俱乐部.docx",
+    );
+    expect(await fileName(core, chinese.id, "pdf")).toBe(
+      "会员费每月 48 英镑，取消请写信给俱乐部.pdf",
+    );
+    expect(await fileName(core, chinese.id, "source-pack")).toBe(
+      "会员费每月 48 英镑，取消请写信给俱乐部 - 引用页面合集.pdf",
+    );
   });
 
   test("a heading is a title already, so it names the file itself", async () => {
@@ -85,15 +144,6 @@ describe("What a note's export file is called (#1945)", () => {
     expect(await fileName(core, mind.id)).toBe("Notes on the Harbourline meeting.docx");
   });
 
-  test("a Chinese Question names the file whole, and no part of it is cut", async () => {
-    const core = await setUp();
-    const question = "2025 年 Harbourline 的收入变化如何，主要来自哪些业务？";
-    const mind = await fromAnAnswer(core, "收入达到 402.5 万英镑。", question);
-    expect(await fileName(core, mind.id)).toBe(
-      "2025 年 Harbourline 的收入变化如何，主要来自哪些业务.docx",
-    );
-  });
-
   test("a long title is the file's name, not cut to a line's width", async () => {
     const core = await setUp();
     const title =
@@ -112,5 +162,7 @@ describe("What a note's export file is called (#1945)", () => {
     const core = await setUp();
     const mind = await core.createMind({});
     expect(await fileName(core, mind.id)).toBe("Untitled.docx");
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    expect(await fileName(core, mind.id)).toBe("未命名.docx");
   });
 });

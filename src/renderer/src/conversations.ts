@@ -22,9 +22,10 @@ import { offeredCommands } from "./assistantWindow";
 import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
+import { describeError } from "./errors";
 import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
-import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
+import { documentsOnScreenOf, groupsMerged, WINDOW_ID } from "./layoutSlice";
 import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
@@ -161,6 +162,44 @@ export function noMoveSince(): () => boolean {
 export function noMoveSinceAsked(): () => boolean {
   if (useConversations.getState().openId === null) moves += 1;
   return noMoveSince();
+}
+
+/** Keeps the conversation the assistant shows with the window's layout, so it comes back (#258). */
+function keepShown(conversationId: string | null): void {
+  void core.changeLayout(WINDOW_ID, { type: "conversation", conversationId }).catch(report);
+}
+
+/**
+ * Shows the conversation the window kept (#258), as a reload of its page or a quit and reopening
+ * brings it back: the one it showed, or a New chat when there was none, or it is gone.
+ */
+export async function showKeptConversation(conversationId: string): Promise<void> {
+  const stayed = noMoveSince();
+  try {
+    const { messages } = await core.getConversation(conversationId);
+    const { openId } = useConversations.getState();
+    // Not over a conversation the User opened, or a New chat they chose, while this was read.
+    if (!stayed() || openId !== null) {
+      keepShown(openId);
+      return;
+    }
+    useConversations.setState({ openId: conversationId, messages });
+  } catch (error) {
+    if (describeError(error).wording?.key !== "error.conversation.notFound") {
+      report(error);
+      return;
+    }
+    // Gone since: a New chat, unless the User opened another conversation while this was read.
+    const { openId } = useConversations.getState();
+    keepShown(stayed() && openId === null ? null : openId);
+  }
+}
+
+/** Follows the assistant as it moves, keeping the conversation it shows with the window's layout (#258). */
+export function followShownConversation(): void {
+  useConversations.subscribe((state, previous) => {
+    if (state.openId !== previous.openId) keepShown(state.openId);
+  });
 }
 
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
