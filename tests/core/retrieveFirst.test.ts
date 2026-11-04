@@ -5,10 +5,17 @@
  * Tools that write Minds (every assistant turn).
  */
 import { describe, expect, test } from "vitest";
+import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import {
   SEARCH_QUERY_INSTRUCTIONS,
   TRANSLATE_QUERY_INSTRUCTIONS,
 } from "../../src/core/answers/prompt";
+import { createLocalExecutor } from "../../src/core/execution";
+import { createProcessLauncher } from "../../src/main/processes";
+import { programMeter } from "../../src/main/programMeter";
+import { createCodeHost } from "../../src/main/runCode/host";
+import type { NodeJSON } from "../../src/shared/blockJson";
+import { calculatedFiguresIn } from "../../src/shared/figureRuns";
 import { askAssistant } from "../helpers/assistant";
 import {
   answerEnded,
@@ -17,8 +24,16 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
-import { heading, note, question, writeMind } from "../helpers/minds";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import { createTempDataFolder, startCore } from "../helpers/core";
+import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { answerIn, heading, note, question, writeMind } from "../helpers/minds";
+import {
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
@@ -45,9 +60,10 @@ function answering(more = 0) {
   });
 }
 
+/** As a model on both lists, as Claude Haiku 5.5 is: it writes the Answer, then cites it. */
 const setUp = (model: ReturnType<typeof scriptedModel>, retrieveFirst: boolean) =>
   setUpWithDocuments(model, [{ name: "Tides.md", contents: TIDES_MD }], {
-    answerPaths: { retrievesFirst: () => retrieveFirst },
+    answerPaths: { retrievesFirst: () => retrieveFirst, writesThenCites: () => true },
   });
 
 /** The calls of a model's requests whose instructions start with `instructions`. */
@@ -268,6 +284,33 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
   });
 
+  test("a model listed to retrieve first but not to write then cite keeps citing first: its records, then the Answer", async () => {
+    const systems: string[] = [];
+    const model = scriptedModel((call: ModelCall): ScriptedReply => {
+      systems.push(call.system);
+      const searched = call.results.find((result) => result.tool === "search_documents");
+      if (call.results.some((result) => result.tool === "cite")) return { text: ANSWER };
+      const passage =
+        shownPassages(searched?.text ?? "").find((each) => each.text.includes(SPRING))?.id ?? "P1";
+      return {
+        calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote: SPRING }] } }],
+      };
+    });
+    const { core, client, mind } = await setUpWithDocuments(
+      model,
+      [{ name: "Tides.md", contents: TIDES_MD }],
+      { answerPaths: { retrievesFirst: () => true, writesThenCites: () => false } },
+    );
+
+    const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
+
+    expect(model.doStreamCalls).toHaveLength(2);
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain("question-search");
+    expect(systems[0]).toContain("Before writing the Answer, call cite once");
+    expect(systems[0]).not.toContain("right after the Answer's text, call cite once");
+    expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
+  });
+
   test("a model the allowlist doesn't name searches in the loop first, as before", async () => {
     const model = answering();
     const { core, client, mind } = await setUp(model, false);
@@ -278,3 +321,82 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
   });
 });
+
+describe.skipIf(process.platform === "win32")(
+  "A Question that needs code, retrieving first",
+  () => {
+    // run_code is offered to Claude Haiku 5.5 by the shipped catalog (#2485), which also lists it
+    // to retrieve first: the search made first must leave the Run every Tool it had.
+    test("on Claude Haiku 5.5 as listed, the first call is offered run_code, and the number its code printed is a figure calculated by code", async () => {
+      const calls: ModelCall[] = [];
+      const model = scriptedModel((call: ModelCall): ScriptedReply => {
+        calls.push(call);
+        if (call.results.some((result) => result.tool === "run_code")) {
+          return { text: "The mean response time is 12.3 ms." };
+        }
+        const searched = call.results.find((result) => result.tool === "search_documents");
+        const passage = shownPassages(searched?.text ?? "")[0]?.id ?? "P1";
+        return {
+          calls: [
+            {
+              tool: "run_code",
+              input: {
+                title: "Mean response time",
+                language: "bash",
+                documents: [passage],
+                code: "printf 'mean %s\\n' 12.345",
+              },
+            },
+          ],
+        };
+      });
+      const local = createLocalExecutor({
+        processes: createProcessLauncher(async () => ({
+          PATH: process.env.PATH ?? "/usr/bin:/bin",
+        })),
+        tempDir: await createTempDataFolder(),
+        reportError: (error) => {
+          throw error;
+        },
+        meter: programMeter,
+      });
+      const core = startCore(await createTempDataFolder(), {
+        createChatModel: scriptedModels(model).createChatModel,
+        analysisRuntime: createFakeAnalysisRuntime({ answer: () => ({}) }),
+        executor: { level: "os", run: (request) => local.run(request) },
+        codeRuntime: createCodeHost({ python: null, font: null, appVersion: "0.0.0-test" }),
+      });
+      const saved = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+      const sources = await createTempDataFolder();
+      await addAndProcess(core, [
+        await writeSourceFile(
+          sources,
+          "response-times.log.txt",
+          "GET /a 200 10.2 ms\nGET /b 200 14.49 ms\n",
+        ),
+      ]);
+      const mind = await core.createMind({ title: "Response times" });
+      const client = await connectToMind(core, mind.id);
+
+      const { answerId } = await askAndFinish(
+        core,
+        client,
+        mind.id,
+        "What is the mean response time?",
+      );
+
+      expect(calls[0]?.results.map((result) => result.tool)).toEqual(["search_documents"]);
+      expect(calls[0]?.tools).toContain("run_code");
+      expect(model.doStreamCalls).toHaveLength(2);
+      const figures = calculatedFiguresIn([answerIn(client, answerId).toJSON() as NodeJSON]);
+      expect(
+        figures.map(({ figure }) => [figure.shown, figure.value, figure.analysis?.result]),
+      ).toEqual([["12.3", 12.345, "printed@5"]]);
+    });
+  },
+);
