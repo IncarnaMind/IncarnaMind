@@ -9,7 +9,8 @@ import { DOMSerializer, DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/mod
 import { NodeSelection } from "@tiptap/pm/state";
 import { parseHTML } from "linkedom";
 import { describe, expect, onTestFinished, test } from "vitest";
-import { CHART_NODE, CITATION_NODE } from "../../src/core";
+import { CHART_NODE, CITATION_NODE, type Citation } from "../../src/core";
+import { chartOfTable as coreChartOfTable } from "../../src/core/tools/minds/charts";
 import {
   changeChart,
   chartOfSelection,
@@ -21,7 +22,8 @@ import {
   withKind,
 } from "../../src/renderer/src/editor/chartCommands";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { type ChartAttributes, readChart } from "../../src/shared/charts";
+import type { AnalysisTableMatch } from "../../src/shared/analysisTables";
+import { type ChartAttributes, type ChartData, readChart } from "../../src/shared/charts";
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
 const paragraph = (...content: JSONContent[]): JSONContent => ({ type: "paragraph", content });
@@ -378,6 +380,448 @@ describe("changing a chart in place", () => {
     expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
   });
 
+  test("keeps an Analysis's own value and Citations when its table's words are unchanged (#2378)", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          wordsRow(false, "Central", "8,325.44"),
+          wordsRow(false, "North", "9,450"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    insertChart(editor, chartOfTable(editor.state, "en") as ChartAttributes);
+    const source = (page: number) => ({
+      passageId: "passage",
+      documentId: "acme",
+      documentName: "Acme",
+      contentHash: "hash",
+      pageFrom: page,
+      pageTo: page,
+      location: { kind: "page" as const, from: page, to: page },
+      quote: `Revenue on page ${page}`,
+      check: "found" as const,
+      checkReason: null,
+    });
+    const citations = [source(1), source(2)];
+    const fresh = chartAt(editor).chart.data;
+    const numbers = [8325.444, 9450];
+    const data: ChartData = {
+      ...fresh,
+      rows: fresh.rows.map((row, index) => ({
+        ...row,
+        values: row.values.map((value) =>
+          value
+            ? {
+                ...value,
+                value: numbers[index] ?? value.value,
+                inputs: citations,
+                fromAnalysis: true as const,
+              }
+            : null,
+        ),
+      })),
+    };
+    changeChart(editor, chartAt(editor).pos, { data });
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    let at = -1;
+    editor.state.doc.descendants((child, place) => {
+      if (at < 0 && child.isText && child.text === "8,325.44") at = place;
+      return at < 0;
+    });
+    editor.view.dispatch(editor.state.tr.insertText("8,500", at, at + 8));
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.rows[0]?.values[0]?.shown).toBe("8,500");
+    expect(update?.rows[0]?.values[0]?.citation).toBeNull();
+  });
+
+  const match = (
+    citations: Citation[],
+    value: (row: number, column: number) => number | null,
+  ): AnalysisTableMatch => ({ grids: [], numeric: [1], citations, value });
+  const drawByTheCore = (editor: Editor, analysis: AnalysisTableMatch) => {
+    let tableAt = -1;
+    editor.state.doc.descendants((node, pos) => {
+      if (tableAt < 0 && node.type.name === "table") tableAt = pos;
+      return tableAt < 0;
+    });
+    const table = editor.state.doc.nodeAt(tableAt)?.toJSON();
+    if (!table) throw new Error("Missing table");
+    const made = coreChartOfTable(
+      table,
+      "table-1",
+      { kind: "bar", title: "" },
+      "en",
+      null,
+      analysis,
+    );
+    if (!("chart" in made)) throw new Error("The core drew no chart.");
+    insertChart(editor, readChart((made.chart.attrs ?? {}) as Record<string, unknown>));
+  };
+  const source = (documentId: string) => ({
+    passageId: documentId,
+    documentId,
+    documentName: documentId,
+    contentHash: "hash",
+    pageFrom: 1,
+    pageTo: 1,
+    location: { kind: "page" as const, from: 1, to: 1 },
+    quote: "Revenue",
+    check: "found" as const,
+    checkReason: null,
+  });
+
+  test("keeps a core-drawn Analysis value and its inputs when a row goes (#2378)", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          wordsRow(false, "Central", "8,325.44"),
+          wordsRow(false, "North", "9,450.12"),
+          wordsRow(false, "South", "8,700.5"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    const inputs = [source("orders"), source("regions")];
+    drawByTheCore(
+      editor,
+      match(inputs, (row, column) =>
+        column === 1 ? ([8325.444, 9450.123, 8700.5][row] ?? null) : null,
+      ),
+    );
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    // The chart the core drew is up to date at once.
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    let at = -1;
+    let size = 0;
+    editor.state.doc.descendants((child, pos) => {
+      if (at < 0 && child.type.name === "tableRow" && child.textContent.startsWith("Central")) {
+        at = pos;
+        size = child.nodeSize;
+      }
+      return at < 0;
+    });
+    editor.view.dispatch(editor.state.tr.delete(at, at + size));
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.rows.map((row) => row.label)).toEqual(["North", "South"]);
+    expect(update?.rows.map((row) => row.values[0]?.value)).toEqual([9450.123, 8700.5]);
+    expect(update?.rows[0]?.values[0]?.inputs).toEqual(inputs);
+  });
+
+  test("knows two rows of one label apart by their order and series (#2378)", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Year", "Amount"),
+          wordsRow(false, "Central", "2023", "8,325.44"),
+          wordsRow(false, "Central", "2024", "9,450.12"),
+          wordsRow(false, "North", "2023", "8,700.5"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    const inputs = [source("orders"), source("regions")];
+    drawByTheCore(
+      editor,
+      match(inputs, (row, column) =>
+        column === 2 ? ([8325.444, 9450.123, 8700.5][row] ?? null) : null,
+      ),
+    );
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    // Neither Central row overwrote the other: the chart the core drew is up to date.
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    // Removing the second Central leaves the first with its own value.
+    let at = -1;
+    let size = 0;
+    editor.state.doc.descendants((child, pos) => {
+      if (at < 0 && child.type.name === "tableRow" && child.textContent.includes("2024")) {
+        at = pos;
+        size = child.nodeSize;
+      }
+      return at < 0;
+    });
+    editor.view.dispatch(editor.state.tr.delete(at, at + size));
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    const amount = update?.rows[0]?.values[0];
+    expect(amount?.value).toBe(8325.444);
+    expect(amount?.inputs).toEqual(inputs);
+  });
+
+  const deleteColumn = (editor: Editor, column: number) => {
+    const cells: { from: number; to: number }[] = [];
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name !== "tableRow") return true;
+      let offset = pos + 1;
+      node.forEach((child, _offset, index) => {
+        if (index === column) cells.push({ from: offset, to: offset + child.nodeSize });
+        offset += child.nodeSize;
+      });
+      return false;
+    });
+    const tr = editor.state.tr;
+    for (const cell of cells.reverse()) tr.delete(cell.from, cell.to);
+    editor.view.dispatch(tr);
+  };
+
+  test("keeps each Analysis value when the first of two rows of one label goes (#2378)", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          wordsRow(false, "Central", "8,325.44"),
+          wordsRow(false, "Central", "9,450.12"),
+          wordsRow(false, "North", "8,700.5"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    const inputs = [source("orders"), source("regions")];
+    drawByTheCore(
+      editor,
+      match(inputs, (row, column) =>
+        column === 1 ? ([8325.444, 9450.123, 8700.5][row] ?? null) : null,
+      ),
+    );
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    // The first Central row goes: the second keeps its own Analysis value.
+    let at = -1;
+    let size = 0;
+    let seen = 0;
+    editor.state.doc.descendants((child, pos) => {
+      if (at >= 0 || child.type.name !== "tableRow") return at < 0;
+      if (!child.textContent.startsWith("Central")) return true;
+      seen += 1;
+      if (seen === 1) {
+        at = pos;
+        size = child.nodeSize;
+      }
+      return false;
+    });
+    editor.view.dispatch(editor.state.tr.delete(at, at + size));
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.rows.map((row) => row.label)).toEqual(["Central", "North"]);
+    expect(update?.rows.map((row) => row.values[0]?.value)).toEqual([9450.123, 8700.5]);
+    expect(update?.rows[0]?.values[0]?.inputs).toEqual(inputs);
+  });
+
+  test("keeps the Analysis values when a column before them goes (#2378)", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Units", "Amount"),
+          wordsRow(false, "Central", "10", "8,325.44"),
+          wordsRow(false, "North", "20", "9,450.12"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    const inputs = [source("orders"), source("regions")];
+    drawByTheCore(
+      editor,
+      match(inputs, (row, column) => (column === 2 ? ([8325.444, 9450.123][row] ?? null) : null)),
+    );
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    // Units was the first series; Amount moves from the second to the first.
+    deleteColumn(editor, 1);
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.rows.map((row) => row.values[0]?.value)).toEqual([8325.444, 9450.123]);
+    expect(update?.rows[0]?.values[0]?.inputs).toEqual(inputs);
+  });
+
+  test("leaves a copied row its display, never another row's Analysis value (#2378)", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          wordsRow(false, "Central", "8,325.44"),
+          wordsRow(false, "North", "9,450.12"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    const inputs = [source("orders"), source("regions")];
+    drawByTheCore(
+      editor,
+      match(inputs, (row, column) => (column === 1 ? ([8325.444, 9450.123][row] ?? null) : null)),
+    );
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    // The User copies the Central row: the copy has no Analysis value of its own.
+    let at = -1;
+    editor.state.doc.descendants((child, pos) => {
+      if (at < 0 && child.type.name === "tableRow" && child.textContent.startsWith("Central"))
+        at = pos;
+      return at < 0;
+    });
+    const row = editor.state.doc.nodeAt(at);
+    if (!row) throw new Error("Missing row");
+    editor.view.dispatch(editor.state.tr.insert(at + row.nodeSize, row.copy(row.content)));
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.rows.map((each) => each.label)).toEqual(["Central", "Central", "North"]);
+    expect(update?.rows[0]?.values[0]?.value).toBe(8325.444);
+    // The copy keeps its display and no Citation: the Analysis gave one Central value, not two.
+    expect(update?.rows[1]?.values[0]?.value).toBe(8325.44);
+    expect(update?.rows[1]?.values[0]?.inputs).toBeUndefined();
+    expect(update?.rows[1]?.values[0]?.citation).toBeNull();
+  });
+
+  test("reads the cell's own Citation fresh, keeping the Analysis's inputs (#2378)", () => {
+    const withOwn = {
+      type: "tableRow",
+      content: [
+        cell("tableCell", text("Central")),
+        cell("tableCell", text("8,325.44"), citation(1)),
+      ],
+    };
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          withOwn,
+          wordsRow(false, "North", "9,450.12"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    const inputs = [source("orders"), source("regions")];
+    drawByTheCore(
+      editor,
+      match(inputs, (row, column) => (column === 1 ? ([8325.444, 9450.123][row] ?? null) : null)),
+    );
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    // The cell had its Citation when the chart was drawn: it is not out of date at once.
+    expect(tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en")).toBeNull();
+
+    // A Citation added to the North cell: the Update carries the Analysis's inputs and this one.
+    let at = -1;
+    editor.state.doc.descendants((child, pos) => {
+      if (at < 0 && child.isText && child.text === "9,450.12") at = pos + child.nodeSize;
+      return at < 0;
+    });
+    editor.commands.insertContentAt(at, citation(3));
+    const added = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(added?.rows[1]?.values[0]?.citation?.pageFrom).toBe(3);
+    expect(added?.rows[1]?.values[0]?.inputs).toEqual(inputs);
+    if (!added) throw new Error("The added Citation wasn't read.");
+    changeChart(editor, chartAt(editor).pos, { data: added });
+
+    // Removed again: the chart cites the Analysis's inputs only, never the old Citation.
+    let size = 1;
+    editor.state.doc.descendants((child, pos) => {
+      if (child.type.name === CITATION_NODE) {
+        at = pos;
+        size = child.nodeSize;
+      }
+      return true;
+    });
+    editor.view.dispatch(editor.state.tr.delete(at, at + size));
+    const removed = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(removed).not.toBeNull();
+    expect(removed?.rows[1]?.values[0]?.citation).toBeNull();
+    expect(removed?.rows[1]?.values[0]?.inputs).toEqual(inputs);
+  });
+
+  test("keeps each Analysis value with its own row when an earlier row goes", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          wordsRow(false, "Central", "8,325.44"),
+          wordsRow(false, "North", "9,450.12"),
+          wordsRow(false, "South", "8,700.5"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    insertChart(editor, chartOfTable(editor.state, "en") as ChartAttributes);
+    const source = (documentId: string) => ({
+      passageId: documentId,
+      documentId,
+      documentName: documentId,
+      contentHash: "hash",
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page" as const, from: 1, to: 1 },
+      quote: "Revenue",
+      check: "found" as const,
+      checkReason: null,
+    });
+    const citations = [source("orders"), source("regions")];
+    const fresh = chartAt(editor).chart.data;
+    const numbers = [8325.444, 9450.123, 8700.5];
+    changeChart(editor, chartAt(editor).pos, {
+      data: {
+        ...fresh,
+        rows: fresh.rows.map((row, index) => ({
+          ...row,
+          values: row.values.map((value) =>
+            value
+              ? {
+                  ...value,
+                  value: numbers[index] ?? value.value,
+                  inputs: citations,
+                  fromAnalysis: true as const,
+                }
+              : null,
+          ),
+        })),
+      },
+    });
+    let at = -1;
+    let size = 0;
+    editor.state.doc.descendants((child, pos) => {
+      if (at < 0 && child.type.name === "tableRow" && child.textContent.startsWith("Central")) {
+        at = pos;
+        size = child.nodeSize;
+      }
+      return at < 0;
+    });
+    editor.view.dispatch(editor.state.tr.delete(at, at + size));
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.rows.map((row) => row.label)).toEqual(["North", "South"]);
+    expect(update?.rows.map((row) => row.values[0]?.value)).toEqual([9450.123, 8700.5]);
+    expect(update?.rows[0]?.values[0]?.inputs?.map((each) => each.documentId)).toEqual([
+      "orders",
+      "regions",
+    ]);
+  });
+
   test("knows when its table changed since, and what it would draw now", () => {
     const editor = made();
     const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
@@ -420,6 +864,68 @@ describe("a chart copied", () => {
     const copy = parsed.firstChild;
     expect(copy?.type.name).toBe(CHART_NODE);
     expect(readChart(copy?.attrs ?? {})).toEqual(readChart(node.attrs));
+  });
+
+  test("as text cites every input of an Analysis's chart", () => {
+    const editor = editorWith([
+      {
+        type: "table",
+        attrs: { id: "table-1" },
+        content: [
+          wordsRow(true, "Region", "Amount"),
+          wordsRow(false, "Central", "8,325.44"),
+          wordsRow(false, "North", "9,450.12"),
+        ],
+      },
+      paragraph(),
+    ]);
+    cursorIn(editor, "Central");
+    const source = (documentId: string) => ({
+      passageId: documentId,
+      documentId,
+      documentName: documentId,
+      contentHash: "hash",
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page" as const, from: 1, to: 1 },
+      quote: "Revenue",
+      check: "found" as const,
+      checkReason: null,
+    });
+    const made = coreChartOfTable(
+      editor.state.doc
+        .nodeAt(
+          (() => {
+            let at = -1;
+            editor.state.doc.descendants((node, pos) => {
+              if (at < 0 && node.type.name === "table") at = pos;
+              return at < 0;
+            });
+            return at;
+          })(),
+        )
+        ?.toJSON() ?? { type: "table" },
+      "table-1",
+      { kind: "bar", title: "" },
+      "en",
+      null,
+      {
+        grids: [],
+        numeric: [1],
+        citations: [source("orders"), source("regions")],
+        value: (row, column) => (column === 1 ? ([8325.444, 9450.123][row] ?? null) : null),
+      },
+    );
+    if (!("chart" in made)) throw new Error("The core drew no chart.");
+    insertChart(editor, readChart((made.chart.attrs ?? {}) as Record<string, unknown>));
+    const { pos } = chartAt(editor);
+    const node = editor.state.doc.nodeAt(pos);
+    const copied = getTextBetween(
+      editor.state.doc,
+      { from: pos, to: pos + (node?.nodeSize ?? 0) },
+      { textSerializers: getTextSerializersFromSchema(editor.schema) },
+    );
+    expect(copied).toContain("8,325.44 [orders, p. 1]; [regions, p. 1]");
   });
 
   test("as text is its title and its values, each with its source", () => {

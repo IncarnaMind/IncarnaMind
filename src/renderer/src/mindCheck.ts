@@ -82,9 +82,6 @@ interface CheckToRun {
   watch: { claims: number } | null;
 }
 
-/** A run that only checks again asks first, with the estimate, when it checks this many or more. */
-const ASK_FROM = 10;
-
 /** A problem with the model or a stop ends the Check: the contradiction watch needs the model too. */
 const STOPS: ReadonlySet<string> = new Set([
   "failed",
@@ -157,9 +154,6 @@ function settle(requestId: string, answer: CheckAnswer): void {
   waiting.resolve(answer);
 }
 
-const answerOf = (requestId: string): Promise<CheckAnswer> =>
-  answers.get(requestId)?.promise ?? Promise.resolve({ kind: "declined" });
-
 export function showCheckCard(mindId: string): void {
   const tab = frontTabOfMind(useAppStore.getState().layout, mindId, groupsMerged());
   setCheckCardOpen(tab?.id ?? mindId, true);
@@ -176,14 +170,12 @@ export function useMindCheckRun(doc: Y.Doc): MindCheckRun | null {
 }
 
 /**
- * Runs a whole-Note check again: a check of chosen figures checks those figures again, never the
- * whole Note; any other is planned and asked again.
+ * Runs a whole-Note check again at once, without asking: the User already agreed to the run it is
+ * offered for. A check of chosen figures checks those figures again, never the whole Note.
  */
 const again =
   (mindId: string, mode: CheckMindMode, allDocuments: boolean, figureIds?: string[]) => () =>
-    void (figureIds
-      ? checkMind(mindId, mode, { allDocuments, figureIds })
-      : startMindCheck(mindId, mode, { allDocuments }));
+    void checkMind(mindId, mode, { allDocuments, ...(figureIds && { figureIds }) });
 
 /**
  * Checks the Note's claims now, as `mode` says: what changed, every sentence,
@@ -198,6 +190,9 @@ export async function checkMind(
 ): Promise<void> {
   if (useChecks.getState().running[mindId]) return;
   await freeAskedNote(mindId);
+  // Read again once the asked Note is freed, which waits on the core: a second press meanwhile
+  // found no question to free and started its run (#2302).
+  if (useChecks.getState().running[mindId]) return;
   dismissCheckProblem(mindId);
   const requestId = crypto.randomUUID();
   setCheckRunning(mindId, { requestId, action: "whole-mind" });
@@ -234,7 +229,10 @@ async function checkMindNow(
     } else if (result.kind === "nothing") setCheckProblem(mindId, { kind: "no-claims" });
     // Another window's Check of this Note is running: it says how it went.
     else if (result.kind !== "cancelled" && result.kind !== "running")
-      setCheckProblem(mindId, withCheckAll(result, again(mindId, mode, true, figureIds)));
+      setCheckProblem(
+        mindId,
+        withCheckAll(result, () => void startMindCheck(mindId, mode, { allDocuments: true })),
+      );
     return result;
   } catch (error) {
     setCheckProblem(mindId, {
@@ -303,9 +301,18 @@ export interface Planned {
 
 /**
  * Shows the Note, keeps it for this Check from planning to its end, plans the run, and says in
- * place if it can't or another window checks it.
+ * place if it can't or another window checks it. `ask` is the question before a run whose price
+ * is above $1 or that has a spending cap, which the card's own Check skips (#2313). `forceAsk`
+ * asks without a price, for the card's press before its estimate arrived or after it failed.
+ * `priced` is the plan the card's press showed the price for: a plan made since asks again.
  */
-async function start(mindId: string, planned: () => Promise<Planned>): Promise<CheckOutcome> {
+async function start(
+  mindId: string,
+  planned: () => Promise<Planned>,
+  ask = true,
+  forceAsk = false,
+  priced?: Planned,
+): Promise<CheckOutcome> {
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
   if (useChecks.getState().running[mindId]) return { kind: "running" };
@@ -323,13 +330,26 @@ async function start(mindId: string, planned: () => Promise<Planned>): Promise<C
     }
     held = true;
     const { mode, allDocuments, plan, watch } = await planned();
-    const outcome = await askOrCheck(mindId, requestId, { mode, allDocuments, watch }, plan, () => {
-      ranCheck = true;
-    });
+    const outcome = await askOrCheck(
+      mindId,
+      requestId,
+      { mode, allDocuments, watch },
+      plan,
+      () => {
+        ranCheck = true;
+      },
+      ask,
+      forceAsk,
+      priced,
+    );
     keeps = outcome !== null && outcome.kind === "asked";
     return outcome;
   } catch (error) {
-    setCheckProblem(mindId, { kind: "failed", error, retry: () => void start(mindId, planned) });
+    setCheckProblem(mindId, {
+      kind: "failed",
+      error,
+      retry: () => void start(mindId, planned, ask, forceAsk),
+    });
     return { kind: "threw", error };
   } finally {
     // A shown question keeps the Note for the run it asks for, and a run frees its own hold at its end.
@@ -394,18 +414,82 @@ async function fullWatchNeeded(mindId: string, watch: { claims: number }): Promi
   return record === null || record.stop !== null;
 }
 
-/** The one Check: everything the Note can be checked for, in one press. */
-export const startCheck = (mindId: string): Promise<CheckOutcome> =>
-  start(mindId, () => planCheckThisMind(mindId));
+/** What a run sends, as the estimate prices it: the Note's sentences and the watch's. */
+async function checkItems(
+  mindId: string,
+  run: CheckToRun,
+  plan: Extract<MindCheckPlan, { kind: "ready" }>,
+): Promise<number> {
+  const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
+  const extra =
+    run.watch === null
+      ? 0
+      : full
+        ? run.watch.claims
+        : ((await readSentencesToCheck(mindId))?.count ?? 0);
+  return plan.sentences + extra;
+}
+
+/**
+ * What the Note's card asks before its one Check runs: the price line above $1 or with a spending
+ * cap (#1941), none when the run is cheap or free, or unknown when `estimateRun` failed.
+ */
+export type CheckedEstimate =
+  | { kind: "price"; line: EstimateLine }
+  | { kind: "none" }
+  | { kind: "unknown" };
+
+export async function checkEstimate(mindId: string, planned: Planned): Promise<CheckedEstimate> {
+  const { plan } = planned;
+  if (plan.kind !== "ready") return { kind: "none" };
+  try {
+    const estimated = await core.estimateRun({
+      items: await checkItems(mindId, planned, plan),
+      each: "check",
+      ...(plan.model && { model: plan.model }),
+    });
+    const line = estimateLine(estimated, translateNow, languageNow());
+    return line ? { kind: "price", line } : { kind: "none" };
+  } catch (error) {
+    console.warn(
+      `Couldn't estimate checking Note ${mindId}; its card asks without a price.`,
+      error,
+    );
+    return { kind: "unknown" };
+  }
+}
+
+/** The card's one Check: the price line it shows before the press is the User's OK (#2313). */
+export const startCheck = (mindId: string, priced?: Planned): Promise<CheckOutcome> =>
+  start(mindId, () => planCheckThisMind(mindId), false, false, priced);
+
+/** The card's Check when its price failed or hasn't arrived: it asks, with the couldn't-estimate line. */
+export const startCheckUnpriced = (mindId: string): Promise<CheckOutcome> =>
+  start(mindId, () => planCheckThisMind(mindId), true, true);
+
+/**
+ * A Check started from ⌘K, Home, the assistant or a line: it asks when its price is above $1 or a
+ * spending cap is set, and runs at once below that (#2313).
+ */
+export const startCheckAsking = (mindId: string): Promise<CheckOutcome> =>
+  start(mindId, () => planCheckThisMind(mindId), true);
 
 /**
  * The assistant's Check (#1421), in the window that asked: the Note's one Check, or every sentence
- * again. A Note another window checks, or is planning to, starts none, and its card says so.
+ * again. It never answers its own question: with `reply`, an asked run ends as a reply that says
+ * the check waits for the User's OK on the Note; from ⌘K the card's question is the answer. A Note
+ * another window checks, or is planning to, starts none, and its card says so.
  */
-export async function checkFromAssistant(mindId: string, everySentence = false): Promise<void> {
-  const outcome = everySentence ? await startMindCheck(mindId, "all") : await startCheck(mindId);
+export async function checkFromAssistant(
+  mindId: string,
+  everySentence = false,
+  reply = false,
+): Promise<void> {
+  const outcome = everySentence
+    ? await startMindCheck(mindId, "all")
+    : await startCheckAsking(mindId);
   if (outcome?.kind === "asked") {
-    endAs(await answerOf(outcome.requestId));
+    if (reply) throw new TranslatableError({ key: "mindCheck.waitingForOk" });
     return;
   }
   endAs(outcome ?? null);
@@ -452,7 +536,11 @@ export async function confirmCheck(mindId: string): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
   if (!asking) return;
   try {
-    await runCheck(mindId, asking.requestId, asking);
+    await runCheck(mindId, asking.requestId, {
+      mode: asking.mode,
+      allDocuments: asking.allDocuments,
+      watch: asking.watch,
+    });
   } catch (error) {
     setCheckProblem(mindId, {
       kind: "failed",
@@ -506,9 +594,20 @@ async function runCheck(mindId: string, requestId: string, run: CheckToRun): Pro
   }
 }
 
+/** Whether the plan made at the press is the one the card showed a price for. */
+function samePriced(priced: Planned, run: CheckToRun, plan: MindCheckPlan): boolean {
+  return (
+    priced.mode === run.mode &&
+    priced.allDocuments === run.allDocuments &&
+    JSON.stringify(priced.plan) === JSON.stringify(plan) &&
+    JSON.stringify(priced.watch) === JSON.stringify(run.watch)
+  );
+}
+
 /**
- * A run of what changed that only checks again checks at once when small; any
- * recheck runs at once when nothing is billed per token; the rest ask first.
+ * A Check that did not run on its one press asks when its price is above $1 or a spending cap is
+ * set, and runs at once below that; an estimate that failed asks without a price (#2313). A plan
+ * made since the price shown asks again, so the press never runs on an old price.
  */
 async function askOrCheck(
   mindId: string,
@@ -516,7 +615,13 @@ async function askOrCheck(
   run: CheckToRun,
   plan: MindCheckPlan,
   started: () => void,
+  ask: boolean,
+  forceAsk = false,
+  priced?: Planned,
 ): Promise<CheckOutcome> {
+  // A check of this Note that started while this one was held and planned has the badge, with
+  // Stop: this one changes nothing beside it (#2302).
+  if (useChecks.getState().running[mindId]) return { kind: "running" };
   if (plan.kind === "unchanged") {
     clearAsk(mindId);
     dismissCheckProblem(mindId);
@@ -531,31 +636,46 @@ async function askOrCheck(
       mindId,
       plan.kind === "nothing"
         ? { kind: "no-claims" }
-        : withCheckAll(plan, again(mindId, run.mode, true)),
+        : withCheckAll(plan, () => void startMindCheck(mindId, run.mode, { allDocuments: true })),
     );
     return null;
   }
-  const pending = plan.findsClaims ? await readSentencesToCheck(mindId) : null;
-  const onlyRechecks =
-    !plan.findsClaims ||
-    (pending?.sentences.length === plan.sentences &&
-      pending.sentences.every((place) => place.claim !== null));
-  if (run.mode === "changed" && onlyRechecks && plan.sentences < ASK_FROM) {
+  // No price arrived at the card's press: the question asks with the couldn't-estimate line.
+  if (forceAsk) {
+    clearAsk(mindId);
+    dismissCheckProblem(mindId);
+    waitForAnswer(requestId);
+    useMindCheck.setState((state) => ({
+      asking: {
+        ...state.asking,
+        [mindId]: {
+          requestId,
+          mode: run.mode,
+          allDocuments: run.allDocuments,
+          count: plan.sentences,
+          inFolder: plan.inFolder,
+          watch: run.watch,
+          estimate: null,
+          unestimated: true,
+        },
+      },
+    }));
+    return { kind: "asked", requestId };
+  }
+  // The card's press carries the plan it priced: an edit or paste since makes another plan, whose
+  // own estimate is asked for rather than running on the old price (#2313).
+  if (!ask && priced !== undefined && !samePriced(priced, run, plan)) ask = true;
+  // The one Check runs from its one press; the price line it shows is its card's, never a
+  // question before the run (#2313).
+  if (!ask) {
     started();
     return runCheck(mindId, requestId, run);
   }
   clearAsk(mindId);
   dismissCheckProblem(mindId);
-  const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
-  const extra =
-    run.watch === null
-      ? 0
-      : full
-        ? run.watch.claims
-        : ((await readSentencesToCheck(mindId))?.count ?? 0);
   const estimated = await core
     .estimateRun({
-      items: plan.sentences + extra,
+      items: await checkItems(mindId, run, plan),
       each: "check",
       ...(plan.model && { model: plan.model }),
     })
@@ -563,11 +683,13 @@ async function askOrCheck(
       console.warn(`Couldn't estimate checking Note ${mindId}; it asks without one.`, error);
       return null;
     });
-  if (estimated && estimated.billing !== "per-token" && onlyRechecks) {
+  // Nor one that started while the run was estimated.
+  if (useChecks.getState().running[mindId]) return { kind: "running" };
+  const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
+  if (estimated !== null && estimate === null) {
     started();
     return runCheck(mindId, requestId, run);
   }
-  const estimate = estimated ? estimateLine(estimated, translateNow, languageNow()) : null;
   waitForAnswer(requestId);
   useMindCheck.setState((state) => ({
     asking: {

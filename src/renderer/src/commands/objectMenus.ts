@@ -1,6 +1,6 @@
 import { registerMenu, registerMixedMenu } from "./menus";
 
-// Later features add their items with registerMenu: Move to… (#229, #212), Add to note (#201), History (#300), Tag colour and merge (#205).
+// A feature adds its items with registerMenu, where they belong in the shared order.
 
 /**
  * Export… (the Export button's short menu: the formats, its options), then the AI use statement
@@ -15,6 +15,9 @@ registerMenu("mind", [
   "mind.outline",
   "mind.duplicate",
   "mind.tidy",
+  "mind.useAsSource",
+  "mind.updateSourceSnapshot",
+  "mind.removeAsSource",
   ...EXPORTS,
   "mind.history",
   "mind.check",
@@ -63,19 +66,28 @@ registerMenu("document", [
 registerMenu("folder", [
   "folder.open",
   "folder.newMind",
-  "folder.new",
+  "folder.addDocuments",
+  "folder.newInside",
   "folder.ask",
   "folder.organize",
   "folder.tagWithAi",
   "folder.editDescription",
   "folder.keepInside",
   "folder.sort",
+  "folder.moveTo",
   "folder.rename",
   "file.info",
   "folder.delete",
 ]);
 
-registerMenu("tag", ["tag.open", "tag.manage", "tag.rename", "tag.delete"]);
+registerMenu("tag", [
+  "tag.open",
+  "tag.colour",
+  "tag.editDescription",
+  "tag.merge",
+  "tag.rename",
+  "tag.delete",
+]);
 
 registerMixedMenu(["selection.moveTo", "selection.delete"]);
 
@@ -99,6 +111,9 @@ registerMenu(
     "mind.openChat",
     "mind.outline",
     "mind.duplicate",
+    "mind.useAsSource",
+    "mind.updateSourceSnapshot",
+    "mind.removeAsSource",
     "mind.look.word",
     "mind.look.plain",
     "mind.openOriginal",
@@ -140,6 +155,7 @@ registerMenu("citation", [
   "citation.open",
   "citation.update",
   "citation.keepOld",
+  "citation.pageChecked",
   "citation.signOff",
   "citation.signOffRemove",
   "citation.remove",

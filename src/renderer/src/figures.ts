@@ -15,7 +15,7 @@ import { figurePlace } from "./editor/figurePlaces";
 import { mindEditor } from "./editor/openEditors";
 import { scrollMindTo } from "./editor/reviewPick";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
-import { startCheck, useMindCheck } from "./mindCheck";
+import { startCheckAsking, useMindCheck } from "./mindCheck";
 import { useAppStore } from "./store";
 
 export function useFigureSchedule(mindId: string, doc: Y.Doc | null): FigureSchedule | null {
@@ -112,8 +112,8 @@ export async function openFigureSchedule(mindId: string, focus = true): Promise<
 }
 
 /**
- * Whether the note's one Check, just started, waits for the User's yes (`true`) or
- * runs or ends without one (`false`).
+ * Whether the note's one Check waits for the User's yes (`true`) or runs or ends without one
+ * (`false`), as soon as either is known, without waiting for a run to end.
  */
 function checkAsks(mindId: string, started: Promise<unknown>): Promise<boolean> {
   return new Promise((resolve) => {
@@ -131,8 +131,26 @@ function checkAsks(mindId: string, started: Promise<unknown>): Promise<boolean> 
     const stopRunning = useChecks.subscribe((state) => {
       if (state.running[mindId]) done(false);
     });
-    void started.finally(() => done(useMindCheck.getState().asking[mindId] !== undefined));
+    void started.then(
+      () => done(useMindCheck.getState().asking[mindId] !== undefined),
+      () => done(false),
+    );
   });
+}
+
+/** Whether the Check it starts asks first; a start that rejects is the caller's to report. */
+async function startAsking(mindId: string): Promise<boolean> {
+  const started = startCheckAsking(mindId);
+  let failed = false;
+  let failure: unknown;
+  const watched = started.catch((error: unknown) => {
+    failed = true;
+    failure = error;
+    return undefined;
+  });
+  const asks = await checkAsks(mindId, watched);
+  if (failed) throw failure;
+  return asks;
 }
 
 /** Resolves once the note's Check no longer waits for the User's answer. */
@@ -149,17 +167,16 @@ function answered(mindId: string): Promise<void> {
 
 /**
  * Tie out figures: runs the one Check when any figure isn't checked since its last edit, then
- * shows the schedule beside the note, which fills in as results come. When the Check first asks
- * (a run billed per token) and the window has no room for groups side by side, the note's
- * question stays in front until the User answers it, then the schedule comes to the front: a
- * strip that holds only the note's tab would otherwise keep it out of sight.
+ * shows the schedule beside the note, which fills in as results come. A Check that asks first
+ * (above $1 or under a spending cap) keeps the note's question in front; in a window too narrow
+ * for groups side by side the schedule then comes to the front once the User answers.
  */
 export async function tieOutFigures(mindId: string): Promise<void> {
   const schedule = await core.getFigureSchedule(mindId);
   const stale = schedule.rows.some(
     (row) => row.shown.state === "not-checked" || row.shown.state === "needs-recheck",
   );
-  const asks = stale ? await checkAsks(mindId, startCheck(mindId)) : false;
+  const asks = stale ? await startAsking(mindId) : false;
   if (!(asks && groupsMerged())) return openFigureSchedule(mindId);
   await openFigureSchedule(mindId, false);
   await answered(mindId);

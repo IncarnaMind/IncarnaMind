@@ -12,7 +12,12 @@
  * a quote of a Word comment, the comment's author too ("§ 2 Costs, comment
  * by Reviewer", #76).
  */
-import type { CitationAttributes, CitationLocation } from "../core/api";
+import {
+  type CitationAttributes,
+  type CitationLocation,
+  type CitedArea,
+  filePropertyNames,
+} from "../core/api";
 import { clockTime, parseClockTime } from "./clock";
 import { type MessageKey, type MessageParams, translate } from "./i18n";
 import { findQuote, type MatchOptions, type TextRange } from "./quoteMatch";
@@ -53,6 +58,20 @@ function parsePrintedLines(value: unknown): { from: number; to: number } | null 
   return isCount(from) && isCount(to) ? { from, to } : null;
 }
 
+/** A fraction of a Unit's width or height, from 0 to 1. */
+const isFraction = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+
+/** The region a Location may hold (#118): a rectangle inside its Unit, or none. */
+export function parseCitedArea(value: unknown): CitedArea | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { x, y, width, height } = value as Record<string, unknown>;
+  if (!isFraction(x) || !isFraction(y) || !isFraction(width) || !isFraction(height)) return null;
+  return width > 0 && height > 0 && x + width <= 1.0001 && y + height <= 1.0001
+    ? { x, y, width, height }
+    : null;
+}
+
 /** A stored Location, checked; null if it isn't one. */
 export function parseLocation(value: unknown): CitationLocation | null {
   if (typeof value === "string") {
@@ -65,35 +84,38 @@ export function parseLocation(value: unknown): CitationLocation | null {
   if (typeof value !== "object" || value === null) return null;
   const location = value as Record<string, unknown>;
   const { kind, from, to } = location;
+  const area = parseCitedArea(location.area);
+  const withArea = <T extends CitationLocation>(parsed: T): CitationLocation =>
+    area ? { ...parsed, area } : parsed;
   switch (kind) {
     case "page": {
       if (!isCount(from) || !isCount(to) || to < from) return null;
       const printed = parsePrinted(location.printed);
       const lines = parsePrintedLines(location.lines);
-      return {
+      return withArea({
         kind,
         from,
         to,
         ...(printed ? { printed } : {}),
         ...(lines ? { lines } : {}),
-      };
+      });
     }
     case "slide":
     case "lines":
-      return isCount(from) && isCount(to) && to >= from ? { kind, from, to } : null;
+      return isCount(from) && isCount(to) && to >= from ? withArea({ kind, from, to }) : null;
     case "time": {
       if (!isTime(from) || !isTime(to) || to < from) return null;
       const speaker = typeof location.speaker === "string" ? location.speaker.trim() : "";
-      return speaker ? { kind, from, to, speaker } : { kind, from, to };
+      return withArea(speaker ? { kind, from, to, speaker } : { kind, from, to });
     }
     case "rows":
       if (!isCount(from) || !isCount(to) || to < from) return null;
-      return {
+      return withArea({
         kind,
         sheet: typeof location.sheet === "string" ? location.sheet : null,
         from,
         to,
-      };
+      });
     case "section": {
       const comment = location.comment;
       const author =
@@ -104,7 +126,7 @@ export function parseLocation(value: unknown): CitationLocation | null {
         typeof location.paragraphs === "object" && location.paragraphs !== null
           ? (location.paragraphs as Record<string, unknown>)
           : null;
-      return {
+      return withArea({
         kind,
         heading: typeof location.heading === "string" ? location.heading : null,
         ...(location.start === true ? { start: true } : {}),
@@ -119,11 +141,25 @@ export function parseLocation(value: unknown): CitationLocation | null {
           ? { paragraphs: { from: paragraphs.from, to: paragraphs.to } }
           : {}),
         ...(isCount(location.figure) ? { figure: location.figure } : {}),
-      };
+      });
+    }
+    case "properties": {
+      const property = filePropertyNames.find((name) => name === location.property);
+      const { value } = location;
+      return property && typeof value === "string" && value !== ""
+        ? { kind, property, value }
+        : null;
     }
     default:
       return null;
   }
+}
+
+/** A Location without its region: a picked area is found again where its words are, its region kept as picked (#118). */
+export function withoutArea(location: CitationLocation | null): CitationLocation | null {
+  if (location === null || !("area" in location) || location.area === undefined) return location;
+  const { area: _area, ...rest } = location;
+  return rest as CitationLocation;
 }
 
 /**
@@ -140,7 +176,8 @@ export function saysWhere(location: CitationLocation): boolean {
       location.notes ||
       location.paragraphs ||
       location.figure ||
-      location.comment,
+      location.comment ||
+      location.area,
   );
 }
 
@@ -241,6 +278,8 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
         ? after("location.section.comment", "location.comment", { author: comment.author })
         : after("location.section.comment.anonymous", "location.comment.anonymous", {});
     }
+    case "properties":
+      return t("location.properties");
   }
 }
 
@@ -284,7 +323,7 @@ export const englishPrintedLocation = (location: CitationLocation): string =>
 
 /** The kinds of Location the card's "Open …" button names: the page, the slide, the section… */
 export const openKind = (location: CitationLocation | null) =>
-  location === null ? "document" : location.kind;
+  location === null || location.kind === "properties" ? "document" : location.kind;
 
 /** A Citation of a Transcript, whose Location is a time: checked against the Transcript's text, not a page. */
 export const isTranscriptLocation = (location: CitationLocation | null) =>

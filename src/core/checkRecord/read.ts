@@ -10,10 +10,12 @@ import {
   citationAttributesOf,
   citationState,
   citedLocation,
+  citedName,
   liveDocumentOf,
   shownDocumentName,
 } from "../../shared/citations";
 import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
+import { withoutInertBrackets } from "../../shared/inertBrackets";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
@@ -47,6 +49,7 @@ import {
   type SignOffNow,
 } from "../api";
 import type { ModelDescription } from "../chatModelNames";
+import type { Language } from "../language";
 import { type Footnote, type Inline, readBlock, reviewReading } from "../mindText";
 import { layout } from "../proposals/write";
 
@@ -127,6 +130,8 @@ export interface RecordCiteItem {
 
 export interface RecordSources {
   fragment: Y.XmlFragment;
+  /** The interface language, for a snapshot's "Your note: …, 12 Oct". */
+  language: Language;
   documents: readonly Document[];
   kept: readonly KeptCitationText[];
   folderId: string | null;
@@ -146,13 +151,25 @@ const fileNameOf = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
 
 function documentOf(
   attributes: Partial<CitationAttributes>,
-  { documents, t, readQuote }: Pick<RecordSources, "documents" | "t" | "readQuote">,
+  {
+    language,
+    documents,
+    t,
+    readQuote,
+  }: Pick<RecordSources, "language" | "documents" | "t" | "readQuote">,
 ): RecordDocument {
   const found = liveDocumentOf(attributes, documents);
   const live = found && documents.find((each) => each.id === found.id);
   const sha256 = attributes.contentHash ? attributes.contentHash : null;
   return {
-    name: shownDocumentName(attributes, documents) || t("export.unnamedDocument"),
+    name: citedName(
+      {
+        ...attributes,
+        documentName: shownDocumentName(attributes, documents) || t("export.unnamedDocument"),
+      },
+      t,
+      language,
+    ),
     file: live ? (live.web?.address ?? fileNameOf(live.path)) : null,
     deleted: found === undefined,
     size: live && sha256 !== null && live.contentHash === sha256 ? live.size : null,
@@ -161,6 +178,13 @@ function documentOf(
     quote: readQuote(attributes),
   };
 }
+
+/**
+ * A sentence as the record lists it: the record is a file that leaves the app, so an outside
+ * agent's brackets read as written (#352).
+ */
+const recordSentence = (sentence: string): string =>
+  withoutInertBrackets(comparableSentence(sentence));
 
 /** A record cite's resolved source is its stable id, never a same-content replacement. */
 function recordCiteDocumentOf(
@@ -265,7 +289,7 @@ export function readRecord(sources: RecordSources): {
     };
     sentences.push({
       kind: "sentence",
-      text: comparableSentence(sentence),
+      text: recordSentence(sentence),
       result,
       origin,
       says: check.says,
@@ -275,7 +299,7 @@ export function readRecord(sources: RecordSources): {
     for (const cite of check.recordCites ?? []) {
       recordCites.push({
         kind: "record-cite",
-        sentence: comparableSentence(sentence),
+        sentence: recordSentence(sentence),
         raw: cite.raw,
         from: cite.from ?? null,
         to: cite.to ?? null,
@@ -309,6 +333,7 @@ export function readRecord(sources: RecordSources): {
     },
     trimBeforeCitation: false,
     review: reviewReading(fragment),
+    leavesApp: true,
   };
   const marks = fragment.doc ? signOffsOf(fragment.doc) : [];
   const signedOff = citationSentences(fragment);
@@ -345,7 +370,7 @@ export function readRecord(sources: RecordSources): {
     if (inlineIds.has(id) || isProposed(topOf(fragment, element))) continue;
     citations.push({
       kind: "citation",
-      text: comparableSentence(sentence),
+      text: recordSentence(sentence),
       result: citationState(citation, sources.documents, sources.kept).check,
       origin: blockOrigin(fragment, element) ?? "user",
       says: citation.verdict ?? null,

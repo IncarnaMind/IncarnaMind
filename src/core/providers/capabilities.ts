@@ -75,6 +75,22 @@ export function startingSupport({ facts }: ModelCapabilities): CitationSupport |
 /** Whether an Answer offers the model the `calculate` Tool and its steer: only when a source says so. */
 export const calculates = ({ facts }: ModelCapabilities): boolean => facts.calculates === true;
 
+/** Whether an Answer that offers `calculate` also offers the workbook Tools: only when a source says so. */
+export const offersWorkbookTools = (capabilities: ModelCapabilities): boolean =>
+  calculates(capabilities) && capabilities.facts.workbookTools === true;
+
+/** Whether an Answer that offers `calculate` also offers the Analysis Tool: only when a source says so. */
+export const offersAnalysis = (capabilities: ModelCapabilities): boolean =>
+  calculates(capabilities) && capabilities.facts.analysisTool === true;
+
+/** Whether an Answer that offers the Analysis Tool also offers `run_code`: only when a source says so. */
+export const offersCode = (capabilities: ModelCapabilities): boolean =>
+  offersAnalysis(capabilities) && capabilities.facts.codeTool === true;
+
+/** Whether a claim check offers the model `calculate`: only when a source says so. */
+export const checkCalculates = (capabilities: ModelCapabilities): boolean =>
+  calculates(capabilities) && capabilities.facts.checkCalculates === true;
+
 /** False when the model is known to give no structured output: an Answer then doesn't try it. */
 export const givesStructuredOutput = ({ facts }: ModelCapabilities): boolean | undefined =>
   facts.structuredOutput === undefined ? undefined : facts.structuredOutput !== "none";

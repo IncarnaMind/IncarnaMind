@@ -82,6 +82,16 @@ import {
   unnameRemovals,
 } from "../edits/prompt";
 import { diffSteps, hunksOf, type Step, splitWords } from "./diff";
+import {
+  CITING,
+  type CitingNodes,
+  citingKey,
+  nodeKey,
+  splitCiting,
+  tally,
+  type Unplaced,
+  unplacedSince,
+} from "./placed";
 
 /** The Blocks whose text can be edited: Notes' and Answers' paragraphs and headings. */
 const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
@@ -151,6 +161,8 @@ interface Segment {
   /** Where those tokens start and end (`from`..`to` with the spaces left out). */
   start: number;
   end: number;
+  /** How many characters of it the selection shows: what `Selection.characters` counts. */
+  characters: number;
   /**
    * The kind of Block the model was shown it as (`blockMarker`): its own,
    * when the selection starts at the Block's start; a plain paragraph's
@@ -411,6 +423,7 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       tokens: kept,
       start: kept[0]?.from ?? start,
       end: kept.at(-1)?.to ?? start,
+      characters: shownText.length,
       kind,
     });
     plain.push(tokens.map((token) => token.text ?? NODE_CHARACTER).join(""));
@@ -445,6 +458,142 @@ export function readSelection(blocks: Y.XmlFragment, from: TextPlace, to: TextPl
       after: lastBlock ? nearWords(blockText(lastBlock, to.offset), "after") : "",
       characters,
     },
+  };
+}
+
+/** A stretch of a Mind's text as `readSelection` takes it: one part of an edit made in parts (#2348). */
+export interface PartPlace {
+  from: TextPlace;
+  to: TextPlace;
+}
+
+/** A selection edited in parts, at the boundaries between its Blocks. */
+export type PartsResult =
+  | { ok: true; parts: (PartPlace & { plain: string })[] }
+  /**
+   * `block`: one Block alone is more than the model takes at once, `part` being it.
+   * `changed`: the text can't be read now.
+   */
+  | { ok: false; reason: "block"; part: Selection }
+  | { ok: false; reason: "changed" };
+
+/**
+ * The Block a text segment is part of, as a part may end between it and the next: a table is
+ * one Block however many cells it has, and so is each list item — the nearest one, so an item
+ * of a nested list is a Block of its own.
+ */
+function blockOf(segment: Segment, blocks: Y.XmlFragment): unknown {
+  let block: Y.XmlElement | null = null;
+  for (let at: unknown = segment.element; at instanceof Y.XmlElement; at = at.parent) {
+    if (at.nodeName === "table") return at;
+    if (at.nodeName === "listItem" && block === null) block = at;
+    // An XmlElement is an XmlFragment too: only the Mind's own fragment is the top.
+    if (at.parent === blocks) return block ?? segment.element;
+  }
+  return block ?? segment.element;
+}
+
+/**
+ * The parts a selection too long for the model is edited in (#2348): each a run of whole
+ * Blocks that `fits`, in order, and no part left out. A Block that alone doesn't fit is
+ * the whole answer: a Block can't be split. A Block the selection has no text of, such as
+ * an empty line at its edge, is in no part: there is nothing in it to edit.
+ */
+export function selectionParts(
+  blocks: Y.XmlFragment,
+  selection: Selection,
+  fits: (part: Selection) => boolean,
+): PartsResult {
+  const placeOf = (segment: Segment, edge: "from" | "to"): TextPlace | null => {
+    const blockId = segment.element.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (typeof blockId !== "string" || blockId === "") return null;
+    return { blockId, offset: edge === "from" ? segment.from : segment.to };
+  };
+  const read = (first: Segment, last: Segment): Selection | null => {
+    const from = placeOf(first, "from");
+    const to = placeOf(last, "to");
+    if (!from || !to) return null;
+    const result = readSelection(blocks, from, to);
+    return result.ok ? result.selection : null;
+  };
+  // The runs of segments inside one Block: a part is whole ones of these.
+  const runs: { first: Segment; last: Segment }[] = [];
+  for (const segment of selection.segments) {
+    const last = runs.at(-1);
+    if (last && blockOf(last.first, blocks) === blockOf(segment, blocks)) last.last = segment;
+    else runs.push({ first: segment, last: segment });
+  }
+  const editable = runs.filter((run) => (read(run.first, run.last)?.text ?? "") !== "");
+  const parts: (PartPlace & { plain: string })[] = [];
+  let start = 0;
+  while (start < editable.length) {
+    const first = editable[start];
+    if (!first) return { ok: false, reason: "changed" };
+    const alone = read(first.first, first.last);
+    if (!alone) return { ok: false, reason: "changed" };
+    if (!fits(alone)) return { ok: false, reason: "block", part: alone };
+    let end = start;
+    for (;;) {
+      const next = editable[end + 1];
+      if (!next) break;
+      const more = read(first.first, next.last);
+      if (!more) return { ok: false, reason: "changed" };
+      if (!fits(more)) break;
+      end += 1;
+    }
+    const to = editable[end];
+    const from = placeOf(first.first, "from");
+    const place = to && placeOf(to.last, "to");
+    const plain = to && read(first.first, to.last)?.plain;
+    if (!from || !place || plain === undefined) return { ok: false, reason: "changed" };
+    parts.push({ from, to: place, plain });
+    start = end + 1;
+  }
+  // Nothing the model could edit: the selection is empty lines.
+  if (parts.length === 0) return { ok: false, reason: "changed" };
+  return { ok: true, parts };
+}
+
+/** About how much of the Block before and after a part the model reads: meaning, not the passage. */
+const AROUND_CHARACTERS = 600;
+
+/** The end of `text` nearest the part, `characters` of it at most, cut at a word's edge. */
+function endingWith(text: string, characters: number): string {
+  if (text.length <= characters) return text;
+  const cut = text.slice(text.length - characters);
+  const space = cut.search(/\s/);
+  return space < 0 ? cut : cut.slice(space + 1);
+}
+
+/** The start of `text` nearest the part, `characters` of it at most, cut at a word's edge. */
+function startingWith(text: string, characters: number): string {
+  if (text.length <= characters) return text;
+  const cut = text.slice(0, characters);
+  const space = cut.search(/\s\S*$/);
+  return space < 0 ? cut : cut.slice(0, space);
+}
+
+/**
+ * `selection` with the Blocks just before and after it added to its context (#2348): a part is
+ * read with the text around it, as the whole selection is, and never changes those Blocks.
+ */
+export function withBlocksAround(blocks: Y.XmlFragment, selection: Selection): Selection {
+  const all = textBlocks(blocks).map((each) => each.element);
+  const first = selection.segments[0]?.element;
+  const last = selection.segments.at(-1)?.element;
+  const from = first ? all.indexOf(first) : -1;
+  const to = last ? all.indexOf(last) : -1;
+  if (from < 0 || to < from) return selection;
+  const before =
+    from > 0 ? endingWith(blockText(all[from - 1] as Y.XmlElement), AROUND_CHARACTERS) : "";
+  const after =
+    to < all.length - 1
+      ? startingWith(blockText(all[to + 1] as Y.XmlElement), AROUND_CHARACTERS)
+      : "";
+  if (before === "" && after === "") return selection;
+  return {
+    ...selection,
+    context: [before, selection.context, after].filter((each) => each !== "").join("\n\n"),
   };
 }
 
@@ -676,6 +825,26 @@ const MARKER = /\[\^(\d+)\]|\[(\d+)\]|\$([^$\n]+)\$|\n/g;
  */
 type NewParagraph = NewText | NewTable;
 
+/**
+ * The Citations and footnotes a reply's paragraphs place, as they were read: what it may add. A
+ * footnote it moves brings the Citations in it.
+ */
+function placedBy(paragraphs: readonly NewParagraph[]): CitingNodes {
+  const placed: CitingNodes = new Map();
+  for (const { tokens } of paragraphs) {
+    for (const { node } of tokens) {
+      if (!node || !CITING.has(node.name)) continue;
+      if (!node.source) {
+        tally(placed, nodeKey(node.name, node.attributes), 1);
+        continue;
+      }
+      tally(placed, citingKey(node.source), 1);
+      for (const [key, n] of splitCiting(node.source, "").others) tally(placed, key, n);
+    }
+  }
+  return placed;
+}
+
 interface NewText {
   kind: BlockKind | null;
   tokens: NewToken[];
@@ -725,7 +894,8 @@ export const someNotes = ({ unmatchedMarkers, unlinkedSources, extraCells }: Not
   ...(extraCells > 0 && { extraCells }),
 });
 
-const addNotes = (to: Notes, from: Notes): void => {
+/** Adds one request's notes to another's: the notes of all the parts of an edit (#2348). */
+export const addNotes = (to: Notes, from: Notes): void => {
   to.unmatchedMarkers += from.unmatchedMarkers;
   to.unlinkedSources += from.unlinkedSources;
   to.extraCells += from.extraCells;
@@ -1073,6 +1243,11 @@ export interface Written {
   aside?: string[];
   /** The text names no paragraph, writes over none and takes none out: what it would add is only `aside`. */
   onlyAside?: true;
+  /**
+   * What it wrote changed a Citation, footnote or figure that was there, or added one its text
+   * doesn't place (#2424): the change is refused.
+   */
+  notPlaced?: true;
   /** What the paragraphs written had that they don't hold as it was written. */
   notes: Notes;
 }
@@ -2033,7 +2208,8 @@ export function proposeRewrite(
   const rewrite = createRewriteStream(selection, request, newId, () => fresh, { named });
   rewrite.write(text, true);
   rewrite.finish();
-  return rewrite.written();
+  const written = rewrite.written();
+  return rewrite.unplaced() === null ? written : { ...written, notPlaced: true };
 }
 
 /** A <removed> tag as the User may type it, in any of the shapes a model writes the mark. */
@@ -2113,6 +2289,8 @@ export function createRewriteStream(
   const notes = notesOf();
   // Only the paragraphs the model was shown: an empty one between two isn't in its text.
   const segments = selection.segments.filter((segment) => segment.shown);
+  const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
+  const citingBefore = blocks && splitCiting(blocks, request);
   /** The text may leave paragraphs out, which stay: where a new one stands may say nothing of which it is (#2333). */
   const keeps = onLeftOut === "keep";
   const wordsIn = segments.map((segment) => new Set(wordsOf(segment.tokens)));
@@ -2762,12 +2940,20 @@ export function createRewriteStream(
   const wrote = (write: () => void): boolean => {
     const before = proposals.length;
     write();
-    const blocks = segments[0]?.element.doc?.getXmlFragment(MIND_CONTENT_FIELD);
     if (blocks) settleCitedIds(selection, blocks, newId);
     return proposals.length > before;
   };
 
   return {
+    /**
+     * What it wrote that changes a Citation, footnote or figure that was there, or adds one the
+     * text didn't place as it was read, or more often (#2424); null when it wrote neither.
+     */
+    unplaced: (): Unplaced | null =>
+      blocks === undefined || citingBefore === undefined
+        ? { changed: {}, added: { unread: 1 } }
+        : unplacedSince(citingBefore, blocks, request, placedBy(seen)),
+
     /**
      * The model's text so far: the paragraphs it has finished (all but the
      * last, or all of them once `done`) are written, or held until their
@@ -3262,6 +3448,7 @@ function writeBlocks(
         tokens,
         start: 0,
         end: size,
+        characters: size,
         kind: kindOf(element),
       };
       writeHunks(segment, jsonTokens(node.content ?? []), writer.next, writer.newId, writer.notes);

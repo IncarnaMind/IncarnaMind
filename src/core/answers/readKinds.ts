@@ -77,7 +77,9 @@ export function toolReadKind(call: Call): ToolReadKind {
     case "asks":
       return call.tool === ASK_TOOLS.ask ? null : "other";
     case "analysis":
-      return call.tool === ANALYSIS_TOOLS.run ? "script" : "other";
+      return call.tool === ANALYSIS_TOOLS.run || call.tool === ANALYSIS_TOOLS.code
+        ? "script"
+        : "other";
     default:
       return "other";
   }

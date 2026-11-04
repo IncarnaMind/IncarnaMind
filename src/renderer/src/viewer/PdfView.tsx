@@ -1298,6 +1298,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         setElement(page, element);
       }}
       data-page-number={page}
+      data-area-unit={page}
       data-drawn={drawn ? "true" : "false"}
       aria-label={t("viewer.page.label", { number: page })}
       className="viewer-page relative shrink-0"

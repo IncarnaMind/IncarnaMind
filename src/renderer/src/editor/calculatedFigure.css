@@ -48,6 +48,10 @@
   font-size: 12px;
   color: var(--color-ink-meta);
 }
+/* A calculated figure the core's own check stands behind reads as a found Citation does. */
+.calculated-figure-state[data-state="supported"] {
+  color: var(--color-success);
+}
 .calculated-figure-formula {
   margin: 12px 0;
   padding: 10px 12px;

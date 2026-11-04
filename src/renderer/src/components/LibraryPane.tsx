@@ -6,6 +6,7 @@ import { useComposer } from "../composer";
 import { LIBRARY_DELETED } from "../deletedItems";
 import { errorMessage, providerErrorText } from "../errors";
 import { useFindSources } from "../findSources";
+import { folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import {
   type FilterSelection,
@@ -21,6 +22,7 @@ import {
 import { useLibraryFolds } from "../libraryFolds";
 import {
   folderFacet,
+  listedDocumentIds,
   NOT_IN_A_FOLDER,
   problemOf,
   problemText,
@@ -29,11 +31,13 @@ import {
   sectionShows,
   sectionsOf,
   sourceFacet,
+  treeCounts,
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
+import { looseDocumentIds, organizeDocuments, useProposing } from "../organizeDocuments";
 import { organizeStateOf } from "../organizeOutcome";
-import { ownsATag, useLibraryDocuments } from "../ownDocuments";
+import { DAY_ONE_DOCUMENTS, ownsATag, useLibraryDocuments, useOwnDocuments } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -181,6 +185,40 @@ export function LibraryPane() {
     () => sectionsOf(folders, ordered, folderOf, narrowing),
     [folders, ordered, folderOf, narrowing],
   );
+  // Each Folder's own Documents, in the page's order, and how many it holds with its sub-Folders.
+  const byFolder = useMemo(() => {
+    const map = new Map<string, Document[]>();
+    for (const doc of ordered) {
+      const id = folderOf(doc.id);
+      if (id === null) continue;
+      const list = map.get(id);
+      if (list) list.push(doc);
+      else map.set(id, [doc]);
+    }
+    return map;
+  }, [ordered, folderOf]);
+  const documentsOf = useCallback(
+    (folderId: string) => byFolder.get(folderId) ?? NO_DOCUMENTS,
+    [byFolder],
+  );
+  const counts = useMemo(
+    () =>
+      treeCounts(
+        folders,
+        ordered.flatMap((doc) => {
+          const id = folderOf(doc.id);
+          return id === null ? [] : [{ folderId: id }];
+        }),
+      ),
+    [folders, ordered, folderOf],
+  );
+  const pathOf = useCallback(
+    (documentId: string) => {
+      const id = folderOf(documentId);
+      return id === null ? null : folderPathLabel(folders, id);
+    },
+    [folders, folderOf],
+  );
   const folded = useLibraryFolds((state) => state.folded);
   const reviewOpen = useLibraryFolds((state) => state.reviewOpen);
   const states = useMemo(() => {
@@ -220,6 +258,23 @@ export function LibraryPane() {
     () => documents.length > 0 && documents.every((doc) => states.get(doc.id)?.place === "sorted"),
     [documents, states],
   );
+  // 8 or more loose Documents of the User's own and no Folder yet: sorting them is the page's
+  // one primary action (#1942). It runs here, and one Undo takes back the suggestions and the
+  // Folders it made. The example's own Documents are not counted: they are never sorted.
+  const ownDocuments = useOwnDocuments();
+  const looseOwn = useMemo(
+    () => ownDocuments.filter((document) => folderOf(document.id) === null).length,
+    [ownDocuments, folderOf],
+  );
+  const proposing = useProposing((state) => state.proposing);
+  const organizing = proposing || [...states.values()].some((state) => state.run === "working");
+  const sortIntoFolders =
+    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing
+      ? () =>
+          organizeDocuments(looseDocumentIds(useAppStore.getState())).catch(
+            useAppStore.getState().reportError,
+          )
+      : null;
   const review = useMemo(
     () => toReviewOf(ordered, folders, snapshot?.assignments ?? []),
     [ordered, folders, snapshot?.assignments],
@@ -234,12 +289,18 @@ export function LibraryPane() {
       reviewing && reviewOpen ? [...reviewIds(review), ...notSorted.map((doc) => doc.id)] : [],
     [review, reviewing, reviewOpen, notSorted],
   );
+  const subOpen = useLibraryFolds((state) => state.subOpen);
   const shownIds = useMemo(
     () =>
-      sections.flatMap((section) =>
-        folded.has(section.key) ? [] : section.documents.map((doc) => doc.id),
-      ),
-    [sections, folded],
+      listedDocumentIds({
+        sections,
+        folders,
+        documentsOf,
+        folded,
+        subOpen,
+        narrowing,
+      }),
+    [sections, folders, documentsOf, folded, subOpen, narrowing],
   );
   // ⌘A and Shift-click reach every row in an open section, drawn or not; in To review, its own.
   const inReview = useRef(false);
@@ -265,7 +326,7 @@ export function LibraryPane() {
     (documentId: string) => {
       if (!states.get(documentId)?.suggested) return null;
       const folderId = assignments.get(documentId)?.groupId;
-      return groups.find((group) => group.id === folderId)?.name ?? null;
+      return folderId ? folderPathLabel(groups, folderId) : null;
     },
     [states, assignments, groups],
   );
@@ -310,7 +371,15 @@ export function LibraryPane() {
       useDeleted.getState().items?.length ?? null,
     );
     // A section that isn't there would be scrolled to whenever it appeared later.
-    if (shows) useLibraryFolds.getState().reveal(key);
+    if (shows) {
+      const groupsNow = library?.groups ?? [];
+      const parentOf = (id: string) => groupsNow.find((group) => group.id === id)?.parentId ?? null;
+      if (key !== NOT_IN_A_FOLDER && parentOf(key) !== null) {
+        useLibraryFolds.getState().revealFolder(key, parentOf);
+      } else {
+        useLibraryFolds.getState().reveal(key);
+      }
+    }
     useAppStore.setState({ libraryFilter: "all" });
   }, [request]);
 
@@ -354,6 +423,8 @@ export function LibraryPane() {
             notSorted={notSortedCount}
             sorted={allSorted}
             onReview={() => useAppStore.getState().openLibrary("review")}
+            onSortIntoFolders={sortIntoFolders}
+            sorting={organizing}
             search={search}
             onSearch={setSearch}
             onEnter={askAbout}
@@ -462,6 +533,10 @@ export function LibraryPane() {
                     section={section}
                     narrowing={narrowing}
                     matches={matches}
+                    folders={folders}
+                    counts={counts}
+                    documentsOf={documentsOf}
+                    pathOf={pathOf}
                     suggestedOf={suggestedOf}
                     notSortedOf={notSortedOf}
                     sortFailedOf={sortFailedOf}

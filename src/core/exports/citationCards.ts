@@ -7,6 +7,7 @@ import {
   type CitationState,
   citationState,
   citedLocation,
+  citedName,
   citedTextKept,
   shownDocumentName,
 } from "../../shared/citations";
@@ -23,6 +24,7 @@ import {
 } from "../../shared/units";
 import type { CitationAttributes, CitationCheck, KeptCitationText } from "../api";
 import { looksLikeHeader } from "../documents/formats/grid";
+import type { Language } from "../language";
 
 export interface CardRun {
   text: string;
@@ -38,7 +40,7 @@ export type CardContent =
   | { kind: "passage"; runs: CardRun[]; address: string | null }
   | { kind: "cells"; columns: string[]; rows: { label: string; cells: CardCell[] }[] }
   | { kind: "lines"; lines: { time: string; speaker: string | null; runs: CardRun[] }[] }
-  | { kind: "quote"; text: string; scan: boolean }
+  | { kind: "quote"; text: string; from: "scan" | "picture" | null }
   /** The page's `picture`, in pixels twice its size on the page. */
   | {
       kind: "picture";
@@ -68,6 +70,8 @@ export interface CitationCard {
 }
 
 export interface CardSources {
+  /** The interface language, for a snapshot's "Your note: …, 12 Oct". */
+  language: Language;
   documents: readonly SourceDocument[];
   kept: readonly KeptCitationText[];
   /** The stored text of the Units a Citation cites, of the version it quotes; empty once it is gone. */
@@ -84,11 +88,18 @@ const MAX_LINES = 6;
 
 export function citationCard(
   attributes: Partial<CitationAttributes>,
-  { documents, kept, units, t }: CardSources,
+  { language, documents, kept, units, t }: CardSources,
 ): CitationCard {
   const state = knownCheck(citationState(attributes, documents, kept));
   const quote = attributes.quote?.trim() ?? "";
-  const name = shownDocumentName(attributes, documents) || t("export.unnamedDocument");
+  const name = citedName(
+    {
+      ...attributes,
+      documentName: shownDocumentName(attributes, documents) || t("export.unnamedDocument"),
+    },
+    t,
+    language,
+  );
   const location = citedLocation(attributes, t);
   const placed = location !== null && (state.check === "found" || state.check === "not-found");
   const spokenLocation = citedLocation(attributes, spoken(t));
@@ -156,13 +167,13 @@ function contentOf(
   t: Translate,
 ): CardContent {
   const first = units[0];
-  if (!first)
-    return kept ? { kind: "quote", text: quote, scan: false } : { kind: "missing", quote };
+  if (!first) return kept ? { kind: "quote", text: quote, from: null } : { kind: "missing", quote };
   const kind = first.kind ?? "page";
+  const read = units.flatMap((unit) => (unit.label?.scan ? [unit.label.scan] : []));
   const asText: CardContent = {
     kind: "quote",
     text: quote,
-    scan: units.some((unit) => unit.label?.scan !== undefined),
+    from: read.some((scan) => !scan.picture) ? "scan" : read.length > 0 ? "picture" : null,
   };
   if (kind === "page" || kind === "slide" || quote === "") return asText;
   const ranges = quoteInUnits(units, quote);

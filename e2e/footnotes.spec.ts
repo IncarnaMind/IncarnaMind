@@ -397,6 +397,48 @@ test("in Chinese: footnotes typed with an input method number together with an A
   await app.close();
 });
 
+test("two Citations of one page show that page's one footnote number, as Word numbers it (#2292)", async () => {
+  await writeFile(join(sources, "Tides.pdf"), TIDES);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1100, 760);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await editor.click();
+  await addToNote(window, await askInAssistant(window, "When do spring tides happen?"));
+  const chip = editor.getByTestId("citation").first().getByTestId("citation-chip");
+  await expect(chip).toHaveText("1");
+
+  // The same page cited again, in a paragraph of its own: the same footnote's number, not the next.
+  const copied = await editor.evaluate((dom) => {
+    const { view } = (dom as unknown as { editor: Editor }).editor;
+    let at = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (at < 0 && node.type.name === "citation") at = pos;
+    });
+    return view.serializeForClipboard(view.state.doc.slice(at, at + 1)).dom.innerHTML;
+  });
+  await clickEndOf(window, editor.locator(":scope > p").last());
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("Spring tides come at new moon and at full moon.");
+  await editor.evaluate(
+    (dom, html) => (dom as unknown as { editor: Editor }).editor.view.pasteHTML(html),
+    copied,
+  );
+  await expect(editor.getByTestId("citation-chip")).toHaveText(["1", "1"]);
+  await screenshot(window, "citations-same-page-en");
+
+  // The Word file holds that one footnote, the second mark a cross-reference to it.
+  const files = unzip(await bridge(window).exportDocx());
+  expect(footnotesOf(part(files, "word/footnotes.xml"))).toEqual({
+    "1": "Tides, p. 2",
+  });
+  expect(part(files, "word/document.xml")).toContain("NOTEREF");
+  await app.close();
+});
+
 for (const motion of ["on", "off"] as const) {
   test(`a Citation's card opened in a footnote closes before the footnote, and only it moves (motion ${motion})`, async () => {
     await writeFile(join(sources, "Tides.pdf"), TIDES);

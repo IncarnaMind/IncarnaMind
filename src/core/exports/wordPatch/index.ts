@@ -27,6 +27,7 @@ import {
   FOOTNOTE_NODE,
   type FormattedCitations,
   IMAGE_NODE,
+  type MindComment,
   PAGE_BREAK_NODE,
   TABLE_OF_CONTENTS_NODE,
   WORD_ATOM_NODE,
@@ -44,10 +45,12 @@ import {
   plainText,
   type ReadOptions,
   readBlock,
+  readBlocks,
   readInlineNodes,
 } from "../../mindText";
 import { type ContentsEntry, DocxWriter } from "../docx";
 import type { ExportLabels } from "../labels";
+import { noteChecks } from "../noteChecks";
 import { Review, type ReviewChoices } from "../wordReview";
 import { AtomPlan, copiedText } from "./atoms";
 import { styleWritten, type Written } from "./citations";
@@ -65,6 +68,7 @@ import { RELATIONSHIP_TYPES, WordPackageWriter, WordPartError } from "./package"
 import { currentTokens, sourceOf as keptSourceOf, type Token } from "./paragraph";
 import {
   DocumentComments,
+  DocumentCommentsExtended,
   DocumentFootnotes,
   DocumentNumbering,
   DocumentStyles,
@@ -93,6 +97,8 @@ export interface WordPatchInput {
   withPictures(blocks: Block[]): Promise<Block[]>;
   /** What the file says for review (#107). */
   review: ReviewChoices;
+  /** The Mind's comments (#328), written back into the file with their threads and resolved state. */
+  comments?: readonly MindComment[];
 }
 
 export interface WordPatchResult {
@@ -107,6 +113,34 @@ export interface WordPatchResult {
 
 /** The text width a section leaves, in twips, for new tables and pictures: US Letter's with 1 inch margins if it doesn't say. */
 const DEFAULT_WIDTH = 9360;
+
+/**
+ * The comments whose words the Mind no longer has (#328): the text they were
+ * on was deleted, so the file can't keep their range. The User hears of each
+ * before saving, as the file's own comment on a deleted paragraph.
+ */
+function commentLosses(
+  blocks: readonly NodeJSON[],
+  comments: readonly MindComment[],
+): WordExportLoss[] {
+  const marked = new Set<string>();
+  const visit = (node: NodeJSON) => {
+    for (const mark of node.marks ?? []) {
+      const id = mark.type === "comment" ? mark.attrs?.id : undefined;
+      if (typeof id === "string") marked.add(id);
+    }
+    for (const each of node.content ?? []) visit(each);
+  };
+  for (const block of blocks) visit(block);
+  return comments
+    .filter((comment) => !marked.has(comment.id))
+    .map((comment) => ({
+      key: `comment:${comment.id}`,
+      kind: "comment" as const,
+      author: comment.author,
+      text: comment.text.slice(0, 120),
+    }));
+}
 
 /** Content types IncarnaMind knows a Word package to have: a part of any other is listed as unknown. */
 const KNOWN_TYPES = [
@@ -207,6 +241,11 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   const numbering = await DocumentNumbering.read(writer, pkg.part, documentRelationships);
   const footnotes = await DocumentFootnotes.read(writer, pkg.part, documentRelationships);
   const comments = await DocumentComments.read(writer, pkg.part, documentRelationships);
+  const commentsExtended = await DocumentCommentsExtended.read(
+    writer,
+    pkg.part,
+    documentRelationships,
+  );
   const target = new PatchTarget(
     writer,
     pkg.part,
@@ -219,7 +258,13 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   const bookmarks = new Set<string>();
   await reserveIds(writer, target.ids, bookmarks);
   target.reserveBookmarks(bookmarks);
-  const review = new Review(input.review, target.ids, input.labels, () => target.styles.comment);
+  const review = new Review(
+    input.review,
+    target.ids,
+    input.labels,
+    () => target.styles.comment,
+    input.comments ?? [],
+  );
   // The headings the file now holds, an added table of contents' entries. Each gets a bookmark
   // in its paragraph, with a name that can't take one the file already has; the field's links
   // name those bookmarks, and Word is asked to update the field as it opens.
@@ -261,6 +306,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     review,
     [],
     contents,
+    noteChecks(readBlocks(input.blocks, input.readOptions)),
   );
   const bookmarkOf = (node: NodeJSON) => {
     const id = node.attrs?.id;
@@ -432,11 +478,23 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   footnotes.add(docxWriter.footnotes);
   await footnotes.flush();
   await comments.flush(review.comments);
+  await commentsExtended.flush(review.extended);
   await target.flush();
   if (hasContents(current)) await enableUpdateFields(writer, pkg.part);
 
   const report: WordExportReport = {
-    notKept: [...plan.losses, ...patch.losses],
+    notKept: [
+      ...plan.losses,
+      ...patch.losses,
+      // Tracking keeps a deleted paragraph in the file, the file's own comment's range with it; a
+      // comment made here has no range in the original, so it is reported even when tracking is on.
+      ...commentLosses(
+        current,
+        input.review.trackAs === null
+          ? (input.comments ?? [])
+          : (input.comments ?? []).filter((comment) => comment.word === undefined),
+      ),
+    ],
     unknownParts: await unknownParts(writer),
     keptFurniture: keptFurniture(base.structure.blocks, current),
   };

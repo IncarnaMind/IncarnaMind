@@ -12,6 +12,7 @@ import {
   type MovedDocument,
   type WindowLayout,
 } from "../../src/core/api";
+import { saidInLine } from "../../src/renderer/src/lineNames";
 import type { Translate } from "../../src/renderer/src/objects";
 import { translate } from "../../src/shared/i18n";
 import { isFreed } from "../helpers/freed";
@@ -49,6 +50,12 @@ const bridge = new Proxy(
 function emit<E extends CoreEventName>(event: E, payload: CoreEvents[E]) {
   for (const listener of listeners.get(event) ?? []) listener(payload);
 }
+
+/** The preload's file side: where a dropped file is, and what the system's open dialog gives. */
+const filesBridge = {
+  pathForFile: (file: File) => `/picked/${file.name}`,
+  pickDocuments: vi.fn(async () => [] as string[]),
+};
 
 const method = (name: string) => {
   // Reading it through the bridge makes it if it isn't there yet.
@@ -108,6 +115,7 @@ const researchGroup = (keepInside = false) => ({
   id: "g",
   name: "Research",
   description: "",
+  parentId: null,
   countsOwnFiles: false,
   keepInside,
   createdAt: "",
@@ -137,7 +145,7 @@ beforeAll(async () => {
   vi.useFakeTimers();
   (globalThis as unknown as { window: unknown }).window = {
     incarnamind: bridge,
-    incarnamindFiles: {},
+    incarnamindFiles: filesBridge,
   };
   ({ useAppStore } = await import("../../src/renderer/src/store"));
   ({ translateNow: words } = await import("../../src/renderer/src/i18n"));
@@ -157,6 +165,7 @@ beforeEach(() => {
   // A quiet spell, so each test starts with nothing waiting.
   vi.advanceTimersByTime(1000);
   for (const each of methods.values()) each.mockReset();
+  filesBridge.pickDocuments.mockReset();
   method("restore").mockResolvedValue({ audioLost: [], audioExpired: [] });
   useAppStore.setState({
     documents: [doc("a"), doc("b"), doc("c")],
@@ -320,9 +329,10 @@ describe("changes the User can take back", () => {
     updatedAt: "",
   };
   let useUndo: typeof import("../../src/renderer/src/undo").useUndo;
+  let undoSettled: typeof import("../../src/renderer/src/undo").undoSettled;
 
   beforeAll(async () => {
-    ({ useUndo } = await import("../../src/renderer/src/undo"));
+    ({ useUndo, undoSettled } = await import("../../src/renderer/src/undo"));
   });
 
   beforeEach(() => {
@@ -402,7 +412,38 @@ describe("changes the User can take back", () => {
       conversations: [],
     });
     await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, null);
-    expect(said(top())).toContain("no longer limited to that Folder’s Documents and notes");
+    expect(said(top())).toContain("No longer kept inside “Research”.");
+  });
+
+  test("a Document moved behind the same wall says nothing", async () => {
+    const group = researchGroup(true);
+    const inner = { ...researchGroup(), id: "inner", name: "Inner", parentId: "g" };
+    const filed = assignment("a", "classified", "g");
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [group, inner] } });
+    method("moveToFolder").mockResolvedValue({
+      folderId: "inner",
+      minds: [],
+      documents: [movedDocument("a", "g", filed, "inner")],
+      conversations: [],
+    });
+    await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, "inner");
+    expect(said(top())).not.toContain("kept inside");
+  });
+
+  test("moving into a walled Folder says it is kept inside it now", async () => {
+    const group = researchGroup(true);
+    useAppStore.setState({ library: { ...snapshot([]), groups: [group] } });
+    method("moveToFolder").mockResolvedValue({
+      folderId: "g",
+      minds: [],
+      documents: [movedDocument("a", null, null, "g")],
+      conversations: [],
+    });
+    await useAppStore.getState().moveToFolder({ documentIds: ["a"] }, "g");
+    expect(said(top())).toContain("Now kept inside “Research”.");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toContain(
+      "现在仅在“Research”内使用。",
+    );
   });
 
   test("making a Folder with an item from a walled Folder says it moved out", async () => {
@@ -417,7 +458,7 @@ describe("changes the User can take back", () => {
       conversations: [],
     });
     await useAppStore.getState().createFolder({ documentIds: ["a"] }, "New");
-    expect(said(top())).toContain("no longer limited to that Folder’s Documents and notes");
+    expect(said(top())).toContain("No longer kept inside “Research”.");
   });
 
   test("a rename says so, is undone by the old name and done again by the new", async () => {
@@ -430,6 +471,120 @@ describe("changes the User can take back", () => {
     await useUndo.getState().redo();
     expect(method("renameMind")).toHaveBeenLastCalledWith("m", "Budget");
   });
+
+  // protects=an Undo that reaches an older add of Documents says on the undo line which it took out, with Redo, in English and Chinese, and Redo brings back the very Documents it took (#2402); fails_when=the Documents leave with no line, the line has no Redo, or Redo adds them again as new ones; no_claim=how the core restores them.
+  test.each([
+    { language: "en", added: "Added 3 Documents", removed: "Removed 3 Documents", redo: "Redo" },
+    { language: "zh-CN", added: "已添加 3 个文档", removed: "已移除 3 个文档", redo: "重做" },
+  ] as const)(
+    "an Undo that reaches an older add says which Documents it took out, and its Redo brings the same ones back ($language)",
+    async ({ language, added, removed, redo }) => {
+      useAppStore.setState({ settings: { language } as never });
+      const brought = [doc("x"), doc("y"), doc("z")];
+      method("addDocuments").mockResolvedValue({
+        documents: brought,
+        skipped: [],
+        added: ["x", "y", "z"],
+      });
+      method("listDocuments").mockResolvedValue(brought);
+      await useAppStore.getState().addPaths(["/s/x.txt", "/s/y.txt", "/s/z.txt"]);
+      expect(said(top())).toBe(added);
+      expect(ids()).toEqual(["z", "y", "x", "a", "b", "c"]);
+      // A later change in the note, taken back: the next ⌘Z reaches the add.
+      useUndo.getState().push({
+        said: () => "Changed to what the Document says",
+        undo: async () => undefined,
+        redo: async () => undefined,
+      });
+      await useUndo.getState().undo();
+      await useUndo.getState().undo();
+
+      expect(method("deleteDocument").mock.calls).toEqual([["x"], ["y"], ["z"]]);
+      expect(ids()).toEqual(["a", "b", "c"]);
+      const told = useUndo.getState().line?.told;
+      expect(told && saidInLine(words, told.says).message).toBe(removed);
+      expect(told?.action?.label(words)).toBe(redo);
+
+      told?.action?.run();
+      await undoSettled();
+      expect(method("restore")).toHaveBeenCalledWith([
+        { kind: "document", id: "x" },
+        { kind: "document", id: "y" },
+        { kind: "document", id: "z" },
+      ]);
+      expect(said(useUndo.getState().line?.change)).toBe(added);
+    },
+  );
+
+  // protects=an Undo of an add that finds one of its Documents deleted since says it took out the one it did, and its Redo line says the same count (#2402); fails_when=the line counts the Documents first added, or says it removed none; no_claim=which Documents count as the add's own.
+  test("an Undo of an add that finds one of its Documents deleted since says the one it took, and Redo says the same", async () => {
+    const brought = [doc("x"), doc("y")];
+    method("addDocuments").mockResolvedValue({
+      documents: brought,
+      skipped: [],
+      added: ["x", "y"],
+    });
+    await useAppStore.getState().addPaths(["/s/x.txt", "/s/y.txt"]);
+    expect(said(top())).toBe("Added 2 Documents");
+    method("listDocuments").mockResolvedValue([doc("y")]);
+    await useUndo.getState().undo();
+    expect(method("deleteDocument").mock.calls).toEqual([["y"]]);
+    const told = useUndo.getState().line?.told;
+    expect(told && saidInLine(words, told.says).message).toBe("Removed 1 Document");
+    await useUndo.getState().redo();
+    expect(method("restore")).toHaveBeenCalledWith([{ kind: "document", id: "y" }]);
+    expect(said(useUndo.getState().line?.change)).toBe("Added 1 Document");
+  });
+
+  // protects=an add whose Documents were all deleted before its Undo leaves nothing to redo, so ⇧⌘Z never says it added them (#2402); fails_when=Redo restores nothing yet says "Added 2 Documents · Undo", or the Edit menu offers to redo it; no_claim=which Documents count as the add's own.
+  test("an add whose Documents were all deleted since: its Undo takes nothing, and leaves no Redo that says it added them", async () => {
+    const brought = [doc("x"), doc("y")];
+    method("addDocuments").mockResolvedValue({
+      documents: brought,
+      skipped: [],
+      added: ["x", "y"],
+    });
+    await useAppStore.getState().addPaths(["/s/x.txt", "/s/y.txt"]);
+    expect(said(top())).toBe("Added 2 Documents");
+    method("listDocuments").mockResolvedValue([]);
+    await useUndo.getState().undo();
+    expect(method("deleteDocument")).not.toHaveBeenCalled();
+    expect(useUndo.getState().line).toBeNull();
+    expect(useUndo.getState().undone).toEqual([]);
+    await useUndo.getState().redo();
+    expect(method("restore")).not.toHaveBeenCalled();
+    expect(useUndo.getState().line).toBeNull();
+  });
+
+  // protects=an Undo of Link a folder, whose Documents leave the Library with it, says so on the undo line with Redo, in English and Chinese (#2402); fails_when=the folder's Documents leave with no line; no_claim=how the core unlinks it.
+  test.each([
+    { language: "en", unlinked: "Unlinked “Deals”" },
+    { language: "zh-CN", unlinked: "已移除关联文件夹“Deals”" },
+  ] as const)(
+    "an Undo of Link a folder says it unlinked it, and its Redo links it again ($language)",
+    async ({ language, unlinked }) => {
+      useAppStore.setState({ settings: { language } as never });
+      const { folderLinked } = await import("../../src/renderer/src/changes");
+      const log: string[] = [];
+      useUndo.getState().push(
+        folderLinked(
+          () => "Deals",
+          async () => {
+            log.push("unlink");
+          },
+          async () => {
+            log.push("link");
+          },
+        ),
+      );
+      await useUndo.getState().undo();
+      const told = useUndo.getState().line?.told;
+      expect(told && saidInLine(words, told.says).message).toBe(unlinked);
+      told?.action?.run();
+      await undoSettled();
+      expect(log).toEqual(["unlink", "link"]);
+    },
+  );
 
   test("a delete asks nothing, says it went to Recently deleted, is undone by restoring it and done again", async () => {
     await useAppStore.getState().deleteDocuments(["a"]);
@@ -777,6 +932,100 @@ describe("changes the User can take back", () => {
     );
     expect(zh.said(top())).toBe("已恢复 2 项，但部分会议音频已不在这台电脑上，无法恢复。");
   });
+
+  test("a Folder restored to the top level out of a wall says it is no longer limited", async () => {
+    const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");
+    const client = { ...researchGroup(true), id: "client", name: "Client A" };
+    const chapter = {
+      ...researchGroup(),
+      id: "chapter",
+      name: "Chapter 2",
+      parentId: "client",
+    };
+    useAppStore.setState({
+      library: { ...snapshot([]), groups: [], deletedGroups: [client, chapter] },
+    });
+    method("listDeleted").mockResolvedValue([]);
+    const item = {
+      kind: "folder",
+      id: "chapter",
+      name: "Chapter 2",
+      deletedAt: "2026-10-06T09:00:00.000Z",
+      documentKind: null,
+      groupId: null,
+      linkedFolderId: null,
+    } as const;
+
+    method("restore").mockResolvedValue({ audioLost: [], audioExpired: [] });
+    await restoreItems([item]);
+    expect(said(top())).toBe("Restored “Chapter 2”");
+
+    method("restore").mockResolvedValue({
+      audioLost: [],
+      audioExpired: [],
+      toTopLevel: ["chapter"],
+    });
+    await restoreItems([item]);
+    expect(said(top())).toBe("Restored “Chapter 2”. No longer kept inside “Client A”.");
+    expect(undoLines((key, params) => translate("zh-CN", key, params)).said(top())).toBe(
+      "已恢复“Chapter 2”。不再仅在“Client A”内使用。",
+    );
+  });
+
+  test("restoring a walled sub-Folder to the top level says nothing: it keeps its own wall", async () => {
+    const { restoreItems } = await import("../../src/renderer/src/recentlyDeleted");
+    const client = { ...researchGroup(true), id: "client", name: "Client A" };
+    const chapter = {
+      ...researchGroup(true),
+      id: "chapter",
+      name: "Chapter 2",
+      parentId: "client",
+    };
+    useAppStore.setState({
+      library: { ...snapshot([]), groups: [], deletedGroups: [client, chapter] },
+    });
+    method("listDeleted").mockResolvedValue([]);
+    method("restore").mockResolvedValue({
+      audioLost: [],
+      audioExpired: [],
+      toTopLevel: ["chapter"],
+    });
+
+    await restoreItems([
+      {
+        kind: "folder",
+        id: "chapter",
+        name: "Chapter 2",
+        deletedAt: "2026-10-06T09:00:00.000Z",
+        documentKind: null,
+        groupId: null,
+        linkedFolderId: null,
+      },
+    ]);
+    expect(said(top())).toBe("Restored “Chapter 2”");
+  });
+});
+
+describe("files added into a Folder (#212)", () => {
+  const addedNothing = { documents: [], skipped: [], added: [] };
+
+  // protects=a Finder drop on a Folder and Add Documents here… file the new Documents in it, while a drop on the window files none (#212); fails_when=the core is given no groupId, or the window's own add is given one; no_claim=how the core files them.
+  test("a drop on a Folder and the Folder's own add give the core its groupId; the window's add gives none", async () => {
+    method("addDocuments").mockResolvedValue(addedNothing);
+    const budget = new File(["budget"], "Budget.txt");
+
+    await useAppStore.getState().addDropped([budget], [], "f");
+    expect(method("addDocuments").mock.calls).toEqual([[["/picked/Budget.txt"], { groupId: "f" }]]);
+
+    method("addDocuments").mockClear();
+    await useAppStore.getState().addDropped([budget], []);
+    expect(method("addDocuments").mock.calls).toEqual([[["/picked/Budget.txt"], undefined]]);
+
+    method("addDocuments").mockClear();
+    filesBridge.pickDocuments.mockResolvedValue(["/picked/Picked.txt"]);
+    await useAppStore.getState().pickDocumentsIntoFolder("f");
+    expect(method("addDocuments").mock.calls).toEqual([[["/picked/Picked.txt"], { groupId: "f" }]]);
+  });
 });
 
 describe("making a Mind", () => {
@@ -850,6 +1099,7 @@ describe("making a Mind", () => {
           ],
           focusedGroupId: "group",
           reopenable: 0,
+          conversationId: null,
           assistant: DEFAULT_ASSISTANT,
         } satisfies WindowLayout,
       });
@@ -1062,6 +1312,7 @@ describe("making a Folder", () => {
     id: "n",
     name: "Untitled Folder",
     description: "",
+    parentId: null,
     countsOwnFiles: false,
     keepInside: false,
     createdAt: "",
@@ -1346,6 +1597,218 @@ describe("making a Folder", () => {
   });
 });
 
+describe("moving Folders", () => {
+  const folder = (id: string, name: string, parentId: string | null, keepInside = false) => ({
+    id,
+    name,
+    description: "",
+    parentId,
+    countsOwnFiles: false,
+    keepInside,
+    createdAt: "",
+    updatedAt: "",
+  });
+  let useUndo: typeof import("../../src/renderer/src/undo").useUndo;
+
+  beforeAll(async () => {
+    ({ useUndo } = await import("../../src/renderer/src/undo"));
+  });
+
+  beforeEach(() => {
+    useUndo.setState({ done: [], undone: [], line: null });
+    useAppStore.setState({ settings: { language: "en" } as never });
+  });
+
+  test("a Folder moved out of a wall says so, and one Undo puts it back", async () => {
+    const client = folder("client", "Client A", null, true);
+    const drafts = folder("drafts", "Drafts", "client");
+    const library = { ...snapshot([]), groups: [client, drafts] };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["drafts"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [client, { ...drafts, parentId: null }],
+    });
+
+    await useAppStore.getState().moveFolders(["drafts"], null);
+
+    expect(method("moveLibraryGroups")).toHaveBeenCalledWith([{ id: "drafts", parentId: null }]);
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved the Folder “Drafts” out of “Client A”. No longer kept inside “Client A”.",
+    );
+    expect(
+      undoLines((key, params) => translate("zh-CN", key, params)).said(
+        useUndo.getState().done.at(-1),
+      ),
+    ).toBe("已将文件夹“Drafts”移出“Client A”。不再仅在“Client A”内使用。");
+    await useUndo.getState().undo();
+    expect(method("moveLibraryGroups")).toHaveBeenLastCalledWith([
+      { id: "drafts", parentId: "client" },
+    ]);
+  });
+
+  test("a Folder moved into a wall says so", async () => {
+    const client = folder("client", "Client A", null, true);
+    const drafts = folder("drafts", "Drafts", null);
+    const library = { ...snapshot([]), groups: [client, drafts] };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["drafts"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [client, { ...drafts, parentId: "client" }],
+    });
+
+    await useAppStore.getState().moveFolders(["drafts"], "client");
+
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved the Folder “Drafts” into “Client A”. Now kept inside “Client A”.",
+    );
+  });
+
+  test("a move out of a wall names the wall, and a move between walls is one sentence", async () => {
+    const clientA = folder("a", "Client A", null, true);
+    const clientB = folder("b", "Client B", null, true);
+    const drafts = folder("drafts", "Drafts", "a");
+    const loose = folder("loose", "Loose", null);
+    const library = { ...snapshot([]), groups: [clientA, clientB, drafts, loose] };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["loose"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [clientA, clientB, drafts, { ...loose, parentId: "b" }],
+    });
+    const zh = undoLines((key, params) => translate("zh-CN", key, params));
+
+    await useAppStore.getState().moveFolders(["loose"], "b");
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved the Folder “Loose” into “Client B”. Now kept inside “Client B”.",
+    );
+    expect(zh.said(useUndo.getState().done.at(-1))).toBe(
+      "已将文件夹“Loose”移入“Client B”。现在仅在“Client B”内使用。",
+    );
+
+    method("moveLibraryGroups").mockResolvedValue(["drafts"]);
+    await useAppStore.getState().moveFolders(["drafts"], "b");
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved the Folder “Drafts” into “Client B”. Now kept inside “Client B”, no longer inside “Client A”.",
+    );
+    expect(zh.said(useUndo.getState().done.at(-1))).toBe(
+      "已将文件夹“Drafts”移入“Client B”。现在仅在“Client B”内使用，不再在“Client A”内。",
+    );
+  });
+
+  test("a move behind the same wall says nothing, and a wall inside a Folder is named by its path", async () => {
+    const clientA = folder("a", "Client A", null, true);
+    const privateFolder = folder("private", "Private", "a", true);
+    const drafts = folder("drafts", "Drafts", "a");
+    const archive = folder("archive", "Archive", "a");
+    const library = {
+      ...snapshot([]),
+      groups: [clientA, privateFolder, drafts, archive],
+    };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["drafts"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [clientA, privateFolder, drafts, archive],
+    });
+
+    await useAppStore.getState().moveFolders(["drafts"], "archive");
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved the Folder “Drafts” into “Client A › Archive”",
+    );
+    expect(
+      undoLines((key, params) => translate("zh-CN", key, params)).said(
+        useUndo.getState().done.at(-1),
+      ),
+    ).toBe("已将文件夹“Drafts”移入“Client A › Archive”");
+
+    method("moveLibraryGroups").mockResolvedValue(["drafts"]);
+    await useAppStore.getState().moveFolders(["drafts"], "private");
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved the Folder “Drafts” into “Client A › Private”. Now kept inside “Client A › Private”, no longer inside “Client A”.",
+    );
+  });
+
+  test("a move of several Folders between walls says one sentence", async () => {
+    const clientA = folder("a", "Client A", null, true);
+    const clientB = folder("b", "Client B", null, true);
+    const clientC = folder("c", "Client C", null, true);
+    const drafts = folder("drafts", "Drafts", "a");
+    const notes = folder("notes", "Notes", "b");
+    const library = {
+      ...snapshot([]),
+      groups: [clientA, clientB, clientC, drafts, notes],
+    };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["drafts", "notes"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [
+        clientA,
+        clientB,
+        clientC,
+        { ...drafts, parentId: "c" },
+        { ...notes, parentId: "c" },
+      ],
+    });
+    const zh = undoLines((key, params) => translate("zh-CN", key, params));
+
+    await useAppStore.getState().moveFolders(["drafts", "notes"], "c");
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved 2 Folders into “Client C”. Now kept inside “Client C”, no longer inside “Client A” and 1 other Folder.",
+    );
+    expect(zh.said(useUndo.getState().done.at(-1))).toBe(
+      "已将 2 个文件夹移入“Client C”。现在仅在“Client C”内使用，不再在“Client A”等 2 个文件夹内。",
+    );
+  });
+
+  test("a move out of several walls names the first and counts the rest", async () => {
+    const clientA = folder("a", "Client A", null, true);
+    const clientB = folder("b", "Client B", null, true);
+    const drafts = folder("drafts", "Drafts", "a");
+    const notes = folder("notes", "Notes", "b");
+    const library = { ...snapshot([]), groups: [clientA, clientB, drafts, notes] };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["drafts", "notes"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [clientA, clientB, { ...drafts, parentId: null }, { ...notes, parentId: null }],
+    });
+    const zh = undoLines((key, params) => translate("zh-CN", key, params));
+
+    await useAppStore.getState().moveFolders(["drafts", "notes"], null);
+    expect(said(useUndo.getState().done.at(-1))).toBe(
+      "Moved 2 Folders to the top level. No longer kept inside “Client A” and 1 other Folder.",
+    );
+    expect(zh.said(useUndo.getState().done.at(-1))).toBe(
+      "已将 2 个文件夹移到顶层。不再仅在“Client A”等 2 个文件夹内使用。",
+    );
+  });
+
+  test("a sub-Folder selected with its parent goes with it: one call, one Undo", async () => {
+    const thesis = folder("thesis", "Thesis", null);
+    const chapter = folder("chapter", "Chapter 2", "thesis");
+    const archive = folder("archive", "Archive", null);
+    const library = { ...snapshot([]), groups: [thesis, chapter, archive] };
+    useAppStore.setState({ library });
+    method("moveLibraryGroups").mockResolvedValue(["thesis"]);
+    method("getLibrary").mockResolvedValue({
+      ...library,
+      groups: [{ ...thesis, parentId: "archive" }, chapter, archive],
+    });
+
+    await useAppStore.getState().moveFolders(["thesis", "chapter"], "archive");
+
+    expect(method("moveLibraryGroups")).toHaveBeenCalledTimes(1);
+    expect(method("moveLibraryGroups")).toHaveBeenCalledWith([
+      { id: "thesis", parentId: "archive" },
+    ]);
+    expect(useUndo.getState().done).toHaveLength(1);
+    expect(said(useUndo.getState().done.at(-1))).toBe("Moved the Folder “Thesis” into “Archive”");
+  });
+});
+
 describe("loading keeps a list the core pushed after reading it", () => {
   beforeEach(() => {
     method("listMinds").mockResolvedValue([]);
@@ -1573,6 +2036,7 @@ describe("an undo line keeps only what it shows", () => {
     id: "n",
     name: "Untitled Folder",
     description: "",
+    parentId: null,
     countsOwnFiles: false,
     keepInside: false,
     createdAt: "",

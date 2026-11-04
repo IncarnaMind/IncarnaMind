@@ -65,12 +65,18 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "workbook-circular": true,
   "workbook-not-read": true,
   "workbook-no-saved-value": true,
+  "other-cell": true,
   "workbook-unsupported": true,
 };
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
 );
-const EXCLUSIONS: readonly EvidenceExclusion[] = ["own-file", "own-workings", "checked-document"];
+const EXCLUSIONS: readonly EvidenceExclusion[] = [
+  "own-file",
+  "own-workings",
+  "own-note",
+  "checked-document",
+];
 const CITATION_REASONS: readonly CitationCheckReason[] = [
   "quote-not-on-pages",
   "quoted-words-not-on-pages",
@@ -208,6 +214,7 @@ function citationOf(value: unknown): CitationAttributes | null {
     pageTo: read.pageTo ?? null,
     location: value.location === null ? null : (read.location ?? null),
     quote: read.quote ?? null,
+    ...(read.yourNoteAt && { yourNoteAt: read.yourNoteAt }),
     check,
     checkReason,
     ...(typeof value.id === "string" && value.id && { id: value.id }),
@@ -889,8 +896,17 @@ export function checkedCitation(citation: CitationAttributes | undefined): Citat
     !citation.contentHash
   )
     return null;
-  const { passageId, documentId, documentName, contentHash, quote, quotedWords, ...rest } =
-    citation;
+  const {
+    passageId,
+    documentId,
+    documentName,
+    contentHash,
+    quote,
+    quotedWords,
+    unsure: _unsure,
+    pageChecked: _pageChecked,
+    ...rest
+  } = citation;
   return {
     ...rest,
     passageId,

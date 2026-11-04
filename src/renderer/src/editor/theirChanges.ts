@@ -45,17 +45,7 @@ export interface ChangeItem {
   to: number;
 }
 
-export interface CommentItem {
-  kind: "comment";
-  id: string;
-  author: string | null;
-  date: string | null;
-  text: string;
-  from: number;
-  to: number;
-}
-
-export type ReviewItem = ChangeItem | CommentItem;
+export type ReviewItem = ChangeItem;
 
 const BEFORE_WORDS = 5;
 const BEFORE_CHARACTERS = 32;
@@ -380,8 +370,9 @@ const readItems = new WeakMap<ProseMirrorNode, { ydoc: Y.Doc | null; items: Revi
 
 /**
  * Everything the reviewing pane lists, in the Mind's order: someone's changes
- * from the Word file (waiting, decided here, or kept as they are) and the
- * file's comments. A decided change goes where its paragraph is now.
+ * from the Word file, waiting, decided here, or kept as they are. A decided
+ * change goes where its paragraph is now. A file's comments are the Note's
+ * comments, shown beside their words, not cards here (#328).
  */
 export function reviewItemsIn(doc: ProseMirrorNode, ydoc: Y.Doc | null): readonly ReviewItem[] {
   const cached = readItems.get(doc);
@@ -418,9 +409,7 @@ function readReviewItems(doc: ProseMirrorNode, ydoc: Y.Doc | null): ReviewItem[]
     const date = atom.info?.date || null;
     const at = { from: pos, to: pos + node.nodeSize };
     const id = atom.source ?? String(pos);
-    if (atom.kind === "comment") {
-      items.push({ kind: "comment", id: `comment:${id}`, author, date, text: atom.text, ...at });
-    } else if (atom.kind === "insertion" || atom.kind === "deletion") {
+    if (atom.kind === "insertion" || atom.kind === "deletion") {
       items.push({
         kind: "change",
         id: `kept:${id}`,

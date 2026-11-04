@@ -174,6 +174,7 @@ describe("Why a call changed nothing, on its row", () => {
     { kind: "misnamed", mindId: "a" },
     { kind: "typed-tag", mindId: "a" },
     { kind: "uncited", mindId: "a" },
+    { kind: "length", mindId: "a" },
     { kind: "new-mind", mindId: "a" },
     { kind: "local-mode" },
     { kind: "not-ready" },

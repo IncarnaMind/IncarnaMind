@@ -19,6 +19,25 @@ export function TrashIcon(props: IconProps) {
   );
 }
 
+/** A comment's speech bubble, as Word and Google Docs draw one. */
+export function CommentIcon(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />
+      <path d="M5 6h6M5 8h4" />
+    </svg>
+  );
+}
+
 /** Six dots: the handle a Block is dragged by, like the old editor's "holder". */
 export function GripIcon(props: IconProps) {
   return (

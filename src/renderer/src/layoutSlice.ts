@@ -71,19 +71,28 @@ export function createLayoutSlice(
   get: Get,
   report: (error: unknown) => void,
 ): LayoutSlice {
+  /**
+   * For the core's answer to what is asked now: its assistant is older than a placing made since,
+   * which is shown already and kept.
+   */
+  const keepPlacingsSince = (): ((answered: WindowLayout) => WindowLayout) => {
+    const asked = placings;
+    return (answered) => {
+      const shown = get().layout?.assistant;
+      return placings === asked || !shown ? answered : { ...answered, assistant: shown };
+    };
+  };
   return {
     layout: null,
     renamingTabId: null,
     async loadLayout() {
-      set({ layout: await core.getLayout(WINDOW_ID) });
+      const keep = keepPlacingsSince();
+      set({ layout: keep(await core.getLayout(WINDOW_ID)) });
     },
     async changeLayout(change, options) {
-      const asked = placings;
+      const keep = keepPlacingsSince();
       try {
-        const answered = await core.changeLayout(WINDOW_ID, change);
-        // The answer's assistant is older than a placing made since, which is shown already.
-        const shown = get().layout?.assistant;
-        const layout = placings === asked || !shown ? answered : { ...answered, assistant: shown };
+        const layout = keep(await core.changeLayout(WINDOW_ID, change));
         set({ layout });
         return layout;
       } catch (error) {

@@ -44,17 +44,29 @@ import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { asGenerated } from "../../shared/aiText";
 import { withAnalysisPictures } from "../../shared/analysisPictures";
+import {
+  analysisTablesOf,
+  countCitations,
+  withAnalysisTableCitations,
+} from "../../shared/analysisTables";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
 import { appliedAsAsked } from "../../shared/askedChanges";
+import { PICTURE_DATA_URL, quoteKey } from "../../shared/askedQuote";
 import { citationNode, withCitations } from "../../shared/blockJson";
 import { type LiveDocument, shownDocumentName } from "../../shared/citations";
 import { yoursLine } from "../../shared/commands";
 import { FIGURE_MARKER, withFigures, withFigureText } from "../../shared/figureMarkers";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
-import { translate } from "../../shared/i18n";
-import { citationLocation, englishLocation, englishPlace } from "../../shared/locations";
+import { readFigures } from "../../shared/figures";
+import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
+import {
+  citationLocation,
+  englishLocation,
+  englishPlace,
+  parseLocation,
+} from "../../shared/locations";
 import { holdsNothing, madeByAnswer } from "../../shared/madeMind";
 import { linkTableSources } from "../../shared/markdownTables";
 import type { MeetingHelpKind } from "../../shared/meetingHelp";
@@ -80,9 +92,10 @@ import {
 } from "../../shared/searchScope";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
-import { unrunToolNotes } from "../../shared/unrunTools";
+import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
 import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
+import { createAnalysisRecorder } from "../analysis/recorder";
 import { analysisTool } from "../analysis/tool";
 import {
   ANSWER_BLOCK,
@@ -106,7 +119,9 @@ import {
   type CitationRecheck,
   type CitationSupport,
   type CitedSelection,
+  CLAIMED_COMMANDS,
   type ClaimedChange,
+  type ClaimedCommand,
   type ClaimedTool,
   type CommandDone,
   type CommandProblem,
@@ -137,6 +152,7 @@ import {
   type ThirdPartyReason,
   type ThirdPartySource,
   type ToolCallApproval,
+  type UncalculatedFigure,
   type UnreadFile,
   type UserAnswer,
   type UserQuestion,
@@ -149,18 +165,26 @@ import type { WindowedPassage } from "../documents/search";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
 import type { ExecAccess } from "../execution";
-import type { Language } from "../language";
+import { LANGUAGES, type Language } from "../language";
 import type { MindContent } from "../mindContent";
 import { plainText } from "../mindText";
 import { docOf } from "../proposals/merge";
 import { proposeBlocks } from "../proposals/write";
-import { givesStructuredOutput, calculates as offersCalculate } from "../providers/capabilities";
+import {
+  givesStructuredOutput,
+  offersAnalysis,
+  calculates as offersCalculate,
+  offersCode,
+  offersWorkbookTools,
+} from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { PreparedChatModel } from "../providers/chat";
 import type { ModelCallKind } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
 import type { WebResult } from "../providers/webSearch";
 import { messageReference } from "../references";
+import type { CodeRunner } from "../runCode";
+import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
 import type { GateDecision } from "../runs/engine";
 import type { SkillScript, SkillSession } from "../skills";
@@ -233,6 +257,7 @@ import { unmadeFixesIn } from "./claimedFixes";
 import { unrunToolClaims, unrunToolsNote } from "./claimedTools";
 import { holdBack } from "./claimStream";
 import {
+  type AskedPicture,
   askedText,
   conversationContext,
   conversationContextOf,
@@ -246,6 +271,7 @@ import {
   questionContextOf,
   type RequestMind,
   readMind,
+  withLineBefore,
 } from "./context";
 import {
   type ContextCitations,
@@ -254,6 +280,7 @@ import {
 } from "./contextCitations";
 import {
   coverageInstructions,
+  coverageNudge,
   coverageOf,
   documentsAsked,
   namedCoverage,
@@ -302,9 +329,12 @@ import {
   withHelp,
 } from "./meetingHelp";
 import { paragraphAsked } from "./paragraphAsked";
+import { createPrintedNumbers } from "./printedNumbers";
 import {
   analysisInstructions,
   answerInstructions,
+  CALL_SCOPE_NOTE,
+  codeInstructions,
   commandInstructions,
   connectorInstructions,
   documentInstructions,
@@ -337,6 +367,7 @@ import {
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
 import { readKinds } from "./readKinds";
 import { withoutSearchTalk } from "./searchTalk";
+import { setAsideMarksInWords } from "./sheetRows";
 import type { ChangeStates } from "./toolRecord";
 import type { TurnCheck } from "./turnChecks";
 
@@ -539,10 +570,13 @@ function lastAnswerOf(
   const answer = earlier[at];
   if (answer?.kind !== "answer") return null;
   const question = earlier.slice(0, at).findLast((message) => message.kind === "question");
-  // Put into a Note as it is, a claim of a Tool that didn't run keeps its line (#1796).
+  // Put into a Note as it is, a claim of a Tool that didn't run keeps its line (#1796), and so
+  // does one of something in the app that wasn't done (#2407).
+  const said = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const blocks = [
     ...pageBlocks(answer, question?.text ?? ""),
-    ...unrunToolNotes((key, params) => translate(language, key, params), answer.steps),
+    ...unrunToolNotes(said, answer.steps),
+    ...unbackedCommandNotes(said, answer.steps),
   ];
   if (!hasText(blocks)) return null;
   return {
@@ -612,6 +646,15 @@ export interface AnswersOptions {
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
   analysisRuntime?: AnalysisRuntime;
+  /**
+   * Runs code in the OS sandbox on copies of Documents (ADR-0025), with where a Document's file
+   * is; absent, or at a level below "os": no Answer is offered `run_code`.
+   */
+  code?: {
+    runner: CodeRunner;
+    /** Its file, and whether the User had its hidden sheets read: then read_table gives them too. */
+    file(documentId: string): Promise<{ path: string; readHiddenSheets: boolean }>;
+  };
   /** What an Answer is written in when its Question has no language of its own. */
   interfaceLanguage(): Language;
   /** The ids of the live Documents a Search scope covers; null with no Search scope (every Document). */
@@ -830,6 +873,8 @@ export interface DocumentsForAnswers
    * with `workbooksOnly`, a workbook, whose formulas its Tools read (#2347).
    */
   searchableHasSheets(documentIds: readonly string[] | null, workbooksOnly?: boolean): boolean;
+  /** Whether a Document to search has a table of figures in a PDF, Word file or deck (#448). */
+  searchableHasTables(documentIds: readonly string[] | null): boolean;
   passage(passageId: string): WindowedPassage | null;
   /** The live Passages of a live Document at positions `from` to `to`, in reading order. */
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
@@ -1023,9 +1068,13 @@ export function createAnswers(options: AnswersOptions) {
         : options.resolveScope(NO_SCOPE, mindId);
 
   /** An Answer's Search scope as it had it, resolved as regenerating it does, for its judgement. */
-  const judgedScope = (question: ConversationQuestion): string[] | null => {
+  const judgedMind = (question: ConversationQuestion): string | null => {
     const from = question.askedFrom;
-    const mindId = from && !from.deleted ? from.mindId : null;
+    return from && !from.deleted ? from.mindId : null;
+  };
+
+  const judgedScope = (question: ConversationQuestion): string[] | null => {
+    const mindId = judgedMind(question);
     const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
     return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
   };
@@ -1054,6 +1103,7 @@ export function createAnswers(options: AnswersOptions) {
    */
   async function judgeAnswer(
     answer: ConversationAnswer,
+    mindId: string | null,
     documentIds: readonly string[] | null,
     limit: Money = ANSWER_CHECKING_LIMIT,
   ) {
@@ -1100,6 +1150,7 @@ export function createAnswers(options: AnswersOptions) {
             citations: answer.citations,
             figures: answer.figures,
             waiting,
+            mindId,
             documentIds,
             model,
             signal: controller.signal,
@@ -1191,6 +1242,8 @@ export function createAnswers(options: AnswersOptions) {
     transcript?: WindowedPassage[];
     /** Words the User selected in Documents to ask about (#101), right before the Question. */
     quoted?: readonly Quoted[];
+    /** Pictures the User picked on pages to ask about (#118): their images go with the Question. */
+    pictured?: readonly AskedQuote[];
     /**
      * One-click help during the call: the button pressed. Its Answer is laid out as
      * the panel reads it, and is offered the Documents' Tools only.
@@ -1232,16 +1285,15 @@ export function createAnswers(options: AnswersOptions) {
     const library: LibraryDocuments | undefined = outside
       ? undefined
       : { total: options.documents.libraryCount() };
+    const coverageSized =
+      input.outside === true || callDocuments !== null
+        ? []
+        : options.documents.searchableBySize(input.documentIds);
     const asked =
       input.outside === true || callDocuments !== null
         ? { each: false, main: null }
-        : documentsAsked(context.question, () =>
-            options.documents.searchableBySize(input.documentIds).map((each) => each.name),
-          );
-    const coverage =
-      asked.each || asked.main !== null
-        ? coverageOf(asked, options.documents.searchableBySize(input.documentIds))
-        : null;
+        : documentsAsked(context.question, () => coverageSized.map((each) => each.name));
+    const coverage = asked.each || asked.main !== null ? coverageOf(asked, coverageSized) : null;
     const documentIds =
       callDocuments ?? (coverage ? coverage.used.map((each) => each.id) : input.documentIds);
     // Worked out now, shown only once the Answer has written into a Mind from new text.
@@ -1308,6 +1360,7 @@ export function createAnswers(options: AnswersOptions) {
     /** The one request to fix figures, if the engine made it (see ./figureRetry). */
     let figureRetry: FigureRetry | null = null;
     let unbackedClaims: ClaimedChange[] = [];
+    let unbackedCommands: readonly ClaimedCommand[] = [];
     let unrunTools: readonly ClaimedTool[] = [];
     let askedAgainFor: readonly ClaimedTool[] = [];
     /** What the model calls counted, the cached input tokens too. */
@@ -1409,6 +1462,7 @@ export function createAnswers(options: AnswersOptions) {
           firstWordAt !== Infinity && { firstWordMs: wordAfter(sentAt, firstWordAt) }),
         ...(careful && { careful: true as const }),
         ...(unbackedClaims.length > 0 && { unbackedClaims: [...unbackedClaims] }),
+        ...(unbackedCommands.length > 0 && { unbackedCommands: [...unbackedCommands] }),
         ...(unrunTools.length > 0 && {
           unrunTools: [...unrunTools],
           ...(!calculating && unrunTools.includes("calculate") && { calculateUnavailable: true }),
@@ -1454,6 +1508,10 @@ export function createAnswers(options: AnswersOptions) {
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
     const ids = input.ids ?? contextCitationsFor(mindIn, input.assistant?.wallId);
     const notKept = translate(answerLanguage(context.question), "answer.sourceNotKept");
+    const setAsideWords = {
+      struck: translate(answerLanguage(context.question), "answer.setAsideStruck"),
+      hidden: translate(answerLanguage(context.question), "answer.setAsideHidden"),
+    };
     /** Whether the Answer offers a workbook's formula Tools, decided with its Tools. */
     let workbookToolsOffered = false;
     const session = createCitationSession(
@@ -1500,6 +1558,16 @@ export function createAnswers(options: AnswersOptions) {
         writeSoon();
       },
     });
+    const markPrinted = createPrintedNumbers({
+      language: answerLanguage(context.question),
+      record: (figure, above) => figures.record(figure, [], above),
+    });
+    const withPrintedFigures = (text: string): string =>
+      markPrinted(text, {
+        analyses,
+        quoteOf: (marker) => session.quotes.recorded(marker)?.citation.quote ?? null,
+        figureOf: (marker) => figures.figure(marker),
+      });
     const scaleChangeIn = (text: string): ChangedScale | null =>
       changedScale(
         text,
@@ -1510,7 +1578,7 @@ export function createAnswers(options: AnswersOptions) {
     // only as footnote definitions (#1831). An input quoted directly is recorded when calculate
     // takes it, numbered far above the model's own, which count from [^1]: a Citation the model
     // writes later never takes a figure's quote.
-    const quoteKey = (quote: QuoteInput) =>
+    const figureQuoteKey = (quote: QuoteInput) =>
       [quote.passage, quote.location, quote.pageFrom, quote.pageTo, quote.quote].join("\n");
     const recordedQuotes = new Map<string, number>();
     const quotesRecorded = new Map<number, QuoteInput>();
@@ -1523,13 +1591,13 @@ export function createAnswers(options: AnswersOptions) {
     const recordQuote = (quote: QuoteInput, marker: number) => {
       session.tools.cite([{ ...quote, marker }], { structured: true });
       if (!session.tools.hasRecord?.(marker)) return false;
-      recordedQuotes.set(quoteKey(quote), marker);
+      recordedQuotes.set(figureQuoteKey(quote), marker);
       quotesRecorded.set(marker, quote);
       return true;
     };
     const recordInputQuotes = (marker: number) => {
       for (const source of figures.inputSources(marker)) {
-        if (typeof source !== "number" && !recordedQuotes.has(quoteKey(source)))
+        if (typeof source !== "number" && !recordedQuotes.has(figureQuoteKey(source)))
           recordQuote(source, nextMarker());
       }
     };
@@ -1573,12 +1641,12 @@ export function createAnswers(options: AnswersOptions) {
       for (const record of records) {
         const quote = quotesRecorded.get(record.marker);
         // The model numbered a Citation of its own with a figure's: the figure's record moves.
-        if (quote && quoteKey(quote) !== quoteKey(record)) {
+        if (quote && figureQuoteKey(quote) !== figureQuoteKey(record)) {
           quotesRecorded.delete(record.marker);
           recordQuote(quote, nextMarker());
         }
       }
-      for (const record of records) recordedQuotes.set(quoteKey(record), record.marker);
+      for (const record of records) recordedQuotes.set(figureQuoteKey(record), record.marker);
       return session.tools.cite(records, citeOptions);
     };
     const wordsOf = (marker: number) => {
@@ -1605,7 +1673,7 @@ export function createAnswers(options: AnswersOptions) {
         (figure, cited) =>
           figures.inputSources(figure).flatMap((source) => {
             const marker =
-              typeof source === "number" ? source : recordedQuotes.get(quoteKey(source));
+              typeof source === "number" ? source : recordedQuotes.get(figureQuoteKey(source));
             if (marker === undefined || !session.tools.hasRecord?.(marker)) return [];
             return cited.some((each) => covers(each, marker)) ? [] : [marker];
           }),
@@ -1614,19 +1682,27 @@ export function createAnswers(options: AnswersOptions) {
     /** A Citation marker's node as the text around a figure sees it: none for a marker with no record. */
     const citedNode = (marker: number) =>
       session.streamingCitation(marker) ? citationNode(null) : null;
+    /** The number the Answer wrote right before a marker that has no figure, as it wrote it; null when it wrote none (#2313). */
+    const writtenBefore = (text: string, marker: number): string | null => {
+      const at = text.search(new RegExp(`\\[=${marker}\\]`));
+      if (at < 0) return null;
+      const before = text.slice(Math.max(0, at - 40), at);
+      const last = readFigures(before).at(-1);
+      return last && before.slice(last.end).trim() === "" ? last.chars : null;
+    };
     /**
      * The figures its text shows, each once, with what it wrote right before
-     * each marker; and how many figure markers had no figure.
+     * each marker; and the figure markers that had none.
      */
     const placedFigures = (text: string, final: boolean) => {
       const placed: MarkedFigure[] = [];
-      const missing = new Set<number>();
-      if (!calculating) return { figures: placed, missing: 0 };
+      const missing = new Map<number, UncalculatedFigure>();
+      if (!calculating) return { figures: placed, missing: [] };
       withFigures(
         withCitations(markdownToBlocks(text, { streaming: !final }), citedNode),
         (marker) => {
           const figure = figures.figure(marker);
-          if (!figure) missing.add(marker);
+          if (!figure) missing.set(marker, { marker, written: writtenBefore(text, marker) });
           return figure;
         },
         (figure, marker, written) => {
@@ -1635,7 +1711,7 @@ export function createAnswers(options: AnswersOptions) {
           return "";
         },
       );
-      return { figures: placed, missing: missing.size };
+      return { figures: placed, missing: [...missing.values()] };
     };
 
     /** Writes the Answer as it stands into its home; false if it is gone. */
@@ -1663,7 +1739,10 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
-              const drawn = withAnalysisPictures(blocks, analyses);
+              const drawn = withAnalysisTableCitations(
+                withAnalysisPictures(blocks, analyses),
+                analyses,
+              );
               return asGenerated(
                 calculating
                   ? withCalculatedFigures(drawn, (marker) => figures.figure(marker), {
@@ -1721,6 +1800,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       // A marker no Citation backs is not kept in the text, and each is counted for the summary.
       markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
+      if (calculating) markdown = withPrintedFigures(markdown);
     };
 
     /**
@@ -1781,12 +1861,15 @@ export function createAnswers(options: AnswersOptions) {
       }
       // Its steps say how many figures it shows, and its end how many it couldn't calculate.
       const placed = placedFigures(withoutFootnoteDefinitions(markdown), true);
-      if (placed.figures.length > 0 || placed.missing > 0) {
+      if (placed.figures.length > 0 || placed.missing.length > 0) {
         const call = calculated ?? calculatedCall();
         if (!calculated) toolCalls.push(call);
         call.status = "done";
         call.resultCount = placed.figures.length;
-        if (placed.missing > 0) call.uncalculated = placed.missing;
+        if (placed.missing.length > 0) {
+          call.uncalculated = placed.missing.length;
+          call.uncalculatedFigures = placed.missing;
+        }
       } else if (calculated) {
         toolCalls.splice(toolCalls.indexOf(calculated), 1);
       }
@@ -1805,14 +1888,14 @@ export function createAnswers(options: AnswersOptions) {
           quoteRetry,
           figures: placed.figures,
           analyses,
-          uncalculated: placed.missing,
+          uncalculated: placed.missing.length,
           figureRetry,
           usage,
         });
       }
       if (judging && written && waitingAs === "checking" && waiting.size > 0) {
         const stored = options.conversations.answer(answerId);
-        if (stored) void judgeAnswer(stored, input.documentIds);
+        if (stored) void judgeAnswer(stored, place.mindId, input.documentIds);
       }
     };
 
@@ -2300,7 +2383,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       calculating = offersCalculate(prepared.capabilities);
       workbookToolsOffered =
-        calculating &&
+        offersWorkbookTools(prepared.capabilities) &&
         input.toolSet === undefined &&
         !help &&
         options.documents.searchableHasSheets(documentIds, true);
@@ -2311,21 +2394,42 @@ export function createAnswers(options: AnswersOptions) {
         readShare = within.share;
         if (read) read = within.request.text ? { ...read, partial: true } : null;
       }
-      if (input.quoted && input.quoted.length > 0) {
+      if (
+        (input.quoted && input.quoted.length > 0) ||
+        (input.pictured && input.pictured.length > 0)
+      ) {
+        const quoted = input.quoted ?? [];
+        const pictured = input.pictured ?? [];
+        const seen = new Set(quoted.map(({ quote }) => quoteKey(quote)));
+        const picturedKeys = new Set(pictured.map(quoteKey));
+        // A picture is said to be attached only when the model reads pictures and the request carries it.
+        const pictureState = (quote: AskedQuote): "sent" | "withheld" | undefined =>
+          !picturedKeys.has(quoteKey(quote))
+            ? undefined
+            : options.readsImages?.(model) !== false && pickedPicture(quote) !== null
+              ? "sent"
+              : "withheld";
         messages = withBeforeQuestion(
           messages,
-          selectedTextBlock(
-            input.quoted.map(({ quote, passages }) => ({
+          selectedTextBlock([
+            ...quoted.map(({ quote, passages }) => ({
               ...quote,
               place: englishPlace(quote.location),
               shown: session.show(passages),
+              ...(pictureState(quote) && { pictureState: pictureState(quote) }),
             })),
-          ),
+            ...pictured
+              .filter((quote) => !seen.has(quoteKey(quote)))
+              .map((quote) => ({
+                ...quote,
+                place: englishPlace(quote.location),
+                shown: "",
+                ...(pictureState(quote) && { pictureState: pictureState(quote) }),
+              })),
+          ]),
         );
         // Someone else wrote a saved web page: quoted, it is read as a search reads it (#78).
-        if (
-          input.quoted.some(({ passages }) => passages.some((each) => each.documentKind === "web"))
-        ) {
+        if (quoted.some(({ passages }) => passages.some((each) => each.documentKind === "web"))) {
           contextReasons.push({ via: "read", source: "web-page" });
           textOrigin ??= "web-page";
         }
@@ -2339,6 +2443,10 @@ export function createAnswers(options: AnswersOptions) {
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
         if (heard) messages = withTranscript(messages, session.show(kept));
+        const hasEarlierTurns = messages.length > 1;
+        if (heard && hasEarlierTurns) {
+          messages = withLineBefore(messages, CALL_SCOPE_NOTE, context.question, context.question);
+        }
         if (help && heard?.behind) {
           textBehind = true;
           const text = options.liveTextBehind(kept.length > 0);
@@ -2650,9 +2758,25 @@ export function createAnswers(options: AnswersOptions) {
                 let unrecorded = 0;
                 let firstUnrecorded = -1;
                 const written = withoutSearchTalk(
-                  session.citeWrittenIds(withoutFootnoteDefinitions(text), notKept),
+                  session.citeWrittenIds(
+                    withoutFootnoteDefinitions(setAsideMarksInWords(text, setAsideWords)),
+                    notKept,
+                  ),
                 );
-                const markdown = calculating ? citeFigures(written.markdown) : written.markdown;
+                // A marker is the Analysis's own table, not text typed again. This Answer's
+                // Analyses name their markers first; the last Answer's stand for the rest, as
+                // its markers can be written into a Note in a later turn.
+                const markerAnalyses = [
+                  ...analyses,
+                  ...(input.assistant?.lastAnswer?.answer.analyses ?? []),
+                ];
+                const markdown = withAnalysisResults(
+                  calculating
+                    ? withPrintedFigures(citeFigures(written.markdown))
+                    : written.markdown,
+                  markerAnalyses,
+                  answerLanguage(context.question),
+                );
                 const link = (source: NamedSource) => {
                   const marker = session.markerFor(source);
                   return marker === null ? null : `[^${marker}]`;
@@ -2666,7 +2790,11 @@ export function createAnswers(options: AnswersOptions) {
                 const asText = sourcesAsText(markdown, known);
                 const sourced = linkKnownSources(markdown, known, link);
                 const tables = linkTableSources(sourced.text, link);
-                const cited = markdownToBlocks(tables.markdown).flatMap((block, index) =>
+                const drawn = withAnalysisPictures(
+                  markdownToBlocks(tables.markdown),
+                  markerAnalyses,
+                );
+                const cited = drawn.flatMap((block, index) =>
                   withCitations([block], (marker) => {
                     const node = session.checkedNode(marker);
                     if (!node) {
@@ -2677,17 +2805,18 @@ export function createAnswers(options: AnswersOptions) {
                     return node;
                   }),
                 );
-                const blocks = asGenerated(
-                  calculating
-                    ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
-                        id: answerId,
-                        analyses,
-                      })
-                    : cited,
-                );
+                const uncited = calculating
+                  ? withCalculatedFigures(cited, (marker) => figures.figure(marker), {
+                      id: answerId,
+                      analyses,
+                    })
+                  : cited;
+                // An Analysis's table cites the rows it read, so content that gives one isn't uncited.
+                const citedTables = withAnalysisTableCitations(uncited, markerAnalyses);
+                const blocks = asGenerated(citedTables);
                 return {
                   blocks,
-                  cited: found + notFound,
+                  cited: found + notFound + countCitations(citedTables) - countCitations(uncited),
                   notFound,
                   unrecorded,
                   firstUnrecorded,
@@ -2696,6 +2825,7 @@ export function createAnswers(options: AnswersOptions) {
                   unlinkedSources: tables.unlinked,
                   extraCells: tables.extraCells,
                   searchTalk: written.left,
+                  analysisTables: analysisTablesOf(markerAnalyses),
                 };
               },
               changed: (toolCallId, change) => {
@@ -2788,6 +2918,7 @@ export function createAnswers(options: AnswersOptions) {
         quoteFound: (passage, quote) => session.tools.quoteFound?.(passage, quote) ?? false,
         wroteIntoMind: () =>
           [...mindChanges.values()].some((change) => change.proposals > 0 || change.revised),
+        setAsideInWords: (text) => setAsideMarksInWords(text, setAsideWords),
         ...(calculating && {
           calculate: calculateFigures,
           figureProblems: () => figures.problems(),
@@ -2817,40 +2948,99 @@ export function createAnswers(options: AnswersOptions) {
             language: answerLanguage(context.question),
           })
         : [];
+      const analysing =
+        offersAnalysis(prepared.capabilities) && input.toolSet === undefined && !help;
+      const recorder = createAnalysisRecorder({
+        figure: (figure) => figures.record(figure),
+        language: answerLanguage(context.question),
+      });
+      // Once run_code couldn't get Python in this Answer, a cut range has nowhere else to go.
+      let pythonMissed = false;
+      const ranAnalysis = (toolCallId: string, analysis: AnswerAnalysis) => {
+        if (analysis.end.kind === "unavailable" && analysis.end.reason === "python") {
+          pythonMissed = true;
+        }
+        analyses.push(analysis);
+        analysisCalls.set(toolCallId, {
+          number: analysis.number,
+          title: analysis.title,
+          documents: [
+            ...new Set([
+              ...(analysis.files ?? []).map((each) => each.documentName),
+              ...analysis.inputs.map((each) =>
+                each.kind === "range"
+                  ? each.citation.documentName
+                  : each.input.citation.documentName,
+              ),
+            ]),
+          ],
+          end: analysis.end.kind,
+          ...(analysis.end.kind === "unavailable" && { reason: analysis.end.reason }),
+          ...(analysis.end.kind === "unavailable" &&
+            analysis.end.python && { python: analysis.end.python }),
+          ...(analysis.end.kind === "timed-out" && { limitMs: analysis.end.limitMs }),
+        });
+        writeSoon();
+      };
+      // Code in the OS sandbox on whole files (ADR-0025): never from outside, never unsandboxed.
+      const code = !outside && options.code?.runner.level === "os" ? options.code : undefined;
+      const codeOffered =
+        code !== undefined &&
+        analysing &&
+        offersCode(prepared.capabilities) &&
+        (input.analyse === true || options.documents.searchableBySize(documentIds).length > 0);
       const fromAnalysis: Tool[] =
         runtime?.languages.some((each) => each.language === "python") &&
-        calculating &&
-        input.toolSet === undefined &&
-        !help &&
-        (input.analyse === true || options.documents.searchableHasSheets(documentIds))
+        analysing &&
+        (input.analyse === true ||
+          options.documents.searchableHasSheets(documentIds) ||
+          options.documents.searchableHasTables(documentIds))
           ? [
               analysisTool({
+                recorder,
                 runtime,
                 passage: shownPassage,
                 number: (given) => figures.number(given),
                 figure: (figure) => figures.record(figure),
                 language: answerLanguage(context.question),
                 now: () => new Date(),
-                ran: (toolCallId, analysis) => {
-                  analyses.push(analysis);
-                  analysisCalls.set(toolCallId, {
-                    number: analysis.number,
-                    title: analysis.title,
-                    documents: [
-                      ...new Set(
-                        analysis.inputs.map((each) =>
-                          each.kind === "range"
-                            ? each.citation.documentName
-                            : each.input.citation.documentName,
-                        ),
+                ran: ranAnalysis,
+                // Asked at each call: Python can fail to download partway through the Answer.
+                codeOffered: () =>
+                  codeOffered && code?.runner.pythonUsable() === true && !pythonMissed,
+              }),
+            ]
+          : [];
+      const fromCode: Tool[] =
+        code && codeOffered
+          ? [
+              runCodeTool({
+                runner: code.runner,
+                document: async (id) => {
+                  const shown = shownPassage(id);
+                  if (!shown) return null;
+                  const file = await code.file(shown.source.documentId).catch((error: unknown) => {
+                    options.reportError(
+                      new Error(
+                        `run_code couldn't have the file of Document ${shown.source.documentId}.`,
+                        { cause: error },
                       ),
-                    ],
-                    end: analysis.end.kind,
-                    ...(analysis.end.kind === "unavailable" && { reason: analysis.end.reason }),
-                    ...(analysis.end.kind === "timed-out" && { limitMs: analysis.end.limitMs }),
+                    );
+                    return null;
                   });
-                  writeSoon();
+                  return file === null
+                    ? { missing: shown.source }
+                    : {
+                        source: shown.source,
+                        path: file.path,
+                        readHiddenSheets: file.readHiddenSheets,
+                      };
                 },
+                recorder,
+                language: answerLanguage(context.question),
+                now: () => new Date(),
+                ran: ranAnalysis,
+                analysisOffered: fromAnalysis.length > 0,
               }),
             ]
           : [];
@@ -2917,7 +3107,36 @@ export function createAnswers(options: AnswersOptions) {
           ),
         ).values(),
       ];
+      /**
+       * The lines the reply ends with, each in any language: why work stayed out of a Folder,
+       * worded by the wall as it is now, since one lifted meanwhile is no wall (#2250), and each
+       * command asked for that is the User's alone, in the card's own words (#2252).
+       */
+      const refusalLines = (): ((language: Language) => string)[] => {
+        const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
+        return [
+          ...[...wallRefusals]
+            .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
+            .map((key) => (each: Language) => translate(each, key)),
+          ...refusedCommands().map(
+            ({ yours, folder }) =>
+              (each: Language) =>
+                yoursLine(each, yours, folder),
+          ),
+        ];
+      };
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
+      // After a command that was refused, failed or not allowed, the reply shows only once it is
+      // checked: what it says of that command could be untrue, and a Stop meanwhile would leave it
+      // unchecked (#2407).
+      const shownUpTo = (text: string) =>
+        toolCalls.some(
+          (call) =>
+            call.tool === COMMAND_TOOLS.run &&
+            (call.status === "failed" || call.command?.yours !== undefined),
+        )
+          ? 0
+          : heldBack(text);
       // Asked again inside the turn, the model reads what applied as applied: the window may not
       // have taken it in yet, and told it waits, the model tells the User so.
       const appliedInTurn: ChangeStates = (change) =>
@@ -2950,12 +3169,16 @@ export function createAnswers(options: AnswersOptions) {
       // call's help is read by its own flow, which offers no calculate to call.
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
       const turnChecks: TurnCheck[] = [
-        ...(mindsTools
+        ...(mindsTools || commandsOffered
           ? [
               {
                 name: "claimed-change",
                 check: async (text: string) => {
-                  if (text.trim() === "") return null;
+                  // A refusal's own line says what wasn't done: never read as a claim (#2407).
+                  const reply = refusalLines()
+                    .flatMap((line) => LANGUAGES.map(line))
+                    .reduce((rest, line) => rest.split(line).join(""), text);
+                  if (reply.trim() === "") return null;
                   activity = "checking-claims";
                   showPhase();
                   try {
@@ -2971,7 +3194,7 @@ export function createAnswers(options: AnswersOptions) {
                     }
                     mindsNow = null;
                     const checked = await inStep("change-claim-check", () =>
-                      claimsNoCallMade(text, toolCalls, mindsListed(), focusedId, {
+                      claimsNoCallMade(reply, toolCalls, mindsListed(), focusedId, {
                         model: judgeModel,
                         names: options.readableMindName,
                         states: appliedInTurn,
@@ -2984,17 +3207,29 @@ export function createAnswers(options: AnswersOptions) {
                       usage.cachedInputTokens += checked.usage.cachedInputTokens ?? 0;
                       usage.cacheWriteTokens += checked.usage.cacheWriteTokens ?? 0;
                     }
-                    return checked.claims.length > 0
-                      ? {
-                          claims: checked.claims,
-                          note: askAgainNote(
-                            checked.claims,
-                            toolCalls,
-                            options.readableMindName,
-                            appliedInTurn,
-                          ),
-                        }
-                      : null;
+                    // Any claim that stands, and a check that couldn't run, name what the turn
+                    // refused as the User's alone, whatever the judge took a claim to be about, so
+                    // none of it reads as done (#2407). Only a verdict asks again.
+                    const refused = new Set<string>(refusedCommands().map(({ yours }) => yours));
+                    const claimed = checked.claims.length > 0 || checked.commands.length > 0;
+                    const commands =
+                      claimed || checked.failed
+                        ? CLAIMED_COMMANDS.filter(
+                            (each) => checked.commands.includes(each) || refused.has(each),
+                          )
+                        : [];
+                    if (!claimed)
+                      return commands.length > 0 ? { claims: [], commands, note: "" } : null;
+                    return {
+                      claims: checked.claims,
+                      commands,
+                      note: askAgainNote(
+                        checked,
+                        toolCalls,
+                        options.readableMindName,
+                        appliedInTurn,
+                      ),
+                    };
                   } finally {
                     activity = "writing";
                     showPhase();
@@ -3006,22 +3241,16 @@ export function createAnswers(options: AnswersOptions) {
         {
           name: "refused-no-reply",
           check: (text) => {
-            if (text.trim() !== "") return null;
-            const missing = endedAfterRefusal() ? missingMindNames() : [];
-            const refused = refusedCommands().length > 0;
-            if (missing.length === 0 && !refused) return null;
+            if (text.trim() !== "" || !endedAfterRefusal()) return null;
+            const missing = missingMindNames();
             const named =
               missing.length === 1
                 ? `there is no note called “${missing[0]}”`
                 : `there are no notes called ${missing.map((name) => `“${name}”`).join(", ")}`;
-            const notThere =
-              missing.length > 0 ? `that ${named}, and that the change wasn't made` : "";
             return {
               claims: [],
               writeOnly: true,
-              note: refused
-                ? `Your reply is empty. Say in the User's language ${notThere ? `${notThere}; ` : ""}that what run_command said is the User's to do wasn't done, and where they do it; then what the other calls did.`
-                : `Your reply is empty. Say in the User's language ${notThere}. Don't say that you changed anything.`,
+              note: `Your reply is empty. Say in the User's language that ${named}, and that the change wasn't made. Don't say that you changed anything.`,
             };
           },
         },
@@ -3074,6 +3303,17 @@ export function createAnswers(options: AnswersOptions) {
           },
         },
         ...(readByUser ? [claimedTools] : []),
+        ...(readByUser && coverage?.kind === "largest"
+          ? [
+              {
+                name: "coverage-left",
+                check: (text: string) => {
+                  const note = coverageNudge(coverage, coverageSized, text);
+                  return note ? { claims: [], writeOnly: true, note } : null;
+                },
+              },
+            ]
+          : []),
       ];
       // The search made first takes the User's words as the query before the model has read them,
       // which is right only for a Question about the Documents. So it is made only on a turn that is
@@ -3101,6 +3341,7 @@ export function createAnswers(options: AnswersOptions) {
             webTools: withWebTools = false,
             mindTools: withMindTools = false,
             analysisTools: withAnalysisTools = false,
+            codeTools: withCodeTools = false,
             workbookTools: withWorkbookTools = false,
             commandTools: withCommandTools = false,
           } = {},
@@ -3124,11 +3365,7 @@ export function createAnswers(options: AnswersOptions) {
                   { writeFirst, minds: withMindTools, library },
                 ),
             stillReadingNote(options.documents.reading(documentIds)),
-            coverageInstructions(
-              coverage,
-              asked.each,
-              options.documents.searchableBySize(input.documentIds),
-            ),
+            coverageInstructions(coverage, asked.each, coverageSized),
             skillInstructions(listed, forced, withSkillTools, scripts),
             connectorTools ? connectorInstructions(fromConnectors, mode === "no-documents") : "",
             sourcesInstructions(sourceTools),
@@ -3138,11 +3375,13 @@ export function createAnswers(options: AnswersOptions) {
             mindInstructions(withMindTools, {
               inAssistant: mindsTools !== null && !help,
               lastAnswer: input.assistant?.lastAnswer != null,
+              commands: withCommandTools,
             }),
             commandInstructions(withCommandTools),
             input.assistant && !help ? THIS_DOCUMENT_RULE : "",
             emptyMindNote(withMindTools, focusedEmpty),
             analysisInstructions(withAnalysisTools),
+            codeInstructions(withCodeTools, withAnalysisTools),
             workbookInstructions(withWorkbookTools),
             meetingInstructions(heard !== null),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
@@ -3177,6 +3416,7 @@ export function createAnswers(options: AnswersOptions) {
           ...fromWeb,
           ...(mindsTools?.tools ?? []),
           ...fromAnalysis,
+          ...fromCode,
           ...fromWorkbooks,
           ...(commandsOffered?.tools ?? []),
           ...(asking ? [asking] : []),
@@ -3207,35 +3447,28 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.assistant
           ? {
               turnChecks,
-              shownUpTo: heldBack,
+              shownUpTo,
               // A command that only acted on the window, or that is the User's alone, ends the
-              // turn: its card is the reply (#1421).
+              // turn: its card is the reply (#1421), and a refusal's line follows it
+              // (`appSuffix`).
               mayEndBlank: () =>
                 changedAMind() ||
                 [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
               blankReply: () => {
+                if (!endedAfterRefusal()) return null;
                 const language = answerLanguage(context.question);
-                const missing = endedAfterRefusal() ? missingMindNames() : [];
+                const missing = missingMindNames();
                 const [only] = missing;
+                if (missing.length === 1 && only !== undefined) {
+                  return translate(language, "answer.refused.noSuchMind", { name: only });
+                }
                 const quoted = missing.map((name) => `“${name}”`);
-                const lines = [
-                  ...(missing.length === 1 && only !== undefined
-                    ? [translate(language, "answer.refused.noSuchMind", { name: only })]
-                    : missing.length > 1
-                      ? [
-                          translate(language, "answer.refused.noSuchMind.many", {
-                            names:
-                              language === "zh-CN"
-                                ? quoted.join("、")
-                                : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
-                          }),
-                        ]
-                      : []),
-                  ...refusedCommands().map(({ yours, folder }) =>
-                    yoursLine(language, yours, folder),
-                  ),
-                ];
-                return lines.length === 0 ? null : lines.join(language === "zh-CN" ? "" : " ");
+                return translate(language, "answer.refused.noSuchMind.many", {
+                  names:
+                    language === "zh-CN"
+                      ? quoted.join("、")
+                      : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
+                });
               },
             }
           : input.checkScales
@@ -3253,15 +3486,103 @@ export function createAnswers(options: AnswersOptions) {
                 ],
               }
             : readByUser && { turnChecks: [claimedTools] }),
-        // Every Answer, in the assistant or a Note, says why work of its stayed out of a Folder,
-        // worded by the wall as it is now: a wall lifted meanwhile is no wall (#2250).
-        refusalSuffix: () => {
-          if (wallRefusals.size === 0) return null;
-          const lifted = turnWall !== null && options.walledFolderId(turnWall) === null;
-          return [...wallRefusals]
-            .map((key) => (key === "folder.wall.refusal" && lifted ? "folder.wall.changed" : key))
-            .map((key) => translate(answerLanguage(context.question), key))
-            .join(" ");
+        // Every Answer, in the assistant or a Note, ends with its refusal lines after the model's
+        // reply, after none, and after a reply asked again that then failed, so the reply and the
+        // card never disagree and the card keeps only its button (#2252).
+        appSuffix: (reply) => {
+          const language = answerLanguage(context.question);
+          // What a command changed, in the app's own words, so the reply and the card agree
+          // (#2252): the Folders Organize filed the Documents into, and the Tags merged.
+          const resultLines: ((each: Language) => string)[] = [];
+          for (const done of commandsDone.values()) {
+            const folders = done.folders;
+            // The model's own sentence may already name every Folder: the app adds its line only
+            // when the reply doesn't (#2252), so the reply never says the same thing twice. A name
+            // inside a longer word is not named: "Rental" alone doesn't say "Rent".
+            const mentions = (name: string) => {
+              if (name === "") return false;
+              const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              return new RegExp(
+                `(?<![\\p{L}\\p{M}\\p{N}])${escaped}(?![\\p{L}\\p{M}\\p{N}])`,
+                "u",
+              ).test(reply);
+            };
+            if (
+              done.command === "documents.organize" &&
+              folders &&
+              folders.length > 0 &&
+              !folders.every((folder) => mentions(folder.name))
+            ) {
+              const count = folders.reduce((sum, folder) => sum + folder.count, 0);
+              resultLines.push((each) => {
+                const line = translate(
+                  each,
+                  count === 1 ? "library.review.summary.one" : "library.review.summary",
+                  {
+                    count,
+                    parts: folders
+                      .map((folder) =>
+                        translate(each, "library.review.part", {
+                          count: folder.count,
+                          folder: folder.name,
+                        }),
+                      )
+                      .join(translate(each, "library.review.separator")),
+                  },
+                );
+                // The summary is a card line: in a reply it ends as a sentence, and the line
+                // after it may follow with no space in Chinese.
+                return each === "zh-CN" ? `${line}。` : `${line}.`;
+              });
+            }
+            if (done.command === "documents.organize" && done.untouched) {
+              const count = done.untouched;
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "answer.commands.untouched.one" : "answer.commands.untouched",
+                  { count },
+                ),
+              );
+            }
+            if (done.command === "documents.organize" && done.unsorted) {
+              const count = done.unsorted;
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "answer.commands.unsorted.one" : "answer.commands.unsorted",
+                  { count },
+                ),
+              );
+            }
+            const merges = done.merges;
+            if (
+              done.command === "tag.merge" &&
+              merges &&
+              merges.length > 0 &&
+              !merges.every((pair) => mentions(pair.from) && mentions(pair.into))
+            ) {
+              resultLines.push((each) =>
+                translate(each, "answer.commands.merged", {
+                  parts: merges
+                    .map((pair) =>
+                      translate(each, "answer.commands.mergePart", {
+                        from: pair.from,
+                        into: pair.into,
+                      }),
+                    )
+                    .join(translate(each, "library.review.separator")),
+                }),
+              );
+            }
+          }
+          // Said in either language, a line is said: a reply can copy an earlier Answer's.
+          const lines = [...resultLines, ...refusalLines()].filter(
+            (line) => !LANGUAGES.some((each) => reply.includes(line(each))),
+          );
+          return lines.length === 0
+            ? null
+            : lines.map((line) => line(language)).join(language === "zh-CN" ? "" : " ");
         },
         signal: controller.signal,
       })) {
@@ -3303,6 +3624,7 @@ export function createAnswers(options: AnswersOptions) {
             break;
           case "claims-unbacked":
             unbackedClaims = event.claims;
+            unbackedCommands = event.commands ?? [];
             unrunTools = event.tools ?? [];
             writeSoon();
             break;
@@ -3620,7 +3942,11 @@ export function createAnswers(options: AnswersOptions) {
     emptyScope: boolean,
     mind: MindToRead | null,
     onScreen: readonly string[],
-    { quoted, leftOut }: { quoted: Quoted[]; leftOut: AskedQuote[] },
+    {
+      quoted,
+      pictured,
+      leftOut,
+    }: { quoted: Quoted[]; pictured: AskedQuote[]; leftOut: AskedQuote[] },
     commands: CommandWindow | null,
     remake: string | null = null,
   ): ConversationAskResult {
@@ -3683,6 +4009,14 @@ export function createAnswers(options: AnswersOptions) {
     const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
     const ids = (callOnly ? null : mind?.ids) ?? contextCitationsFor(mind?.mindId ?? null, wallId);
     const named = help ? [] : namedMinds(mind?.mindId ?? null, wallId);
+    // A model that can't read pictures is sent none, even a figure the User picked (#118).
+    const pictures =
+      options.readsImages?.(ready.model) === false
+        ? []
+        : pictured.flatMap((quote) => {
+            const picture = pickedPicture(quote);
+            return picture ? [picture] : [];
+          });
     const { context, origins } = conversationContextOf(earlier, question.text, {
       mind: section,
       documents: contextDocuments,
@@ -3690,6 +4024,7 @@ export function createAnswers(options: AnswersOptions) {
       changeStates: changeStatesOf,
       onScreen: shown,
       ids,
+      pictures,
     });
     const requestOf = (reading: MindReading, kept: MindCut): RequestMind => ({
       text: kept.text,
@@ -3732,6 +4067,7 @@ export function createAnswers(options: AnswersOptions) {
                   changeStates: changeStatesOf,
                   onScreen: shown,
                   ids,
+                  pictures,
                 }).context,
                 request: requestOf(mind.reading, smaller),
                 share: smaller.share,
@@ -3748,6 +4084,7 @@ export function createAnswers(options: AnswersOptions) {
       ...(mind && { listening: () => options.liveTranscript(mind.mindId) }),
       ...(help && { help }),
       quoted: callOnly ? [] : quoted,
+      pictured: callOnly ? [] : pictured,
       assistant: {
         focused: mind && {
           mindId: mind.mindId,
@@ -3776,13 +4113,25 @@ export function createAnswers(options: AnswersOptions) {
     };
   }
 
+  /** An area's picture as a model takes it (#118), or null when it holds no picture a model reads. */
+  function pickedPicture(quote: AskedQuote): AskedPicture | null {
+    const match = PICTURE_DATA_URL.exec(quote.picture?.src ?? "");
+    if (!match?.[1] || !match[2]) return null;
+    return {
+      data: new Uint8Array(Buffer.from(match[2], "base64")),
+      mediaType: match[1] as AskedPicture["mediaType"],
+      alt: quote.quote || englishPlace(quote.location) || "",
+    };
+  }
+
   // Only the Document's own name and words are kept and sent: what the caller gave is only looked for.
   function checkQuotes(
     quotes: readonly AskedQuote[],
     mindId: string | null,
     wallId?: string | null,
-  ): { quoted: Quoted[]; leftOut: AskedQuote[] } {
+  ): { quoted: Quoted[]; pictured: AskedQuote[]; leftOut: AskedQuote[] } {
     const quoted: Quoted[] = [];
+    const pictured: AskedQuote[] = [];
     const leftOut: AskedQuote[] = [];
     const allowed = readableAcrossWalls(mindId, wallId);
     const documents = options.documents.names();
@@ -3804,25 +4153,60 @@ export function createAnswers(options: AnswersOptions) {
                 ),
             )
           : [];
-      if (name === null || passages.length === 0) {
-        leftOut.push(asked);
-        continue;
-      }
+      // An area over a picture has no words to find, by design (#118): its Citation is kept as
+      // the picture's, and its image still goes with the Question.
+      const picture = asked.picture;
+      const noWords = picture !== undefined && asked.quote.trim() === "";
+      const removed = now.checkReason === "document-removed";
+      const area = parseLocation(asked.location)?.area;
+      const place =
+        now.location && area ? { ...now.location, area } : (now.location ?? asked.location);
       const quote: AskedQuote = {
         documentId: asked.documentId,
-        documentName: name,
-        quote: now.quote,
+        documentName: name ?? asked.documentName,
+        quote: noWords ? "" : now.quote,
         pageFrom: now.pageFrom,
         pageTo: now.pageTo,
-        location: now.location,
+        location: place,
+        ...(asked.pick && { pick: asked.pick }),
+        ...(asked.table && { table: asked.table }),
+        ...(picture && { picture }),
+        ...((picture !== undefined || asked.pick !== undefined) && {
+          // The core words a figure's check itself: nothing the caller sends can make a picture "found".
+          check: noWords ? (removed ? now.check : "cant-check") : now.check,
+          checkReason: noWords ? (removed ? now.checkReason : "picture") : now.checkReason,
+        }),
       };
+      if (picture) pictured.push(quote);
+      if (name === null || passages.length === 0) {
+        if (!picture) leftOut.push(asked);
+        continue;
+      }
       const same = (each: Quoted) =>
         each.quote.documentId === quote.documentId &&
         each.quote.quote === quote.quote &&
         JSON.stringify(each.quote.location) === JSON.stringify(quote.location);
       if (!quoted.some(same)) quoted.push({ quote, passages });
     }
-    return { quoted, leftOut };
+    return { quoted, pictured, leftOut };
+  }
+
+  /** The picks kept with the Question: the words that were found, and every figure, each once. */
+  function storedQuotes({
+    quoted,
+    pictured,
+  }: {
+    quoted: readonly Quoted[];
+    pictured: readonly AskedQuote[];
+  }): AskedQuote[] {
+    const all = [...quoted.map((each) => each.quote), ...pictured];
+    const seen = new Set<string>();
+    return all.filter((quote) => {
+      const at = quoteKey(quote);
+      if (seen.has(at)) return false;
+      seen.add(at);
+      return true;
+    });
   }
 
   // Peeked, so Minds not open aren't loaded; and only so many, so a big Library doesn't slow a Question.
@@ -4051,7 +4435,7 @@ export function createAnswers(options: AnswersOptions) {
       );
       const quotes = checkQuotes(question.quotes, question.mind?.id ?? null);
       const added = options.conversations.add(
-        { ...question, scope, quotes: quotes.quoted.map((each) => each.quote) },
+        { ...question, scope, quotes: storedQuotes(quotes) },
         answerModel,
         readOf(mind),
         false,
@@ -4187,7 +4571,12 @@ export function createAnswers(options: AnswersOptions) {
           citation.check === "not-checked" ? { ...citation, check: "checking" } : citation,
       );
       if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
-      await judgeAnswer({ ...answer, citations: waiting }, documentIds, limit ?? undefined);
+      await judgeAnswer(
+        { ...answer, citations: waiting },
+        judgedMind(question),
+        documentIds,
+        limit ?? undefined,
+      );
     },
 
     /**
@@ -4208,6 +4597,7 @@ export function createAnswers(options: AnswersOptions) {
           citations: answer.citations,
           figures: answer.figures,
           waiting,
+          mindId: judgedMind(question),
           documentIds: judgedScope(question),
           model: answer.model,
         }) ?? null;

@@ -22,8 +22,10 @@ import { offeredCommands } from "./assistantWindow";
 import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
 import { core } from "./core";
+import { describeError } from "./errors";
+import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
-import { documentsOnScreenOf, groupsMerged } from "./layoutSlice";
+import { documentsOnScreenOf, groupsMerged, WINDOW_ID } from "./layoutSlice";
 import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
@@ -143,6 +145,63 @@ function unfold(): void {
  */
 let moves = 0;
 
+/**
+ * For a reply that would change what the assistant shows: whether the User hasn't moved it since
+ * this was called.
+ */
+export function noMoveSince(): () => boolean {
+  const move = moves;
+  return () => move === moves;
+}
+
+/**
+ * For an ask from the assistant (a Question, help during a call): in a new chat it makes the
+ * conversation the assistant shows, so it counts as a move, and a reply still on its way from
+ * before doesn't take the User from it. Whether the User hasn't moved the assistant since.
+ */
+export function noMoveSinceAsked(): () => boolean {
+  if (useConversations.getState().openId === null) moves += 1;
+  return noMoveSince();
+}
+
+/** Keeps the conversation the assistant shows with the window's layout, so it comes back (#258). */
+function keepShown(conversationId: string | null): void {
+  void core.changeLayout(WINDOW_ID, { type: "conversation", conversationId }).catch(report);
+}
+
+/**
+ * Shows the conversation the window kept (#258), as a reload of its page or a quit and reopening
+ * brings it back: the one it showed, or a New chat when there was none, or it is gone.
+ */
+export async function showKeptConversation(conversationId: string): Promise<void> {
+  const stayed = noMoveSince();
+  try {
+    const { messages } = await core.getConversation(conversationId);
+    const { openId } = useConversations.getState();
+    // Not over a conversation the User opened, or a New chat they chose, while this was read.
+    if (!stayed() || openId !== null) {
+      keepShown(openId);
+      return;
+    }
+    useConversations.setState({ openId: conversationId, messages });
+  } catch (error) {
+    if (describeError(error).wording?.key !== "error.conversation.notFound") {
+      report(error);
+      return;
+    }
+    // Gone since: a New chat, unless the User opened another conversation while this was read.
+    const { openId } = useConversations.getState();
+    keepShown(stayed() && openId === null ? null : openId);
+  }
+}
+
+/** Follows the assistant as it moves, keeping the conversation it shows with the window's layout (#258). */
+export function followShownConversation(): void {
+  useConversations.subscribe((state, previous) => {
+    if (state.openId !== previous.openId) keepShown(state.openId);
+  });
+}
+
 /** A new chat: the assistant shows an empty conversation, which its first Question makes. */
 export function startNewChat(): void {
   moves += 1;
@@ -215,13 +274,13 @@ export async function askReadyQuestion(ready: ReadyQuestion): Promise<boolean> {
     // The last ask's problem is not this ask's: the row says what this one is reading.
     settleAsk(composerKey(null), null);
     useReadyAsk.setState({ asking: true, waitingFor: ready.waitingFor });
-    const move = moves;
+    const stayed = noMoveSince();
     try {
       const { conversationId, stopped } = await core.askExampleReadyQuestion();
       // Stopped: its Question and a stopped Answer are kept, and step 2 stays open to ask again.
       if (!stopped) useAppStore.getState().updateGettingStarted({ askedReady: true });
       // Moved elsewhere while the Documents were read: the Answer waits in History (#2302).
-      if (move === moves) await openConversation(conversationId);
+      if (stayed()) await openConversation(conversationId);
       return !stopped;
     } catch (error) {
       // Why not, and what to do, where the card's button is, rather than a notice that passes.
@@ -264,7 +323,7 @@ export async function askInAssistant(
   input: Omit<AskInConversationInput, "conversationId"> & { mindId: string | null },
 ): Promise<boolean> {
   const key = composerKey(input.mindId);
-  const move = moves;
+  const stayed = noMoveSinceAsked();
   useConversations.setState({
     asking: input.text,
     askingReads: { mindId: input.mindId, scope: input.scope ?? null },
@@ -299,12 +358,12 @@ export async function askInAssistant(
     applyWhatIsAsked(result.answerId);
     watchCommands(result.answerId);
     const id = result.conversation.id;
-    if (move === moves && useConversations.getState().openId !== id) {
+    if (stayed() && useConversations.getState().openId !== id) {
       // A new conversation shows only with its messages read: an Answer write arriving before
       // them would be drawn above the Question still on its way (#1741). Each write after the
       // read comes as an event.
       const { messages } = await core.getConversation(id);
-      if (move === moves) useConversations.setState({ openId: id, messages });
+      if (stayed()) useConversations.setState({ openId: id, messages });
     }
     // After the read, so a Stop pressed while it was on its way is not lost.
     if (useConversations.getState().stopWanted) {
@@ -496,6 +555,29 @@ export function useAnswerBeingWritten(): string | null {
 }
 
 /**
+ * Resolves once no Answer is being written in the assistant, as `answerBeingWritten` says: a
+ * Question asked from outside the composer (#2348) waits its turn rather than starting a second
+ * stream under the one Stop.
+ */
+export function whenNoAnswerWritten(): Promise<void> {
+  if (answerBeingWritten() === null) return Promise.resolve();
+  return new Promise((resolve) => {
+    let offConversations: () => void = () => undefined;
+    let offAnswers: () => void = () => undefined;
+    const done = () => {
+      if (answerBeingWritten() !== null) return;
+      offConversations();
+      offAnswers();
+      resolve();
+    };
+    offConversations = useConversations.subscribe(done);
+    offAnswers = useAnswers.subscribe(done);
+    // It may have ended between the check above and these.
+    done();
+  });
+}
+
+/**
  * Stop, in the composer and on the Answer on its way: stops the open
  * conversation's Answer being written, keeping what it has; one whose
  * Question is still on its way stops as soon as it starts.
@@ -504,6 +586,8 @@ export function stopWriting(): void {
   const answerId = answerBeingWritten();
   if (answerId) stopAnswer(answerId);
   else if (answerId === "") useConversations.setState({ stopWanted: true });
+  // A Question that waited for this Answer isn't asked by stopping it (#2348).
+  cancelExplain();
 }
 
 /**
@@ -515,9 +599,9 @@ export async function clearConversation(): Promise<void> {
   if (!openId) return;
   const conversation = conversationById(openId);
   const name = (conversation && conversationName(conversation)) || "";
-  const move = moves;
+  const stayed = noMoveSince();
   await core.deleteConversation(openId);
-  if (move === moves) startNewChat();
+  if (stayed()) startNewChat();
   useUndo.getState().push({
     said: (t) => t("assistant.cleared", { title: name || t("conversation.untitled") }),
     undo: async () => {

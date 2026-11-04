@@ -459,6 +459,43 @@ describe("keys", () => {
     }
   });
 
+  test("AltGr+M types µ, not Comment, though Ctrl+Alt+M is Comment's key on Windows and Linux", async () => {
+    const { runShortcut } = await import("../../src/renderer/src/commands/keymap");
+    let ran = 0;
+    const stop = commands.register({
+      id: "test.commentKey",
+      label: "comments.add",
+      group: "main",
+      reversible: true,
+      shortcut: { keys: "Ctrl+Alt+M" },
+      run: () => {
+        ran += 1;
+      },
+    });
+    const globals = globalThis as unknown as { document?: unknown };
+    const page = globals.document;
+    globals.document = { querySelector: () => null };
+    // A Polish or German layout types µ with AltGr+M; Windows reports it as Ctrl+Alt.
+    const typed = (altGr: boolean) =>
+      ({
+        ...press("µ", "KeyM", { ctrl: true, alt: true }),
+        target: null,
+        getModifierState: (key: string) => altGr && key === "AltGraph",
+        preventDefault: () => undefined,
+      }) as unknown as KeyboardEvent;
+    try {
+      // The shared matcher reads the chord, and the window's guard leaves the text alone.
+      expect(pressed("Ctrl+Alt+M", typed(true), false)).toBe(true);
+      expect(runShortcut(typed(true), NOWHERE)).toBe(false);
+      expect(ran).toBe(0);
+      expect(runShortcut(typed(false), NOWHERE)).toBe(true);
+      expect(ran).toBe(1);
+    } finally {
+      stop();
+      globals.document = page;
+    }
+  });
+
   test("Insert Page Break is in ⌘K, shown with ⌘↵, which the note binds itself after accepting a waiting change", async () => {
     const { menuKeysLabel } = await import("../../src/renderer/src/commands/keymap");
     const pageBreak = commands.get("pageBreak.insert");

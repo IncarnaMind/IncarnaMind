@@ -56,7 +56,12 @@ export function AgentsSettings() {
 
   const turn = (enabled: boolean) => core.setAgentsEnabled(enabled).then(setSettings, reportError);
 
-  const allow = async (client: AgentClient, folderIds: string[], name: string) => {
+  const allow = async (
+    client: AgentClient,
+    folderIds: string[],
+    name: string,
+    propose: boolean,
+  ) => {
     setBusy(true);
     setProblem(null);
     try {
@@ -64,6 +69,7 @@ export function AgentsSettings() {
         client: client.id,
         folderIds,
         ...(name && { name }),
+        propose,
       });
       setJustSetUp({ pairingId: pairing.id, result });
       setConnecting(null);
@@ -185,7 +191,9 @@ export function AgentsSettings() {
         client={connecting}
         busy={busy}
         problem={problem}
-        onAllow={(folderIds, name) => connecting && void allow(connecting, folderIds, name)}
+        onAllow={(folderIds, name, propose) =>
+          connecting && void allow(connecting, folderIds, name, propose)
+        }
         onClose={() => {
           setConnecting(null);
           setProblem(null);

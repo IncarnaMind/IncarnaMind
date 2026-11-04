@@ -105,6 +105,33 @@ export interface UnitLabel {
   saved?: Record<string, number | string | boolean>;
   /** rows: the first Unit of a workbook's, what the whole workbook's formulas need (#2347). */
   workbook?: WorkbookFacts;
+  /**
+   * page, slide and section: the tables on it with a column of figures, top to bottom, as the
+   * index read their rows and columns (#448). Their text is the Unit's own; an Analysis finds
+   * each cell in it again before it reads it.
+   */
+  tables?: UnitTable[];
+  /**
+   * rows of a workbook (#1979): the rows whose every cell the file strikes through, and those it
+   * hides, as people set an earlier or removed row aside; the text alone doesn't show it.
+   */
+  struckRows?: number[];
+  hiddenRows?: number[];
+}
+
+/** A table on a Unit, as its rows and columns were read: each cell's text, "" for an empty one. */
+export interface UnitTable {
+  /** Each column's heading, its rows of headings joined; "" for a column with none. */
+  headings: string[];
+  /** The rows under the headings, top to bottom. */
+  rows: string[][];
+  /** It goes on from the last table of the Unit before, as a table running over a page does. */
+  continues?: true;
+  /**
+   * A PDF page's text laid over a picture of the page, as a scanner's recognizer writes one: its
+   * numbers were recognized, as a scanned page's are.
+   */
+  overPicture?: true;
 }
 
 /** What a workbook's formulas need beyond its cells (#2347). */
@@ -146,6 +173,11 @@ export interface UnitScan {
   reader: string;
   /** The clockwise turn from the displayed page to its reading frame; absent when 0 (#1819). */
   turn?: QuarterTurn;
+  /**
+   * The text was read from a picture file, not a page of a PDF (#762): a
+   * Citation of it says it was read from a picture.
+   */
+  picture?: true;
   /** The words it was unsure of: [start, end) UTF-16 offsets into the Unit's text. */
   unsure?: [number, number][];
   /**
@@ -209,6 +241,11 @@ export interface TextUnit {
   text: string;
   /** Stored for slides and sections; worked out from the text for rows (see `anchorsOf`). */
   anchors: Anchor[] | null;
+  /**
+   * A Word section's headers and footers, which aren't in its text: read only for the scale they
+   * may state, never stored or searched (#2365).
+   */
+  runningText?: string;
 }
 
 /**

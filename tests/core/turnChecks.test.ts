@@ -8,6 +8,7 @@ import {
 import {
   createNudges,
   MAX_NUDGES,
+  mergedFlags,
   settleReply,
   type TurnCheck,
 } from "../../src/core/answers/turnChecks";
@@ -34,8 +35,14 @@ describe("The list of end-of-turn checks", () => {
     const checks = [trips("first", ["added"]), trips("second", ["made"]), trips("third")];
     const nudges = createNudges(10, () => 0);
 
-    expect(await settleReply(checks, "reply", nudges)).toEqual({ nudge: "Note from first." });
-    expect(await settleReply(checks, "reply", nudges)).toEqual({ nudge: "Note from second." });
+    expect(await settleReply(checks, "reply", nudges)).toEqual({
+      nudge: "Note from first.",
+      flags: { claims: ["added"] },
+    });
+    expect(await settleReply(checks, "reply", nudges)).toEqual({
+      nudge: "Note from second.",
+      flags: { claims: ["made"] },
+    });
     expect(MAX_NUDGES).toBe(2);
     // The total is spent: the third doesn't ask, and every check flags what it found.
     const last = await settleReply(checks, "reply", nudges);
@@ -74,6 +81,7 @@ describe("The list of end-of-turn checks", () => {
       ),
     ).toEqual({
       nudge: "Note from claims.",
+      flags: { claims: ["changed"] },
     });
   });
 });
@@ -91,7 +99,7 @@ async function answer(
   model: ReturnType<typeof scriptedModel>,
   checks: TurnCheck[],
   maxSteps = 10,
-  refusalSuffix?: () => string | null,
+  appSuffix?: () => string | null,
 ) {
   const events: AnswerEngineEvent[] = [];
   for await (const event of createAiSdkAnswerEngine({ maxSteps }).generate({
@@ -103,7 +111,7 @@ async function answer(
     tools: [],
     support: "tools",
     turnChecks: checks,
-    ...(refusalSuffix && { refusalSuffix }),
+    ...(appSuffix && { appSuffix }),
     signal: new AbortController().signal,
   })) {
     events.push(event);
@@ -278,5 +286,22 @@ describe("Searching has no cap, only repeat detection", { timeout: 60_000 }, () 
     expect(results?.[1]).toMatch(/already searched for this.*answer with them/);
     expect(model.doStreamCalls).toHaveLength(3);
     expect(answerText(client, answerId)).toBe("The tide is described in its document.");
+  });
+});
+
+describe("What a reply that stands is flagged with (#2407)", () => {
+  // protects=two sets of flags merge, each claim, Tool and command once; fails_when=a standing reply's first verdict is lost, or one shows twice; no_claim=none beyond protects.
+  test("both sets, each once", () => {
+    expect(
+      mergedFlags(
+        { claims: ["added"], commands: ["privacy"] },
+        { claims: ["added", "made"], tools: ["search"], commands: ["privacy", "command"] },
+      ),
+    ).toEqual({
+      claims: ["added", "made"],
+      tools: ["search"],
+      commands: ["privacy", "command"],
+    });
+    expect(mergedFlags({ claims: [] }, { claims: [] })).toEqual({ claims: [] });
   });
 });

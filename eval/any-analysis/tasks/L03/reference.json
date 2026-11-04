@@ -1,0 +1,13 @@
+{
+  "task": "L03",
+  "inputs": {
+    "en": "b8f597ade57238eeab51467110696930ee18d8ac9ec4a17500e320e042a63a70"
+  },
+  "values": {
+    "value": 1284500,
+    "late_rate": 0.015,
+    "cap": 642250,
+    "notice_days": 90,
+    "term_months": 36
+  }
+}

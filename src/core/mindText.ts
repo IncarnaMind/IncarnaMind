@@ -33,7 +33,6 @@
  * Word export reads them too, for review (`ReadOptions.review`, #107).
  */
 import * as Y from "yjs";
-import { originOf } from "../shared/blockOrigins";
 import { figureShownText, readCalculatedFigureAttributes } from "../shared/calculatedFigures";
 import {
   type ChartAttributes,
@@ -50,8 +49,9 @@ import {
   comparisonQuestionsOf,
   visibleComparisonQuestions,
 } from "../shared/comparisons";
-import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
+import { calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
+import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
 import { cutTitle } from "../shared/naming";
@@ -78,7 +78,6 @@ import { comparisonCellTarget } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
-  BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
   type CalculatedFigureAttributes,
@@ -88,6 +87,7 @@ import {
   type CitedWork,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
+  COMMENT_MARK,
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonQuestion,
@@ -128,6 +128,8 @@ export interface Marks {
   code: boolean;
   /** The link's target, or null. */
   link: string | null;
+  /** The comment the text is on (#328), by the record's id; absent when it is on none. */
+  comment?: string;
   /** Hex "RRGGBB". */
   color?: string;
   font?: string;
@@ -212,7 +214,7 @@ export interface Pending {
   id: string;
   /** When it was asked for, or made, ISO 8601; null when the Mind doesn't say. */
   at: string | null;
-  /** Who made it, for someone's change in a Word file (#108); otherwise IncarnaMind's. */
+  /** Who made it: someone in a Word file (#108), or an outside agent (#352); else IncarnaMind. */
   by?: string;
 }
 
@@ -378,6 +380,8 @@ export type Block = (
 
 export interface ReadOptions {
   includeQuestions: boolean;
+  /** For a file that leaves the app: an outside agent's inert brackets read as written (#352). */
+  leavesApp?: boolean;
   /** The footnote for a Citation, from its node's attributes. */
   footnote(attributes: Record<string, unknown>): Footnote;
   /**
@@ -459,9 +463,13 @@ export function theirChangesReading(doc: Y.Doc): ReviewReading {
   };
 }
 
-/** When a request's changes were made, and by whom if not by IncarnaMind: someone's from a Word file. */
+/**
+ * When a request's changes were made, and by whom if not by IncarnaMind: someone's from a Word
+ * file, or an outside agent, by its name (#352).
+ */
 export function madeBy(made: ProposalRequest | null): Omit<Pending, "id"> {
   if (made?.source === "word-change") return { at: made.date, by: made.author ?? "" };
+  if (made?.source === "outside-agent") return { at: made.createdAt, by: made.agent };
   return { at: made?.createdAt ?? null };
 }
 
@@ -558,34 +566,6 @@ export function firstLineOf(blocks: Y.XmlFragment): string {
     if (written !== "") return written;
   }
   return "";
-}
-
-/**
- * What a Mind's export file is called (#1945): the words of its first Block that has any, as it
- * reads, and the Question that made them when an Answer wrote them — a sentence from an Answer
- * says less about the note than the Question did. A heading is a title, so it names the file
- * itself. Neither is cut here: a file name is cut only where a file name can't hold it.
- */
-export function namedLineOf(blocks: Y.XmlFragment): { line: string; question: string } {
-  for (const block of blocks.toArray()) {
-    if (
-      !(block instanceof Y.XmlElement) ||
-      block.nodeName === ANSWER_BLOCK ||
-      block.nodeName === COMPARISON_TABLE_NODE
-    ) {
-      continue;
-    }
-    const line = firstText(block).trim();
-    if (line === "") continue;
-    const id = block.getAttribute(BLOCK_ID_ATTRIBUTE);
-    const doc = blocks.doc;
-    const question =
-      block.nodeName === "heading" || typeof id !== "string" || doc === null
-        ? ""
-        : (originOf(doc, id)?.question.trim() ?? "");
-    return { line, question };
-  }
-  return { line: "", question: "" };
 }
 
 export interface HeadingEntry {
@@ -824,8 +804,9 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
         .toArray()
         .filter((item): item is Y.XmlElement => item instanceof Y.XmlElement)
         .flatMap((item) => {
-          const change = options.review ? changeOf(item, options) : undefined;
-          if (options.review && !change) return [];
+          // An item a Proposal adds isn't the Mind's until it is accepted, read for review or not.
+          const change = changeOf(item, options);
+          if (!change) return [];
           let inside: ReadOptions = options.outerList
             ? { ...options, outerList: undefined }
             : options;
@@ -841,7 +822,7 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
           const attributes: Record<string, unknown> = item.getAttributes();
           const checked = attributes.checked === true;
           const content = readChildren(item.toArray(), inside);
-          return [{ content: change ? withChange(content, change) : content, checked }];
+          return [{ content: withChange(content, change), checked }];
         });
       return [
         {
@@ -1210,6 +1191,9 @@ function marksOf(attributes: Record<string, unknown> = {}): Marks {
     highlight: Object.hasOwn(attributes, "highlight"),
     code: Object.hasOwn(attributes, "code"),
     link: link && typeof link.href === "string" && link.href !== "" ? link.href : null,
+    ...(typeof attributeOf(attributes[COMMENT_MARK], "id") === "string" && {
+      comment: attributeOf(attributes[COMMENT_MARK], "id") as string,
+    }),
     ...(color && { color }),
     ...(font && { font }),
     ...(size && { size }),
@@ -1245,7 +1229,7 @@ function readInline(
             checkId === undefined ? undefined : options.sentenceChecks?.get(checkId);
           content.push({
             kind: "text",
-            text: run.insert,
+            text: options.leavesApp ? withoutInertBrackets(run.insert) : run.insert,
             marks: marksOf(run.attributes),
             ...(ai && { ai: true }),
             ...(sentenceCheck && { sentenceCheck }),
@@ -1338,14 +1322,11 @@ function readInlineElement(
 
 function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): Inline {
   const { figure } = attributes;
-  let sources: CalculatedSources;
-  try {
-    sources = calculatedSources(attributes, doc);
-  } catch {
-    // Its saved Analysis is gone: it still reads as its text, and an export that would write its
-    // sources says they aren't available, as the editor does (`error.figure.evidenceMissing`).
+  const sources = calculatedSources(attributes, doc);
+  // A figure that names an Analysis whose record the Note no longer keeps reads as its value, and
+  // an export says its saved inputs aren't available, as the editor does (#2378).
+  if (figure.analysis && !sources.analysis)
     return { kind: "figure", figure, sources: null, analysis: null };
-  }
   return {
     kind: "figure",
     figure,

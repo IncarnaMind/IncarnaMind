@@ -124,6 +124,79 @@ for (const { language, width, height } of COMBINATIONS) {
 }
 
 for (const { language, width, height } of COMBINATIONS) {
+  test(`a refused key says what to do in one line, and the next key answers the waiting Question (${language}, ${width} px)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, width, height);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+
+      await field.fill("sk-ant-a-key-that-is-refused");
+      await field.press("Enter");
+      const refused = card.getByTestId("setup-key-refused");
+      await expect(refused).toHaveText(
+        `${translate(language, "setup.key.refused")} · ${translate(language, "setup.key.check")}`,
+      );
+      expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
+      await pointAndClick(window, card.getByTestId("setup-key-check"));
+      await expect(field).toBeFocused();
+
+      // The same field takes the working key, and the Question that waited is answered.
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const { language, width, height } of COMBINATIONS) {
+  test(`a key with no credit says what to do in one line, and the next key answers the waiting Question (${language}, ${width} px)`, async () => {
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      ollama: "http://127.0.0.1:9",
+    });
+    try {
+      await setWindowSize(app, window, width, height);
+      await acceptPlainTextKeys(window);
+      await setLanguage(window, language);
+      const card = await askFirstQuestion(window);
+      const field = card.getByTestId("setup-key");
+
+      await field.fill("sk-ant-a-key-with-no-credit");
+      await field.press("Enter");
+      const refused = card.getByTestId("setup-key-refused");
+      await expect(refused).toHaveText(
+        [
+          translate(language, "setup.key.credit"),
+          translate(language, "setup.key.addCredit"),
+          translate(language, "setup.key.another"),
+        ].join(" · "),
+      );
+      expect(await cardFits(window), "the card is whole in the window, nothing cut").toEqual(fits);
+      await pointAndClick(window, card.getByTestId("setup-key-another"));
+      await expect(field).toBeFocused();
+
+      await field.fill(ANTHROPIC_KEY);
+      await field.press("Enter");
+      await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
+        timeout: 20_000,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const { language, width, height } of COMBINATIONS) {
   test(`with no key and a ChatGPT plan, the plan's sign-in is the first choice offered (${language}, ${width} px)`, async () => {
     const openai = await createFakeOpenAI();
     const claude = await createFakeAnthropic();

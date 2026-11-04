@@ -16,18 +16,21 @@ import {
   CITATION_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
+  type RetainedFigureAnalysis,
   type SearchScope,
 } from "../../../core/api";
 import type { NoteParagraph, RecordCiteNote } from "../../../core/recordCites/referents";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import {
+  analysisFigureShown,
   type ClaimCheckShown,
   claimCheckShown,
   claimMarkState,
   figureCheckShown,
   type KeptMark,
   readClaimCheck,
+  showsPartRows,
 } from "../../../shared/claimChecks";
 import { type InlineTextPiece, inlineRange, projectInlineText } from "../../../shared/inlineText";
 import { sameScope } from "../../../shared/searchScope";
@@ -329,17 +332,7 @@ export interface ClaimContext {
 }
 
 export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes["parts"] {
-  return check.parts &&
-    (check.parts.length > 1 ||
-      check.parts.some(
-        (part) =>
-          part.kind === "opinion" ||
-          part.coverage ||
-          part.evidence.length > 1 ||
-          part.unsupported?.kind,
-      ))
-    ? check.parts
-    : undefined;
+  return showsPartRows(check) ? check.parts : undefined;
 }
 
 /** `ClaimContext.figurePlaces` from where the core reads figures in table cells. */
@@ -355,6 +348,11 @@ export function figurePlacesOf(
 /** A check where it is, and how it shows: never one the User keeps as their own view, which shows nothing. */
 export interface ShownClaim extends ClaimSpan {
   shown: Exclude<ClaimCheckShown, { state: "kept" }>;
+  /**
+   * A needs-recheck its sentence's edit made, where the check would still hold with the words it was
+   * checked on: what an edit leaves to check only if nothing else moved since (#2313).
+   */
+  holdsWithItsText?: boolean;
 }
 
 interface ClaimState {
@@ -404,6 +402,15 @@ export function claimsOf(
       ...(figured !== undefined && { figured }),
       ...note(span),
     });
+    const holdsWithItsText =
+      shown.state === "needs-recheck" && shown.why === "edited"
+        ? claimCheckShown(span.check, {
+            ...context,
+            text: span.check.text,
+            ...(figured !== undefined && { figured }),
+            ...note(span),
+          })
+        : null;
     if (span.kind === "chart") {
       const node = doc.nodeAt(span.from);
       const chart = readChart(node?.attrs ?? {});
@@ -419,7 +426,18 @@ export function claimsOf(
     }
     if (shown.state === "kept") {
       kept.push({ from: span.from, to: span.to, text: span.sentence.text });
-    } else claims.push({ ...span, shown });
+    } else
+      claims.push({
+        ...span,
+        shown,
+        ...(holdsWithItsText !== null && {
+          holdsWithItsText:
+            holdsWithItsText.state === "supported" ||
+            holdsWithItsText.state === "unsupported" ||
+            holdsWithItsText.state === "contradicted" ||
+            holdsWithItsText.state === "kept",
+        }),
+      });
   }
   return { claims, kept };
 }
@@ -533,20 +551,44 @@ export function shownClaims(state: EditorState): readonly ShownClaim[] {
 export function figureShownIn(
   state: EditorState,
   id: string,
+  run: RetainedFigureAnalysis | null = null,
+  result: string | null = null,
 ): ClaimCheckShown & { recalculated?: true } {
   const context = claimsKey.getState(state)?.context ?? NO_CONTEXT;
   for (const span of claimSpans(state.doc)) {
-    const child = span.check.figures?.find((figure) => figure.id === id);
-    if (!child) continue;
     const now = { ...context, text: span.sentence.text };
+    const child = span.check.figures?.find((figure) => figure.id === id);
+    if (!child) {
+      // A whole-sentence check from before figures were checked one by one still says a re-check, a
+      // Keep or a run of its own; its verdict alone is no figure's evidence (#1932, #2378).
+      if (!span.check.figures?.length) {
+        if (span.check.kept) return claimCheckShown(span.check, now);
+        const legacy = claimCheckShown({ ...span.check, figures: undefined }, now);
+        if (
+          legacy.state === "needs-recheck" ||
+          legacy.state === "kept" ||
+          legacy.state === "checking"
+        )
+          return legacy;
+      }
+      continue;
+    }
     if (span.check.kept) return claimCheckShown(span.check, now);
-    const shown = figureCheckShown(child, now);
+    const shown = analysisFigureShown(figureCheckShown(child, now), {
+      checked: true,
+      run,
+      result,
+      versions: now.versions,
+    });
     // A workbook's figure shows how it was worked out on its own card (#2347).
     return shown.state === "supported" && child.calculation && !child.calculation.figure.workbook
       ? { ...shown, recalculated: true }
       : shown;
   }
-  return { state: "not-checked", reason: "unread" };
+  return analysisFigureShown(
+    { state: "not-checked", reason: "unread" },
+    { checked: false, run, result, versions: context.versions },
+  );
 }
 
 const NONE_KEPT: readonly KeptMark[] = [];

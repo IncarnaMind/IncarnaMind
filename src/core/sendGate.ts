@@ -9,7 +9,7 @@
  * throws `ConsentNeededError`, so it waits as it does before it starts.
  */
 import { RetryError, wrapLanguageModel } from "ai";
-import type { DataFlowId, ExternalService } from "./api";
+import type { CloudReadPermit, DataFlowId, ExternalService } from "./api";
 import type { Consent } from "./consent";
 import { ConsentNeededError, ConsentRevokedError, LocalModeError } from "./errors";
 import type { ApiEmbeddingModel } from "./providers/embeddings";
@@ -79,21 +79,29 @@ export function createSendGate(consent: Consent, localOnly: () => boolean) {
       model: ChatLanguageModel,
       flowId: DataFlowId,
       service: ExternalService | null,
+      permit?: CloudReadPermit,
     ): ChatLanguageModel {
       if (!service) return model;
+      const allowed = () => {
+        if (permit?.flow === flowId && permit.serviceId === service.id) {
+          stopInLocalMode(flowId, service);
+          return;
+        }
+        check(flowId, service);
+      };
       return wrapLanguageModel({
         model,
         middleware: {
           specificationVersion: "v4",
           wrapGenerate: ({ doGenerate, params }) => {
-            check(flowId, service);
+            allowed();
             if (flowId === "classification" && carriesImages(params.prompt)) {
               check("scan-images", service);
             }
             return doGenerate();
           },
           wrapStream: ({ doStream, params }) => {
-            check(flowId, service);
+            allowed();
             if (flowId === "classification" && carriesImages(params.prompt)) {
               check("scan-images", service);
             }

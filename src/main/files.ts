@@ -21,7 +21,7 @@ import {
   shell,
 } from "electron";
 import type { Core } from "../core";
-import { addFilesTitleByPlatform } from "../shared/addFilesAction";
+import { ADDABLE_EXTENSIONS, addFilesTitleByPlatform } from "../shared/addFilesAction";
 import { FILES_CHANNELS } from "../shared/bridge";
 import { type MessageKey, translate } from "../shared/i18n";
 import { sandboxOff } from "./analysisPaths";
@@ -39,11 +39,19 @@ import { decodePictureToPng } from "./pictureDecode";
 import { showOpenDialog } from "./systemDialogs";
 import { saveMindCopy } from "./unsavedChanges";
 
-/** What "Add Documents" offers; the core decides what it takes (and says what it skipped). */
-const DOCUMENT_EXTENSIONS = ["pdf", "docx", "pptx", "xlsx", "csv", "txt", "md", "markdown"];
-
 /** What "Import references" offers; the core reads the format from what is in the file. */
 const REFERENCE_EXTENSIONS = ["json", "bib", "bibtex", "ris", "txt"];
+
+/** Whether a value is a rectangle of the page, in CSS pixels (#118). */
+function isRectangle(
+  value: unknown,
+): value is { x: number; y: number; width: number; height: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const { x, y, width, height } = value as Record<string, unknown>;
+  const finite = (each: unknown): each is number =>
+    typeof each === "number" && Number.isFinite(each);
+  return finite(x) && finite(y) && finite(width) && finite(height) && width > 0 && height > 0;
+}
 
 export interface FileActionsOptions {
   /** The data folder, which "Open data folder" shows. */
@@ -78,6 +86,23 @@ export function serveFileActions(
   handle(FILES_CHANNELS.decodePicture, async (event, bytes: unknown) => {
     refuseUnknown(event);
     return bytes instanceof Uint8Array ? decodePictureToPng(bytes) : null;
+  });
+
+  // The area the User selected in a Document's viewer, as a picture (#118).
+  handle(FILES_CHANNELS.captureArea, async (event, rect: unknown) => {
+    refuseUnknown(event);
+    if (!isRectangle(rect)) throw new Error("A picture of an area needs its rectangle.");
+    const picture = await event.sender.capturePage(
+      {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      },
+      { stayHidden: true },
+    );
+    if (picture.isEmpty()) throw new Error("The area came out empty.");
+    return picture.toPNG();
   });
 
   handle(FILES_CHANNELS.openSavedFile, async (event, path: unknown) => {
@@ -206,7 +231,7 @@ export function serveFileActions(
       title: translate(language, titleKey),
       properties,
       filters: [
-        { name: translate(language, "documents.pick.filter"), extensions: DOCUMENT_EXTENSIONS },
+        { name: translate(language, "documents.pick.filter"), extensions: [...ADDABLE_EXTENSIONS] },
       ],
       defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
     };
@@ -298,7 +323,7 @@ export function serveFileActions(
 
   // The core reads the file and keeps a copy for the Mind (#104).
   handle(FILES_CHANNELS.pickWordFile, (event) =>
-    pickOneFile(event, "wordImport.pick.title", "wordImport.pick.filter", ["docx"]),
+    pickOneFile(event, "wordImport.pick.title", "wordImport.pick.filter", ["docx", "doc", "dot"]),
   );
   // The core adds it to the Library and makes a Mind of its text (#97), or of the Word file (#110).
   handle(FILES_CHANNELS.pickFileToVerify, (event) =>

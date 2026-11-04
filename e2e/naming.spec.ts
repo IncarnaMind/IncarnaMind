@@ -137,7 +137,7 @@ const FROM_QUESTION = [
 ] as const;
 
 for (const { language, width, question, name } of FROM_QUESTION) {
-  test(`Add to note into an empty Mind names it by the Note's first line, never the Question; the tab shows it on one line with the whole name in its tooltip, and the exported file takes the Question (${language}, ${width}px)`, async () => {
+  test(`Add to note into an empty Mind names it by the Note's first line, never the Question; the tab shows it on one line with the whole name in its tooltip, and the exported file takes the Note's name (${language}, ${width}px)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -189,11 +189,12 @@ for (const { language, width, question, name } of FROM_QUESTION) {
     });
     expect(oneLine).toBe(true);
 
-    // The file takes the Question that made the note, whole (#1945).
+    // The file takes the Note's own name, as its tab shows it, with a file name's characters only (#2418).
     await exportFromMenu(window);
     const done = window.getByTestId("export-result").getByTestId("export-done");
     await expect(done).toContainText(".docx", { timeout: 30_000 });
-    expect(await done.getAttribute("title")).toContain(`${question.replace(/[?？.]$/, "")}.docx`);
+    // A file name can't hold ":", so it goes with the space the name already has.
+    expect(await done.getAttribute("title")).toContain(`${name.replaceAll(": ", " ")}.docx`);
     await app.close();
   });
 }
