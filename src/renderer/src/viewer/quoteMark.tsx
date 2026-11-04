@@ -1,7 +1,15 @@
-import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ViewerCitation } from "../../../shared/documentViewer";
 import { useT } from "../i18n";
 import { ExclamationIcon, NotEqualIcon, QuestionIcon, TickIcon } from "./icons";
+import { type MarkMeasure, measureOf } from "./sheetMark";
 
 /**
  * How a quote is washed: green, the colour of a found Citation's check, unless
@@ -31,6 +39,8 @@ export interface QuoteMark {
   number: number;
   /** Where the Citation points, e.g. "slide 4" (ADR-0011): shown after the number. */
   label?: string;
+  /** Shown after the number in place of `label`, which the tooltip then holds, e.g. a row's name. */
+  shown?: string;
 }
 
 export function quoteMarkOf(citation: ViewerCitation | undefined): QuoteMark | null {
@@ -66,6 +76,33 @@ export function marginRoom(column: Element): number {
 }
 
 /**
+ * A viewer's measure of its Citation's mark, as `CitationMark` reports it through `onSize`: read
+ * only for the number and label it was taken for, so the next Citation of the same row, with
+ * the same label and a number a digit wider, is placed by its own width. `measured` is null until
+ * the mark has been measured again.
+ */
+export function useMarkMeasure(mark: QuoteMark | null): {
+  measured: MarkMeasure | null;
+  onSize: (size: { full: number; compact: number }) => void;
+} {
+  const number = mark?.number;
+  const label = mark?.shown ?? mark?.label;
+  const [measure, setMeasure] = useState<MarkMeasure | null>(null);
+  const onSize = useCallback(
+    (size: { full: number; compact: number }) =>
+      setMeasure((previous) =>
+        previous?.full === size.full &&
+        previous.compact === size.compact &&
+        measureOf(previous, number, label)
+          ? previous
+          : { ...size, number, label },
+      ),
+    [number, label],
+  );
+  return { measured: mark ? measureOf(measure, number, label) : null, onSize };
+}
+
+/**
  * The Citation's check mark (its icon and number, then where it points), in
  * the page's margin beside its quote. Given the `room` the margin has, in CSS
  * pixels, it drops the label when the label doesn't fit there, keeping it in
@@ -86,7 +123,8 @@ export function CitationMark({
   const t = useT();
   const fullCopy = useRef<HTMLSpanElement>(null);
   const compactCopy = useRef<HTMLSpanElement>(null);
-  const [size, setSize] = useState<{ full: number; compact: number } | null>(null);
+  const [size, setSize] = useState<MarkMeasure | null>(null);
+  const shown = mark.shown ?? mark.label;
   const fits = room === undefined || size === null || size.full <= room;
   const word = (
     {
@@ -107,13 +145,17 @@ export function CitationMark({
   useLayoutEffect(() => {
     const full = fullCopy.current?.offsetWidth ?? 0;
     const compact = compactCopy.current?.offsetWidth ?? 0;
-    setSize((previous) =>
-      previous?.full === full && previous.compact === compact ? previous : { full, compact },
-    );
-  }, [room, mark.number, mark.label]);
+    setSize((previous) => {
+      const same = measureOf(previous, mark.number, shown);
+      return same?.full === full && same.compact === compact
+        ? same
+        : { full, compact, number: mark.number, label: shown };
+    });
+  }, [room, mark.number, shown]);
   useLayoutEffect(() => {
-    if (size) onSize?.(size);
-  }, [size, onSize]);
+    const taken = measureOf(size, mark.number, shown);
+    if (taken) onSize?.({ full: taken.full, compact: taken.compact });
+  }, [size, mark.number, shown, onSize]);
 
   const Icon =
     mark.tone === "found"
@@ -132,7 +174,7 @@ export function CitationMark({
     >
       <Icon className="size-[11px] shrink-0" />
       <span>{mark.number}</span>
-      {withLabel && mark.label && <span className="quote-mark-label">{mark.label}</span>}
+      {withLabel && mark.label && <span className="quote-mark-label">{shown}</span>}
     </span>
   );
   return (
@@ -156,7 +198,7 @@ export function CitationMark({
             aria-hidden={!fits}
             className={`quote-mark-label ${fits ? "" : "quote-mark-label--hidden"}`}
           >
-            {mark.label}
+            {shown}
           </span>
         )}
       </span>
