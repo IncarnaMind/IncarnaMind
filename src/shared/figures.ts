@@ -158,6 +158,12 @@ export interface FigureContext {
    * number at its start is neither a list's nor a heading's (#1969).
    */
   midLine?: boolean;
+  /**
+   * The Document's text on either side of the text read, when that is a quote from it. A sign word
+   * there ("The reserve turned negative in May." before "At year end it stood at …") keeps the
+   * minus of a bracket that gives an amount again.
+   */
+  around?: { before: string; after: string } | null;
 }
 
 /** A scale or unit stated apart from the figures it applies to: "单位：万元", "(in millions)". */
@@ -790,6 +796,9 @@ interface Settled {
   chinese: boolean;
   accounts: boolean;
   negativeBrackets: boolean;
+  /** Up to 400 characters of the Document before and after the text read, in NFKC. */
+  before: string;
+  after: string;
 }
 
 function settle(context: FigureContext): Settled {
@@ -815,6 +824,8 @@ function settle(context: FigureContext): Settled {
     chinese: tag?.language === "zh",
     accounts: context.accounts === true,
     negativeBrackets: context.negativeBrackets === true,
+    before: (context.around?.before ?? "").slice(-400).normalize("NFKC"),
+    after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC"),
   };
 }
 
@@ -2553,11 +2564,12 @@ const SIGN_BEFORE =
   /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除)[ \u00a0]*[为了]?$|-$|[△▲▽▼][ \u00a0]*$/i;
 
 /**
- * "minus", "negative" or 负 in the text before an amount: "a negative closing balance of". Not a
- * "negative pledge", nor 负责, 负担, 负债, 负面 or 自负.
+ * A word that says an amount is below zero, in the text around it: "minus", "negative", "a net
+ * loss", "overdrawn", "in the red", "(−)", 负, 亏损, 透支, 赤字, 由盈转亏. Not a "negative pledge", nor
+ * 负责, 负担, 负债, 负面 or 自负, nor "the loss was", which gives a loss's size.
  */
 const NEGATIVE_WORD =
-  /(?<![A-Za-z])(?:minus|negative(?! pledge))(?![A-Za-z])|(?<!自)负(?![责担债面])/i;
+  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|in deficit|an? (?:[a-z-]+ ){0,2}(?:loss|deficit)|loss-making)(?![A-Za-z])|(?<!自)负(?![责担债面])|亏损|透支|赤字|转亏|\([-−]\)/i;
 
 /** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …", a table's "Less" cell. */
 const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*(?:[:：]|\t|\|)/i;
@@ -2595,15 +2607,22 @@ function restates(
   for (let at = end; at <= bracket; at++)
     if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return null;
   const signed = (from: number) => {
-    // A sign word can be lines or sentences before the amount it gives a sign to ("The balance was
-    // negative. It was …"), and a stop can't tell a sentence's end from an abbreviation's ("St.
-    // Louis", "acct. A12"), so all the text before the words counts. Past 400 characters the reader
-    // doesn't look, and the bracket keeps its minus.
-    if (from > 400 || NEGATIVE_WORD.test(s.slice(0, from))) return true;
+    // A sign word can be lines or sentences before or after the amount it gives a sign to ("The
+    // balance was negative. It was …", "… ($62,000.00), turned negative"), and a stop can't tell a
+    // sentence's end from an abbreviation's ("St. Louis", "acct. A12"), so all the text within 400
+    // characters counts, the Document's around a quote too. Words that start further into the text
+    // read keep the bracket's minus: the reader doesn't look that far back.
+    if (from > 400) return true;
+    const after = s.slice(inner.to, inner.to + 400) + settled.after;
+    if (NEGATIVE_WORD.test(settled.before + s.slice(0, from)) || NEGATIVE_WORD.test(after))
+      return true;
     const start = s.lastIndexOf("\n", from - 1) + 1;
-    const lead = s.slice(start, from);
+    const own = s.slice(start, from);
+    // A quote from the middle of a line: "Less: " before "retention held back …".
+    const lead =
+      (start === 0 ? settled.before.slice(settled.before.lastIndexOf("\n") + 1) : "") + own;
     // "减", a tab, "已付定金": the tab beside a Chinese character is gone from the text read.
-    const label = /^[\s|]*减/.exec(lead)?.[0].length;
+    const label = /^[\s|]*减/.exec(own)?.[0].length;
     return (
       SIGN_BEFORE.test(lead.slice(-24)) ||
       DEDUCTION_LINE.test(lead) ||
