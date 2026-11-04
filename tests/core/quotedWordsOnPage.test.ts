@@ -272,47 +272,53 @@ describe("Changed words in Chinese stay not found", () => {
   });
 });
 
-const TITLE = {
-  en: {
-    file: {
-      name: "Code of Practice.md",
-      contents:
-        "# Code of Practice for Industry\n\nThis code sets the rules for representatives.\n\n## Delivery of items\n\nThe reply card must give the health professional a way to say no, and the company must respect that answer.\n",
-    },
-    query: "reply card",
-    question: "What must the reply card give?",
-    quote: "The reply card must give the health professional a way to say no",
-    found: "The “Code of Practice for Industry” says the card must offer a way to say no [^1].",
-    changed: "The “Code of Practice for Medicine” says the card must offer a way to say no [^1].",
-    titleLike:
-      "The “Rules for Representatives and Companies” say the card must offer a way to say no [^1].",
-  },
-  zh: {
-    file: {
-      name: "维基百科-大型语言模型.md",
-      contents:
-        "# 大型语言模型\n\n这是一类基于神经网络的语言模型。\n\n## 多模态\n\n使用标记化方法将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制。\n",
-    },
-    query: "PaLM-E 机器人控制",
-    question: "谷歌把哪个模型用于机器人控制？",
-    quote: "将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制",
-    found: "维基百科“大型语言模型”词条写道，谷歌把 PaLM 微调成了多模态模型[^1]。",
-    changed: "维基百科“大型视觉语言模型”词条写道，谷歌把 PaLM 微调成了多模态模型[^1]。",
-    titleLike: "维基百科“多模态语言模型综述”词条写道，谷歌把 PaLM 微调成了多模态模型[^1]。",
-  },
-} as const;
+describe("Quoted words that run on past the end of their Passage", () => {
+  test("the next page is read even where the Passage the record names ends at the cited page", async () => {
+    const filler = (line: number) =>
+      `Filler line ${String(line).padStart(2, "0")} about the general terms of the code for every representative.`;
+    const file = {
+      name: "Code of Practice.pdf",
+      contents: buildPdf([
+        {
+          lines: [
+            "Clause 26 Delivery of items",
+            ...Array.from({ length: 22 }, (_, line) => filler(line)),
+            "When a representative offers to drop items off, the reply card must say that there is no",
+            "obligation to grant an interview when items are",
+          ],
+        },
+        {
+          lines: [
+            "delivered. Items can be returned without explanation, and the representative must accept that at once.",
+            "The reply card must give the health professional a way to say no.",
+          ],
+        },
+      ]),
+    };
+    let passagePages: (string | null)[] = [];
+    const model = citingModel({
+      query: "reply card interview obligation",
+      records: (passages: ShownPassage[]) => {
+        passagePages = passages.map((passage) => passage.pages);
+        const onFirstPage = passages.find(
+          (passage) => passage.pages === "1" && passage.text.includes("obligation to grant"),
+        );
+        return [
+          {
+            marker: 1,
+            passage: onFirstPage?.id,
+            quote: "the reply card must say that there is no",
+          },
+        ];
+      },
+      answer:
+        "The card must say there is “no obligation to grant an interview when items are delivered” [^1].",
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [file]);
+    const { answerId } = await askAndFinish(core, client, mind.id, "What must the reply card say?");
 
-describe.each(["en", "zh"] as const)("The Document's title in quotation marks (%s)", (language) => {
-  const title = TITLE[language];
-
-  test("the Document's own title, as an Answer gives an article's title, is a name: found", async () => {
-    expect(await checkOf(title, title.found)).toEqual(FOUND);
-  });
-
-  test.each([
-    ["the title with a word changed", "changed"],
-    ["a title-like phrase that isn't the Document's", "titleLike"],
-  ] as const)("%s is checked as a quote: not found", async (_, key) => {
-    expect(await checkOf(title, title[key])).toEqual(NOT_FOUND);
+    expect(passagePages).toContain("1");
+    const { check, checkReason } = onlyCitation(client, answerId);
+    expect({ check, checkReason }).toEqual(FOUND);
   });
 });

@@ -2331,14 +2331,9 @@ export function createCitationSession(
         return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
       };
       const translated: string[] = [];
-      // A cited Document's name or own title in quotation marks, as an Answer gives a title, is a
-      // name, not a quote (#2504). Only those: any other words are checked on the page.
+      // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
       const names = new Set(
-        [...records.values()].flatMap(({ source }) =>
-          [source.documentName, source.documentTitle ?? ""]
-            .map(nameKey)
-            .filter((key) => key.length >= 2),
-        ),
+        [...records.values()].map(({ source }) => nameKey(source.documentName)),
       );
       for (const { words, markers } of quoted) {
         if (names.has(nameKey(words))) continue;
