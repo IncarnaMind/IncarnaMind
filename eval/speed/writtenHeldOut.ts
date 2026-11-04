@@ -200,10 +200,10 @@ export const HELD_OUT_ITEMS: readonly WrittenItem[] = [
   en({ id: "h2-en-copy-rooms", kind: "copy", sentence: ROOMS, quote: ROOMS, expected: "stated" }),
   en({
     id: "h2-en-copy-damage",
-    kind: "copy",
+    kind: "qualified",
     sentence: DAMAGE,
     quote: DAMAGE,
-    expected: "stated",
+    expected: "not stated",
   }),
   en({ id: "h2-en-copy-law", kind: "copy", sentence: LAW, quote: LAW, expected: "stated" }),
   en({
@@ -438,10 +438,10 @@ export const HELD_OUT_ITEMS: readonly WrittenItem[] = [
   }),
   zh({
     id: "h2-zh-copy-damage",
-    kind: "copy",
+    kind: "qualified",
     sentence: ZH_DAMAGE,
     quote: ZH_DAMAGE,
-    expected: "stated",
+    expected: "not stated",
   }),
   zh({ id: "h2-zh-copy-law", kind: "copy", sentence: ZH_LAW, quote: ZH_LAW, expected: "stated" }),
   zh({

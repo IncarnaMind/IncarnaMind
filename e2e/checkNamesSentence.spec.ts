@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { formatDateTime } from "../src/shared/dates";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -78,6 +79,8 @@ const screenshot = async (window: Page, name: string) => {
   await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 };
 
+const CHECKED_AT = "2026-10-22T09:00:00.000Z";
+
 const checked = (id: string, state: string, text: string, extra: Record<string, unknown> = {}) => ({
   type: "text",
   text,
@@ -93,7 +96,7 @@ const checked = (id: string, state: string, text: string, extra: Record<string, 
         scope: { folderId: null, widened: false },
         versions: [],
         excluded: [],
-        checkedAt: "2026-10-22T09:00:00.000Z",
+        checkedAt: CHECKED_AT,
         ...extra,
       },
     },
@@ -102,10 +105,10 @@ const checked = (id: string, state: string, text: string, extra: Record<string, 
 const paragraph = (...content: object[]) => ({ type: "paragraph", content });
 
 const HAIKU = { providerId: null, modelId: "claude-haiku-5-5" };
-/** What a verdict card's last line says checked it (#1667); the time is the dates module's. */
+/** What a verdict card's last line says checked it (#1667), the time as the dates module writes it. */
 const CHECKED_BY = {
-  en: /^Checked with Claude Haiku 5\.5, \S/u,
-  "zh-CN": /^由 Claude Haiku 5\.5 核对，\S/u,
+  en: (when: string) => `Checked with Claude Haiku 5.5, ${when}`,
+  "zh-CN": (when: string) => `由 Claude Haiku 5.5 核对，${when}`,
 } as const;
 
 async function box(locator: Locator) {
@@ -159,9 +162,11 @@ for (const language of ["en", "zh-CN"] as const) {
             ...HAIKU,
           }),
         ),
-        paragraph(checked("check-4", "not-checked", words.notChecked, { reason: "refused" })),
+        paragraph(
+          checked("check-4", "not-checked", words.notChecked, { reason: "refused", ...HAIKU }),
+        ),
         paragraph({
-          ...checked("check-5", "supported", words.recheckWas, { evidence: passage }),
+          ...checked("check-5", "supported", words.recheckWas, { evidence: passage, ...HAIKU }),
           text: words.recheck,
         }),
         paragraph(checked("check-6", "supported", words.cited, { evidence: passage }), {
@@ -261,7 +266,9 @@ for (const language of ["en", "zh-CN"] as const) {
       if (kind === "not-checked" || kind === "needs-recheck")
         await expect(checkedBy).toHaveCount(0);
       else {
-        await expect(checkedBy).toHaveText(CHECKED_BY[language]);
+        await expect(checkedBy).toHaveText(
+          CHECKED_BY[language](formatDateTime(CHECKED_AT, language)),
+        );
         await expect(checkedBy).toHaveCSS("font-size", "12px");
         await expect(checkedBy).toHaveCSS("color", metaInk);
       }

@@ -88,7 +88,9 @@ export function scriptedWriter() {
     if (!call.results.some((result) => result.tool === "cite")) {
       const shown = shownPassages(search.text);
       const quote = asked.quote ?? closestLine(asked.sentence, shown) ?? "";
-      const passage = shown.find((each) => comparable(each.text).includes(comparable(quote)));
+      const passage = quote
+        ? shown.find((each) => comparable(each.text).includes(comparable(quote)))
+        : undefined;
       cited = passage ? quote : null;
       return {
         calls: [
@@ -214,7 +216,7 @@ function item(
         writer,
         plan,
         stated,
-        { answersModel: model.split("/")[1] ?? model, looksFirst: arm === "quick-look" },
+        { answersModel: model.slice(model.indexOf("/") + 1), looksFirst: arm === "quick-look" },
         () => library.timings?.begin(),
       );
     },
