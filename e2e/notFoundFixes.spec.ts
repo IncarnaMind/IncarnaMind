@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import { type MessageKey, type MessageParams, translate } from "../src/shared/i18n";
 import {
@@ -60,13 +60,14 @@ async function launchNote(
   width = 1440,
   scope?: string,
   files: readonly { name: string; contents: string }[] = FILES,
+  model = "fake-model",
 ) {
   for (const file of files) await writeFile(join(sources, file.name), file.contents);
   const dataDir = await createDataFolder();
   dataDirs.push(dataDir);
   const { app, window } = await launchApp(dataDir, { fakeChat: true, home: sources });
   await dismissChatSetup(window);
-  await chooseScriptedModel(window);
+  await chooseScriptedModel(window, model);
   await setLanguage(window, language);
   await setWindowSize(app, window, width, 900);
   await addDocuments(
@@ -116,6 +117,16 @@ async function checkSentence(window: Page, editor: Locator, claim: string): Prom
   await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "unsupported");
   return card;
 }
+
+/** Holds the scripted "-slow-check" model's work until `held` is false again, which lets it go. */
+const holdModel = (app: ElectronApplication, held: boolean) =>
+  app.evaluate((_electron, on) => {
+    const model = (
+      globalThis as unknown as { incarnamindSlowCheck: { hold: boolean; release(): void } }
+    ).incarnamindSlowCheck;
+    model.hold = on;
+    if (!on) model.release();
+  }, held);
 
 /**
  * Drags across a Document's words as a person does, from the first letter of `from` to just past
@@ -300,14 +311,28 @@ for (const language of ["en", "zh-CN"] as const) {
 
   test(`Rewrite with what the Documents say writes the Passage's figure, cited, with one Undo, and keeps what it can't (${language})`, async () => {
     test.setTimeout(300_000);
-    const { app, window, editor } = await launchNote(language);
+    const { app, window, editor } = await launchNote(
+      language,
+      1440,
+      undefined,
+      FILES,
+      "fake-model-slow-check",
+    );
     const card = await checkSentence(window, editor, DIFFERENT);
     await expect(card.getByTestId("claim-differs")).toBeVisible();
     const rewrite = card.getByTestId("claim-rewrite");
     await expect(rewrite).toHaveText(t("claim.rewrite"));
     await capture(window, `after-rewrite-offer-${language}-1440`);
     await film(window, async () => {
+      await holdModel(app, true);
       await pointAndClick(window, rewrite);
+      // While its model works, the sentence's mark shows the dot a running check shows.
+      await expect(window.getByTestId("claim-mark").last()).toHaveAttribute(
+        "data-check",
+        "checking",
+      );
+      expect(await noteText(editor)).toBe(DIFFERENT);
+      await holdModel(app, false);
       await expect.poll(() => noteText(editor)).toBe("Harbours publish forecasts monthly (12￼).");
       // Checked again on its Citation: the scripted model judges no cited sentence it doesn't
       // list, so the verdict a real model gives is in the live test.

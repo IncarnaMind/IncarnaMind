@@ -16,7 +16,7 @@
  * as a provider refuses a wrong key (HTTP 401); one with "no-credit" in it
  * as a provider refuses an account with nothing left (HTTP 402). A model whose id ends "-no-tools" refuses
  * Tools and structured output, as a small server model does, so its Answers have no Citations; one
- * ending "-slow-check" holds its judgement until a test releases it.
+ * ending "-slow-check" holds its judgement, and a rewrite from the Documents, until a test releases it.
  * A Document whose text says "slowly" takes a moment to tag or organize; one whose text says "unreachable"
  * can't reach the model the first time it is tagged or organized (nor on the retry that follows; one that
  * says "stays unreachable" never can), and one that says
@@ -190,12 +190,13 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
           warnings: [],
         };
       }
-      // A model id ending "-slow-check" holds its judgement of an Answer's sentences until a test
-      // releases it, so the test can open a Citation whose card is still Checking (#2375).
+      // A model id ending "-slow-check" holds its judgement of an Answer's sentences, and a rewrite
+      // from the Documents, until a test releases it, so the test can open a Citation whose card is
+      // still Checking (#2375) and see the mark of a sentence being rewritten (#1554).
       if (
         spec.modelId.endsWith("-slow-check") &&
         slowCheck.hold &&
-        fakeSentenceBatch(options) !== null
+        (fakeSentenceBatch(options) !== null || fakeRewrite(options) !== null)
       ) {
         await new Promise<void>((go) => slowCheck.waiting.push(go));
       }
