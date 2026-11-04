@@ -152,6 +152,7 @@ async function writeOne(
     return {
       status: "failed",
       error: mindId ? "The search found no Passage with the quote." : "Nothing was written.",
+      searches: null,
       citations: 0,
       found: 0,
       cited: null,
@@ -176,6 +177,7 @@ async function writeOne(
   return {
     status: "done",
     error: null,
+    searches: null,
     citations: 1,
     found: 1,
     cited: null,

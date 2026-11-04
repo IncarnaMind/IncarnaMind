@@ -69,6 +69,11 @@ export interface Reading {
   decimals: number;
   /** Last shown place in base units; null for exact fractions, undefined for legacy or unrepresentable precision. */
   precision?: number | null;
+  /**
+   * For a reading a stated unit gives (a "scale" ambiguity's): where that unit is stated, in the
+   * text read, in its header (a table's caption or heading), or in both (#2512).
+   */
+  statedIn?: "text" | "header" | "both";
 }
 
 /**
@@ -175,6 +180,11 @@ let steps = 0;
  * test bounds the reader's work by them (#2510).
  */
 export const figureReadingSteps = (): number => steps;
+
+/** Counts steps of reading figures that happen beside the reader, as a Note's sentences are read (#2512). */
+export const countFigureSteps = (count: number): void => {
+  steps += count;
+};
 
 /** A footnote mark or a circled number, which NFKC would otherwise turn into a digit beside the figure. */
 const MARK = "\ue000";
@@ -958,13 +968,20 @@ const CURRENCY_ANYWHERE = new RegExp(
   "g",
 );
 const AMOUNT_ENDS = /[\d%亿万千]$|(?:\d|\b)(?:million|billion|trillion|thousand|bn|mn|[mkb])$/i;
+// Longer than any end AMOUNT_ENDS matches (a digit and "thousand" is 9), with the character before
+// it: tested on this many last characters, a long line's lead reads as it does whole.
+const AMOUNT_END_REACH = 16;
 
 // Longer than any currency word CURRENCY_ANYWHERE matches ("Australian dollars" with its space is
 // 19) and the letter after it: a match that starts further back than this from where a line is cut
 // is the same in the cut line as in the whole line.
 const CURRENCY_REACH = 32;
+const CURRENCY_AGAIN = new RegExp(CURRENCY_ANYWHERE.source, "g");
 
-/** The last currency word in the line before `at`, if the words before `at` end in an amount. */
+/**
+ * The currencies the last currency word on `at`'s line before it names, when the words before
+ * `at` end in an amount or in that word; null otherwise.
+ */
 function amountBefore(prepared: Prepared, at: number, settled: Settled): string[] | null {
   const { s } = prepared;
   const end = lineEnd(prepared, at);
@@ -984,7 +1001,7 @@ function amountBefore(prepared: Prepared, at: number, settled: Settled): string[
   const same = countBefore(starts, lead.length - CURRENCY_REACH + 1);
   let last = same > 0 ? { at: starts[same - 1] as number, word: words[same - 1] as string } : null;
   // Only the last few characters before the cut can read otherwise, so only they are read again.
-  const tail = new RegExp(CURRENCY_ANYWHERE.source, "g");
+  const tail = CURRENCY_AGAIN;
   tail.lastIndex = Math.max(
     last ? last.at + last.word.length : 0,
     lead.length - CURRENCY_REACH + 1,
@@ -993,7 +1010,10 @@ function amountBefore(prepared: Prepared, at: number, settled: Settled): string[
   steps += lead.length - tail.lastIndex + 1;
   for (let match = tail.exec(lead); match; match = tail.exec(lead))
     last = { at: match.index, word: match[0] };
-  if (!last || !(AMOUNT_ENDS.test(lead.slice(-16)) || last.at + last.word.length === lead.length))
+  if (
+    !last ||
+    !(AMOUNT_ENDS.test(lead.slice(-AMOUNT_END_REACH)) || last.at + last.word.length === lead.length)
+  )
     return null;
   return currencyCodes(last.word, settled);
 }
@@ -1018,8 +1038,8 @@ const MONEY_FOR_PEOPLE =
   /\b(?:of|to|for|from|per|by|with|among|between|towards?|against|owed|paid)\b|[给向每付欠借对为]/i;
 
 /**
- * What the reader finds of a line once, however many figures the line holds: read again for each
- * one, a long line of them took time that grew with its square (#2510).
+ * What the reader finds of a line once, however many figures the line holds, so a long line of
+ * them costs no more than its length (#2510).
  */
 interface Line {
   start: number;
@@ -1032,6 +1052,8 @@ interface Line {
   countLabelEnd?: number;
   /** Where each currency word CURRENCY_ANYWHERE finds in it starts, and the word. */
   currencies?: { starts: number[]; words: string[] };
+  /** Where its brackets open and close, in order. */
+  brackets?: { opens: number[]; closes: number[] };
   /** Whether its label, as long as it was read, makes the line prose. */
   prose: Map<number, boolean>;
 }
@@ -1176,8 +1198,8 @@ const LOOSE_REFERENCE_BEFORE = /[表图注]$/;
 // Dates, periods and statements ----------------------------------------------
 
 const CN_NUMERAL_CHARS = "〇零一二三四五六七八九十两";
-// A numeral matches from its first character only: tried from each character of a long run, the
-// date patterns read the rest of the run again each time (#2510).
+// A numeral matches from its first character only, so the date patterns read a long run of
+// numerals once, not again from each of its characters (#2510).
 const CNN = `(?<![${CN_NUMERAL_CHARS}])[${CN_NUMERAL_CHARS}]+`;
 const MONTH =
   "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
@@ -1254,8 +1276,8 @@ const runKind = (char: string | undefined) =>
 
 /**
  * Where a pattern that opens with a number matches, tried from the first character of each run of
- * digits or of Chinese numerals: tried from each character, a long run was read again from each,
- * so 64 KB of digits before a 年 took 10 seconds (#2510).
+ * digits or of Chinese numerals only, so a long run is read once, not again from each of its
+ * characters (#2510).
  */
 function fromRunStarts(s: string, sticky: RegExp): Span[] {
   const spans: Span[] = [];
@@ -1395,13 +1417,27 @@ function currencyCodes(word: string, settled: Settled): string[] {
 }
 
 /** The bracket `from`–`to` sits in, as written, or null when it is on no one line. */
-function bracketAround(s: string, from: number, to: number): string | null {
-  const open = Math.max(s.lastIndexOf("(", from), s.lastIndexOf("（", from));
-  if (open < 0) return null;
-  const closes = [s.indexOf(")", to), s.indexOf("）", to)].filter((at) => at >= 0);
-  if (closes.length === 0) return null;
-  const content = s.slice(open + 1, Math.min(...closes));
-  return content.includes("\n") ? null : content;
+/** The bracket's content around `from` to `to` on their line; null when they aren't in one. */
+function bracketAround(prepared: Prepared, from: number, to: number): string | null {
+  const end = lineEnd(prepared, from);
+  if (to > end) return null;
+  const line = lineEnding(prepared, end);
+  if (!line.brackets) {
+    const opens: number[] = [];
+    const closes: number[] = [];
+    for (let at = line.start; at < end; at++) {
+      const char = prepared.s[at];
+      if (char === "(" || char === "（") opens.push(at);
+      else if (char === ")" || char === "）") closes.push(at);
+    }
+    steps += end - line.start;
+    line.brackets = { opens, closes };
+  }
+  steps++;
+  const { opens, closes } = line.brackets;
+  const open = opens[countBefore(opens, from + 1) - 1];
+  const close = closes[countBefore(closes, to)];
+  return open === undefined || close === undefined ? null : prepared.s.slice(open + 1, close);
 }
 
 /** The currencies a bracket names, as codes: "(in £ and $ thousands)" names two. */
@@ -1437,7 +1473,7 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
       }
       if (!scale && unit.kind === "plain") continue;
       // A bracket naming two currencies states neither for its amounts (#2365).
-      const bracket = bracketAround(s, match.index, match.index + match[0].length);
+      const bracket = bracketAround(prepared, match.index, match.index + match[0].length);
       if (bracket !== null && bracketCurrencies(bracket, settled).size > 1) continue;
       found.push({
         from: match.index,
@@ -1449,11 +1485,13 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
       });
     }
   }
-  // "单位：万元" is one statement, though its "万元" alone would be one too.
+  // "单位：万元" is one statement, though its "万元" alone would be one too. Those kept don't
+  // overlap and come in order, so only the last can overlap the next.
   const kept: Statement[] = [];
+  steps += found.length;
   for (const statement of found.sort((a, b) => a.from - b.from || b.to - a.to)) {
-    if (!kept.some((other) => statement.from < other.to && other.from < statement.to))
-      kept.push(statement);
+    const last = kept.at(-1);
+    if (!last || last.to <= statement.from) kept.push(statement);
   }
   return kept;
 }
@@ -2012,8 +2050,8 @@ function runsFrom(length: number, holds: (index: number) => boolean): number[] {
  * Reads the separators of a run of digits. A separator is decided by the number itself where it
  * can be ("1,234.5", "1.234.567"), then by the context; where neither decides, both readings are
  * kept. Separators of mixed kinds that aren't one number read as the longest start that is one,
- * then the rest the same way, in one pass: trying each start in turn read a short garbled run in
- * time that doubled with each separator (#2510).
+ * then the rest the same way, in one pass over run lengths worked out once, so a garbled run costs
+ * no more than its length (#2510).
  */
 function readGroups(s: string, lexeme: Lexeme, settled: Settled): Core[] {
   const { groups, separators, at } = lexeme;
@@ -2776,7 +2814,7 @@ const RANGE = / ?(?:-|~|〜) ?|至|到| to /y;
 const CHANGE_BEFORE =
   /(?:(?<![A-Za-z])(?:from|by|rose|risen|rises|rising|increased|increases|grew|grown|grows|fell|fallen|falls|decreased|declined|dropped|climbed|jumped|cut|reduced|raised|improved|widened|narrowed|went|moved|changed|up|down) |从|由)$/i;
 
-// Asked of each range: looking through every span each time took time that grew with ranges × dates.
+// Asked of each range, so it is answered by binary search, not by looking through every span (#2510).
 const reaches = new WeakMap<readonly Span[], { starts: number[]; reach: number[] }>();
 
 /** Whether one of `blocked`, sorted by where each starts, holds `at`. */
@@ -2882,6 +2920,23 @@ function readingOf(draft: Draft, written?: Written, number: Digits = draft.core.
   };
 }
 
+/**
+ * Stated units that read a figure alike, kept once: a report states 单位：万元 over each table,
+ * and each figure has the one reading they all give (#2512).
+ */
+function distinctStatements(statements: readonly Statement[]): Statement[] {
+  const seen = new Set<string>();
+  return statements.filter(({ exponent, scaleWord, unit }) => {
+    const key = JSON.stringify([exponent, scaleWord, unit]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const readingKey = ({ value, scale, scaleWord, unit, decimals, precision }: Reading) =>
+  JSON.stringify([value, scale, scaleWord, unit, decimals, String(precision)]);
+
 /** The readings a header's stated unit gives a figure that has no scale or unit of its own. */
 function statedReadings(draft: Draft, statements: readonly Statement[]): Reading[] {
   if (
@@ -2893,6 +2948,7 @@ function statedReadings(draft: Draft, statements: readonly Statement[]): Reading
     return [];
   if (draft.unit.kind !== "plain" && draft.unit.kind !== "currency") return [];
   const readings: Reading[] = [];
+  steps += statements.length;
   for (const statement of statements) {
     // A numeral in words writes the whole amount: "一万二" under "单位：万元" is still 12,000 (#2189).
     if (draft.core.chinese && statement.exponent !== 0) continue;
@@ -2926,6 +2982,7 @@ function finish(
   prepared: Prepared,
   text: string,
   statements: readonly Statement[],
+  header: readonly Statement[],
 ): Figure {
   const written: Written = (span) => text.slice(prepared.from[span.from], prepared.to[span.to - 1]);
   const start = prepared.from[draft.from] as number;
@@ -2945,8 +3002,19 @@ function finish(
       readings: draft.currencies.map((code) => ({ ...base, unit: { kind: "currency", code } })),
     });
   }
-  const stated = statedReadings(draft, statements);
-  if (stated.length > 0) ambiguous.push({ kind: "scale", readings: [base, ...stated] });
+  // Units stated twice, in the text and in its header too, give one reading that names both; one
+  // that reads the figure as it is written leaves nothing to choose.
+  const stated = new Map<string, Reading>();
+  const add = (statedIn: "text" | "header") => (reading: Reading) => {
+    const key = readingKey(reading);
+    if (key === readingKey(base)) return;
+    const known = stated.get(key);
+    if (!known) stated.set(key, { ...reading, statedIn });
+    else if (known.statedIn !== statedIn) known.statedIn = "both";
+  };
+  statedReadings(draft, statements).forEach(add("text"));
+  statedReadings(draft, header).forEach(add("header"));
+  if (stated.size > 0) ambiguous.push({ kind: "scale", readings: [base, ...stated.values()] });
   if (draft.signUnsure) {
     const positive = readingOf({ ...draft, negative: false }, written);
     ambiguous.push({
@@ -3115,8 +3183,9 @@ function figuresIn(text: string, context: FigureContext): Figure[] {
     }
     at = next;
   }
-  const stated = [...statements, ...header];
-  return drafts.map((draft) => finish(draft, prepared, text, stated));
+  const stated = distinctStatements(statements);
+  const headed = distinctStatements(header);
+  return drafts.map((draft) => finish(draft, prepared, text, stated, headed));
 }
 
 /** Each way a figure can be read: as written, and each reading of what isn't settled. */

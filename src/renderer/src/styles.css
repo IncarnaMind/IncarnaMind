@@ -5897,8 +5897,13 @@
     color: var(--color-ink-meta);
   }
 
+  .claim-card-checked-by-name,
   .claim-card-checked-by-when {
     white-space: nowrap;
+  }
+
+  .claim-card-checked-by-name--wide {
+    white-space: normal;
   }
 
   /* A figure a check worked out (#707): how, then each input's Citation. */

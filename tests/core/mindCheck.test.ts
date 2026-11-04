@@ -47,7 +47,8 @@ import { importWordBytes } from "../helpers/wordMinds";
 
 const TIDES = {
   name: "Tides.md",
-  contents: "# Tides\n\nSpring tides come at new and full moon.\n",
+  contents:
+    "# Tides\n\nSpring tides come at new and full moon. Spring tides come at the full moon.\n",
 };
 const OFFICE = {
   name: "Harbour office.md",
@@ -61,8 +62,17 @@ const PENGUINS = "Penguins nest on the cliffs above the harbour.";
 const QUESTION = "Does high water come at noon on Sundays?";
 const OPINION = "We think the harbour office is very helpful.";
 
+const FULL = "Spring tides come at the full moon.";
+const STOPLESS = FULL.slice(0, -1);
+
 const PLANS: Record<string, Plan> = {
   [MOON]: { verdict: "supported", quote: MOON },
+  [STOPLESS]: {
+    verdict: "contradicted",
+    quote: FULL,
+    says: "Roles: Spring tides come at the full moon / Spring tides come at the full moon, same. The quote gives it another way.",
+    judgement: "same",
+  },
   [YEARLY]: {
     verdict: "contradicted",
     quote: "The harbour office publishes the times of high water every week.",
@@ -762,6 +772,83 @@ describe("Check this note", () => {
     expect(
       (await shownChecks(core, client, mindId, folderId)).map(({ shown }) => shown.state),
     ).toEqual(["unsupported", "contradicted", "unsupported"]);
+  });
+
+  test("a whole sentence whose stored part drops its closing stop is no part (#2313)", async () => {
+    const { core, client, mindId, folderId } = await setUp();
+    const quote = {
+      passageId: "passage-tides",
+      documentId: "tides",
+      documentName: "Tides",
+      contentHash: "hash-tides",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: FULL,
+      check: "found" as const,
+      checkReason: null,
+    };
+    const part = {
+      span: { start: 0, end: STOPLESS.length },
+      kind: "fact" as const,
+      verdict: "contradicted" as const,
+      evidence: [quote],
+      decidingEvidence: 0,
+      says: "The quote gives it another way.",
+      unsupported: null,
+      calculation: null,
+      reason: null,
+      detail: null,
+      versions: [],
+      excluded: [],
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+    };
+    const check: ClaimCheckAttributes = {
+      id: "stopless",
+      request: "before",
+      action: "check-against-documents",
+      state: "contradicted",
+      reason: null,
+      detail: null,
+      providerId: null,
+      modelId: null,
+      text: FULL,
+      evidence: null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      scope: { folderId, widened: false },
+      versions: [],
+      excluded: [],
+      checkedAt: "2026-10-02T13:00:00.000Z",
+      parts: [part],
+    };
+    editMind(client, (blocks) => [
+      ...blocks,
+      {
+        type: "paragraph",
+        attrs: { id: "stopless" },
+        content: [{ type: "text", text: FULL, marks: [{ type: CLAIM_CHECK_MARK, attrs: check }] }],
+      },
+    ]);
+    await client.settled();
+    expect(
+      claimSpans(readMind(client))
+        .filter((span) => span.sentence.text === FULL)
+        .map((span) => [span.check.state, span.check.parts?.length, span.check.text]),
+      "stored",
+    ).toContainEqual(["contradicted", 1, FULL]);
+
+    await core.checkMind(request(mindId, "all"));
+
+    const [shown] = (await shownChecks(core, client, mindId, folderId)).filter(
+      ({ sentence }) => sentence === FULL,
+    );
+    expect(shown?.shown.state).not.toBe("supported");
+    expect(shown?.shown.state).toBe("unsupported");
   });
 
   // protects=a sentence the User keeps as their own view (#1111) isn't checked again, in any mode, until its words change; fails_when=a run sends it, or an edit of it doesn't bring it back; no_claim=how the card sets it.

@@ -346,6 +346,22 @@ export const CONFIRM_INSTRUCTIONS = [
   "- neither: they are about different things, or the quote doesn't settle the sentence either way.",
 ].join("\n");
 
+/** The fields-only reply of a check that disagreed with itself, asked once more (#2313). */
+export const RECHECK_INSTRUCTIONS = [
+  "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own field lines said the claim is stated and the same.",
+  "Check the sentence once more against the quoted words and the Passage, by those fields:",
+  "- supported: the quoted words state what the sentence says;",
+  "- contradicted or unsupported: name the field that differs (Roles, Time or Scope), or the value the quote gives instead.",
+  "Reply in exactly this form, the verdict word in English:",
+  "Verdict: supported, unsupported or contradicted",
+  "Scope: the sentence's own word for the Passage's party or term, then same or wider",
+  "Topic: found or not found",
+  'Roles: the words that say who does it, copied from the sentence, then " / " and from the Passage, then same, differs or other',
+  "Time: the words that say whether it has happened, the sentence's then \" / \" and the Passage's, then same or differs",
+  "Then one plain sentence saying what the Document says, and Evidence: [1] naming the quote used.",
+  "Write nothing else.",
+].join("\n");
+
 /**
  * What a model is asked about the exact Passage a record cite names (#1709). It may reason
  * before its word: Claude Sonnet 5.5 wrote its reasons first and its word last whatever it was
