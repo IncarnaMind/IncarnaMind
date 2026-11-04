@@ -1,0 +1,203 @@
+import type { Editor } from "@tiptap/core";
+import { DOMParser } from "linkedom";
+import { act, type ComponentType, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type * as Y from "yjs";
+import type { CheckEstimateView } from "../../src/renderer/src/editor/checkEstimateState";
+import type { Planned } from "../../src/renderer/src/mindCheck";
+
+/*
+ * The badge card's one Check (#2313): its press hands the plan the card showed a price for to
+ * `startCheck`, so a plan made since that price asks again instead of running at once on the new
+ * plan's cost, unseen. A press with no price yet asks with the couldn't-estimate line instead.
+ */
+
+const pressed = vi.hoisted(() => ({ check: vi.fn(), unpriced: vi.fn() }));
+vi.mock("../../src/renderer/src/mindCheck", () => ({
+  startCheck: pressed.check,
+  startCheckUnpriced: pressed.unpriced,
+  useMindCheck: () => undefined,
+  useMindCheckRun: () => null,
+}));
+vi.mock("@tiptap/react", () => ({
+  useEditorState: ({
+    editor,
+    selector,
+  }: {
+    editor: unknown;
+    selector: (context: { editor: unknown }) => unknown;
+  }) => selector({ editor }),
+}));
+vi.mock("@tiptap/y-tiptap", () => ({ ySyncPluginKey: {} }));
+vi.mock("../../src/renderer/src/checks", () => ({
+  useChecks: () => undefined,
+  setCheckCardOpen: vi.fn(),
+  stopCheck: vi.fn(),
+}));
+vi.mock("../../src/renderer/src/contradictions", () => ({ useContradictions: () => undefined }));
+vi.mock("../../src/renderer/src/editor/ContradictionLine", () => ({
+  ContradictionAsk: () => null,
+  ContradictionLine: () => null,
+}));
+vi.mock("../../src/renderer/src/correctionFixes", () => ({
+  correctableCount: () => 0,
+  correctContradictions: vi.fn(),
+}));
+vi.mock("../../src/renderer/src/editWithAi", () => ({ useEdits: () => undefined }));
+vi.mock("../../src/renderer/src/i18n", () => ({
+  useLanguage: () => "en",
+  useT: () => (key: string) => key,
+}));
+vi.mock("../../src/renderer/src/layoutSlice", () => ({
+  frontTabOfMind: () => null,
+  groupsMerged: () => false,
+}));
+vi.mock("../../src/renderer/src/motion", () => ({ useFade: () => {} }));
+vi.mock("../../src/renderer/src/store", () => ({
+  useAppStore: Object.assign(() => undefined, { getState: () => ({}) }),
+}));
+vi.mock("../../src/renderer/src/unreadFiles", () => ({ useCheckUnread: () => [] }));
+vi.mock("../../src/renderer/src/useWindowWidth", () => ({ useGroupsMerged: () => false }));
+vi.mock("../../src/renderer/src/verify", () => ({
+  checkClaims: vi.fn(),
+  stopVerify: vi.fn(),
+}));
+vi.mock("../../src/renderer/src/editor/AddedDocumentsLine", () => ({
+  useWatchAddedDocuments: () => {},
+}));
+vi.mock("../../src/renderer/src/editor/changedSentences", () => ({
+  checkTitle: () => undefined,
+  useCheckEstimate: () => ({ line: null, state: "none" }),
+  useCheckThisMindPlan: () => null,
+}));
+vi.mock("../../src/renderer/src/editor/checkPlace", () => ({ useCardPlace: () => "card" }));
+vi.mock("../../src/renderer/src/editor/MindCheckLine", () => ({
+  MindCheckAsk: () => null,
+  MindUnchanged: () => null,
+  RunningText: () => null,
+}));
+vi.mock("../../src/renderer/src/editor/NoteHealth", () => ({
+  HealthCard: () => null,
+  PartMark: () => null,
+  partLabel: () => "",
+  useHealth: () => ({
+    contradicted: [],
+    unsupported: [],
+    notFound: [],
+    checkable: 0,
+    toCheck: [],
+  }),
+}));
+vi.mock("../../src/renderer/src/editor/Popover", () => ({ Popover: () => null }));
+vi.mock("../../src/renderer/src/editor/VerifyLine", () => ({
+  useVerifyState: () => null,
+  VerifyCard: () => null,
+  verifyDone: () => false,
+}));
+vi.mock("../../src/renderer/src/components/tabs/tabItems", () => ({ useTabPlace: () => null }));
+
+const planned: Planned = {
+  mode: "changed",
+  allDocuments: false,
+  watch: null,
+  plan: {
+    kind: "ready",
+    sentences: 4,
+    findsClaims: true,
+    inFolder: true,
+    model: null,
+  },
+};
+const price: CheckEstimateView["line"] = { parts: ["About $1.40"], title: "About $1.40" };
+
+/** As the card takes them; the card itself is imported at run time, as a .tsx file. */
+interface PressProps {
+  editor: Editor;
+  doc: Y.Doc;
+  mindId: string;
+  askingMind: boolean;
+  planned: Planned | null;
+  estimate: CheckEstimateView["line"];
+  estimateState: CheckEstimateView["state"];
+}
+
+let root: Root | null = null;
+let container: HTMLElement;
+let Press: ComponentType<PressProps>;
+
+async function render(estimateState: CheckEstimateView["state"], at: Planned | null) {
+  await act(() =>
+    root?.render(
+      createElement(Press, {
+        editor: {} as Editor,
+        doc: {} as Y.Doc,
+        mindId: "mind",
+        askingMind: false,
+        planned: at,
+        estimate: price,
+        estimateState,
+      }),
+    ),
+  );
+}
+
+async function press() {
+  const button = container.querySelector('[data-testid="badge-check-mind"]');
+  if (!button) throw new Error("The card draws no Check button.");
+  await act(() => {
+    button.dispatchEvent(new window.Event("click", { bubbles: true }));
+  });
+}
+
+beforeEach(async () => {
+  const document = new DOMParser().parseFromString(
+    "<html><head></head><body></body></html>",
+    "text/html",
+  );
+  const window = document.defaultView;
+  const globals: Record<string, unknown> = {
+    document,
+    window,
+    HTMLElement: window.HTMLElement,
+    Element: window.Element,
+    Event: window.Event,
+    Node: window.Node,
+    MutationObserver: window.MutationObserver,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  for (const [name, value] of Object.entries(globals)) vi.stubGlobal(name, value);
+  container = document.createElement("div", {});
+  document.body.append(container);
+  root = createRoot(container);
+  pressed.check.mockClear();
+  pressed.unpriced.mockClear();
+  const modulePath = "../../src/renderer/src/editor/CheckBadge.tsx";
+  const module: { CheckActions: ComponentType<PressProps> } = await import(modulePath);
+  Press = module.CheckActions;
+});
+
+afterEach(async () => {
+  await act(() => root?.unmount());
+  root = null;
+  container.remove();
+  vi.unstubAllGlobals();
+});
+
+// protects=#2313: the card's press hands `startCheck` the plan its price line was for; fails_when=it presses without that plan, so a plan made since the price runs at once, unpriced; no_claim=the press waiting for a price.
+test("the card's press hands over the plan its price was for", async () => {
+  await render("price", planned);
+  await press();
+
+  expect(pressed.check).toHaveBeenCalledWith("mind", planned);
+  expect(pressed.unpriced).not.toHaveBeenCalled();
+});
+
+// protects=#2313: with no price yet the card asks instead of running, with no plan to hand over; fails_when=it presses the priced way while the estimate is pending; no_claim=the priced press above.
+test("the card's press with no price asks instead", async () => {
+  await render("pending", planned);
+  await press();
+
+  expect(pressed.unpriced).toHaveBeenCalledWith("mind");
+  expect(pressed.check).not.toHaveBeenCalled();
+});
