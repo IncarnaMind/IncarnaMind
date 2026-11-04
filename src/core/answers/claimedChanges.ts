@@ -5,6 +5,7 @@
  * honest Answer.
  */
 import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
+import { sameWords } from "../../shared/commands";
 import {
   type AnswerToolCall,
   CLAIMED_CHANGES,
@@ -219,10 +220,6 @@ function inTheApp(about: unknown): ClaimedCommand | undefined {
   return known && IN_THE_APP[known];
 }
 
-// A model may straighten the reply's typographic quotes even when asked to copy it.
-const comparableSentence = (text: string) =>
-  text.trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
-
 interface Unbacked {
   claims: ClaimedChange[];
   commands: ClaimedCommand[];
@@ -244,9 +241,9 @@ function verdictOf(value: unknown, reply: string): (Unbacked & { unsure: boolean
   const claims = new Set<ClaimedChange>();
   const commands = new Set<ClaimedCommand>();
   // The judge read the reply with its prompts' tags written as data, and may copy them so.
-  const replies = [reply, asData(reply, JUDGED_TAGS)].map(comparableSentence);
-  const inReply = (sentence: string) =>
-    replies.some((each) => each.includes(comparableSentence(sentence)));
+  const comparable = (text: string) => sameWords(text.trim());
+  const replies = [reply, asData(reply, JUDGED_TAGS)].map(comparable);
+  const inReply = (sentence: string) => replies.some((each) => each.includes(comparable(sentence)));
   let unsure = false;
   for (const item of value.claims) {
     if (!isRecord(item)) continue;
