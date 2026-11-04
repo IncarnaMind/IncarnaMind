@@ -397,14 +397,17 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(commandCallText(zh, ended("mindCheck.closed"))).toBe("核对未开始：笔记里的提问已关闭。");
   });
 
-  // protects=a Check whose Note still shows its question keeps the waiting line, and one on another Note or one answered does not (#2252); fails_when=it says Running while the User is still deciding, or stayed waiting after an answer; no_claim=when the question shows.
-  test("a Check waits only while its own Note shows the question", () => {
+  // protects=a running Check whose Note still shows its question keeps the waiting line, and a finished Check on that Note, another Note, or none does not (#2252); fails_when=it says Running while the User is still deciding, or an older finished Check flips to waiting; no_claim=when the question shows.
+  test("a Check waits only while its own running one is on a Note that asks", () => {
     const checking = done({
       command: "mind.check",
       mindId: "mind-1",
       window: { changed: false, running: true },
     });
     expect(checkWaiting([checking], { "mind-1": {} })).toBe(true);
+    expect(checkWaiting([{ ...checking, window: { changed: false } }], { "mind-1": {} })).toBe(
+      false,
+    );
     expect(checkWaiting([checking], { "mind-2": {} })).toBe(false);
     expect(checkWaiting([checking], {})).toBe(false);
     expect(checkWaiting([{ ...checking, mindId: undefined }], { "mind-1": {} })).toBe(false);

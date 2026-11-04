@@ -360,7 +360,7 @@ export function commandRuns(
   return [...runs].map(([run, done]) => ({ run, done }));
 }
 
-/** Whether a Check of this Run waits on its Note's question: its line says so until the answer. */
+/** Whether a Check of this Run is waiting on its Note's question: its line says so until the answer. */
 export const checkWaiting = (
   done: readonly CommandDone[],
   asking: Readonly<Record<string, unknown>>,
@@ -368,6 +368,7 @@ export const checkWaiting = (
   done.some(
     (each) =>
       each.command === "mind.check" &&
+      each.window?.running === true &&
       each.mindId !== undefined &&
       asking[each.mindId] !== undefined,
   );

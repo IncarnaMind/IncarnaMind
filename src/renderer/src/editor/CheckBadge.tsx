@@ -25,7 +25,7 @@ import { useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import {
-  closeMindCheckAsk,
+  cardClosed,
   type Planned,
   startCheck,
   startCheckUnpriced,
@@ -435,16 +435,17 @@ function BadgeFrame({
     () => () => {
       setCheckCardOpen(place, false);
       // A tab that only stopped showing keeps its question; its Note closed takes it away.
-      if (!noteHasTab(mindId)) closeMindCheckAsk(mindId);
+      if (!noteHasTab(mindId)) cardClosed(mindId, "note");
     },
     [place, mindId],
   );
-  const close = (refocus: boolean) => {
+  const close = (how: "escape" | "outside") => {
     // Closed from inside, the card would leave the focus nowhere: it goes back to the badge.
-    if (refocus && document.activeElement?.closest(".check-card")) {
+    if (how === "escape" && document.activeElement?.closest(".check-card")) {
       (anchor?.querySelector("button") ?? anchor)?.focus();
     }
-    closeMindCheckAsk(mindId);
+    // A click into the page keeps the question for the badge to reopen; Esc closes it.
+    cardClosed(mindId, how);
     setCheckCardOpen(place, false);
   };
   // The card is placed from this box's right edge, and the badge in it keeps one width while
@@ -460,7 +461,8 @@ function BadgeFrame({
           running={running}
           stable={badge.running || badge.checked !== null || open}
           onToggle={() => {
-            if (open) closeMindCheckAsk(mindId);
+            // The badge closes the card as its × does: the question closes with it.
+            if (open) cardClosed(mindId, "toggle");
             setCheckCardOpen(place, !open);
           }}
           onStop={onStop}
@@ -476,7 +478,7 @@ function BadgeFrame({
           aria-label={t("health.label")}
           data-testid="check-card"
           className="check-card"
-          onDismiss={(how) => close(how === "escape")}
+          onDismiss={(how) => close(how)}
           onKeyDown={stepThroughCard}
         >
           <div

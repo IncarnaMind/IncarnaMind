@@ -111,25 +111,38 @@ function clearAsk(mindId: string): void {
   });
 }
 
-/** Not now: the question goes, and the Note is free for another window's Check. */
+/** Not now: the question goes as the User's no, and the Note is free for another window's Check. */
 export function dismissMindCheck(mindId: string): void {
-  void freeAskedNote(mindId);
+  void settleAskedNote(mindId, "declined");
 }
 
-/** The card closed on the question (Esc, ×, or the Note closing): it goes as the User's no. */
+/** The card closed on the question (Esc, ×, or the Note closing): it goes as closed, never Not now. */
 export function closeMindCheckAsk(mindId: string): void {
-  const asking = useMindCheck.getState().asking[mindId];
-  if (!asking) return;
-  clearAsk(mindId);
-  settle(asking.requestId, { kind: "closed" });
-  void releaseHold(asking.requestId);
+  void settleAskedNote(mindId, "closed");
 }
 
+/**
+ * What closing the card does to the Note's question: a click into the page keeps it for the
+ * badge to reopen, while Esc, the badge's ×, and the Note closing close it.
+ */
+export function cardClosed(mindId: string, how: "escape" | "toggle" | "note" | "outside"): void {
+  if (how === "outside") return;
+  closeMindCheckAsk(mindId);
+}
+
+/**
+ * A Check that starts while a question waits (a second request, Check every sentence again, a
+ * retry): the question gives way as closed; the User never chose Not now.
+ */
 async function freeAskedNote(mindId: string): Promise<void> {
+  await settleAskedNote(mindId, "closed");
+}
+
+async function settleAskedNote(mindId: string, answer: "declined" | "closed"): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
   clearAsk(mindId);
   if (!asking) return;
-  settle(asking.requestId, { kind: "declined" });
+  settle(asking.requestId, { kind: answer });
   await releaseHold(asking.requestId);
 }
 

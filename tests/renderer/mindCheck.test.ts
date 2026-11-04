@@ -597,7 +597,7 @@ describe("A Check another window runs or plans", () => {
     );
   });
 
-  // protects=the assistant's Check that asks says it waits for the User's OK on the Note, then its line follows the answer: its result after Check, the declined line after Not now, the closed line after Esc, × or the Note closing, in English and Chinese (#2252); fails_when=the question changes before an answer, or the answer leaves it up; no_claim=what the run checks.
+  // protects=the assistant's Check that asks says it waits for the User's OK on the Note, then its line follows the answer: Not now declines it, a click into the page keeps the same question, Check runs it to its result, and Esc, the badge's × or the Note closing close it, in English and Chinese (#2252); fails_when=the question changes before an answer, or an answer leaves it up; no_claim=what the run checks.
   test.each([
     {
       language: "en" as const,
@@ -617,8 +617,13 @@ describe("A Check another window runs or plans", () => {
     store.language = words.language;
     askByCap();
     bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
-    const { checkFromAssistant, confirmCheck, dismissMindCheck, closeMindCheckAsk, useMindCheck } =
-      await import("../../src/renderer/src/mindCheck");
+    const {
+      cardClosed,
+      checkFromAssistant,
+      confirmCheck,
+      dismissMindCheck,
+      useMindCheck,
+    } = await import("../../src/renderer/src/mindCheck");
     const { translate } = await import("../../src/shared/i18n");
     expect(translate(words.language, "mindCheck.waitingForOk")).toBe(words.waiting);
     expect(translate(words.language, "mindCheck.declined")).toBe(words.declined);
@@ -631,17 +636,53 @@ describe("A Check another window runs or plans", () => {
     dismissMindCheck("mind");
     await expect(declined).rejects.toMatchObject({ wording: { key: "mindCheck.declined" } });
 
-    const closed = checkFromAssistant("mind", true, true);
-    await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
-    closeMindCheckAsk("mind");
-    await expect(closed).rejects.toMatchObject({ wording: { key: "mindCheck.closed" } });
-
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 1,
+      checked: 1,
+      smallModel: false,
+      stop: null,
+    });
     const checked = checkFromAssistant("mind", true, true);
     await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
-    expect(bridge.checkMind).not.toHaveBeenCalled();
+    cardClosed("mind", "outside");
+    expect(useMindCheck.getState().asking.mind?.estimate?.parts).toEqual(words.estimate);
     await confirmCheck("mind");
-    await expect(checked).rejects.toMatchObject({ wording: { key: "run.stopped.cancelled" } });
+    await expect(checked).resolves.toBeUndefined();
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
+
+    for (const how of ["escape", "toggle", "note"] as const) {
+      const closed = checkFromAssistant("mind", true, true);
+      await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+      cardClosed("mind", how);
+      await expect(closed).rejects.toMatchObject({ wording: { key: "mindCheck.closed" } });
+    }
   });
+
+  // protects=a question that gives way to another Check (a second request, Check every sentence again, a retry) settles as closed, never as Not now (#2252); fails_when=the card says the User chose Not now when they started another Check; no_claim=the new Check's own ask.
+  test.each(["request", "every-sentence", "retry"] as const)(
+    "a question giving way to another Check settles as closed (%s)",
+    async (how) => {
+      askByCap();
+      bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
+      const { checkFromAssistant, startMindCheck, checkMind, dismissMindCheck, useMindCheck } =
+        await import("../../src/renderer/src/mindCheck");
+      const first = checkFromAssistant("mind", true, true);
+      await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+      if (how === "request") {
+        const second = checkFromAssistant("mind", true, true);
+        await expect(first).rejects.toMatchObject({ wording: { key: "mindCheck.closed" } });
+        await vi.waitFor(() => expect(useMindCheck.getState().asking.mind).toBeDefined());
+        dismissMindCheck("mind");
+        await expect(second).rejects.toMatchObject({ wording: { key: "mindCheck.declined" } });
+        return;
+      }
+      if (how === "every-sentence") await startMindCheck("mind", "all");
+      else await checkMind("mind", "changed");
+      await expect(first).rejects.toMatchObject({ wording: { key: "mindCheck.closed" } });
+      dismissMindCheck("mind");
+    },
+  );
 
   // protects=#2313: below $1 and without a spending cap the assistant's one Check runs at once; fails_when=it asks for a price it would not show; no_claim=the asking case above.
   test("below the price and the cap, the assistant's one Check runs at once", async () => {
