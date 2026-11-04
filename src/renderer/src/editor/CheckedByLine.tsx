@@ -2,6 +2,7 @@ import type { ClaimCheckAttributes } from "../../../core/api";
 import { type ClaimCheckShown, checkedWith } from "../../../shared/claimChecks";
 import { formatDateTime } from "../../../shared/dates";
 import { andList } from "../../../shared/i18n";
+import { SLOT, Slotted } from "../components/Slotted";
 import { useLanguage, useT } from "../i18n";
 import { useModelNames } from "../modelNames";
 
@@ -29,13 +30,21 @@ export function CheckedByLine({
   if (!by) return null;
   return (
     <p data-testid="claim-checked-by" className="claim-card-checked-by">
-      {t("claim.checkedWith", {
-        model: andList(
-          language,
-          by.models.map(({ modelId, providerId }) => nameOf(modelId, providerId).name),
-        ),
-        when: formatDateTime(by.checkedAt, language),
-      })}
+      <Slotted
+        message={t("claim.checkedWith", {
+          model: andList(
+            language,
+            by.models.map(({ modelId, providerId }) => nameOf(modelId, providerId).name),
+          ),
+          when: SLOT,
+        })}
+        slot={
+          // A long list of models wraps before the time, never inside "10月22日 12:30".
+          <span className="claim-card-checked-by-when">
+            {formatDateTime(by.checkedAt, language)}
+          </span>
+        }
+      />
     </p>
   );
 }

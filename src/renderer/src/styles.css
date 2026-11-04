@@ -5829,6 +5829,11 @@
     line-height: var(--text-meta--line-height);
     color: var(--color-ink-meta);
   }
+
+  .claim-card-checked-by-when {
+    white-space: nowrap;
+  }
+
   /* A figure a check worked out (#707): how, then each input's Citation. */
   .claim-card-working {
     display: flex;
