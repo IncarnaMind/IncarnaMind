@@ -162,7 +162,8 @@ async function showProbe(number: number, label = "p. 1–2") {
     measures.push({ number: props.number, measured });
     return createElement(CitationMark, { mark, style: { top: 0, left: 0 }, onSize });
   };
-  await act(() => root?.render(createElement(probe, { number, label })));
+  const Viewer = probe;
+  await act(() => root?.render(createElement(Viewer, { number, label })));
 }
 
 // "p. 1–2" has two digits and four other signs: the label's box is 1 + 5 + 38.4 = 44.4px. The

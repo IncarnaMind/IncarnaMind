@@ -42,7 +42,7 @@ import { useSettingUp } from "../modelSetup";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
-import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone } from "./quoteMark";
+import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone, useMarkMeasure } from "./quoteMark";
 import { SheetSelectionMenu } from "./SelectionMenu";
 import { addRangeToNote, askAboutRange, copyRange } from "./selectionActions";
 import {
@@ -54,14 +54,7 @@ import {
   fontCss,
   rowHeightFor,
 } from "./sheetGeometry";
-import {
-  type MarkMeasure,
-  type MarkPlace,
-  markGutter,
-  measureOf,
-  placeSheetMark,
-  scrollAcross,
-} from "./sheetMark";
+import { type MarkPlace, markGutter, placeSheetMark, scrollAcross } from "./sheetMark";
 import { cellsOn, withRowNames } from "./sheetRowNames";
 import { isInRange, rangeBetween, rangeParts, rangeSize, rangeTable } from "./sheetSelection";
 import { useDocumentFile } from "./useDocumentFile";
@@ -603,21 +596,7 @@ function Grid({
   } | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<VirtualElement | null>(null);
   const keys = useRef<HTMLButtonElement>(null);
-  const markLabel = mark?.shown ?? mark?.label;
-  const markNumber = mark?.number;
-  const [markSize, setMarkSize] = useState<MarkMeasure | null>(null);
-  const measuredMark = useCallback(
-    (size: { full: number; compact: number }) =>
-      setMarkSize((previous) =>
-        previous?.full === size.full &&
-        previous.compact === size.compact &&
-        measureOf(previous, markNumber, markLabel)
-          ? previous
-          : { ...size, number: markNumber, label: markLabel },
-      ),
-    [markNumber, markLabel],
-  );
-  const measured = mark ? measureOf(markSize, markNumber, markLabel) : null;
+  const { measured, onSize: measuredMark } = useMarkMeasure(mark);
   const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
   const applied = useRef<number | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);

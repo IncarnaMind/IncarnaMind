@@ -4,10 +4,7 @@ import { fitName, textColumns } from "../../../shared/naming";
 import { parseCellRef } from "../../../shared/units";
 import { joinMeta } from "../cost";
 
-/**
- * How wide a row's name may be on a Citation's mark, in columns, before it is cut: "about 24"
- * (#2388), with room for the decided "Trade receivables · Note 12" whole.
- */
+/** How wide a row's name may be on a Citation's mark, in columns, before it is cut (#2388): 14 Chinese characters. */
 const NAME_COLUMNS = 28;
 
 /** Text with a letter that still names nothing: an Excel error, a boolean, or "n/a", "nil", "n/m", 无, 不适用. */
@@ -93,7 +90,7 @@ export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[]
 }
 
 /**
- * A row's name as its mark shows it: cut at the end, with "…", past about 24 columns, never
+ * A row's name as its mark shows it: cut at the end, with "…", past 28 columns, never
  * ending on the " · " between two of its cells.
  */
 export const shortRowName = (name: string): string =>

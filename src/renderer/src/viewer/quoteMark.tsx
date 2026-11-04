@@ -1,4 +1,11 @@
-import { type CSSProperties, type RefObject, useLayoutEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ViewerCitation } from "../../../shared/documentViewer";
 import { useT } from "../i18n";
 import { ExclamationIcon, NotEqualIcon, QuestionIcon, TickIcon } from "./icons";
@@ -66,6 +73,33 @@ export function markTopFor(highlight: Element, container: Element): number {
 export function marginRoom(column: Element): number {
   const page = column.parentElement?.getBoundingClientRect();
   return page ? page.right - column.getBoundingClientRect().right - 12 - 4 : 0;
+}
+
+/**
+ * A viewer's measure of its Citation's mark, as `CitationMark` reports it through `onSize`: read
+ * only for the number and label it was taken for, so the next Citation of the same row, with
+ * the same label and a number a digit wider, is placed by its own width. `measured` is null until
+ * the mark has been measured again.
+ */
+export function useMarkMeasure(mark: QuoteMark | null): {
+  measured: MarkMeasure | null;
+  onSize: (size: { full: number; compact: number }) => void;
+} {
+  const number = mark?.number;
+  const label = mark?.shown ?? mark?.label;
+  const [measure, setMeasure] = useState<MarkMeasure | null>(null);
+  const onSize = useCallback(
+    (size: { full: number; compact: number }) =>
+      setMeasure((previous) =>
+        previous?.full === size.full &&
+        previous.compact === size.compact &&
+        measureOf(previous, number, label)
+          ? previous
+          : { ...size, number, label },
+      ),
+    [number, label],
+  );
+  return { measured: mark ? measureOf(measure, number, label) : null, onSize };
 }
 
 /**
