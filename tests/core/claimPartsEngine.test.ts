@@ -1639,3 +1639,31 @@ describe("a part the quote states keeps its own duty and condition (#1766, #1708
     ).toBe("supported");
   });
 });
+
+describe("a part the judge didn't call Supported stays as it said, its Duty and Condition the same (#1766, #1708)", () => {
+  test("an Unsupported part reply with both lines the same stays Unsupported", async () => {
+    const claim = "The berth costs 40 pounds a night, and berth holders may run a generator.";
+    const part = "berth holders may run a generator";
+    const quote = "Berth holders may store a dinghy on the slipway.";
+    const { result } = await check(
+      claim,
+      [
+        { kind: "fact", text: "The berth costs 40 pounds a night" },
+        { kind: "fact", text: part },
+      ],
+      {
+        "The berth costs 40 pounds a night": { quotes: [quote] },
+        [part]: {
+          quotes: [quote],
+          reply: `Verdict: unsupported\nRoles: berth holders may run / berth holders may store, same\nTime: none / none, same\nScope: none, same\nDuty: may / may, same\nCondition: none / none, same\nThe Document says nothing of a generator.\nEvidence: [1]`,
+          asWritten: true,
+        },
+      },
+    );
+    const judged = result.parts?.find(
+      (each) => claim.slice(each.span.start, each.span.end) === part,
+    );
+    expect(judged?.verdict).toBe("unsupported");
+    expect(judged?.verdict).not.toBe("supported");
+  });
+});

@@ -52,7 +52,7 @@ const BERTHS_ZH = {
 interface Case {
   sentence: string;
   quote: string;
-  verdict: "supported" | "contradicted";
+  verdict: "supported" | "unsupported" | "contradicted";
   /** Its Duty line's field; no line when null. */
   duty: string | null;
   /** Its Condition line's field; no line when null. */
@@ -451,6 +451,79 @@ describe("a Supported reply without its Duty or Condition line is asked once, an
     const checked = await check(each, BERTHS, calls);
     expect(checked?.state).toBe(state);
     expect(asks(calls)).toHaveLength(asked);
+    if (each.number) expect(checked?.figures).toHaveLength(1);
+  });
+});
+
+describe("the Duty and Condition lines only ever take support away (#1766, #1708)", () => {
+  // A reply the judge didn't call Supported stays as the judge said, whatever its lines say.
+  test.each<[string, Case, typeof BERTHS, "unsupported" | "contradicted"]>([
+    [
+      "en, Unsupported with both lines the same",
+      {
+        sentence: "Berth holders must wear a life jacket in the clubhouse.",
+        quote: "Berth holders must wear a life jacket on the pontoons.",
+        verdict: "unsupported",
+        duty: "must / must, same",
+        condition: SAME,
+      },
+      BERTHS,
+      "unsupported",
+    ],
+    [
+      "zh, Unsupported with both lines the same",
+      {
+        sentence: "泊位持有人必须在会所内穿救生衣。",
+        quote: "泊位持有人必须在浮桥上穿救生衣。",
+        verdict: "unsupported",
+        duty: "must / must, same",
+        condition: SAME,
+      },
+      BERTHS_ZH,
+      "unsupported",
+    ],
+    [
+      "en, Contradicted with both lines the same",
+      {
+        sentence: "Berth holders must wear a helmet on the pontoons.",
+        quote: "Berth holders must wear a life jacket on the pontoons.",
+        verdict: "contradicted",
+        duty: "must / must, same",
+        condition: SAME,
+      },
+      BERTHS,
+      "contradicted",
+    ],
+    [
+      "en, a figure's sentence Unsupported with both lines the same",
+      {
+        sentence: "Berth holders get a 10% discount on moorings unless they pay their fees late.",
+        quote: "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
+        verdict: "unsupported",
+        duty: "none / none, same",
+        condition: "unless they pay their fees late / unless they pay their fees late, same",
+        number: "10%",
+      },
+      BERTHS,
+      "unsupported",
+    ],
+    [
+      "en, a figure's sentence Contradicted with both lines the same",
+      {
+        sentence: "Berth holders get a 20% discount on fuel unless they pay their fees late.",
+        quote: "Berth holders get a 10% discount on fuel, unless they pay their fees late.",
+        verdict: "contradicted",
+        duty: "none / none, same",
+        condition: "unless they pay their fees late / unless they pay their fees late, same",
+        number: "10%",
+      },
+      BERTHS,
+      "contradicted",
+    ],
+  ])("%s", async (_, each, document, state) => {
+    const checked = await check(each, document);
+    expect(checked?.state).toBe(state);
+    expect(checked?.state).not.toBe("supported");
     if (each.number) expect(checked?.figures).toHaveLength(1);
   });
 });
