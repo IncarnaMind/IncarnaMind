@@ -172,7 +172,7 @@ export function Popover({
       document.removeEventListener("keydown", dismissOnEscape, true);
       if (element.matches(":popover-open")) element.hidePopover();
     };
-  }, [anchor, placement]);
+  }, [anchor, placement, still]);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: it has a role, a dialog's unless the caller gives another (e.g. menu).
