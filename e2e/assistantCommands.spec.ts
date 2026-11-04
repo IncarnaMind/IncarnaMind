@@ -381,6 +381,16 @@ test("a Folder made and the leases moved into it are one request: the card, the 
   await undoFrom(window, card);
   await expect.poll(async () => (await library(window)).folders).not.toContain("Leases");
   await expect(card.getByTestId("command-changes-undone")).toBeVisible();
+
+  // Twice and back: ⇧⌘Z makes the Folder and moves both in again, and ⌘Z takes both again.
+  await pointAndClick(window, card.getByTestId("command-changes-title").first());
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect
+    .poll(async () => (await foldersOf(window)).Leases)
+    .toEqual(["Lease Harbour Street", "Lease Mill Lane"]);
+  await undoFrom(window, card);
+  await expect.poll(async () => (await library(window)).folders).not.toContain("Leases");
+  expect((await library(window)).names).toEqual([...DOCUMENTS].sort());
   await app.close();
 });
 

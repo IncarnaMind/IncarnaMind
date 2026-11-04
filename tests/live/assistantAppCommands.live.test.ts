@@ -40,6 +40,7 @@ import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
+import { fakePrinter } from "../helpers/printer";
 
 const LIVE = [
   {
@@ -867,8 +868,10 @@ const NOTE = [
 /** A Library as each request finds it, its own: what one request changed never reaches the next. */
 async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined = false) {
   const dataDir = await createTempDataFolder();
+  // The app gives the core a printer, so "save this note as a PDF" can be made here too.
   const core = startCore(dataDir, {
     createChatModel: createAiSdkChatModel,
+    printer: fakePrinter().printer,
     ...(live.kind === "ollama" && { ollamaModels: ollamaAsTheAppSees() }),
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
@@ -972,11 +975,8 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
         record(`${live.name} · ${live.model}: ${passed}/${requests.length} passed\n`),
       );
       for (const request of requests) {
-        const { core, dataDir, mind, commands, window, asked, questions, exportTo } = await libraryFor(
-          live,
-          request.choose ?? first,
-          request.declined,
-        );
+        const { core, dataDir, mind, commands, window, asked, questions, exportTo } =
+          await libraryFor(live, request.choose ?? first, request.declined);
         const before = await libraryOf(core, mind.id);
         const text = request.text.replace("{folder}", exportTo);
         let line = `- ${request.id} “${text}”`;
