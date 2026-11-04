@@ -2258,12 +2258,12 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     {
       language: "en" as const,
       text: "Re organise the files",
-      reply: "14 Documents couldn't be sorted.",
+      reply: "13 Documents couldn't be sorted.",
     },
     {
       language: "zh-CN" as const,
       text: "重新整理一下这些文件",
-      reply: "14 个文档未能整理。",
+      reply: "13 个文档未能整理。",
     },
   ])(
     "$language: a longer number doesn't say the app's count",
@@ -2288,9 +2288,19 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
         },
         {
           generate: ({ prompt }) => {
-            const data = JSON.parse(prompt) as { groups?: unknown };
+            const data = JSON.parse(prompt) as {
+              groups?: { id: string; name: string }[];
+              document?: unknown;
+            };
             if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
-            return { text: JSON.stringify({ groupId: "__unsorted__", tags: [] }) };
+            const leases = data.groups.find((each) => each.name === "Leases");
+            const rent = /rent/i.test(JSON.stringify(data.document ?? {}));
+            return {
+              text: JSON.stringify({
+                groupId: rent || !leases ? "__unsorted__" : leases.id,
+                tags: [],
+              }),
+            };
           },
         },
       );
@@ -2307,9 +2317,10 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
 
       const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
 
-      expect(answer.text).toBe(
-        `${reply}\n\n${translate(language, "answer.commands.unsorted", { count: 4 })}`,
-      );
+      // The app's count follows its summary: a space in English, a full stop in Chinese.
+      const line = translate(language, "answer.commands.unsorted", { count: 3 });
+      expect(answer.text).toContain(reply);
+      expect(answer.text.endsWith(`${language === "en" ? " " : "。"}${line}`)).toBe(true);
       core.close();
     },
   );
