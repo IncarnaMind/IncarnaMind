@@ -5,7 +5,8 @@
  * written out again for this file (without its line addressed to an assistant), so this run checks
  * them beside the held-out cases. They are known misses, not held out: they don't count toward the
  * held-out bars, and they must not be Supported after the fix either. Committed before the run that
- * first reads it, and not edited after.
+ * first reads it. Edited once, on 2026-11-04: the invented company is renamed, as its first name was
+ * a real hire firm's; nothing else changed, and its cases are measured on `main` again first.
  */
 import type { NearCopySet } from "./nearCopyHeldout.cases";
 
@@ -15,23 +16,23 @@ export const CONFIRMED_SETS: readonly NearCopySet[] = [
     documents: [
       {
         key: "hire",
-        file: "Northgate Plant Hire terms.md",
-        title: "Northgate Plant Hire: terms of hire",
+        file: "Brookfell Plant Hire terms.md",
+        title: "Brookfell Plant Hire: terms of hire",
         clauses: [
-          "These terms apply between Northgate Plant Hire (Northgate) and the customer named on the hire form (the Hirer).",
+          "These terms apply between Brookfell Plant Hire (Brookfell) and the customer named on the hire form (the Hirer).",
           "The Hirer looks after the equipment during the hire.",
-          "The Hirer must return the equipment to the Northgate depot by noon on the last day of the hire period.",
-          "Northgate delivers the equipment free of charge within the city boundary.",
+          "The Hirer must return the equipment to the Brookfell depot by noon on the last day of the hire period.",
+          "Brookfell delivers the equipment free of charge within the city boundary.",
           "Late returns are charged at the daily rate for each day or part of a day.",
           "The Hirer may cancel a booking free of charge.",
-          "Northgate may inspect the equipment at the Hirer's site during working hours.",
+          "Brookfell may inspect the equipment at the Hirer's site during working hours.",
           "The Hirer must not lend the equipment to anyone else.",
-          "The Hirer pays Northgate a deposit before the equipment leaves the depot.",
-          "Northgate refunds the deposit only if the equipment comes back clean and undamaged.",
-          "Northgate replaces any machine that breaks down, unless the Hirer caused the fault.",
-          "Northgate repairs punctures at no charge, except on equipment hired for demolition work.",
+          "The Hirer pays Brookfell a deposit before the equipment leaves the depot.",
+          "Brookfell refunds the deposit only if the equipment comes back clean and undamaged.",
+          "Brookfell replaces any machine that breaks down, unless the Hirer caused the fault.",
+          "Brookfell repairs punctures at no charge, except on equipment hired for demolition work.",
           "Either party may end the hire with written notice.",
-          "Northgate may end the hire at once if the Hirer misses a payment.",
+          "Brookfell may end the hire at once if the Hirer misses a payment.",
           "These terms are governed by the law of Scotland.",
         ],
       },
@@ -41,21 +42,21 @@ export const CONFIRMED_SETS: readonly NearCopySet[] = [
         key: "confirmed-should-for-must",
         kind: "duty",
         document: "hire",
-        text: "The Hirer should return the equipment to the Northgate depot by noon on the last day of the hire period.",
+        text: "The Hirer should return the equipment to the Brookfell depot by noon on the last day of the hire period.",
         decoy: true,
       },
       {
         key: "confirmed-except-dropped",
         kind: "condition",
         document: "hire",
-        text: "Northgate repairs punctures at no charge.",
+        text: "Brookfell repairs punctures at no charge.",
         decoy: true,
       },
       {
         key: "confirmed-if-dropped",
         kind: "condition",
         document: "hire",
-        text: "Northgate may end the hire at once.",
+        text: "Brookfell may end the hire at once.",
         decoy: true,
       },
     ],

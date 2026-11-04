@@ -7,7 +7,7 @@
  *   fee once a year." names who invoices where its clause names nobody; three English decoys swap
  *   in a weaker frequency ("every term" for every week, "each year" for each month), which stays
  *   true in plain English. Their places take the passive and "once a …".
- * - Added: the fifth near copy reported on #1708 ("Northgate replaces any machine that breaks
+ * - Added: the fifth near copy reported on #1708 ("Brookfell replaces any machine that breaks
  *   down." against "…, unless the Hirer caused the fault."), and in each language the families the
  *   first files lacked: a condition the clause doesn't have, a condition changed (another trigger
  *   or approver, "unless" turned into "only if", the condition negated), a dropped condition in
@@ -26,6 +26,9 @@
  * on `main`; no positive item is Supported in fewer of its 3 Haiku 5.5 checks than on `main` less 1,
  * beside the overall bar of each file; a two-part case whose probe ends without a part counts as
  * Not checked. The added cases are measured on the check before the fix first.
+ *
+ * Edited once, on 2026-11-04 after its first runs: the invented hire company of the fifth near copy
+ * is renamed, as its first name was a real hire firm's; that case is measured on `main` again first.
  */
 import type { NearCopyCase, NearCopyDocument, NearCopyKind } from "./nearCopyHeldout.cases";
 
@@ -113,7 +116,7 @@ export const AMENDED_SETS: readonly AmendedSet[] = [
         ...of("condition", true)(
           "confirmed-unless-dropped",
           "hire",
-          "Northgate replaces any machine that breaks down.",
+          "Brookfell replaces any machine that breaks down.",
         ),
         reported: true,
       },
