@@ -36,6 +36,7 @@ const ELSEWHERE = "Penguins nest on the harbour cliffs every spring.";
 const ABSENT = "Whales sing in the deep bay.";
 const DIFFERENT = "Harbours publish forecasts monthly (6).";
 const PORTS = "Harbours publish (6) for 3 ports.";
+const TIDE_TABLES = "北码头潮汐时刻表";
 
 let dataDirs: string[];
 let sources: string;
@@ -54,8 +55,13 @@ const FILES = [
 ];
 
 /** The app in `language`, the Documents added, and a new Note: its scope `scope` when given. */
-async function launchNote(language: "en" | "zh-CN", width = 1440, scope?: string) {
-  for (const file of FILES) await writeFile(join(sources, file.name), file.contents);
+async function launchNote(
+  language: "en" | "zh-CN",
+  width = 1440,
+  scope?: string,
+  files: readonly { name: string; contents: string }[] = FILES,
+) {
+  for (const file of files) await writeFile(join(sources, file.name), file.contents);
   const dataDir = await createDataFolder();
   dataDirs.push(dataDir);
   const { app, window } = await launchApp(dataDir, { fakeChat: true, home: sources });
@@ -65,7 +71,7 @@ async function launchNote(language: "en" | "zh-CN", width = 1440, scope?: string
   await setWindowSize(app, window, width, 900);
   await addDocuments(
     window,
-    FILES.map((file) => join(sources, file.name)),
+    files.map((file) => join(sources, file.name)),
   );
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
@@ -78,9 +84,14 @@ async function launchNote(language: "en" | "zh-CN", width = 1440, scope?: string
   return { app, window, editor };
 }
 
-/** Types `claim` as a new last paragraph of the Note and checks it, then opens its card. */
+/**
+ * Types `claim` as a new last paragraph of the Note and checks it, then opens its card from the
+ * keyboard with the caret in it: a mark's place among the others is no guide to its sentence.
+ */
 async function checkSentence(window: Page, editor: Locator, claim: string): Promise<Locator> {
   const written = (await noteText(editor)) !== "";
+  const marks = window.getByTestId("claim-mark");
+  const before = await marks.count();
   await pointAndClick(window, editor.locator(":scope > p").last());
   await window.keyboard.press("ControlOrMeta+End");
   if (written) await window.keyboard.press("Enter");
@@ -95,12 +106,14 @@ async function checkSentence(window: Page, editor: Locator, claim: string): Prom
     window,
     window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   );
-  const mark = window.getByTestId("claim-mark").last();
-  await expect(mark).toHaveAttribute("data-check", "unsupported");
+  await expect(marks).toHaveCount(before + 1);
+  await expect(marks.and(window.locator('[data-check="checking"]'))).toHaveCount(0);
   await motionSettled(window);
-  await pointAndClick(window, mark);
+  await pointAndClick(window, line.getByText(words.slice(0, 2).join(" ")));
+  await window.keyboard.press("ControlOrMeta+Shift+K");
   const card = window.getByTestId("claim-card");
   await expect(card).toBeVisible();
+  await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "unsupported");
   return card;
 }
 
@@ -196,12 +209,18 @@ for (const language of ["en", "zh-CN"] as const) {
       window.getByTestId("citation-document-picker").getByText("Harbour times", { exact: true }),
     );
     await selectOwn(window);
-    await pointAndClick(window, window.getByTestId("viewer-selection-cite"));
-    const mark = window.getByTestId("claim-mark").last();
-    await expect(mark).toHaveAttribute("data-check", "unsupported");
-    await motionSettled(window);
-    await pointAndClick(window, mark);
-    await expect(window.getByTestId("claim-card").getByTestId("claim-cited")).toBeVisible();
+    // Enter takes the words selected, as Use as Citation does.
+    await window.keyboard.press("Enter");
+    await expect.poll(() => noteText(editor)).toBe(`${OWN}\n${ABSENT.slice(0, -1)}￼.`);
+    await expect(
+      window.getByTestId("claim-mark").and(window.locator('[data-check="checking"]')),
+    ).toHaveCount(0);
+    await pointAndClick(window, editor.getByText("Whales sing"));
+    await window.keyboard.press("ControlOrMeta+Shift+K");
+    // The words don't back it: the card of a cited sentence nothing backs, with its Citation.
+    const cited = window.getByTestId("claim-card");
+    await expect(cited.getByTestId("claim-badge")).toHaveAttribute("data-check", "unsupported");
+    await expect(cited.getByTestId("claim-cited")).toBeVisible();
     await capture(window, `after-chosen-unsupported-${language}-1440`);
     await window.keyboard.press("Escape");
     // Selected again, the words offer no Use as Citation: nothing waits for one.
@@ -218,7 +237,9 @@ for (const language of ["en", "zh-CN"] as const) {
       window,
       window.getByTestId("citation-document-picker").getByText("Harbour times", { exact: true }),
     );
-    await pointAndClick(window, window.getByTestId("citation-pick-cancel"));
+    await expect(window.getByTestId("citation-pick-line")).toBeVisible();
+    if (language === "en") await pointAndClick(window, window.getByTestId("citation-pick-cancel"));
+    else await window.keyboard.press("Escape");
     await expect(window.getByTestId("citation-pick-line")).toHaveCount(0);
     await selectOwn(window);
     await expect(window.getByTestId("viewer-selection-cite")).toHaveCount(0);
@@ -345,7 +366,10 @@ for (const language of ["en", "zh-CN"] as const) {
   for (const width of [900, 1440]) {
     test(`a whole read's stop line and its question hold their places (${language}, ${width} px)`, async () => {
       test.setTimeout(240_000);
-      const { app, window, editor } = await launchNote(language, width);
+      // A name as long as one that left "句子？" alone on the question's last line.
+      const { app, window, editor } = await launchNote(language, width, undefined, [
+        { name: `${TIDE_TABLES}.txt`, contents: `${OWN}\n` },
+      ]);
       const documents = await window.evaluate(() =>
         (
           globalThis as unknown as {
@@ -353,8 +377,8 @@ for (const language of ["en", "zh-CN"] as const) {
           }
         ).incarnamind.listDocuments(),
       );
-      const harbour = documents.find((each) => each.name === "Harbour times");
-      if (!harbour) throw new Error("Harbour times wasn't added.");
+      const harbour = documents.find((each) => each.name === TIDE_TABLES);
+      if (!harbour) throw new Error("The tide tables weren't added.");
       const detail = JSON.stringify({
         most: { amount: 0.5, currency: "USD" },
         spent: { amount: 0.0048, currency: "USD" },
@@ -416,7 +440,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // Continue asks before it reads again: the question's last line is no stub.
       await pointAndClick(window, card.getByTestId("claim-read-continue"));
       const title = card.getByTestId("document-check-ask").locator(".check-card-ask-title");
-      await expect(title).toHaveText(t("claim.readAsk.one", { scope: "Harbour times" }));
+      await expect(title).toHaveText(t("claim.readAsk.one", { scope: TIDE_TABLES }));
       const lines = await linesOf(title);
       const [first] = lines;
       const last = lines.at(-1);

@@ -135,7 +135,7 @@ import {
   unplacedRecordCites,
   withRecordCites,
 } from "./recordCites";
-import { rewriteFromPassage } from "./rewrite";
+import { REWRITE_TIMEOUT_MS, rewriteFromPassage } from "./rewrite";
 import { pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
@@ -1748,14 +1748,17 @@ export function createChecks(options: ChecksOptions) {
         return { kind: "changed" };
       const ready = await prepare(parseModel(input.model) ?? options.defaultModel());
       if (!ready.ok) return ready.result;
-      return rewriteFromPassage({
+      const rewritten = await rewriteFromPassage({
         sentence: stored.sentence,
         evidence,
         passage: source.text,
         model: ready.prepared,
         documentDate: options.documents.documentDate,
-        signal: new AbortController().signal,
+        signal: AbortSignal.timeout(REWRITE_TIMEOUT_MS),
       });
+      return rewritten.kind === "rewritten"
+        ? { ...rewritten, providerId: ready.prepared.provider.id, modelId: ready.prepared.modelId }
+        : rewritten;
     },
 
     async chooseRecordCiteSource(value: unknown) {

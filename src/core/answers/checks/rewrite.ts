@@ -17,7 +17,7 @@ import { classifyProviderError } from "../../providers/providerErrors";
 import { documentFigureContext } from "../calculations";
 import type { AnswerDocuments } from "../citations";
 import { answerTemperature } from "../engine";
-import { correctionFor, sameNumber } from "./claimCheck";
+import { correctionFor, NUMBERS, sameNumber } from "./claimCheck";
 import { confirmPrompt, readChangeLines } from "./prompt";
 
 /** The request: the sentence's words that differ, and the quote's own words for that same thing. */
@@ -26,10 +26,6 @@ export const REWRITE_INSTRUCTIONS = [
   'Reply in exactly two lines: "Change 1: " and only the words of the sentence that the quote gives another value for, copied exactly from the sentence (the figure, date, name or the few words that differ, never the whole sentence), then "To 1: " and the quote\'s own words for that same thing, copied exactly from the quote, as they would read in their place in the sentence. Write nothing else.',
   'When the quote gives no other value for anything the sentence says, reply "Change 1: none" and "To 1: none".',
 ].join("\n");
-
-/** Written numbers: digits with their separators, or Chinese numerals but a lone 一, a part of many words. */
-const NUMBERS =
-  /\p{Nd}+(?:[.,]\p{Nd}+)*|[〇零一二两三四五六七八九十百千万亿]{2,}|[〇零二两三四五六七八九十百千万亿]/gu;
 
 const numbersIn = (text: string): string[] => text.normalize("NFKC").match(NUMBERS) ?? [];
 
@@ -53,6 +49,9 @@ export type RewriteOutcome =
   | { kind: "rewritten"; correction: ClaimCorrection }
   | { kind: "kept" }
   | { kind: "failed"; error: ProviderError };
+
+/** Past this, a rewrite nobody can stop gives up, so the Note's other fixes aren't held behind it. */
+export const REWRITE_TIMEOUT_MS = 120_000;
 
 /**
  * The model's rewrite of `sentence` to what `evidence` quotes, as a correction of its old words,

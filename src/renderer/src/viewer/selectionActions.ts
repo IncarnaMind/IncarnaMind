@@ -26,6 +26,7 @@ import { readableQuoteText } from "../../../shared/readableQuote";
 import { sourceText } from "../../../shared/sources";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import { type AddTarget, addInEditor } from "../addToNote";
+import { citationAttributesOf } from "../citedSelection";
 import { focusComposer } from "../commands/assistant";
 import { readMindHandle } from "../commands/handles";
 import { holdsQuote, NO_MIND, useComposer } from "../composer";
@@ -87,24 +88,6 @@ async function quoteOf(selection: ViewerSelection): Promise<NodeJSON> {
         ],
       },
     ],
-  };
-}
-
-/** The attributes a Citation of `cited` in `document` is stored with. */
-function citationAttributesOf(cited: CitedSelection, document: Document): CitationAttributes {
-  return {
-    passageId: cited.passageId,
-    documentId: document.id,
-    documentName: document.name,
-    contentHash: cited.contentHash,
-    pageFrom: cited.pageFrom,
-    pageTo: cited.pageTo,
-    location: cited.location,
-    quote: cited.quote,
-    check: cited.check,
-    checkReason: cited.checkReason,
-    ...(cited.yourNoteAt && { yourNoteAt: cited.yourNoteAt }),
-    ...(cited.unsure && cited.unsure.length > 0 && { unsure: cited.unsure }),
   };
 }
 

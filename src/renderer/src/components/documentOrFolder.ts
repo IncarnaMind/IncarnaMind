@@ -25,7 +25,7 @@ export function documentOrFolderChoices(
  */
 export function keptFrom(
   library: ScopeLibrary,
-  choice: DocumentOrFolderChoice,
+  choice: Pick<DocumentOrFolderChoice, "kind" | "id">,
   wall: string | null,
 ): { inside: string } | "outside" | null {
   const groups = library.groups ?? [];

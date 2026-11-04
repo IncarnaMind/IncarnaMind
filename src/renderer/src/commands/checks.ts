@@ -36,6 +36,9 @@ import {
   uncoveredOf,
   unsupportedAt,
 } from "../unsupportedFixes";
+import { keptFrom } from "../components/documentOrFolder";
+import { folderWallOf } from "../folders";
+import { useAppStore } from "../store";
 import { noteHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 
@@ -115,10 +118,35 @@ const withRewrite = () => {
   return at && verificationOf(at.doc) === null ? at : null;
 };
 
-/** The one Document or Folder the command was given: the assistant's find, or what ⌘K has in focus. */
-function targetOf(ctx: CommandContext, kinds: readonly ("document" | "folder")[]) {
+/**
+ * The one Document or Folder the command was given, the assistant's find or what ⌘K has in focus,
+ * when the Note at `mindId` may read it: on the Note's side of a Folder wall, and a Document with
+ * text, as the card's picker offers them.
+ */
+function targetOf(
+  ctx: CommandContext,
+  kinds: readonly ("document" | "folder")[],
+  mindId: string | undefined,
+): { kind: "document" | "folder"; id: string } | null {
   const [one, ...more] = ctx.selection.length > 0 ? ctx.selection : ctx.focus ? [ctx.focus] : [];
-  return one && more.length === 0 && kinds.some((kind) => kind === one.kind) ? one : null;
+  const kind = kinds.find((each) => each === one?.kind);
+  if (!one || !kind || more.length > 0 || mindId === undefined) return null;
+  const state = useAppStore.getState();
+  const groups = state.library?.groups ?? [];
+  const folderId = state.minds.find((each) => each.id === mindId)?.folderId ?? null;
+  const wall = folderId === null ? null : folderWallOf(groups, folderId);
+  const library = {
+    folders: state.folders,
+    groups,
+    tags: state.tags,
+    documents: state.documents,
+    assignments: state.library?.assignments,
+  };
+  const textless =
+    kind === "document" && state.documents.find((each) => each.id === one.id)?.status === "no-text";
+  return textless || keptFrom(library, { kind, id: one.id }, wall) !== null
+    ? null
+    : { kind, id: one.id };
 }
 
 function withOpinion() {
@@ -218,10 +246,10 @@ export const checkCommands: readonly Command[] = [
     group: "main",
     appliesTo: ["document", "folder"],
     reversible: true,
-    when: (ctx) => targetOf(ctx, ["document", "folder"]) !== null && withCuttable() !== null,
+    when: (ctx) => targetOf(ctx, ["document", "folder"], withCuttable()?.mindId) !== null,
     run(ctx) {
-      const target = targetOf(ctx, ["document", "folder"]);
       const at = withCuttable();
+      const target = targetOf(ctx, ["document", "folder"], at?.mindId);
       if (!target || !at) return;
       showClaimCard(at);
       requestDocumentRead(at.claim.check.id, {
@@ -253,10 +281,10 @@ export const checkCommands: readonly Command[] = [
     group: "main",
     appliesTo: ["document"],
     reversible: true,
-    when: (ctx) => targetOf(ctx, ["document"]) !== null && withCuttable() !== null,
+    when: (ctx) => targetOf(ctx, ["document"], withCuttable()?.mindId) !== null,
     run(ctx) {
-      const target = targetOf(ctx, ["document"]);
       const at = withCuttable();
+      const target = targetOf(ctx, ["document"], at?.mindId);
       if (!target || !at) return;
       chooseCitationIn({
         mindId: at.mindId,

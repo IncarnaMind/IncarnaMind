@@ -463,12 +463,16 @@ export function writeCorrections(tr: Transaction, plans: readonly CorrectionPlan
   return true;
 }
 
-/** Records what the AI wrote into the Note, as accepting an Edit with AI does. */
+/**
+ * Records what the AI wrote into the Note, as accepting an Edit with AI does: by the model that
+ * wrote it, the check's own unless `model` says another did.
+ */
 export function recordCorrections(
   editor: Editor,
   mindId: string,
   plans: readonly CorrectionPlan[],
   tr: Transaction,
+  model?: { providerId: string; modelId: string },
 ): void {
   const entries: RecordAiUseInput[] = plans.map((plan) => {
     const first = plan.edits[0];
@@ -476,8 +480,8 @@ export function recordCorrections(
     return {
       mindId,
       kind: "edit-with-ai-accepted",
-      providerId: plan.claim.check.providerId,
-      modelId: plan.claim.check.modelId,
+      providerId: model?.providerId ?? plan.claim.check.providerId,
+      modelId: model?.modelId ?? plan.claim.check.modelId,
       characters: plan.edits.reduce((count, edit) => count + edit.choice.wording.length, 0),
       ...(blockId && { blockIds: [blockId] }),
     };

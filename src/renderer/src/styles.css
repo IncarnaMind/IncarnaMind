@@ -1979,7 +1979,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Continue goes under the stop line's words in every language: English wrapped it there, Chinese kept it inline (#1554). */
+  /* Continue starts its own line, so it stands in one place however long the words are, in either language (#1554). */
   .claim-stop-line > .meta-part:last-child {
     flex-basis: 100%;
   }

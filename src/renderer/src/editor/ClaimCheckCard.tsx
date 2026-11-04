@@ -163,6 +163,7 @@ export function ClaimMark({
   // Its old verdict stands until the read's comes, but the mark says what its card says.
   const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
   const rewriting = useChecks((store) => store.rewriting[mindId] === claim.check.id);
+  const rewritingAny = useChecks((store) => store.rewriting[mindId] !== undefined);
   const mark = reading || rewriting ? "checking" : markOf(claim);
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.check);
@@ -374,7 +375,7 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
-              rewrite={!running && !editing && offersRewrite(editor, claim)}
+              rewrite={!running && !editing && !rewritingAny && offersRewrite(editor, claim)}
               onRewrite={() => {
                 void rewriteWithDocuments(editor, mindId, doc, claim);
                 done();
@@ -1331,7 +1332,9 @@ export function ClaimCard({
           <button
             type="button"
             data-testid="claim-search-all"
-            className={`citation-card-action ${cuttable ? "" : "citation-card-action--primary"}`}
+            className={`citation-card-action ${
+              cuttable || (rewrite && verified === null) ? "" : "citation-card-action--primary"
+            }`}
             onClick={() => onCheckAgain(true)}
           >
             {t("claim.searchAll")}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { checkedCitation } from "../../../shared/claimParts";
 import { useChecks } from "../checks";
 import { chooseCitationIn, requestCitationPicker, useCitationPick } from "../citationPick";
@@ -39,11 +39,12 @@ export function ChooseCitationAction({
   const close = checkedCitation(claim.check.evidence ?? undefined);
   const start = () =>
     close ? choose(close.documentId, close.pageFrom ?? undefined) : setPicking(true);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `start` reads the latest check.
+  const startNow = useRef(start);
+  startNow.current = start;
   useEffect(() => {
     if (!asked) return;
     requestCitationPicker(null);
-    start();
+    startNow.current();
   }, [asked]);
   return (
     <>

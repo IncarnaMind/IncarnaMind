@@ -127,7 +127,7 @@ export async function rewriteWithDocuments(
     () => restoreCheck(editor, now, earlier),
     recheck,
   );
-  recordCorrections(editor, mindId, [plan], tr);
+  recordCorrections(editor, mindId, [plan], tr, result);
   recheck();
   return true;
 }

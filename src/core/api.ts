@@ -7043,8 +7043,11 @@ export interface RewriteFromDocumentsInput {
 }
 
 export type RewriteFromDocumentsResult =
-  /** The sentence's old words and the Passage's for them, held by every rule a correction is. */
-  | { kind: "rewritten"; correction: ClaimCorrection }
+  /**
+   * The sentence's old words and the Passage's for them, held by every rule a correction is, and
+   * the model that wrote them.
+   */
+  | { kind: "rewritten"; correction: ClaimCorrection; providerId: string; modelId: string }
   /** The reply gave no rewrite the rules hold: the sentence stays. */
   | { kind: "kept" }
   /** The sentence, its check or its Passage changed since the check: nothing was sent. */
@@ -12357,8 +12360,9 @@ export interface CoreApi {
    */
   planDocumentCheck(input: PlanDocumentCheckInput): Promise<DocumentCheckPlan>;
   /**
-   * Rewrite with what the Documents say (#1554): asks the check's model for the words of the
-   * sentence to change to what the Passage beside its check says, on the "checks" flow, and keeps
+   * Rewrite with what the Documents say (#1554): asks the Mind's model (the default one when it
+   * has none) for the words of the sentence to change to what the Passage beside its check says,
+   * on the "checks" flow, and keeps
    * them only when the Passage's quote holds them and gives every figure the rewritten sentence
    * gives. Nothing in the Mind changes: the editor writes it, cited, as one step of Undo.
    */

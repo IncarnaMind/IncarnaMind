@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { dropCitationPick, usePickIn } from "../citationPick";
 import { buttonStyle } from "../components/ui";
-import { dialogOrMenuOpen } from "../escapeDismiss";
+import { useDismissOnEscape } from "../escapeDismiss";
 import { useT } from "../i18n";
 import { useFade } from "../motion";
 
@@ -18,25 +18,8 @@ function PickLine({ sentence }: { sentence: string }) {
   const t = useT();
   const line = useRef<HTMLDivElement>(null);
   useFade(line);
-  useEffect(() => {
-    // Esc closes the innermost thing first: a menu, dialog or field that uses the key keeps it.
-    let covered = false;
-    const before = (event: KeyboardEvent) => {
-      if (event.key === "Escape") covered = dialogOrMenuOpen();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing || covered) return;
-      setTimeout(() => {
-        if (!event.defaultPrevented) dropCitationPick();
-      }, 0);
-    };
-    window.addEventListener("keydown", before, true);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", before, true);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, []);
+  // Esc closes the newest thing on screen first: a problem line shown since, then this.
+  useDismissOnEscape(true, dropCitationPick);
   return (
     <div ref={line} role="status" data-testid="citation-pick-line" className="citation-pick-line">
       <div className="citation-pick-line-row">

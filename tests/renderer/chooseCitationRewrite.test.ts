@@ -208,6 +208,8 @@ beforeEach(() => {
 const REWRITTEN: RewriteFromDocumentsResult = {
   kind: "rewritten",
   correction: { from: "1100", choices: [{ wording: "1250", evidence }] },
+  providerId: "openai",
+  modelId: "gpt-6-luna",
 };
 
 describe("Rewrite with what the Documents say", () => {
@@ -246,7 +248,14 @@ describe("Rewrite with what the Documents say", () => {
     expect(citationsIn(editor)).toEqual([expect.objectContaining({ quote: LINE, check: "found" })]);
     expect(core.checkSentences).toHaveBeenCalledTimes(1);
     expect(core.recordAiUse).toHaveBeenCalledWith([
-      expect.objectContaining({ mindId: "mind", kind: "edit-with-ai-accepted", characters: 4 }),
+      // By the model that wrote the words, not the one that checked the sentence.
+      expect.objectContaining({
+        mindId: "mind",
+        kind: "edit-with-ai-accepted",
+        characters: 4,
+        providerId: "openai",
+        modelId: "gpt-6-luna",
+      }),
     ]);
     expect(undoManager(editor)?.undoStack).toHaveLength(1);
     verdictLands(editor, unsupported({ state: "supported", text: "Rent is 1250 dollars." }));

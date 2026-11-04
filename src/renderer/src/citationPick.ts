@@ -9,8 +9,9 @@
  */
 import type { Editor } from "@tiptap/core";
 import { create } from "zustand";
-import { CITATION_NODE, type CitationAttributes, type CitedSelection } from "../../core/api";
+import { CITATION_NODE, type CitedSelection, type Document } from "../../core/api";
 import { checkAgain, citationClosingLength } from "./checks";
+import { citationAttributesOf } from "./citedSelection";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { mindEditor } from "./editor/openEditors";
@@ -67,20 +68,6 @@ function waitingSentence(pick: CitationPick): { editor: Editor; claim: ShownClai
   return editor && claim && offersNotFound(editor, claim) ? { editor, claim } : null;
 }
 
-const citationOf = (cited: CitedSelection, documentId: string, documentName: string) =>
-  ({
-    passageId: cited.passageId,
-    documentId,
-    documentName,
-    contentHash: cited.contentHash,
-    pageFrom: cited.pageFrom,
-    pageTo: cited.pageTo,
-    location: cited.location,
-    quote: cited.quote,
-    check: "found",
-    checkReason: null,
-  }) satisfies CitationAttributes;
-
 /**
  * Use as Citation: cites the selection as `cite` finds it, at the end of the sentence the pick
  * waits for, and checks the sentence again, in every Document, as the User pointed outside the
@@ -88,7 +75,7 @@ const citationOf = (cited: CitedSelection, documentId: string, documentName: str
  */
 export async function citeChosenWords(
   pick: CitationPick,
-  document: { id: string; name: string },
+  document: Pick<Document, "id" | "name">,
   cite: () => Promise<CitedSelection>,
 ): Promise<boolean> {
   let cited: CitedSelection;
@@ -121,7 +108,7 @@ export async function citeChosenWords(
   const earlier = claim.check;
   asOneStep(editor, () =>
     editor.view.dispatch(
-      editor.state.tr.insert(at, type.create(citationOf(cited, document.id, document.name))),
+      editor.state.tr.insert(at, type.create(citationAttributesOf(cited, document))),
     ),
   );
   dropCitationPick();

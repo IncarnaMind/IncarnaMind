@@ -109,6 +109,24 @@ describe("A rewrite is refused, and the sentence kept", () => {
     ).toEqual({ kind: "kept" });
   });
 
+  test("when the words it writes are a name the quote doesn't hold", () => {
+    const quote = "The Landlord is Westmarch Commercial Property Investments Limited.";
+    expect(
+      rewritten(
+        "The Landlord is Northgate Holdings.",
+        "Change 1: Northgate Holdings\nTo 1: Eastgate Holdings",
+        quote,
+      ),
+    ).toEqual({ kind: "kept" });
+    expect(
+      rewritten(
+        "The Landlord is Northgate Holdings.",
+        "Change 1: Northgate Holdings\nTo 1: Westmarch Commercial Property Investments Limited",
+        quote,
+      ),
+    ).toMatchObject({ kind: "rewritten" });
+  });
+
   test("when the sentence names a period the quote doesn't", () => {
     expect(
       rewritten("In 2025 the monthly rent was $12,500.", "Change 1: $12,500\nTo 1: $14,250"),
@@ -212,7 +230,7 @@ async function noteWithCheck(
     },
   ]);
   await client.settled();
-  return { core, mindId: mind.id, calls, cited };
+  return { core, mindId: mind.id, calls, cited, documentId: rent.id };
 }
 
 describe("rewriteFromDocuments", () => {
@@ -277,5 +295,20 @@ describe("rewriteFromDocuments", () => {
       await held.core.rewriteFromDocuments({ mindId: held.mindId, checkId: "check-rent" }),
     ).toMatchObject({ kind: "rewritten" });
     expect(held.calls).toHaveLength(1);
+  });
+
+  test.each([
+    ["its Document went to Recently deleted", "deleted"],
+    ["its Document is the User's own workings, never cited", "not cited"],
+  ])("sends nothing when %s", async (_, change) => {
+    const { core, mindId, calls, documentId } = await noteWithCheck(() => ({
+      text: "Change 1: 1100\nTo 1: 1250",
+    }));
+    if (change === "deleted") await core.deleteDocument(documentId);
+    else await core.setNotCited(documentId, true);
+    expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toEqual({
+      kind: "changed",
+    });
+    expect(calls).toHaveLength(0);
   });
 });
