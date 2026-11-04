@@ -3,6 +3,7 @@ import type {
   CheckRecordFormat,
   CitationPlace,
   ExportFormat,
+  ExportMindOptions,
   ExportPreferences,
   MarkAiTextChoice,
   SavedCheckRecord,
@@ -127,6 +128,9 @@ export type ExportResult = { tableId?: string } & (
       citationPlace: CitationPlace | null;
       /** Whether a Word file marks the text IncarnaMind wrote; null for a format that can't (#1945). */
       markAiText: boolean | null;
+      /** The User's own comments and replies in the Note (#328), and whether the file holds them. */
+      myComments: number;
+      myCommentsShown: boolean;
       /** Open: the choices that made this file, to change and export again (#1945). */
       changing?: ExportChanging;
     }
@@ -250,6 +254,19 @@ export async function answerMarkAiText(
   );
 }
 
+/**
+ * What a Word export of this Note asks for: its own comments choice when it made one (#328),
+ * so a rewrite can't leave the comments it had in the file out.
+ */
+function wordOptions(mindId: string, preferences = exportPreferences()): ExportMindOptions {
+  const mine =
+    preferences.docx.myCommentsFile === mindId ? preferences.docx.includeMyComments : undefined;
+  return {
+    ...optionsFor("docx", preferences),
+    ...(mine !== undefined && { includeMyComments: mine }),
+  };
+}
+
 /** A refusal Undo can try again once the file is back or free; any other never can (#110). */
 const RETRIED_UNDO: readonly MessageKey[] = [
   "error.export.rewrite.gone",
@@ -269,12 +286,7 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
   const previous: ExportResult = { ...result, changing: undefined };
   // The core keeps the choice once the file holds it; a file the User changed gets one beside it.
   const write = async () => {
-    const saved = await core.rewriteMindExport(
-      mindId,
-      optionsFor("docx", exportPreferences()),
-      result.path,
-      answer,
-    );
+    const saved = await core.rewriteMindExport(mindId, wordOptions(mindId), result.path, answer);
     useExports.setState({
       result:
         saved.status === "review"
@@ -317,6 +329,50 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
             run: async () => undefined,
           });
         }
+        if (useExports.getState().result?.mindId === mindId) {
+          useExports.setState({ result: { ...previous, at: Date.now() } });
+        }
+      },
+      redo: async () => {
+        written = (await write()) ?? written;
+      },
+    });
+  } catch (failure) {
+    useAppStore.getState().reportError(failure);
+  }
+}
+
+/**
+ * "Include them" in the Saved line (#328): someone else's file, written again with the User's
+ * own comments and replies, under Undo. The export option stays as it was for the next export.
+ */
+export async function includeMyComments(mindId: string): Promise<void> {
+  const { result } = useExports.getState();
+  if (result?.mindId !== mindId || result.state !== "saved" || result.format !== "docx") return;
+  if (result.myCommentsShown || result.myComments === 0) return;
+  const previous: ExportResult = { ...result, changing: undefined };
+  const options: ExportMindOptions = { ...wordOptions(mindId), includeMyComments: true };
+  const write = async () => {
+    const saved = await core.rewriteMindExport(mindId, options, result.path);
+    useExports.setState({
+      result:
+        saved.status === "review"
+          ? { mindId, state: "review", format: "docx", word: saved.word }
+          : savedResult(mindId, "docx", saved),
+    });
+    return saved.status === "saved" ? saved : null;
+  };
+  try {
+    const first = await write();
+    if (!first) return;
+    let written = first;
+    useUndo.getState().push({
+      said: (t) =>
+        t(written.myComments === 1 ? "undo.includedMyComments.one" : "undo.includedMyComments", {
+          count: written.myComments,
+        }),
+      undo: async () => {
+        await core.restoreMindExport(written.file.path, written.step);
         if (useExports.getState().result?.mindId === mindId) {
           useExports.setState({ result: { ...previous, at: Date.now() } });
         }
@@ -408,6 +464,8 @@ function savedResult(
       numbered: "numbered" in saved ? saved.numbered : false,
       citationPlace: "citationPlace" in saved ? saved.citationPlace : null,
       markAiText: "markAiText" in saved ? saved.markAiText : null,
+      myComments: "myComments" in saved ? saved.myComments : 0,
+      myCommentsShown: !("myCommentsShown" in saved) || saved.myCommentsShown,
     };
   }
   if (saved.status === "not-allowed") {
@@ -439,14 +497,16 @@ export async function exportMind(
 ): Promise<void> {
   const preferences = exportPreferences();
   const chosen = format ?? preferences.format;
-  const options = optionsFor(chosen, preferences);
+  // "Include my comments" is one Note's choice: another Note's export never takes it (#328).
+  const options: ExportMindOptions =
+    chosen === "docx" ? wordOptions(mindId, preferences) : optionsFor(chosen, preferences);
   const settle = begin(mindId, chosen);
-  if (!settle) return;
   if (chosen !== preferences.format) {
     void useAppStore
       .getState()
       .updateSettings({ user: { exportOptions: { ...preferences, format: chosen } } });
   }
+  if (!settle) return;
   try {
     if (chosen === "source-pack") {
       const { citations } = await core.previewMindExport(mindId, { format: chosen });

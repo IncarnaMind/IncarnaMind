@@ -450,6 +450,9 @@ describe("exporting a Mind", () => {
       markAiText: false,
       othersFile: false,
       othersComments: false,
+      myComments: 0,
+      myCommentsShown: true,
+      myCommentsOptional: false,
     });
   });
 

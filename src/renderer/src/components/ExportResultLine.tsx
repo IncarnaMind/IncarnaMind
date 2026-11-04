@@ -6,7 +6,7 @@ import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
 import { errorMessage } from "../errors";
 import { useDismissOnEscape } from "../escapeDismiss";
-import { checkComments, trackedChanges, unmarkedChecks } from "../exportChecks";
+import { checkComments, myCommentsPart, trackedChanges, unmarkedChecks } from "../exportChecks";
 import { useExportDialog } from "../exportDialog";
 import {
   COMPARISON_EXCEL,
@@ -18,6 +18,7 @@ import {
   exportMind,
   FIGURE_SCHEDULE_EXCEL,
   FORMAT_LABELS,
+  includeMyComments,
   isCheckRecord,
   revealNeedsDetails,
   revealUnverified,
@@ -63,6 +64,7 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.kept.length === 0 &&
   result.failures.length === 0 &&
   result.sentKept &&
+  (result.myComments === 0 || result.myCommentsShown) &&
   unmarkedChecks(result.checks, t) === null;
 
 const othersWord = (result: SavedResult) => result.format === "docx" && result.othersFile;
@@ -439,6 +441,8 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
       ? standing.filter((part) => part !== unread)
       : standing;
   const comments = checkComments(result.checks, t, othersWord(result));
+  const mine =
+    result.format === "docx" ? myCommentsPart(result.myComments, result.myCommentsShown, t) : null;
   const parts: SavedWithFile = [
     ...chosen.map((text) => ({ testId: "export-chosen", text })),
     ...withFile,
@@ -457,6 +461,23 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
           },
         ]),
     ...(comments ? [{ testId: "export-comments", text: comments }] : []),
+    ...(mine
+      ? [
+          {
+            testId: "export-my-comments",
+            text: mine,
+            ...(result.myCommentsShown
+              ? {}
+              : {
+                  action: {
+                    label: t("export.myComments.include"),
+                    testId: "export-my-comments-include",
+                    onClick: () => void includeMyComments(result.mindId),
+                  },
+                }),
+          },
+        ]
+      : []),
   ];
   // Only Word and PDF have a choice to change: a Word file always has the marking, a Numbered PDF
   // the place of its Citations. Markdown, HTML, a share page and a source pack have neither.
