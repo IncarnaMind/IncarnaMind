@@ -15,13 +15,22 @@
  */
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { afterAll, afterEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, describe, expect, onTestFinished, test } from "vitest";
 import type { ExecRequest } from "../../src/core";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createScriptRunner } from "../../src/core/skills/scripts";
@@ -32,6 +41,7 @@ import {
   loadOsSandbox,
   MAC_DENIED,
   readDeniedFolders,
+  realFolders,
   withMacDenials,
 } from "../../src/main/sandbox";
 import { createTempDataFolder } from "../helpers/core";
@@ -362,6 +372,24 @@ describe("the folders no program may read", () => {
   });
 });
 
+describe.skipIf(process.platform === "win32")("the paths a sandboxed program is handed", () => {
+  test("name the real folders on their way, and a name that is a link names only the link", async () => {
+    const root = await realpath(await createTempDataFolder());
+    const moved = join(root, "moved");
+    await mkdir(join(moved, "bin"), { recursive: true });
+    await symlink(moved, join(root, "Data"));
+    await symlink("python3.14", join(moved, "bin", "python3"));
+    await symlink(join(root, "home"), join(moved, "to-home"));
+
+    expect(await realFolders(join(root, "Data", "bin", "python3"))).toBe(
+      join(moved, "bin", "python3"),
+    );
+    expect(await realFolders(join(root, "Data", "to-home"))).toBe(join(moved, "to-home"));
+    expect(await realFolders(join(moved, "bin"))).toBe(join(moved, "bin"));
+    expect(await realFolders(join(root, "Data"))).toBe(join(root, "Data"));
+  });
+});
+
 // The job that runs these on a Mac says it needs the sandbox: a sandbox that can't start there
 // fails it, rather than skipping every test that would show it.
 test.runIf(process.env.INCARNAMIND_TEST_OS_SANDBOX === "required")("the OS sandbox starts", () => {
@@ -562,6 +590,122 @@ console.log(JSON.stringify(results));
       const run = await executor.run(nodeRequest('console.log("started")', [], skillDir));
 
       expect(run).toMatchObject({ exitCode: 0, stdout: "started\n" });
+    });
+
+    test("a program in a data folder reached through a link starts and writes its temporary folder, and the data folder stays denied by either spelling", async () => {
+      const root = await realpath(await createTempDataFolder());
+      const home = join(root, "home");
+      const moved = join(root, "moved");
+      await mkdir(home);
+      await mkdir(moved);
+      // A data folder moved to another disk and linked back from the home, which every run is denied.
+      await symlink(moved, join(home, "Data"));
+      const linkedFolders = [join(home, "Data")];
+      if (process.platform === "darwin") {
+        // On macOS /tmp is a link into /private, and both are denied.
+        const tmp = await mkdtemp("/tmp/incarnamind-linked-");
+        onTestFinished(() => rm(tmp, { recursive: true, force: true }));
+        linkedFolders.push(tmp);
+      }
+      const env = { PATH: "/usr/bin:/bin" };
+      for (const linked of linkedFolders) {
+        const data = join(linked, "data");
+        const install = join(data, "runtimes", "probe");
+        await mkdir(join(install, "bin"), { recursive: true });
+        await writeFile(join(install, "own.txt"), "OWN FILE\n");
+        await writeFile(join(data, "incarnamind.db"), "DATA CANARY");
+        const program = join(install, "bin", "probe");
+        await writeFile(
+          program,
+          [
+            "#!/bin/sh",
+            'cat "$(dirname "$0")/../own.txt"',
+            'echo made > "$TMPDIR/made.txt" && cat "$TMPDIR/made.txt"',
+            'cat "$1" 2>/dev/null || echo "real path denied"',
+            'cat "$2" 2>/dev/null || echo "linked path denied"',
+            "",
+          ].join("\n"),
+          { mode: 0o755 },
+        );
+        const tempDir = join(linked, "temp");
+        await mkdir(tempDir);
+        if (!sandbox.available) throw new Error(sandbox.reason);
+        const executor = sandbox.createExecutor({
+          processes: createProcessLauncher(async () => env),
+          environment: async () => env,
+          tempDir,
+          denyRead: readDeniedFolders({
+            platform: process.platform,
+            home,
+            dataDir: data,
+            temporaryFolder: tmpdir(),
+            uid: typeof process.getuid === "function" ? process.getuid() : undefined,
+          }),
+          reportError: (error) => {
+            throw error;
+          },
+          runRecords,
+          sweep: { stopper: guard.stopper },
+        });
+
+        const run = await executor.run({
+          command: program,
+          args: [join(await realpath(data), "incarnamind.db"), join(data, "incarnamind.db")],
+          env: {},
+          allow: { read: [WORKING_FOLDER], write: [WORKING_FOLDER], network: "none" },
+          timeoutMs: 20_000,
+          maxOutputBytes: 50_000,
+          signal: new AbortController().signal,
+        });
+
+        expect({ linked, exitCode: run.exitCode, stdout: run.stdout }).toEqual({
+          linked,
+          exitCode: 0,
+          stdout: "OWN FILE\nmade\nreal path denied\nlinked path denied\n",
+        });
+      }
+    });
+
+    test("a link to a denied folder is no way into it: not one outside, nor one the program makes", async () => {
+      const { executor, data, database, skillDir, outside } = await setUp();
+      await symlink(data, join(outside, "to-data"));
+      const code = `
+const fs = require("node:fs");
+const [throughLink, data, skillFile] = process.argv.slice(1);
+const results = {};
+const attempt = (name, act) => {
+  try {
+    results[name] = act();
+  } catch (error) {
+    results[name] = error.code ?? String(error);
+  }
+};
+attempt("through a link outside", () => fs.readFileSync(throughLink, "utf8"));
+attempt("through a link it makes", () => {
+  fs.symlinkSync(data, "to-data");
+  return fs.readFileSync("to-data/incarnamind.db", "utf8");
+});
+attempt("its Skill's file through a link it makes", () => {
+  fs.symlinkSync(skillFile, "skill.md");
+  return fs.readFileSync("skill.md", "utf8");
+});
+console.log(JSON.stringify(results));
+`;
+
+      const run = await executor.run(
+        nodeRequest(
+          code,
+          [join(outside, "to-data", "incarnamind.db"), data, join(skillDir, "SKILL.md")],
+          skillDir,
+        ),
+      );
+
+      expect(run).toMatchObject({ exitCode: 0, timedOut: false });
+      const results = JSON.parse(run.stdout);
+      expect(results["its Skill's file through a link it makes"]).toBe("SKILL FILE");
+      expect(results["through a link outside"]).not.toBe("DATA CANARY");
+      expect(results["through a link it makes"]).not.toBe("DATA CANARY");
+      expect(await readFile(database, "utf8")).toBe("DATA CANARY");
     });
 
     test("a Python Skill script runs through python3 on the PATH (Xcode's shim on macOS), confined like any other", async (context) => {

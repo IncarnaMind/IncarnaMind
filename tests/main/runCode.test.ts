@@ -11,7 +11,16 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { createRequire } from "node:module";
 import {
@@ -30,7 +39,11 @@ import type { CodeDocument } from "../../src/core/runCode";
 import { runCodeTool } from "../../src/core/runCode/tool";
 import { createProcessLauncher } from "../../src/main/processes";
 import { readPythonManifest, runtimePlatform } from "../../src/main/runCode/manifest";
-import { createPythonRuntime, type PythonRuntime } from "../../src/main/runCode/python";
+import {
+  createPythonRuntime,
+  type PythonRuntime,
+  pythonRuntimeFolder,
+} from "../../src/main/runCode/python";
 import { createCodeRunner } from "../../src/main/runCode/runner";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
 import { sandboxCheck } from "../../src/main/sandboxCheck";
@@ -83,7 +96,10 @@ let listener: NetServer | null = null;
 let loopbackPort = 0;
 let pythonPrepared = 0;
 
-function executor() {
+/** The data and temporary folders the runs here use, unless a test gives its own. */
+const folders = () => ({ data, temp: join(root, "temp") });
+
+function executor(where = folders()) {
   if (!sandbox.available) throw new Error(sandbox.reason);
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -93,18 +109,18 @@ function executor() {
   return sandbox.createExecutor({
     processes: createProcessLauncher(async () => env),
     environment: async () => env,
-    tempDir: join(root, "temp"),
+    tempDir: where.temp,
     denyRead: readDeniedFolders({
       platform: process.platform,
       home,
-      dataDir: data,
+      dataDir: where.data,
       temporaryFolder: tmpdir(),
       ...(typeof process.getuid === "function" && { uid: process.getuid() }),
     }),
     reportError: (error) => {
       throw error;
     },
-    runRecords: guard.records(join(data, "runs")),
+    runRecords: guard.records(join(where.data, "runs")),
     sweep: { stopper: guard.stopper },
   });
 }
@@ -191,8 +207,15 @@ async function sales(text = SALES): Promise<CodeDocument> {
   return { source, path };
 }
 
-/** The Tool as an Answer offers it, its runs and figures recorded as the Answer records them. */
-function tool(documents: Record<string, CodeDocument>, timeLimitMs?: number) {
+/**
+ * The Tool as an Answer offers it, its runs and figures recorded as the Answer records them.
+ * `own`: a runtime of a test's own, with the folders it runs in and the font it draws with.
+ */
+function tool(
+  documents: Record<string, CodeDocument>,
+  timeLimitMs?: number,
+  own?: { python: PythonRuntime; where: ReturnType<typeof folders>; font: string },
+) {
   const figures: CalculatedFigure[] = [];
   const analyses: AnswerAnalysis[] = [];
   const recorder = createAnalysisRecorder({
@@ -200,11 +223,11 @@ function tool(documents: Record<string, CodeDocument>, timeLimitMs?: number) {
     language: "en",
   });
   const runner = createCodeRunner({
-    executor: executor(),
-    tempDir: join(root, "temp"),
-    python,
+    executor: executor(own?.where),
+    tempDir: own?.where.temp ?? join(root, "temp"),
+    python: own?.python ?? python,
     helper: analysisHelper,
-    font,
+    font: own?.font ?? font,
     appVersion: "0.0.0-test",
     ...(timeLimitMs !== undefined && { timeLimitMs }),
     reportError: (error) => {
@@ -568,6 +591,56 @@ by_region.to_csv("out/by_region.csv", index=False)
         `run_code: the runtime got ready in ${Math.round(pythonPrepared)} ms; the 50,000-row run took ${Math.round(ms)} ms (code ${run?.ms} ms).`,
       );
     }, 180_000);
+
+    test(
+      "runs from a data folder reached through a link: its first import, its font cache, and a plot with the font",
+      async () => {
+        if (!python) throw new Error("No runtime.");
+        // A data folder moved to another disk and linked back from the home, which every run is denied.
+        const moved = join(root, "moved");
+        await mkdir(join(moved, "temp"), { recursive: true });
+        await mkdir(join(moved, "fonts"));
+        await copyFile(font, join(moved, "fonts", PLOT_FONT));
+        const linked = join(home, "Data");
+        await symlink(moved, linked);
+        const where = { data: linked, temp: join(linked, "temp") };
+        const own = createPythonRuntime({
+          dataDir: linked,
+          manifest: python.manifest,
+          executor: executor(where),
+          fetch: LOCAL_FETCH,
+          emitStatus: () => {},
+        });
+        try {
+          const ready = await own.ensure(new AbortController().signal);
+          expect(ready).toMatchObject({ ok: true });
+          const cache = join(pythonRuntimeFolder(moved, python.manifest.sha256), "matplotlib");
+          expect((await readdir(cache)).some((name) => name.startsWith("fontlist-"))).toBe(true);
+
+          const { call, analyses } = tool({ P1: await sales() }, undefined, {
+            python: own,
+            where,
+            font: join(linked, "fonts", PLOT_FONT),
+          });
+          await call(
+            "python",
+            [
+              "import matplotlib.pyplot as plt",
+              'df = read_table("sales.csv")',
+              'figure("total", df["revenue"], "sum", "Total revenue")',
+              'df.plot(kind="bar", x="region", y="revenue", title="收入")',
+            ].join("\n"),
+            ["P1"],
+          );
+          expect(analyses[0]?.end).toEqual({ kind: "done" });
+          expect(analyses[0]?.recalculations?.[0]?.check).toEqual({ kind: "same", value: 1134 });
+          expect(analyses[0]?.markers.pictures).toEqual([1]);
+        } finally {
+          own.close();
+        }
+      },
+      15 * 60_000,
+    );
 
     test("n_jobs runs in threads of the run, and a process in a session of its own ends with it", async () => {
       const { call, analyses } = tool({});
