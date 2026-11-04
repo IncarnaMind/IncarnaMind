@@ -597,8 +597,9 @@ describe("Edit with AI", () => {
 
     expect(await core.editWithAi(both("shorten"))).not.toHaveProperty("leftOut");
     await core.editWithAi(wholeParagraph(client, mind.id, third.attrs.id, "instruction", "Split"));
+    // "paragraph" replaced and three words added: four changes on three words, so it reads whole.
     expect(shownWithChanges(client)).toEqual([
-      "First [-paragraph-]{+and second, together+}.",
+      "[-First paragraph.-]{+First and second, together.+}",
       "- Second paragraph.",
       "[-Single-]{+One+} line.",
       "+ Another line.",
@@ -3714,7 +3715,7 @@ describe("How a change reads (#1028)", () => {
     ]);
   });
 
-  // protects=a long paragraph written over by a short line about something else reads whole, before and after, though the two share a few words ("on the", "water", 渔船, 沙洲上) (#1028, #2356); English and Chinese; fails_when=old and new words interleave through it; no_claim=what a real model writes.
+  // protects=a long paragraph written over by a short line about something else reads whole, before and after, though the two share a few words ("on the", "water", 渔船, 沙洲上), late in the paragraph or at its start ("Boats", 潮汐时间表) (#1028, #2356); English and Chinese; fails_when=old and new words interleave through it; no_claim=what a real model writes.
   test.each([
     {
       language: "English",
@@ -3727,6 +3728,18 @@ describe("How a change reads (#1028)", () => {
       before:
         "港务处每周公布一次潮汐时间，渔船在早潮时出海，那时沙洲上的水够深，船可以安全通过，所以出海的时间跟着月亮走，而不是跟着钟表走。",
       after: "渔船退潮时搁在沙洲上。",
+    },
+    {
+      language: "English, a word shared at the start",
+      before:
+        "Boats always leave on the morning tide whenever there is enough water over the bar to clear it, so the harbour office posts the times on the board by the steps and changes them as the moon moves, once each week.",
+      after: "Boats rest quietly at low water.",
+    },
+    {
+      language: "Chinese, words shared at the start",
+      before:
+        "今天渔船出海时的潮汐时间表，由港务处每周公布一次，船长们据此安排出港，所以出海的时间跟着月亮走。",
+      after: "码头贴着潮汐时间表。",
     },
   ])(
     "a long paragraph written over by a short line about something else reads whole ($language)",
@@ -3744,6 +3757,87 @@ describe("How a change reads (#1028)", () => {
       expect(shownWithChanges(client)).toEqual([`[-${before}-]{+${after}+}`]);
     },
   );
+
+  // protects=each word replaced, taken out or added counts once against the paragraph's old words, so a few words reworded with a sentence cut, 40% or more in all, read whole, as does a shortening that takes out most of a paragraph, and neither waits for the User; a few words swapped in a long paragraph, or words only added however many, read word by word (#1028, #2356); English and Chinese; fails_when=old and new words interleave through a paragraph mostly changed, a long addition reads whole, or the shortening waits; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "en, two words reworded and a sentence cut",
+      before:
+        "The committee approved the budget on Tuesday. Catering costs about four hundred pounds. Volunteers need to arrive early to set out chairs.",
+      after: "The board approved its budget on Tuesday. Catering costs about four hundred pounds.",
+      whole: true,
+    },
+    {
+      case: "zh, two words reworded and a sentence cut",
+      before: "委员会周二批准了预算。餐饮费用大约四百英镑。志愿者需要提前到场摆放椅子。",
+      after: "理事会周二批准了经费。餐饮费用大约四百英镑。",
+      whole: true,
+    },
+    {
+      case: "en, a shortening that takes out most of the paragraph",
+      before:
+        "Sales grew twelve percent this quarter, mostly from new customers in the east, and most customers are happy with delivery.",
+      after: "Sales grew twelve percent this quarter, mostly from new eastern customers.",
+      whole: true,
+    },
+    {
+      case: "zh, a shortening that takes out most of the paragraph",
+      before:
+        "本季度销售额增长了百分之十二，主要来自华东地区的新客户，大部分客户对交付速度表示满意。",
+      after: "本季度销售额增长了百分之十二，主要来自华东新客户。",
+      whole: true,
+    },
+    {
+      case: "en, three words swapped in a long paragraph",
+      before:
+        "Boats always leave on the morning tide whenever there is enough water over the bar to clear it, so the harbour office posts the times on the board by the steps and changes them as the moon moves, once each week.",
+      after:
+        "Boats always leave on the evening tide whenever there is enough water over the bar to clear it, so the harbour office posts the times on the wall by the steps and changes them as the moon moves, once each month.",
+      shown:
+        "Boats always leave on the [-morning-]{+evening+} tide whenever there is enough water over the bar to clear it, so the harbour office posts the times on the [-board-]{+wall+} by the steps and changes them as the moon moves, once each [-week-]{+month+}.",
+    },
+    {
+      case: "zh, two words swapped in a long paragraph",
+      before:
+        "今天渔船出海时的潮汐时间表，由港务处每周公布一次，船长们据此安排出港，所以出海的时间跟着月亮走。",
+      after:
+        "明天渔船出海时的潮汐时间表，由港务处每月公布一次，船长们据此安排出港，所以出海的时间跟着月亮走。",
+      shown:
+        "[-今天-]{+明天+}渔船出海时的潮汐时间表，由港务处[-每周-]{+每月+}公布一次，船长们据此安排出港，所以出海的时间跟着月亮走。",
+    },
+    {
+      case: "en, words only added, five times the paragraph",
+      before: "Fees are per night.",
+      after:
+        "Fees are per night, and a deposit of one night is taken when you book, which comes back in full if you cancel at least a week before you arrive.",
+      shown:
+        "Fees are per night{+, and a deposit of one night is taken when you book, which comes back in full if you cancel at least a week before you arrive+}.",
+    },
+    {
+      case: "zh, words only added, four times the paragraph",
+      before: "费用按夜收取。",
+      after: "费用按夜收取，预订时先收一晚的押金，入住前一周取消可全额退还。",
+      shown: "费用按夜收取{+，预订时先收一晚的押金，入住前一周取消可全额退还+}。",
+    },
+  ])("how a change reads, by the words it changes: $case", async (each) => {
+    const { core, mind, client } = await setUp(editingModel(() => each.after));
+    writeMind(client, [paragraph(text(each.before))]);
+    await client.settled();
+
+    const result = await core.editWithAi({
+      ...everything(client, mind.id, "Make it clearer"),
+      action: "improve",
+    });
+    await client.settled();
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    expect(result).not.toHaveProperty("held");
+    expect(shownWithChanges(client)).toEqual([
+      "whole" in each ? `[-${each.before}-]{+${each.after}+}` : each.shown,
+    ]);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([each.after]);
+  });
 
   test("a heading changed at all reads whole", async () => {
     const { core, mind, client } = await setUp(
@@ -6139,11 +6233,11 @@ describe("A rewrite of text marked as code (#2362)", () => {
     {
       case: "a paragraph with code written anew",
       content: [text("Check the build, then run "), code("npm test"), text(" before you push.")],
-      reply: "Build it first and push afterwards.",
+      reply: "Check the build before you push.",
       shown:
-        "[-Check the build, then run npm test before you push.-]{+Build it first and push afterwards.+}",
+        "[-Check the build, then run npm test before you push.-]{+Check the build before you push.+}",
       runs: ["-npm test"],
-      after: "Build it first and push afterwards.",
+      after: "Check the build before you push.",
     },
     {
       case: "code taken out in part",

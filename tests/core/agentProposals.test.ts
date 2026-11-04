@@ -600,8 +600,8 @@ describe("an outside agent's proposed changes (#352)", () => {
     );
     const fresh = await readNamed(agent, mind.id);
     expect(fresh.markdown).toContain("¶2 Very Neap tides are small.");
-    // Two changes in it: "Very" goes, and "small" becomes "the smallest".
-    expect(structured<Proposed>(await propose(mind.id, fresh.version, late)).waiting).toBe(2);
+    // "Very" goes and "small" becomes "the smallest": three changes on six words, so one change.
+    expect(structured<Proposed>(await propose(mind.id, fresh.version, late)).waiting).toBe(1);
 
     const activity = await core.listAgentActivity(pairing.id);
     expect(
@@ -621,7 +621,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     expect(activity.find((each) => each.tool === "propose_changes")).toMatchObject({
       outcome: "done",
       summary: "Field notes",
-      count: 2,
+      count: 1,
       effects: [
         { action: "read", scope: { kind: "documents" } },
         { action: "write", scope: { kind: "mind", mindId: mind.id } },

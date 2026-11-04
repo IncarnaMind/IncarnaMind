@@ -2,6 +2,7 @@ import type { JSONContent } from "@tiptap/core";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { ownTextRemoved } from "../../src/shared/askedChanges";
 import { pendingProposals } from "../../src/shared/proposals";
 import {
   answerRequests,
@@ -1773,7 +1774,7 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     zh: note(ZH_VISIT),
   };
 
-  // protects=taking sentences out of a paragraph of the User's, however much of it they are, takes out only those words and applies at once like any small edit, the rest staying the User's own; the model is told exactly the sentences that went, and of a paragraph a reply by names didn't name only that it stays as it was; first, middle and last, two at once, one holding a quote, in a list item and a table cell; English and Chinese; fails_when=the paragraph is written anew whole, so the edit waits for the User ("this rewrites most of your text") and every sentence is told as gone, or a kept sentence is told as left out or gone; no_claim=how a real model words its reply.
+  // protects=taking sentences out of a paragraph of the User's, however much of it they are, takes out only those words, and applies at once like any small edit when they are less than half of the User's text: the sentences the change writes again stay theirs, though the paragraph reads whole once 40% of its words go; the model is told exactly the sentences that went, and of a paragraph a reply by names didn't name only that it stays as it was; first, middle and last, two at once, one holding a quote, in a list item and a table cell; English and Chinese; fails_when=the sentences written again count as taken out, so the edit waits for the User ("this rewrites most of your text"), or a kept sentence is told as left out or gone; no_claim=how a real model words its reply.
   test.each([
     {
       case: "zh, the first sentence, holding a quote",
@@ -1781,6 +1782,10 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       asked: "删掉经理说的那句话。",
       reply: "¶1 我们决定推迟采购。供应商同意延期两周。",
       gone: ["经理说：“预算不能再增加。”"],
+      shown: [
+        "[-经理说：“预算不能再增加。”我们决定推迟采购。供应商同意延期两周。-]{+我们决定推迟采购。供应商同意延期两周。+}",
+        ZH_VISIT,
+      ],
       after: ["我们决定推迟采购。供应商同意延期两周。", ZH_VISIT],
     },
     {
@@ -1792,6 +1797,10 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       asked: "把我笔记里关于测量船的那句话删掉。",
       reply: "¶1 预算已批准。",
       gone: ["测量船已预订在2026年12月2日，由海事局的两名工程师随船进行全程测量。"],
+      shown: [
+        "[-预算已批准。测量船已预订在2026年12月2日，由海事局的两名工程师随船进行全程测量。-]{+预算已批准。+}",
+        ZH_VISIT,
+      ],
       after: ["预算已批准。", ZH_VISIT],
     },
     {
@@ -1800,6 +1809,10 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       asked: "删掉关于打包和停车卡的两句话。",
       reply: "¶1 新办公室在西湖路。",
       gone: ["每人需自行打包桌面物品。", "停车卡需重新申请。"],
+      shown: [
+        "[-新办公室在西湖路。每人需自行打包桌面物品。停车卡需重新申请。-]{+新办公室在西湖路。+}",
+        ZH_VISIT,
+      ],
       after: ["新办公室在西湖路。", ZH_VISIT],
     },
     {
@@ -1815,6 +1828,10 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       gone: [
         "The survey vessel is booked for 2 December 2026 and two engineers from the harbour office will sail with it.",
       ],
+      shown: [
+        "[-Pay is monthly. The survey vessel is booked for 2 December 2026 and two engineers from the harbour office will sail with it. Work starts in March.-]{+Pay is monthly. Work starts in March.+}",
+        EN_VISIT,
+      ],
       after: ["Pay is monthly. Work starts in March.", EN_VISIT],
     },
     {
@@ -1828,6 +1845,10 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       asked: "Delete the sentence about who holds the deposit.",
       reply: "¶1 - The deposit is three months' rent.",
       gone: ["It is held by the landlord and returned without interest when the lease ends."],
+      shown: [
+        "[-The deposit is three months' rent. It is held by the landlord and returned without interest when the lease ends.-]{+The deposit is three months' rent.+}",
+        EN_VISIT,
+      ],
       after: ["The deposit is three months' rent.", EN_VISIT],
     },
     {
@@ -1848,6 +1869,13 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       asked: "删掉滞纳金那句。",
       reply: "<removed>逾期一周后每月加收百分之二的滞纳金。</removed>",
       gone: ["逾期一周后每月加收百分之二的滞纳金。"],
+      shown: [
+        "条款",
+        "内容",
+        "租金",
+        "每月5日前支付。[-逾期一周后每月加收百分之二的滞纳金。-]",
+        ZH_VISIT,
+      ],
       after: ["条款", "内容", "租金", "每月5日前支付。", ZH_VISIT],
     },
   ])("a sentence taken out applies at once and is told alone: $case", async (each) => {
@@ -1875,9 +1903,256 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     expect(told.includes(`What the rewrite didn't name stays as it was: “${around}”`)).toBe(
       each.reply.startsWith("¶"),
     );
-    for (const line of shownWithChanges(client)) expect(line).not.toMatch(/^[-+] |\{\+/);
+    expect(shownWithChanges(client)).toEqual(each.shown);
     await resolveChanges(client, "accept");
     expect(shownWithChanges(client)).toEqual(each.after);
+  });
+
+  const BUDGET = {
+    en: "The committee approved the budget on Tuesday. Catering costs about four hundred pounds. Volunteers need to arrive early to set out chairs.",
+    zh: "委员会周二批准了预算。餐饮费用大约四百英镑。志愿者需要提前到场摆放椅子。",
+  };
+
+  // protects=a word reworded beside a sentence cut changes a third of the paragraph's words, so it reads word by word and applies at once, in Chinese as in English, though only a few characters (了预算) stand between the two changes (#2356); alone in the Note or beside another paragraph; fails_when=the cut counts as reworded, so the paragraph reads whole and the change waits for the User; no_claim=how a real model words its reply.
+  test.each([
+    { case: "en, alone", lines: [BUDGET.en], language: "en" },
+    { case: "en, beside a paragraph", lines: [BUDGET.en, "Pay is paid monthly."], language: "en" },
+    { case: "zh, alone", lines: [BUDGET.zh], language: "zh" },
+    { case: "zh, beside a paragraph", lines: [BUDGET.zh, "工资按月发放。"], language: "zh" },
+  ] as const)("a reword and a sentence cut apply at once: $case", async (each) => {
+    const asked =
+      each.language === "en"
+        ? "Change approved to signed off and delete the catering sentence."
+        : "把批准改成通过，删掉餐饮那句。";
+    const after =
+      each.language === "en"
+        ? "The committee signed off the budget on Tuesday. Volunteers need to arrive early to set out chairs."
+        : "委员会周二通过了预算。志愿者需要提前到场摆放椅子。";
+    const shown =
+      each.language === "en"
+        ? "The committee [-approved -]{+signed off +}the budget on Tuesday[-. Catering costs about four hundred pounds-]. Volunteers need to arrive early to set out chairs."
+        : "委员会周二[-批准了预算。餐饮费用大约四百英镑-]{+通过了预算+}。志愿者需要提前到场摆放椅子。";
+    const model = editing(asked, `¶1 ${after}`);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+
+    expect(lastResult(model)).toContain(APPLIES);
+    expect(lastResult(model)).not.toContain("waits there for them");
+    expect(shownWithChanges(client)).toEqual([shown, ...each.lines.slice(1)]);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([after, ...each.lines.slice(1)]);
+  });
+
+  // protects=how much of the User's text a change takes out is what it doesn't write back, however the paragraph reads: a paragraph that reads whole, struck and written again, but keeps most of its words applies at once ("Make my note shorter.", an amount changed with words added); English and Chinese; fails_when=the words it writes again count as taken out, so the change waits for the User; no_claim=how a real model words its reply.
+  test.each([
+    {
+      case: "en, a shortening",
+      asked: "Make my note shorter.",
+      lines: [
+        "Sales grew twelve percent this quarter, mostly from new customers in the east, and most customers are happy with delivery.",
+        "Next quarter we open two sales points in the south.",
+      ],
+      after: "Sales grew twelve percent this quarter, mostly from new eastern customers.",
+    },
+    {
+      case: "zh, a shortening",
+      asked: "把我的笔记写短一点。",
+      lines: [
+        "本季度销售额增长了百分之十二，主要来自华东地区的新客户，大部分客户对交付速度表示满意。",
+        "下季度我们计划在华南开设两个销售点。",
+      ],
+      after: "本季度销售额增长了百分之十二，主要来自华东新客户。",
+    },
+    {
+      case: "en, an amount changed with words added, the Note's only line",
+      asked: "Rent is 1,250 now, and say it's due on the first.",
+      lines: ["Rent is 1,200 a month."],
+      after: "Rent is 1,250 a month, due on the first.",
+    },
+    {
+      case: "zh, an amount changed with words added, the Note's only line",
+      asked: "房租改成1250元，再写上每月一号交。",
+      lines: ["房租每月1200元。"],
+      after: "房租每月1250元，每月一号交。",
+    },
+  ])(
+    "a paragraph that reads whole but keeps most of its words applies at once: $case",
+    async (each) => {
+      const model = editing(each.asked, `¶1 ${each.after}`);
+      const { core, mind, client } = await setUp(model);
+      writeMind(
+        client,
+        each.lines.map((line) => note(line)),
+      );
+      await client.settled();
+
+      await ask(core, { text: each.asked, mindId: mind.id });
+      await client.settled();
+
+      expect(lastResult(model)).toContain(APPLIES);
+      expect(lastResult(model)).not.toContain("waits there for them");
+      expect(shownWithChanges(client)).toEqual([
+        `[-${each.lines[0]}-]{+${each.after}+}`,
+        ...each.lines.slice(1),
+      ]);
+      await resolveChanges(client, "accept");
+      expect(shownWithChanges(client)).toEqual([each.after, ...each.lines.slice(1)]);
+    },
+  );
+
+  // protects=what decides that a change waits is the share of the User's text it takes out and doesn't write back, more than half, on both sides of the line: words reworded with a sentence cut, beside another paragraph (applies) or as the Note's only one (waits), and words reworded across a few kept words that the change strikes and writes again ("at", "and"; 点到) (#2356); English and Chinese; fails_when=the words written again count as taken out, the spaces and marks between them count as written back, or a change that takes out more than half applies at once; no_claim=how a real model words its reply.
+  test.each([
+    {
+      case: "en, two words reworded and a sentence cut, beside a paragraph",
+      lines: [BUDGET.en, EN_VISIT],
+      after: "The board approved its budget on Tuesday. Catering costs about four hundred pounds.",
+      share: 0.32,
+    },
+    {
+      case: "en, the same as the Note's only paragraph",
+      lines: [BUDGET.en],
+      after: "The board approved its budget on Tuesday. Catering costs about four hundred pounds.",
+      share: 0.56,
+    },
+    {
+      case: "zh, two words reworded and a sentence cut, beside a paragraph",
+      lines: [BUDGET.zh, ZH_VISIT],
+      after: "理事会周二批准了经费。餐饮费用大约四百英镑。",
+      share: 0.26,
+    },
+    {
+      case: "zh, the same as the Note's only paragraph",
+      lines: [BUDGET.zh],
+      after: "理事会周二批准了经费。餐饮费用大约四百英镑。",
+      share: 0.56,
+    },
+    {
+      case: "en, four words reworded across kept ones",
+      lines: ["The office opens at nine and shuts at five on weekdays."],
+      after: "The office starts at eight and closes at four on weekdays.",
+      share: 0.44,
+    },
+    {
+      case: "en, four words reworded across kept ones, more of the line",
+      lines: ["It opens at nine and shuts at five on weekdays."],
+      after: "It starts at eight and closes at four on weekdays.",
+      share: 0.51,
+    },
+    {
+      case: "zh, four words reworded across kept ones",
+      lines: ["办公室上午九点到下午五点开放。"],
+      after: "办公室早上八点到晚上四点开放。",
+      share: 0.47,
+    },
+    {
+      case: "zh, four words reworded across kept ones, more of the line",
+      lines: ["上午九点到下午五点开放。"],
+      after: "早上八点到晚上四点开放。",
+      share: 0.58,
+    },
+  ])("a change waits when it takes out more than half of the User's text: $case", async (each) => {
+    const asked = "Tidy my note.";
+    const model = editing(asked, `¶1 ${each.after}`);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    const answer = await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+
+    const requests = new Set(changesIn(answer).map((change) => change.request));
+    expect(ownTextRemoved(client.blocks, requests)).toBeCloseTo(each.share, 2);
+    const waits = each.share > 0.5;
+    expect(lastResult(model)).toContain(waits ? "waits there for them" : APPLIES);
+    expect(lastResult(model)).not.toContain(waits ? APPLIES : "waits there for them");
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([each.after, ...each.lines.slice(1)]);
+  });
+
+  const TIDES = {
+    en: "The tides here rise twice a day. Boats leave at high water. The harbour office posts the times each week. Fishermen check them on Mondays. The ferry follows its own timetable.",
+    zh: "这里的潮水每天涨两次。船在涨潮时出港。港务办公室每周公布时间。渔民每周一查看。渡轮另有时刻表。",
+  };
+
+  // protects=a change that takes out most of the User's text, without writing it back, still waits for them (#880): a paragraph cut to one sentence of five, alone or as most of the Note, and a paragraph rewritten in other words (each word swapped for another, about something else, or sharing only small words such as "the" and 的); English and Chinese; fails_when=what a change takes out is counted by how much shorter it makes the text, so a rewrite in other words of about the same length applies at once; no_claim=how a real model words its reply.
+  test.each([
+    {
+      case: "en, cut to one sentence of five",
+      lines: [TIDES.en],
+      after: "The tides here rise twice a day.",
+    },
+    {
+      case: "zh, cut to one sentence of five",
+      lines: [TIDES.zh],
+      after: "这里的潮水每天涨两次。",
+    },
+    {
+      case: "en, most of the Note cut to its first sentence",
+      lines: [TIDES.en, "Fees are per night."],
+      after: "The tides here rise twice a day.",
+    },
+    {
+      case: "zh, most of the Note cut to its first sentence",
+      lines: [TIDES.zh, "费用按夜收取。"],
+      after: "这里的潮水每天涨两次。",
+    },
+    {
+      case: "en, each word swapped for another",
+      lines: ["Our staff finished the yearly audit early and found every account in order."],
+      after: "The team completed the annual review ahead of time and saw all books were correct.",
+    },
+    {
+      case: "zh, each word swapped for another",
+      lines: ["员工提前完成了年度审计，发现所有账目都没有问题。"],
+      after: "团队提早做完了全年核查，看到全部账本均无差错。",
+    },
+    {
+      case: "en, about something else",
+      lines: ["Pay is monthly and the post is senior."],
+      after: "Gulls wheel over the harbour wall at dusk.",
+    },
+    {
+      case: "zh, about something else",
+      lines: ["工资按月发放，这个职位是高级岗位。"],
+      after: "黄昏时海鸥在港口的墙上盘旋。",
+    },
+    {
+      case: "en, sharing only small words",
+      lines: ["The board met on Monday and the budget was approved by the members of the club."],
+      after: "The storm hit on Friday and the boats were kept in by the keepers of the port.",
+    },
+    {
+      case: "zh, sharing only small words",
+      lines: ["我们的预算在周一的会议上被理事们批准了。"],
+      after: "我们的渔船在周五的风暴里被港口留下了。",
+    },
+  ])("a change that takes out most of the User's text still waits: $case", async (each) => {
+    const asked = "Rewrite my note.";
+    const model = editing(asked, `¶1 ${each.after}`);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+
+    expect(lastResult(model)).toContain("waits there for them");
+    expect(lastResult(model)).not.toContain(APPLIES);
+    await resolveChanges(client, "reject");
+    expect(shownWithChanges(client)).toEqual(each.lines);
   });
 
   // protects=a reply that rewrites one paragraph of a Note by name, or only quotes what goes, is told the change made, and of a paragraph a reply by names didn't name only that it stays as it was, never that it was left out, so its reply can't call the result contradictory ("Make my note shorter."); English and Chinese; fails_when=sentences the reply didn't write are told as left out but still there beside the ones that went; no_claim=how a real model words its reply.

@@ -590,7 +590,7 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     ).toBe(true);
     expect(shownWithChanges(client)).toEqual([
       "Summary",
-      "The quarter was [-very -]good[-, and sales were really strong-].",
+      "[-The quarter was very good, and sales were really strong.-]{+The quarter was good.+}",
     ]);
   });
 
@@ -619,7 +619,7 @@ describe("The assistant revises its own changes still waiting", { timeout: 30_00
     ).toBe(true);
     expect(shownWithChanges(client)).toEqual([
       "Summary",
-      "The quarter was [-very -]good[-, and sales were really strong-].",
+      "[-The quarter was very good, and sales were really strong.-]{+The quarter was good.+}",
     ]);
   });
 
