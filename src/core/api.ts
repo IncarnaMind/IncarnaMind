@@ -51,6 +51,7 @@ export type {
 import type {
   AnalysisColumnCheck,
   AnalysisEnd,
+  AnalysisFigureRows,
   AnalysisLanguage,
   AnalysisOutput,
   AnalysisRecalculation,
@@ -345,7 +346,9 @@ export interface CreateMindInput {
  *   run's tables and what IncarnaMind made of each column. An older editor
  *   would drop the node and the attribute, so it opens these Notes read-only.
  *   Older content is version 51 content as it is: a table written before is a
- *   typed table, checked as one.
+ *   typed table, checked as one. A figure check of an Analysis's figure also
+ *   records whether the claim judge read its sentence as naming it (`named`);
+ *   one without it shows Not checked until the next Check.
  */
 export const CONTENT_SCHEMA_VERSION = 52;
 
@@ -6566,7 +6569,12 @@ export type ClaimCheckFailure =
   /** An Analysis's figure that IncarnaMind didn't work out again: its code's, from the saved run (#2378). */
   | "analysis"
   /** An Analysis's figure whose run the Note no longer keeps, as when its Analysis was deleted (#2378). */
-  | "analysis-gone";
+  | "analysis-gone"
+  /**
+   * An Analysis's figure the claim judge didn't read as named by its sentence, or whose own clause
+   * also names another group, a negation or a comparison; its detail is the figure's label (#2378).
+   */
+  | "analysis-unnamed";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -6850,10 +6858,22 @@ export interface CheckFigure {
    * An Analysis's figure, as the Note keeps its run (#2378): whether IncarnaMind worked it out
    * again to the same number, and what the Analysis read. A check decides it from this alone.
    */
-  analysisRecord?: { recalculated: boolean; citations: Citation[] };
+  analysisRecord?: {
+    recalculated: boolean;
+    citations: Citation[];
+    /** What the Analysis called it, and the rows of the input it was worked out from. */
+    label?: string;
+    of?: AnalysisFigureRows | null;
+    /** What the run called its other figures, so a sentence naming one of them is told apart. */
+    siblings?: string[];
+    /** The run's code, cut to a few thousand characters: the claim judge's evidence of its rule. */
+    code?: string;
+  };
 }
 
 export interface FigureFinding extends CheckFigure {
+  /** An Analysis's figure the claim judge read its sentence as naming, as its label and rule say (#2378). */
+  named?: true;
   sourceInput: FigureInput | null;
   source?: Citation | null;
   roundedFrom: number | null;

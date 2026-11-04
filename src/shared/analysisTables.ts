@@ -503,9 +503,20 @@ export function analysisTableShown(
     if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
       return { state: { kind: "needs-recheck", why: "new-version" }, columns, missing };
   }
-  const recalculated = columns.length > 0 && columns.every((column) => column.rule !== null);
+  const recalculated = columns.length > 0 && columns.every(columnEarns);
   return { state: { kind: recalculated ? "recalculated" : "calculated" }, columns, missing };
 }
+
+const underItsInput = (column: AnalysisTableColumn, rule: AnalysisColumnRule) =>
+  cellKey(column.heading).toLowerCase() === cellKey(rule.value).toLowerCase();
+
+/**
+ * Whether a column earns the badge's ✓ (#2378): recalculated under its input column's own name.
+ * One under another heading ("Net" over gross sums) keeps its line, which says what it sums, but no
+ * code reads a heading as naming another column, so it earns nothing.
+ */
+export const columnEarns = (column: AnalysisTableColumn): boolean =>
+  column.rule !== null && underItsInput(column, column.rule);
 
 /**
  * A rule a column's line can stand on (#2378): one over a column and a key it can name. A count is
@@ -522,8 +533,8 @@ export function columnLine(column: AnalysisTableColumn, language: Language): str
   if (!rule || !earned(rule))
     return translate(language, "figures.table.notRecalculated", { heading });
   const plural = column.rows === 1 ? "one" : "other";
-  // Named under another heading, the line says what it sums, so "Net" over gross sums can't pass.
-  const named = cellKey(heading).toLowerCase() !== cellKey(rule.value).toLowerCase();
+  // Under another heading, the line says what it sums: "Net: sum of Gross over 12 rows".
+  const named = !underItsInput(column, rule);
   return translate(
     language,
     `figures.table.recalculated.${rule.how}${named ? ".named" : ""}.${plural}`,

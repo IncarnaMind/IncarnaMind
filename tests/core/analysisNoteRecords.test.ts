@@ -369,8 +369,9 @@ describe("an Analysis's figures in a Note (#2378)", () => {
       expect(after.analyses.map((run) => run.values.map((value) => value.name).sort())).toEqual([
         ["slope", "total_amount"],
       ]);
+      // Its record is still there: no verdict before a Check reads its sentence, and never "gone".
       const total = after.rows.find((row) => row.calculated?.figure.value === 35550);
-      expect(total?.shown.state).toBe("supported");
+      expect(total?.shown).toEqual({ state: "not-checked", reason: "unread" });
 
       await core.closeMind(madeId);
       const reloaded = await core.getFigureSchedule(madeId);

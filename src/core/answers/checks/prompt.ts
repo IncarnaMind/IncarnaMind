@@ -136,13 +136,13 @@ const calculationInstructions = (figures: boolean) =>
 const FIGURE_INSTRUCTIONS = [
   "For the requested figures, append exactly one final line beginning Figures: followed by one JSON object. Do not add more Verdict lines and do not omit a requested id.",
   'Its shape is {"items":[{"id":"the exact requested id","verdict":"supported","scope":"same","topic":"found","roles":"same","measure":{"sentence":"revenue","quote":"Revenue","match":"same"},"says":null,"reading":null,"relation":"equals","source":{"citation":1,"number":"4979.6","reading":null,"unitQuote":null},"calculation":null}],"remainder":null}.',
-  "Give every requested id exactly once, and no other id. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same, differs or other, as the Roles line says them; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.",
+  'Give every requested id exactly once, and no other id. The item of an occurrence with analysis always has "names": "same", "other" or "unclear", as below; without it the figure stays unchecked. Each verdict is supported, unsupported or contradicted; scope same or wider; topic found or not found; roles same, differs or other, as the Roles line says them; says is a plain sentence or null. Covered and uncovered may name short parts, or be null.',
   'measure says what the number measures: a short name of a few words copied exactly, never the number itself, a clause or a whole sentence. sentence: the fewest words of the sentence, its paragraph or the occurrence\'s label that name what that occurrence measures ("operating margin", "月工资"). quote: the fewest words of its source quote that name what the quote\'s number measures; for a table\'s cell or row that leaves them out, its row label or column heading copied from the Passage; null only when the Passage names nothing. match: same when the two name the same measure, in any wording or language ("revenue" and "营业收入"); differs when they name different ones ("revenue" and "operating margin"). Leave the period, unit and parties to the other fields. An equal number that measures something else neither supports nor contradicts the occurrence: its verdict is unsupported. measure is null only for an occurrence with no source.',
   "Match the exact subject, period, column, unit and obligation of each occurrence from its own context. Equal values alone never support a match. Use topic not found, scope wider, roles differs or roles other when appropriate, not a numeric match from another subject or period. For a contradicted occurrence, source is the number the Document gives for that same subject, period, column and unit, never an equal number from another row or column.",
   'If an occurrence offers one ambiguity with readings, give reading as its one-based offered own reading, choosing only from that list using its context; each reading says what the number would mean, and a table\'s caption or column heading that states a scale or currency ("(£m)", "单位：百万元") says it of the table\'s cells. This is separate from source.reading. Never supply a value yourself. Leave multiple unresolved ambiguities unchecked; never combine choices. A range remains a range, never an endpoint choice. An unambiguous occurrence needs no reading.',
   'For a value stated directly in a quote recorded by cite, source names its citation marker and number, the number exactly as that quote writes it ("4979.6", "1.2亿"); give position, its one-based place among the quote\'s numbers, only when the quote writes the same number twice. reading is the one-based reader choice only when needed. When the quoted number has no unit or scale of its own and its Passage states one ("All figures in £m", "单位：万元"), unitQuote is that line, word for word. Record every quote with cite before you write the Figures line. Never type a value the quote doesn\'t write.',
   "For a calculation made in this run, set calculation to its calculate marker and source to null. A saved formula can instead be checked from its saved inputs when both are null. Retained Analysis code or a receipt is not a newly executed calculation: do not invent a formula or claim it was recalculated.",
-  "An occurrence whose saved figure has analysis is a number the User's own Analysis worked out: never look for it in the Passages. Give it verdict supported with source and calculation null. IncarnaMind judges it from the saved run, and checks the words that name it (\"a linear fit gives a slope of\") against its saved label, so those words are the figure's, not a remainder; everything else the sentence asserts is the remainder.",
+  'An occurrence with analysis is a number the User\'s own Analysis worked out, and IncarnaMind has worked the number out again: never look for it in the Passages, and never judge the number itself. Its evidence is its analysis: label, what the Analysis called it; rule, the input, columns, rows and how it was worked out (sum, mean, min, max or count; null when the code alone says); and code. Judge only whether the sentence\'s own words for it name that figure, and give names: same when they say it is what the label and rule say it is, in any wording or language (the same measure, group, period and rows); other when they call it another group\'s, measure\'s, period\'s or rows\' number ("Leeds\'s" for York\'s, "average" for a sum); unclear for anything else, such as words that name it only in part, or a negation or comparison ("not", "below", "more than"). Give verdict supported for same, and unsupported for other or unclear: IncarnaMind reads names, and leaves an unclear one unchecked. source and calculation are null. The words that name it are the figure\'s, not a remainder; everything else the sentence asserts is the remainder.',
   "Use exactly one of source and calculation, or both null for an unsupported/unavailable binding. relation is equals, at most or at least, according to the User's words; never loosen a limit to its rounding.",
   'remainder is null ONLY when the sentence has no assertion beyond those requested numeric facts. Otherwise give its independent {"text":"an exact nonnumeric assertion copied from the sentence","verdict":"supported","scope":"same","topic":"found","roles":"same","says":null,"citation":1}. Do not repeat the whole numerical verdict as the remainder. Preserve an adverse qualitative assertion even when all figures agree.',
 ].join("\n");
@@ -254,24 +254,33 @@ export function claimPrompt(input: {
           tagged(
             "figures",
             JSON.stringify(
-              input.figures?.map(({ id, locator, reading, calculated, context, label }) => ({
-                id,
-                locator,
-                shown: reading.chars,
-                unit: reading.unit,
-                ...(reading.ambiguous.length > 0 && {
-                  ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
-                    kind,
-                    readings: readings.map((each, index) => ({
-                      reading: index + 1,
-                      means: readingWords(each),
+              input.figures?.map(
+                ({ id, locator, reading, calculated, context, label, analysisRecord }) => ({
+                  id,
+                  locator,
+                  shown: reading.chars,
+                  unit: reading.unit,
+                  ...(reading.ambiguous.length > 0 && {
+                    ambiguities: reading.ambiguous.map(({ kind, readings }) => ({
+                      kind,
+                      readings: readings.map((each, index) => ({
+                        reading: index + 1,
+                        means: readingWords(each),
+                      })),
                     })),
-                  })),
+                  }),
+                  ...(context && { context }),
+                  ...(label && { label }),
+                  ...(calculated && { saved: calculated.figure }),
+                  ...(analysisRecord?.label !== undefined && {
+                    analysis: {
+                      label: analysisRecord.label,
+                      rule: analysisRecord.of ?? null,
+                      code: analysisRecord.code ?? null,
+                    },
+                  }),
                 }),
-                ...(context && { context }),
-                ...(label && { label }),
-                ...(calculated && { saved: calculated.figure }),
-              })),
+              ),
             ),
             "",
             CHECK_TAGS,

@@ -55,59 +55,79 @@ const notRecalculated: ClaimCheckShown = { state: "not-checked", reason: "analys
 const gone: ClaimCheckShown = { state: "not-checked", reason: "analysis-gone" };
 const versions = new Map([["source", "v1"]]);
 
-test("a figure the core worked out again shows checked while its Document is as it was", () => {
-  expect(analysisFigureShown(unchecked, { run, result: "total", versions })).toEqual({
-    state: "supported",
-  });
-});
+const misnamed = {
+  kind: "analysis-name" as const,
+  reason: "The sentence doesn’t say this figure is Total yield",
+  covered: null,
+  uncovered: null,
+  found: true as const,
+};
 
-test("a claim check never stands for the core's record, either way (#2378)", () => {
-  // The record decides: a sentence's check reads the Documents' text, which holds no Analysis's figure.
-  for (const claim of [unchecked, { state: "unsupported" }, { state: "contradicted" }] as const)
-    expect(analysisFigureShown(claim, { run, result: "total", versions })).toEqual({
-      state: "supported",
-    });
-  const total = run.values[0];
-  if (!total) throw new Error("Missing fixture");
-  const fromCode: RetainedFigureAnalysis = { ...run, values: [{ ...total, check: undefined }] };
-  for (const claim of [{ state: "supported" }, { state: "unsupported" }] as const)
-    expect(analysisFigureShown(claim, { run: fromCode, result: "total", versions })).toEqual(
-      notRecalculated,
-    );
-});
-
-test("a figure its sentence calls something its label doesn't stays Unsupported on its own marker", () => {
-  const misnamed = {
-    state: "unsupported" as const,
-    unsupported: {
-      kind: "analysis-name" as const,
-      reason: "The sentence doesn’t say this figure is Total yield",
-      covered: null,
-      uncovered: null,
-      found: true as const,
-    },
-  };
+test("a figure worked out again has no verdict of its own until a check reads its sentence as naming it (#2378)", () => {
+  expect(analysisFigureShown(unchecked, { run, result: "total", versions })).toEqual(unchecked);
   expect(
     analysisFigureShown(
-      { state: "unsupported" },
-      { run, result: "total", versions, check: misnamed },
-    ),
-  ).toEqual({ state: "unsupported" });
-  // Only IncarnaMind’s own finding on the naming stands, not an Unsupported of another kind.
-  expect(
-    analysisFigureShown(
-      { state: "unsupported" },
+      { state: "supported" },
       {
         run,
         result: "total",
         versions,
-        check: {
-          state: "unsupported",
-          unsupported: { ...misnamed.unsupported, kind: "unbacked-cause" },
-        },
+        check: { state: "supported", unsupported: null, named: true },
       },
     ),
   ).toEqual({ state: "supported" });
+});
+
+test("a check stands for the figure only as the claim judge read its naming", () => {
+  // Supported without the judge's reading, as an earlier build stored it: not a name anyone read.
+  expect(
+    analysisFigureShown(
+      { state: "supported" },
+      { run, result: "total", versions, check: { state: "supported", unsupported: null } },
+    ),
+  ).toEqual(unchecked);
+  // An Unsupported against the Documents' text, which never holds the figure, isn't its name.
+  for (const claim of [{ state: "unsupported" }, { state: "contradicted" }] as const)
+    expect(
+      analysisFigureShown(claim, {
+        run,
+        result: "total",
+        versions,
+        check: { state: claim.state, unsupported: { ...misnamed, kind: "unbacked-cause" } },
+      }),
+    ).toEqual(unchecked);
+  expect(
+    analysisFigureShown(
+      { state: "unsupported" },
+      { run, result: "total", versions, check: { state: "unsupported", unsupported: misnamed } },
+    ),
+  ).toEqual({ state: "unsupported" });
+  // Once the sentence's words changed, it waits for the next Check, whatever was read before.
+  expect(
+    analysisFigureShown(
+      { state: "needs-recheck", why: "edited" },
+      {
+        run,
+        result: "total",
+        versions,
+        check: { state: "supported", unsupported: null, named: true },
+      },
+    ),
+  ).toEqual({ state: "needs-recheck", why: "edited" });
+  const total = run.values[0];
+  if (!total) throw new Error("Missing fixture");
+  const fromCode: RetainedFigureAnalysis = { ...run, values: [{ ...total, check: undefined }] };
+  expect(
+    analysisFigureShown(
+      { state: "supported" },
+      {
+        run: fromCode,
+        result: "total",
+        versions,
+        check: { state: "supported", unsupported: null, named: true },
+      },
+    ),
+  ).toEqual(notRecalculated);
 });
 
 test("a figure whose Document changed or went needs a re-check, as a calculated figure does", () => {
@@ -128,9 +148,17 @@ test("a figure whose Document changed or went needs a re-check, as a calculated 
 });
 
 test("versions unknown to the reader never turn a check into a re-check", () => {
-  expect(analysisFigureShown(unchecked, { run, result: "total", versions: null })).toEqual({
-    state: "supported",
-  });
+  expect(
+    analysisFigureShown(
+      { state: "supported" },
+      {
+        run,
+        result: "total",
+        versions: null,
+        check: { state: "supported", unsupported: null, named: true },
+      },
+    ),
+  ).toEqual({ state: "supported" });
 });
 
 test("a check that differs, could not be made, or is missing leaves the figure as it showed", () => {

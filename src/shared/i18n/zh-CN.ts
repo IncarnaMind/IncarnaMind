@@ -1246,6 +1246,7 @@ export const zhCN = {
   "claim.reason.other-cell": "不显示结论：模型给这个数字写的是文档表格中另一行或另一列的名称。",
   "claim.reason.analysis": "来自数据分析 · 未重新计算",
   "claim.reason.analysis-gone": "它所来自的数据分析已不可用",
+  "claim.reason.analysis-unnamed": "句中没有明确写出这个数字是{detail}",
   "claim.analysisName": "句中没有写明这个数字是{label}",
   "claim.reason.rate-limit": "模型服务暂时繁忙，请稍后重新核对。",
   "claim.reason.cost-cap": "核对这句话可能超出你设置的每月上限。",

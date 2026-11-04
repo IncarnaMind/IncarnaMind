@@ -508,11 +508,9 @@ export function createMindCheck(options: MindCheckOptions) {
           skipped: leftOut(sentence),
           kept: keptAsView(marks, sentence),
         });
-        // An Analysis's figure no check can change (#2378): not worked out again, its record gone,
-        // or named otherwise than its label. An edit of the sentence shows it to check again.
-        const settled =
-          (shown?.state === "not-checked" && ANALYSIS_REASONS.has(shown.reason)) ||
-          (shown?.state === "unsupported" && mark?.check.unsupported?.kind === "analysis-name");
+        // An Analysis's figure no check can change (#2378): not worked out again, or its record
+        // gone. An edit of the sentence shows it to check again.
+        const settled = shown?.state === "not-checked" && ANALYSIS_REASONS.has(shown.reason);
         if (mark && settled) {
           held.push(mark.check.checkedAt);
           continue;

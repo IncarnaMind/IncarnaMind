@@ -356,11 +356,15 @@ export function inAnalysisTable(element: Y.XmlElement): boolean {
   return false;
 }
 
-/** An Analysis table's caption line: it names its table, as a heading does, and states nothing. */
+/**
+ * An Analysis table's caption line that only names its table, as a heading does: one the User typed
+ * a sentence into is read as any paragraph is, so what it says is checked and counted.
+ */
 export const isTableCaption = (element: Y.XmlElement): boolean =>
   element
     .toArray()
-    .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE);
+    .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE) &&
+  !/[.!?。！？]/u.test(textOf(element));
 
 /** A paragraph no check reads as sentences: a table's heading, an Analysis table's caption or cell. */
 const notSentences = (element: Y.XmlElement) =>

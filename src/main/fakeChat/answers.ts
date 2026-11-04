@@ -570,7 +570,7 @@ function regressionReply(prompt: Prompt, question: string, searched: string): Re
     return {
       text: chinese
         ? "广告投入每增加 1，收入增加 [=1]，收入合计 [=2]。\n\n[=picture 1]"
-        : "Each unit of ad spend adds [=1] of revenue, out of [=2] in total.\n\n[=picture 1]",
+        : "Each unit of ad spend adds [=1] of revenue; the total revenue is [=2].\n\n[=picture 1]",
     };
   }
   const marketing = passagesIn(searched).find((passage) =>

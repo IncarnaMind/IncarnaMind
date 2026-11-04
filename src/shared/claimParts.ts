@@ -71,6 +71,7 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "workbook-unsupported": true,
   "figures-not-read": true,
   "sentence-figures-not-read": true,
+  "analysis-unnamed": true,
 };
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),

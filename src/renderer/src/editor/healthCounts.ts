@@ -23,7 +23,11 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
-import { type AnalysisTableShown, tableNeedsLook } from "../../../shared/analysisTables";
+import {
+  type AnalysisTableShown,
+  columnEarns,
+  tableNeedsLook,
+} from "../../../shared/analysisTables";
 import {
   chartCheckText,
   chartPoints,
@@ -399,7 +403,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         health.lookClaims.push(pos);
         return;
       }
-      const unearned = shown.columns.filter((column) => column.rule === null).length;
+      const unearned = shown.columns.filter((column) => !columnEarns(column)).length;
       if (shown.columns.length > unearned) health.supported++;
       for (let at = 0; at < unearned; at++) {
         health.toCheck.push(pos);

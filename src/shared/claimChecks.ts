@@ -420,6 +420,8 @@ export interface ClaimCheckNow {
   note?: RecordCiteNote;
   /** The sentence as the Note holds it, its Citations included, where `text` leaves them out: what its record cites are read in. */
   noteText?(): string;
+  /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
+  keptInside?: ((documentId: string) => string | null) | null;
 }
 
 /** A verdict a check landed, the only kind a Folder move has a result to keep (#2313). */
@@ -737,11 +739,11 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
 }
 
 /**
- * How an Analysis figure shows (#2378): what the core worked out when the Analysis ran, while the
- * Documents it read are as they were, and Not checked otherwise. A claim check reads the
- * Documents' text, which never holds a figure an Analysis worked out, so its verdict never stands
- * for the figure, either way; only the User's own Keep of the sentence does, and the core's own
- * finding that the sentence calls the figure something its label doesn't.
+ * How an Analysis figure shows (#2378). Its number is what the core worked out when the Analysis
+ * ran, while the Documents it read are as they were; Not checked otherwise. Whether its sentence
+ * names it is its own check's: Supported only once the claim judge read the sentence as naming it,
+ * Unsupported once it read another figure's name there, and no verdict before a check or once the
+ * sentence's words changed. The User's own Keep of the sentence stands.
  */
 export function analysisFigureShown(
   shown: ClaimCheckShown,
@@ -753,8 +755,8 @@ export function analysisFigureShown(
     versions: ReadonlyMap<string, string> | null;
     /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
     keptInside?: ((documentId: string) => string | null) | null;
-    /** The figure's check: its sentence doesn't name it as its label does (`analysis-name`). */
-    check?: Pick<FigureCheckAttributes, "state" | "unsupported"> | null;
+    /** The figure's own check: whether the claim judge read its sentence as naming it (`named`). */
+    check?: Pick<FigureCheckAttributes, "state" | "unsupported" | "named"> | null;
   },
 ): ClaimCheckShown {
   if (figure.result === null || shown.state === "kept") return shown;
@@ -781,15 +783,25 @@ export function analysisFigureShown(
     if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
       return { state: "needs-recheck", why: "new-version" };
   }
+  if (shown.state === "needs-recheck" || shown.state === "checking") return shown;
+  if (figure.check?.state === "supported" && figure.check.named) return { state: "supported" };
   if (figure.check?.state === "unsupported" && figure.check.unsupported?.kind === "analysis-name")
     return { state: "unsupported" };
-  return { state: "supported" };
+  return shown.state === "not-checked" ? shown : { state: "not-checked", reason: "unread" };
 }
 
 export function figureCheckShown(
   figure: FigureCheckAttributes,
   now: ClaimCheckNow,
 ): ClaimCheckShown {
+  // An Analysis figure's evidence is its run's input: behind a wall the Note is now outside, the
+  // check made inside it backs nothing (#2378).
+  if (
+    figure.calculated?.figure.analysis &&
+    figure.evidence?.documentId &&
+    now.keptInside?.(figure.evidence.documentId)
+  )
+    return { state: "not-checked", reason: "kept-inside" };
   const shown = basisShown(figure, now);
   // Unknown contexts (null) are a reader that hasn't read them yet, not a change to them.
   if (

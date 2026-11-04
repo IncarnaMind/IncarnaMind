@@ -1285,6 +1285,7 @@ export const en = {
     "Verdict hidden: the model named another row or column of the Document’s table for this number.",
   "claim.reason.analysis": "From the Analysis · not recalculated",
   "claim.reason.analysis-gone": "The Analysis it came from is no longer available",
+  "claim.reason.analysis-unnamed": "The sentence doesn’t clearly say this figure is {detail}",
   "claim.analysisName": "The sentence doesn’t say this figure is {label}",
   "claim.reason.rate-limit": "The model’s service is busy for now. Check again in a moment.",
   "claim.reason.cost-cap": "Checking it could pass your monthly cap.",

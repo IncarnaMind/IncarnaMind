@@ -25,10 +25,8 @@ import {
   CLAIM_CHECK_MARK,
   MIND_CONTENT_FIELD,
 } from "../../src/core/api";
-import { costOf } from "../../src/core/cost/price";
-import { catalogModel } from "../../src/core/providers/catalog";
-import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import {
+  columnEarns,
   columnLine,
   keptAnalysisTables,
   liveVersions,
@@ -55,112 +53,47 @@ import {
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { billedModels } from "../helpers/liveBilling";
 import { connectToMind } from "../helpers/mindClient";
 import { resolveChanges } from "../helpers/minds";
 import { pyodideAnalysisRuntime } from "../helpers/pyodideAnalysis";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
-const PRICE = catalogModel("anthropic", MODEL)?.price;
 const MAX_USD = Number(process.env.INCARNAMIND_LIVE_MAX_USD ?? Number.POSITIVE_INFINITY);
 const PICKED = process.env.INCARNAMIND_LIVE_CASES?.split(",").map((each) => each.trim());
-
-interface Billed {
-  input: number;
-  cacheRead: number;
-  cacheWrite: number;
-  output: number;
-}
-type Usage = {
-  inputTokens?: { total?: number; cacheRead?: number; cacheWrite?: number };
-  outputTokens?: { total?: number };
-};
-const billedOf = (usage: Usage | undefined): Billed => ({
-  input: usage?.inputTokens?.total ?? 0,
-  cacheRead: usage?.inputTokens?.cacheRead ?? 0,
-  cacheWrite: usage?.inputTokens?.cacheWrite ?? 0,
-  output: usage?.outputTokens?.total ?? 0,
-});
-const billed: Billed[] = [];
-const priced = (each: Billed) =>
-  PRICE
-    ? costOf(
-        {
-          inputTokens: each.input,
-          cachedInputTokens: each.cacheRead,
-          cacheWriteTokens: each.cacheWrite,
-          outputTokens: each.output,
-        },
-        PRICE,
-        new Date(),
-        { cacheWrites: true },
-      )
-    : 0;
-const spent = () => billed.reduce((total, each) => total + priced(each), 0);
-const tokens = () =>
-  billed.reduce<Billed & { requests: number }>(
-    (total, each) => ({
-      requests: total.requests + 1,
-      input: total.input + each.input,
-      cacheRead: total.cacheRead + each.cacheRead,
-      cacheWrite: total.cacheWrite + each.cacheWrite,
-      output: total.output + each.output,
-    }),
-    { requests: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
-  );
-
-const counting: ChatModelFactory = (spec) => {
-  const model = createAiSdkChatModel(spec);
-  return new Proxy(model, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver);
-      if (property === "doGenerate" && typeof value === "function")
-        return async (...args: unknown[]) => {
-          const result = (await value.apply(target, args)) as { usage?: Usage };
-          billed.push(billedOf(result.usage));
-          return result;
-        };
-      if (property === "doStream" && typeof value === "function")
-        return async (...args: unknown[]) => {
-          const result = (await value.apply(target, args)) as {
-            stream: ReadableStream<{ type: string; usage?: Usage }>;
-          };
-          const [given, read] = result.stream.tee();
-          const entry = billedOf(undefined);
-          billed.push(entry);
-          void (async () => {
-            const reader = read.getReader();
-            for (let part = await reader.read(); !part.done; part = await reader.read())
-              if (part.value.type === "finish") Object.assign(entry, billedOf(part.value.usage));
-          })().catch(() => {
-            // A stream that failed or was stopped costs what its finish part said, if it came.
-          });
-          return { ...result, stream: given };
-        };
-      return value;
-    },
-  });
-};
+const { createChatModel: counting, spent, tokens } = billedModels(MODEL);
 
 const near = (known: number, value: number) =>
   Math.abs(known - value) <= Math.max(1e-9, Math.abs(known) * 1e-9);
 
+/** Whether `said` holds `word` as a whole word, or its plural, in any case. */
+const saysWord = (said: string, word: string) =>
+  new RegExp(
+    `(^|[^\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(e?s)?($|[^\\p{L}\\p{N}])`,
+    "iu",
+  ).test(said);
+
 /**
- * Whether a figure is the reference's entry its words name (#2378): an entry of the same value
- * whose group ("Northside", "Leeds") the figure's sentence or label names. A number another group
- * also has, said of the wrong one, is never right.
+ * Whether a figure is the reference's entry its sentence names (#2378): an entry of the same value
+ * whose group ("Northside", "Leeds") the sentence names as a whole word, or a whole-sheet entry
+ * when the sentence names no group at all. A number another group also has, said of the wrong one,
+ * is never right; the figure's own label is never read, as no reader sees it.
  */
-function named(value: number, words: string, reference: ReadonlyMap<string, number>): boolean {
-  const said = words.toLowerCase();
-  return [...reference].some(([name, known]) => {
+function named(value: number, said: string, reference: ReadonlyMap<string, number>): boolean {
+  const groupOf = (name: string) => {
     const parts = name.split(":");
-    const group =
-      parts[0] === "share"
-        ? parts.at(-1)
-        : ["all", "fit", "trend"].includes(parts[0] ?? "")
-          ? undefined
-          : parts[1];
-    return near(known, value) && (group === undefined || said.includes(group.toLowerCase()));
+    return parts[0] === "share"
+      ? parts.at(-1)
+      : ["all", "fit", "trend"].includes(parts[0] ?? "")
+        ? undefined
+        : parts[1];
+  };
+  const groups = [...new Set([...reference.keys()].flatMap((name) => groupOf(name) ?? []))];
+  const namesAGroup = groups.some((group) => saysWord(said, group));
+  return [...reference].some(([name, known]) => {
+    const group = groupOf(name);
+    return near(known, value) && (group === undefined ? !namesAGroup : saysWord(said, group));
   });
 }
 
@@ -242,9 +175,10 @@ async function noteCounts(
     const [kept] = keptAnalysisTables(figureRunsFor(doc, [block]));
     for (const column of shown.columns) {
       counts.columns++;
-      if (column.rule) counts.columnsRecalculated++;
+      if (columnEarns(column)) counts.columnsRecalculated++;
       if (
         column.rule &&
+        columnEarns(column) &&
         reference &&
         kept &&
         !columnRight(column.rule, kept.table.rows, column.column, reference)
@@ -304,8 +238,7 @@ async function noteCounts(
     const sentence = sentenceOf(line, attributes.id);
     if (row?.shown.state === "supported" && (sentence === null || sentence === "supported")) {
       const numeric = typeof attributes.figure.value === "number" ? attributes.figure.value : NaN;
-      const words = `${line ? textIn2(line) : ""} ${attributes.figure.label}`;
-      if (reference && !named(numeric, words, reference))
+      if (reference && !named(numeric, line ? textIn2(line) : "", reference))
         counts.falseSupported.push(`${attributes.figure.shown} ${attributes.figure.label}`);
     }
     lines.push(

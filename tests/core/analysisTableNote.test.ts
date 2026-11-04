@@ -359,6 +359,32 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     core.close();
   });
 
+  test("a sentence the User types into the caption line is checked as any is", async () => {
+    const { core, madeId, client, sent } = await walked(language, CONTENT(language));
+    const typed =
+      language === "en"
+        ? "North's total amount grew 40% to 12,000 in 2025. "
+        : "北部地区金额合计在 2025 年增长 40%，达到 12,000。";
+    const caption = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement =>
+          each instanceof Y.XmlElement &&
+          each
+            .toArray()
+            .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE),
+      );
+    const words = caption?.toArray().find((each): each is Y.XmlText => each instanceof Y.XmlText);
+    if (!words) throw new Error("No caption.");
+    client.doc.transact(() => words.insert(0, typed));
+    await client.settled();
+    sent.length = 0;
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(sent.some((each) => each.includes("12,000"))).toBe(true);
+    core.close();
+  });
+
   test("a cell of words in the Analysis's table is its run's too, never a sentence Check sends", async () => {
     const base = ANALYSIS(WORDS[language].caption);
     const busiest: Record<string, string> = {
@@ -767,11 +793,14 @@ const NAMED = {
     reworded: "South's total amount is ",
     gone: "The Analysis it came from is no longer available",
     misnamed: (label: string) => `The sentence doesn’t say this figure is ${label}`,
+    unnamed: (label: string) => `The sentence doesn’t clearly say this figure is ${label}`,
     rests: "1 figure not recalculated",
     two: "2 figures not recalculated",
     whole: "North's total is [=3], of [=6] in all.",
     inWord: "Central's subtotal amount is [=6].",
-    inOrder: "Central's total amount is [=6], and its average amount is [=7].",
+    inOrder: "Central's total amount is [=6], and Central's average amount is [=7].",
+    others: ["North", "In Central"],
+    rewordedTo: "South",
     outOfOrder: "Central's average amount is [=6], and its total amount is [=7].",
   },
   "zh-CN": {
@@ -784,11 +813,14 @@ const NAMED = {
     reworded: "南部地区金额合计为 ",
     gone: "它所来自的数据分析已不可用",
     misnamed: (label: string) => `句中没有写明这个数字是${label}`,
+    unnamed: (label: string) => `句中没有明确写出这个数字是${label}`,
     rests: "1 个数字未重新计算",
     two: "2 个数字未重新计算",
     whole: "North地区合计为 [=3]，全部合计为 [=6]。",
     inWord: null,
-    inOrder: "中部地区金额合计为 [=6]，平均金额为 [=7]。",
+    inOrder: "中部地区金额合计为 [=6]，中部地区平均金额为 [=7]。",
+    others: ["北部", "在中部"],
+    rewordedTo: "南部",
     outOfOrder: "中部地区平均金额为 [=6]，金额合计为 [=7]。",
   },
 } as const;
@@ -825,9 +857,27 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
   const parts = (state: NonNullable<Awaited<ReturnType<typeof reading>>>) =>
     noteStateParts(state, (key, params) => translate(language, key, params), language);
 
-  test("a figure worked out again is Supported only under every word of its label; another region's or another measure's name needs a look, saying what the figure is", async () => {
+  /** The scripted judge reads another figure's name in each sentence that starts with one of `others`. */
+  const judgedOther =
+    (others: readonly string[]) =>
+    (sentence: string): Plan | undefined =>
+      others.some((each) => sentence.startsWith(each)) ? { names: "other" } : undefined;
+  const scheduleStates = async (core: Core, madeId: string) =>
+    (await core.getFigureSchedule(madeId)).rows
+      .filter((row) => !row.analysisTable)
+      .map((row) => row.shown.state);
+
+  test("the claim judge names a figure: Supported where it reads the sentence as naming it, Unsupported where it reads another figure's name there, saying what the figure is", async () => {
     const content = lines(words.right, words.swapped, words.asTotal);
-    const { core, madeId, client } = await walked(language, content, false, null, withFigures());
+    const { core, madeId, client, sent } = await walked(
+      language,
+      content,
+      false,
+      null,
+      withFigures(),
+      null,
+      judgedOther(words.others),
+    );
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
     expect(stateOf(client, words.right)?.state).toBe("supported");
@@ -841,14 +891,55 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     });
     // It holds the badge, and its own row in the schedule: never quietly green.
     expect((await reading(core, client))?.kind).toBe("needs-look");
-    const schedule = await core.getFigureSchedule(madeId);
-    expect(schedule.rows.filter((row) => !row.analysisTable).map((row) => row.shown.state)).toEqual(
-      ["supported", "unsupported", "unsupported"],
-    );
+    expect(await scheduleStates(core, madeId)).toEqual(["supported", "unsupported", "unsupported"]);
+    // Check again leaves it as the judge read it; only the User's edit sends it again.
+    sent.length = 0;
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" });
+    await client.settled();
+    expect(sent.filter((each) => words.others.some((other) => each.includes(other)))).toEqual([]);
     core.close();
   });
 
-  test("two figures each under the other's words both need a look; in their own order, both are Supported", async () => {
+  test("the judge's same never stands where the figure's own clause leaves a word of its label out: it is left Not checked, never Unsupported", async () => {
+    const content = lines(words.right, words.swapped, words.asTotal);
+    const { core, madeId, client } = await walked(language, content, false, null, withFigures());
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)?.state).toBe("supported");
+    for (const said of [words.swapped, words.asTotal])
+      expect(stateOf(client, said)).toMatchObject({
+        state: "not-checked",
+        reason: "analysis-unnamed",
+      });
+    expect(translate(language, "claim.reason.analysis-unnamed", { detail: words.total })).toBe(
+      words.unnamed(words.total),
+    );
+    expect((await reading(core, client))?.kind).not.toBe("checked");
+    expect(await scheduleStates(core, madeId)).toEqual(["supported", "not-checked", "not-checked"]);
+    core.close();
+  });
+
+  test("a figure the judge can't tell is named is left Not checked", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right),
+      false,
+      null,
+      withFigures(),
+      null,
+      () => ({ names: "unclear" }),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)).toMatchObject({
+      state: "not-checked",
+      reason: "analysis-unnamed",
+    });
+    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
+    core.close();
+  });
+
+  test("two figures each under the other's words are left Not checked; each named in its own clause, both are Supported", async () => {
     const { core, madeId, client } = await walked(
       language,
       lines(words.inOrder, words.outOfOrder),
@@ -859,7 +950,10 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
     expect(stateOf(client, words.inOrder)?.state).toBe("supported");
-    expect(stateOf(client, words.outOfOrder)?.state).toBe("unsupported");
+    expect(stateOf(client, words.outOfOrder)).toMatchObject({
+      state: "not-checked",
+      reason: "analysis-unnamed",
+    });
     core.close();
   });
 
@@ -877,8 +971,8 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
       await client.settled();
       expect(stateOf(client, said)).toMatchObject({
-        state: "unsupported",
-        reason: words.misnamed(words.total),
+        state: "not-checked",
+        reason: "analysis-unnamed",
       });
       core.close();
     },
@@ -909,29 +1003,33 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       if (check)
         cells.push({
           state: check.state,
-          reason: check.state === "unsupported" ? (check.unsupported?.reason ?? null) : null,
+          reason: check.state === "not-checked" ? check.reason : null,
         });
       for (const child of node.content ?? []) visit(child);
     };
     for (const block of blocksOf(client)) visit(block);
     expect(cells).toEqual([
       { state: "supported", reason: null },
-      { state: "unsupported", reason: words.misnamed(words.total) },
+      { state: "not-checked", reason: "analysis-unnamed" },
     ]);
     core.close();
   });
 
-  test("a sentence the User rewords to another name is checked again and needs a look", async () => {
+  test("a figure has no verdict before a check reads its sentence, nor once the User rewords it, until the next Check judges the new words", async () => {
     const { core, madeId, client } = await walked(
       language,
       lines(words.right),
       false,
       null,
       withFigures(),
+      null,
+      judgedOther([words.rewordedTo]),
     );
+    expect(await scheduleStates(core, madeId)).not.toContain("supported");
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
     expect(stateOf(client, words.right)?.state).toBe("supported");
+    expect(await scheduleStates(core, madeId)).toEqual(["supported"]);
     const paragraph = client.blocks
       .toArray()
       .find(
@@ -946,12 +1044,14 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       text.insert(0, language === "en" ? "South's total" : "南部地区");
     });
     await client.settled();
+    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" });
     await client.settled();
     expect(stateOf(client, words.reworded)).toMatchObject({
       state: "unsupported",
       reason: words.misnamed(words.total),
     });
+    expect(await scheduleStates(core, madeId)).toEqual(["unsupported"]);
     core.close();
   });
 
@@ -1064,14 +1164,16 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
   });
 
   test("a bound table whose run the Note no longer keeps is a typed table: its cells are checked", async () => {
-    const { core, madeId, client } = await walked(language, CONTENT(language), false);
+    const { core, madeId, client, sent } = await walked(language, CONTENT(language), false);
     client.doc.transact(() => {
       const runs = client.doc.getMap(MIND_FIGURE_RUNS_FIELD);
       for (const key of [...runs.keys()]) if (key.includes('"table"')) runs.delete(key);
     });
     await client.settled();
+    sent.length = 0;
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
+    expect(sent.some((each) => each.includes("9,450"))).toBe(true);
     const schedule = await core.getFigureSchedule(madeId);
     expect(schedule.rows.filter((row) => row.analysisTable)).toEqual([]);
     expect(schedule.rows.filter((row) => row.place.table).length).toBeGreaterThan(0);
@@ -1126,6 +1228,18 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     expect(stateOf(client, words.right)?.state).toBe("supported");
     const inside = await core.getFigureSchedule(madeId);
     expect(inside.rows.find((row) => row.analysisTable)?.shown.state).toBe("supported");
+    // Moved out again, what was checked inside backs nothing there, before any Check.
+    await core.moveToFolder({ mindIds: [madeId], folderId: null });
+    const out = readNoteState({
+      doc: client.doc,
+      cellFigures: [],
+      documents: await core.listDocuments(),
+      keptCitationTexts: [],
+      folderId: null,
+      keptInside: (documentId) => (documentId === orders.id ? "Matter" : null),
+    });
+    expect(out.health.supported).toBe(0);
+    expect(out.state?.kind).not.toBe("checked");
     core.close();
   });
 

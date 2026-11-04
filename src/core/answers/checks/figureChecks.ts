@@ -20,6 +20,7 @@ import type {
 import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
+import { namingHolds } from "./analysisNaming";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
 import { FIGURES, type ReadVerdict, readVerdict } from "./prompt";
@@ -42,6 +43,8 @@ export interface FigureReplyItem extends ReadVerdict {
     unitQuote: string | null;
   } | null;
   calculation: number | null;
+  /** An Analysis's figure: whether the sentence's words name it as its label and rule do; null when not given. */
+  names: "same" | "other" | "unclear" | null;
 }
 
 export interface FigureReplyRemainder extends ReadVerdict {
@@ -177,6 +180,8 @@ export function readFigureReply(
       relation: raw.relation,
       source,
       calculation,
+      names:
+        raw.names === "same" || raw.names === "other" || raw.names === "unclear" ? raw.names : null,
     });
   }
   if (ids.size > 0) return null;
@@ -308,73 +313,19 @@ export function figureJudgment(
 }
 
 /**
- * The words a figure's label names it by (#2378): each word of three letters or more, each word
- * with a digit (a year, "Q3"), and each Han character.
- */
-function labelWords(label: string): string[] {
-  const han = label.match(/\p{Script=Han}/gu) ?? [];
-  const words = (label.replace(/\p{Script=Han}/gu, " ").match(/[\p{L}\p{M}\p{N}]+/gu) ?? []).filter(
-    (word) => [...word].length >= 3 || /\p{N}/u.test(word),
-  );
-  return [...words, ...han].map((word) => word.toLowerCase());
-}
-
-/** A word and its plural name the same: "visit" and "visits", "category" and "categories". */
-const plurals = (word: string) => [word, `${word}s`, `${word}es`, word.replace(/y$/u, "ies")];
-const sameWord = (word: string, token: string) =>
-  plurals(word).includes(token) || plurals(token).includes(word);
-
-/**
- * Where a label's word first stands in `said`, lowercased; -1 when it doesn't. A Han character
- * stands anywhere; a word stands only as a whole word, so "age" is never found in "average".
- */
-function wordAt(said: string, word: string): number {
-  if (/^\p{Script=Han}$/u.test(word)) return said.indexOf(word);
-  for (const token of said.replace(/\p{Script=Han}/gu, " ").matchAll(/[\p{L}\p{M}\p{N}]+/gu))
-    if (/\p{N}/u.test(word) ? token[0] === word : sameWord(word, token[0])) return token.index;
-  return -1;
-}
-
-/**
- * The Analysis figures of one sentence that its words name in another order than the figures
- * stand (#2378): in "North had [Central's], Central [North's]" each label's words are there, but
- * each figure stands where the other's are. Only the words a label doesn't share with another's
- * say which is which.
- */
-function misordered(figures: readonly CheckFigure[], claim: string): ReadonlySet<string> {
-  const said = claim.toLowerCase();
-  const words = figures.map((figure) => new Set(labelWords(figure.calculated?.figure.label ?? "")));
-  const placed = figures.flatMap((figure, at) => {
-    const found = [...(words[at] ?? [])]
-      .filter((word) => words.every((other, each) => each === at || !other.has(word)))
-      .map((word) => wordAt(said, word))
-      .filter((place) => place >= 0);
-    return found.length > 0 && figure.locator.kind === "text"
-      ? [{ id: figure.id, word: Math.min(...found), offset: figure.locator.from.offset }]
-      : [];
-  });
-  const byWords = [...placed].sort((a, b) => a.word - b.word);
-  return new Set(
-    [...placed]
-      .sort((a, b) => a.offset - b.offset)
-      .filter((each, at) => byWords[at]?.id !== each.id)
-      .map((each) => each.id),
-  );
-}
-
-/**
- * An Analysis's figure in a sentence, judged by its run as the Note keeps it (#2378), never by the
- * Documents' text, which never holds it. Supported only when IncarnaMind worked it out again to the
- * same number, the Documents it read are as they were, and the sentence, or a table cell with its
- * row and column headings, holds every word its label names it by: no model reads the naming, so a
- * figure called another's is Unsupported, never green.
- * Not checked when it wasn't worked out again, or its record is gone.
+ * An Analysis's figure in a sentence (#2378). Its number is its run's, never the Documents' text,
+ * which never holds it; whether the sentence names it is the claim judge's, from its label, rule and
+ * code (`names`). Supported only when IncarnaMind worked the number out again, the Documents it read
+ * are as they were, the judge read the sentence as naming it, and `namingHolds`, which can only take
+ * that away, finds its own clause names it and nothing else. Unsupported only when the judge read the
+ * sentence as naming another figure. Not checked otherwise: no code ever reads a name as right.
  */
 function analysisJudgment(
   target: CheckFigure,
-  claim: string,
   facts: Facts,
-  options: Pick<FigureCheckOptions, "misnamed" | "keptInside"> & { outOfOrder: boolean },
+  options: Pick<FigureCheckOptions, "misnamed" | "keptInside">,
+  item: FigureReplyItem | undefined,
+  holds: boolean,
 ): ClaimJudgment {
   const record = target.analysisRecord;
   const read = (record?.citations ?? []).map(({ documentId, contentHash }) => ({
@@ -389,29 +340,22 @@ function analysisJudgment(
   const [evidence] = record.citations;
   if (!record.recalculated || !evidence)
     return { verdict: "not-checked", reason: "analysis", detail: null, ...known };
-  const label = target.calculated?.figure.label ?? "";
-  const said = [claim, target.label ?? ""].join(" ").toLowerCase();
-  if (options.outOfOrder || !labelWords(label).every((word) => wordAt(said, word) >= 0))
+  const label = record.label ?? target.calculated?.figure.label ?? "";
+  const unread = { citedCaseUnchecked: false, citedCaseFound: false, calculation: null };
+  if (item?.names === "other")
     return {
       verdict: "unsupported",
       evidence: null,
-      says: null,
+      says: item.says,
       unsupported: options.misnamed(label),
-      calculation: null,
-      citedCaseUnchecked: false,
-      citedCaseFound: false,
+      ...unread,
       ...known,
     };
-  return {
-    verdict: "supported",
-    evidence,
-    says: null,
-    unsupported: null,
-    calculation: null,
-    citedCaseUnchecked: false,
-    citedCaseFound: false,
-    ...known,
-  };
+  // A verdict of supported is the judge's same, as its instructions ask, when it gives no names.
+  const same = item?.verdict === "supported" && (item.names ?? "same") === "same";
+  if (same && holds)
+    return { verdict: "supported", evidence, says: null, unsupported: null, ...unread, ...known };
+  return { verdict: "not-checked", reason: "analysis-unnamed", detail: label, ...known };
 }
 
 export interface FigureCheckOptions {
@@ -624,19 +568,21 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
   calculations.check();
   const items = new Map(parsed.items.map((item) => [item.id, item]));
   const rows: FigureCheckResult[] = [];
-  const outOfOrder = misordered(
-    requested.filter((each) => each.calculated?.figure.analysis),
-    options.claim,
-  );
+  const analysed = requested.filter((each) => each.calculated?.figure.analysis);
   for (const original of requested) {
     let target = original;
     if (target.calculated?.figure.analysis) {
+      const result = analysisJudgment(
+        target,
+        options.facts(),
+        options,
+        items.get(target.id),
+        namingHolds(options.claim, target, analysed),
+      );
       rows.push({
         ...finding(target),
-        result: analysisJudgment(target, options.claim, options.facts(), {
-          ...options,
-          outOfOrder: outOfOrder.has(target.id),
-        }),
+        ...(result.verdict === "supported" && { named: true as const }),
+        result,
       });
       continue;
     }

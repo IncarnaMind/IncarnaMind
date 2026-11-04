@@ -146,11 +146,11 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
     const blocks = parts.flatMap(({ node }) => (node ? [node] : []));
     const runs = figureRunsFor(fragment.doc, blocks);
     const kept = new Set(runs.map((run) => run.id));
+    // A bound table whose run is gone is a typed table: it rests on nothing of a run's (#2378).
     if (
       parts
         .flatMap(({ figures }) => figures)
-        .some(({ figure, analysisId }) => figure.analysis && analysisId && !kept.has(analysisId)) ||
-      parts.flatMap(({ tables }) => tables).some(({ id }) => !kept.has(id))
+        .some(({ figure, analysisId }) => figure.analysis && analysisId && !kept.has(analysisId))
     )
       return null;
     for (const run of runs) {

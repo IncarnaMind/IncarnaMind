@@ -551,16 +551,16 @@ function checkedFigureInText(
   );
 }
 
-test("no claim check of the sentence keeps the figure in the text from its own record (#2378)", () => {
-  expect(checkedFigureInText({ state: "not-checked", reason: "unread" })).toEqual({
-    state: "supported",
-  });
-  expect(checkedFigureInText({ state: "unsupported" })).toEqual({ state: "supported" });
-  expect(checkedFigureInText(null)).toEqual({ state: "supported" });
-  // The check was made on other words: the figure is still its run's.
-  expect(checkedFigureInText(null, "Total revenue 300 kg, as checked.")).toEqual({
-    state: "supported",
-  });
+test("a figure in the text has no verdict of its own until its sentence's check reads it as named (#2378)", () => {
+  const unread = { state: "not-checked", reason: "unread" };
+  expect(checkedFigureInText({ state: "not-checked", reason: "unread" })).toEqual(unread);
+  expect(checkedFigureInText({ state: "unsupported" })).toEqual(unread);
+  expect(checkedFigureInText(null)).toEqual(unread);
+  expect(checkedFigureInText({ state: "supported", named: true })).toEqual({ state: "supported" });
+  // The check was made on other words: it waits for the next Check.
+  expect(
+    checkedFigureInText({ state: "supported", named: true }, "Total revenue 300 kg, as checked."),
+  ).toEqual({ state: "needs-recheck", why: "edited" });
 });
 
 test("a figure its sentence misnames reads Unsupported on its marker, and one behind a wall Not checked", () => {
@@ -641,18 +641,25 @@ function tracedDoc(check?: NonNullable<RetainedFigureAnalysis["values"][number][
   installFigureRuns(doc, [tracedRecords(check)]);
   return doc;
 }
+/** The figure's own check once the claim judge read its sentence as naming it. */
+const named = { state: "supported", unsupported: null, named: true } as const;
+
 async function tracedCard(
   check: NonNullable<RetainedFigureAnalysis["values"][number]["check"]> | undefined,
   shown: ClaimCheckShown = { state: "not-checked", reason: "unread" },
   {
     versions = new Map([["source", "v2"]]),
-  }: { versions?: ReadonlyMap<string, string> | null } = {},
+    own = null,
+  }: {
+    versions?: ReadonlyMap<string, string> | null;
+    own?: Parameters<typeof analysisFigureShown>[1]["check"];
+  } = {},
 ) {
   const run = tracedRecords(check);
   const sources = calculatedSources(attrs(summed), tracedDoc(check));
   await card({
     figure: summed,
-    shown: analysisFigureShown(shown, { run, result: "summed", versions }),
+    shown: analysisFigureShown(shown, { run, result: "summed", versions, check: own }),
     replayed: false,
     sources,
     problem: false,
@@ -661,14 +668,22 @@ async function tracedCard(
 }
 
 test.each(["en", "zh-CN"] as const)(
-  "%s card shows the core's own recalculation of a figure() figure as checked",
+  "%s card shows the core's own recalculation of a figure() figure, and Supported only once a check read its sentence as naming it",
   async (language) => {
     state.language = language;
     await tracedCard({ kind: "same", value: 300 });
-    const stateLine = container.querySelector(".calculated-figure-state");
+    let stateLine = container.querySelector(".calculated-figure-state");
+    expect(stateLine?.getAttribute("data-state")).toBe("not-checked");
+    expect(stateLine?.textContent).not.toContain(translate(language, "claim.state.supported"));
+    expect(container.textContent).toContain(
+      translate(language, "figures.analysisRows.recalculated"),
+    );
+    await act(() => root?.unmount());
+    root = null;
+    await tracedCard({ kind: "same", value: 300 }, { state: "supported" }, { own: named });
+    stateLine = container.querySelector(".calculated-figure-state");
     expect(stateLine?.textContent).toContain(translate(language, "claim.state.supported"));
     expect(stateLine?.getAttribute("data-state")).toBe("supported");
-    expect(stateLine?.textContent).not.toContain(translate(language, "claim.state.not-checked"));
     expect(container.textContent).toContain(
       translate(language, "figures.analysisRows.recalculated"),
     );
@@ -699,16 +714,17 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
-test("no claim check of the sentence stands for the core's own record of the figure (#2378)", async () => {
-  for (const claim of [
-    { state: "needs-recheck", why: "edited" },
-    { state: "not-checked", reason: "unread" },
-    { state: "unsupported" },
+test("a sentence's check stands for the figure only as the claim judge read its naming (#2378)", async () => {
+  for (const [claim, own, shows] of [
+    [{ state: "needs-recheck", why: "edited" }, named, "needs-recheck"],
+    [{ state: "not-checked", reason: "unread" }, null, "not-checked"],
+    [{ state: "unsupported" }, null, "not-checked"],
+    [{ state: "supported" }, { state: "supported", unsupported: null }, "not-checked"],
   ] as const) {
-    await tracedCard({ kind: "same", value: 300 }, claim);
+    await tracedCard({ kind: "same", value: 300 }, claim, { own });
     const stateLine = container.querySelector(".calculated-figure-state");
-    expect(stateLine?.getAttribute("data-state")).toBe("supported");
-    expect(stateLine?.textContent).toContain(translate("en", "claim.state.supported"));
+    expect(stateLine?.getAttribute("data-state")).toBe(shows);
+    expect(stateLine?.textContent).not.toContain(translate("en", "claim.state.supported"));
     await act(() => root?.unmount());
     root = null;
   }

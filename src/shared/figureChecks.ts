@@ -225,6 +225,7 @@ export function readFigureFinding(value: unknown): FigureFinding | null {
     ...(value.sourceFooting !== undefined && { sourceFooting }),
     ...(typeof value.context === "string" && { context: value.context }),
     ...(typeof value.label === "string" && { label: value.label }),
+    ...(value.named === true && { named: true as const }),
   };
 }
 
