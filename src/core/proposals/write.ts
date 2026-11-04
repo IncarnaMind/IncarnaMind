@@ -81,7 +81,7 @@ import {
   unescapeNames,
   unnameRemovals,
 } from "../edits/prompt";
-import { diffSteps, hunksOf, type KeepsLater, type Step, splitWords } from "./diff";
+import { diffSteps, type Hunk, hunksOf, type KeepsLater, splitWords } from "./diff";
 import {
   CITING,
   type CitingNodes,
@@ -1779,25 +1779,18 @@ const REWRITTEN_SHARE = 0.4;
  * About 40% or more of the paragraph's words replaced by others: written anew, read as one
  * change, before and after whole, never old and new words interleaved. Words only added, or only
  * taken out, keep the rest as it was, read word by word: a sentence taken out of a short paragraph
- * is no rewrite, and the User's other words stay theirs (#2356).
+ * is no rewrite, and the User's other words stay theirs (#2356). Counted by the changes as they
+ * read (`hunks`), not by the diff's steps: two unlike texts still share spaces and a few short
+ * words, which leave most of a long paragraph's words beside no new one, though a short line
+ * written over it reads as one change.
  */
-function rewritten(steps: readonly Step[], old: readonly OldToken[]) {
-  const isWord = (text: string | undefined) => text === undefined || !/^\s+$/.test(text);
-  let replaced = 0;
-  let removed = 0;
-  let adds = false;
-  let at = 0;
-  for (const step of [...steps, "equal" as const]) {
-    if (step === "equal") {
-      if (adds) replaced += removed;
-      removed = 0;
-      adds = false;
-      at++;
-    } else if (step === "insert") adds = true;
-    else if (isWord(old[at++]?.text)) removed++;
-  }
-  const words = old.filter((token) => isWord(token.text)).length;
-  return words > 0 && replaced >= words * REWRITTEN_SHARE;
+function rewritten(hunks: readonly Hunk[], old: readonly OldToken[]) {
+  const words = (tokens: readonly OldToken[]) =>
+    tokens.filter((token) => token.text === undefined || !/^\s+$/.test(token.text)).length;
+  const replaced = hunks
+    .filter((hunk) => hunk.newTo > hunk.newFrom)
+    .reduce((sum, hunk) => sum + words(old.slice(hunk.oldFrom, hunk.oldTo)), 0);
+  return words(old) > 0 && replaced >= words(old) * REWRITTEN_SHARE;
 }
 
 /**
@@ -1830,7 +1823,7 @@ function writeHunks(
   if (
     segment.whole &&
     hunks.length > 0 &&
-    (segment.kind.startsWith("heading:") || rewritten(steps, segment.tokens))
+    (segment.kind.startsWith("heading:") || rewritten(hunks, segment.tokens))
   ) {
     hunks = [{ oldFrom: 0, oldTo: segment.tokens.length, newFrom: 0, newTo: tokens.length }];
   }
