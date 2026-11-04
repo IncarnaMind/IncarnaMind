@@ -54,6 +54,8 @@ interface Writing {
   /** What the quick model replies to its first look; absent: it never replies. */
   quick?: string;
   checkPaths?: CheckPathsOverride;
+  /** The check's first request is refused for too many requests, once. */
+  rateLimitedOnce?: boolean;
   /** Written into a Note holding these Blocks, after them, rather than into a new one. */
   into?: readonly NodeJSON[];
   /** How long a sentence's check may take; its first look has a tenth of it. */
@@ -72,9 +74,14 @@ async function write(writing: Writing) {
     { get: () => supported(writing.quote), has: () => true },
   );
   const generate = checkGenerate(plans);
+  let limited = false;
   const model = scriptedModel(
     (call) => {
       calls.push(call);
+      if (isCheckRun(call) && writing.rateLimitedOnce && !limited) {
+        limited = true;
+        return { error: { status: 429, message: "Too many requests." } };
+      }
       if (isCheckRun(call)) return checkReply(call, plans);
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
@@ -230,10 +237,41 @@ describe("the quick model's first look", () => {
     expect(sentenceChecks.map((use) => use.modelId)).toEqual(["claude-sonnet-5-5"]);
   });
 
+  // protects=a sentence asked about again after a rate limit keeps its first look's answer, so a quick model's later yes can't stand, and its look is counted once (#1667); fails_when=the retry asks the quick model again; no_claim=none beyond protects.
+  test("a retry after a rate limit doesn't ask the quick model again", async () => {
+    const { marks, quickCalls, sentenceChecks } = await write({
+      content: `## Notes\n\n${PARAPHRASE}[^1]`,
+      quote: DELIVERY,
+      quick: "no",
+      checkPaths: LISTED,
+      rateLimitedOnce: true,
+    });
+
+    expect(quickCalls).toHaveLength(1);
+    expect(marks[0]).toMatchObject({ state: "supported", modelId: "claude-sonnet-5-5" });
+    expect(sentenceChecks.map((use) => use.modelId).sort()).toEqual([
+      "claude-haiku-5-5",
+      "claude-sonnet-5-5",
+    ]);
+  });
+
   // protects=no first look where the Answers model isn't listed, is the quick model itself, or the User set the quick-tasks model to it, or set one on another provider, a service with its own consent, allowed or not (#1667); fails_when=any of them asks a quick model; no_claim=none beyond protects.
   test.each<{ name: string } & Partial<Writing>>([
     { name: "an Answers model not listed" },
     { name: "the Answers model is the quick one", answers: "claude-haiku-5-5", checkPaths: LISTED },
+    {
+      name: "the Answers model is the quick one, dated",
+      answers: "claude-haiku-5-5-20261015",
+      checkPaths: LISTED,
+    },
+    {
+      name: "no quick model to prepare",
+      checkPaths: {
+        quickFirstLook: () => {
+          throw new Error("The list can't be read.");
+        },
+      },
+    },
     {
       name: "the quick-tasks model set to the Answers model",
       checkPaths: LISTED,
@@ -288,6 +326,11 @@ describe("the quick model's first look", () => {
     {
       name: "a paragraph after another",
       content: `## Notes\n\nThe Hirer looks after the equipment.\n\n${PARAPHRASE}[^1]`,
+      asked: 0,
+    },
+    {
+      name: "a paragraph after a rule under a heading",
+      content: `## Notes\n\n---\n\n${PARAPHRASE}[^1]`,
       asked: 0,
     },
     {
@@ -502,6 +545,9 @@ describe("which sentences and Citations the quick model may look at", () => {
     ["去年公司盈利。", true],
     ["本季度收入上升。", true],
     ["北岭每星期送货。", true],
+    ["Northgate delivers once a fortnight.", true],
+    ["Rooms are cleaned by noon.", true],
+    ["北岭数分钟内送达。", true],
     ["The rent is 950 a month.", true],
     ["The Hirer may lend the equipment.", false],
     ["承租人不得将设备转借他人。", false],

@@ -18,6 +18,9 @@ interface Admitted {
   gate: string;
 }
 
+// None yet: Claude Haiku 5.5 looking first under Claude Sonnet 5.5 read a Chinese "may" for the
+// terms' "must" as stated, a false Supported Sonnet's check didn't give, and saved 6% of the time
+// per sentence on the held-out sets (#1667).
 const QUICK_FIRST_LOOK: readonly Admitted[] = [];
 
 /** What tests and the evaluation decide instead of the list; undefined: the list's. */

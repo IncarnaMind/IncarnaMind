@@ -107,6 +107,7 @@ import { augmentFigureFooting } from "../../figureSchedule";
 import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
+import { withoutDateSuffix } from "../../providers/catalog";
 import { type CheckPathsOverride, quickLooksFirst } from "../../providers/catalog/checkPaths";
 import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
@@ -1494,7 +1495,7 @@ export function createChecks(options: ChecksOptions) {
     const looks =
       quick !== null &&
       quick.providerId === answers.providerId &&
-      quick.modelId !== answers.modelId &&
+      withoutDateSuffix(quick.modelId) !== withoutDateSuffix(answers.modelId) &&
       quickLooksFirst(
         { catalogId, modelId: answers.modelId },
         { catalogId, modelId: quick.modelId },

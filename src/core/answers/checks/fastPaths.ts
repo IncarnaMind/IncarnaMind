@@ -8,12 +8,12 @@
  * It only looks at a sentence that opens its Note paragraph, after a heading or at the Note's
  * start: one after another sentence or paragraph may lean on it for what its words mean, which a
  * quick model misread. And it never looks at a sentence another Document or period could
- * contradict: one with a figure
- * (a court decision's citation has its numbers) or a word for a time, a record cite, more than one
- * Citation, or in a table's cell; one whose Citation's Document has changed, is gone, is the User's
- * own workings, a Note's snapshot or behind a wall, or is out of the check's scope; one whose
- * quote isn't on its page; or one whose words another Document in the check's scope also holds
- * (an amendment, another edition), which today's check searches for.
+ * contradict: one with a figure (a court decision's citation has its numbers) or a word for a
+ * time, a record cite, more than one Citation, or in a table's cell; one whose Citation's
+ * Document has changed, is gone, is the User's own workings, a Note's snapshot or behind a wall,
+ * or is out of the check's scope; one whose quote isn't on its page; or one whose words another
+ * Document in the check's scope also holds (an amendment, another edition), which today's check
+ * searches for.
  */
 import { generateText } from "ai";
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
@@ -33,7 +33,7 @@ const NUMBER_WORDS = [...UNITS.keys(), ...TENS.keys(), ...SCALES.keys(), "hundre
 const ORDINALS =
   "first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|last|next|previous|half|twice|double|triple|dozen";
 const TIMES =
-  "years?|yearly|annual(?:ly)?|months?|monthly|weeks?|weekly|weekdays?|weekends?|days?|daily|today|tonight|yesterday|tomorrow|hours?|hourly|minutes?|quarters?|quarterly|seasons?|decades?|centur(?:y|ies)|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?";
+  "years?|yearly|annual(?:ly)?|months?|monthly|fortnight(?:ly)?|biweekly|weeks?|weekly|weekdays?|weekends?|days?|daily|today|tonight|yesterday|tomorrow|hours?|hourly|minutes?|seconds?|quarters?|quarterly|seasons?|decades?|centur(?:y|ies)|terms?|semesters?|once|now|noon|midnight|mornings?|afternoons?|evenings?|nights?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?";
 const MONTHS =
   "January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec";
 const HAN =
@@ -42,7 +42,7 @@ const HAN =
 // Only ever sends a sentence to today's check: a number, an order or a time is one that an
 // amendment, another period or another unit could contradict.
 const FIGURE = new RegExp(
-  `\\p{N}|[${HAN}]|星期|礼拜|\\b(?:${NUMBER_WORDS.join("|")}|${ORDINALS}|${TIMES})\\b`,
+  `\\p{N}|[${HAN}]|星期|礼拜|分钟|秒钟|\\b(?:${NUMBER_WORDS.join("|")}|${ORDINALS}|${TIMES})\\b`,
   "iu",
 );
 // Capitalised only: "may" is a duty's word, "May" a month's.

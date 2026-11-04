@@ -183,6 +183,8 @@ async function writeOne(
     duplicate: false,
     failures: [
       ...(supported && !stated && path === "check" ? ["false-supported-by-the-check"] : []),
+      // Listed whether or not today's check erred too, so none hides behind the pairing.
+      ...(supported && !stated && path === "quick" ? ["false-supported-by-the-quick-model"] : []),
       ...(outcome === "not-checked" ? ["not-checked"] : []),
       // A sentence with a figure or a time, or one another Document holds, is never looked at first.
       ...(plan.neverAsked && path === "quick" ? ["looked-at-first"] : []),

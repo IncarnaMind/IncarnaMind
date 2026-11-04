@@ -241,10 +241,15 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
           inCell || node.type === "tableCell" || node.type === "tableHeader",
           inHeader || node.type === "tableHeader",
         );
+        // A chart, a picture or a rule between them is something a sentence may lean on too.
+        if (content.length === 0) after = { kind: "paragraph" };
         return;
       }
       // A header cell names its column or row; it states nothing a check could support (#2378).
-      if (inHeader) return;
+      if (inHeader) {
+        after = { kind: "paragraph" };
+        return;
+      }
       const rawContext = paragraphText(content);
       const layout = inlineLayout(content);
       const { pieces, projection: whole } = projectedContent(content);
@@ -810,7 +815,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const limit = slots(claimsAtOnce(prepared));
-    const quick = await options.quickModel(prepared);
+    const quick = await options.quickModel(prepared).catch((error: unknown) => {
+      console.warn(
+        `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    });
+    // A sentence its check asks about again, after a rate limit, keeps its first look's answer:
+    // asked again, a quick model's later yes would stand.
+    const looked = new Map<Sentence, FirstLookResult>();
     // What the Note holds just before the write: its first paragraph follows that.
     const beforeWrite = options.read(mindId, (note): FirstLook["place"]["after"] => {
       const top = topLevelBlocks(note);
@@ -826,29 +839,30 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       async (sentence): Promise<Checked> => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
         const first =
-          quick &&
-          (await options.firstLook({
-            claim: read.claim,
-            figures: read.figures?.length ?? 0,
-            inCell: sentence.inCell,
-            place:
-              sentence.place.after.kind === "start"
-                ? { ...sentence.place, after: beforeWrite }
-                : sentence.place,
-            paragraph: sentence.context,
-            citations: sentence.citations,
-            scope: scope.scope,
-            ask: (asked, until) => quickLook(quick, asked, until),
-            signal: AbortSignal.any([
-              signal,
-              AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
-            ]),
-          }));
+          looked.get(sentence) ??
+          (quick &&
+            (await options.firstLook({
+              claim: read.claim,
+              figures: read.figures?.length ?? 0,
+              inCell: sentence.inCell,
+              place:
+                sentence.place.after.kind === "start"
+                  ? { ...sentence.place, after: beforeWrite }
+                  : sentence.place,
+              paragraph: sentence.context,
+              citations: sentence.citations,
+              scope: scope.scope,
+              ask: (asked, until) => quickLook(quick, asked, until),
+              signal: AbortSignal.any([
+                signal,
+                AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
+              ]),
+            })));
         if (quick && first?.result) {
           return { result: first.result, uncovered: null, nodes: null, by: quick };
         }
-        // A quick model that read the sentence was used, whatever it replied.
-        if (quick && first?.asked) {
+        // Its reply read the sentence and the Passage: a use of AI, even when it said no.
+        if (quick && first?.asked && !looked.has(sentence)) {
           options.recordAiUse([
             {
               mindId,
@@ -860,6 +874,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             },
           ]);
         }
+        if (first) looked.set(sentence, first);
         const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
