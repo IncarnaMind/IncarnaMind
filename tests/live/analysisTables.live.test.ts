@@ -1,8 +1,8 @@
 /**
  * An Analysis's tables and figures written into a Note, then checked, against a real model (#2378),
- * through the core as the app asks, in English and Chinese: the held-out set of
- * ../helpers/analysisTablesHeldOut, written before the run it measures, and the 11-04 walk's
- * request on Orders.csv. The Analysis runs in the app's Python helper (../helpers/pyodideAnalysis).
+ * through the core as the app asks, in English and Chinese: the held-out sets of
+ * ../helpers/analysisTablesHeldOut and ../helpers/analysisFiguresHeldOut, each written before the
+ * run it measures, and the 11-04 walk's request on Orders.csv. The Analysis runs in the app's Python helper (../helpers/pyodideAnalysis).
  * It counts, for each Note: the Analysis tables and how many of their columns IncarnaMind worked
  * out again, the Analysis figures it worked out again and those that name their rows, and after
  * Check every mark that needs a look on the Analysis's own words; a figure or column shown
@@ -34,6 +34,12 @@ import { readCalculatedFigureAttributes } from "../../src/shared/calculatedFigur
 import { chartSources, readChart } from "../../src/shared/charts";
 import { readClaimCheck } from "../../src/shared/claimChecks";
 import { figureRunsFor, readTableBinding } from "../../src/shared/figureRuns";
+import {
+  FIGURES_HELD_OUT,
+  SHIPMENTS_FILE,
+  shipmentsReference,
+  shipmentsWorkbook,
+} from "../helpers/analysisFiguresHeldOut";
 import {
   CLINIC_FILE,
   clinicReference,
@@ -173,6 +179,14 @@ async function noteCounts(
     charts: 0,
     chartValuesUncited: 0,
   };
+  const textIn = (node: NodeJSON): string =>
+    node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(textIn).join(" ");
+  for (const block of blocks) {
+    const binding = readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]);
+    lines.push(
+      `  block ${block.type}${binding ? ` bound ${JSON.stringify(binding.table)}` : ""}: ${textIn(block).replace(/\s+/g, " ").slice(0, 140)}`,
+    );
+  }
   for (const block of blocks) {
     if (block.type === CHART_NODE && block.attrs) {
       counts.charts++;
@@ -271,7 +285,11 @@ const WALK: TableHeldOut[] = [
   },
 ];
 
-const ALL = [...TABLES_HELD_OUT, ...WALK].filter((held) => !PICKED || PICKED.includes(held.name));
+const SHIPMENTS = new Set(FIGURES_HELD_OUT.map((held) => held.name));
+
+const ALL = [...TABLES_HELD_OUT, ...FIGURES_HELD_OUT, ...WALK].filter(
+  (held) => !PICKED || PICKED.includes(held.name),
+);
 
 test.skipIf(KEY === undefined).each(ALL.map((held) => ({ ...held })))(
   "$name ($language): the Analysis's tables are judged from their run, never against the text",
@@ -287,12 +305,13 @@ test.skipIf(KEY === undefined).each(ALL.map((held) => ({ ...held })))(
     await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
     if (held.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
     const walk = WALK.some((each) => each.name === held.name);
+    const shipments = SHIPMENTS.has(held.name);
     const file = walk
       ? join(process.cwd(), "tests/fixtures/formats/Orders.csv")
       : await writeSourceFile(
           await createTempDataFolder(),
-          CLINIC_FILE,
-          new Uint8Array(clinicWorkbook()),
+          shipments ? SHIPMENTS_FILE : CLINIC_FILE,
+          new Uint8Array(shipments ? shipmentsWorkbook() : clinicWorkbook()),
         );
     await addAndProcess(core, [file]);
     const before = spent();
@@ -321,7 +340,7 @@ test.skipIf(KEY === undefined).each(ALL.map((held) => ({ ...held })))(
         made,
         client.doc,
         held.language,
-        walk ? null : clinicReference(),
+        walk ? null : shipments ? shipmentsReference() : clinicReference(),
       );
       counts = read.counts;
       report.push(`Check: ${checked.kind}`, ...read.lines, `Counts: ${JSON.stringify(counts)}`);
