@@ -1776,34 +1776,21 @@ const droppedOf = (notes: CitationNotes) =>
 const REWRITTEN_SHARE = 0.4;
 
 /**
- * About 40% or more of the paragraph's words changed: written anew, read as one change, before
- * and after whole, never old and new words interleaved. A word replaced, taken out or added
- * counts once against the old words, by the diff's steps: the few characters a change joins
- * across (`joinsAcross`, 了预算 between a reword and a cut) stay kept words (#2356). Words only
- * added keep the rest as it was, read word by word at any length.
+ * About 40% or more of the paragraph's words changed: written anew, read as
+ * one change, before and after whole, never old and new words interleaved.
+ * Words only added keep the rest as it was, read word by word.
  */
-function rewritten(steps: readonly Step[], old: readonly OldToken[], next: readonly NewToken[]) {
-  const isWord = (token: { text?: string } | undefined) =>
-    token !== undefined && (token.text === undefined || !/^\s+$/.test(token.text));
-  let changed = 0;
-  let removed = 0;
-  let taken = 0;
-  let given = 0;
+function rewritten(steps: readonly Step[], old: readonly OldToken[]) {
+  const isWord = (text: string | undefined) => text === undefined || !/^\s+$/.test(text);
+  let kept = 0;
   let at = 0;
-  let to = 0;
-  for (const step of [...steps, "equal" as const]) {
-    if (step === "equal") {
-      changed += Math.max(taken, given);
-      removed += taken;
-      taken = 0;
-      given = 0;
-      at++;
-      to++;
-    } else if (step === "delete") {
-      if (isWord(old[at++])) taken++;
-    } else if (isWord(next[to++])) given++;
+  for (const step of steps) {
+    if (step === "insert") continue;
+    if (step === "equal" && isWord(old[at]?.text)) kept++;
+    at++;
   }
-  return removed > 0 && changed >= old.filter(isWord).length * REWRITTEN_SHARE;
+  const words = old.filter((token) => isWord(token.text)).length;
+  return words > 0 && words - kept >= words * REWRITTEN_SHARE;
 }
 
 /**
@@ -1836,7 +1823,7 @@ function writeHunks(
   if (
     segment.whole &&
     hunks.length > 0 &&
-    (segment.kind.startsWith("heading:") || rewritten(steps, segment.tokens, tokens))
+    (segment.kind.startsWith("heading:") || rewritten(steps, segment.tokens))
   ) {
     hunks = [{ oldFrom: 0, oldTo: segment.tokens.length, newFrom: 0, newTo: tokens.length }];
   }

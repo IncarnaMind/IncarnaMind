@@ -48,37 +48,39 @@ const marked = (run: Run, mark: string) => {
 
 interface OwnTextMeasurement {
   own: number;
+  /** Letters, digits and Han characters, as `removed` counts them. */
+  words: number;
   removed: number;
 }
 
-/** A word, a number or a Han character: what a change writes back, unlike a space or a mark. */
-const WORD = /[\p{L}\p{N}]/u;
+const wordCharacters = (text: string) => text.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
 
-/** How many characters of `out` the words of `back` don't write again, in order. */
+/** How many word characters of `out` the words of `back` don't write again, in order. */
 function notWrittenBack(out: string, back: string): number {
-  if (back === "") return out.length;
+  if (back === "") return wordCharacters(out);
   const old = splitWords(out);
   let at = 0;
-  let kept = 0;
+  let lost = 0;
   for (const step of diffSteps(old, splitWords(back))) {
     if (step === "insert") continue;
     const token = old[at++] ?? "";
-    if (step === "equal" && WORD.test(token)) kept += token.length;
+    if (step === "delete") lost += wordCharacters(token);
   }
-  return out.length - kept;
+  return lost;
 }
 
 /**
- * What the User's own text loses: the words each change strikes and doesn't write back. A
- * paragraph written anew is struck whole and written again (#1028), so counted by its strike, the
- * words it keeps would count as taken out, and the same change would wait or apply by how it
- * reads (#2356).
+ * What the User's own text loses: the words each change strikes and doesn't write back, in word
+ * characters. A paragraph written anew is struck whole and written again (#1028), its spaces and
+ * marks with it, so counted by its strike, or with its spaces, the same change would wait or apply
+ * by how it reads, and English apart from Chinese (#2356).
  */
 function measureOwnText(
   blocks: Y.XmlFragment | Y.XmlElement,
   requests: ReadonlySet<string>,
 ): OwnTextMeasurement {
   let own = 0;
+  let words = 0;
   let removed = 0;
   const changes = new Map<string, { out: string; back: string }>();
   const changeOf = (id: string) => {
@@ -91,11 +93,12 @@ function measureOwnText(
       if (child instanceof Y.XmlText) {
         for (const run of runsOf(child)) {
           const added = readProposalRef(run.attributes[PROPOSAL_INSERT_MARK]);
-          if (added && requests.has(added.request)) changeOf(added.id).back += run.insert;
+          if (added) changeOf(added.id).back += run.insert;
           if (marked(run, GENERATED_MARK) || marked(run, PROPOSAL_INSERT_MARK)) continue;
           own += run.insert.length;
+          words += wordCharacters(run.insert);
           const deleted = readProposalRef(run.attributes[PROPOSAL_DELETE_MARK]);
-          if (goes) removed += run.insert.length;
+          if (goes) removed += wordCharacters(run.insert);
           else if (deleted && requests.has(deleted.request)) changeOf(deleted.id).out += run.insert;
         }
       } else if (child instanceof Y.XmlElement) {
@@ -107,7 +110,7 @@ function measureOwnText(
   };
   visit(blocks, false);
   for (const { out, back } of changes.values()) removed += notWrittenBack(out, back);
-  return { own, removed };
+  return { own, words, removed };
 }
 
 /** How much original User text a Block or Mind holds, excluding AI and inserted text. */
@@ -120,8 +123,8 @@ export function ownTextRemoved(
   blocks: Y.XmlFragment | Y.XmlElement,
   requests: ReadonlySet<string>,
 ): number {
-  const { own, removed } = measureOwnText(blocks, requests);
-  return own === 0 ? 0 : removed / own;
+  const { words, removed } = measureOwnText(blocks, requests);
+  return words === 0 ? 0 : removed / words;
 }
 
 export function askedFor(doc: Y.Doc, request: string): boolean {
