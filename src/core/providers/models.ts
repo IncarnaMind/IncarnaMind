@@ -165,9 +165,6 @@ const thinkingQuirks = (kind: ChatProviderKind) =>
 
 const summaryQuirk = (kind: ChatProviderKind) => thinkingQuirks(kind)?.reasoningSummary;
 
-const startsWithOne = (prefixes: readonly string[] | undefined, modelId: string) =>
-  prefixes === undefined || prefixes.some((prefix) => modelId.startsWith(prefix));
-
 /**
  * Whether a provider's reasoning comes back as its own summary (Anthropic,
  * OpenAI's Responses API), which an Answer may show; any other's is raw chain
@@ -182,7 +179,7 @@ export const summarizesReasoning = (kind: ChatProviderKind): boolean =>
  * that doesn't think by default (thinking isn't turned on for one), or one the catalog knows
  * doesn't reason.
  */
-export function thinkingOptions(
+function thinkingOptions(
   spec: Pick<ChatModelSpec, "kind" | "modelId" | "endpoint" | "catalogId" | "thinking">,
 ): ProviderOptions | null {
   if (spec.thinking === undefined || spec.thinking === "off") return null;
@@ -190,11 +187,8 @@ export function thinkingOptions(
   if (catalogFacts(set, spec.modelId)?.reasoning === false) return null;
   const quirks = thinkingQuirks(spec.kind);
   const summary = quirks?.reasoningSummary;
-  if (summary && !startsWithOne(summary.only, spec.modelId)) return null;
-  const effort =
-    spec.thinking !== "summary" && startsWithOne(quirks?.effort?.only, spec.modelId)
-      ? quirks?.effort?.kinds[spec.thinking]
-      : undefined;
+  if (summary?.only && !summary.only.some((prefix) => spec.modelId.startsWith(prefix))) return null;
+  const effort = spec.thinking === "summary" ? undefined : quirks?.effort?.kinds[spec.thinking];
   if (!summary && !effort) return null;
   return withOptionsOver({ providerOptions: summary?.options ?? {} }, effort ?? {}).providerOptions;
 }
