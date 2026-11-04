@@ -122,6 +122,8 @@ import {
   evidencePrompt,
   NEAREST_INSTRUCTIONS,
   namesNothing,
+  ownDetailDiffers,
+  ownDetailUnread,
   ownWords,
   PRESENCE_INSTRUCTIONS,
   partInstructions,
@@ -1155,6 +1157,15 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             return { claims: [], writeOnly: true, note: ROLES_OWN_WORDS };
           },
         },
+        {
+          name: "own-detail",
+          check: (text, aside) => {
+            const verdict = readVerdict(replyAcrossTurns(text, aside ?? []));
+            return verdict?.verdict === "supported" && ownDetailUnread(verdict)
+              ? { claims: [], writeOnly: true, note: DETAIL_LINES }
+              : null;
+          },
+        },
       ],
       signal,
     })) {
@@ -1320,6 +1331,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
         if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
+          return unchecked("malformed");
+        if (verdict.verdict === "supported" && ownDetailUnread(verdict))
           return unchecked("malformed");
         const evidence =
           cited ??
@@ -1570,6 +1583,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     }
     if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
       return notChecked("malformed");
+    // A Supported reply that gives no Duty or Condition word, even asked again, compared neither.
+    if (verdict.verdict === "supported" && ownDetailUnread(verdict)) return notChecked("malformed");
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
@@ -1731,8 +1746,9 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // other way round, or must for may is no support at all: Claude Haiku 5.5 called "must pay"
     // Supported against "may pay", then named the difference (#1668). The reply says each in a
     // field of its own, so the verdict doesn't rest on the model weighing it; so is whether a thing
-    // has happened or is still to happen (#2311).
-    const differs = verdict.roles === "differs" || verdict.time === "differs";
+    // has happened or is still to happen (#2311), and a duty or a condition put otherwise (#1766,
+    // #1708).
+    const differs = ownDetailDiffers(verdict);
     if (verdict.verdict === "supported" && (verdict.scope === "wider" || differs)) {
       const part = await parts(deciding);
       if (signal.aborted) return notChecked("stopped");
@@ -1775,16 +1791,16 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           ? unsupported(unit, unitProblem?.quote ?? null, null)
           : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
       }
-      // A part whose quote states it on its own, and whose own Roles, Time and Scope agree: the
-      // reply's contradiction was about words outside the part, as a sentence's figure is for a
-      // part about when it happened (#2313).
+      // A part whose quote states it on its own, and whose own Roles, Time, Duty, Condition and
+      // Scope agree: the reply's contradiction was about words outside the part, as a sentence's
+      // figure is for a part about when it happened (#2313).
       const part = request.originalClaim;
       if (
         confirmation.kind === "states" &&
         !unit &&
         !byCalculation &&
-        verdict.roles !== "differs" &&
-        verdict.time !== "differs" &&
+        !ownDetailDiffers(verdict) &&
+        !ownDetailUnread(verdict) &&
         verdict.scope !== "wider" &&
         part !== undefined &&
         isPartOf(part, request.claim) &&
@@ -1847,6 +1863,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
  */
 const ROLES_OWN_WORDS =
   "Your Roles line's first side isn't the sentence's own words. Copy from the sentence, word for word and in its own order, the words that say who does it, for or to whom, and whether it must or may happen, or, when it names no one, the words for what happens; then \" / \" and the Passage's words; then same, differs or other. Then give your whole reply again.";
+
+/** Asked of a Supported reply that gives no Duty or Condition word: neither was compared. */
+const DETAIL_LINES =
+  "Your reply has no Duty or Condition line that can be read. Write your whole reply again in the form asked for, with its Duty and Condition lines, each ending with same or differs.";
 
 /**
  * `asked`: a reply of this check has already given other words than the sentence's. A Roles line
