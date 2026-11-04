@@ -506,7 +506,7 @@ test("a re-read of the same version changes nothing", async () => {
 });
 
 test("a second re-read writes no database change", async () => {
-  const { store, read, db } = await harness();
+  const { read, db } = await harness();
   const rows = [highlight("Same.", 1), highlight("Same.", 2)];
   read("version-a", rows);
   const changes = () => db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0;
