@@ -81,7 +81,7 @@ import {
   unescapeNames,
   unnameRemovals,
 } from "../edits/prompt";
-import { diffSteps, hunksOf, type Step, splitWords } from "./diff";
+import { diffSteps, type Heavier, hunksOf, type Step, splitWords } from "./diff";
 import {
   CITING,
   type CitingNodes,
@@ -1779,6 +1779,8 @@ function writeHunks(
     tokens.map((token) =>
       looked ? lookedKey(token.key, token.text, token.look ?? {}) : token.key,
     ),
+    undefined,
+    heavierOf(segment.tokens),
   );
   let hunks = hunksOf(steps, joinsAcross(segment.tokens));
   if (
@@ -1804,6 +1806,12 @@ function writeHunks(
     notes.characters.removed += lengthOf(removed);
     notes.characters.added += lengthOf(added);
   }
+}
+
+/** Whether one old token carries more marks than another; none holds a Proposal's (`tokensIn`). */
+function heavierOf(old: readonly OldToken[]): Heavier {
+  const marks = (at: number) => Object.keys(old[at]?.attributes ?? {}).length;
+  return (kept, given) => marks(kept) > marks(given);
 }
 
 /**

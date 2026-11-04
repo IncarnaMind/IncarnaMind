@@ -44,11 +44,23 @@ export function splitWords(text: string): string[] {
 export type Step = "equal" | "delete" | "insert";
 
 /**
+ * Whether the old token at `kept` carries more marks than the one at `given`. Of two equal spaces a
+ * removal could keep either of, it keeps the plainer: the one outside the code, bold or link it
+ * cuts, not the one inside (#2362).
+ */
+export type Heavier = (kept: number, given: number) => boolean;
+
+/**
  * The shortest way from `a` to `b` (Myers, 1986), as steps in order. Past
  * `maxCost` removals and additions it stops looking and replaces all of
  * `a` with all of `b`, which is what so different a text reads as anyway.
  */
-export function diffSteps(a: readonly string[], b: readonly string[], maxCost = 4_000): Step[] {
+export function diffSteps(
+  a: readonly string[],
+  b: readonly string[],
+  maxCost = 4_000,
+  heavier: Heavier = () => false,
+): Step[] {
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
   let endA = a.length;
@@ -62,6 +74,7 @@ export function diffSteps(a: readonly string[], b: readonly string[], maxCost = 
     [...Array<Step>(start).fill("equal"), ...middle, ...Array<Step>(a.length - endA).fill("equal")],
     a,
     b,
+    heavier,
   );
 }
 
@@ -71,9 +84,15 @@ const SPACE = /^\s+$/;
  * A word removed or added with the space before it ("and[ really] regular")
  * reads better with the space after it ("and [really ]regular"): a run of
  * removals, or of additions, that starts with a space the token after it
- * repeats moves on by one, as far as it can.
+ * repeats moves on by one, as far as it can. A removal moves back, or stays,
+ * to keep the plainer of two such spaces (`Heavier`).
  */
-function slideOffSpaces(steps: Step[], a: readonly string[], b: readonly string[]): Step[] {
+function slideOffSpaces(
+  steps: Step[],
+  a: readonly string[],
+  b: readonly string[],
+  heavier: Heavier,
+): Step[] {
   let x = 0;
   let y = 0;
   for (let at = 0; at < steps.length; ) {
@@ -86,14 +105,31 @@ function slideOffSpaces(steps: Step[], a: readonly string[], b: readonly string[
     }
     let end = at;
     while (steps[end] === kind) end++;
-    const tokens = kind === "delete" ? a : b;
-    let from = kind === "delete" ? x : y;
+    const removes = kind === "delete";
+    const tokens = removes ? a : b;
+    let from = removes ? x : y;
     let length = end - at;
+    while (
+      removes &&
+      steps[at - 1] === "equal" &&
+      SPACE.test(a[x - 1] ?? "") &&
+      a[x - 1] === a[x + length - 1] &&
+      heavier(x - 1, x + length - 1)
+    ) {
+      at--;
+      end--;
+      from--;
+      x--;
+      y--;
+      steps[at] = kind;
+      steps[end] = "equal";
+    }
     // Only a run on its own, with a kept token after it that it can move past.
     while (
       steps[end] === "equal" &&
       SPACE.test(tokens[from] ?? "") &&
-      tokens[from] === tokens[from + length]
+      tokens[from] === tokens[from + length] &&
+      !(removes && heavier(from, from + length))
     ) {
       steps[at] = "equal";
       steps[end] = kind;

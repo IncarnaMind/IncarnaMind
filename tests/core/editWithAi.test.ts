@@ -5671,8 +5671,8 @@ describe("A rewrite of text marked as code (#2362)", () => {
       case: "code taken out in part",
       content: [text("Start it with "), code("npm run dev --open"), text(" in a terminal.")],
       reply: "Start it with npm run dev in a terminal.",
-      shown: "Start it with npm run dev [---open -]in a terminal.",
-      runs: ["npm run dev ", "---open"],
+      shown: "Start it with npm run dev[- --open-] in a terminal.",
+      runs: ["npm run dev", "- --open"],
       after: "Start it with npm run dev in a terminal.",
     },
     {
@@ -5695,8 +5695,8 @@ describe("A rewrite of text marked as code (#2362)", () => {
       case: "a removal across the end of code",
       content: [text("Type "), code("npm run build"), text(" and wait for it.")],
       reply: "Type npm and wait for it.",
-      shown: "Type npm [-run build -]and wait for it.",
-      runs: ["npm ", "-run build"],
+      shown: "Type npm[- run build-] and wait for it.",
+      runs: ["npm", "- run build"],
       after: "Type npm and wait for it.",
     },
     {
@@ -5807,8 +5807,8 @@ describe("A rewrite of text marked as code (#2362)", () => {
       content: [text("Start it with "), code("npm run dev --open"), text(" in a terminal.")],
       reply: "Start it with npm run dev in a terminal.",
       was: "Start it with `npm run dev --open` in a terminal.",
-      shownInHtml: '<code>npm run dev </code><del class="change"><code>--open</code> </del>',
-      now: "Start it with `npm run dev `in a terminal.",
+      shownInHtml: '<code>npm run dev</code><del class="change"><code> --open</code></del>',
+      now: "Start it with `npm run dev` in a terminal.",
     },
     {
       content: [text("推送之前运行"), code("npm test"), text("。")],
