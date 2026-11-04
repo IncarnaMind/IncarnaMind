@@ -3,6 +3,7 @@ import type {
   CheckRecordFormat,
   CitationPlace,
   ExportFormat,
+  ExportMindOptions,
   ExportPreferences,
   MarkAiTextChoice,
   SavedCheckRecord,
@@ -253,6 +254,19 @@ export async function answerMarkAiText(
   );
 }
 
+/**
+ * What a Word export of this Note asks for: its own comments choice when it made one (#328),
+ * so a rewrite can't leave the comments it had in the file out.
+ */
+function wordOptions(mindId: string, preferences = exportPreferences()): ExportMindOptions {
+  const mine =
+    preferences.docx.myCommentsFile === mindId ? preferences.docx.includeMyComments : undefined;
+  return {
+    ...optionsFor("docx", preferences),
+    ...(mine !== undefined && { includeMyComments: mine }),
+  };
+}
+
 /** A refusal Undo can try again once the file is back or free; any other never can (#110). */
 const RETRIED_UNDO: readonly MessageKey[] = [
   "error.export.rewrite.gone",
@@ -272,12 +286,7 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
   const previous: ExportResult = { ...result, changing: undefined };
   // The core keeps the choice once the file holds it; a file the User changed gets one beside it.
   const write = async () => {
-    const saved = await core.rewriteMindExport(
-      mindId,
-      optionsFor("docx", exportPreferences()),
-      result.path,
-      answer,
-    );
+    const saved = await core.rewriteMindExport(mindId, wordOptions(mindId), result.path, answer);
     useExports.setState({
       result:
         saved.status === "review"
@@ -342,7 +351,7 @@ export async function includeMyComments(mindId: string): Promise<void> {
   if (result?.mindId !== mindId || result.state !== "saved" || result.format !== "docx") return;
   if (result.myCommentsShown || result.myComments === 0) return;
   const previous: ExportResult = { ...result, changing: undefined };
-  const options = { ...optionsFor("docx", exportPreferences()), includeMyComments: true };
+  const options: ExportMindOptions = { ...wordOptions(mindId), includeMyComments: true };
   const write = async () => {
     const saved = await core.rewriteMindExport(mindId, options, result.path);
     useExports.setState({
@@ -489,14 +498,8 @@ export async function exportMind(
   const preferences = exportPreferences();
   const chosen = format ?? preferences.format;
   // "Include my comments" is one Note's choice: another Note's export never takes it (#328).
-  const mine =
-    chosen === "docx" && preferences.docx.myCommentsFile === mindId
-      ? preferences.docx.includeMyComments
-      : undefined;
-  const options: ReturnType<typeof optionsFor> = {
-    ...optionsFor(chosen, preferences),
-    ...(mine !== undefined && { includeMyComments: mine }),
-  };
+  const options: ExportMindOptions =
+    chosen === "docx" ? wordOptions(mindId, preferences) : optionsFor(chosen, preferences);
   const settle = begin(mindId, chosen);
   if (chosen !== preferences.format) {
     void useAppStore

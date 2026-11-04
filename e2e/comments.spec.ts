@@ -102,10 +102,12 @@ test("a comment is added, answered, resolved, reopened and deleted, each with Un
   await pointAndClick(window, window.getByTestId("selection-comment"));
   await expect(card(window)).toHaveCount(1);
   await expect(window.locator(".comment-field").first()).toBeFocused();
-  await expect(editor.locator(".comment-mark")).toHaveText("tides here");
+  // The draft isn't in the Mind yet: Save leaves the quiet underline on its words (#328).
+  await expect(editor.locator(".comment-mark")).toHaveCount(0);
   await window.keyboard.type("Is this still true?");
   await pointAndClick(window, window.getByTestId("comment-save"));
   await expect(card(window)).toContainText("Is this still true?");
+  await expect(editor.locator(".comment-mark")).toHaveText("tides here");
 
   // Edit your own comment: ⌘Z puts its first words back.
   await pointAndClick(window, window.locator('[data-testid^="comment-menu-"]').first());

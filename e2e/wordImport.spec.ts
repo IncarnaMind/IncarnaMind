@@ -848,6 +848,13 @@ test("the User's own comments in someone else's Word file are off in Export opti
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1800, 900);
   await dismissChatSetup(window);
+  // A test name in Settings, so the screenshots don't show the account the build machine runs as.
+  const settings = await openSettings(window, "general");
+  const name = settings.getByTestId("author-name");
+  await name.fill("Priya Raman");
+  await name.press("Enter");
+  await expect(name).toHaveValue("Priya Raman");
+  await closeSettings(window);
   const output = join(files, "Exports");
   await mkdir(output);
   await useOutputLocation(window, output);
@@ -859,9 +866,12 @@ test("the User's own comments in someone else's Word file are off in Export opti
 
   // The User's own comment on the file's first paragraph, which the file's own comment doesn't touch.
   const editor = window.getByTestId("mind-editor");
-  await pointAndClick(window, editor.locator("p", { hasText: "Keep this paragraph" }));
-  await window.keyboard.press("Home");
-  await window.keyboard.press("Shift+End");
+  const keptParagraph = editor.locator("p", { hasText: "Keep this paragraph" }).first();
+  await keptParagraph.click({ clickCount: 3 });
+  await expect
+    .poll(() => window.evaluate(() => getSelection()?.toString()))
+    .toContain("Keep this paragraph");
+  await expect(window.getByTestId("selection-menu")).toBeVisible();
   await pointAndClick(window, window.getByTestId("selection-comment"));
   await expect(window.locator(".comment-field").first()).toBeFocused();
   await window.keyboard.type("Our note on this clause.");
@@ -879,7 +889,11 @@ test("the User's own comments in someone else's Word file are off in Export opti
   await motionSettled(window);
   await screenshot(window, "word-export-my-comments-off");
   await include.check();
-  await motionSettled(window);
+  await expect(include).toBeChecked();
+  // The switch has been drawn on before the shot is taken: its knob has reached the other side.
+  await expect
+    .poll(() => include.evaluate((el) => getComputedStyle(el).backgroundPosition))
+    .toBe("16px 0px");
   await screenshot(window, "word-export-my-comments-on");
   await sheet.getByTestId("export-save").click();
   await expect(sheet).toBeHidden();

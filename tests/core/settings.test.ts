@@ -265,8 +265,11 @@ describe("Settings", () => {
     await expect(
       core.updateSettings({
         user: {
-          exportOptions: { ...DEFAULT_EXPORT, docx: { ...docx, includeMyComments: "yes" } },
-        } as unknown as ExportPreferences,
+          exportOptions: {
+            ...DEFAULT_EXPORT,
+            docx: { ...docx, includeMyComments: "yes" },
+          } as unknown as ExportPreferences,
+        },
       }),
     ).rejects.toThrow();
   });
