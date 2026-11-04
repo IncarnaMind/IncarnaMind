@@ -1888,7 +1888,7 @@ export const en = {
   "viewer.selection.refused.noText":
     "Couldn’t cite these words: the Document has no text there to check them against.",
   "viewer.selection.refused.unsure":
-    "Couldn’t cite these words: the scan may have misread them. Check them on the page, or select other words.",
+    "Couldn’t cite these words: text recognition may have misread them. Compare them with the page, or select other words.",
   "command.viewer.range.ask": "Ask about these cells",
   "command.viewer.range.addToNote": "Add these cells to note",
   "command.viewer.range.copy": "Copy these cells with their citation",

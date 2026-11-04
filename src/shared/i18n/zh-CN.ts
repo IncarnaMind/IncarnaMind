@@ -1800,7 +1800,7 @@ export const zhCN = {
     "无法引用所选文字：文档中多处有这些文字。请连同前后的文字多选一些。",
   "viewer.selection.refused.pages": "无法引用所选文字：一条引用最多涵盖两页。",
   "viewer.selection.refused.noText": "无法引用所选文字：文档在该处没有可核对的文字。",
-  "viewer.selection.refused.unsure": "无法引用所选文字：扫描识别可能有误。请核对原页，或另选文字。",
+  "viewer.selection.refused.unsure": "无法引用所选文字：文字识别可能有误。请对照原页核对，或另选文字。",
   "command.viewer.range.ask": "就这些单元格提问",
   "command.viewer.range.addToNote": "将这些单元格添加到笔记",
   "command.viewer.range.copy": "复制这些单元格（含引用）",
