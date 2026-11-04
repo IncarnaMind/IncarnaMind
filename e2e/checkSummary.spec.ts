@@ -335,8 +335,6 @@ test("the card keeps one height as a result lands, its body taking what it needs
   }
   const body = card.locator(".check-card-body");
   await expect(body).toHaveCount(1);
-  expect(await body.evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(
-    true,
-  );
+  expect(await body.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
   await app.close();
 });

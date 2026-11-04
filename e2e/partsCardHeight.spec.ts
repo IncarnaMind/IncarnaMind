@@ -121,8 +121,10 @@ test("the parts card keeps one height as verdicts land, scrolls a longer result,
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toContainText("Checking");
     await expect(rows.nth(1)).toContainText("Checking");
+    const mark = window.getByTestId("claim-mark").first();
     const before = await pane.boundingBox();
-    if (!before) throw new Error("The parts card isn't drawn.");
+    const markBefore = await mark.boundingBox();
+    if (!before || !markBefore) throw new Error("The parts card isn't drawn.");
 
     // The verdicts land in the same rows; one brings a reason that needs more room than the card
     // opened with, and the card scrolls instead of growing.
@@ -140,9 +142,11 @@ test("the parts card keeps one height as verdicts land, scrolls a longer result,
     await expect(rows.nth(0)).toContainText("Supported");
     await expect(rows.nth(1)).toContainText("Needs a look");
     const after = await pane.boundingBox();
-    if (!after) throw new Error("The parts card is gone.");
+    const markAfter = await mark.boundingBox();
+    if (!after || !markAfter) throw new Error("The parts card is gone.");
     expect(after.height).toBeCloseTo(before.height, 0);
-    expect(after.y).toBeCloseTo(before.y, 0);
+    // The sentence's own line can move as the editor settles; the card keeps its place beside it.
+    expect(after.y - markAfter.y).toBeCloseTo(before.y - markBefore.y, 0);
     expect(await pane.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
       true,
     );
