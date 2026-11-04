@@ -17,7 +17,9 @@ import { VERDICT_DOCUMENTS } from "./verdictCases";
  * which either verdict flags; "partly" for a general word for the agreement's own term, which
  * is judged on the term with the wider group not covered (DESIGN.md › Checks); "contradicted"
  * for a genuine conflict, which a judgement must never lose; "absent" for a figure for a period
- * the agreement doesn't cover, which is another claim, so its card says nothing was found.
+ * the agreement doesn't cover, which is another claim, so its card says nothing was found;
+ * "not-contradicted" for a sentence whose duty or permission word sits on the condition its clause
+ * puts on the act, which may read Supported or Unsupported but never Contradicted.
  */
 export type Expected =
   | "supported"
@@ -25,7 +27,8 @@ export type Expected =
   | "contradicted-or-unsupported"
   | "contradicted"
   | "unsupported"
-  | "absent";
+  | "absent"
+  | "not-contradicted";
 
 export interface RepeatSentence {
   /** The same for the same kind of sentence in each language, so the two read side by side. */

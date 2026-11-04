@@ -228,3 +228,20 @@ describe("the repeated checks", () => {
     expect(keys("en-periods")).toEqual(keys("zh-periods"));
   });
 });
+
+describe("a sentence that may read either way but never Contradicted (#1708)", () => {
+  test("meets its label Supported or Unsupported, and is no false Supported", () => {
+    const expected = "not-contradicted" as const;
+    expect(
+      (["supported", "partly", "differs", "contradicted", "not-checked"] as const).map((outcome) =>
+        meetsExpected({ outcome, expected }),
+      ),
+    ).toEqual([true, true, true, false, false]);
+    const [summary] = summarise([
+      { ...row(1, "notice", "supported"), expected },
+      { ...row(2, "notice", "contradicted"), expected },
+    ]);
+    expect(summary?.falseSupported).toBe(0);
+    expect(summary?.misses.map((each) => each.outcome)).toEqual(["contradicted"]);
+  });
+});
