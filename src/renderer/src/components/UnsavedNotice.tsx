@@ -1,22 +1,33 @@
+import { nameInLine } from "../../../shared/naming";
 import { useT } from "../i18n";
+import { lastRunLine } from "../lastRunLine";
 import { useNotices } from "../notices";
+import { useAppStore } from "../store";
 import { dismissLost, saveChangesAgain, saveCopies, useUnsavedChanges } from "../unsavedChanges";
 import { MetaLine } from "./MetaLine";
 import { LineAction, ProblemMark } from "./ProblemLine";
 import { buttonStyle } from "./ui";
 
 export const useUnsavedShown = () =>
-  useUnsavedChanges((state) => state.unsaved !== null || state.lost !== null);
+  useUnsavedChanges((state) => state.unsaved !== null || lastRunLine(state) !== null);
 
 /**
  * Among the error notices: while changes storage refused wait in memory, what happened and what
- * to do (#1119), until they are stored. And, once, how many changes the last run lost when it
- * closed without quitting.
+ * to do (#1119), until they are stored. And, once, one line for how the last run or this window's
+ * page ended (`lastRunLine`, #2309).
  */
 export function UnsavedNotices() {
   const t = useT();
   const unsaved = useUnsavedChanges((state) => state.unsaved);
   const lost = useUnsavedChanges((state) => state.lost);
+  const ended = useUnsavedChanges((state) => state.ended);
+  const note = useUnsavedChanges((state) => state.note);
+  const line = lastRunLine({
+    lost,
+    ended,
+    note: note && { ...note, name: nameInLine(note.name || t("mind.untitled")) },
+    waiting: unsaved !== null,
+  });
   return (
     <>
       {unsaved && (
@@ -64,16 +75,29 @@ export function UnsavedNotices() {
           </div>
         </div>
       )}
-      {lost !== null && (
+      {line && (
         <div
           role="status"
-          data-testid="unsaved-lost"
+          data-testid={line.key.startsWith("unsaved.lost") ? "unsaved-lost" : "unexpected-end"}
           className="flex items-start gap-3 rounded-lg bg-sheet py-2.5 pr-2.5 pl-4 text-[13px] leading-5 text-ink shadow-popover"
         >
           <ProblemMark className="mt-2 -mr-1.5" />
-          <p className="min-w-0 flex-1 py-1">
-            {lost === 1 ? t("unsaved.lost.one") : t("unsaved.lost", { count: lost })}
-          </p>
+          <MetaLine
+            className="min-w-0 flex-1 py-1"
+            parts={[
+              t(line.key, line.params),
+              line.open && (
+                <LineAction
+                  key="open"
+                  action={{
+                    label: t("mind.open"),
+                    testId: "unexpected-end-open",
+                    onClick: () => line.open && useAppStore.getState().openMind(line.open),
+                  }}
+                />
+              ),
+            ]}
+          />
           <button
             type="button"
             data-testid="unsaved-lost-dismiss"

@@ -802,6 +802,45 @@ describe("A Check another window runs or plans", () => {
     expect(bridge.checkMind).toHaveBeenCalledOnce();
   });
 
+  // protects=#2313: a Folder watch made since the price shown asks and prices again, as a changed plan does; fails_when=the press runs on the new watch's price unseen; no_claim=the same plan and watch running at once.
+  test("the card's press asks again when the Folder watch changed since it priced", async () => {
+    const fresh: MindCheckPlan = { ...plan, sentences: 5 };
+    bridge.planMindCheck.mockResolvedValue(fresh);
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+
+    expect(
+      await startCheck("mind", {
+        mode: "changed",
+        allDocuments: false,
+        plan: { ...fresh },
+        watch: { claims: 2 },
+      }),
+    ).toMatchObject({ kind: "asked" });
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+    expect(useMindCheck.getState().asking.mind).toMatchObject({
+      count: 5,
+      watch: { claims: 4 },
+    });
+  });
+
+  // protects=#2313: the plan and the Folder watch the press priced run at once; fails_when=the watch comparison asks a second time for a price already shown; no_claim=the watch made since above.
+  test("the card's press runs at once when the Folder watch is the one it priced", async () => {
+    const fresh: MindCheckPlan = { ...plan, sentences: 5 };
+    bridge.planMindCheck.mockResolvedValue(fresh);
+    bridge.planContradictionCheck.mockResolvedValue({ kind: "ready", claims: 4, model: null });
+    const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+
+    await startCheck("mind", {
+      mode: "changed",
+      allDocuments: false,
+      plan: { ...fresh },
+      watch: { claims: 4 },
+    });
+    expect(bridge.checkMind).toHaveBeenCalledOnce();
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+  });
+
   // protects=a question's hold is freed when its confirmed run throws before taking the Note; fails_when=the Note stays held until the window closes; no_claim=what the core said.
   test("a question confirmed whose run throws frees the Note it kept", async () => {
     askByCap();
@@ -1021,5 +1060,227 @@ describe("Check every sentence again", () => {
     expect(bridge.checkMind).toHaveBeenCalledWith(expect.objectContaining({ mode: "all" }));
     expect(bridge.cancelCheck).toHaveBeenCalledOnce();
     expect(useMindCheck.getState().asking.mind).toBeUndefined();
+  });
+});
+
+describe("The Figure schedule's Check", () => {
+  // protects=#2313: a check of chosen figures asks above $1 like every other way in, its count the figures' sentences, in English and Chinese; fails_when=it spends at once with the price unseen; no_claim=the below-the-line case.
+  test.each(["en", "zh-CN"] as const)(
+    "the chosen figures' Check asks above $1 in %s",
+    async (language) => {
+      store.language = language;
+      bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 3 });
+      bridge.estimateRun.mockResolvedValue({ ...estimate, cost: { amount: 1.5, currency: "USD" } });
+      const { startFigureCheckAsking, useMindCheck } = await import(
+        "../../src/renderer/src/mindCheck"
+      );
+
+      expect(await startFigureCheckAsking("mind", ["f1", "f2"])).toMatchObject({
+        kind: "asked",
+      });
+      const asking = useMindCheck.getState().asking.mind;
+      expect(asking?.estimate?.parts[0]).toBe(language === "en" ? "About $1.50" : "约 $1.50");
+      expect(asking?.figureIds).toEqual(["f1", "f2"]);
+      expect(bridge.planMindCheck).toHaveBeenLastCalledWith("mind", "all", false, ["f1", "f2"]);
+      expect(bridge.estimateRun).toHaveBeenCalledWith({ items: 3, each: "check" });
+      expect(bridge.checkMind).not.toHaveBeenCalled();
+    },
+  );
+
+  // protects=#2313: the User's OK checks the figures the question named, never the whole Note; fails_when=the run drops them and checks everything; no_claim=the whole-Note question.
+  test("the User's OK checks those figures, never the whole note", async () => {
+    askByCap();
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 2 });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 2,
+      checked: 2,
+      smallModel: false,
+      stop: null,
+    });
+    const { startFigureCheckAsking, confirmCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    expect(await startFigureCheckAsking("mind", ["f1", "f2"])).toMatchObject({ kind: "asked" });
+    await confirmCheck("mind");
+    expect(bridge.checkMind).toHaveBeenCalledWith(
+      expect.objectContaining({ mindId: "mind", mode: "all", figureIds: ["f1", "f2"] }),
+    );
+    expect(bridge.checkContradictions).not.toHaveBeenCalled();
+  });
+
+  // protects=#2313: below $1 and without a cap the chosen figures are checked at once, as every other way in runs; fails_when=it asks for a price it would not show; no_claim=the asking case above.
+  test("the chosen figures' Check runs at once below $1", async () => {
+    belowThePrice();
+    const { startFigureCheckAsking, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    await startFigureCheckAsking("mind", ["f1"]);
+    expect(bridge.checkMind).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "all", figureIds: ["f1"] }),
+    );
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+  });
+
+  // protects=#2313: a figure run whose confirmed start throws retries those figures, never the whole Note; fails_when=its Try again checks everything; no_claim=the figures it checks.
+  test("a failed figure check retries those figures", async () => {
+    askByCap();
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1 });
+    const { startFigureCheckAsking, confirmCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+    const { setCheckProblem, setCheckRunning } = await import("../../src/renderer/src/checks");
+    vi.mocked(setCheckRunning).mockImplementationOnce(() => {
+      throw new Error("The run couldn’t start.");
+    });
+
+    await startFigureCheckAsking("mind", ["f1"]);
+    await confirmCheck("mind");
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "failed" || !problem.retry)
+      throw new Error("A failed check has no retry.");
+    problem.retry();
+    await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledOnce());
+    expect(bridge.checkMind.mock.calls[0]?.[0]).toMatchObject({
+      mode: "all",
+      figureIds: ["f1"],
+    });
+  });
+
+  // protects=#2313: a failed estimate asks with the couldn't-estimate line rather than spending unpriced; fails_when=it runs at once with no price; no_claim=the estimate it would show.
+  test("the chosen figures' Check asks when its estimate fails", async () => {
+    bridge.estimateRun.mockRejectedValue(new Error("Estimate unavailable"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { startFigureCheckAsking, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    expect(await startFigureCheckAsking("mind", ["f1"])).toMatchObject({ kind: "asked" });
+    expect(useMindCheck.getState().asking.mind).toMatchObject({
+      count: 1,
+      estimate: null,
+      unestimated: true,
+      figureIds: ["f1"],
+    });
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+});
+
+describe("Check all Documents after a figures Check", () => {
+  const noDocuments: MindCheckPlan = {
+    kind: "no-documents",
+    folderId: "folder",
+    chosen: {
+      scope: { folderIds: ["folder"], tagIds: [], documentIds: [] },
+      onlyLeftOut: false,
+    },
+  };
+
+  // protects=#2313: a figures run whose scope held nothing widens to the same figures, never the whole Note; fails_when=it plans and checks every sentence instead; no_claim=the figures' own run.
+  test("a figures run with no Documents keeps those figures when widened", async () => {
+    belowThePrice();
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 1 });
+    bridge.checkMind.mockResolvedValueOnce(noDocuments);
+    const { startFigureCheckAsking } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+
+    await startFigureCheckAsking("mind", ["f1"]);
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "no-documents" || !problem.checkAll)
+      throw new Error("A run with no Documents offers no check of all of them.");
+    problem.checkAll();
+    await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledTimes(2));
+    expect(bridge.planMindCheck).toHaveBeenLastCalledWith("mind", "all", true, ["f1"]);
+    expect(bridge.checkMind.mock.calls[1]?.[0]).toMatchObject({
+      mode: "all",
+      allDocuments: true,
+      figureIds: ["f1"],
+    });
+  });
+
+  // protects=#2313: a figures plan with no Documents widens to the same figures too; fails_when=its Check all Documents plans every sentence in the Note; no_claim=the widened run above.
+  test("a figures plan with no Documents keeps those figures when widened", async () => {
+    belowThePrice();
+    bridge.planMindCheck.mockResolvedValueOnce(noDocuments).mockResolvedValue({
+      ...plan,
+      sentences: 2,
+    });
+    const { startFigureCheckAsking } = await import("../../src/renderer/src/mindCheck");
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+
+    await startFigureCheckAsking("mind", ["f1", "f2"]);
+    expect(bridge.checkMind).not.toHaveBeenCalled();
+    const problem = vi.mocked(setCheckProblem).mock.calls.at(-1)?.[1];
+    if (problem?.kind !== "no-documents" || !problem.checkAll)
+      throw new Error("A plan with no Documents offers no check of all of them.");
+    problem.checkAll();
+    await vi.waitFor(() => expect(bridge.checkMind).toHaveBeenCalledOnce());
+    expect(bridge.planMindCheck).toHaveBeenLastCalledWith("mind", "all", true, ["f1", "f2"]);
+    expect(bridge.checkMind.mock.calls[0]?.[0]).toMatchObject({
+      mode: "all",
+      allDocuments: true,
+      figureIds: ["f1", "f2"],
+    });
+  });
+});
+
+describe("The re-check after a figure change", () => {
+  // protects=#2313: the re-check asks above $1 and checks only what changed, with no Folder watch; fails_when=the one Check's Folder watch comes back on this path; no_claim=the run it prices.
+  test("asks above $1, plans what changed, and carries no Folder watch", async () => {
+    const { startChangedCheckAsking, useMindCheck, confirmCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+    bridge.planMindCheck.mockResolvedValue({ ...plan, sentences: 2 });
+    bridge.checkMind.mockResolvedValue({
+      kind: "checked",
+      sentences: 2,
+      checked: 2,
+      smallModel: false,
+      stop: null,
+    });
+
+    expect(await startChangedCheckAsking("mind")).toMatchObject({ kind: "asked" });
+    expect(bridge.planMindCheck).toHaveBeenCalledWith("mind", "changed", false);
+    expect(bridge.planContradictionCheck).not.toHaveBeenCalled();
+    expect(useMindCheck.getState().asking.mind).toMatchObject({
+      mode: "changed",
+      count: 2,
+      watch: null,
+    });
+    await confirmCheck("mind");
+    expect(bridge.checkMind).toHaveBeenCalledWith(
+      expect.objectContaining({ mindId: "mind", mode: "changed", allDocuments: false }),
+    );
+    expect(bridge.checkContradictions).not.toHaveBeenCalled();
+    expect(bridge.checkSentences).not.toHaveBeenCalled();
+  });
+
+  // protects=#2313: below $1 and without a cap the re-check runs at once, as every other way in runs; fails_when=it asks for a price it would not show; no_claim=the asking case above.
+  test("runs at once below $1", async () => {
+    belowThePrice();
+    const { startChangedCheckAsking, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    await startChangedCheckAsking("mind");
+    expect(bridge.checkMind).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "changed", allDocuments: false }),
+    );
+    expect(useMindCheck.getState().asking.mind).toBeUndefined();
+  });
+
+  // protects=#2313: a failed estimate asks with the couldn't-estimate line rather than spending unpriced; fails_when=it runs at once with no price; no_claim=the estimate it would show.
+  test("asks when its estimate fails", async () => {
+    bridge.estimateRun.mockRejectedValue(new Error("Estimate unavailable"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { startChangedCheckAsking, useMindCheck } = await import(
+      "../../src/renderer/src/mindCheck"
+    );
+
+    expect(await startChangedCheckAsking("mind")).toMatchObject({ kind: "asked" });
+    expect(useMindCheck.getState().asking.mind).toMatchObject({ unestimated: true, watch: null });
+    expect(bridge.checkMind).not.toHaveBeenCalled();
   });
 });

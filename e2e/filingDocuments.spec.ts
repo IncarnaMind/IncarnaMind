@@ -697,8 +697,10 @@ for (const [language, width] of [
       await window.keyboard.press("Enter");
       await expect(undoMessage(window)).toHaveText(words.movedOne(third, words.folders.archive));
       await expect.poll(() => folderOfDocument(window, third)).toBe(seeded.archive);
-      // Every Folder's section shows the counts once the search is cleared.
+      // Every Folder's section shows the counts once the search is cleared, straight after the
+      // move, and the search keeps the focus once the move has landed (#1741).
       await search.fill("");
+      await expect(search).toHaveValue("");
       await expectCounts(window, library, seeded, {
         finance: 1,
         research: 0,
@@ -706,6 +708,7 @@ for (const [language, width] of [
         loose: loose - 2,
         total: loose,
       });
+      await expect(search).toBeFocused();
       // Back to the Folder it was in, then out of every Folder.
       await undo(window);
       await expect.poll(() => folderOfDocument(window, third)).toBe(seeded.research);

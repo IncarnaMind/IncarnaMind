@@ -107,26 +107,28 @@ export interface MindCheckOptions extends RunChecksOptions {
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
 
+/** The figures a run checks: a non-empty list of distinct ids, or null for the whole Note. */
+function parseFigureIds(value: unknown): string[] | null {
+  if (value === undefined) return null;
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every((id): id is string => typeof id === "string" && id !== "") ||
+    new Set(value).size !== value.length
+  )
+    throw new InvalidInputError({ key: "error.mindCheck.request" });
+  return value;
+}
+
 function parseCheckMind(input: unknown) {
   if (!isRecord(input)) throw new InvalidInputError({ key: "error.mindCheck.request" });
   const { requestId } = input;
   if (typeof requestId !== "string" || requestId === "") {
     throw new InvalidInputError({ key: "error.mindCheck.request" });
   }
-  let figureIds: string[] | null = null;
-  if (input.figureIds !== undefined) {
-    if (
-      !Array.isArray(input.figureIds) ||
-      input.figureIds.length === 0 ||
-      !input.figureIds.every((id): id is string => typeof id === "string" && id !== "") ||
-      new Set(input.figureIds).size !== input.figureIds.length
-    )
-      throw new InvalidInputError({ key: "error.mindCheck.request" });
-    figureIds = input.figureIds;
-  }
   return {
     requestId,
-    figureIds,
+    figureIds: parseFigureIds(input.figureIds),
     mindId: parseMindId(input.mindId),
     mode: parseMode(input.mode),
     allDocuments: input.allDocuments === true,
@@ -523,8 +525,13 @@ export function createMindCheck(options: MindCheckOptions) {
     return oldest ?? content.readSettings(mindId, readMindCheck)?.at ?? null;
   }
 
-  function plan(mindId: string, mode: CheckMindMode, allDocuments: boolean): MindCheckPlan {
-    const sent = sending(mindId, mode);
+  function plan(
+    mindId: string,
+    mode: CheckMindMode,
+    allDocuments: boolean,
+    figureIds: readonly string[] | null = null,
+  ): MindCheckPlan {
+    const sent = sending(mindId, mode, figureIds);
     if (sent.fresh.length + sent.again.length === 0 && sent.held.length > 0) {
       return { kind: "unchanged", since: unchangedSince(mindId, sent.held) };
     }
@@ -720,10 +727,15 @@ export function createMindCheck(options: MindCheckOptions) {
 
   return {
     /** See `CoreApi.planMindCheck`. */
-    planMindCheck(mindId: unknown, mode: unknown, allDocuments: boolean): MindCheckPlan {
+    planMindCheck(
+      mindId: unknown,
+      mode: unknown,
+      allDocuments: boolean,
+      figureIds?: unknown,
+    ): MindCheckPlan {
       const id = parseMindId(mindId);
       options.requireMind(id);
-      return plan(id, parseMode(mode), allDocuments);
+      return plan(id, parseMode(mode), allDocuments, parseFigureIds(figureIds));
     },
 
     /** See `CoreApi.findMindClaims`. */
