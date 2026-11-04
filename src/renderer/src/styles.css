@@ -1962,11 +1962,18 @@
       color: var(--color-ink);
     }
   }
+  /* The two actions keep together, after the words or under them where the pane is narrow. */
   .citation-pick-line-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 2px 8px;
     min-width: 0;
+  }
+  .citation-pick-line-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 4px;
   }
   .citation-pick-line-sentence {
     overflow: hidden;

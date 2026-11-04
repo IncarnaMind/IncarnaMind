@@ -32,23 +32,25 @@ function PickLine({ pick }: { pick: CitationPick }) {
     <div ref={line} role="status" data-testid="citation-pick-line" className="citation-pick-line">
       <div className="citation-pick-line-row">
         <b>{t("claim.chooseCitation.hint")}</b>
-        <button
-          ref={setOther}
-          type="button"
-          data-testid="citation-pick-other"
-          className={buttonStyle("ghost", "sm")}
-          onClick={() => setPicking(true)}
-        >
-          {t("claim.chooseCitation.other")}
-        </button>
-        <button
-          type="button"
-          data-testid="citation-pick-cancel"
-          className={buttonStyle("ghost", "sm")}
-          onClick={dropCitationPick}
-        >
-          {t("claim.chooseCitation.cancel")}
-        </button>
+        <span className="citation-pick-line-actions">
+          <button
+            ref={setOther}
+            type="button"
+            data-testid="citation-pick-other"
+            className={buttonStyle("ghost", "sm")}
+            onClick={() => setPicking(true)}
+          >
+            {t("claim.chooseCitation.other")}
+          </button>
+          <button
+            type="button"
+            data-testid="citation-pick-cancel"
+            className={buttonStyle("ghost", "sm")}
+            onClick={dropCitationPick}
+          >
+            {t("claim.chooseCitation.cancel")}
+          </button>
+        </span>
       </div>
       <p className="citation-pick-line-sentence">
         {t("claim.sentence", { sentence: pick.sentence })}
