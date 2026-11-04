@@ -687,14 +687,13 @@ export function SelectionMenu({
             >
               <span aria-hidden="true">T×</span>
             </button>
-          </div>
-          {comment && (
-            <>
-              <hr className="selection-rule" />
+            {comment && (
               <button
                 type="button"
                 role="menuitem"
                 data-testid="selection-comment"
+                title={`${t("comments.add")} (${comment.keys})`}
+                aria-label={t("comments.add")}
                 aria-keyshortcuts={comment.keys}
                 onMouseDown={keepSelection}
                 onClick={() => {
@@ -703,16 +702,12 @@ export function SelectionMenu({
                   closeMenu();
                   act(() => comment.run(editor));
                 }}
-                className="editor-menu-item"
+                className="selection-format"
               >
-                <span className="editor-menu-icon">
-                  <CommentIcon className="size-4" />
-                </span>
-                <span className="flex-1 truncate">{t("comments.add")}</span>
-                <span className="editor-menu-shortcut">{comment.keys}</span>
+                <CommentIcon className="size-4" />
               </button>
-            </>
-          )}
+            )}
+          </div>
           {(shownAi.length > 0 || (edit && state.editable)) && (
             <>
               <hr className="selection-rule" />

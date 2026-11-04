@@ -6273,6 +6273,8 @@
   }
   .selection-menu {
     width: 280px;
+    /* The padding is part of the room: a taller menu's field stays inside the view. */
+    box-sizing: border-box;
     max-height: max(var(--selection-menu-room, 100vh), 140px);
     padding: 4px;
     border-radius: 10px;
@@ -6292,7 +6294,7 @@
   }
   .selection-formats {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 2px;
     padding: 2px 4px;
   }
