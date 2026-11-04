@@ -459,6 +459,27 @@ test("a gone conversation read does not clear one the User opened meanwhile (#25
   expect(shown()).toBe("other");
 });
 
+test("a kept read that fails for another reason is reported and keeps the id (#258)", async () => {
+  const broken = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("broken", broken.promise);
+  const reported: unknown[] = [];
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  const reportError = useAppStore.getState().reportError;
+  useAppStore.setState({ reportError: (error: unknown) => void reported.push(error) });
+  try {
+    await reloadedShowing("broken");
+    broken.reject(new Error("database is locked"));
+
+    // Not gone: the failure is said, and the kept id stays for the next start.
+    await vi.waitFor(() => expect(reported).toHaveLength(1));
+    expect(readsAsked).toContain("broken");
+    expect(layoutWrites).not.toContain(null);
+    expect(shown()).toBeNull();
+  } finally {
+    useAppStore.setState({ reportError });
+  }
+});
+
 test("a kept conversation read does not replace one already showing (#258)", async () => {
   const kept = Promise.withResolvers<{ messages: ConversationMessage[] }>();
   reads.set("kept", kept.promise);
