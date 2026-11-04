@@ -72,16 +72,8 @@ const PROVIDERS = [
         ],
       },
       // Claude 5 models think by default, and return only an empty block unless asked for the summary.
-      // At the default effort, a summary of three Documents took 30 to 85 seconds to start (#899).
       reasoningSummary: {
         options: { anthropic: { thinking: { type: "adaptive", display: "summarized" } } },
-        answer: {
-          anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "low" },
-        },
-        careful: {
-          anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
-        },
-        refused: [{ names: "effort", options: { anthropic: { effort: undefined } } }],
         only: [
           "claude-fable-5",
           "claude-mythos-5",
@@ -89,6 +81,19 @@ const PROVIDERS = [
           "claude-sonnet-5",
           "claude-haiku-5",
         ],
+      },
+      // At the default effort, a summary of three Documents took 30 to 85 seconds to start (#899).
+      // A change of effort between a conversation's requests keeps their prompt cached on Claude
+      // Haiku 5.5 and Sonnet 5.5, the earlier turns included (measured 2026-11-04, #1631).
+      effort: {
+        kinds: {
+          answer: { anthropic: { effort: "low" } },
+          careful: { anthropic: { effort: "high" } },
+        },
+        // At low, Claude Haiku 5.5's comparison cells finished about 0.5 s sooner within the quality
+        // gate; Sonnet 5.5's no sooner, so it and the models not measured keep the default (#1631).
+        models: { "claude-haiku-5-5": { task: { anthropic: { effort: "low" } } } },
+        refused: [{ names: "effort", options: { anthropic: { effort: undefined } } }],
       },
     },
     roles: {
@@ -406,6 +411,10 @@ const PROVIDERS = [
       },
     ],
     docsUrl: "https://api-docs.deepseek.com/quick_start/pricing",
+    // Its own effort, reasoning_effort (high by default), was measured at low on DeepSeek Flash
+    // (#1631): Answers finished 1.5 to 5 s sooner, but on the everyday requests one claimed a change
+    // it hadn't made and one asked instead of writing, and its comparison cells were judged right
+    // less often. So every kind thinks at its default.
     request: { thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } } },
     roles: {
       answers: "deepseek-flash",
