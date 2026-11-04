@@ -617,13 +617,8 @@ describe("A Check another window runs or plans", () => {
     store.language = words.language;
     askByCap();
     bridge.planMindCheck.mockResolvedValue({ ...plan, findsClaims: true });
-    const {
-      cardClosed,
-      checkFromAssistant,
-      confirmCheck,
-      dismissMindCheck,
-      useMindCheck,
-    } = await import("../../src/renderer/src/mindCheck");
+    const { cardClosed, checkFromAssistant, confirmCheck, dismissMindCheck, useMindCheck } =
+      await import("../../src/renderer/src/mindCheck");
     const { translate } = await import("../../src/shared/i18n");
     expect(translate(words.language, "mindCheck.waitingForOk")).toBe(words.waiting);
     expect(translate(words.language, "mindCheck.declined")).toBe(words.declined);
