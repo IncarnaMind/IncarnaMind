@@ -2689,6 +2689,7 @@ export const zhCN = {
   "providers.form.apiKey": "API 密钥",
   "providers.form.apiKeyOptional": "API 密钥（可选）",
   "providers.form.apiKeySaved": "已保存密钥。留空即保留原密钥。",
+  "providers.form.apiKeyUnreadable": "无法读取已保存的密钥。请重新输入。",
   "providers.form.keyRefused": "{provider} 拒绝了这个密钥（{when}）。",
   "providers.form.keyRefusedNow": "{provider} 拒绝了这个密钥。",
   "providers.form.keyIs": "这是 {service} 的密钥",
@@ -2795,6 +2796,8 @@ export const zhCN = {
 
   "providers.readiness.no-provider": "提问需要 AI 模型；你写的内容不需要。",
   "providers.readiness.missing-api-key": "这台设备上没有 {service} 的 API 密钥。请在设置中添加。",
+  "providers.readiness.api-key-unreadable":
+    "无法读取保存在这台电脑上的 {service} API 密钥。请重新输入。",
   "providers.readiness.consent-declined": "已关闭提问：你选择了不向 {service} 发送内容。",
   "providers.readiness.local-mode": "未发送给 {service}：已开启“所有内容都留在这台电脑上”。",
   "providers.readiness.setUp": "去设置",
@@ -3372,6 +3375,7 @@ export const zhCN = {
   "models.providers.add": "添加服务…",
   "models.providers.keySaved": "已保存密钥",
   "models.providers.noKey": "没有密钥",
+  "models.providers.keyUnreadable": "无法读取。请重新输入。",
   "models.providers.onThisComputer": "在本机运行",
   "models.providers.inMenu.one": "菜单中有 1 个模型",
   "models.providers.inMenu.other": "菜单中有 {count} 个模型",

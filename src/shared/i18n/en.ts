@@ -2825,6 +2825,7 @@ export const en = {
   "providers.form.apiKey": "API key",
   "providers.form.apiKeyOptional": "API key (optional)",
   "providers.form.apiKeySaved": "A key is saved. Leave this empty to keep it.",
+  "providers.form.apiKeyUnreadable": "The saved key can’t be read. Enter it again.",
   "providers.form.keyRefused": "{provider} refused this key ({when}).",
   "providers.form.keyRefusedNow": "{provider} refused this key.",
   "providers.form.keyIs": "This is {service}’s key",
@@ -2938,6 +2939,8 @@ export const en = {
   "providers.readiness.no-provider": "Asking needs an AI model. Your text doesn’t.",
   "providers.readiness.missing-api-key":
     "No API key for {service} on this device. Add it in Settings.",
+  "providers.readiness.api-key-unreadable":
+    "The saved API key for {service} on this computer can’t be read. Enter it again.",
   "providers.readiness.consent-declined": "Questions are off: you chose not to send to {service}.",
   "providers.readiness.local-mode":
     "Not sent to {service}: “Keep everything on this computer” is on.",
@@ -3547,6 +3550,7 @@ export const en = {
   "models.providers.add": "Add a provider…",
   "models.providers.keySaved": "Key saved",
   "models.providers.noKey": "No key",
+  "models.providers.keyUnreadable": "Can’t be read. Enter it again.",
   "models.providers.onThisComputer": "On this computer",
   "models.providers.inMenu.one": "1 model in the menu",
   "models.providers.inMenu.other": "{count} models in the menu",

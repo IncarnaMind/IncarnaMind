@@ -71,45 +71,41 @@ import { systemUserName } from "./userName";
  * no keyring running it falls back to "basic_text", a hard-coded key, which
  * the core treats as plain text.
  */
-function createSafeStorageCipher(log: Logger): SecretCipher {
-  // The core asks for `protection()` synchronously, so the asynchronous API is asked
-  // once in the background. Until it answers, encryption counts as available; an
-  // encrypt or decrypt that actually fails reports it where that operation is.
+function createSafeStorageCipher(log: Logger): { cipher: SecretCipher; ready: Promise<void> } {
+  // Asked when the adapters are built, not on the first look at protection(): the
+  // window must never be told keys are protected by the system store before it answers.
+  const basicText =
+    process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text";
   let encryptionAvailable: boolean | undefined;
-  let availabilityAsked = false;
-  const askAvailability = () => {
-    if (availabilityAsked) return;
-    availabilityAsked = true;
-    void safeStorage.isAsyncEncryptionAvailable().then(
-      (available) => {
-        encryptionAvailable = available;
-      },
-      (error) => {
-        log.warn("secrets.encryption", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-        encryptionAvailable = false;
-      },
-    );
-  };
+  const ready = basicText
+    ? Promise.resolve()
+    : safeStorage.isAsyncEncryptionAvailable().then(
+        (available) => {
+          encryptionAvailable = available;
+        },
+        (error) => {
+          log.warn("secrets.encryption", {
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          encryptionAvailable = false;
+        },
+      );
 
   return {
-    protection() {
-      if (
-        process.platform === "linux" &&
-        safeStorage.getSelectedStorageBackend() === "basic_text"
-      ) {
-        return "plain-text";
-      }
-      askAvailability();
-      return encryptionAvailable === false ? "unavailable" : "os";
+    cipher: {
+      protection() {
+        if (basicText) return "plain-text";
+        // Until the answer is in, refuse rather than claim the system store protects keys.
+        return encryptionAvailable === true ? "os" : "unavailable";
+      },
+      allowPlainText() {
+        // Without this, safeStorage refuses to encrypt on Linux's basic_text backend.
+        if (process.platform === "linux") safeStorage.setUsePlainTextEncryption(true);
+      },
+      encrypt: (plainText) => safeStorage.encryptStringAsync(plainText),
+      decrypt: async (cipherText) => (await safeStorage.decryptStringAsync(cipherText)).result,
     },
-    allowPlainText() {
-      // Without this, safeStorage refuses to encrypt on Linux's basic_text backend.
-      if (process.platform === "linux") safeStorage.setUsePlainTextEncryption(true);
-    },
-    encrypt: (plainText) => safeStorage.encryptStringAsync(plainText),
-    decrypt: async (cipherText) => (await safeStorage.decryptStringAsync(cipherText)).result,
+    ready,
   };
 }
 
@@ -800,9 +796,11 @@ function chatGptTestProfile(log: Logger, cipher: SecretCipher): CoreAdapters["ch
 }
 
 /** Builds the core's adapters, with the log the core writes to. Call after `app` is ready. */
-export function createElectronAdapters(log: Logger): CoreAdapters {
+export async function createElectronAdapters(log: Logger): Promise<CoreAdapters> {
   const dataDir = app.getPath("userData");
-  const safeStorageCipher = createSafeStorageCipher(log);
+  const { cipher: safeStorageCipher, ready: secretsReady } = createSafeStorageCipher(log);
+  // The page's calls wait for `served`: nothing it can ask about secrets runs before the answer.
+  await secretsReady;
   const crashReporter = createCrashReporter(dataDir);
   const usageData = createUsageDataSender();
   const chatGptStore = chatGptTestProfile(log, safeStorageCipher);

@@ -120,7 +120,7 @@ function notReadyError(error: ChatNotReadyError): ProviderError {
   const kind: ProviderErrorKind =
     reason === "local-mode" || reason === "consent-declined"
       ? reason
-      : reason === "missing-api-key"
+      : reason === "missing-api-key" || reason === "api-key-unreadable"
         ? "auth"
         : reason === "sign-in-required"
           ? "not-signed-in"
@@ -639,17 +639,30 @@ export function createChat(options: {
   const watchedPlan = (kind: ChatProviderKind, model: ChatLanguageModel, modelId: string) =>
     kind === "chatgpt" ? chatGpt.limits.watch(model, modelId) : model;
 
+  /**
+   * The key saved for a provider: absent, or present and readable. A stored key
+   * this device can't open is its own state, never "missing".
+   */
+  const apiKeyState = async (
+    providerId: string,
+  ): Promise<{ saved: boolean; unreadable: boolean }> => {
+    const { secret, unreadable } = await secrets.tryRead(keyName(providerId));
+    return { saved: secret !== null, unreadable };
+  };
+
   const toProvider = async (row: ProviderRow, modelId?: string): Promise<ChatProvider> => {
     const kind = row.kind as ChatProviderKind;
-    const hasApiKey =
-      acceptsApiKey(kind, row.catalog_id) && (await secrets.tryGet(keyName(row.id))) !== null;
+    const key = acceptsApiKey(kind, row.catalog_id)
+      ? await apiKeyState(row.id)
+      : { saved: false, unreadable: false };
     return {
       id: row.id,
       kind,
       catalogId: row.catalog_id,
       endpoint: row.endpoint,
       baseUrl: row.base_url,
-      hasApiKey,
+      hasApiKey: key.saved,
+      ...(key.unreadable && { apiKeyUnreadable: true }),
       service: modelId === undefined ? rowService(row) : knownService(row, modelId),
     };
   };
@@ -814,7 +827,12 @@ export function createChat(options: {
       return { ready: false, reason: "local-mode", provider, modelId };
     }
     if (requiresApiKey(provider.kind, provider.catalogId) && !provider.hasApiKey) {
-      return { ready: false, reason: "missing-api-key", provider, modelId };
+      return {
+        ready: false,
+        reason: provider.apiKeyUnreadable ? "api-key-unreadable" : "missing-api-key",
+        provider,
+        modelId,
+      };
     }
     if (await needsSignIn(provider.kind)) {
       return { ready: false, reason: "sign-in-required", provider, modelId };

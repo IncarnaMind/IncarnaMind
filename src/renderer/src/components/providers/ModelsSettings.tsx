@@ -289,11 +289,13 @@ function ProviderRow({
       : undefined;
   const state = provider.hasApiKey
     ? t("models.providers.keySaved")
-    : catalog?.apiKey === "required"
-      ? t("models.providers.noKey")
-      : provider.service === null
-        ? t("models.providers.onThisComputer")
-        : "";
+    : provider.apiKeyUnreadable
+      ? t("models.providers.keyUnreadable")
+      : catalog?.apiKey === "required"
+        ? t("models.providers.noKey")
+        : provider.service === null
+          ? t("models.providers.onThisComputer")
+          : "";
   const count = group?.models.length;
   const models =
     count === undefined
