@@ -272,7 +272,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
               <div className="flex min-h-0 min-w-0 flex-1">
                 <div
                   className={`relative flex min-h-0 min-w-0 flex-col [container:viewer/inline-size] ${
-                    inPlace ? "h-9 shrink-0 overflow-hidden" : "flex-1"
+                    inPlace ? "h-9 flex-1 shrink-0 overflow-hidden" : "flex-1"
                   }`}
                 >
                   {!document ? (

@@ -220,18 +220,6 @@ test("by the mouse: a highlight is drawn in the page, noted, recoloured, listed 
   await expect(panel.getByTestId("annotation-row")).toHaveCount(1);
 });
 
-test("the list narrows the page at a narrow window, never covering it", async () => {
-  const { app, window, viewer } = await openMarkdown();
-  await highlight(window, viewer, "4% is held");
-  await setWindowSize(app, window, 900, 900);
-
-  const panel = await openPanel(window, viewer);
-  const pageBox = await viewer.getByTestId("viewer-text").boundingBox();
-  const panelBox = await panel.boundingBox();
-  if (!pageBox || !panelBox) throw new Error("The page or the list has no place on screen.");
-  expect(pageBox.x + pageBox.width).toBeLessThanOrEqual(panelBox.x + 1);
-});
-
 test("by the keyboard: ⌘K highlights the selection and finds a highlight's words and a note's words", async () => {
   const { window, viewer } = await openMarkdown();
   const words = "18 months from notice";
@@ -621,6 +609,7 @@ async function viewerWidth(window: Page, wanted: number): Promise<void> {
     const groups = document.querySelector('[data-testid="tab-groups"]');
     if (!groups) throw new Error("No groups.");
     const room = groups.getBoundingClientRect().width - 1;
+    if (room - width <= 0) throw new Error(`The viewer width ${width} leaves no room in ${room}.`);
     await bridge.changeLayout("main", { type: "resize", widths: [room - width, width] });
   }, wanted);
   await expect
@@ -629,16 +618,29 @@ async function viewerWidth(window: Page, wanted: number): Promise<void> {
 }
 
 test("the list takes the page's place below 760 and sits beside it from 760, in English and Chinese", async () => {
-  const { window, viewer } = await openMarkdown("en", MARKDOWN, "Costs.md", { mind: true });
+  const { app, window, viewer } = await openMarkdown("en", MARKDOWN, "Costs.md", { mind: true });
+  await setWindowSize(app, window, 2000, 900);
+  const header = viewer.getByTestId("viewer-header");
+  const ensureViewer = async () => {
+    if (await header.isVisible()) return;
+    // The Document's own tab in its group: no new layout, so the two groups stay for the widths.
+    await pointAndClick(window, window.getByRole("tab", { name: "Costs" }).first());
+    await expect(header).toBeVisible();
+  };
   const words = "4% is held";
   await highlight(window, viewer, words);
   const toggle = viewer.getByTestId("viewer-annotations-toggle");
   const panel = window.getByTestId("annotations-panel");
   const back = window.getByTestId("annotations-back");
+  const panelClose = window.getByTestId("annotations-close");
+  // The toolbar's button folds into ⋯ where the pane leaves a narrow column: the list's ✕ is then the way.
   const close = async () => {
     if (await panel.isVisible()) {
-      if (await back.isVisible()) await pointAndClick(window, back);
-      else await pointAndClick(window, toggle);
+      if (await toggle.isVisible()) {
+        await pointAndClick(window, toggle);
+      } else if (await panelClose.isVisible()) {
+        await pointAndClick(window, panelClose);
+      } else await pointAndClick(window, back);
     }
     await expect(panel).toHaveCount(0);
   };
@@ -647,10 +649,10 @@ test("the list takes the page's place below 760 and sits beside it from 760, in 
     await setLanguage(window, language);
     for (const width of [700, 760, 900]) {
       await viewerWidth(window, width);
+      await ensureViewer();
       await close();
       await pointAndClick(window, toggle);
       await expect(panel).toBeVisible();
-      const header = viewer.getByTestId("viewer-header");
       expect((await header.boundingBox())?.height, `header at ${width}`).toBe(36);
       await expect(viewer.getByTestId("viewer-open-externally")).toBeVisible();
       await expect(header.getByTestId("document-file-menu").first()).toBeVisible();
@@ -670,11 +672,12 @@ test("the list takes the page's place below 760 and sits beside it from 760, in 
         if (!pageBox || !panelBox) throw new Error("The page or the list has no box.");
         expect(pageBox.x + pageBox.width).toBeLessThanOrEqual(panelBox.x + 1);
       }
+      await close();
     }
   }
 
-  // Back, Esc, the pressed button: each returns to the page.
   await viewerWidth(window, 700);
+  await ensureViewer();
   await close();
   await pointAndClick(window, toggle);
   await expect(back).toBeVisible();
@@ -690,7 +693,6 @@ test("the list takes the page's place below 760 and sits beside it from 760, in 
   await pointAndClick(window, toggle);
   await expect(panel).toHaveCount(0);
 
-  // Choosing an item shows the page at its highlight.
   await pointAndClick(window, toggle);
   await pointAndClick(window, panel.getByTestId("annotation-quote").first());
   await expect(panel).toHaveCount(0);
@@ -698,22 +700,30 @@ test("the list takes the page's place below 760 and sits beside it from 760, in 
 
   // Resizing: a widened in-place list becomes the pane; a narrowed pane closes and keeps the page.
   await viewerWidth(window, 700);
+  await ensureViewer();
   await close();
   await pointAndClick(window, toggle);
   await expect(back).toBeVisible();
   await viewerWidth(window, 800);
+  await ensureViewer();
   await expect(back).toHaveCount(0);
   await expect(panel).toBeVisible();
   await close();
   await pointAndClick(window, toggle);
   await expect(back).toHaveCount(0);
   await viewerWidth(window, 700);
+  await ensureViewer();
   await expect(panel).toHaveCount(0);
   await expect(viewer.getByTestId("viewer-text")).toBeVisible();
 });
 
+const LONG_MARKDOWN = `${MARKDOWN}\n${Array.from(
+  { length: 40 },
+  (_, index) => `## Filler ${index}\n\nFiller paragraph number ${index} of the page.`,
+).join("\n\n")}\n`;
+
 test("a selection's menu follows its words on a scroll and a resize", async () => {
-  const { app, window, viewer } = await openMarkdown();
+  const { app, window, viewer } = await openMarkdown("en", LONG_MARKDOWN, "Long.md");
   const words = "The programme allows 18 months";
   const line = paragraph(viewer, "The programme allows 18 months");
   await slideSelect(window, line, words);
