@@ -148,8 +148,6 @@
    */
   --meeting-bar-row: 28px;
   --meeting-bar-height: calc(var(--meeting-bar-row) + 14px);
-  /* A sheet's tab strip, along the viewer's foot, which a line floating there stays above. */
-  --sheet-tabs-height: 36px;
 }
 
 /*
@@ -1942,17 +1940,18 @@
     text-wrap: balance;
   }
   /* At the viewer's foot while a sentence waits for its Citation (#1554), as an export's result line floats. */
+  /* The page's scroll area: the line floats over it, above what runs under it (a sheet's row-limit line, its tabs). */
+  .viewer-pane :is(.viewer-backdrop, .viewer-grid-scroll) {
+    anchor-name: --viewer-page;
+  }
   .citation-pick-line-place {
     pointer-events: none;
     position: absolute;
     inset-inline: 24px;
-    bottom: 24px;
+    bottom: calc(anchor(--viewer-page bottom, 0px) + 24px);
     z-index: 10;
     display: flex;
     justify-content: center;
-  }
-  .viewer-pane:has(.viewer-sheet-tabs) .citation-pick-line-place {
-    bottom: calc(24px + var(--sheet-tabs-height));
   }
   .citation-pick-line {
     pointer-events: auto;
