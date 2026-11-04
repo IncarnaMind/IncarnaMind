@@ -10,6 +10,12 @@ import { join } from "node:path";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import { type Core, createAiSdkChatModel } from "../../src/core";
+import {
+  comparesOtherWords,
+  isPartOf,
+  quoteStatesDetail,
+} from "../../src/core/answers/checks/claimCheck";
+import { readJudgement, readVerdict } from "../../src/core/answers/checks/prompt";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -208,7 +214,7 @@ const SORT_SYSTEM = "You sort the sentences of the User's own draft";
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
 
 /** The replies and confirmations the real model gave, by the sentence a request names. */
-const heard = { replies: new Map<string, string>(), judgements: new Map<string, string>() };
+const heard = { replies: new Map<string, string>(), comparisons: new Map<string, string[]>() };
 
 const promptText = (prompt: unknown): string =>
   (prompt as { role: string; content: unknown }[])
@@ -234,11 +240,8 @@ function heardReply(prompt: unknown, text: string): void {
   const system = systemText(prompt);
   if (system.startsWith("You check one sentence")) heard.replies.set(sentence, text);
   else if (system.startsWith("Compare a sentence")) {
-    const word =
-      /judge?ment[\s*_]*[:：][\s*_"'“”`]*(supported|partly|unsupported|conflict|same|neither)/i
-        .exec(text)?.[1]
-        ?.toLowerCase();
-    if (word) heard.judgements.set(sentence, word);
+    const word = readJudgement(text);
+    if (word) heard.comparisons.set(sentence, [...(heard.comparisons.get(sentence) ?? []), word]);
   }
 }
 
@@ -307,25 +310,40 @@ const createChatModel: NonNullable<Parameters<typeof startCore>[1]>["createChatM
   });
 };
 
-/** The verdict a case's probe part shows, and the path that gave it. */
-function judged(span: ReturnType<typeof claimSpans>[number] | undefined, probe: string) {
+/** The verdict a case's probe part shows, the comparisons it got, and the path or guard that decided. */
+function judged(
+  span: ReturnType<typeof claimSpans>[number] | undefined,
+  probe: string,
+  document: string,
+) {
   const part = span?.check.parts?.find(
     (each) => span.sentence.text.slice(each.span.start, each.span.end) === probe,
   );
   const verdict = part?.verdict ?? null;
   const reply = heard.replies.get(probe) ?? "";
-  const replyVerdict =
-    /Verdict[\s*_]*[:：][\s*_"'“”`]*(supported|unsupported|contradicted)/i
-      .exec(reply)?.[1]
-      ?.toLowerCase() ?? null;
-  const confirmation = heard.judgements.get(probe) ?? null;
+  const replyVerdict = readVerdict(reply)?.verdict ?? null;
+  const comparisons = heard.comparisons.get(probe) ?? [];
+  const quote = part?.evidence[0]?.quote ?? document;
+  const refusal = (): string => {
+    const read = readVerdict(reply);
+    if (comparisons[0] !== "same") return `judge (first comparison ${comparisons[0] ?? "unread"})`;
+    if (!read) return "reply unread";
+    if (read.roles === "differs") return "guard: Roles differ";
+    if (read.time === "differs") return "guard: Time differs";
+    if (read.scope === "wider") return "guard: Scope wider";
+    if (comparesOtherWords({ ...read, verdict: "supported" }, probe, true))
+      return "guard: Roles not the part's own words";
+    if (span && !isPartOf(span.sentence.text, probe)) return "guard: the whole sentence";
+    if (!quoteStatesDetail(probe, quote)) return "guard: the quote lacks the part's detail";
+    return "refused after the guard (unit or calculation)";
+  };
   const path =
     verdict === "supported"
       ? replyVerdict === "contradicted"
         ? "states"
         : "supported reply"
-      : `refused (reply ${replyVerdict ?? "unread"}, confirmation ${confirmation ?? "none"})`;
-  return { verdict, replyVerdict, confirmation, path };
+      : refusal();
+  return { verdict, replyVerdict, comparisons, path };
 }
 
 describe("held-out parts on the judge", () => {
@@ -378,7 +396,7 @@ describe("held-out parts on the judge", () => {
           if (!entry) continue;
           const { client, mindId } = entry;
           heard.replies.clear();
-          heard.judgements.clear();
+          heard.comparisons.clear();
           const run = await core.checkMind({
             requestId: `held-out-${sample}-${index}`,
             mindId,
@@ -389,7 +407,7 @@ describe("held-out parts on the judge", () => {
           const span = claimSpans(readMind(client)).find(
             (one) => one.sentence.text.trim() === each.sentence,
           );
-          results[index]?.samples.push(judged(span, each.probe));
+          results[index]?.samples.push(judged(span, each.probe, each.document));
         }
       }
       const { spent } = await core.getCostSummary();
@@ -409,18 +427,19 @@ describe("held-out parts on the judge", () => {
       const file = join(dataDir, "held-out.json");
       writeFileSync(file, JSON.stringify(report, null, 2));
       process.stdout.write(
-        `held out: ${report.falseSupported}/${report.decoySamples} decoy samples read Supported; ${report.trueSupported}/${report.positiveSamples} true samples read Supported; spend ${JSON.stringify(spent)}; report ${file}\n`,
+        `held out: ${report.falseSupported}/${report.decoySamples} decoy samples read Supported; ${report.trueSupported}/${report.positiveSamples} true samples read Supported; spend ${JSON.stringify(spent)}\n`,
       );
       for (const each of results)
         process.stdout.write(
           `${each.negative ? "NEG" : "POS"} ${each.name}: ${each.samples
             .map(
               (one) =>
-                `${one.verdict}/${one.replyVerdict ?? "-"}/${one.confirmation ?? "-"}=${one.path}`,
+                `${one.verdict}/${one.replyVerdict ?? "-"}/${one.comparisons.join(",") || "-"}=${one.path}`,
             )
             .join(" | ")}\n`,
         );
       expect(results.every((one) => one.samples.length === SAMPLES)).toBe(true);
+      expect(report.falseSupported).toBe(0);
     },
   );
 });

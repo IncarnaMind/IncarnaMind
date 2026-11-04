@@ -69,7 +69,7 @@ const PLANS: Record<string, Plan> = {
   [STOPLESS]: {
     verdict: "contradicted",
     quote: MOON,
-    says: "The quote gives it another way.",
+    says: "Roles: Spring tides come at the full moon / Spring tides come at the full moon, same. The quote gives it another way.",
     judgement: "same",
   },
   [YEARLY]: {

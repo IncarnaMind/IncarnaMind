@@ -272,7 +272,7 @@ describe("literal sentence parts", () => {
           },
           [timing]: {
             quotes: [quote],
-            reply: `Verdict: contradicted\n${reason}\nEvidence: [1]`,
+            reply: `Verdict: contradicted\nRoles: ${timing} / ${timing}, same\n${reason}\nEvidence: [1]`,
             judgement: "same",
           },
         },
@@ -358,7 +358,7 @@ describe("literal sentence parts", () => {
   ])(
     "a part whose Roles line copies the Passage, then says same, is not Supported ($name, #2313)",
     async ({ claim, first, part, quote, own, other }) => {
-      const run = (side: string) =>
+      const run = (side: string, stated = quote) =>
         check(
           claim,
           [
@@ -366,9 +366,9 @@ describe("literal sentence parts", () => {
             { kind: "fact", text: part },
           ],
           {
-            [first]: { quotes: [quote] },
+            [first]: { quotes: [stated] },
             [part]: {
-              quotes: [quote],
+              quotes: [stated],
               reply: `Verdict: contradicted\nRoles: ${side} / ${side}, same\nThe Document gives it the other way.\nEvidence: [1]`,
               judgement: "same",
             },
@@ -379,8 +379,9 @@ describe("literal sentence parts", () => {
       ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
       expect(judged((await run(other)).result.parts ?? [])).not.toBe("supported");
-      // Paired: with its own words as the Roles line's first side, the part is Supported.
-      expect(judged((await run(own)).result.parts ?? [])).toBe("supported");
+      // Paired: with its own words as the Roles line's first side, and the quote stating it, the
+      // part is Supported.
+      expect(judged((await run(own, claim)).result.parts ?? [])).toBe("supported");
     },
   );
 
@@ -402,7 +403,7 @@ describe("literal sentence parts", () => {
           [first]: { quotes: [quote] },
           [part]: {
             quotes: [quote],
-            reply: `Verdict: contradicted\nThe Document gives it another way.\nEvidence: [1]`,
+            reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
             judgement: "same",
           },
         },
@@ -437,7 +438,7 @@ describe("literal sentence parts", () => {
           "The fee is": { quotes: [quote] },
           [negatedPart]: {
             quotes: [quote],
-            reply: `Verdict: contradicted\nThe Document gives it another way.\nEvidence: [1]`,
+            reply: `Verdict: contradicted\nRoles: ${negatedPart} / ${negatedPart}, same\nThe Document gives it another way.\nEvidence: [1]`,
             judgement: "same",
           },
         },
@@ -489,6 +490,175 @@ describe("literal sentence parts", () => {
     ]);
   });
 
+  test.each([
+    {
+      name: "en not capped",
+      claim: "Under the agreement, the fee is capped.",
+      first: "Under the agreement",
+      part: "the fee is capped",
+      quote: "Under the agreement, the fee is not capped.",
+      own: "Under the agreement, the fee is capped.",
+    },
+    {
+      name: "en isn't capped",
+      claim: "Under the agreement, the fee is capped.",
+      first: "Under the agreement",
+      part: "the fee is capped",
+      quote: "Under the agreement, the fee isn't capped.",
+      own: "Under the agreement, the fee is capped.",
+    },
+    {
+      name: "en never capped",
+      claim: "Under the agreement, the fee is capped.",
+      first: "Under the agreement",
+      part: "the fee is capped",
+      quote: "Under the agreement, the fee is never capped.",
+      own: "Under the agreement, the fee is capped.",
+    },
+    {
+      name: "zh 不应当",
+      claim: "根据合同，乙方应当支付违约金。",
+      first: "根据合同",
+      part: "乙方应当支付违约金",
+      quote: "根据合同，乙方不应当支付违约金。",
+      own: "根据合同，乙方应当支付违约金。",
+      language: "zh-CN" as const,
+    },
+  ])(
+    "a negation only the quote has is not the part's own detail ($name, #2313)",
+    async ({ claim, first, part, quote, own, language }) => {
+      const run = (said: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: first },
+            { kind: "fact", text: part },
+          ],
+          {
+            [first]: { quotes: [said] },
+            [part]: {
+              quotes: [said],
+              reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
+              judgement: "same",
+            },
+          },
+          language ?? "en",
+        );
+      const judged = (
+        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
+      // Paired: the same words with the part's own negation (or none) are Supported.
+      expect(judged((await run(own)).result.parts ?? [])).toBe("supported");
+    },
+  );
+
+  test.each([
+    {
+      name: "en Q2 vs Q3",
+      claim: "Gross margin fell in Q2, mostly in online.",
+      first: "Gross margin fell",
+      part: "in Q2, mostly in online",
+      quote: "Gross margin fell in Q3, mostly in online.",
+      own: "Gross margin fell in Q2, mostly in online.",
+    },
+    {
+      name: "en FY2024 vs FY2025",
+      claim: "Revenue grew in FY2024, mostly in online.",
+      first: "Revenue grew",
+      part: "in FY2024, mostly in online",
+      quote: "Revenue grew in FY2025, mostly in online.",
+      own: "Revenue grew in FY2024, mostly in online.",
+    },
+    {
+      name: "zh a digit in the run",
+      claim: "根据通知，港口办公室自2025年起每年公布一次高潮时间。",
+      first: "根据通知",
+      part: "港口办公室自2025年起每年公布一次高潮时间",
+      quote: "根据通知，港口办公室自2025年起每周公布一次高潮时间。",
+      own: "根据通知，港口办公室自2025年起每年公布一次高潮时间。",
+      language: "zh-CN" as const,
+    },
+  ])(
+    "a period label or a year in a longer run must be the quote's own ($name, #2313)",
+    async ({ claim, first, part, quote, own, language }) => {
+      const run = (said: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: first },
+            { kind: "fact", text: part },
+          ],
+          {
+            [first]: { quotes: [said] },
+            [part]: {
+              quotes: [said],
+              reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
+              judgement: "same",
+            },
+          },
+          language ?? "en",
+        );
+      const judged = (
+        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
+      expect(judged((await run(own)).result.parts ?? [])).toBe("supported");
+    },
+  );
+
+  test.each([
+    { name: "no Roles line", fields: "" },
+    { name: "Roles: same", fields: "Roles: same\n" },
+    { name: "none / none", fields: "Roles: none / none, same\n" },
+    { name: "empty sides", fields: "Roles:  / , same\n" },
+  ])(
+    "reversed parties are not Supported from a reply that gives no own-words Roles sides ($name, #2313)",
+    async ({ fields }) => {
+      const claim = "Under the contract, the Buyer indemnifies the Seller.";
+      const first = "Under the contract";
+      const part = "the Buyer indemnifies the Seller";
+      const quote = "Under the contract, the Seller indemnifies the Buyer.";
+      const run = (reply: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: first },
+            { kind: "fact", text: part },
+          ],
+          {
+            [first]: { quotes: [quote] },
+            [part]: { quotes: [quote], reply, judgement: "same" },
+          },
+        );
+      const judged = (
+        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+      expect(
+        judged(
+          (
+            await run(
+              `Verdict: contradicted\n${fields}The Document gives it the other way.\nEvidence: [1]`,
+            )
+          ).result.parts ?? [],
+        ),
+      ).not.toBe("supported");
+      // Paired: the part's own words as the Roles line's first side are Supported.
+      expect(
+        judged(
+          (
+            await run(
+              `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it the other way.\nEvidence: [1]`,
+            )
+          ).result.parts ?? [],
+        ),
+      ).toBe("supported");
+    },
+  );
+
   test("a part whose own detail the quote does not state stays Unsupported (#2313)", async () => {
     const claim = "The harbour office publishes the times of high water every year.";
     const first = "The harbour office publishes the times of high water";
@@ -504,7 +674,7 @@ describe("literal sentence parts", () => {
           [first]: { quotes: [quote] },
           [part]: {
             quotes: [quote],
-            reply: `Verdict: contradicted\nThe Document gives it another way.\nEvidence: [1]`,
+            reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
             judgement: "same",
           },
         },
@@ -543,7 +713,7 @@ describe("literal sentence parts", () => {
           [first]: { quotes: [quote] },
           [part]: {
             quotes: [quote],
-            reply: `Verdict: contradicted\nThe quote gives the number without its unit.\nEvidence: [1]`,
+            reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe quote gives the number without its unit.\nEvidence: [1]`,
             judgement: "same",
           },
         },
@@ -622,7 +792,7 @@ describe("literal sentence parts", () => {
         },
         "after the onboarding redesign": {
           quotes: ["Customer churn fell to 4.2 per cent after the onboarding redesign."],
-          reply: `Verdict: contradicted\nThe sentence's link is otherwise as stated.\nEvidence: [1]`,
+          reply: `Verdict: contradicted\nRoles: after the onboarding redesign / after the onboarding redesign, same\nThe sentence's link is otherwise as stated.\nEvidence: [1]`,
           judgement: "same",
         },
       },
