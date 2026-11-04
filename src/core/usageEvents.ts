@@ -119,6 +119,7 @@ export const BUILT_IN_SKILL_NAMES = [
 const ERROR_AREAS = ["answer", "document", "connector"] as const;
 const ANSWER_ERRORS = [
   "auth",
+  "api-key-unreadable",
   "model",
   "rate-limit",
   "network",

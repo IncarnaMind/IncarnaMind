@@ -2161,6 +2161,7 @@ export const zhCN = {
   "status.taggingFailed.full": "AI 模型未能打标签，可以重试。",
   "tagging.problem.network": "无法打标签：无法连接 AI 模型。",
   "tagging.problem.auth": "无法打标签：AI 模型的服务拒绝了这个密钥。请在设置中检查。",
+  "tagging.problem.api-key-unreadable": "无法打标签：无法读取已保存的密钥。请重新输入。",
   "tagging.problem.model": "无法打标签：AI 模型的服务没有这个模型。请在设置中换一个。",
   "tagging.problem.rate-limit": "无法打标签：AI 模型的服务暂时限制了请求。",
   "tagging.problem.provider": "无法打标签：AI 模型的服务返回了错误。",
@@ -2691,6 +2692,7 @@ export const zhCN = {
   "providers.form.apiKey": "API 密钥",
   "providers.form.apiKeyOptional": "API 密钥（可选）",
   "providers.form.apiKeySaved": "已保存密钥。留空即保留原密钥。",
+  "providers.form.apiKeyUnreadable": "无法读取已保存的密钥。请重新输入。",
   "providers.form.keyRefused": "{provider} 拒绝了这个密钥（{when}）。",
   "providers.form.keyRefusedNow": "{provider} 拒绝了这个密钥。",
   "providers.form.keyIs": "这是 {service} 的密钥",
@@ -2754,6 +2756,7 @@ export const zhCN = {
 
   "providers.test.ok": "连接成功：服务已响应。",
   "providers.test.auth": "密钥被拒绝。请检查密钥是否正确且仍然有效。",
+  "providers.test.api-key-unreadable": "无法读取已保存的密钥。请重新输入。",
   "providers.test.model": "服务找不到这个模型，请检查模型名称。",
   "providers.test.rate-limit": "服务正在限制此密钥的请求，请稍后再试。",
   "providers.test.network": "无法连接到服务器。请检查地址和网络连接。",
@@ -2797,6 +2800,8 @@ export const zhCN = {
 
   "providers.readiness.no-provider": "提问需要 AI 模型；你写的内容不需要。",
   "providers.readiness.missing-api-key": "这台设备上没有 {service} 的 API 密钥。请在设置中添加。",
+  "providers.readiness.api-key-unreadable":
+    "无法读取这台设备上保存的 {service} API 密钥。请重新输入。",
   "providers.readiness.consent-declined": "已关闭提问：你选择了不向 {service} 发送内容。",
   "providers.readiness.local-mode": "未发送给 {service}：已开启“所有内容都留在这台电脑上”。",
   "providers.readiness.setUp": "去设置",
@@ -3374,6 +3379,7 @@ export const zhCN = {
   "models.providers.add": "添加服务…",
   "models.providers.keySaved": "已保存密钥",
   "models.providers.noKey": "没有密钥",
+  "models.providers.keyUnreadable": "无法读取。请重新输入。",
   "models.providers.onThisComputer": "在本机运行",
   "models.providers.inMenu.one": "菜单中有 1 个模型",
   "models.providers.inMenu.other": "菜单中有 {count} 个模型",
@@ -3485,6 +3491,7 @@ export const zhCN = {
   "answer.offline.none": "文档中没有匹配的内容。",
   "answer.error.thisModel": "这个模型",
   "answer.error.auth": "{model} 的密钥被拒绝了",
+  "answer.error.apiKeyUnreadable": "无法读取已保存的 {model} 密钥",
   "answer.error.thisService": "这个服务",
   "answer.error.model": "{service} 找不到 {model}",
   "answer.error.rate-limit": "{service} 暂时限制了请求",
