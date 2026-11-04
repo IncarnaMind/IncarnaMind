@@ -1,6 +1,8 @@
 /**
- * The held-out near copies (`nearCopyHeldout.cases.ts`, `nearCopyWalkShape.cases.ts`) on the check's
- * judge (#1765, #1766, #1708), through Check this Note as the window uses it. Each case is checked
+ * The held-out near copies (`nearCopyHeldout.cases.ts`, `nearCopyWalkShape.cases.ts`,
+ * `nearCopyConfirmed.cases.ts` and the changes of `nearCopyAmended.cases.ts`) on the check's judge
+ * (#1765, #1766, #1708), through Check this Note on the core, with the test core's fake embedding
+ * and reranking models: with one short Document in each Library, they decide no search. Each case is checked
  * on its own: its own Note, in a Library that holds only the one Document whose clause it copies,
  * so nothing else could back a decoy. The sorter is scripted to give each sentence as its case's
  * parts (one fact, or the wrong part and the probe), so the judge alone decides them: a sorter that
@@ -9,9 +11,11 @@
  * says which path decided it (the check's own verdict and fields, the judgements after it).
  *
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY; the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
- * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the checks of each case (1), and
- * INCARNAMIND_LIVE_LANGUAGES the languages (`en,zh-CN`). The report, every check with its path and
- * what each language spent, is written to INCARNAMIND_LIVE_REPORT when it is set.
+ * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the checks of each case (1),
+ * INCARNAMIND_LIVE_LANGUAGES the languages (`en,zh-CN`), INCARNAMIND_LIVE_CASES `added` for the
+ * amended file's added cases alone, and INCARNAMIND_LIVE_BUDGET the dollars after which no further
+ * case starts (3), at the app's own count. The report, every check with its path and each part's
+ * verdict and quote, is written to INCARNAMIND_LIVE_REPORT when it is set.
  */
 import { writeFile } from "node:fs/promises";
 import { wrapLanguageModel } from "ai";
@@ -22,6 +26,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
+import { AMENDED_SETS } from "./nearCopyAmended.cases";
 import { CONFIRMED_SETS } from "./nearCopyConfirmed.cases";
 import { NEAR_COPY_SETS, type NearCopyDocument } from "./nearCopyHeldout.cases";
 import { WALK_SHAPE_SETS } from "./nearCopyWalkShape.cases";
@@ -31,6 +36,8 @@ const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5"
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 1) || 1;
 const LANGUAGES = process.env.INCARNAMIND_LIVE_LANGUAGES?.split(",") ?? ["en", "zh-CN"];
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
+const ONLY_ADDED = process.env.INCARNAMIND_LIVE_CASES === "added";
+const BUDGET = Number(process.env.INCARNAMIND_LIVE_BUDGET ?? 3) || 3;
 /** Libraries checked at once; within one, its cases are checked one after another. */
 const AT_ONCE = 3;
 
@@ -40,6 +47,8 @@ interface Case {
   kind: string;
   /** One fact, two parts with a probe, or one of the misses reported on the issues. */
   shape: "whole" | "walk" | "confirmed";
+  /** It comes from the amended file's added cases. */
+  added: boolean;
   document: string;
   sentence: string;
   parts: readonly string[];
@@ -157,7 +166,7 @@ function pathOf(logged: readonly Logged[]) {
       .split("\n")
       .map((line) => line.trim())
       .filter((line) =>
-        /^(?:verdict|scope|topic|roles|time|absence|evidence|figures)\b/i.test(line),
+        /^(?:verdict|scope|topic|roles|time|duty|condition|absence|evidence|figures)\b/i.test(line),
       )
       .map((line) => line.slice(0, 400));
   return {
@@ -180,22 +189,34 @@ interface Sample {
   outcome: string;
   /** The probe part's own verdict, for a sentence of two parts. */
   probe: string | null;
+  /** Each part's verdict and the quote it rests on, for a sentence of two parts. */
+  parts: { text: string; verdict: string | null; quote: string | null }[];
   says: string | null;
   quote: string | null;
   failure: string | null;
   path: ReturnType<typeof pathOf>;
 }
 
-/** Checks each case of one Document in a Library of that Document alone, each in a Note of its own. */
+/** What every Library of the run has spent so far, at the app's own count. */
+const live = new Set<Core>();
+let finished = 0;
+const spentSoFar = async () =>
+  finished + (await Promise.all([...live].map(spentOf))).reduce((total, each) => total + each, 0);
+
+/**
+ * Checks each case of one Document in a Library of that Document alone, each in a Note of its own;
+ * a case that would start past the run's budget isn't checked.
+ */
 async function checkLibrary(
   language: "en" | "zh-CN",
   document: NearCopyDocument,
   cases: readonly Case[],
-): Promise<{ results: { case: Case; samples: Sample[] }[]; spent: number }> {
+): Promise<{ results: { case: Case; samples: Sample[] }[]; spent: number; skipped: string[] }> {
   let logged: Logged[] = [];
   const core = startCore(await createTempDataFolder(), {
     createChatModel: loggingModel(cases, () => logged),
   });
+  live.add(core);
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({
     user: { language, monthlyCap: { amount: 5, currency: "USD" } },
@@ -214,7 +235,12 @@ async function checkLibrary(
   );
   await addAndProcess(core, [file]);
   const results = [];
+  const skipped: string[] = [];
   for (const each of cases) {
+    if ((await spentSoFar()) >= BUDGET) {
+      skipped.push(each.key);
+      continue;
+    }
     const { id: mindId } = await core.createMind({ title: each.key, folderId: null });
     const client = await connectToMind(core, mindId);
     writeMind(client, [note(each.sentence)]);
@@ -230,15 +256,19 @@ async function checkLibrary(
       const check = (await marksOf(core, mindId)).find(
         (mark) => mark.sentence === each.sentence,
       )?.check;
+      const parts = (check?.parts ?? []).map((part) => ({
+        text: each.sentence.slice(part.span.start, part.span.end),
+        verdict: part.verdict,
+        quote: part.evidence[0]?.quote ?? null,
+      }));
       const probe =
         each.shape === "walk"
-          ? (check?.parts?.find(
-              (part) => each.sentence.slice(part.span.start, part.span.end) === each.probe,
-            )?.verdict ?? "no-part")
+          ? (parts.find((part) => part.text === each.probe)?.verdict ?? "no-part")
           : null;
       samples.push({
         outcome: outcomeOf(check),
         probe,
+        parts: each.shape === "walk" ? parts : [],
         says: check?.says ?? check?.unsupported?.reason ?? null,
         quote: check?.evidence?.quote ?? null,
         failure:
@@ -253,11 +283,18 @@ async function checkLibrary(
     );
     results.push({ case: each, samples });
   }
-  return { results, spent: await spentOf(core) };
+  const spent = await spentOf(core);
+  live.delete(core);
+  finished += spent;
+  return { results, spent, skipped };
 }
 
-/** Whether a sample reads Supported: the probe part's verdict for a sentence of two parts. */
-const supported = (sample: Sample) => (sample.probe ?? sample.outcome) === "supported";
+/** What a sample reads: the probe part's verdict for a sentence of two parts, else the card's. */
+const readAs = (sample: Sample) => sample.probe ?? sample.outcome;
+const supported = (sample: Sample) => readAs(sample) === "supported";
+/** A check that settled nothing for the case: Not checked, or a probe that ended without its part. */
+const unsettled = (sample: Sample) =>
+  ["not-checked", "no-mark", "no-part"].includes(readAs(sample));
 
 describe("held-out near copies on the judge", () => {
   test.skipIf(KEY === undefined)(
@@ -268,11 +305,13 @@ describe("held-out near copies on the judge", () => {
       for (const set of NEAR_COPY_SETS.filter((each) => LANGUAGES.includes(each.language))) {
         const walks = WALK_SHAPE_SETS.find((each) => each.language === set.language)?.cases ?? [];
         const confirmed = CONFIRMED_SETS.find((each) => each.language === set.language);
-        const cases: Case[] = [
+        const amended = AMENDED_SETS.find((each) => each.language === set.language);
+        const earlier: Case[] = [
           ...set.cases.map((each) => ({
             key: each.key,
             kind: each.kind,
             shape: "whole" as const,
+            added: false,
             document: each.document,
             sentence: each.text,
             parts: [each.text],
@@ -283,6 +322,7 @@ describe("held-out near copies on the judge", () => {
             key: `walk-${each.key}`,
             kind: each.kind,
             shape: "walk" as const,
+            added: false,
             document: each.document,
             sentence: each.sentence,
             parts: each.parts,
@@ -293,17 +333,34 @@ describe("held-out near copies on the judge", () => {
             key: each.key,
             kind: each.kind,
             shape: "confirmed" as const,
+            added: false,
             document: each.document,
             sentence: each.text,
             parts: [each.text],
             probe: each.text,
             decoy: each.decoy,
           })),
-        ];
+        ].filter((each) => !amended?.withdrawn.includes(each.key));
+        const added: Case[] = (amended?.cases ?? []).map((each) => ({
+          key: each.key,
+          kind: each.kind,
+          shape: each.twoPart ? "walk" : each.reported ? "confirmed" : "whole",
+          added: true,
+          document: each.document,
+          sentence: each.text,
+          parts: each.twoPart ?? [each.text],
+          probe: each.twoPart?.[1] ?? each.text,
+          decoy: each.decoy,
+        }));
+        const cases = ONLY_ADDED ? added : [...earlier, ...added];
         for (const each of cases) {
           expect(each.parts.every((part) => each.sentence.includes(part))).toBe(true);
         }
-        const libraries = [...set.documents, ...(confirmed?.documents ?? [])];
+        const libraries = [
+          ...set.documents,
+          ...(confirmed?.documents ?? []),
+          ...(amended?.documents ?? []),
+        ].filter((document) => cases.some((each) => each.document === document.key));
         const done: Awaited<ReturnType<typeof checkLibrary>>[] = [];
         while (libraries.length > 0) {
           const batch = libraries.splice(0, AT_ONCE);
@@ -321,12 +378,32 @@ describe("held-out near copies on the judge", () => {
         }
         const results = done.flatMap((each) => each.results);
         const spent = done.reduce((total, each) => total + each.spent, 0);
-        const groups = new Map<string, { checks: number; supported: number }>();
+        // The unit is the item: how many cases, how many read Supported in any check, and the
+        // checks themselves; a check that settled nothing is counted apart, never as a refusal.
+        const groups = new Map<
+          string,
+          {
+            items: number;
+            itemsSupported: number;
+            checks: number;
+            supported: number;
+            unsettled: number;
+          }
+        >();
         for (const { case: each, samples } of results) {
-          const name = `${each.decoy ? "decoy" : "positive"} ${each.shape} ${each.kind}`;
-          const row = groups.get(name) ?? { checks: 0, supported: 0 };
-          row.checks += samples.length;
+          const name = `${each.decoy ? "decoy" : "positive"} ${each.shape} ${each.kind}${each.added ? " (added)" : ""}`;
+          const row = groups.get(name) ?? {
+            items: 0,
+            itemsSupported: 0,
+            checks: 0,
+            supported: 0,
+            unsettled: 0,
+          };
+          row.items += 1;
+          row.itemsSupported += samples.some(supported) ? 1 : 0;
+          row.checks += samples.filter((sample) => !unsettled(sample)).length;
           row.supported += samples.filter(supported).length;
+          row.unsettled += samples.filter(unsettled).length;
           groups.set(name, row);
         }
         const summary = {
@@ -334,17 +411,15 @@ describe("held-out near copies on the judge", () => {
           language: set.language,
           runs: RUNS,
           groups: Object.fromEntries(groups),
-          notChecked: results
-            .flatMap((each) => each.samples)
-            .filter((sample) => sample.outcome === "not-checked" || sample.outcome === "no-mark")
-            .length,
+          skipped: done.flatMap((each) => each.skipped),
           spent,
         };
         console.log(JSON.stringify(summary));
         report.push({ ...summary, results });
+        if (REPORT) await writeFile(REPORT, JSON.stringify(report, null, 2));
         expect(results.every((each) => each.samples.length === RUNS)).toBe(true);
+        expect(summary.skipped).toEqual([]);
       }
-      if (REPORT) await writeFile(REPORT, JSON.stringify(report, null, 2));
     },
   );
 });
