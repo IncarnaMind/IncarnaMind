@@ -15,10 +15,9 @@
  * at most two consecutive ones of one sheet or Document (the Location rule),
  * and the quote must be in their text, matched exactly after both are
  * normalised the same way (see `findQuote`: letter case, spacing, hyphenation
- * at line ends, quote marks and "[^36]" for "[36]" don't count, a quote
+ * at line ends, quote marks and "[^36]" for "[36]" don't count, and a quote
  * with an ellipsis is found when each part, of at least 3 words, is there in
- * order, and a bracketed gloss of a term in another language may be left out;
- * in spreadsheets, number formatting doesn't count either). The Units
+ * order; in spreadsheets, number formatting doesn't count either). The Units
  * are read as stored when the Document was processed, a PDF's without
  * running headers, footers and page numbers, so a quote may run across a page
  * break. "Found" means the quote is there, never that it supports the sentence.
@@ -2292,10 +2291,10 @@ export function createCitationSession(
      * that start on the one page cited may run on to the next page (#2504).
      * One found changes nothing. One not found makes the Citation whose Units
      * are nearest it "not found", with the Answer's words and the Document's
-     * nearest for its card. Where a Citation of the sentence couldn't be checked, no span
-     * of it is. Words in another language than every page cited are a
-     * translation: they aren't checked, and are returned to lose their
-     * quotation marks.
+     * nearest for its card. Where a Citation of the sentence couldn't be
+     * checked, no span of it is. Words in another language than every page
+     * cited are a translation: they aren't checked, and are returned to lose
+     * their quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
       /**
@@ -2316,7 +2315,7 @@ export function createCitationSession(
         if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return false;
         const found = quoteInUnits(units, words, matching);
         const nextStarts = joinUnits(units).starts[next] ?? 0;
-        return found !== null && found.every((range) => range.start < nextStarts);
+        return found?.every((range) => range.start < nextStarts) === true;
       };
       /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
       const titled = (

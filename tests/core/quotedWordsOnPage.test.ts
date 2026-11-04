@@ -1,8 +1,8 @@
 /**
  * Words an Answer quotes from its Document are found when they are on the page (#2504): a quote
- * nested in the quote written in the other kind of mark, words that run on from the cited page to
- * the next, and a bracketed gloss of a term left out. A quote that changes a word or a number,
- * adds a "not" or takes a word from another line still shows Quote not found.
+ * nested in the quote written in the other kind of mark, and words that run on from the cited page
+ * to the next. A quote that changes a word or a number, adds a "not", takes a word from another
+ * line or leaves words out still shows Quote not found.
  */
 import { describe, expect, test } from "vitest";
 import {
@@ -197,56 +197,6 @@ describe("Quoted words that run on to the next slide", () => {
   });
 });
 
-const GLOSS = {
-  en: {
-    file: {
-      name: "Optimisers.md",
-      contents:
-        "# Optimisers\n\nStochastic gradient descent (Chinese: 随机梯度下降) is the most basic algorithm for training deep networks (since 2012) at scale.\n",
-    },
-    query: "stochastic gradient descent",
-    question: "What is the most basic optimiser?",
-    quote: "is the most basic algorithm for training deep networks",
-    found:
-      "It is “stochastic gradient descent is the most basic algorithm for training deep networks” [^1].",
-    otherWord:
-      "It is “stochastic gradient descent is the most widely used algorithm for training deep networks” [^1].",
-    not: "It is “stochastic gradient descent is not the most basic algorithm for training deep networks” [^1].",
-    otherBrackets:
-      "It says it is “the most basic algorithm for training deep networks at scale” [^1].",
-  },
-  zh: {
-    file: {
-      name: "梯度下降法.md",
-      contents:
-        "# 梯度下降法\n\n随机梯度下降法作为梯度下降法的一个简单延展，是目前用于训练大多数深度学习结构（英語：deep networks）的最基本的算法（2012年起）之一。\n",
-    },
-    query: "随机梯度下降法",
-    question: "最基础的优化算法是什么？",
-    quote: "作为梯度下降法的一个简单延展",
-    found: "条目写道，它“是目前用于训练大多数深度学习结构的最基本的算法”[^1]。",
-    otherWord: "条目写道，它“是目前用于训练深度学习结构的最基本的算法”[^1]。",
-    not: "条目写道，它“不是目前用于训练大多数深度学习结构的最基本的算法”[^1]。",
-    otherBrackets: "条目写道，它“是目前用于训练大多数深度学习结构的最基本的算法之一”[^1]。",
-  },
-} as const;
-
-describe.each(["en", "zh"] as const)("A bracketed gloss left out (%s)", (language) => {
-  const gloss = GLOSS[language];
-
-  test("the words around a gloss naming a language are the page's, in order: found", async () => {
-    expect(await checkOf(gloss, gloss.found)).toEqual(FOUND);
-  });
-
-  test.each([
-    ["a word changed or left out", "otherWord"],
-    ["an added not", "not"],
-    ["other words in brackets left out", "otherBrackets"],
-  ] as const)("with %s, not found", async (_, key) => {
-    expect(await checkOf(gloss, gloss[key])).toEqual(NOT_FOUND);
-  });
-});
-
 describe("Changed words in Chinese stay not found", () => {
   const governance = {
     file: {
@@ -320,5 +270,52 @@ describe("Quoted words that run on past the end of their Passage", () => {
     expect(passagePages).toContain("1");
     const { check, checkReason } = onlyCitation(client, answerId);
     expect({ check, checkReason }).toEqual(FOUND);
+  });
+});
+
+describe("Quoted words that run on, only from one cited page to the next", () => {
+  const page = (lines: string[]) => ({ lines });
+  const file = {
+    name: "Storage rules.pdf",
+    contents: buildPdf([
+      page([
+        "Storage",
+        "Every sample is labelled at intake and logged in the register before it is",
+      ]),
+      page([
+        "moved to the cold room on the same day by the duty technician on shift,",
+        "where it stays at four degrees until it is",
+      ]),
+      page(["tested by the laboratory, and samples older than ninety days are destroyed."]),
+    ]),
+  };
+  const ask = (quote: string, sentence: string) =>
+    checkOf({ file, query: "sample cold room", question: "Where do samples go?", quote }, sentence);
+
+  test("words starting on the one cited page run on to the next: found", async () => {
+    expect(
+      await ask(
+        "where it stays at four degrees until it is",
+        "It says samples stay “at four degrees until it is tested by the laboratory” [^1].",
+      ),
+    ).toEqual(FOUND);
+  });
+
+  test("a record that cites two pages doesn't run on to a third: not found", async () => {
+    expect(
+      await ask(
+        "logged in the register before it is moved to the cold room",
+        "It says samples stay “at four degrees until it is tested by the laboratory” [^1].",
+      ),
+    ).toEqual(NOT_FOUND);
+  });
+
+  test("words that run past the next page: not found", async () => {
+    expect(
+      await ask(
+        "logged in the register before it is",
+        "It says a sample is “logged in the register before it is moved to the cold room on the same day by the duty technician on shift, where it stays at four degrees until it is tested by the laboratory” [^1].",
+      ),
+    ).toEqual(NOT_FOUND);
   });
 });

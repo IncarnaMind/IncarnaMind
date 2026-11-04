@@ -18,8 +18,9 @@
  *   "ʼ", "⸺", "⸻") are unified too;
  * - a double quotation mark reads as a single one, as a quote nested in a
  *   quote is written in the other kind of mark ("the ‘soft weights’ property"
- *   for the page's “soft weights”, #2504). Not after a digit, where the marks
- *   are inches and feet, or seconds and minutes ("6\"", "6'");
+ *   for the page's “soft weights”, #2504). Not after a digit, in any script
+ *   and with or without a space between, where the marks are inches and feet,
+ *   or seconds and minutes ("6\"", "12 '", "٦'");
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
@@ -38,7 +39,7 @@
  *   converted, and a character stays one character, so offsets hold
  *   (ADR-0009).
  *
- * The match itself has these tolerances:
+ * The match itself has two tolerances:
  *
  * - A hyphen that ended a line between two letters may be in the quote or
  *   not ("inter-\nnational" matches "international" and "inter-national"), or
@@ -53,14 +54,6 @@
  *   page. Each part is returned, for the viewer to highlight. An ellipsis at
  *   the start or the end of a quote leaves nothing out of it.
  *
- * - A gloss of a term in another language, in brackets that name the language,
- *   such as "（英語：deep networks）" in Chinese or "(Chinese: 随机梯度下降)" in
- *   English, may be left out of a quote that isn't found with it: the words
- *   around it are the page's, in order (#2504). Only a short term in the
- *   script of the language named, which isn't the script of the words it
- *   follows, with no digit, sentence punctuation or negation: brackets that
- *   say more, such as "(English: not offered in 2026)", are words of the page.
- *
  * - In a Document whose text lost its f-ligatures (see `lostLigatures`), a
  *   quote's "fi", "fl", "ff", "ffi" or "ffl" may be the lone "f" the text
  *   kept: pdf.js reads some PDFs' ligatures as their first letter only, so a
@@ -71,7 +64,7 @@
  *   "flood", "four" a "flour"), which is a word changed (ADR-0009).
  *
  * Nothing else is forgiven: a quote with a word changed, added or dropped
- * isn't found, except a gloss as above.
+ * isn't found.
  *
  * Spreadsheets (ADR-0011) are matched with `numbers` on: number formatting is
  * normalised in the quote and the text alike, so a figure matches however it
@@ -134,59 +127,6 @@ const FOLDED: Readonly<Record<string, string>> = {
   ς: "σ",
 };
 
-/**
- * A gloss's brackets in a normalised, folded text, with the space before them: the language
- * named, then its term. Brackets and the colon are ASCII after NFKC, and 語 is folded to 语.
- */
-const GLOSS =
-  / ?\((english|german|french|latin|英语|英文|德语|法语|拉丁语|chinese|中文|japanese|日语|日文) ?: ?([^()]{1,40})\)/g;
-
-const LATIN_NAMED = new Set([
-  "english",
-  "german",
-  "french",
-  "latin",
-  "英语",
-  "英文",
-  "德语",
-  "法语",
-  "拉丁语",
-]);
-const HAN_NAMED = new Set(["chinese", "中文"]);
-/** A term in Latin letters, up to five words, or in Chinese or Japanese characters. */
-const LATIN_TERM = /^\p{Script=Latin}+(?:[ '-]\p{Script=Latin}+){0,4}$/u;
-const HAN_TERM = /^\p{Script=Han}{1,12}$/u;
-const JAPANESE_TERM = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]{1,12}$/u;
-const HAN_OR_KANA = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-const LATIN_OR_DIGIT = /[\p{Script=Latin}0-9]/u;
-/** Words that make brackets say something of their own: they are never a term's gloss. */
-const NOT_A_TERM = /\b(?:not|no|never|none|nor|without|except|unless|only)\b|[不没無无非未否勿]/u;
-
-/** Whether brackets after `before` naming `language` hold only a term in it, in another script. */
-function isGloss(language: string, term: string, before: string | undefined): boolean {
-  if (before === undefined || NOT_A_TERM.test(term)) return false;
-  if (LATIN_NAMED.has(language)) return LATIN_TERM.test(term) && HAN_OR_KANA.test(before);
-  const termIn = HAN_NAMED.has(language) ? HAN_TERM : JAPANESE_TERM;
-  return termIn.test(term) && LATIN_OR_DIGIT.test(before);
-}
-
-/** Whether a text may hold a gloss's brackets, before it is normalised: a bracket, a short name, a colon. */
-const GLOSS_IN_TEXT = /[(（][^()（）]{1,10}[:：]/u;
-
-/** A text's units with each gloss (see `isGloss`) marked `removed`, so offsets still point into the text. */
-function unitsWithoutGlosses(units: NormalisedUnit[]): NormalisedUnit[] {
-  const live = units.filter((unit) => !unit.removed);
-  const chars = live.map((unit) => unit.char).join("");
-  for (const match of chars.matchAll(GLOSS)) {
-    const [whole, language = "", term = ""] = match;
-    if (!isGloss(language, term.trim(), chars[match.index - 1])) continue;
-    for (let at = 0; at < whole.length; at++) {
-      (live[match.index + at] as NormalisedUnit).removed = true;
-    }
-  }
-  return units;
-}
-
 /** A soft hyphen at the end of a line: read as a hyphen, so rule 5 of the normaliser joins the word. */
 const SOFT_HYPHEN_AT_LINE_END =
   /\u00ad(?=[^\S\n\r\v\f\u0085\u2028\u2029]*[\n\r\v\f\u0085\u2028\u2029])/gu;
@@ -195,6 +135,7 @@ const SOFT_HYPHEN_AT_LINE_END =
 const ELLIPSIS = / ?\.{3,} ?/;
 
 const DIGIT = /^[0-9]$/;
+const DECIMAL_DIGIT = /^\p{Nd}$/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/gu;
 
 /**
@@ -330,10 +271,18 @@ function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
     cellBreaksAsSpaces(text.replace(SOFT_HYPHEN_AT_LINE_END, "-")),
   );
   const folded = units.map((unit) => ({ ...unit, char: fold(unit.char) }));
-  let before: NormalisedUnit | undefined;
+  // The two live characters before each one, to tell a measure's mark from a quotation mark.
+  let last: string | undefined;
+  let beforeLast: string | undefined;
   for (const unit of folded) {
-    if (unit.char === '"' && !DIGIT.test(before?.char ?? "")) unit.char = "'";
-    if (!unit.removed) before = unit;
+    if (unit.char === '"') {
+      const measured =
+        DECIMAL_DIGIT.test(last ?? "") || (last === " " && DECIMAL_DIGIT.test(beforeLast ?? ""));
+      if (!measured) unit.char = "'";
+    }
+    if (unit.removed) continue;
+    beforeLast = last;
+    last = unit.char;
   }
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
@@ -511,17 +460,10 @@ export function findQuote(
   options: MatchOptions = {},
 ): TextRange[] | null {
   const readings = options.numbers === "if-needed" ? [false, true] : [options.numbers === true];
-  const ligatures = options.lostLigatures === true;
-  const glossed = GLOSS_IN_TEXT.test(text);
   for (const numbers of readings) {
     const found =
-      findRead(text, quote, numbers, { ligatures: false, glosses: false }, options.unique) ??
-      (ligatures
-        ? findRead(text, quote, numbers, { ligatures: true, glosses: false }, options.unique)
-        : null) ??
-      (glossed
-        ? findRead(text, quote, numbers, { ligatures, glosses: true }, options.unique)
-        : null);
+      findRead(text, quote, numbers, false, options.unique) ??
+      (options.lostLigatures ? findRead(text, quote, numbers, true, options.unique) : null);
     if (found === "ambiguous") return null;
     if (found) return found;
   }
@@ -529,22 +471,18 @@ export function findQuote(
 }
 
 /**
- * `findQuote` in one reading: with number formatting normalised or not, with
- * the quote and the text both read without f-ligatures' letters or not, and
- * with the text's glosses left out or not.
+ * `findQuote` in one reading: with number formatting normalised or not, and
+ * with the quote and the text both read without f-ligatures' letters or not.
  */
 function findRead(
   text: string,
   quote: string,
   numbers: boolean,
-  without: { ligatures: boolean; glosses: boolean },
+  withoutLigatureLetters: boolean,
   unique = false,
 ): TextRange[] | "ambiguous" | null {
-  const shape = without.ligatures ? withoutLigatures : (needle: string) => needle;
-  const read = (units: NormalisedUnit[]) => {
-    const kept = without.ligatures ? unitsWithoutLigatures(units) : units;
-    return without.glosses ? unitsWithoutGlosses(kept) : kept;
-  };
+  const shape = withoutLigatureLetters ? withoutLigatures : (needle: string) => needle;
+  const read = withoutLigatureLetters ? unitsWithoutLigatures : (units: NormalisedUnit[]) => units;
   if (!numbers)
     return findNeedle(read(matchUnits(text)), shape(needleOf(quote)), undefined, unique);
   const units = read(matchUnits(text, "text"));
