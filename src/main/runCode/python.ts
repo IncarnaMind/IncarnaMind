@@ -13,7 +13,7 @@
  * one GET for the archive, from the host its manifest names.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Executor, Logger } from "../../core/adapters";
 import type { EmbeddingModelError, EmbeddingModelStatus } from "../../core/api";
@@ -108,6 +108,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
   const { manifest } = options;
   const folder = pythonRuntimeFolder(options.dataDir, manifest.sha256);
   const files = join(folder, "files");
+  const archive = join(folder, "download", manifest.file);
   const command = join(files, "python", "bin", "python3");
   const fontCache = join(folder, "matplotlib");
   const lifetime = new AbortController();
@@ -243,7 +244,10 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
         update({ state: "ready", downloadedBytes: manifest.size, error: null });
         return { ok: true, python: { command, fontCache, manifest } };
       }
-      update({ state: "downloading", error: null, downloadedBytes: 0 });
+      // An archive a download finished is only checked again: nothing is shown downloading. Should
+      // it fail its check, the download starts again and shows so.
+      const kept = (await stat(archive).catch(() => null))?.size === manifest.size;
+      update({ state: "downloading", error: null, downloadedBytes: kept ? manifest.size : 0 });
       try {
         stop.signal.throwIfAborted();
         await prepare(stop.signal);
