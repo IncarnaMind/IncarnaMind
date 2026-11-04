@@ -705,7 +705,7 @@ export const en = {
   "editor.picture.pastedAsText": "Pasted the text; a picture with it wasn’t added.",
   "editor.slash.contents": "Table of contents",
   "editor.cite.command": "Cite a passage…",
-  "editor.noteTextOnly": "Put the cursor in the Note’s text first.",
+  "editor.noteTextOnly": "Put the cursor in the note’s text first.",
   "editor.cite.keywords": "cite citation passage quote source reference yinyong 引用 原文 出处",
   "editor.linkDocument.command": "Link a Document…",
   "editor.linkDocument.keywords": "link document file mention lianjie wendang 文档 链接",
