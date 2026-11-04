@@ -277,11 +277,12 @@ for (const language of ["en", "zh-CN"] as const) {
     );
 
     // A figure the Passage doesn't give stays out: the sentence is kept as written.
+    await setWindowSize(app, window, 900, 900);
     const ports = await checkSentence(window, editor, PORTS);
+    await capture(window, `after-rewrite-offer-${language}-900`);
     await pointAndClick(window, ports.getByTestId("claim-rewrite"));
     await expect(window.getByTestId("error-notice-message")).toHaveText(t("claim.rewrite.kept"));
     expect(await noteText(editor)).toBe(`${DIFFERENT}\n${PORTS}`);
-    await setWindowSize(app, window, 900, 900);
     await capture(window, `after-rewrite-kept-${language}-900`);
 
     // ⌘K reaches it, for the sentence at the caret.

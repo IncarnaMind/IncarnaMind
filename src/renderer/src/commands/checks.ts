@@ -11,13 +11,16 @@ import {
   useChecks,
 } from "../checks";
 import { chooseCitationIn, requestCitationPicker } from "../citationPick";
+import { keptFrom } from "../components/documentOrFolder";
 import { applyCorrection, correctionAt } from "../correctionFixes";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
+import { folderWallOf } from "../folders";
 import { startMindCheck } from "../mindCheck";
 import { rewriteAt, rewriteWithDocuments } from "../rewriteFix";
+import { useAppStore } from "../store";
 import {
   applyDocumentWording,
   applyFigure,
@@ -36,9 +39,6 @@ import {
   uncoveredOf,
   unsupportedAt,
 } from "../unsupportedFixes";
-import { keptFrom } from "../components/documentOrFolder";
-import { folderWallOf } from "../folders";
-import { useAppStore } from "../store";
 import { noteHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
 

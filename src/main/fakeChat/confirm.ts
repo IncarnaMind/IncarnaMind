@@ -11,7 +11,8 @@ import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 const CONFIRM_RUN = /^Compare a sentence the User wrote with words quoted from a Passage/m;
 const RECORD_RUN = /^Compare a sentence the User wrote with the exact Passage a record cite names/m;
 /** The request for a rewrite with what the Documents say. */
-const REWRITE_RUN = /^A sentence the User wrote gives another value for something than words quoted/m;
+const REWRITE_RUN =
+  /^A sentence the User wrote gives another value for something than words quoted/m;
 /** A look at the quote a whole read's window gives for what a sentence says is absent. */
 const PRESENCE_RUN = /^A sentence the User wrote says something is absent from their Documents/m;
 
