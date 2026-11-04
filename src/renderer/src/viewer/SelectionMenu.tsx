@@ -153,11 +153,14 @@ export function SelectionMenu({
       pressed = false;
     };
     // Once the browser has settled the selection the press made, and at once, so a key pressed
-    // before it settles (⌘K) still finds the words selected.
+    // before it settles (⌘K) still finds the words selected. A loaded browser can apply the
+    // drag's selection after the pointer has come up, so read it again once it has.
     const onUp = (event: PointerEvent) => {
       if (event.button !== 0 || inPopover(event.target)) return;
       read();
       setTimeout(read);
+      clearTimeout(settling);
+      settling = setTimeout(read, SETTLE_MS);
     };
     const onChange = () => {
       const selection = window.getSelection();
