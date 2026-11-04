@@ -607,7 +607,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, window.getByTestId("claim-mark").nth(1));
     await expect(card).toHaveAttribute("data-check", "supported");
     const long = line.locator(".claim-card-checked-by-name");
-    await expect(long).toHaveText(LONG_NAME);
+    // In English the name keeps the comma before the time, so no line starts with it.
+    await expect(long).toHaveText(language === "en" ? `${LONG_NAME},` : LONG_NAME);
     expect(await linesOf(long), "a name wider than the card wraps").toBeGreaterThanOrEqual(2);
     const broken = await long.evaluate((element) => {
       const text = element.firstChild;
