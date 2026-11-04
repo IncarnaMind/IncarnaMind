@@ -1939,28 +1939,25 @@
     /* A Chinese question would otherwise leave "句子？" alone on its last line, at 900 and 1,440 px alike (#1554). */
     text-wrap: balance;
   }
-  /* At the top of the page, under the viewer's 36px toolbar, while a sentence waits for its Citation (#1554). */
+  /*
+   * Under the viewer's toolbar while a sentence waits for its Citation (#1554), as the lines about
+   * the Document are: in the page's flow, so it never covers the words to select.
+   */
   .citation-pick-line {
-    position: absolute;
-    left: 50%;
-    top: 48px;
-    z-index: 8;
     display: flex;
+    flex-shrink: 0;
     flex-direction: column;
-    gap: 6px;
-    width: max-content;
-    max-width: calc(100% - 32px);
-    padding: 10px 12px;
-    border-radius: 8px;
+    gap: 2px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--color-rule);
     background: var(--color-sheet);
-    box-shadow: var(--shadow-popover);
     font-size: 13px;
     line-height: 20px;
     color: var(--color-ink-secondary);
-    translate: -50% 0;
 
     & b {
       flex: 1 1 auto;
+      min-width: 0;
       font-weight: 600;
       color: var(--color-ink);
     }

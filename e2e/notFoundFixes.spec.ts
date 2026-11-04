@@ -34,7 +34,7 @@ import {
 const OWN = "Harbours publish the times of high water every 12 months.";
 const ELSEWHERE = "Penguins nest on the harbour cliffs every spring.";
 const ABSENT = "Whales sing in the deep bay.";
-const DIFFERENT = "Harbours publish forecasts monthly (6).";
+const DIFFERENT = "Harbours publish forecasts (6).";
 const PORTS = "Harbours publish (6) for (3) ports.";
 const TIDE_TABLES = "北码头潮汐时刻表";
 
@@ -94,7 +94,17 @@ async function checkSentence(window: Page, editor: Locator, claim: string): Prom
   const marks = window.getByTestId("claim-mark");
   const before = await marks.count();
   await pointAndClick(window, editor.locator(":scope > p").last());
-  await window.keyboard.press("ControlOrMeta+End");
+  // At the Note's end, wherever in the last line the click put the caret: ⌘↓ on a Mac, Ctrl+End
+  // elsewhere, as each system's text fields take it.
+  await expect(async () => {
+    await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+    expect(
+      await editor.evaluate((dom) => {
+        const { state } = (dom as unknown as { editor: Editor }).editor;
+        return state.selection.empty && state.selection.to === state.doc.content.size - 1;
+      }),
+    ).toBe(true);
+  }).toPass();
   if (written) await window.keyboard.press("Enter");
   await window.keyboard.type(claim);
   const line = editor.locator(":scope > p").last();
@@ -149,9 +159,14 @@ async function dragAcross(window: Page, view: Locator, from: string, to: string)
   }).toPass({ timeout: 20_000 });
 }
 
-/** Selects the Document's sentence `OWN` in the viewer. */
+/** Selects the Document's sentence `OWN` in the viewer's page, not in the line naming the sentence. */
 const selectOwn = (window: Page) =>
-  dragAcross(window, window.getByTestId("viewer"), "Harbours publish", "12 months.");
+  dragAcross(
+    window,
+    window.getByTestId("viewer-text").filter({ visible: true }),
+    "Harbours publish",
+    "12 months.",
+  );
 
 /** The sentence's text as the Note holds it, a Citation as U+FFFC. */
 const noteText = (editor: Locator) =>
@@ -275,14 +290,15 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(line.getByTestId("citation-pick-cancel")).toHaveText(
       t("claim.chooseCitation.cancel"),
     );
-    // At the top of the page, just under the viewer's toolbar.
-    const [top, toolbar] = [
+    // Under the viewer's toolbar, above the page, so it covers none of the words to select.
+    const [top, toolbar, page] = [
       await line.boundingBox(),
       await viewer.getByTestId("viewer-header").boundingBox(),
+      await viewer.getByTestId("viewer-text").boundingBox(),
     ];
-    if (!top || !toolbar) throw new Error("The waiting line isn't laid out.");
-    expect(top.y).toBeGreaterThan(toolbar.y + toolbar.height);
-    expect(top.y).toBeLessThan(toolbar.y + toolbar.height + 24);
+    if (!top || !toolbar || !page) throw new Error("The waiting line isn't laid out.");
+    expect(Math.abs(top.y - (toolbar.y + toolbar.height))).toBeLessThan(2);
+    expect(page.y).toBeGreaterThanOrEqual(top.y + top.height - 1);
     await capture(window, `after-choose-waiting-${language}-1440`);
 
     // Choose another Document… opens the shared picker; the sentence waits in the one chosen.
@@ -302,15 +318,15 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(line).toContainText(DIFFERENT);
     await setWindowSize(app, window, 900, 900);
     await capture(window, `after-choose-another-${language}-900`);
-    // Then Esc ends the wait.
+    // Then Esc ends the wait, and the Note is as it was.
     await window.keyboard.press("Escape");
     await expect(line).toHaveCount(0);
+    await setWindowSize(app, window, 1440, 900);
     await expect.poll(() => noteText(editor)).toBe(DIFFERENT);
 
     // ⌘K's one Check against a Document… opens the picker with the Document open beside the
     // Note chosen, so Enter reads it.
-    await setWindowSize(app, window, 1440, 900);
-    await pointAndClick(window, editor.getByText("forecasts monthly"));
+    await pointAndClick(window, editor.getByText("publish forecasts"));
     await runCommand(window, "check.againstDocument", t("claim.checkAgainstDocument"));
     const documents = window.getByTestId("document-or-folder-picker");
     await expect(documents).toBeVisible();
@@ -346,7 +362,7 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       expect(await noteText(editor)).toBe(DIFFERENT);
       await holdModel(app, false);
-      await expect.poll(() => noteText(editor)).toBe("Harbours publish forecasts monthly (12￼).");
+      await expect.poll(() => noteText(editor)).toBe("Harbours publish forecasts (12￼).");
       // Checked again on its Citation: the scripted model judges no cited sentence it doesn't
       // list, so the verdict a real model gives is in the live test.
       await expect(window.getByTestId("claim-mark").last()).toHaveAttribute(
@@ -397,9 +413,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await capture(window, `after-rewrite-offer-${language}-900`);
     // ⌘K reaches it, for the sentence at the caret.
     await window.keyboard.press("Escape");
-    await pointAndClick(window, editor.getByText("forecasts monthly"));
+    await pointAndClick(window, editor.getByText("publish forecasts"));
     await runCommand(window, "check.rewrite", t("claim.rewrite"));
-    await expect.poll(() => noteText(editor)).toBe("Harbours publish forecasts monthly (12￼).");
+    await expect.poll(() => noteText(editor)).toBe("Harbours publish forecasts (12￼).");
     await app.close();
   });
 }

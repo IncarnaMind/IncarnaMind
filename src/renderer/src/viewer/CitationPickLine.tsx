@@ -1,10 +1,13 @@
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { type CitationPick, chooseCitationIn, dropCitationPick, usePickIn } from "../citationPick";
+import { ViewerTabContext } from "../commands/handles";
 import { buttonStyle } from "../components/ui";
 import { CitationDocumentPicker } from "../editor/ChooseCitationAction";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useT } from "../i18n";
+import { groupOfTab } from "../layoutSlice";
 import { useFade } from "../motion";
+import { useAppStore } from "../store";
 
 /**
  * While a sentence waits for its Citation in this Document (#1554): one line at the top of the
@@ -21,6 +24,7 @@ function PickLine({ pick }: { pick: CitationPick }) {
   const line = useRef<HTMLDivElement>(null);
   const [other, setOther] = useState<HTMLButtonElement | null>(null);
   const [picking, setPicking] = useState(false);
+  const tab = useContext(ViewerTabContext);
   useFade(line);
   // Esc closes the newest thing on screen first: a problem line shown since, then this.
   useDismissOnEscape(true, dropCitationPick);
@@ -55,7 +59,8 @@ function PickLine({ pick }: { pick: CitationPick }) {
           mindId={pick.mindId}
           onChoose={(documentId) => {
             setPicking(false);
-            chooseCitationIn({ ...pick, documentId });
+            const group = tab === null ? undefined : groupOfTab(useAppStore.getState().layout, tab);
+            chooseCitationIn({ ...pick, documentId }, null, group?.group.id);
           }}
           onClose={() => setPicking(false)}
         />

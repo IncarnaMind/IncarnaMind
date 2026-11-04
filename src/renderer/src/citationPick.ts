@@ -48,11 +48,13 @@ export const dropCitationPick = () => useCitationPick.setState({ pick: null });
 
 /**
  * Opens the Document beside the Note, with the sentence waiting for its Citation: at the Passage
- * `at`, when given, its words shown, else at its start.
+ * `at`, when given, its words shown, else at its start. `inGroup`: in place of the Document the
+ * sentence waited in, in that group, rather than in one more beside it.
  */
 export function chooseCitationIn(
   pick: CitationPick,
-  at?: Pick<Citation, "pageFrom" | "pageTo" | "quote">,
+  at?: Pick<Citation, "pageFrom" | "pageTo" | "quote"> | null,
+  inGroup?: string,
 ): void {
   useCitationPick.setState({ pick });
   useAppStore.getState().openDocument(
@@ -64,7 +66,7 @@ export function chooseCitationIn(
         quote: at.quote,
       }),
     },
-    { as: "citation", keep: true },
+    inGroup === undefined ? { as: "citation", keep: true } : { as: "here", from: inGroup },
   );
 }
 
