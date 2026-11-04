@@ -47,7 +47,10 @@ const typesInField = (element: Element | null) =>
   element instanceof HTMLInputElement ||
   element instanceof HTMLTextAreaElement ||
   // ⌘K's dialog takes the page's selection before its field has the focus.
-  (element?.closest("dialog[open]") ?? null) !== null;
+  (element?.closest("dialog[open]") ?? null) !== null ||
+  // A modal dialog holds the body's focus for the moment before it focuses its field.
+  ((element === null || element === window.document.body) &&
+    window.document.querySelector("dialog[open]") !== null);
 
 const inPopover = (target: EventTarget | null) =>
   target instanceof Element && target.closest(".editor-popover") !== null;
@@ -138,18 +141,29 @@ export function SelectionMenu({
     const onReleased = () => {
       pressed = false;
     };
-    // Once the browser has settled the selection the press made.
+    // Once the browser has settled the selection the press made, and at once, so a key pressed
+    // before it settles (⌘K) still finds the words selected.
     const onUp = (event: PointerEvent) => {
-      if (event.button === 0 && !inPopover(event.target)) setTimeout(read);
+      if (event.button !== 0 || inPopover(event.target)) return;
+      read();
+      setTimeout(read);
     };
     const onChange = () => {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
-        if (!section.contains(selection.getRangeAt(0).commonAncestorContainer)) setHeld(null);
-        // After a drag the focus is on the page's body, which no key event of the viewer reaches.
-        else if (!pressed) {
-          clearTimeout(settling);
-          settling = setTimeout(read, SETTLE_MS);
+        if (section.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+          // After a drag the focus is on the page's body, which no key event of the viewer reaches.
+          if (!pressed) {
+            clearTimeout(settling);
+            settling = setTimeout(read, SETTLE_MS);
+          }
+        } else {
+          const focused = window.document.activeElement;
+          // Words typed in ⌘K's field are a selection too, and not the page's.
+          if (typesInField(focused) || inPopover(focused)) {
+            if (!inPopover(focused)) setOpen(false);
+            setAway(true);
+          } else setHeld(null);
         }
         return;
       }
