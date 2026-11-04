@@ -890,7 +890,7 @@ describe("annotations", () => {
       buildPdf([
         {
           lines: ["Added line above.", "Alpha report cover.", "Highlighted words here."],
-          marks: [{ ...moved, contents: "Compare with Table 4." }],
+          marks: [{ ...moved, contents: "Confidential rooftop figure." }],
         },
       ]),
     );
@@ -900,7 +900,7 @@ describe("annotations", () => {
     const after = await core.listAnnotations(document.id);
     expect(after.find((each) => each.id === kept.id)).toMatchObject({
       quote: "Highlighted words here.",
-      note: "Compare with Table 4.",
+      note: "Confidential rooftop figure.",
       missing: false,
       check: "found",
     });
@@ -909,9 +909,9 @@ describe("annotations", () => {
       check: "not-found",
       passageId: null,
     });
-    expect((await core.searchAnnotations("Table 4")).map((each) => each.annotationId)).toContain(
-      kept.id,
-    );
+    expect(
+      (await core.searchAnnotations("Confidential")).map((each) => each.annotationId),
+    ).toContain(kept.id);
 
     // The User's own note stays theirs when the file's changes again.
     await core.updateAnnotation(kept.id, { note: "Mine" });
