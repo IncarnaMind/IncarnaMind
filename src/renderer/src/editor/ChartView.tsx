@@ -227,7 +227,7 @@ export function ChartView({
       const states = valueCitations(value).map((each) => citationState(each, documents, kept));
       return {
         check: checksOf(states).check,
-        label: calculatedFrom(inputsOf([value.figure]), documents, t),
+        label: calculatedFrom(inputsOf([value.figure]), documents, t, language),
       };
     }
     const worst = worstOf(value);

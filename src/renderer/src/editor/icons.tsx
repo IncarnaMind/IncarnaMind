@@ -169,8 +169,21 @@ const CLAIM_MARKS: Record<ClaimMarkState, (props: IconProps) => JSX.Element> = {
   "needs-recheck": Again,
 };
 
+/** ☑: supported, and only by the User's own notes (#335): a box, so shape and colour both say it. */
+const OwnNoteCheck = (props: IconProps) => (
+  <Stroke weight={2} {...props}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="3" />
+    <path d="m7.5 12 3 3 6-7" />
+  </Stroke>
+);
+
 /** A sentence check's mark, as small as a Citation's, for the margin and its card. */
-export function ClaimMarkIcon({ state, ...props }: IconProps & { state: ClaimMarkState }) {
+export function ClaimMarkIcon({
+  state,
+  ownNoteOnly = false,
+  ...props
+}: IconProps & { state: ClaimMarkState; ownNoteOnly?: boolean }) {
+  if (ownNoteOnly && state === "supported") return <OwnNoteCheck {...props} />;
   const Mark = CLAIM_MARKS[state];
   return <Mark {...props} />;
 }

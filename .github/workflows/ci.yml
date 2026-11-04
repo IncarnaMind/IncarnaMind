@@ -283,6 +283,29 @@ jobs:
       - name: Run run_code's tests on it
         run: INCARNAMIND_TEST_PYTHON_RUNTIME="$RUNNER_TEMP/python-native" npx vitest run tests/main/runCode
 
+  # What finds and stops a run's leftover processes, and the OS sandbox's own profile, are
+  # Seatbelt's, so their tests run only on macOS (ADR-0025); Linux's bubblewrap ends a run's
+  # processes itself. macOS runners are few, so it runs only on the changes the Linux job does.
+  sweep-macos:
+    name: The sweep and the OS sandbox (macOS)
+    needs: changes
+    if: needs.changes.outputs.runcode == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Run the sweep's and the sandbox's tests
+        env:
+          INCARNAMIND_TEST_OS_SANDBOX: required
+        run: npx vitest run tests/main/runLeftovers.test.ts tests/main/runCodeLeftBehind.test.ts tests/main/sandbox.test.ts tests/main/runCode.test.ts
+
   # The packaged app, as the User installs it, loads every engine module the way it runs them,
   # reads scans with its real OCR (#1819) and transcribes a meeting with its real speech engine and
   # model (#1239): engine failures can appear only there, while every test passes on the fakes.

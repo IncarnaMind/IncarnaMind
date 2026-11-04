@@ -329,6 +329,7 @@ import {
   withHelp,
 } from "./meetingHelp";
 import { paragraphAsked } from "./paragraphAsked";
+import { createPrintedNumbers } from "./printedNumbers";
 import {
   analysisInstructions,
   answerInstructions,
@@ -1067,9 +1068,13 @@ export function createAnswers(options: AnswersOptions) {
         : options.resolveScope(NO_SCOPE, mindId);
 
   /** An Answer's Search scope as it had it, resolved as regenerating it does, for its judgement. */
-  const judgedScope = (question: ConversationQuestion): string[] | null => {
+  const judgedMind = (question: ConversationQuestion): string | null => {
     const from = question.askedFrom;
-    const mindId = from && !from.deleted ? from.mindId : null;
+    return from && !from.deleted ? from.mindId : null;
+  };
+
+  const judgedScope = (question: ConversationQuestion): string[] | null => {
+    const mindId = judgedMind(question);
     const readsMind = mindId !== null && options.readableMindName(mindId) !== null;
     return scopeNow(question.scope, mindId, readsMind ? null : wallOfTurn(question)).documentIds;
   };
@@ -1098,6 +1103,7 @@ export function createAnswers(options: AnswersOptions) {
    */
   async function judgeAnswer(
     answer: ConversationAnswer,
+    mindId: string | null,
     documentIds: readonly string[] | null,
     limit: Money = ANSWER_CHECKING_LIMIT,
   ) {
@@ -1144,6 +1150,7 @@ export function createAnswers(options: AnswersOptions) {
             citations: answer.citations,
             figures: answer.figures,
             waiting,
+            mindId,
             documentIds,
             model,
             signal: controller.signal,
@@ -1551,6 +1558,16 @@ export function createAnswers(options: AnswersOptions) {
         writeSoon();
       },
     });
+    const markPrinted = createPrintedNumbers({
+      language: answerLanguage(context.question),
+      record: (figure, above) => figures.record(figure, [], above),
+    });
+    const withPrintedFigures = (text: string): string =>
+      markPrinted(text, {
+        analyses,
+        quoteOf: (marker) => session.quotes.recorded(marker)?.citation.quote ?? null,
+        figureOf: (marker) => figures.figure(marker),
+      });
     const scaleChangeIn = (text: string): ChangedScale | null =>
       changedScale(
         text,
@@ -1783,6 +1800,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       // A marker no Citation backs is not kept in the text, and each is counted for the summary.
       markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
+      if (calculating) markdown = withPrintedFigures(markdown);
     };
 
     /**
@@ -1877,7 +1895,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       if (judging && written && waitingAs === "checking" && waiting.size > 0) {
         const stored = options.conversations.answer(answerId);
-        if (stored) void judgeAnswer(stored, input.documentIds);
+        if (stored) void judgeAnswer(stored, place.mindId, input.documentIds);
       }
     };
 
@@ -2753,7 +2771,9 @@ export function createAnswers(options: AnswersOptions) {
                   ...(input.assistant?.lastAnswer?.answer.analyses ?? []),
                 ];
                 const markdown = withAnalysisResults(
-                  calculating ? citeFigures(written.markdown) : written.markdown,
+                  calculating
+                    ? withPrintedFigures(citeFigures(written.markdown))
+                    : written.markdown,
                   markerAnalyses,
                   answerLanguage(context.question),
                 );
@@ -4464,7 +4484,12 @@ export function createAnswers(options: AnswersOptions) {
           citation.check === "not-checked" ? { ...citation, check: "checking" } : citation,
       );
       if (!options.conversations.writeCitations(answerId, answer.text, waiting)) return;
-      await judgeAnswer({ ...answer, citations: waiting }, documentIds, limit ?? undefined);
+      await judgeAnswer(
+        { ...answer, citations: waiting },
+        judgedMind(question),
+        documentIds,
+        limit ?? undefined,
+      );
     },
 
     /**
@@ -4485,6 +4510,7 @@ export function createAnswers(options: AnswersOptions) {
           citations: answer.citations,
           figures: answer.figures,
           waiting,
+          mindId: judgedMind(question),
           documentIds: judgedScope(question),
           model: answer.model,
         }) ?? null;

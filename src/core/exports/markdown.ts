@@ -60,6 +60,12 @@ export interface MarkdownOptions {
    * file).
    */
   pictures?: boolean;
+  /**
+   * False reads the Note's own words only, leaving out its Citation markers and
+   * footnotes: a snapshot of the Note is what the User wrote and the AI wrote,
+   * not what it cites (#335).
+   */
+  citations?: false;
 }
 
 export function renderMarkdown(
@@ -78,6 +84,7 @@ export function renderMarkdown(
     },
     headingEntries(blocks),
     options.pictures === false ? null : (image) => pictureFile(image, pictures),
+    options.citations !== false,
   );
   const parts: string[] = [];
   if (title) parts.push(`# ${escapeText(title, false)}`);
@@ -162,6 +169,8 @@ class MarkdownWriter {
     private readonly picture:
       | ((image: Image) => { src: string; alt?: string } | null)
       | null = null,
+    /** Whether Citation markers and footnotes are written (see `MarkdownOptions.citations`). */
+    private readonly citations = true,
   ) {}
 
   blocks(blocks: readonly Block[], context: Context): string {
@@ -412,6 +421,7 @@ class MarkdownWriter {
       case "figure":
         return escapeText(item.figure.shown, context.table);
       case "citation":
+        if (!this.citations) return "";
         if (context.note) return citationSource(item.footnote, this.labels);
         return `[^${this.number({ kind: "citation", footnote: item.footnote })}]`;
       case "footnote":

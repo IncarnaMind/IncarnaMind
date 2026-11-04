@@ -566,6 +566,26 @@ const RECORD_MISSES: ReadonlySet<RecordCiteResult["outcome"]> = new Set([
 ]);
 
 /**
+ * Whether every Document that supports the sentence is one of the User's own notes (#335):
+ * its own evidence and the evidence of each supported part, with nothing read whole behind it.
+ * A Document of theirs that also supports it makes this false, so the mark stays the usual one.
+ */
+export function supportedByOwnNotesOnly(check: {
+  state: ClaimCheckAttributes["state"];
+  evidence: CitationAttributes | null;
+  parts?: readonly Pick<ClaimCheckPart, "verdict" | "evidence">[];
+  readDocuments?: readonly unknown[];
+}): boolean {
+  if (check.state !== "supported") return false;
+  if ((check.readDocuments ?? []).length > 0) return false;
+  const evidence = [
+    ...(check.evidence ? [check.evidence] : []),
+    ...(check.parts ?? []).flatMap((part) => (part.verdict === "supported" ? part.evidence : [])),
+  ];
+  return evidence.length > 0 && evidence.every((each) => typeof each.yourNoteAt === "string");
+}
+
+/**
  * What a check's margin glyph shows: its sentence's state, but Unsupported rather than Supported
  * while one of the sentence's own record cites is Unsupported, Not found or Choose (#1709).
  */

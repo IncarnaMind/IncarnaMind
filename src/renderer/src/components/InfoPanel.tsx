@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { Document, LibraryGroup, LinkedFolder } from "../../../core/api";
 import { formatBytes } from "../../../shared/bytes";
+import { formatShortDate, formatTime } from "../../../shared/dates";
 import { displayName } from "../../../shared/documentNames";
 import { type FileDates, fileDates, shownFileDate } from "../../../shared/fileProperties";
 import { mindName } from "../../../shared/naming";
@@ -346,6 +347,14 @@ function DocumentInfo({ document }: { document: Document }) {
         ) : (
           <Row label={t("info.where")} testId="info-path">
             {file ? document.path : t("info.inLibrary")}
+          </Row>
+        )}
+        {document.yourNote && (
+          <Row label={t("mind.yourNote")} testId="info-your-note">
+            {t("mind.snapshotAt", {
+              date: formatShortDate(document.yourNote.snapshotAt, language),
+              time: formatTime(document.yourNote.snapshotAt, language),
+            })}
           </Row>
         )}
         {file && (

@@ -59,11 +59,8 @@ async function launch(language: "en" | "zh-CN", runtime: string | null) {
   const launched = await launchApp(dataDir, {
     fakeChat: true,
     sandboxed: true,
-    // The shipped catalog offers run_code to no model yet (#2351).
-    extraEnv: {
-      INCARNAMIND_TEST_MODEL_FACTS: JSON.stringify({ codeTool: true }),
-      ...(runtime && { INCARNAMIND_TEST_PYTHON_RUNTIME: runtime }),
-    },
+    // Claude Haiku 5.5 is offered run_code by the shipped catalog (#2351).
+    ...(runtime && { extraEnv: { INCARNAMIND_TEST_PYTHON_RUNTIME: runtime } }),
   });
   const { app, window } = launched;
   await setWindowSize(app, window, 1200, 760);

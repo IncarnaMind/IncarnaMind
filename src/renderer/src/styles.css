@@ -1141,7 +1141,6 @@
   .mind-word-problem {
     margin: 0 0 16px;
   }
-
   /*
    * Parts joined by middle dots wrap only between parts, and no line starts or
    * ends with a dot (#684): each part draws the dot in the gap before it, and
@@ -5488,6 +5487,10 @@
     &[data-check="supported"] {
       --check-wash: none;
       color: var(--color-success);
+    }
+    /* Supported by the User's own notes alone: the ticked box in the meta ink, not the green tick (#335). */
+    &[data-check="supported"][data-own-note] {
+      color: var(--color-ink-meta);
     }
     /* Contradicted is outlined, so it reads without its colour. */
     &[data-check="contradicted"] {

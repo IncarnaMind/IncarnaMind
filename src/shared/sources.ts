@@ -6,7 +6,7 @@
  */
 import type { CitationAttributes, Document, KeptCitationText } from "../core/api";
 import type { Language } from "../core/language";
-import { citationState, citedLocation, shownDocumentName } from "./citations";
+import { citationState, citedLocation, citedName, shownDocumentName } from "./citations";
 import { titleWithoutSite } from "./documentNames";
 import { translate } from "./i18n";
 import type { Translate } from "./locations";
@@ -74,7 +74,14 @@ function webOf(attributes: Cited, context: SourceContext) {
 }
 
 const nameOf = (attributes: Cited, context: SourceContext, t: Translate) =>
-  shownDocumentName(attributes, context.documents) || t("export.unnamedDocument");
+  citedName(
+    {
+      ...attributes,
+      documentName: shownDocumentName(attributes, context.documents) || t("export.unnamedDocument"),
+    },
+    t,
+    context.language,
+  );
 
 /** A web page's own words for its source, the site named after the title it doesn't end with. */
 function webParts(name: string, web: { site: string }): string[] {
