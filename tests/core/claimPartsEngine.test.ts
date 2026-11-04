@@ -47,7 +47,7 @@ async function check(
   const judgements: string[] = [];
   const recoveries: GenerateCall[] = [];
   const sorts: GenerateCall[] = [];
-  const rechecks: GenerateCall[] = [];
+  const looks = new Map<string, number>();
   const quotes = [
     ...new Set(
       Object.values(outcomes).flatMap(
@@ -144,12 +144,12 @@ async function check(
           return { text: outcomes[target]?.judgement ?? "neither" };
         }
         if (call.system.startsWith("Your last check of this sentence")) {
-          rechecks.push(call);
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
+          looks.set(target, (looks.get(target) ?? 0) + 1);
           return {
             text:
               outcomes[target]?.again ??
-              `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${target} / ${target}, same\nThe Documents establish this.\nEvidence: [1]`,
+              `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${target} / ${target}, same\nThe Documents establish this.\nEvidence: [1]`,
           };
         }
         if (call.system.startsWith("You checked a sentence")) {
@@ -196,7 +196,7 @@ async function check(
     judgements,
     recoveries,
     sorts,
-    rechecks,
+    looks,
   };
 }
 
@@ -403,8 +403,8 @@ describe("literal sentence parts", () => {
       ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
       expect(judged((await run(other)).result.parts ?? [])).not.toBe("supported");
-      // The quote states the part, and the reply's Roles line gives no side to compare: the
-      // fields-only second look is what keeps it from being read as support.
+      // The quote states the part, and the reply's Roles line copies other words: the fields-only
+      // second look is what keeps it from being read as support.
       expect(judged((await run(other, claim)).result.parts ?? [])).not.toBe("supported");
       const noSides = await check(
         claim,
@@ -1005,14 +1005,11 @@ describe("literal sentence parts", () => {
     const judged = (result: Awaited<ReturnType<typeof check>>["result"]) =>
       result.parts?.find((each) => claim.slice(each.span.start, each.span.end) === part);
 
-    const agreed = judged(
-      (
-        await run(
-          `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document states it.\nEvidence: [1]`,
-        )
-      ).result,
+    const agreedRun = await run(
+      `Verdict: supported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document states it.\nEvidence: [1]`,
     );
-    expect(agreed?.verdict).toBe("supported");
+    expect(judged(agreedRun.result)?.verdict).toBe("supported");
+    expect(agreedRun.looks.get(part)).toBe(1);
 
     const still = judged(
       (
@@ -1034,6 +1031,134 @@ describe("literal sentence parts", () => {
     expect(explained?.verdict).toBe("unsupported");
   });
 
+  test.each([
+    { name: "Roles other", roles: "Roles: the Tenant pays / someone else, other" },
+    {
+      name: "a Roles side copied from the Passage",
+      roles: "Roles: the Passage's words / the Passage's words, same",
+    },
+    { name: "Topic not found", topic: "Topic: not found" },
+    { name: "Evidence none", evidence: "Evidence: none" },
+    { name: "Scope wider", scope: "Scope: staff, wider" },
+    { name: "Time differs", time: "Time: has closed / will close, differs" },
+  ])(
+    "a supported second reply passes the first reply's checks ($name, #2313)",
+    async ({ roles, topic, evidence, scope, time }) => {
+      const claim = "Customer churn fell to 3.9 per cent after the onboarding redesign.";
+      const part = "after the onboarding redesign";
+      const quote = "Customer churn fell to 4.2 per cent after the onboarding redesign.";
+      const run = (again: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: "Customer churn fell to 3.9 per cent" },
+            { kind: "fact", text: part },
+          ],
+          {
+            [part]: {
+              quotes: [quote],
+              reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives 4.2 per cent.\nEvidence: [1]`,
+              judgement: "same",
+              again,
+            },
+            "Customer churn fell to 3.9 per cent": { quotes: [quote] },
+          },
+        );
+      const judged = (result: Awaited<ReturnType<typeof check>>["result"]) =>
+        result.parts?.find((each) => claim.slice(each.span.start, each.span.end) === part);
+      const said = [
+        "Verdict: supported",
+        "Absence: no",
+        scope ?? "Scope: none, same",
+        topic ?? "Topic: found",
+        roles ?? `Roles: ${part} / ${part}, same`,
+        time ?? "The Document states it.",
+        evidence ?? "Evidence: [1]",
+      ].join("\n");
+      expect(judged((await run(said)).result)?.verdict).not.toBe("supported");
+    },
+  );
+
+  test("a supported second reply with no Absence line is Not checked (#2313)", async () => {
+    const claim = "Customer churn fell to 3.9 per cent after the onboarding redesign.";
+    const part = "after the onboarding redesign";
+    const quote = "Customer churn fell to 4.2 per cent after the onboarding redesign.";
+    const result = await check(
+      claim,
+      [
+        { kind: "fact", text: "Customer churn fell to 3.9 per cent" },
+        { kind: "fact", text: part },
+      ],
+      {
+        [part]: {
+          quotes: [quote],
+          reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives 4.2 per cent.\nEvidence: [1]`,
+          judgement: "same",
+          again: `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document states it.\nEvidence: [1]`,
+        },
+        "Customer churn fell to 3.9 per cent": { quotes: [quote] },
+      },
+    );
+    const judged = result.result.parts?.find(
+      (each) => claim.slice(each.span.start, each.span.end) === part,
+    );
+    expect(judged?.verdict).toBe("not-checked");
+  });
+
+  test("a unit problem on a contradicted part is refused before the second look (#2313)", async () => {
+    const claim = "According to the covenant, the leverage was £3.1 million.";
+    const first = "According to the covenant";
+    const part = "the leverage was £3.1 million";
+    const quote = "According to the covenant, the leverage was 3.1 million.";
+    const result = await check(
+      claim,
+      [
+        { kind: "fact", text: first },
+        { kind: "fact", text: part },
+      ],
+      {
+        [first]: { quotes: [quote] },
+        [part]: {
+          quotes: [quote],
+          reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives 3.1 million.\nEvidence: [1]`,
+          judgement: "same",
+        },
+      },
+    );
+    const judged = result.result.parts?.find(
+      (each) => claim.slice(each.span.start, each.span.end) === part,
+    );
+    expect(judged?.verdict).not.toBe("supported");
+    expect(result.looks.get(part) ?? 0).toBe(0);
+  });
+
+  test("the unsupported path asks only with an Absence line and a quote that states the part (#2313)", async () => {
+    const claim = "Customer churn fell to 3.9 per cent after the onboarding redesign.";
+    const part = "after the onboarding redesign";
+    const quote = "Customer churn fell to 4.2 per cent after the onboarding redesign.";
+    const run = (absence: string, said: string) =>
+      check(
+        claim,
+        [
+          { kind: "fact", text: "Customer churn fell to 3.9 per cent" },
+          { kind: "fact", text: part },
+        ],
+        {
+          [part]: {
+            quotes: [said],
+            reply: `Verdict: unsupported\n${absence}Scope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Documents do not say it.\nEvidence: [1]`,
+          },
+          "Customer churn fell to 3.9 per cent": { quotes: [said] },
+        },
+      );
+    const noAbsence = await run("", quote);
+    expect(noAbsence.looks.get(part) ?? 0).toBe(0);
+    const lacksDetail = await run("Absence: no\n", "Customer churn fell to 4.2 per cent.");
+    expect(lacksDetail.looks.get(part) ?? 0).toBe(0);
+    const asks = await run("Absence: no\n", quote);
+    expect(asks.looks.get(part)).toBe(1);
+  });
+
   test("an unsupported reply whose own fields say the claim is stated is asked once more (#2313)", async () => {
     const claim = "Customer churn fell to 3.9 per cent after the onboarding redesign.";
     const part = "after the onboarding redesign";
@@ -1047,7 +1172,7 @@ describe("literal sentence parts", () => {
       {
         [part]: {
           quotes: [quote],
-          reply: `Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Documents do not say it.\nEvidence: [1]`,
+          reply: `Verdict: unsupported\nAbsence: no\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Documents do not say it.\nEvidence: [1]`,
         },
         "Customer churn fell to 3.9 per cent": { quotes: [quote] },
       },
@@ -2413,19 +2538,19 @@ describe("a part the quote states keeps its own duty and condition (#1766, #1708
       said: "Duty: may / may, same\nCondition: none",
     },
   ])("$name is not asked again and is never Supported", async ({ said }) => {
-    const { result, rechecks } = await run(said);
+    const { result, looks } = await run(said);
     expect(judged(result.parts ?? [])).not.toBe("supported");
-    expect(rechecks).toHaveLength(0);
+    expect(looks.get(part) ?? 0).toBe(0);
     // Paired: with its own duty and condition the same, the reply disagrees with itself and is
     // asked once more.
-    expect(
-      (await run("Duty: may / may, same\nCondition: none / none, same")).rechecks,
-    ).toHaveLength(1);
+    expect((await run("Duty: may / may, same\nCondition: none / none, same")).looks.get(part)).toBe(
+      1,
+    );
   });
 
   test("a part whose own reply is Supported, both lines the same, is Supported as the judge said", async () => {
     const stated = "The berth costs 30 pounds a night, and berth holders may run a generator.";
-    const { result, rechecks } = await check(
+    const { result, looks } = await check(
       claim,
       [
         { kind: "fact", text: first },
@@ -2441,7 +2566,7 @@ describe("a part the quote states keeps its own duty and condition (#1766, #1708
       (each) => claim.slice(each.span.start, each.span.end) === part,
     );
     expect(probe?.verdict, `${probe?.reason}: ${probe?.detail}`).toBe("supported");
-    expect(rechecks).toHaveLength(0);
+    expect(looks.get(part) ?? 0).toBe(0);
   });
 });
 

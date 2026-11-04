@@ -35,19 +35,22 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
 ];
 
 /**
- * Searches the Question before the first call and answers from those Passages in one call,
- * falling back to the Tool loop when it needs more (#1633, an amendment to ADR-0007). Claude
- * Sonnet 5.5 was measured and left out (2026-10-26): it still gave its records first, so it
- * answered in one call once in 94 and finished no sooner (+0.3 s on the gating set).
+ * Searches the Question before the first call and answers from those Passages, citing as
+ * WRITES_THEN_CITES has the model, falling back to the Tool loop when it needs more (#1633, an
+ * amendment to ADR-0007). No model is listed (2026-11-04), on paired runs against
+ * eval/speed/gates/retrieve-first.md:
+ * - Claude Haiku 5.5, listed from 2026-10-26, came off. On the gating set it finished 1.0 s
+ *   sooner, with 1.15 calls instead of 2.05, but judged right fell from 60 to 57 of 65, with 2
+ *   allowed. Answers made in one call from the Question's own words were partial: en-12, en-16,
+ *   en-17, en-19 and zh-01 went from right to partly, and xl-10 and para-en-01 went to wrong.
+ *   On the whole hard tier it held (right 210 → 209 of 224, 7 allowed).
+ * - Claude Sonnet 5.5, citing first, was 1.4 s sooner on the gating set, but every Citation found
+ *   fell from 63 to 59 of 65, mostly on quoted words the quote check misreads on both paths
+ *   (#2504).
+ * A model comes back only through the same gate, with a second search made where the first
+ * Passages don't cover every part of the Question.
  */
-const RETRIEVES_FIRST: readonly Admitted[] = [
-  {
-    model: "anthropic/claude-haiku-5-5",
-    since: "2026-10-26",
-    flows: ["question"],
-    gate: "Against the Tool loop with write-then-cite, paired, one run at a time at a normal load, within one item in 30, on turns offered no Tool that writes a Mind: gating 65, done −1.4 s, 2.11 → 1.29 calls, one call in 49, cited 63 → 65, judged right 62 → 61, every Citation found 62 → 64; hard 60, done −1.7 s, 2.95 → 1.75 calls, cited 45 → 44, right 57 → 57, every Citation found 59 → 59; on this code, gating 65 at a normal load, done −0.8 s, 2.18 → 1.25 calls, cited 62 → 62, right 60 → 58, every Citation found 64 → 63; no new false Supported, duplicate, unmade change or tool text. Assistant turns keep the loop.",
-  },
-];
+const RETRIEVES_FIRST: readonly Admitted[] = [];
 
 /** A model as an Answer runs it. */
 export interface ListedModel {
