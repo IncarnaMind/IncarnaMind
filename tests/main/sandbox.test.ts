@@ -39,6 +39,7 @@ import {
   bwrapScript,
   bwrapSizesTmpfs,
   canonicalPath,
+  installFolders,
   interpreterRoots,
   loadOsSandbox,
   MAC_DENIED,
@@ -452,6 +453,17 @@ describe.skipIf(process.platform === "win32")(
       expect(await canonicalPath(root, { mustExist: true })).toBe(root);
     });
 
+    test("an interpreter outside every denied folder has nothing read back for it: it is readable already", async () => {
+      const root = await realpath(await createTempDataFolder());
+      const home = join(root, "home");
+      await mkdir(join(home, "bin"), { recursive: true });
+      const inHome = join(home, "bin", "sh");
+      const denied = [home];
+
+      expect(await installFolders("/usr/bin/env", "/usr/bin/env", denied, denied)).toEqual([]);
+      expect(await installFolders(inHome, inHome, denied, denied)).toEqual([join(home, "bin")]);
+    });
+
     test("the homes interpreters may be installed in are each account's and the volumes'", () => {
       expect(interpreterRoots({ platform: "darwin", home: "/Users/Ada" })).toEqual([
         "/Users/Ada",
@@ -705,6 +717,83 @@ console.log(JSON.stringify(results));
       expect({ exitCode: run.exitCode, stdout: run.stdout }).toEqual({
         exitCode: 0,
         stdout: "started\ndenied\ndenied\n",
+      });
+    });
+
+    test("sh and uv's python3 linked from ~/.local/bin run, uv's Python reads its own install, and the rest of ~/.local stays unread", async () => {
+      const { root, home, data } = await setUp();
+      const local = join(home, ".local");
+      // uv's default Python: ~/.local/bin/python3, a link into ~/.local/share/uv/python/….
+      const uv = join(local, "share", "uv", "python", "cpython-3.14");
+      await mkdir(join(uv, "bin"), { recursive: true });
+      await mkdir(join(uv, "lib"));
+      await writeFile(join(uv, "lib", "own.txt"), "OWN INSTALL\n");
+      await writeFile(join(uv, "bin", "python3.14"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
+        mode: 0o755,
+      });
+      await mkdir(join(local, "bin"));
+      await symlink(join(uv, "bin", "python3.14"), join(local, "bin", "python3"));
+      await symlink("/bin/sh", join(local, "bin", "sh"));
+      await mkdir(join(local, "share", "keyrings"), { recursive: true });
+      await writeFile(join(local, "share", "keyrings", "login.keyring"), "KEYRING SECRET");
+      const executor = osExecutor({
+        env: { PATH: `${join(local, "bin")}:/usr/bin:/bin` },
+        tempDir: join(root, "temp"),
+        denyRead: deniedFor(home, data),
+        interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+      });
+      const probe = [
+        "echo started",
+        `cat '${join(uv, "lib", "own.txt")}' 2>/dev/null || echo denied`,
+        `cat '${join(local, "share", "keyrings", "login.keyring")}' 2>/dev/null || echo denied`,
+      ].join("; ");
+
+      const sh = await executor.run(shell(probe));
+      const python = await executor.run({ ...shell(probe), command: "python3" });
+
+      expect({ exitCode: sh.exitCode, stdout: sh.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\ndenied\ndenied\n",
+      });
+      expect({ exitCode: python.exitCode, stdout: python.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\nOWN INSTALL\ndenied\n",
+      });
+    });
+
+    test("a venv's python in a home runs with its site-packages, and the project beside the venv stays unread", async () => {
+      const { root, home, data } = await setUp();
+      const project = join(home, "project");
+      const venv = join(project, ".venv");
+      const sitePackages = join(venv, "lib", "python3.14", "site-packages");
+      await mkdir(join(venv, "bin"), { recursive: true });
+      await mkdir(sitePackages, { recursive: true });
+      await writeFile(join(venv, "pyvenv.cfg"), "home = /usr/bin\n");
+      await writeFile(join(sitePackages, "package.py"), "SITE PACKAGES\n");
+      await writeFile(join(project, "notes.txt"), "PROJECT SECRET");
+      // A venv's python is a link to the interpreter it was made from.
+      await symlink("/bin/sh", join(venv, "bin", "python"));
+      const executor = osExecutor({
+        env: { PATH: `${join(venv, "bin")}:/usr/bin:/bin` },
+        tempDir: join(root, "temp"),
+        denyRead: deniedFor(home, data),
+        interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+      });
+
+      const run = await executor.run({
+        ...shell(
+          [
+            "echo started",
+            `cat '${join(sitePackages, "package.py")}' 2>/dev/null || echo denied`,
+            `cat '${join(project, "notes.txt")}' 2>/dev/null || echo denied`,
+          ].join("; "),
+        ),
+        command: "python",
+      });
+
+      expect({ exitCode: run.exitCode, stdout: run.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\nSITE PACKAGES\ndenied\n",
       });
     });
 

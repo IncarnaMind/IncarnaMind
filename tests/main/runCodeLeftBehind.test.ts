@@ -56,3 +56,50 @@ test("a run folder left over an hour ago is removed when a runner is made; a new
   });
   expect(errors).toEqual([]);
 });
+
+test("a plot font that can't be found stops a run before its folder is made, and is looked for again by the next run", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "incarnamind-font-"));
+  onTestFinished(() => rm(tempDir, { recursive: true, force: true }));
+  const font = join(tempDir, "fonts", "plot.otf");
+  const ran: string[] = [];
+  const runner = createCodeRunner({
+    executor: {
+      level: "os",
+      run: async (request) => {
+        ran.push(request.command);
+        return {
+          exitCode: 0,
+          timedOut: false,
+          stdout: "",
+          stderr: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        };
+      },
+    },
+    tempDir,
+    python: null,
+    helper: "",
+    font,
+    appVersion: "test",
+    reportError: (error) => {
+      throw error;
+    },
+  });
+  const request = {
+    language: "bash" as const,
+    code: "true",
+    documents: [],
+    signal: new AbortController().signal,
+  };
+
+  await expect(runner.run(request)).rejects.toThrow("can't be found");
+  expect((await readdir(tempDir)).filter((name) => name.startsWith("incarnamind-code-"))).toEqual(
+    [],
+  );
+  await mkdir(join(tempDir, "fonts"));
+  await writeFile(font, "a font");
+
+  expect(await runner.run(request)).toMatchObject({ kind: "ran", end: { kind: "done" } });
+  expect(ran).toEqual(["/bin/bash"]);
+});
