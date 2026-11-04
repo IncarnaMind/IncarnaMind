@@ -6485,6 +6485,9 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   saved value differs from its formulas, it links to another file, it changes each time, its
  *   formulas refer to each other, it reads a sheet or rows that weren't read, Excel saved no value
  *   for it, or any other formula IncarnaMind can't work out), so its cell's number backs nothing.
+ * - "figures-not-read": the figures in a text of a Document the check read couldn't be read; its
+ *   detail is where, as `src/shared/unreadFigures.ts` writes it, or null when that isn't known.
+ * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -6515,6 +6518,8 @@ export type ClaimCheckFailure =
   | "workbook-not-read"
   | "workbook-no-saved-value"
   | "workbook-unsupported"
+  | "figures-not-read"
+  | "sentence-figures-not-read"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
   | "other-cell";
 
