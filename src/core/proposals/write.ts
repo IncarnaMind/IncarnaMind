@@ -2489,7 +2489,6 @@ export function createRewriteStream(
       ownWords: saysOwn = true,
     }: { standIn?: boolean; least?: number; ownWords?: boolean } = {},
   ) => {
-    if (saysOwn && numbersOnly(segment, paragraph)) return false;
     const { alike, own, ownShare, ofOwn, cover, words } = nearnessOf(paragraph);
     const index = indexOf.get(segment) ?? -1;
     const mine = alike[index] ?? 0;
@@ -2622,7 +2621,7 @@ export function createRewriteStream(
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
     if (!segment || droppedTypedTag) return;
-    // By its place too, a new line that differs from this one only in its numbers is added.
+    // A new line that differs from this one only in its numbers is added, paired by likeness or by place.
     if (keeps && numbersOnly(segment, paragraph)) {
       addNew(paragraph);
       return;
@@ -2727,11 +2726,10 @@ export function createRewriteStream(
     // of another kind takes a paragraph's place by its place only in a text that rewrites every
     // paragraph: a heading or a table between two kept ones is new text.
     const takesPlace = (segment: Segment, paragraph: NewParagraph) =>
-      !numbersOnly(segment, paragraph) &&
-      ((byTheirPlace &&
+      (byTheirPlace &&
         paragraph.kind === segment.kind &&
         between.indexOf(segment) === held.indexOf(paragraph)) ||
-        (!paragraph.table && readsAs(segment, paragraph, { standIn: true })));
+      (!paragraph.table && readsAs(segment, paragraph, { standIn: true }));
     const byPlace = !keeps || rewritesAll;
     const standsIn = replacedIn(between, held, paired, byPlace ? null : takesPlace);
     const rewritten = new Set([
