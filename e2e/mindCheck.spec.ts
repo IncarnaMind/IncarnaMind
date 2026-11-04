@@ -559,6 +559,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const foot = health.getByTestId("check-card-foot");
       await expect(press).toHaveAttribute("title", "1 句待核对");
       await expect(price).toHaveCount(0);
+      // Its content has settled: the estimate is none, not still on its way, so the press runs.
+      await expect(health.locator(".check-card-body")).toHaveAttribute("style", /height/);
       await health.evaluate((element) => {
         (element as HTMLElement).style.width = "140px";
       });
