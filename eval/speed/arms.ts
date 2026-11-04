@@ -7,7 +7,12 @@
  */
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
-import type { AnswerPathsOverride, ChatModelFactory, Core } from "../../src/core";
+import type {
+  AnswerPathsOverride,
+  ChatModelFactory,
+  CheckPathsOverride,
+  Core,
+} from "../../src/core";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 
 export interface Arm {
@@ -22,6 +27,8 @@ export interface Arm {
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
   /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
   paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
+  /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
+  checks?: { quickFirstLook?: boolean };
 }
 
 // An arm that compares one Answer path keeps every other as the Tool loop has it from its first
@@ -42,6 +49,17 @@ export const ARMS: readonly Arm[] = [
     id: "loop",
     label: "the Tool loop from its first call, whatever the lists say",
     paths: { retrievesFirst: false },
+  },
+  {
+    id: "no-quick-look",
+    label: "every written sentence checked by the check's Run, as before #1667",
+    checks: { quickFirstLook: false },
+  },
+  {
+    id: "quick-look",
+    label:
+      "the quick-tasks model looks first at a written sentence, and only its plain yes stands (#1667)",
+    checks: { quickFirstLook: true },
   },
   {
     id: "default-effort",
@@ -81,12 +99,16 @@ export function armSwitch() {
     writesThenCites: () => current?.paths?.writesThenCites,
     retrievesFirst: () => current?.paths?.retrievesFirst,
   };
+  const checkPaths: CheckPathsOverride = {
+    quickFirstLook: () => current?.checks?.quickFirstLook,
+  };
   return {
     chatModels:
       (inner: ChatModelFactory): ChatModelFactory =>
       (spec) =>
         wrapLanguageModel({ model: inner(current?.spec?.(spec) ?? spec), middleware }),
     answerPaths,
+    checkPaths,
     use(arm: Arm): void {
       current = arm;
     },

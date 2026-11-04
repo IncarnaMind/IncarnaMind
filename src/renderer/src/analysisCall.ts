@@ -54,3 +54,23 @@ export function analysisCallText(
         : t(UNAVAILABLE_LINES[ran.reason ?? "start"].text);
   }
 }
+
+/**
+ * Why an Answer's `run_code` couldn't get Python, in its step's words, for the line under the
+ * Answer: the step itself is folded away. Null when it never missed, or a later call got Python.
+ */
+export function pythonProblem(t: Translate, calls: readonly AnswerToolCall[]): string | null {
+  const at = calls.findLastIndex(({ analysis }) => analysis?.python !== undefined);
+  const missed = calls[at];
+  if (!missed) return null;
+  const gotIt = calls
+    .slice(at + 1)
+    .some(
+      (call) =>
+        call.tool === "run_code" &&
+        call.input.language !== "bash" &&
+        call.analysis !== undefined &&
+        call.analysis.end !== "unavailable",
+    );
+  return gotIt ? null : analysisCallText(t, missed);
+}

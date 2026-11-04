@@ -48,6 +48,7 @@ import {
 } from "./pairedReport";
 import { percentile } from "./report";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
+import { writtenSet } from "./written";
 
 const ROOT = resolve(__dirname, "../..");
 const ANSWER_TIMEOUT_MS = 5 * 60_000;
@@ -118,6 +119,8 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return checksSet(ROOT);
     case "cells":
       return cellsSet(ROOT, ANSWER_TIMEOUT_MS);
+    case "written":
+      return writtenSet();
   }
 }
 
@@ -212,6 +215,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       recordTimings: true,
       chatModels: switches[which].chatModels,
       answerPaths: switches[which].answerPaths,
+      checkPaths: switches[which].checkPaths,
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));

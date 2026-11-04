@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { formatDateTime } from "../src/shared/dates";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -23,8 +24,8 @@ import {
 /*
  * Every sentence check says which sentence it is about (#1621): its card opens with the sentence in
  * quotation marks, the sentence is outlined while the card is open, the mark sits on the sentence's
- * first line, and Next in the Mind's health card ends where a click on the mark does. The checks are
- * written into the page, so no model is involved.
+ * first line, and Next in the Mind's health card ends where a click on the mark does; a verdict's card
+ * ends naming what checked it (#1667). The checks are written into the page, so no model is involved.
  */
 
 const TIDES = buildPdf([
@@ -43,6 +44,7 @@ const SENTENCES = {
     cited: "Harbours publish times of high water every 12 months.",
     besideChecked: "Spring tides rise twice a day.",
     besideUnchecked: "Gulls fly inland at dawn.",
+    twoModels: ["Harbours publish the times of high water", "print them for sailors"],
   },
   "zh-CN": {
     supported:
@@ -55,6 +57,7 @@ const SENTENCES = {
     cited: "港口每 12 个月公布一次高潮时间。",
     besideChecked: "春潮每天涨两次。",
     besideUnchecked: "海鸥天亮时飞往内陆。",
+    twoModels: ["港口公布高潮时间", "为船员印发"],
   },
 } as const;
 
@@ -78,6 +81,8 @@ const screenshot = async (window: Page, name: string) => {
   await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 };
 
+const CHECKED_AT = "2026-10-22T09:00:00.000Z";
+
 const checked = (id: string, state: string, text: string, extra: Record<string, unknown> = {}) => ({
   type: "text",
   text,
@@ -93,13 +98,34 @@ const checked = (id: string, state: string, text: string, extra: Record<string, 
         scope: { folderId: null, widened: false },
         versions: [],
         excluded: [],
-        checkedAt: "2026-10-22T09:00:00.000Z",
+        checkedAt: CHECKED_AT,
         ...extra,
       },
     },
   ],
 });
 const paragraph = (...content: object[]) => ({ type: "paragraph", content });
+
+const HAIKU = { providerId: null, modelId: "claude-haiku-5-5" };
+/** What a verdict card's last line says checked it (#1667), the time as the dates module writes it. */
+const CHECKED_BY = {
+  en: (when: string) => `Checked with Claude Haiku 5.5, ${when}`,
+  "zh-CN": (when: string) => `由 Claude Haiku 5.5 核对，${when}`,
+} as const;
+const CHECKED_BY_TWO = {
+  en: (when: string) => `Checked with Claude Haiku 5.5 and Claude Sonnet 5.5, ${when}`,
+  "zh-CN": (when: string) => `由 Claude Haiku 5.5 和 Claude Sonnet 5.5 核对，${when}`,
+} as const;
+const EARLIER = "2026-10-22T08:40:00.000Z";
+
+/** The window's own clock, so the line is expected as the app writes it on any machine. */
+const clockOf = (window: Page) =>
+  window.evaluate(() => {
+    const { hourCycle, timeZone } = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+    }).resolvedOptions();
+    return { twelveHour: hourCycle === "h11" || hourCycle === "h12", timeZone };
+  });
 
 async function box(locator: Locator) {
   const found = await locator.boundingBox();
@@ -141,17 +167,22 @@ for (const language of ["en", "zh-CN"] as const) {
         (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
       },
       [
-        paragraph(checked("check-1", "supported", words.supported, { evidence: passage })),
-        paragraph(checked("check-2", "unsupported", words.unsupported)),
+        paragraph(
+          checked("check-1", "supported", words.supported, { evidence: passage, ...HAIKU }),
+        ),
+        paragraph(checked("check-2", "unsupported", words.unsupported, HAIKU)),
         paragraph(
           checked("check-3", "contradicted", words.contradicted, {
             evidence: passage,
             says: "The agreement says the facilities end on 14 February 2029.",
+            ...HAIKU,
           }),
         ),
-        paragraph(checked("check-4", "not-checked", words.notChecked, { reason: "refused" })),
+        paragraph(
+          checked("check-4", "not-checked", words.notChecked, { reason: "refused", ...HAIKU }),
+        ),
         paragraph({
-          ...checked("check-5", "supported", words.recheckWas, { evidence: passage }),
+          ...checked("check-5", "supported", words.recheckWas, { evidence: passage, ...HAIKU }),
           text: words.recheck,
         }),
         paragraph(checked("check-6", "supported", words.cited, { evidence: passage }), {
@@ -212,6 +243,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(unseenBox.y).toBe(besideBox.y);
 
     const metaInk = await tokenColor(window, "--color-ink-meta");
+    const clock = await clockOf(window);
     const accent = await tokenColor(window, "--color-accent");
     const sentences = [
       words.supported,
@@ -247,6 +279,16 @@ for (const language of ["en", "zh-CN"] as const) {
       ).toBe("claim-sentence");
       await expect(line).toHaveCSS("font-size", "13px");
       await expect(line).toHaveCSS("color", metaInk);
+      const checkedBy = card.getByTestId("claim-checked-by");
+      // A card that needs a re-check keeps its last check's line as it was.
+      if (kind === "not-checked") await expect(checkedBy).toHaveCount(0);
+      else {
+        await expect(checkedBy).toHaveText(
+          CHECKED_BY[language](formatDateTime(CHECKED_AT, language, clock)),
+        );
+        await expect(checkedBy).toHaveCSS("font-size", "12px");
+        await expect(checkedBy).toHaveCSS("color", metaInk);
+      }
       const shape = await line.evaluate((element) => {
         const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
         return {
@@ -448,6 +490,92 @@ for (const language of ["en", "zh-CN"] as const) {
         );
       })
       .toBe(true);
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  // protects=parts checked on two models name both, once each with the latest time, and the time stays on one line at 900 px, in English and Chinese (#1667); fails_when=the line names one model, or a wrap breaks the date apart; no_claim=where the models' names wrap.
+  test(`a sentence whose parts two models checked names both, its time on one line (${language})`, async () => {
+    test.setTimeout(120_000);
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 900, 900);
+    await addDocuments(window, [join(sources, "Tides.pdf")]);
+    const [tides] = await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
+    );
+    const evidence = {
+      passageId: "passage-1",
+      documentId: tides?.id,
+      documentName: "Tides",
+      contentHash: tides?.contentHash,
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Harbours publish the times of high water every 12 months.",
+      check: "found",
+      checkReason: null,
+    };
+    const [first, second] = SENTENCES[language].twoModels;
+    const joined = language === "en" ? `${first} and ${second}.` : `${first}，并${second}。`;
+    const judged = (words: string, modelId: string, checkedAt: string) => {
+      const start = joined.indexOf(words);
+      return {
+        span: { start, end: start + words.length },
+        kind: "fact",
+        verdict: "supported",
+        evidence: [evidence],
+        decidingEvidence: 0,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        reason: null,
+        detail: null,
+        versions: [],
+        excluded: [],
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        providerId: null,
+        modelId,
+        checkedAt,
+      };
+    };
+    await newMind(window);
+    await window.getByTestId("mind-editor").evaluate(
+      (dom, content) => {
+        (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
+      },
+      [
+        paragraph(
+          checked("check-two", "supported", joined, {
+            evidence,
+            providerId: null,
+            modelId: "claude-sonnet-5-5",
+            parts: [
+              judged(first, "claude-haiku-5-5", EARLIER),
+              judged(second, "claude-sonnet-5-5", CHECKED_AT),
+            ],
+          }),
+        ),
+      ],
+    );
+    await pointAndClick(window, window.getByTestId("claim-mark").first());
+    const card = window.getByTestId("claim-card");
+    await expect(card).toHaveAttribute("data-check", "supported");
+    const line = card.getByTestId("claim-checked-by");
+    const clock = await clockOf(window);
+    await expect(line).toHaveText(
+      CHECKED_BY_TWO[language](formatDateTime(CHECKED_AT, language, clock)),
+    );
+    const when = line.locator(".claim-card-checked-by-when");
+    expect(await when.evaluate((element) => element.getClientRects().length)).toBe(1);
+    const [cardBox, whenBox] = await Promise.all([box(card), box(when)]);
+    expect(whenBox.x + whenBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+    await screenshot(window, `card-two-models-${language}-900`);
     await app.close();
   });
 }

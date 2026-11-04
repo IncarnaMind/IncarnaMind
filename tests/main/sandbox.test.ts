@@ -15,13 +15,22 @@
  */
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { afterAll, afterEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, describe, expect, onTestFinished, test } from "vitest";
 import type { ExecRequest } from "../../src/core";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createScriptRunner } from "../../src/core/skills/scripts";
@@ -29,8 +38,12 @@ import { createProcessLauncher } from "../../src/main/processes";
 import {
   bwrapScript,
   bwrapSizesTmpfs,
+  canonicalPath,
+  installFolders,
+  interpreterRoots,
   loadOsSandbox,
   MAC_DENIED,
+  type OsExecutorOptions,
   readDeniedFolders,
   withMacDenials,
 } from "../../src/main/sandbox";
@@ -67,8 +80,54 @@ function environment(): Record<string, string> {
  * working folder (the shared temporary folder, as in the app), and `readDenied`
  * denies what the app denies, through the function the app builds it with.
  */
+/** An Executor in the OS sandbox with this file's run records and sweep, as the app makes one. */
+function osExecutor(
+  options: Pick<OsExecutorOptions, "tempDir" | "denyRead" | "interpreterRoots"> & {
+    env: Record<string, string>;
+  },
+) {
+  if (!sandbox.available) throw new Error(sandbox.reason);
+  const { env, ...rest } = options;
+  return sandbox.createExecutor({
+    processes: createProcessLauncher(async () => env),
+    environment: async () => env,
+    reportError: (error) => {
+      throw error;
+    },
+    runRecords,
+    sweep: { stopper: guard.stopper },
+    ...rest,
+  });
+}
+
+/** What the app denies, for a home and data folder of a test's own. */
+const deniedFor = (home: string, dataDir: string, temporaryFolder = tmpdir()) =>
+  readDeniedFolders({
+    platform: process.platform,
+    home,
+    dataDir,
+    temporaryFolder,
+    uid: typeof process.getuid === "function" ? process.getuid() : undefined,
+  });
+
+/** `sh -c script`, found on the PATH, as a request a Skill script's would be. */
+const shell = (script: string, allow: ExecRequest["allow"]["read"] = [WORKING_FOLDER]) => ({
+  command: "sh",
+  args: ["-c", script],
+  env: {},
+  allow: { read: allow, write: [WORKING_FOLDER], network: "none" as const },
+  timeoutMs: 20_000,
+  maxOutputBytes: 50_000,
+  signal: new AbortController().signal,
+});
+
 async function setUp(
-  options: { denyAlso?: string[]; tempDir?: string; readDenied?: boolean } = {},
+  options: {
+    denyAlso?: string[];
+    tempDir?: string;
+    readDenied?: boolean;
+    interpreterRoots?: string[];
+  } = {},
 ) {
   const root = await realpath(await createTempDataFolder());
   const home = join(root, "home");
@@ -100,13 +159,14 @@ async function setUp(
           uid: typeof process.getuid === "function" ? process.getuid() : undefined,
         })
       : [home, data, ...(options.denyAlso ?? [])],
+    ...(options.interpreterRoots && { interpreterRoots: options.interpreterRoots }),
     reportError: (error) => {
       throw error;
     },
     runRecords,
     sweep: { stopper: guard.stopper },
   });
-  return { executor, home, canary, data, database, skillDir, outside, tempDir };
+  return { root, executor, home, canary, data, database, skillDir, outside, tempDir };
 }
 
 /** A request for `code` run by this Node.js, as a Skill script's would be: its Skill's folder to read. */
@@ -362,6 +422,97 @@ describe("the folders no program may read", () => {
   });
 });
 
+describe.skipIf(process.platform === "win32")(
+  "the one spelling of a path the sandbox is given",
+  () => {
+    test("follows every link on its way; for a path that isn't there, the folders that are", async () => {
+      const root = await realpath(await createTempDataFolder());
+      const moved = join(root, "moved");
+      await mkdir(join(moved, "bin"), { recursive: true });
+      await symlink(moved, join(root, "Data"));
+
+      expect(await canonicalPath(join(root, "Data"))).toBe(moved);
+      expect(await canonicalPath(join(root, "Data", "bin"))).toBe(join(moved, "bin"));
+      expect(await canonicalPath(join(root, "Data", "gone", "font.ttf"))).toBe(
+        join(moved, "gone", "font.ttf"),
+      );
+      if (process.platform === "darwin") {
+        // /tmp, /var and /etc are links into /private.
+        expect(await canonicalPath("/tmp")).toBe("/private/tmp");
+        expect(await canonicalPath("/var/incarnamind-none-such/x")).toBe(
+          "/private/var/incarnamind-none-such/x",
+        );
+      }
+    });
+
+    test("a path that must be there and isn't is refused, never taken as written", async () => {
+      const root = await realpath(await createTempDataFolder());
+      await expect(canonicalPath(join(root, "gone"), { mustExist: true })).rejects.toThrow(
+        "can't be found",
+      );
+      expect(await canonicalPath(root, { mustExist: true })).toBe(root);
+    });
+
+    test("an interpreter outside every denied folder has nothing read back for it: it is readable already", async () => {
+      const root = await realpath(await createTempDataFolder());
+      const home = join(root, "home");
+      await mkdir(join(home, "bin"), { recursive: true });
+      const inHome = join(home, "bin", "sh");
+      const denied = [home];
+
+      expect(await installFolders("/usr/bin/env", "/usr/bin/env", denied, denied)).toEqual([]);
+      expect(await installFolders(inHome, inHome, denied, denied)).toEqual([join(home, "bin")]);
+    });
+
+    test("a prefix's linked lib is handed to the sandbox by its real place and its name only when it links to a lib folder of the prefix", async () => {
+      const root = await realpath(await createTempDataFolder());
+      const home = join(root, "home");
+      const prefixWith = async (name: string, lib: (prefix: string) => string) => {
+        const prefix = join(home, name);
+        await mkdir(join(prefix, "bin"), { recursive: true });
+        await mkdir(join(prefix, "lib-3.12"));
+        await mkdir(join(prefix, "share"));
+        await writeFile(join(prefix, "bin", "python3"), "");
+        await symlink(lib(prefix), join(prefix, "lib"));
+        return prefix;
+      };
+      const inside = await prefixWith("inside", (prefix) => join(prefix, "lib-3.12"));
+      const toShare = await prefixWith("to-share", (prefix) => join(prefix, "share"));
+      const handed = (prefix: string) =>
+        installFolders(
+          join(prefix, "bin", "python3"),
+          join(prefix, "bin", "python3"),
+          [home],
+          [home],
+        );
+
+      expect(await handed(inside)).toEqual([
+        join(inside, "bin"),
+        join(inside, "lib-3.12"),
+        join(inside, "lib"),
+      ]);
+      expect(await handed(toShare)).toEqual([join(toShare, "bin")]);
+    });
+
+    test("the homes interpreters may be installed in are each account's and the volumes'", () => {
+      expect(interpreterRoots({ platform: "darwin", home: "/Users/Ada" })).toEqual([
+        "/Users/Ada",
+        "/Users",
+        "/Volumes",
+      ]);
+      expect(interpreterRoots({ platform: "linux", home: "/home/ada" })).toEqual([
+        "/home/ada",
+        "/home",
+        "/root",
+        "/media",
+        "/mnt",
+        "/run/media",
+      ]);
+      expect(interpreterRoots({ platform: "win32", home: "C:\\Users\\Ada" })).toEqual([]);
+    });
+  },
+);
+
 // The job that runs these on a Mac says it needs the sandbox: a sandbox that can't start there
 // fails it, rather than skipping every test that would show it.
 test.runIf(process.env.INCARNAMIND_TEST_OS_SANDBOX === "required")("the OS sandbox starts", () => {
@@ -557,11 +708,540 @@ console.log(JSON.stringify(results));
       const installRoot = dirname(dirname(await realpath(process.execPath)));
       const around = dirname(installRoot);
       if (around === dirname(around)) return; // Installed at the top of the disk: nothing to deny around it.
-      const { executor, skillDir } = await setUp({ denyAlso: [around] });
+      const { executor, skillDir } = await setUp({
+        denyAlso: [around],
+        interpreterRoots: [around],
+      });
 
       const run = await executor.run(nodeRequest('console.log("started")', [], skillDir));
 
       expect(run).toMatchObject({ exitCode: 0, stdout: "started\n" });
+    });
+
+    test("an interpreter in a home reached through a link starts, and the rest of that home stays unread", async () => {
+      const { root } = await setUp();
+      const realHome = join(root, "real-home");
+      const linkedHome = join(root, "linked-home");
+      await mkdir(join(realHome, ".ssh"), { recursive: true });
+      await mkdir(join(realHome, "bin"));
+      await writeFile(join(realHome, ".ssh", "id"), "HOME SECRET");
+      await symlink(realHome, linkedHome);
+      await symlink("/bin/sh", join(realHome, "bin", "sh"));
+      const executor = osExecutor({
+        env: { PATH: `${join(linkedHome, "bin")}:/usr/bin:/bin` },
+        tempDir: join(root, "temp"),
+        denyRead: deniedFor(linkedHome, join(linkedHome, "Library", "IncarnaMind")),
+        interpreterRoots: interpreterRoots({ platform: process.platform, home: linkedHome }),
+      });
+
+      const run = await executor.run(
+        shell(
+          [
+            "echo started",
+            `cat '${join(realHome, ".ssh", "id")}' 2>/dev/null || echo denied`,
+            `cat '${join(linkedHome, ".ssh", "id")}' 2>/dev/null || echo denied`,
+          ].join("; "),
+        ),
+      );
+
+      expect({ exitCode: run.exitCode, stdout: run.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\ndenied\ndenied\n",
+      });
+    });
+
+    test("sh and uv's python3 linked from ~/.local/bin run, uv's Python reads its own install, and the rest of ~/.local stays unread", async () => {
+      const { root, home, data } = await setUp();
+      const local = join(home, ".local");
+      // uv's default Python: ~/.local/bin/python3, a link into ~/.local/share/uv/python/….
+      const uv = join(local, "share", "uv", "python", "cpython-3.14");
+      await mkdir(join(uv, "bin"), { recursive: true });
+      await mkdir(join(uv, "lib"));
+      await writeFile(join(uv, "lib", "own.txt"), "OWN INSTALL\n");
+      await writeFile(join(uv, "bin", "python3.14"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
+        mode: 0o755,
+      });
+      await mkdir(join(local, "bin"));
+      await symlink(join(uv, "bin", "python3.14"), join(local, "bin", "python3"));
+      await symlink("/bin/sh", join(local, "bin", "sh"));
+      await mkdir(join(local, "share", "keyrings"), { recursive: true });
+      await writeFile(join(local, "share", "keyrings", "login.keyring"), "KEYRING SECRET");
+      const executor = osExecutor({
+        env: { PATH: `${join(local, "bin")}:/usr/bin:/bin` },
+        tempDir: join(root, "temp"),
+        denyRead: deniedFor(home, data),
+        interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+      });
+      const probe = [
+        "echo started",
+        `cat '${join(uv, "lib", "own.txt")}' 2>/dev/null || echo denied`,
+        `cat '${join(local, "share", "keyrings", "login.keyring")}' 2>/dev/null || echo denied`,
+      ].join("; ");
+
+      const sh = await executor.run(shell(probe));
+      const python = await executor.run({ ...shell(probe), command: "python3" });
+
+      expect({ exitCode: sh.exitCode, stdout: sh.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\ndenied\ndenied\n",
+      });
+      expect({ exitCode: python.exitCode, stdout: python.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\nOWN INSTALL\ndenied\n",
+      });
+    });
+
+    test.each([
+      ["a plain python3 in ~/.local/bin", [".local"]],
+      ["a pyenv Python, a plain file", [".pyenv", "versions", "3.12"]],
+    ])(
+      "%s runs and reads its prefix's bin and lib, and nothing else of the prefix",
+      async (_what, parts) => {
+        const { root, home, data } = await setUp();
+        const prefix = join(home, ...parts);
+        const stdlib = join(prefix, "lib", "python3.12");
+        await mkdir(join(prefix, "bin"), { recursive: true });
+        await mkdir(stdlib, { recursive: true });
+        await mkdir(join(prefix, "share", "keyrings"), { recursive: true });
+        await writeFile(join(prefix, "bin", "python3"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
+          mode: 0o755,
+        });
+        await writeFile(join(stdlib, "os.py"), "STDLIB\n");
+        await writeFile(join(prefix, "share", "keyrings", "login.keyring"), "KEYRING SECRET");
+        const executor = osExecutor({
+          env: { PATH: `${join(prefix, "bin")}:/usr/bin:/bin` },
+          tempDir: join(root, "temp"),
+          denyRead: deniedFor(home, data),
+          interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+        });
+
+        const run = await executor.run({
+          ...shell(
+            [
+              "echo started",
+              `cat '${join(stdlib, "os.py")}' 2>/dev/null || echo denied`,
+              `cat '${join(prefix, "share", "keyrings", "login.keyring")}' 2>/dev/null || echo denied`,
+            ].join("; "),
+          ),
+          command: "python3",
+        });
+
+        expect({ exitCode: run.exitCode, stdout: run.stdout }).toEqual({
+          exitCode: 0,
+          stdout: "started\nSTDLIB\ndenied\n",
+        });
+      },
+    );
+
+    test("a prefix's lib that links to a lib folder of the prefix is read where it really is; one that links anywhere else opens nothing", async () => {
+      const { root, home, data, canary } = await setUp();
+      await mkdir(join(home, "Library", "Keychains"), { recursive: true });
+      await writeFile(join(home, "Library", "Keychains", "login.keychain-db"), "KEYCHAIN SECRET");
+      const elsewhere = join(home, "elsewhere", "lib");
+      await mkdir(join(elsewhere, "python3.12"), { recursive: true });
+      await writeFile(join(elsewhere, "python3.12", "os.py"), "STDLIB\n");
+      const roots = interpreterRoots({ platform: process.platform, home });
+      const run = async (
+        name: string,
+        lib: (prefix: string) => Promise<string>,
+        through: string,
+      ) => {
+        const prefix = join(home, name);
+        await mkdir(join(prefix, "bin"), { recursive: true });
+        await writeFile(join(prefix, "bin", "python3"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
+          mode: 0o755,
+        });
+        await symlink(await lib(prefix), join(prefix, "lib"));
+        const ran = await osExecutor({
+          tempDir: join(root, "temp"),
+          denyRead: deniedFor(home, data),
+          interpreterRoots: roots,
+          env: { PATH: `${join(prefix, "bin")}:/usr/bin:/bin` },
+        }).run({
+          ...shell(
+            [
+              "echo started",
+              `cat '${join(prefix, "lib", through)}' 2>/dev/null || echo denied`,
+              `cat '${canary}' 2>/dev/null || echo denied`,
+            ].join("; "),
+          ),
+          command: "python3",
+        });
+        return { name, exitCode: ran.exitCode, stdout: ran.stdout };
+      };
+      const inside = async (prefix: string) => {
+        await mkdir(join(prefix, "lib-3.12", "python3.12"), { recursive: true });
+        await writeFile(join(prefix, "lib-3.12", "python3.12", "os.py"), "STDLIB\n");
+        return join(prefix, "lib-3.12");
+      };
+      // The prefix itself, with a keyring in its share folder beside lib.
+      const keyring = async (prefix: string) => {
+        await mkdir(join(prefix, "share", "keyrings"), { recursive: true });
+        await writeFile(join(prefix, "share", "keyrings", "login.keyring"), "KEYRING SECRET");
+        return prefix;
+      };
+      const cases = [
+        await run("inside", inside, join("python3.12", "os.py")),
+        await run("to-elsewhere", async () => elsewhere, join("python3.12", "os.py")),
+        await run("to-home", async () => home, join(".ssh", "id_canary")),
+        await run("to-own-prefix", keyring, join("share", "keyrings", "login.keyring")),
+        await run(
+          "to-share",
+          async (prefix) => join(await keyring(prefix), "share"),
+          join("keyrings", "login.keyring"),
+        ),
+        await run("to-ssh", async () => join(home, ".ssh"), "id_canary"),
+        await run(
+          "to-keychains",
+          async () => join(home, "Library", "Keychains"),
+          "login.keychain-db",
+        ),
+        // APFS and HFS+ ignore letter case: another spelling of ~/.ssh is ~/.ssh.
+        ...(process.platform === "darwin"
+          ? [await run("to-ssh-other-case", async () => join(home, ".SSH"), "id_canary")]
+          : []),
+      ];
+
+      // sandbox-runtime gives a link inside a masked folder back on Linux only where it points,
+      // never at its own name, so there a lib that is a link finds nothing through it.
+      const readsInside =
+        process.platform === "linux" ? "started\ndenied\ndenied\n" : "started\nSTDLIB\ndenied\n";
+      expect(cases).toEqual(
+        cases.map(({ name }) => ({
+          name,
+          exitCode: 0,
+          stdout: name === "inside" ? readsInside : "started\ndenied\ndenied\n",
+        })),
+      );
+    });
+
+    test("a prefix's lib that links in a loop stops the run with the sandbox's own words", async () => {
+      const { root, home, data } = await setUp();
+      const prefix = join(home, "looped");
+      await mkdir(join(prefix, "bin"), { recursive: true });
+      await writeFile(join(prefix, "bin", "python3"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
+        mode: 0o755,
+      });
+      await symlink(join(prefix, "lib2"), join(prefix, "lib"));
+      await symlink(join(prefix, "lib"), join(prefix, "lib2"));
+      const executor = osExecutor({
+        tempDir: join(root, "temp"),
+        denyRead: deniedFor(home, data),
+        interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+        env: { PATH: `${join(prefix, "bin")}:/usr/bin:/bin` },
+      });
+
+      await expect(executor.run({ ...shell("echo started"), command: "python3" })).rejects.toThrow(
+        "The OS sandbox couldn't start, so the program didn't run",
+      );
+    });
+
+    test("a venv's python in a home runs with its site-packages, and the project beside the venv stays unread", async () => {
+      const { root, home, data } = await setUp();
+      const project = join(home, "project");
+      const venv = join(project, ".venv");
+      const sitePackages = join(venv, "lib", "python3.14", "site-packages");
+      await mkdir(join(venv, "bin"), { recursive: true });
+      await mkdir(sitePackages, { recursive: true });
+      await writeFile(join(venv, "pyvenv.cfg"), "home = /usr/bin\n");
+      await writeFile(join(sitePackages, "package.py"), "SITE PACKAGES\n");
+      await writeFile(join(project, "notes.txt"), "PROJECT SECRET");
+      // A venv's python is a link to the interpreter it was made from.
+      await symlink("/bin/sh", join(venv, "bin", "python"));
+      const executor = osExecutor({
+        env: { PATH: `${join(venv, "bin")}:/usr/bin:/bin` },
+        tempDir: join(root, "temp"),
+        denyRead: deniedFor(home, data),
+        interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+      });
+
+      const run = await executor.run({
+        ...shell(
+          [
+            "echo started",
+            `cat '${join(sitePackages, "package.py")}' 2>/dev/null || echo denied`,
+            `cat '${join(project, "notes.txt")}' 2>/dev/null || echo denied`,
+          ].join("; "),
+        ),
+        command: "python",
+      });
+
+      expect({ exitCode: run.exitCode, stdout: run.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\nSITE PACKAGES\ndenied\n",
+      });
+    });
+
+    test.each(["a link", "a plain script"])(
+      "an interpreter on the PATH in the shared temporary folder, %s, doesn't start, and from the system's own folders the same command reads nothing there",
+      async (how) => {
+        const { root, home, data } = await setUp();
+        const shim = await mkdtemp(join(tmpdir(), "incarnamind-shim-"));
+        const other = await mkdtemp(join(tmpdir(), "incarnamind-other-"));
+        onTestFinished(async () => {
+          await rm(shim, { recursive: true, force: true });
+          await rm(other, { recursive: true, force: true });
+        });
+        if (how === "a link") await symlink("/bin/sh", join(shim, "sh"));
+        else await writeFile(join(shim, "sh"), '#!/bin/sh\nexec /bin/sh "$@"\n', { mode: 0o755 });
+        await writeFile(join(other, "secret.txt"), "TEMP SECRET");
+        const probe = `echo started; cat '${join(other, "secret.txt")}' 2>/dev/null || echo denied`;
+        const folders = {
+          tempDir: join(root, "temp"),
+          denyRead: deniedFor(home, data),
+          interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+        };
+
+        const shimmed = await osExecutor({
+          ...folders,
+          env: { PATH: `${shim}:/usr/bin:/bin` },
+        }).run(shell(probe));
+        const system = await osExecutor({ ...folders, env: { PATH: "/usr/bin:/bin" } }).run(
+          shell(probe),
+        );
+
+        expect(shimmed.stdout).not.toContain("TEMP SECRET");
+        expect(shimmed.stdout).not.toContain("started");
+        expect(shimmed.exitCode).not.toBe(0);
+        expect({ exitCode: system.exitCode, stdout: system.stdout }).toEqual({
+          exitCode: 0,
+          stdout: "started\ndenied\n",
+        });
+      },
+    );
+
+    test("a link into a folder no program may read is no way in: the home's keys, another temporary folder by either spelling, another run's folder, the volumes, this User's runtime folder", async () => {
+      const shared = await mkdtemp(join(tmpdir(), "incarnamind-shared-"));
+      onTestFinished(() => rm(shared, { recursive: true, force: true }));
+      await writeFile(join(shared, "file.txt"), "TEMP CANARY");
+      const { executor, skillDir, outside, home, tempDir } = await setUp({
+        tempDir: tmpdir(),
+        readDenied: true,
+      });
+      const otherRun = await mkdtemp(join(tempDir, "incarnamind-script-"));
+      onTestFinished(() => rm(otherRun, { recursive: true, force: true }));
+      await writeFile(join(otherRun, "file.txt"), "RUN CANARY");
+      const probes: { what: string; path: string; listing?: boolean }[] = [];
+      const linked = async (what: string, target: string, inside: string, listing = false) => {
+        const link = join(outside, `to-${probes.length}`);
+        await symlink(target, link);
+        probes.push({ what, path: inside ? join(link, inside) : link, listing });
+      };
+      await linked("the home's keys", join(home, ".ssh"), "id_canary");
+      await linked("another temporary folder", shared, "file.txt");
+      await linked(
+        "another temporary folder, by its real path",
+        await realpath(shared),
+        "file.txt",
+      );
+      await linked("another run's folder", otherRun, "file.txt");
+      if (process.platform === "darwin") await linked("the volumes", "/Volumes", "", true);
+      const runtimeFolder = `/run/user/${process.getuid?.() ?? 0}`;
+      if (process.platform === "linux" && existsSync(runtimeFolder)) {
+        await linked("this User's runtime folder", runtimeFolder, "", true);
+      }
+      const code = `
+const fs = require("node:fs");
+const results = { started: true };
+for (const probe of JSON.parse(process.argv[1])) {
+  try {
+    const got = probe.listing ? fs.readdirSync(probe.path).join(",") : fs.readFileSync(probe.path, "utf8");
+    results[probe.what] = got === "" ? "empty" : got;
+  } catch (error) {
+    results[probe.what] = error.code ?? String(error);
+  }
+}
+console.log(JSON.stringify(results));
+`;
+
+      const run = await executor.run(nodeRequest(code, [JSON.stringify(probes)], skillDir));
+
+      expect(run).toMatchObject({ exitCode: 0, timedOut: false });
+      const results = JSON.parse(run.stdout);
+      expect(results.started).toBe(true);
+      for (const probe of probes) {
+        expect({ [probe.what]: results[probe.what] }).toEqual({
+          [probe.what]: expect.stringMatching(/^(E[A-Z]+|empty)$/),
+        });
+      }
+    });
+
+    test("an allowed folder given through a link to it is read", async () => {
+      const { executor, skillDir, outside } = await setUp();
+      await symlink(skillDir, join(outside, "the-skill"));
+
+      const run = await executor.run(
+        nodeRequest(
+          'console.log("started"); console.log(require("node:fs").readFileSync(process.argv[1], "utf8"))',
+          [join(outside, "the-skill", "SKILL.md")],
+          skillDir,
+          {
+            allow: {
+              read: [join(outside, "the-skill"), WORKING_FOLDER],
+              write: [WORKING_FOLDER],
+              network: "none",
+            },
+          },
+        ),
+      );
+
+      expect({ exitCode: run.exitCode, stdout: run.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\nSKILL FILE\n",
+      });
+    });
+
+    test("an allowed folder that is, or links to, a folder holding denied ones is refused before anything runs", async () => {
+      const { executor, root, skillDir, outside } = await setUp();
+      await symlink(root, join(outside, "to-everything"));
+      const marker = join(outside, "ran.txt");
+      const writes = (read: string) =>
+        nodeRequest(
+          'require("node:fs").writeFileSync(process.argv[1], "ran")',
+          [marker],
+          skillDir,
+          {
+            allow: {
+              read: [read, WORKING_FOLDER],
+              write: [WORKING_FOLDER, outside],
+              network: "none",
+            },
+          },
+        );
+
+      await expect(executor.run(writes(join(outside, "to-everything")))).rejects.toThrow(
+        "holds one no program may read",
+      );
+      await expect(executor.run(writes(root))).rejects.toThrow("holds one no program may read");
+      expect(existsSync(marker)).toBe(false);
+      await executor.run(writes(skillDir));
+      expect(existsSync(marker)).toBe(true);
+    });
+
+    test("IncarnaMind's own runtime in a data folder reached through a link starts where its request names it, writes its temporary folder, and the data folder stays denied by either spelling", async () => {
+      const root = await realpath(await createTempDataFolder());
+      const home = join(root, "home");
+      const moved = join(root, "moved");
+      await mkdir(home);
+      await mkdir(moved);
+      // A data folder moved to another disk and linked back from the home, which every run is denied.
+      await symlink(moved, join(home, "Data"));
+      const linkedFolders = [join(home, "Data")];
+      if (process.platform === "darwin") {
+        // On macOS /tmp is a link into /private, and both are denied.
+        const tmp = await mkdtemp("/tmp/incarnamind-linked-");
+        onTestFinished(() => rm(tmp, { recursive: true, force: true }));
+        linkedFolders.push(tmp);
+      }
+      const env = { PATH: "/usr/bin:/bin" };
+      for (const linked of linkedFolders) {
+        const data = join(linked, "data");
+        const install = join(data, "runtimes", "probe");
+        await mkdir(join(install, "bin"), { recursive: true });
+        await writeFile(join(install, "own.txt"), "OWN FILE\n");
+        await writeFile(join(data, "incarnamind.db"), "DATA CANARY");
+        const program = join(install, "bin", "probe");
+        await writeFile(
+          program,
+          [
+            "#!/bin/sh",
+            'cat "$(dirname "$0")/../own.txt"',
+            'echo made > "$TMPDIR/made.txt" && cat "$TMPDIR/made.txt"',
+            'cat "$1" 2>/dev/null || echo "real path denied"',
+            'cat "$2" 2>/dev/null || echo "linked path denied"',
+            "",
+          ].join("\n"),
+          { mode: 0o755 },
+        );
+        const tempDir = join(linked, "temp");
+        await mkdir(tempDir);
+        if (!sandbox.available) throw new Error(sandbox.reason);
+        const executor = sandbox.createExecutor({
+          processes: createProcessLauncher(async () => env),
+          environment: async () => env,
+          tempDir,
+          denyRead: readDeniedFolders({
+            platform: process.platform,
+            home,
+            dataDir: data,
+            temporaryFolder: tmpdir(),
+            uid: typeof process.getuid === "function" ? process.getuid() : undefined,
+          }),
+          reportError: (error) => {
+            throw error;
+          },
+          runRecords,
+          sweep: { stopper: guard.stopper },
+        });
+
+        const request = async (read: ExecRequest["allow"]["read"]) => ({
+          command: program,
+          args: [join(await realpath(data), "incarnamind.db"), join(data, "incarnamind.db")],
+          env: {},
+          allow: { read, write: [WORKING_FOLDER], network: "none" as const },
+          timeoutMs: 20_000,
+          maxOutputBytes: 50_000,
+          signal: new AbortController().signal,
+        });
+
+        const named = await executor.run(await request([install, WORKING_FOLDER]));
+        // Not named, nothing in the data folder is read again: not even to start the program.
+        const unnamed = await executor.run(await request([WORKING_FOLDER]));
+
+        expect({ linked, exitCode: named.exitCode, stdout: named.stdout }).toEqual({
+          linked,
+          exitCode: 0,
+          stdout: "OWN FILE\nmade\nreal path denied\nlinked path denied\n",
+        });
+        // macOS refuses the program (126); bubblewrap has nothing there to start (127).
+        expect({ linked, exitCode: unnamed.exitCode, stdout: unnamed.stdout }).toEqual({
+          linked,
+          exitCode: process.platform === "darwin" ? 126 : 127,
+          stdout: "",
+        });
+      }
+    });
+
+    test("a link to a denied folder is no way into it: not one outside, nor one the program makes", async () => {
+      const { executor, data, database, skillDir, outside } = await setUp();
+      await symlink(data, join(outside, "to-data"));
+      const code = `
+const fs = require("node:fs");
+const [throughLink, data, skillFile] = process.argv.slice(1);
+const results = {};
+const attempt = (name, act) => {
+  try {
+    results[name] = act();
+  } catch (error) {
+    results[name] = error.code ?? String(error);
+  }
+};
+attempt("through a link outside", () => fs.readFileSync(throughLink, "utf8"));
+attempt("through a link it makes", () => {
+  fs.symlinkSync(data, "to-data");
+  return fs.readFileSync("to-data/incarnamind.db", "utf8");
+});
+attempt("its Skill's file through a link it makes", () => {
+  fs.symlinkSync(skillFile, "skill.md");
+  return fs.readFileSync("skill.md", "utf8");
+});
+console.log(JSON.stringify(results));
+`;
+
+      const run = await executor.run(
+        nodeRequest(
+          code,
+          [join(outside, "to-data", "incarnamind.db"), data, join(skillDir, "SKILL.md")],
+          skillDir,
+        ),
+      );
+
+      expect(run).toMatchObject({ exitCode: 0, timedOut: false });
+      const results = JSON.parse(run.stdout);
+      expect(results["its Skill's file through a link it makes"]).toBe("SKILL FILE");
+      expect(results["through a link outside"]).not.toBe("DATA CANARY");
+      expect(results["through a link it makes"]).not.toBe("DATA CANARY");
+      expect(await readFile(database, "utf8")).toBe("DATA CANARY");
     });
 
     test("a Python Skill script runs through python3 on the PATH (Xcode's shim on macOS), confined like any other", async (context) => {

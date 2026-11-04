@@ -294,6 +294,75 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
   };
 }
 
+/** A model that judged what a sentence's verdict shows, and when. */
+export interface CheckJudge {
+  providerId: string | null;
+  modelId: string;
+  checkedAt: string;
+}
+
+const isVerdict = (state: unknown): boolean =>
+  state === "supported" || state === "unsupported" || state === "contradicted";
+
+/**
+ * Who judged what a sentence's verdict shows (#1667), oldest first: each part's own model and time,
+ * a figure's and the rest of its sentence's where they were judged apart, else the check's. A
+ * judgment with no model or time named is left out; none for a sentence with no verdict.
+ */
+export function checkJudges(check: ClaimCheckAttributes): CheckJudge[] {
+  if (!isVerdict(check.state)) return [];
+  type Judged = {
+    providerId?: string | null;
+    modelId?: string | null;
+    checkedAt?: string;
+    kept?: true;
+  };
+  // A judgment without a model or time of its own has its owner's: a part's figure its part's.
+  const judge = (...owners: Judged[]): CheckJudge[] => {
+    const chain = [...owners, check];
+    const by = chain.find((each) => each.modelId !== undefined);
+    const checkedAt = chain.find((each) => each.checkedAt)?.checkedAt;
+    return by?.modelId && checkedAt
+      ? [{ providerId: by.providerId ?? null, modelId: by.modelId, checkedAt }]
+      : [];
+  };
+  const shown = (each: { verdict?: unknown; state?: unknown; kept?: true }) =>
+    isVerdict(each.verdict ?? each.state) && !each.kept;
+  const judges = check.parts?.length
+    ? check.parts.filter(shown).flatMap((part) => {
+        const within = [
+          ...(part.figures ?? []).map((figure) => figure.result),
+          ...(part.remainder ? [part.remainder] : []),
+        ].filter(shown);
+        return within.length > 0 ? within.flatMap((result) => judge(result, part)) : judge(part);
+      })
+    : check.figures?.length
+      ? [...check.figures, ...(check.remainder ? [check.remainder] : [])]
+          .filter(shown)
+          .flatMap((child) => judge(child))
+      : judge(check);
+  return judges.sort((a, b) => a.checkedAt.localeCompare(b.checkedAt));
+}
+
+/**
+ * The models a verdict card's last line names, each once in the order used, and the latest time
+ * (#1667); null when no judgment names one.
+ */
+export function checkedWith(
+  check: ClaimCheckAttributes,
+): { models: { providerId: string | null; modelId: string }[]; checkedAt: string } | null {
+  const judges = checkJudges(check);
+  const latest = judges.at(-1);
+  if (!latest) return null;
+  const models = new Map(
+    judges.map(({ providerId, modelId }) => [
+      `${providerId}\u0000${modelId}`,
+      { providerId, modelId },
+    ]),
+  );
+  return { models: [...models.values()], checkedAt: latest.checkedAt };
+}
+
 /**
  * Why a check no longer holds: its sentence was edited (an accepted change
  * or a restored Checkpoint edits it too), a Document it read has a new

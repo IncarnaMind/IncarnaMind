@@ -1074,8 +1074,10 @@ export function createLibrary(options: LibraryOptions) {
       ],
     );
     if (arrival !== null) markArrived(db, id, arrival);
-    hooks.announce(id);
+    // Filed before it is announced: the window hears of its Folder first, so a Document added into
+    // one never shows under Not in a Folder on the way (#1741).
     (changes.added ?? hooks.added)(id);
+    hooks.announce(id);
     hooks.process(id);
     if (place.linkedFolderId) changes.folders.add(place.linkedFolderId);
     return id;
