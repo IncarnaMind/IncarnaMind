@@ -41,6 +41,7 @@ import {
   type RowsOrLines,
   resolveRequested,
   unitLocation,
+  withoutArea,
 } from "../../shared/locations";
 import { citesSource, type NamedSource } from "../../shared/namedSources";
 import {
@@ -58,8 +59,10 @@ import {
   type Citation,
   type CitationCheck,
   type CitationCheckReason,
+  type CitationLocation,
   type CitationRecheck,
   type CitationToRecheck,
+  type CitedArea,
   type CitedSelection,
   type DocumentKind,
   MAX_CITED_PAGES,
@@ -96,6 +99,7 @@ import type {
 } from "./engine";
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
 import { readDocumentPages } from "./readDocumentPages";
+import { withSetAsideMarks } from "./sheetRows";
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -118,11 +122,12 @@ export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
 /**
  * Where a new Unit starts inside a Passage given to the model ("[p. 4]",
  * "[slide 4]", "[§ 2.1 Sensitivity]", "[Revenue, rows 2–41]", "[lines 51–100]"),
- * where a slide's speaker notes start ("[speaker notes]"), and where a Word
- * comment starts ("[comment by Reviewer]").
+ * where a slide's speaker notes start ("[speaker notes]"), where a Word
+ * comment starts ("[comment by Reviewer]"), and a row the file sets aside
+ * ("[row 4, struck through]", ./sheetRows).
  */
 const LOCATION_MARK =
-  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
+  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?(?:, (?:struck through|hidden))*|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
 
 /** Marks where a slide's speaker notes start, inside a Passage given to the model. */
 const NOTES_MARK = "[speaker notes]";
@@ -820,9 +825,103 @@ function placesIn(
  * one Location (else "in-several-places"); on no known Unit, where the
  * Document has them in one place. The quote is read as words
  * (`readableQuote`), its radical look-alikes the ideographs they stand for,
- * and is found only as `recheckCitation` finds it.
+ * and is found only as `recheckCitation` finds it. Given an `area` (#118), the
+ * Location keeps the region; with no words in it, the region is a picture,
+ * which can't be checked.
  */
 export function citeSelection(
+  documents: RecheckDocuments,
+  input: {
+    documentId: string;
+    parts: readonly SelectedPart[];
+    area?: CitedArea;
+    unit?: number | null;
+    around?: { before?: string; after?: string };
+  },
+): CitedSelection {
+  const cited = citeSelectionAt(documents, input);
+  if (!input.area) return cited;
+  if (cited.quote.trim() === "") {
+    return pictureCitation(
+      documents,
+      input.documentId,
+      input.unit ?? input.parts[0]?.unit ?? null,
+      input.area,
+      input.around,
+    );
+  }
+  const location =
+    cited.location ?? placeIn(documents, input.documentId, cited.contentHash, input.unit ?? null);
+  return location ? { ...cited, location: { ...location, area: input.area } } : cited;
+}
+
+/** The Unit whose text holds the words just before or after a region, where the view names no Unit. */
+function unitAround(
+  units: readonly PageText[],
+  around: { before?: string; after?: string } | undefined,
+  matching: Matching,
+): PageText | undefined {
+  if (!around) return undefined;
+  const before = (around.before ?? "").trim();
+  const after = (around.after ?? "").trim();
+  const probes = [
+    before.slice(-60).replace(/^\S+\s/, ""),
+    before.slice(-30).replace(/^\S+\s/, ""),
+    after.slice(0, 60).replace(/\s\S+$/, ""),
+    after.slice(0, 30),
+  ].filter((probe) => probe.trim() !== "");
+  for (const probe of probes) {
+    const on = units.filter((unit) => quoteInUnits([unit], probe, matching));
+    // Words the User wrote once may be a page's running line repeated on every page: no single Unit is theirs.
+    if (on.length === 1) return on[0];
+  }
+  return undefined;
+}
+
+/** The picture an area with no text is: its Citation points at the region and says it can't be checked. */
+function pictureCitation(
+  documents: RecheckDocuments,
+  documentId: string,
+  unit: number | null,
+  area: CitedArea,
+  around?: { before?: string; after?: string },
+): CitedSelection {
+  const contentHash = documents.currentVersion(documentId);
+  if (contentHash === null) return { ...removedFrom({ pageFrom: unit, pageTo: unit }), quote: "" };
+  const units = documents.pageTexts(documentId, contentHash, null, null);
+  // No Unit named and no words around it: no place is guessed, so the figure names none.
+  const on =
+    unit !== null
+      ? units.find((each) => each.page === unit)
+      : unitAround(units, around, matchingOf(units));
+  const location = on ? locationOf([on], null) : null;
+  return {
+    check: "cant-check",
+    checkReason: "picture",
+    contentHash,
+    passageId: null,
+    pageFrom: on?.page ?? null,
+    pageTo: on?.page ?? null,
+    location: location ? { ...location, area } : null,
+    quote: "",
+  };
+}
+
+/** The Location of a Unit on its own, for an area whose words weren't found: the region still names its place. */
+function placeIn(
+  documents: RecheckDocuments,
+  documentId: string,
+  contentHash: string | null,
+  unit: number | null,
+): CitationLocation | null {
+  if (contentHash === null) return null;
+  const units = documents.pageTexts(documentId, contentHash, null, null);
+  // A view that names no Unit (Word, Markdown, a web page) must not have its area guessed onto the first.
+  const on = unit === null ? undefined : units.find((each) => each.page === unit);
+  return on ? locationOf([on], null) : null;
+}
+
+function citeSelectionAt(
   documents: RecheckDocuments,
   input: { documentId: string; parts: readonly SelectedPart[] },
 ): CitedSelection {
@@ -967,13 +1066,14 @@ export function recheckWhereSelected(
   const quote = cleanQuote(input.quote);
   const version = versionOf(documents, input.documentId, contentHash);
   const covered = version.inRange(cited);
-  const wanted = JSON.stringify(parseLocation(input.location));
+  const wanted = JSON.stringify(withoutArea(parseLocation(input.location)));
   const options = { ...version.matching, numbers: numbersIn(covered) };
   const place =
     quote === "" || covered.length === 0 || covered.length > MAX_CITED_PAGES
       ? undefined
       : placesOf(joinUnits(covered).text, quote, options).find(
-          (found) => JSON.stringify(parseLocation(locationOf(covered, found))) === wanted,
+          (found) =>
+            JSON.stringify(withoutArea(parseLocation(locationOf(covered, found)))) === wanted,
         );
   const own = place ? foldRadicals(readableQuote(joinUnits(covered).text, place)) : "";
   const found = place ? quoteInUnits(covered, cleanQuote(own), version.matching) : null;
@@ -1766,7 +1866,10 @@ export function createCitationSession(
         : handleFor(passage.passageId);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
       const plain = foldRadicals(
-        withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units),
+        withCueMarks(
+          withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
+          units,
+        ),
       );
       const text = withUnsureMarks(plain, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;

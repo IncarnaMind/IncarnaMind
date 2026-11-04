@@ -911,6 +911,7 @@ export function Composer({
         <PictureChip editor={mind?.editor ?? null} doc={mind?.doc ?? null} />
         <AskedQuoteChips
           quotes={draft.quotes ?? []}
+          doc={mind?.doc ?? null}
           onRemove={(quote) => {
             update({ quotes: (draft.quotes ?? []).filter((each) => each !== quote) });
             field.current?.focus();

@@ -110,6 +110,7 @@ contextBridge.exposeInMainWorld(BRIDGE_KEY, bridge);
 const files: FilesBridge = {
   pathForFile: (file) => webUtils.getPathForFile(file),
   decodePicture: (bytes) => invoke(FILES_CHANNELS.decodePicture, bytes),
+  captureArea: (rect) => invoke(FILES_CHANNELS.captureArea, rect),
   showSavedFile: (path) => invoke(FILES_CHANNELS.showSavedFile, path),
   openSavedFile: (path) => invoke(FILES_CHANNELS.openSavedFile, path),
   pickOutputLocation: () => invoke(FILES_CHANNELS.pickOutputLocation),

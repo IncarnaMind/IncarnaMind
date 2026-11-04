@@ -37,6 +37,11 @@ export interface FilesBridge {
    * the picture says it can't be read.
    */
   decodePicture(bytes: Uint8Array): Promise<Uint8Array | null>;
+  /**
+   * The window's area at `rect`, in the page's own coordinates, as a PNG: the
+   * figure the User selected in a Document's viewer (#118).
+   */
+  captureArea(rect: { x: number; y: number; width: number; height: number }): Promise<Uint8Array>;
   /** Shows a file IncarnaMind saved (`CoreApi.saveMindExport`), selected in the system's file manager. */
   showSavedFile(path: string): Promise<void>;
   /** Opens a file IncarnaMind saved (`CoreApi.saveMindExport`) in the system's default app for it. */
@@ -207,6 +212,7 @@ export interface RendererErrorReport {
 export const FILES_CHANNELS = {
   showSavedFile: "files:showSavedFile",
   decodePicture: "files:decodePicture",
+  captureArea: "files:captureArea",
   openSavedFile: "files:openSavedFile",
   pickOutputLocation: "files:pickOutputLocation",
   saveMindCopy: "files:saveMindCopy",

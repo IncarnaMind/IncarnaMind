@@ -15,6 +15,7 @@ import {
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
 import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
+import { parseLocation } from "./locations";
 
 /** At most this many Blocks go into a note at once, and this deep. */
 const MAX_BLOCKS = 2_000;
@@ -90,9 +91,10 @@ const unit = (value: unknown): number | null =>
  * its Document's current version, its check and where it points as the check
  * finds them now; once its Document has a newer version than the one it quotes,
  * in that version, where it points kept, so its card says the Document changed
- * and only the User's choice moves it (ADR-0017's amendment). A Citation whose
- * Document is gone, or that can't be checked again for any reason, keeps what
- * it had.
+ * and only the User's choice moves it (ADR-0017's amendment). A Citation kept
+ * inside a wall the Note is outside keeps what it had; one whose Document is
+ * gone says it can't be checked, and one that can't be checked again for any
+ * other reason keeps what it had.
  */
 export async function recheckCitations(
   blocks: readonly NodeJSON[],
@@ -110,23 +112,33 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
   const attrs = node.attrs ?? {};
   const { documentId, quote } = attrs;
   if (typeof documentId !== "string" || documentId === "") return node;
+  const area = parseLocation(attrs.location)?.area;
+  // An area over a picture has no words, by design (#118): its check stays where the User picked it.
+  if (typeof quote !== "string" || (quote === "" && area !== undefined)) return node;
   try {
     const pageFrom = unit(attrs.pageFrom);
     const checked = await recheck({
       documentId,
-      quote: typeof quote === "string" ? quote : "",
+      quote,
       pageFrom,
       pageTo: unit(attrs.pageTo) ?? pageFrom,
       contentHash: typeof attrs.contentHash === "string" ? attrs.contentHash : null,
     });
-    // Kept inside a wall the Note is outside, nothing was read; or a deleted Document: either way
-    // the check made when it was cited stands, as the badge shows it.
-    if ("keptInside" in checked || checked.contentHash === null) return node;
+    // Kept inside a wall the Note is outside, nothing was read: the check made when it was cited stands.
+    if ("keptInside" in checked) return node;
+    // A deleted Document: a Citation with words keeps the check it was given, as it always has; one
+    // with no words (a pasted table's, say) says it can't be checked.
+    if (checked.contentHash === null) {
+      return quote === ""
+        ? { ...node, attrs: { ...attrs, check: checked.check, checkReason: checked.checkReason } }
+        : node;
+    }
     const quoted = checked.inQuotedVersion;
     if (quoted !== undefined) {
       if (quoted === null) return node;
       return { ...node, attrs: { ...attrs, check: quoted.check, checkReason: quoted.checkReason } };
     }
+    // A picked area keeps its region: the check finds where its words are, not the User's rectangle.
     return {
       ...node,
       attrs: {
@@ -137,7 +149,7 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
         passageId: checked.passageId,
         pageFrom: checked.pageFrom,
         pageTo: checked.pageTo,
-        location: checked.location,
+        location: checked.location && area ? { ...checked.location, area } : checked.location,
       },
     };
   } catch (error) {

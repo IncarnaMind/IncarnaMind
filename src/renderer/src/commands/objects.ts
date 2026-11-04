@@ -417,6 +417,20 @@ export const folderCommands: readonly Command[] = [
     },
   },
   {
+    id: "folder.addDocuments",
+    label: "folder.addDocumentsHere",
+    group: "main",
+    appliesTo: ["folder"],
+    when: onlyOne,
+    // It waits for the User's choice in a file picker.
+    assistant: false,
+    reversible: true,
+    run: async (ctx) => {
+      const id = idsOf(ctx, "folder")[0];
+      if (id) await store().pickDocumentsIntoFolder(id);
+    },
+  },
+  {
     id: "folder.newInside",
     label: "folder.newInside",
     group: "main",

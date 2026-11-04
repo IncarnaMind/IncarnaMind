@@ -212,21 +212,45 @@ test("a right-click on a row opens its menu, without selecting its name; a selec
   await app.close();
 });
 
-test("the drop overlay hides what is under it", async () => {
+test("the drop overlay is the card's alone, and hides what is under it", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  await window.evaluate(() => {
+  await window.getByTestId("tab-groups").evaluate((element) => {
     const transfer = new DataTransfer();
     transfer.items.add(new File(["x"], "Notes.txt", { type: "text/plain" }));
-    document
-      .querySelector('[data-testid="sidebar"]')
-      ?.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: transfer }));
+    const box = element.getBoundingClientRect();
+    element.dispatchEvent(
+      new DragEvent("dragenter", {
+        bubbles: true,
+        dataTransfer: transfer,
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
   });
   const overlay = window.getByTestId("drop-overlay");
   await expect(overlay).toBeVisible();
   await expect(overlay).toHaveCSS("background-color", "rgb(231, 237, 251)");
   await expect(overlay).toContainText("or a folder to link it");
   await screenshot(window, "drop-overlay");
+
+  // Over the sidebar the card stays quiet, so the sidebar is never covered, and the label says
+  // what the window's own add would do.
+  await window.getByTestId("sidebar").evaluate((element) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(["x"], "Notes.txt", { type: "text/plain" }));
+    const box = element.getBoundingClientRect();
+    element.dispatchEvent(
+      new DragEvent("dragover", {
+        bubbles: true,
+        dataTransfer: transfer,
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+  });
+  await expect(overlay).toHaveCount(0);
+  await expect(window.getByTestId("drop-label")).toHaveText("Add to Library");
   await app.close();
 });
 
