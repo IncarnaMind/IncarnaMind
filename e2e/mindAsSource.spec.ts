@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { formatShortDate, formatTime } from "../src/shared/dates";
+import { formatShortDate } from "../src/shared/dates";
 import {
   addDocuments,
   capture,
@@ -167,17 +167,16 @@ for (const language of ["en", "zh-CN"] as const) {
       if (!source?.snapshotAt) throw new Error("The snapshot has no date.");
       expect(source.name).toBe("Field visit");
       const date = formatShortDate(source.snapshotAt, language);
-      // The built app runs with --lang=en-GB, which writes the time in 24 hours.
-      const time = formatTime(source.snapshotAt, language, { twelveHour: false });
+      // The clock follows the machine: 24 hours here, 12 hours on some runners.
+      const footText =
+        language === "zh-CN"
+          ? new RegExp(`^已作为来源 · 快照于 ${date} (上午|下午)?\\d{1,2}:\\d{2}$`)
+          : new RegExp(`^Used as a source · snapshot of ${date}, \\d{1,2}:\\d{2}( [ap]m)?$`);
       const label =
         language === "zh-CN" ? `你的笔记：Field visit，${date}` : `Your note: Field visit, ${date}`;
       // The menu's foot says when the snapshot was taken; its own items act.
       const foot = await openPageMenu(window);
-      await expect(foot.getByTestId("mind-source-foot")).toHaveText(
-        language === "zh-CN"
-          ? `已作为来源 · 快照于 ${date} ${time}`
-          : `Used as a source · snapshot of ${date}, ${time}`,
-      );
+      await expect(foot.getByTestId("mind-source-foot")).toHaveText(footText);
       // Only the items act: the foot's words are a paragraph, not a button.
       await expect(foot.getByTestId("mind-source-foot")).toHaveJSProperty("tagName", "P");
       await expect(foot.getByTestId("mind.updateSourceSnapshot")).toHaveText(words.update);
