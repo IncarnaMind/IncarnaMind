@@ -56,3 +56,20 @@ test("two different stated units still make a figure ambiguous, with both readin
     ],
   ]);
 });
+
+test("a caption that states the text's own unit gives one reading, which the caption still states", () => {
+  const [figure] = readFigures("单位：万元\n| 收入 | 1,234 |", { header: "单位：万元" });
+  expect(
+    figure?.ambiguous
+      .find((each) => each.kind === "scale")
+      ?.readings.map((reading) => [reading.value, reading.statedIn]),
+  ).toEqual([
+    [1234, undefined],
+    [12_340_000, "both"],
+  ]);
+});
+
+test("a caption and the text that both state the unit a figure is written in leave it nothing to choose", () => {
+  const [figure] = readFigures("单位：元\n| 收入 | 1,234元 |", { header: "单位：元" });
+  expect(figure?.ambiguous.find((each) => each.kind === "scale")).toBeUndefined();
+});

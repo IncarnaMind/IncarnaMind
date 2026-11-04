@@ -69,6 +69,11 @@ export interface Reading {
   decimals: number;
   /** Last shown place in base units; null for exact fractions, undefined for legacy or unrepresentable precision. */
   precision?: number | null;
+  /**
+   * For a reading a stated unit gives (a "scale" ambiguity's): where that unit is stated, in the
+   * text read, in its header (a table's caption or heading), or in both (#2512).
+   */
+  statedIn?: "text" | "header" | "both";
 }
 
 /**
@@ -2997,20 +3002,19 @@ function finish(
       readings: draft.currencies.map((code) => ({ ...base, unit: { kind: "currency", code } })),
     });
   }
-  // Two units can still state one reading, or the one the figure has as written: nothing to choose.
-  // A header's readings come after the text's own, whole: what a header adds is what follows the
-  // text's (calculations' `statedReading`), so it is never merged into theirs.
-  const once = (kept: Set<string>) => (reading: Reading) => {
+  // Units stated twice, in the text and in its header too, give one reading that names both; one
+  // that reads the figure as it is written leaves nothing to choose.
+  const stated = new Map<string, Reading>();
+  const add = (statedIn: "text" | "header") => (reading: Reading) => {
     const key = readingKey(reading);
-    if (kept.has(key)) return false;
-    kept.add(key);
-    return true;
+    if (key === readingKey(base)) return;
+    const known = stated.get(key);
+    if (!known) stated.set(key, { ...reading, statedIn });
+    else if (known.statedIn !== statedIn) known.statedIn = "both";
   };
-  const stated = [
-    ...statedReadings(draft, statements).filter(once(new Set([readingKey(base)]))),
-    ...statedReadings(draft, header).filter(once(new Set())),
-  ];
-  if (stated.length > 0) ambiguous.push({ kind: "scale", readings: [base, ...stated] });
+  statedReadings(draft, statements).forEach(add("text"));
+  statedReadings(draft, header).forEach(add("header"));
+  if (stated.size > 0) ambiguous.push({ kind: "scale", readings: [base, ...stated.values()] });
   if (draft.signUnsure) {
     const positive = readingOf({ ...draft, negative: false }, written);
     ambiguous.push({
