@@ -39,8 +39,9 @@ export interface RunCodeToolOptions {
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 
 /**
- * What the model reads when Python can't be had: plainly why, and to analyse in Pyodide instead
- * where run_analysis is offered, else to say so.
+ * What the model reads when Python can't be had: plainly why, that the code and the Documents
+ * aren't the cause (told only "it couldn't start", Claude Haiku 5.5 gave its Answer another reason,
+ * #2351), and to analyse in Pyodide instead where run_analysis is offered, else to say so.
  */
 function noPython(error: EmbeddingModelError | null, analysisOffered: boolean): string {
   const why = !error
@@ -51,11 +52,11 @@ function noPython(error: EmbeddingModelError | null, analysisOffered: boolean): 
         ? "the download didn't match what this version of IncarnaMind expects, so it was thrown away"
         : error.kind === "storage"
           ? "it couldn't be saved to IncarnaMind's data folder"
-          : "it couldn't start on this computer";
+          : "IncarnaMind's own Python couldn't start on this computer";
   const instead = analysisOffered
     ? "Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download."
     : "Say in the Answer that the analysis couldn't run.";
-  return `Python didn't run: ${why}. ${instead} bash still runs here.`;
+  return `Python didn't run: ${why}. Your code and the Documents aren't the cause. ${instead} bash still runs here.`;
 }
 
 export function runCodeTool(options: RunCodeToolOptions): Tool {

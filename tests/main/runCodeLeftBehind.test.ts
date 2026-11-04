@@ -56,3 +56,47 @@ test("a run folder left over an hour ago is removed when a runner is made; a new
   });
   expect(errors).toEqual([]);
 });
+
+test("a bash run never looks for the plot font, nor reads its folder", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "incarnamind-font-"));
+  onTestFinished(() => rm(tempDir, { recursive: true, force: true }));
+  const font = join(tempDir, "fonts", "plot.otf");
+  await mkdir(join(tempDir, "fonts"));
+  await writeFile(font, "a font");
+  const read: string[][] = [];
+  const runner = createCodeRunner({
+    executor: {
+      level: "os",
+      run: async (request) => {
+        read.push(request.allow.read.filter((each): each is string => typeof each === "string"));
+        return {
+          exitCode: 0,
+          timedOut: false,
+          stdout: "",
+          stderr: "",
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        };
+      },
+    },
+    tempDir,
+    python: null,
+    helper: "",
+    font,
+    appVersion: "test",
+    reportError: (error) => {
+      throw error;
+    },
+  });
+
+  const ran = await runner.run({
+    language: "bash",
+    code: "true",
+    documents: [],
+    signal: new AbortController().signal,
+  });
+
+  expect(ran).toMatchObject({ kind: "ran", end: { kind: "done" } });
+  expect(read).toHaveLength(1);
+  expect(read[0]?.some((folder) => folder.includes("fonts"))).toBe(false);
+});
