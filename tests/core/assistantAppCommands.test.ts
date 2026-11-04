@@ -4209,11 +4209,7 @@ describe("A refusal is said, and the commands a request names are within reach (
 
       await askAssistant(core, { text, mindId: mind.id, commands: offered, clientId: WINDOW });
 
-      const listed =
-        model.doStreamCalls[1]?.prompt
-          .flatMap((message) => (message.role === "tool" ? message.content : []))
-          .map((part) => (part.type === "tool-result" ? JSON.stringify(part.output) : ""))
-          .join("\n") ?? "";
+      const listed = toolResultsIn(model, 1);
       expect(listed).toContain("“Q3 commentary” (document, deleted");
       expect(listed).toContain(
         "Change nothing of what is in Recently deleted unless the request is to bring it back",
