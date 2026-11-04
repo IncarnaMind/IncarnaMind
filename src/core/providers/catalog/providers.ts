@@ -89,8 +89,10 @@ const PROVIDERS = [
         kinds: {
           answer: { anthropic: { effort: "low" } },
           careful: { anthropic: { effort: "high" } },
-          task: { anthropic: { effort: "low" } },
         },
+        // At low, Claude Haiku 5.5's comparison cells finished about 0.5 s sooner within the quality
+        // gate; Sonnet 5.5's no sooner, so it and the models not measured keep the default (#1631).
+        models: { "claude-haiku-5-5": { task: { anthropic: { effort: "low" } } } },
         refused: [{ names: "effort", options: { anthropic: { effort: undefined } } }],
       },
     },
@@ -411,12 +413,11 @@ const PROVIDERS = [
     docsUrl: "https://api-docs.deepseek.com/quick_start/pricing",
     request: {
       thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } },
-      // DeepSeek V4 thinks by default at effort high; low and max are its others.
+      // DeepSeek V4 thinks by default at effort high; low and max are its others. Its comparison
+      // cells at low were judged right less often and finished no sooner (#1631), so Tasks keep
+      // the default.
       effort: {
-        kinds: {
-          answer: { deepseek: { reasoningEffort: "low" } },
-          task: { deepseek: { reasoningEffort: "low" } },
-        },
+        kinds: { answer: { deepseek: { reasoningEffort: "low" } } },
         refused: [
           { names: "reasoning_effort", options: { deepseek: { reasoningEffort: undefined } } },
         ],

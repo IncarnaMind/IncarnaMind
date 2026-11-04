@@ -198,7 +198,7 @@ async function answer(
 }
 
 describe("An Answer's request to a model that thinks", () => {
-  // protects=Claude 5 models are asked for their summarized thinking, at the default effort for a call of no kind, low for an Answer and a Task's, and high for an Answer that checks or calculates, and older ones get no thinking turned on; fails_when=a call of no kind carries an effort, an Answer or a Task's lacks its effort, or Claude 4.8's carries thinking; no_claim=the fake API doesn't check what Anthropic accepts.
+  // protects=Claude 5 models are asked for their summarized thinking, at the default effort for a call of no kind and for a Task's but on Haiku 5.5, low for an Answer and Haiku 5.5's Task, and high for an Answer that checks or calculates, and older ones get no thinking turned on; fails_when=a call of no kind or Sonnet's Task carries an effort, an Answer or Haiku's Task lacks its effort, or Claude 4.8's carries thinking; no_claim=the fake API doesn't check what Anthropic accepts.
   test.each([
     ["claude-sonnet-5-5", "summary", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-sonnet-5-5", "answer", { type: "adaptive", display: "summarized" }, { effort: "low" }],
@@ -210,8 +210,9 @@ describe("An Answer's request to a model that thinks", () => {
       { type: "adaptive", display: "summarized" },
       { effort: "high" },
     ],
-    ["claude-sonnet-5-5", "task", { type: "adaptive", display: "summarized" }, { effort: "low" }],
+    ["claude-sonnet-5-5", "task", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-haiku-5-5", "task", { type: "adaptive", display: "summarized" }, { effort: "low" }],
+    ["claude-opus-5-5", "task", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-opus-4-8", "answer", undefined, undefined],
     ["claude-opus-4-8", "careful", undefined, undefined],
     ["claude-opus-4-8", "task", undefined, undefined],
@@ -224,10 +225,10 @@ describe("An Answer's request to a model that thinks", () => {
     },
   );
 
-  // protects=DeepSeek's thinking models are asked for low effort on an Answer and a Task's, and for none (its default) on a careful Answer or a call of no kind, while its reasoning stays raw (no summary); fails_when=an Answer or a Task's lacks reasoning_effort low, or a careful Answer carries one; no_claim=the fake API doesn't check what DeepSeek accepts.
+  // protects=DeepSeek's thinking models are asked for low effort on an Answer, and for none (its default) on a careful Answer, a Task's or a call of no kind, while its reasoning stays raw (no summary); fails_when=an Answer lacks reasoning_effort low, or another kind carries one; no_claim=the fake API doesn't check what DeepSeek accepts.
   test.each([
     ["answer", "low"],
-    ["task", "low"],
+    ["task", undefined],
     ["careful", undefined],
     ["summary", undefined],
   ] as const)("DeepSeek Flash, %s: reasoning_effort %s", async (thinking, effort) => {
@@ -283,7 +284,7 @@ describe("An Answer's request to a model that thinks", () => {
     expect((await generateText({ model, prompt: "OK?", maxRetries: 0 })).text).toBe("OK");
     expect(bodies.map((body) => body.reasoning_effort)).toEqual(["low", undefined]);
     bodies.length = 0;
-    await generateText({ model: modelOf("deepseek", "deepseek-v4-pro", "task"), prompt: "OK?" });
+    await generateText({ model: modelOf("deepseek", "deepseek-v4-pro", "answer"), prompt: "OK?" });
     expect(bodies.map((body) => body.reasoning_effort)).toEqual([undefined]);
   });
 

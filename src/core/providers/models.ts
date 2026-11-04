@@ -194,9 +194,18 @@ function thinkingOptions(
   const effort =
     spec.thinking === "summary" || (!summary && reasons !== true)
       ? undefined
-      : quirks?.effort?.kinds[spec.thinking];
+      : effortOf(quirks?.effort, spec.modelId, spec.thinking);
   if (!summary && !effort) return null;
   return withOptionsOver({ providerOptions: summary?.options ?? {} }, effort ?? {}).providerOptions;
+}
+
+function effortOf(
+  effort: RequestQuirks["effort"],
+  modelId: string,
+  kind: ThinkingKind,
+): ProviderOptions | undefined {
+  const own = Object.entries(effort?.models ?? {}).find(([prefix]) => modelId.startsWith(prefix));
+  return own && kind in own[1] ? own[1][kind] : effort?.kinds[kind];
 }
 
 /** Whether thinking can be turned off on this model: not on one the provider says always thinks, nor one the catalog knows doesn't think. */
