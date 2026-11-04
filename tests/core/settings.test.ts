@@ -252,6 +252,25 @@ describe("Settings", () => {
     after.close();
   });
 
+  test("a Note's own comments choice is kept, and only a boolean is accepted (#328)", async () => {
+    const core = startCore(await createTempDataFolder());
+    const docx = { ...DEFAULT_WORD, includeMyComments: true, myCommentsFile: "note-a" };
+    const saved = await core.updateSettings({
+      user: { exportOptions: { ...DEFAULT_EXPORT, docx } },
+    });
+    expect(saved.user.exportOptions.docx).toMatchObject({
+      includeMyComments: true,
+      myCommentsFile: "note-a",
+    });
+    await expect(
+      core.updateSettings({
+        user: {
+          exportOptions: { ...DEFAULT_EXPORT, docx: { ...docx, includeMyComments: "yes" } },
+        } as unknown as ExportPreferences,
+      }),
+    ).rejects.toThrow();
+  });
+
   test("export options saved before the web page to share (#72) read its defaults", async () => {
     const core = startCore(await createTempDataFolder());
     const { "share-page": _, ...before } = { ...DEFAULT_EXPORT, format: "pdf" as const };
