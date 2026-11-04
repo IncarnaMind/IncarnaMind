@@ -46,6 +46,10 @@ export const ANSWER_PROBLEMS: Record<ProviderErrorKind, AnswerProblem> = {
     line: "answer.error.auth",
     fix: { kind: "settings", page: "models", label: "answer.error.checkKey" },
   },
+  "api-key-unreadable": {
+    line: "answer.error.apiKeyUnreadable",
+    fix: { kind: "settings", page: "models", label: "answer.error.checkKey" },
+  },
   model: {
     line: "answer.error.model",
     fix: { kind: "settings", page: "models", label: "answer.error.chooseModel" },

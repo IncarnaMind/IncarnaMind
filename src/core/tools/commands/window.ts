@@ -144,14 +144,22 @@ export function windowChecked(
       );
       if ("started" in result) {
         return {
-          done: { items, window: { changed: false, running: true } },
+          done: {
+            items,
+            window: { changed: false, running: true },
+            ...(context.mindId && { mindId: context.mindId }),
+          },
           step: null,
           said: `Started “${entry.label}”${on} in the User's window, where it goes on; its card says how it ends.`,
         };
       }
       if (!result.ran) throw new TranslatableError(result.wording ?? result.why);
       return {
-        done: { items, window: { changed: result.changed } },
+        done: {
+          items,
+          window: { changed: result.changed },
+          ...(context.mindId && { mindId: context.mindId }),
+        },
         step: null,
         said: `Ran “${entry.label}”${on} in the User's window${result.changed ? "; the User can undo it" : ""}.`,
       };

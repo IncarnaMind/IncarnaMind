@@ -996,9 +996,11 @@ function failureOf(error: unknown): ProviderError {
     const kind =
       reason === "consent-declined" || reason === "local-mode"
         ? reason
-        : reason === "missing-api-key"
-          ? "auth"
-          : "model";
+        : reason === "api-key-unreadable"
+          ? "api-key-unreadable"
+          : reason === "missing-api-key"
+            ? "auth"
+            : "model";
     return { kind, message: error.message };
   }
   return classifyProviderError(error);

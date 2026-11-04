@@ -132,6 +132,9 @@ const WHOLE_LINES = new Set<MessageKey>([
   "commands.window.closed",
   "commands.window.unfinished",
   "commands.window.alreadyChecking",
+  "mindCheck.waitingForOk",
+  "mindCheck.declined",
+  "mindCheck.closed",
   "mindCheck.nothingToCheck",
   "run.stopped.cancelled",
   "checks.problem.no-claims",
@@ -356,6 +359,19 @@ export function commandRuns(
   }
   return [...runs].map(([run, done]) => ({ run, done }));
 }
+
+/** Whether a Check of this Run is waiting on its Note's question: its line says so until the answer. */
+export const checkWaiting = (
+  done: readonly CommandDone[],
+  asking: Readonly<Record<string, unknown>>,
+): boolean =>
+  done.some(
+    (each) =>
+      each.command === "mind.check" &&
+      each.window?.running === true &&
+      each.mindId !== undefined &&
+      asking[each.mindId] !== undefined,
+  );
 
 /** Whether Undo takes anything back: a file saved stays saved, and what only showed changes nothing. */
 export const undoable = (done: readonly CommandDone[]): boolean =>
