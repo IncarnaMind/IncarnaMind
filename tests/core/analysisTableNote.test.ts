@@ -17,6 +17,7 @@ import { createElement, nodeOf, topLevelBlocks } from "../../src/core/answers/bl
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
+  CALCULATED_FIGURE_NODE,
   CHART_NODE,
   CLAIM_CHECK_MARK,
   MIND_FIGURE_RUNS_FIELD,
@@ -834,6 +835,43 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     });
     // It holds the badge: never quietly green.
     expect((await reading(core, client))?.kind).toBe("needs-look");
+    core.close();
+  });
+
+  test("a figure in a typed table is named by its row and column headings", async () => {
+    const north = language === "en" ? "North's total amount" : "北部地区金额合计";
+    const table = [
+      `| ${language === "en" ? "Measure" : "指标"} | ${language === "en" ? "Value" : "数值"} |`,
+      "| --- | --- |",
+      `| ${words.total} | [=6] |`,
+      `| ${north} | [=6] |`,
+    ].join("\n");
+    const { core, madeId, client } = await walked(
+      language,
+      lines(table),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    // A figure in a cell keeps its check on itself, not as a mark on words.
+    const cells: { state: string; reason: string | null }[] = [];
+    const visit = (node: NodeJSON) => {
+      const check =
+        node.type === CALCULATED_FIGURE_NODE ? readClaimCheck(node.attrs?.claimCheck) : null;
+      if (check)
+        cells.push({
+          state: check.state,
+          reason: check.state === "unsupported" ? (check.unsupported?.reason ?? null) : null,
+        });
+      for (const child of node.content ?? []) visit(child);
+    };
+    for (const block of blocksOf(client)) visit(block);
+    expect(cells).toEqual([
+      { state: "supported", reason: null },
+      { state: "unsupported", reason: words.misnamed(words.total) },
+    ]);
     core.close();
   });
 

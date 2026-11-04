@@ -687,7 +687,7 @@ function analysisReply(prompt: Prompt, question: string, searched: string): Repl
     }
     return {
       text: chinese
-        ? "各地区收入如下：\n\n[=table 1]\n\n合计 [=1]。"
+        ? "各地区收入：\n\n[=table 1]\n\n合计 [=1]。"
         : "Revenue by region:\n\n[=table 1]\n\nIn total, [=1].",
     };
   }

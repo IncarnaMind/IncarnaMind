@@ -319,8 +319,9 @@ function labelWords(label: string): string[] {
 /**
  * An Analysis's figure in a sentence, judged by its run as the Note keeps it (#2378), never by the
  * Documents' text, which never holds it. Supported only when IncarnaMind worked it out again to the
- * same number, the Documents it read are as they were, and the sentence holds every word its label
- * names it by: no model reads the naming, so a figure called another's is Unsupported, never green.
+ * same number, the Documents it read are as they were, and the sentence, or a table cell with its
+ * row and column headings, holds every word its label names it by: no model reads the naming, so a
+ * figure called another's is Unsupported, never green.
  * Not checked when it wasn't worked out again, or its record is gone.
  */
 function analysisJudgment(
@@ -343,7 +344,7 @@ function analysisJudgment(
   if (!record.recalculated || !evidence)
     return { verdict: "not-checked", reason: "analysis", detail: null, ...known };
   const label = target.calculated?.figure.label ?? "";
-  const said = claim.toLowerCase();
+  const said = [claim, target.label ?? ""].join(" ").toLowerCase();
   if (!labelWords(label).every((word) => said.includes(word)))
     return {
       verdict: "unsupported",

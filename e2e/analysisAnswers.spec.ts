@@ -342,9 +342,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(table.getByTestId("citation")).toHaveCount(0);
       // The caption is the table's title in the Note's language, with no lead-in that repeats it.
       const caption = language === "en" ? "Revenue by region" : "各地区收入";
-      await expect(editor.locator("p").filter({ has: marker })).toHaveText(
-        new RegExp(`^${caption}\\s*=1$`),
-      );
+      await expect(
+        editor.locator("p").filter({ has: window.getByTestId("analysis-table-marker") }),
+      ).toHaveText(new RegExp(`^${caption}\\s*=1$`));
       await expect(editor.locator("p").filter({ hasText: `${caption}:` })).toHaveCount(0);
       await expect(editor.locator("p").filter({ hasText: `${caption}：` })).toHaveCount(0);
 
@@ -353,10 +353,17 @@ for (const language of ["en", "zh-CN"] as const) {
       const badge = window.getByTestId("check-badge");
       await expect(badge).toBeVisible({ timeout: 30_000 });
       await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
-      // The Note holds only the table, which its run vouches for: ✓, and nothing washed.
+      // The Note holds only the table, which its run vouches for: Check sends none of its cells,
+      // says so in the Note's language, and the badge rests on ✓ with nothing washed.
+      await expect(window.getByTestId("error-notice-message")).toHaveText(
+        translate(language, "error.action", {
+          message: translate(language, "mindCheck.nothingToCheck"),
+        }),
+      );
       await expect(badge).toHaveAttribute("data-state", "checked");
       await expect(editor.locator(".claim-wash")).toHaveCount(0);
       await expect(marker).toHaveAttribute("data-state", "supported");
+      await pointAndClick(window, window.getByTestId("error-notice-dismiss"));
 
       // Its card says how each column was worked out, in the figure card's words.
       await pointAndClick(window, marker.locator("button"));
