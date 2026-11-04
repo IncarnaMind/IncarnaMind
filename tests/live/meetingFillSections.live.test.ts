@@ -928,7 +928,7 @@ const FINAL_CALLS: Call[] = [
       {
         name: "UK fee £7 per booking",
         kind: "decision",
-        pattern: [/UK/i, /seven|£\s*7\b|7\s*pounds/i, /booking/i],
+        pattern: [/£\s*7\b|GBP\s*7\b|\b(?:seven|7)\s*(?:pounds?|GBP)\b/i, /booking/i],
         said: [2],
         underLine: "UK fee",
       },
@@ -970,14 +970,14 @@ const FINAL_CALLS: Call[] = [
       {
         name: "五月二十二日上线",
         kind: "decision",
-        pattern: [/五月二十二|5\s*月\s*22/, /上线/],
+        pattern: /五月二十二|5\s*月\s*22/,
         said: [1],
         underLine: "上线日期",
       },
       {
         name: "英国每单七英镑",
         kind: "decision",
-        pattern: [/英国/, /七\s*英镑|7\s*英镑|£\s*7/, /订单|每单/],
+        pattern: [/七\s*英镑|7\s*英镑|£\s*7/, /订单|每单/],
         said: [2],
         underLine: "英国费用",
       },
@@ -1529,6 +1529,20 @@ test.each(["en", "zh-CN"] as const)(
       language === "en" ? "Send the sign-up form on Monday — Mina" : "周一发报名表 — 小米";
     expect(says(fact, correct)).toBe(true);
     expect(says(fact, wrong)).toBe(false);
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores accept a terse fee answer under its required typed line (%s)",
+  (language) => {
+    const call = FINAL_CALLS.find(
+      (each) => each.id === `in-place-${language === "en" ? "en" : "zh"}-ticket-launch`,
+    );
+    const fact = call?.facts.find((each) => each.name.includes(language === "en" ? "fee" : "每单"));
+    if (!fact?.underLine) throw new Error("The in-place fee expectation is missing.");
+    expect(says(fact, language === "en" ? "£7 per booking" : "每单七英镑")).toBe(true);
+    expect(says(fact, language === "en" ? "7 euros per booking" : "每单七欧元")).toBe(false);
+    expect(says(fact, language === "en" ? "£8 per booking" : "每单八英镑")).toBe(false);
   },
 );
 
