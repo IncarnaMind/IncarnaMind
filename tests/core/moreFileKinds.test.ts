@@ -5,7 +5,6 @@
  * names the next step for — or converts with the User's own LibreOffice.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import { describe, expect, test } from "vitest";
@@ -19,7 +18,13 @@ import { pictureProblem } from "../../src/core/documents/web/pictures";
 import { translate } from "../../src/shared/i18n";
 import { skippedStep } from "../../src/shared/skippedFiles";
 import { unreadFileText } from "../../src/shared/unreadFiles";
-import { createTempDataFolder, NO_MODEL_FILES, queryDatabase, startCore } from "../helpers/core";
+import {
+  createTempDataFolder,
+  filesInTemp,
+  NO_MODEL_FILES,
+  queryDatabase,
+  startCore,
+} from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -767,7 +772,7 @@ describe("Convert with LibreOffice adds a copy and leaves the original untouched
     const sources = await createSourceFolder();
     const legacy = await writeSourceFile(sources, "Long.doc", "the original .doc");
     await expect(core.convertWordFile(legacy)).rejects.toThrow();
-    expect(await readdir(tempDir)).toEqual([]);
+    expect(await filesInTemp(tempDir)).toEqual([]);
   });
 
   test("a JPEG behind 0xFF fill bytes has its size read, and an RTF over the cap is refused", async () => {

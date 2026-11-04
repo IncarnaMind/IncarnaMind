@@ -38,12 +38,12 @@ import { usePickIn } from "../citationPick";
 import { useViewerHandle } from "../commands/handles";
 import { commands } from "../commands/registry";
 import { ProblemLine } from "../components/ProblemLine";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
-import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone } from "./quoteMark";
+import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone, useMarkMeasure } from "./quoteMark";
 import { citeRangeAction, SheetSelectionMenu } from "./SelectionMenu";
 import { addRangeToNote, askAboutRange, copyRange } from "./selectionActions";
 import {
@@ -56,6 +56,7 @@ import {
   rowHeightFor,
 } from "./sheetGeometry";
 import { type MarkPlace, markGutter, placeSheetMark, scrollAcross } from "./sheetMark";
+import { cellsOn, withRowNames } from "./sheetRowNames";
 import { isInRange, rangeBetween, rangeParts, rangeSize, rangeTable } from "./sheetSelection";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
@@ -208,7 +209,7 @@ function Sheets({
     const index = sheets.findIndex((sheet) => sheet.name === (citedSheet ?? ""));
     if (index >= 0) setActive(index);
     const refs = found
-      ? [...found.cells].map((key) => parseCellRef(key.slice(key.lastIndexOf("!") + 1)))
+      ? cellsOn(found).map((ref) => parseCellRef(ref))
       : [{ row: citedUnit?.label?.from ?? 1, column: 0 }];
     const rows = refs.map((ref) => ref?.row ?? 1);
     const columns = refs.map((ref) => ref?.column ?? 0);
@@ -237,7 +238,18 @@ function Sheets({
     }
     return rows;
   }, [sheets]);
-  const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
+  const language = useLanguage();
+  const mark = useMemo(
+    () =>
+      withRowNames(
+        quoteMarkOf(target.citation),
+        sheets.find((each) => each.name === found?.sheet),
+        found,
+        language === "zh-CN" ? "、" : ", ",
+        language === "zh-CN" ? "：" : ": ",
+      ),
+    [target.citation, found, sheets, language],
+  );
   const hasContent =
     sheet &&
     (sheet.cells.length > 0 ||
@@ -546,13 +558,6 @@ function edgeCss(edge: Edge, side: "right" | "bottom", css: CSSProperties, shado
   }
 }
 
-/** The Citation's mark as measured, with its label and without, and the label it was measured with. */
-interface MarkMeasure {
-  full: number;
-  compact: number;
-  label: string | undefined;
-}
-
 /** Rows not drawn, above or below the view: one empty row of their height. */
 function Spacer({ height, columns }: { height: number; columns: number }) {
   return height > 0 ? (
@@ -592,20 +597,7 @@ function Grid({
   } | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<VirtualElement | null>(null);
   const keys = useRef<HTMLButtonElement>(null);
-  const markLabel = mark?.label;
-  const [markSize, setMarkSize] = useState<MarkMeasure | null>(null);
-  const measuredMark = useCallback(
-    (size: { full: number; compact: number }) =>
-      setMarkSize((previous) =>
-        previous?.full === size.full &&
-        previous.compact === size.compact &&
-        previous.label === markLabel
-          ? previous
-          : { ...size, label: markLabel },
-      ),
-    [markLabel],
-  );
-  const measured = mark && markSize?.label === mark.label ? markSize : null;
+  const { measured, onSize: measuredMark } = useMarkMeasure(mark);
   const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
   const applied = useRef<number | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);

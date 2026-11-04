@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
@@ -11,6 +12,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  focusSettled,
   launchApp,
   mindWrittenBefore,
   motionSettled,
@@ -242,23 +244,30 @@ for (const language of ["en", "zh-CN"] as const) {
 
 /**
  * A model billed per token, whose requests the cost meter counts, with the checks allowed to use it.
- * A monthly cap is set, so a run under a dollar still shows its estimate (#1941).
+ * A monthly cap is set, so a run under a dollar still shows its estimate (#1941); a test that
+ * needs the price line from the amount alone sets none.
  */
-async function useCloudChatModel(window: Page) {
-  await window.evaluate(async () => {
-    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const provider = await core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-ant-test",
-      modelId: "claude-haiku-5-5",
-    });
-    if (provider.service) {
-      for (const flow of ["chat", "tagging", "checks"] as const) {
-        await core.allowDataFlow(flow, provider.service.id);
+async function useCloudChatModel(
+  window: Page,
+  { modelId = "claude-haiku-5-5", cap = true }: { modelId?: string; cap?: boolean } = {},
+) {
+  await window.evaluate(
+    async ({ modelId, cap }) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const provider = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId,
+      });
+      if (provider.service) {
+        for (const flow of ["chat", "tagging", "checks"] as const) {
+          await core.allowDataFlow(flow, provider.service.id);
+        }
       }
-    }
-    await core.updateSettings({ user: { monthlyCap: { amount: 20, currency: "USD" } } });
-  });
+      if (cap) await core.updateSettings({ user: { monthlyCap: { amount: 20, currency: "USD" } } });
+    },
+    { modelId, cap },
+  );
 }
 
 /** The requests made to cloud models this month, as the cost meter counts them. */
@@ -357,6 +366,79 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
     "Check this note’s 15 claims against your Documents?",
   );
 });
+
+test("A price line that lands after the card opened makes room for itself and the Check", async () => {
+  test.setTimeout(120_000);
+  await writeFile(join(sources, "Tides.pdf"), TIDES);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+  // Claude Opus 5.5 prices ten short sentences above $1 by itself, with no monthly cap: the card
+  // opens under the line with no price, and typing takes the plan across it while the card stays open.
+  await useCloudChatModel(window, { modelId: "claude-opus-5-5", cap: false });
+  await setWindowSize(app, window, 900, 900);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  await mindWrittenBefore(window, "Price later", [
+    { note: "One claim here. Two claims here. Three claims here." },
+  ]);
+  await window.getByTestId("mind-list-item").filter({ hasText: "Price later" }).click();
+  const editor = window.getByTestId("mind-editor");
+  await expect(editor).toContainText("One claim here.");
+
+  const health = await checkCard(window);
+  await expect(health.getByTestId("check-estimate")).toHaveCount(0);
+  // Its content has settled: the card holds the height it opened with.
+  await expect(health.locator(".check-card-body")).toHaveAttribute("style", /height/);
+  const press = health.getByTestId("badge-check-mind");
+  expect(await inside(press, health)).toBe(true);
+
+  // Seven more sentences, typed while the card is open, take the plan past $1 on Claude Opus
+  // 5.5's price: the card plans again from them, and its price line lands in the card already open.
+  await editor.evaluate((dom) => {
+    (dom as unknown as { editor: Editor }).editor.commands.focus("end");
+  });
+  await focusSettled(window, editor);
+  await window.keyboard.type(
+    " Four claims here. Five claims here. Six claims here. Seven claims here. Eight claims here. Nine claims here. Ten claims here.",
+  );
+  await expect(press).toHaveAttribute("title", "10 sentences to check", { timeout: 15_000 });
+  await expect(health.getByTestId("check-estimate")).toContainText("About $");
+  // The price line and the Check sit inside the card: neither is clipped by the height held from before it.
+  expect(await inside(health.getByTestId("check-estimate"), health)).toBe(true);
+  expect(await inside(press, health)).toBe(true);
+  await app.close();
+});
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`after a capped run the held card keeps the Check in view at 900 and 1,440 px (${language})`, async () => {
+    test.setTimeout(120_000);
+    await writeFile(join(sources, "Tides.pdf"), TIDES);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    await useCloudChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 900, 900);
+    await addDocuments(window, [join(sources, "Tides.pdf")]);
+    await harbourNotes(window);
+
+    const health = await checkCard(window);
+    const press = health.getByTestId("badge-check-mind");
+    await expect(health.getByTestId("check-estimate")).toContainText(
+      language === "en" ? "About $" : "约 $",
+    );
+    expect(await inside(press, health)).toBe(true);
+
+    await pointAndClick(window, press);
+    await mindCheckFinished(window, 15);
+    // The verdicts need more room than the body holds, so it scrolls: the Check stays in the
+    // card's fixed foot, never scrolled away with them.
+    expect(await inside(press, health)).toBe(true);
+    await setWindowSize(app, window, 1440, 900);
+    expect(await inside(press, health)).toBe(true);
+    await app.close();
+  });
+}
 
 test("In Chinese and a narrow window, from the Mind's tab menu: a model on this computer checks at once with no price; a Folder that holds too little offers all Documents; Check checks a sentence written since", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
