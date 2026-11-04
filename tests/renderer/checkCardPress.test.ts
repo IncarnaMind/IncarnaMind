@@ -220,6 +220,8 @@ test("the foot keeps the progress line's room before a run", async () => {
   expect(progress.getAttribute("data-hidden")).toBe("");
   expect(progress.textContent).toContain("badge.checking");
   expect(progress.textContent).toContain("checks.stop");
+  // Its Stop is no button until a run starts, so the card's arrow keys never land on it.
+  expect(container.querySelector('[data-testid="card-foot-stop"]')).toBeNull();
 });
 
 // protects=#2313: while the run is on the price line stays laid out under the progress line; fails_when=the price line is removed at the press, so the foot can shrink to the progress line; no_claim=the room kept before the run above.
@@ -235,4 +237,5 @@ test("the price line keeps its room under the running progress line", async () =
   expect(
     container.querySelector('[data-testid="card-foot-progress"]')?.getAttribute("data-hidden"),
   ).toBeNull();
+  expect(container.querySelector('[data-testid="card-foot-stop"]')).not.toBeNull();
 });

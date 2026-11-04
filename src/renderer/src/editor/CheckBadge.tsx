@@ -276,14 +276,19 @@ export function CheckActions({
           <span className="check-card-progress-sep" aria-hidden="true">
             ·
           </span>
-          <button
-            type="button"
-            data-testid="card-foot-stop"
-            className="check-card-stop"
-            onClick={() => stopCheck(mindId)}
-          >
-            {t("checks.stop")}
-          </button>
+          {running ? (
+            <button
+              type="button"
+              data-testid="card-foot-stop"
+              className="check-card-stop"
+              onClick={() => stopCheck(mindId)}
+            >
+              {t("checks.stop")}
+            </button>
+          ) : (
+            // The room the Stop takes is kept before a run, but it is no action until one starts.
+            <span className="check-card-stop">{t("checks.stop")}</span>
+          )}
         </div>
       </div>
       <div className="check-card-actions">
