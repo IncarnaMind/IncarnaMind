@@ -260,9 +260,6 @@ const planOf = (each: WrittenItem): Plan => ({
   quote: each.quote,
 });
 
-/** What a 40-check sentence's verdict should be: Supported is right for these. */
-const STATED = new Set(["supported", "partly"]);
-
 export function writtenSet(root: string): PairedGroup[] {
   const examples = join(root, "resources", "examples");
   const heldOut = (["en", "zh-CN"] as const).flatMap((language) =>
@@ -310,7 +307,9 @@ export function writtenSet(root: string): PairedGroup[] {
             set.id,
             set.language,
             { sentence: sentence.text },
-            STATED.has(sentence.expected),
+            // "Staff" for the agreement's Employee gets the partly-supported card (DESIGN.md ›
+            // Checks), so Supported there is no right verdict for a fast path to give.
+            sentence.expected === "supported",
             writer,
           ),
         ),
