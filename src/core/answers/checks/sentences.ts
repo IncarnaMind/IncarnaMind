@@ -151,8 +151,8 @@ export function wordsOf(element: Y.XmlElement, from = 0, to = textOf(element).le
 }
 
 /**
- * The words of any stretch of a Block, its text projected once: projected again for each sentence,
- * a paragraph of many took time that grew with their number × its length (#2512).
+ * The words of any stretch of a Block, its text projected once for them all, so a paragraph of many
+ * sentences costs no more than its length (#2512).
  */
 export function wordsReader(element: Y.XmlElement): (from: number, to: number) => string {
   if (element.nodeName === CHART_NODE) {

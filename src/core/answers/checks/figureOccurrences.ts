@@ -151,8 +151,8 @@ function inSentence(
     const span = spans[low - 1];
     return span && span.to >= end ? span : whole;
   };
-  // Each sentence is read once for all its figures: read again for each, a sentence of many
-  // figures took time that grew with their number × its length (#2512).
+  // Each sentence is read once for all its figures, so a sentence of many costs no more than its
+  // length (#2512).
   const sentences = new Map<{ from: number; to: number }, Around>();
   const wordsIn = wordsReader(sentence.element);
   countFigureSteps(raw.length);

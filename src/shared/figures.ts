@@ -1038,8 +1038,8 @@ const MONEY_FOR_PEOPLE =
   /\b(?:of|to|for|from|per|by|with|among|between|towards?|against|owed|paid)\b|[给向每付欠借对为]/i;
 
 /**
- * What the reader finds of a line once, however many figures the line holds: read again for each
- * one, a long line of them took time that grew with its square (#2510).
+ * What the reader finds of a line once, however many figures the line holds, so a long line of
+ * them costs no more than its length (#2510).
  */
 interface Line {
   start: number;
@@ -1198,8 +1198,8 @@ const LOOSE_REFERENCE_BEFORE = /[表图注]$/;
 // Dates, periods and statements ----------------------------------------------
 
 const CN_NUMERAL_CHARS = "〇零一二三四五六七八九十两";
-// A numeral matches from its first character only: tried from each character of a long run, the
-// date patterns read the rest of the run again each time (#2510).
+// A numeral matches from its first character only, so the date patterns read a long run of
+// numerals once, not again from each of its characters (#2510).
 const CNN = `(?<![${CN_NUMERAL_CHARS}])[${CN_NUMERAL_CHARS}]+`;
 const MONTH =
   "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
@@ -1276,8 +1276,8 @@ const runKind = (char: string | undefined) =>
 
 /**
  * Where a pattern that opens with a number matches, tried from the first character of each run of
- * digits or of Chinese numerals: tried from each character, a long run was read again from each,
- * so 64 KB of digits before a 年 took 10 seconds (#2510).
+ * digits or of Chinese numerals only, so a long run is read once, not again from each of its
+ * characters (#2510).
  */
 function fromRunStarts(s: string, sticky: RegExp): Span[] {
   const spans: Span[] = [];
@@ -2050,8 +2050,8 @@ function runsFrom(length: number, holds: (index: number) => boolean): number[] {
  * Reads the separators of a run of digits. A separator is decided by the number itself where it
  * can be ("1,234.5", "1.234.567"), then by the context; where neither decides, both readings are
  * kept. Separators of mixed kinds that aren't one number read as the longest start that is one,
- * then the rest the same way, in one pass: trying each start in turn read a short garbled run in
- * time that doubled with each separator (#2510).
+ * then the rest the same way, in one pass over run lengths worked out once, so a garbled run costs
+ * no more than its length (#2510).
  */
 function readGroups(s: string, lexeme: Lexeme, settled: Settled): Core[] {
   const { groups, separators, at } = lexeme;
@@ -2814,7 +2814,7 @@ const RANGE = / ?(?:-|~|〜) ?|至|到| to /y;
 const CHANGE_BEFORE =
   /(?:(?<![A-Za-z])(?:from|by|rose|risen|rises|rising|increased|increases|grew|grown|grows|fell|fallen|falls|decreased|declined|dropped|climbed|jumped|cut|reduced|raised|improved|widened|narrowed|went|moved|changed|up|down) |从|由)$/i;
 
-// Asked of each range: looking through every span each time took time that grew with ranges × dates.
+// Asked of each range, so it is answered by binary search, not by looking through every span (#2510).
 const reaches = new WeakMap<readonly Span[], { starts: number[]; reach: number[] }>();
 
 /** Whether one of `blocked`, sorted by where each starts, holds `at`. */
@@ -2922,7 +2922,7 @@ function readingOf(draft: Draft, written?: Written, number: Digits = draft.core.
 
 /**
  * Stated units that read a figure alike, kept once: a report states 单位：万元 over each table,
- * and each one again gave every figure the same reading once more (#2512).
+ * and each figure has the one reading they all give (#2512).
  */
 function distinctStatements(statements: readonly Statement[]): Statement[] {
   const seen = new Set<string>();

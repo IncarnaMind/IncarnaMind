@@ -76,9 +76,8 @@ export function inlineRange(
   return typeof from === "number" && typeof to === "number" ? { from, to } : null;
 }
 
-// A projection is never changed once made, so where each raw offset first is in it is found once:
-// looked for from its start for each sentence, a paragraph of many took time that grew with their
-// number × its length (#2512).
+// A projection is never changed once made, so where each raw offset first is in it is worked out
+// once, and a paragraph of many sentences costs no more than its length (#2512).
 const firstPlaces = new WeakMap<
   InlineTextProjection,
   { starts: Map<number, number>; ends: Map<number, number> }
