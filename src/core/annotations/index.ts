@@ -66,6 +66,7 @@ interface AnnotationRow {
   quote: string;
   note: string | null;
   file_note: string | null;
+  file_colour: AnnotationColour | null;
   page_from: number | null;
   page_to: number | null;
   location: string | null;
@@ -80,8 +81,8 @@ interface AnnotationRow {
 
 const COLUMNS = `a.id, a.document_id, d.name AS document_name, a.content_hash, a.passage_id,
   a.source, a.colour,
-  a.quote, a.note, a.file_note, a.page_from, a.page_to, a.location, a.check_state, a.check_reason,
-  a.anchor, a.author, a.missing, a.created_at, a.updated_at`;
+  a.quote, a.note, a.file_note, a.file_colour, a.page_from, a.page_to, a.location, a.check_state,
+  a.check_reason, a.anchor, a.author, a.missing, a.created_at, a.updated_at`;
 
 const FROM = "FROM document_annotations a LEFT JOIN documents d ON d.id = a.document_id";
 
@@ -228,13 +229,14 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     annotation: Annotation,
     at: string,
     fileNote: string | null = null,
+    fileColour: AnnotationColour | null = null,
   ): Annotation => {
     const result = db.get<{ seq: number }>(
       `INSERT INTO document_annotations
          (id, document_id, content_hash, passage_id, source, colour, quote, note, file_note,
-          page_from, page_to, location, check_state, check_reason, anchor, author, missing,
-          created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          file_colour, page_from, page_to, location, check_state, check_reason, anchor, author,
+          missing, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING seq`,
       [
         annotation.id,
@@ -246,6 +248,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         annotation.quote,
         annotation.note,
         fileNote,
+        fileColour,
         annotation.pageFrom === null ? null : BigInt(annotation.pageFrom),
         annotation.pageTo === null ? null : BigInt(annotation.pageTo),
         annotation.location ? JSON.stringify(annotation.location) : null,
@@ -630,14 +633,41 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           taken.add(row.id);
           pairs.push({ mark, row });
         };
-        // A sticky note is known by its page: a new remark on another page is another note.
-        for (const mark of marks) {
-          if (mark.annotation.kind !== "note") continue;
-          const row = existing.find(
-            (each) =>
-              !taken.has(each.id) && each.quote === "" && each.page_from === mark.annotation.page,
+        // A sticky note is known by its page and the file's own words; two on one page pair one to one.
+        const marked = new Set<Mark>();
+        const noteRows = existing.filter((row) => row.quote === "");
+        const noteMarks = marks.filter((mark) => mark.annotation.kind === "note");
+        const notePages = new Set([
+          ...noteRows.map((row) => row.page_from ?? 0),
+          ...noteMarks.map((mark) => mark.annotation.page),
+        ]);
+        for (const page of notePages) {
+          const onPage = noteRows.filter(
+            (row) => !taken.has(row.id) && (row.page_from ?? 0) === page,
           );
-          if (row) pair(mark, row);
+          const marksOn = noteMarks.filter(
+            (mark) => !marked.has(mark) && mark.annotation.page === page,
+          );
+          for (const mark of marksOn) {
+            const row = onPage.find(
+              (each) =>
+                !taken.has(each.id) && (each.file_note ?? "") === (mark.annotation.note ?? ""),
+            );
+            if (row) {
+              pair(mark, row);
+              marked.add(mark);
+            }
+          }
+          const rowsLeft = onPage.filter((row) => !taken.has(row.id));
+          const marksLeft = marksOn.filter((mark) => !marked.has(mark));
+          if (rowsLeft.length === 1 && marksLeft.length === 1) {
+            const [row] = rowsLeft;
+            const [mark] = marksLeft;
+            if (row && mark) {
+              pair(mark, row);
+              marked.add(mark);
+            }
+          }
         }
         const rowGroups = new Map<string, Row[]>();
         for (const row of existing) {
@@ -654,7 +684,10 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           markGroups.set(key, [...(markGroups.get(key) ?? []), mark]);
         }
         for (const [words, group] of markGroups) {
-          const rows = (rowGroups.get(words) ?? []).filter((row) => !taken.has(row.id));
+          const all = (rowGroups.get(words) ?? []).filter((row) => !taken.has(row.id));
+          // Rows the last read left missing are not these words' place any more: the live ones are.
+          const live = all.filter((row) => !row.missing);
+          const rows = live.length > 0 ? live : all;
           const byPageRows = [...rows].sort(
             (a, b) =>
               (a.page_from ?? 0) - (b.page_from ?? 0) ||
@@ -698,11 +731,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               ? cited.location
               : { kind: "page" as const, from: annotation.page, to: annotation.page };
           const note = row.note === row.file_note ? annotation.note : row.note;
+          const colour = row.colour === row.file_colour ? annotation.colour : row.colour;
           db.run(
             `UPDATE document_annotations
                SET content_hash = ?, passage_id = ?, quote = ?, note = ?, file_note = ?,
-                 page_from = ?, page_to = ?, location = ?, check_state = ?, check_reason = ?,
-                 missing = ?, author = ?, updated_at = ?
+                 colour = ?, file_colour = ?, page_from = ?, page_to = ?, location = ?,
+                 check_state = ?, check_reason = ?, missing = ?, author = ?, updated_at = ?
              WHERE id = ?`,
             [
               contentHash,
@@ -710,6 +744,8 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               quote,
               note,
               annotation.note,
+              colour,
+              annotation.colour,
               pageFrom,
               pageTo,
               JSON.stringify(location),
@@ -764,6 +800,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             },
             at,
             annotation.note,
+            annotation.colour,
           );
         }
         for (const row of existing) {

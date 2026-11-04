@@ -2322,8 +2322,9 @@ export const migrations: readonly Migration[] = [
         colour TEXT NOT NULL,
         quote TEXT NOT NULL,
         note TEXT,
-        -- The file's own note as it was read, to tell the User's edit from the file's (#327).
+        -- The file's own note and colour as they were read, to tell the User's from the file's (#327).
         file_note TEXT,
+        file_colour TEXT,
         page_from INTEGER,
         page_to INTEGER,
         -- Its Location, as JSON (CitationLocation), so its label reads without the Document.
