@@ -2266,13 +2266,17 @@ const SIGN_BEFORE =
 const NEGATIVE_WORD =
   /(?<![A-Za-z])(?:minus|negative(?! pledge))(?![A-Za-z])|(?<!自)负(?![责担债面])/i;
 /**
- * A sentence's end, which a sign word before it doesn't reach past: a stop before a capital or a
- * Chinese character, a semicolon or 。. A comma is none ("a negative balance, after all adjustments,
- * of …"), nor a stop inside a number, after one letter ("U.S."), after a title ("Mr."), or before
- * a lowercase word or a bracket ("Acme Inc. was", "approx. ninety", "(see Note 5.)").
+ * A sentence's end, which a sign word before it doesn't reach past: a semicolon, 。, or a stop
+ * before a capital or a Chinese character that follows a lowercase word or its ellipsis, a digit,
+ * ")", "%", a closing quote or a Chinese character. No list of titles is ever complete, so a stop
+ * after a capitalised word or one letter ("St. Louis", "Acme Co. Ltd.", "U.S. Treasury", "e.g.
+ * Fund A"), or after a short lowercase abbreviation ("vs. Beta"), is taken as an abbreviation's.
+ * Where a sentence does end there ("for Acme Inc. The fee"), or at "!" or "?", the bracket keeps
+ * its minus. A comma is none ("a negative balance, after all adjustments, of …"), nor a stop
+ * before a lowercase word, a digit or a bracket ("(see Note 5.)").
  */
 const CLAUSE_MARK =
-  /(?<!\b[A-Za-z]|\b(?:Mrs?|Ms|Dr))\.(?=[ \u00a0]+[A-Z]|\p{Script=Han})|[;；。]/gu;
+  /(?:(?<=(?:^|[^A-Za-z])[a-z]{2,}(?:\.\.)?)(?<!(?:^|[^A-Za-z])(?:vs|etc|cf|al|viz|incl|excl|approx|esp|ca|no|ref))|(?<=[\d)%"'\p{Script=Han}]))\.(?=[ \u00a0]+[A-Z]|\p{Script=Han})|[;；。]/gu;
 
 /** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …", a table's "Less" cell. */
 const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*(?:[:：]|\t|\|)/i;
