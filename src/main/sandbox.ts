@@ -292,6 +292,11 @@ const NO_FILE_RULES = { denyRead: [], allowWrite: [], denyWrite: [] };
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+const startFailed = (error: unknown) =>
+  new Error(`The OS sandbox couldn't start, so the program didn't run: ${messageOf(error)}`, {
+    cause: error,
+  });
+
 /** `text` as one word for the shell, as it is. */
 const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
 
@@ -408,13 +413,13 @@ export async function installFolders(
       () => false,
     );
   // A prefix's bin or lib may be a link: read where it really is, with its name to follow there,
-  // and only when that place may be read back itself.
+  // only when that place is inside the prefix. One that links anywhere else opens nothing.
   const linkedFolders = async (folders: readonly string[]) =>
     (
       await Promise.all(
         folders.map(async (each) => {
           const real = await canonicalPath(each);
-          return reopens(real) ? [real, ...(real === each ? [] : [each])] : [];
+          return isInside(real, dirname(each)) ? [real, ...(real === each ? [] : [each])] : [];
         }),
       )
     ).flat();
@@ -543,7 +548,9 @@ function osConfinement(
               await strict(found),
               denied,
               await bothSpellings(options.interpreterRoots ?? []),
-            )),
+            ).catch((error: unknown) => {
+              throw startFailed(error);
+            })),
             ...(await Promise.all(readable.map(strict))),
           ],
           allowWrite: await allowed(request.allow.write),
@@ -562,12 +569,7 @@ function osConfinement(
         const sweep = await sweeper.begin(run, working);
         return { ...program, env: request.env, sweep };
       } catch (error) {
-        throw new Error(
-          `The OS sandbox couldn't start, so the program didn't run: ${messageOf(error)}`,
-          {
-            cause: error,
-          },
-        );
+        throw startFailed(error);
       }
     },
     release: () => sandbox.cleanupAfterCommand(),
