@@ -3714,6 +3714,37 @@ describe("How a change reads (#1028)", () => {
     ]);
   });
 
+  // protects=a long paragraph written over by a short line about something else reads whole, before and after, though the two share a few words ("on the", "water", 渔船, 沙洲上) (#1028, #2356); English and Chinese; fails_when=old and new words interleave through it; no_claim=what a real model writes.
+  test.each([
+    {
+      language: "English",
+      before:
+        "The harbour office posts the times each week, and the boats leave on the morning tide when there is enough water over the bar to clear it, so the schedule moves with the moon rather than the clock.",
+      after: "Boats rest on the mud at low water.",
+    },
+    {
+      language: "Chinese",
+      before:
+        "港务处每周公布一次潮汐时间，渔船在早潮时出海，那时沙洲上的水够深，船可以安全通过，所以出海的时间跟着月亮走，而不是跟着钟表走。",
+      after: "渔船退潮时搁在沙洲上。",
+    },
+  ])(
+    "a long paragraph written over by a short line about something else reads whole ($language)",
+    async ({ before, after }) => {
+      const { core, mind, client } = await setUp(editingModel(() => after));
+      writeMind(client, [paragraph(text(before))]);
+      await client.settled();
+
+      await core.editWithAi({
+        ...everything(client, mind.id, "Make it clearer"),
+        action: "improve",
+      });
+      await client.settled();
+
+      expect(shownWithChanges(client)).toEqual([`[-${before}-]{+${after}+}`]);
+    },
+  );
+
   test("a heading changed at all reads whole", async () => {
     const { core, mind, client } = await setUp(
       editingModel(() => "## Key strengths\n\nSpring tides are strongest at new moon."),

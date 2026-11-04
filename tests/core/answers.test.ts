@@ -614,7 +614,8 @@ describe("Stopping and regenerating", () => {
     await writer.settled();
     expect(answerText(reader, answerId)).toBe("Generated text. My own words.");
 
-    // Regenerating sends the Question again, and the new Answer comes as changes over theirs.
+    // Regenerating sends the Question again, and the new Answer comes as changes over theirs:
+    // their sentence, only left out, is struck where it stands (#2356).
     expect(await core.regenerateAnswer({ mindId: mind.id, answerId })).toEqual({
       asked: true,
       answerId,
@@ -622,7 +623,7 @@ describe("Stopping and regenerating", () => {
     expect(await answerEnded(core, answerId)).toMatchObject({ event: "finished" });
     expect(model.doStreamCalls).toHaveLength(2);
     expect(shownWithChanges(reader).slice(1, 2)).toEqual([
-      "[-Generated text. My own words.-]{+Regenerated text.+}",
+      "[-Generated-]{+Regenerated+} text[-. My own words-].",
     ]);
     expect(answerIn(reader, answerId).attrs).toMatchObject({ status: "done" });
     const [change] = pendingProposals(reader.blocks);
