@@ -117,6 +117,9 @@ const CHECKED_BY_TWO = {
   "zh-CN": (when: string) => `由 Claude Haiku 5.5 和 Claude Sonnet 5.5 核对，${when}`,
 } as const;
 const EARLIER = "2026-10-22T08:40:00.000Z";
+/** A model a User added under their own, long name: wider than the card. */
+const LONG_NAME =
+  "harbour office contract review model fine tuned on leases loans and charters edition two";
 
 /** The window's own clock, so the line is expected as the app writes it on any machine. */
 const clockOf = (window: Page) =>
@@ -495,8 +498,8 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=parts checked on two models name both, once each with the latest time, and the time stays on one line at 900 px, in English and Chinese (#1667); fails_when=the line names one model, or a wrap breaks the date apart; no_claim=where the models' names wrap.
-  test(`a sentence whose parts two models checked names both, its time on one line (${language})`, async () => {
+  // protects=parts checked on two models name both, and the line wraps only between names or before the time, never inside a name or the time, at 900 px in English and Chinese; a name wider than the card wraps at its own spaces (#1667); fails_when=the line names one model, or a wrap breaks a name or the date apart, or a long name runs past the card; no_claim=that the latest of several times is the one shown, which the line's unit test checks.
+  test(`a line naming two models wraps only between names or before the time (${language})`, async () => {
     test.setTimeout(120_000);
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -522,8 +525,8 @@ for (const language of ["en", "zh-CN"] as const) {
     };
     const [first, second] = SENTENCES[language].twoModels;
     const joined = language === "en" ? `${first} and ${second}.` : `${first}，并${second}。`;
-    const judged = (words: string, modelId: string, checkedAt: string) => {
-      const start = joined.indexOf(words);
+    const judged = (text: string, words: string, modelId: string, checkedAt: string) => {
+      const start = text.indexOf(words);
       return {
         span: { start, end: start + words.length },
         kind: "fact",
@@ -556,26 +559,71 @@ for (const language of ["en", "zh-CN"] as const) {
             providerId: null,
             modelId: "claude-sonnet-5-5",
             parts: [
-              judged(first, "claude-haiku-5-5", EARLIER),
-              judged(second, "claude-sonnet-5-5", CHECKED_AT),
+              judged(joined, first, "claude-haiku-5-5", EARLIER),
+              judged(joined, second, "claude-sonnet-5-5", CHECKED_AT),
             ],
+          }),
+        ),
+        paragraph(
+          checked("check-long", "supported", first, {
+            evidence,
+            providerId: null,
+            modelId: LONG_NAME,
+            parts: [judged(first, first, LONG_NAME, CHECKED_AT)],
           }),
         ),
       ],
     );
-    await pointAndClick(window, window.getByTestId("claim-mark").first());
     const card = window.getByTestId("claim-card");
-    await expect(card).toHaveAttribute("data-check", "supported");
     const line = card.getByTestId("claim-checked-by");
+    /** How many lines of the card's last line an element of it takes. */
+    const linesOf = (locator: Locator) =>
+      locator.evaluate((element) => {
+        const height = Number.parseFloat(
+          getComputedStyle(element.closest("[data-testid='claim-checked-by']") ?? element)
+            .lineHeight,
+        );
+        return Math.round(element.getBoundingClientRect().height / height);
+      });
     const clock = await clockOf(window);
+
+    await pointAndClick(window, window.getByTestId("claim-mark").first());
+    await expect(card).toHaveAttribute("data-check", "supported");
     await expect(line).toHaveText(
       CHECKED_BY_TWO[language](formatDateTime(CHECKED_AT, language, clock)),
     );
+    expect(await linesOf(line), "the line wraps at 900 px").toBe(2);
+    const names = line.locator(".claim-card-checked-by-name");
+    await expect(names).toHaveCount(2);
+    for (const name of await names.all()) expect(await linesOf(name)).toBe(1);
     const when = line.locator(".claim-card-checked-by-when");
     expect(await when.evaluate((element) => element.getClientRects().length)).toBe(1);
     const [cardBox, whenBox] = await Promise.all([box(card), box(when)]);
     expect(whenBox.x + whenBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
     await screenshot(window, `card-two-models-${language}-900`);
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+
+    await pointAndClick(window, window.getByTestId("claim-mark").nth(1));
+    await expect(card).toHaveAttribute("data-check", "supported");
+    const long = line.locator(".claim-card-checked-by-name");
+    await expect(long).toHaveText(LONG_NAME);
+    expect(await linesOf(long), "a name wider than the card wraps").toBeGreaterThanOrEqual(2);
+    const broken = await long.evaluate((element) => {
+      const text = element.firstChild;
+      if (!(text instanceof Text)) return null;
+      const range = document.createRange();
+      // Each word stays on one line: the name wraps at its spaces, never inside a word.
+      return [...text.data.matchAll(/\S+/gu)].filter((word) => {
+        range.setStart(text, word.index);
+        range.setEnd(text, word.index + word[0].length);
+        return new Set(Array.from(range.getClientRects(), (rect) => Math.round(rect.top))).size > 1;
+      }).length;
+    });
+    expect(broken).toBe(0);
+    const [longCard, longName] = await Promise.all([box(card), box(long)]);
+    expect(longName.x + longName.width).toBeLessThanOrEqual(longCard.x + longCard.width);
+    await screenshot(window, `card-long-model-name-${language}-900`);
     await app.close();
   });
 }
