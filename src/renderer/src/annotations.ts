@@ -40,15 +40,15 @@ interface AnnotationsState {
   showExport(exported: AnnotationExport | null): void;
   /** The colour the last highlight was made in: the next one starts in it. */
   colour: AnnotationColour;
-  /** The Document tab's Annotations list is open. */
-  panelOpen: boolean;
-  /** The list is showing in place of the page, under the toolbar, in this viewer. */
-  listInPlace: boolean;
-  setListInPlace(listInPlace: boolean): void;
+  /** Each viewer's list is open, by Document: two viewers never share one. */
+  panelOpen: Record<string, boolean>;
+  /** Each viewer whose list takes the page's place, by Document. */
+  listInPlace: Record<string, boolean>;
+  setListInPlace(documentId: string, listInPlace: boolean): void;
   /** Each Document's viewer is wide enough for its list: by Document, as two viewers may differ. */
   room: Record<string, boolean>;
   setRoom(documentId: string, room: boolean): void;
-  togglePanel(open: boolean, documentId?: string): void;
+  togglePanel(open: boolean, documentId: string): void;
   /** Reads a Document's annotations, unless they are being read now. */
   load(documentId: string): Promise<void>;
   /** Reads how many annotations each Document has. */
@@ -65,15 +65,18 @@ export const useAnnotations = create<AnnotationsState>()((set) => ({
   exported: null,
   showExport: (exported) => set({ exported }),
   colour: rememberedColour(),
-  panelOpen: false,
-  listInPlace: false,
-  setListInPlace: (listInPlace) => set({ listInPlace }),
+  panelOpen: {},
+  listInPlace: {},
+  setListInPlace: (documentId, listInPlace) =>
+    set((state) => ({ listInPlace: { ...state.listInPlace, [documentId]: listInPlace } })),
   room: {},
   setRoom: (documentId, room) => set((state) => ({ room: { ...state.room, [documentId]: room } })),
   togglePanel: (open, documentId) =>
     set((state) => ({
-      panelOpen:
-        open && documentId !== undefined && state.room[documentId] === false ? false : open,
+      panelOpen: {
+        ...state.panelOpen,
+        [documentId]: open && state.room[documentId] !== false,
+      },
     })),
   load: async (documentId) => {
     if (documentId === "") return;

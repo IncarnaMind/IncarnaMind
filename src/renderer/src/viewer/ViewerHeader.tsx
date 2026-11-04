@@ -146,9 +146,9 @@ export function ViewerHeader({
   const [problem, setProblem] = useState<Said | null>(null);
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
-  const panelOpen = useAnnotations((state) => state.panelOpen);
+  const panelOpen = useAnnotations((state) => state.panelOpen[document?.id ?? ""] === true);
   const room = useAnnotations((state) => (document ? (state.room[document.id] ?? true) : true));
-  const listInPlace = useAnnotations((state) => state.listInPlace);
+  const listInPlace = useAnnotations((state) => state.listInPlace[document?.id ?? ""] === true);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const areaMode = useContext(AreaModeContext);
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
@@ -216,7 +216,9 @@ ${sourceOf(document)}`
           {document && <YourNoteLabel item={document} />}
           {document && <DocumentTagChips document={document} />}
         </div>
-        {children}
+        <div className="contents" inert={listInPlace}>
+          {children}
+        </div>
         {areaMode && (
           <button
             type="button"

@@ -133,8 +133,6 @@ describe("a label that says Back to", () => {
     // Expand lays one table over its own card, the note held still behind it, and Esc returns:
     // the owner's design (DESIGN.md, Comparison table).
     "comparison.back": "the comparison table's Expand",
-    // The list that takes the page's place below a 760px viewer: its way back is at its top.
-    "annotations.backToPage": "the highlights and comments list in place of the page",
     // A link in an exported HTML file, from a footnote back to its text: the file has no Mind.
     "export.html.back": "a footnote's link back in an exported file",
     // A composer chip's ×: the Search scope goes back, in place, to the one it narrowed; no

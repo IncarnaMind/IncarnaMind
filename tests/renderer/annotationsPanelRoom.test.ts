@@ -1,6 +1,6 @@
 /**
  * The list beside a page (#327): it opens only in a viewer with room for it, by
- * that viewer's own width, so one viewer's size never closes or disables another's.
+ * that viewer's own width, and two viewers never share an open list.
  */
 import { expect, test } from "vitest";
 import { BRIDGE_KEY } from "../../src/shared/bridge";
@@ -18,24 +18,22 @@ Object.defineProperty(globalThis, "navigator", {
   configurable: true,
 });
 
-test("the list opens only in a viewer that has room, and one viewer's size is not another's", async () => {
+test("each viewer's list is its own, and opens only where that viewer has room", async () => {
   const { useAnnotations } = await import("../../src/renderer/src/annotations");
-  useAnnotations.setState({ panelOpen: false, room: {} });
+  useAnnotations.setState({ panelOpen: {}, listInPlace: {}, room: {} });
 
   useAnnotations.getState().setRoom("narrow", false);
   useAnnotations.getState().setRoom("wide", true);
   useAnnotations.getState().togglePanel(true, "narrow");
-  expect(useAnnotations.getState().panelOpen, "no room: it stays closed").toBe(false);
+  expect(useAnnotations.getState().panelOpen.narrow, "no room: it stays closed").toBe(false);
 
   useAnnotations.getState().togglePanel(true, "wide");
-  expect(useAnnotations.getState().panelOpen, "room: it opens").toBe(true);
+  expect(useAnnotations.getState().panelOpen.wide, "room: it opens").toBe(true);
+  expect(useAnnotations.getState().panelOpen.narrow, "the other viewer's is untouched").toBe(false);
 
-  useAnnotations.getState().togglePanel(false);
-  expect(useAnnotations.getState().panelOpen, "closing always closes").toBe(false);
+  useAnnotations.getState().togglePanel(false, "wide");
+  expect(useAnnotations.getState().panelOpen.wide, "closing always closes").toBe(false);
 
-  useAnnotations.getState().togglePanel(true);
-  expect(
-    useAnnotations.getState().panelOpen,
-    "a caller with no Document keeps the former behaviour",
-  ).toBe(true);
+  useAnnotations.getState().setListInPlace("wide", true);
+  expect(useAnnotations.getState().listInPlace).toEqual({ wide: true });
 });

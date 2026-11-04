@@ -93,7 +93,7 @@ export const annotationCommands: readonly Command[] = [
       const documentId = documentOf(ctx);
       if (!documentId) return;
       useAppStore.getState().openDocument({ documentId }, { as: "list" });
-      useAnnotations.getState().togglePanel(true);
+      useAnnotations.getState().togglePanel(true, documentId);
     },
   },
   {

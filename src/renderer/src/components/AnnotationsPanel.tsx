@@ -5,7 +5,7 @@
  * the shared one. A PDF's own highlights say "From the file"; one whose words a
  * new version lost says so.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Annotation, Document } from "../../../core/api";
 import { formatLocation } from "../../../shared/locations";
 import { deleteAnnotation, editAnnotation, exportAnnotations } from "../annotationActions";
@@ -188,13 +188,17 @@ export function AnnotationsPanel({
   container,
   inPlace = false,
   onClose,
+  onShowPage,
 }: {
   document: Document;
   /** The viewer's scroller, whose page holds the highlights. */
   container: HTMLElement | null;
   /** It takes the page's place below 760px, with a way back at its top. */
   inPlace?: boolean;
+  /** Back, Esc or the pressed button: the page returns, with the focus on that button. */
   onClose(): void;
+  /** A row was chosen: the page returns at it, with the focus on the page. */
+  onShowPage?(): void;
 }) {
   const t = useT();
   const stored = useDocumentAnnotations(document.id);
@@ -205,27 +209,16 @@ export function AnnotationsPanel({
     void load(document.id);
     setNotHere(null);
   }, [load, document.id]);
-  // Esc from anywhere the list is read in closes it, unless something on top took the key.
+  // The list takes the focus as it opens: Esc closes it from inside the viewer, not from a sidebar row.
+  const panel = useRef<HTMLElement>(null);
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      const target = event.target;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-      ) {
-        return;
-      }
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    panel.current?.focus();
+  }, []);
 
   return (
     <aside
+      ref={panel}
+      tabIndex={-1}
       className={inPlace ? "annotations-panel annotations-panel--in-place" : "annotations-panel"}
       data-testid="annotations-panel"
       aria-label={t("annotations.title")}
@@ -244,16 +237,6 @@ export function AnnotationsPanel({
       }}
     >
       <header className="annotations-panel-head">
-        {inPlace && (
-          <button
-            type="button"
-            data-testid="annotations-back"
-            onClick={onClose}
-            className="annotations-back"
-          >
-            {t("annotations.backToPage")}
-          </button>
-        )}
         <h2 className="annotations-panel-title">{t("annotations.title")}</h2>
         <span className="annotations-panel-count">
           {stored?.length === 1
@@ -279,8 +262,8 @@ export function AnnotationsPanel({
         <button
           type="button"
           data-testid="annotations-close"
-          aria-label={t("annotations.close")}
-          title={t("annotations.close")}
+          aria-label={t("annotations.closeList")}
+          title={t("annotations.closeList")}
           onClick={onClose}
           className="annotation-row-edit-button"
         >
@@ -310,7 +293,7 @@ export function AnnotationsPanel({
               key={annotation.id}
               annotation={annotation}
               onGo={(chosen) => {
-                if (inPlace) onClose();
+                if (inPlace) (onShowPage ?? onClose)();
                 if (chosen.missing) {
                   setNotHere(chosen.id);
                   return;

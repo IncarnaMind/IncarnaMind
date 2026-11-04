@@ -185,7 +185,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const [viewerWidth, setViewerWidth] = useState(0);
   const setRoom = useAnnotations((state) => state.setRoom);
   const setListInPlace = useAnnotations((state) => state.setListInPlace);
-  const panelOpen = useAnnotations((state) => state.panelOpen);
+  const panelOpen = useAnnotations((state) => state.panelOpen[document?.id ?? ""] === true);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const loadAnnotations = useAnnotations((state) => state.load);
   const shownDocumentId = document?.id;
@@ -253,7 +253,24 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   );
   useViewerHandle("area", areaCommand, tab.id);
   const inPlace = panelOpen && viewerWidth > 0 && viewerWidth < LIST_BESIDE_FROM;
-  useEffect(() => setListInPlace(inPlace), [inPlace, setListInPlace]);
+  useEffect(() => {
+    if (document) setListInPlace(document.id, inPlace);
+  }, [document, inPlace, setListInPlace]);
+  const closeList = () => {
+    togglePanel(false, documentId);
+    requestAnimationFrame(() => {
+      const toggle = section?.querySelector<HTMLElement>(
+        '[data-testid="viewer-annotations-toggle"]',
+      );
+      (
+        toggle ?? section?.querySelector<HTMLElement>('[data-testid="document-file-menu"]')
+      )?.focus();
+    });
+  };
+  const showPage = () => {
+    togglePanel(false, documentId);
+    requestAnimationFrame(() => section?.focus());
+  };
 
   return (
     <section
@@ -269,7 +286,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
         <AreaModeContext.Provider value={areaAvailable ? areaMode : null}>
           <ViewerFrameContext.Provider value={frame}>
             <PlaceMemoryContext.Provider value={places}>
-              <div className="flex min-h-0 min-w-0 flex-1">
+              <div className={inPlace ? "flex min-w-0 shrink-0" : "flex min-h-0 min-w-0 flex-1"}>
                 <div
                   className={`relative flex min-h-0 min-w-0 flex-col [container:viewer/inline-size] ${
                     inPlace ? "h-9 flex-1 shrink-0 overflow-hidden" : "flex-1"
@@ -312,11 +329,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                   {document && <AnnotationExportLine documentId={document.id} />}
                 </div>
                 {document && panelOpen && !inPlace && (
-                  <AnnotationsPanel
-                    document={document}
-                    container={section}
-                    onClose={() => togglePanel(false)}
-                  />
+                  <AnnotationsPanel document={document} container={section} onClose={closeList} />
                 )}
               </div>
               {document && panelOpen && inPlace && (
@@ -324,7 +337,8 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                   document={document}
                   container={section}
                   inPlace
-                  onClose={() => togglePanel(false)}
+                  onClose={closeList}
+                  onShowPage={showPage}
                 />
               )}
             </PlaceMemoryContext.Provider>

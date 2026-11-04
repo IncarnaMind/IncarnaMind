@@ -631,19 +631,17 @@ test("the list takes the page's place below 760 and sits beside it from 760, in 
   await highlight(window, viewer, words);
   const toggle = viewer.getByTestId("viewer-annotations-toggle");
   const panel = window.getByTestId("annotations-panel");
-  const back = window.getByTestId("annotations-back");
   const panelClose = window.getByTestId("annotations-close");
-  // The toolbar's button folds into ⋯ where the pane leaves a narrow column: the list's ✕ is then the way.
+  // The three ways close the list in either form: its ×, Esc, and the pressed toolbar button.
   const close = async () => {
     if (await panel.isVisible()) {
-      if (await toggle.isVisible()) {
-        await pointAndClick(window, toggle);
-      } else if (await panelClose.isVisible()) {
-        await pointAndClick(window, panelClose);
-      } else await pointAndClick(window, back);
+      if (await toggle.isVisible()) await pointAndClick(window, toggle);
+      else await pointAndClick(window, panelClose);
     }
     await expect(panel).toHaveCount(0);
   };
+  const listName = (language: "en" | "zh-CN") =>
+    language === "en" ? "Close the list" : "关闭列表";
 
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
@@ -657,60 +655,62 @@ test("the list takes the page's place below 760 and sits beside it from 760, in 
       await expect(viewer.getByTestId("viewer-open-externally")).toBeVisible();
       await expect(header.getByTestId("document-file-menu").first()).toBeVisible();
       if (width < 760) {
-        await expect(back, `${language} at ${width}`).toHaveText(
-          language === "en" ? "Back to the page" : "返回页面",
-        );
         await expect(panel).toHaveClass(/annotations-panel--in-place/);
         const panelBox = await panel.boundingBox();
         const headerBox = await header.boundingBox();
         if (!panelBox || !headerBox) throw new Error("The list or the toolbar has no box.");
         expect(panelBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
       } else {
-        await expect(back).toHaveCount(0);
+        await expect(panel).not.toHaveClass(/annotations-panel--in-place/);
         const pageBox = await viewer.getByTestId("viewer-text").boundingBox();
         const panelBox = await panel.boundingBox();
         if (!pageBox || !panelBox) throw new Error("The page or the list has no box.");
         expect(pageBox.x + pageBox.width).toBeLessThanOrEqual(panelBox.x + 1);
       }
-      await close();
+      await expect(panelClose, `${language} at ${width}`).toHaveAttribute(
+        "aria-label",
+        listName(language),
+      );
+
+      // Its ×.
+      await expect(panelClose).toBeVisible();
+      await pointAndClick(window, panelClose);
+      await expect(panel).toHaveCount(0);
+      // Esc, from the list.
+      await pointAndClick(window, toggle);
+      await window.getByTestId("annotations-list").click();
+      await window.keyboard.press("Escape");
+      await expect(panel).toHaveCount(0);
+      // The pressed toolbar button, where the toolbar still shows it.
+      await pointAndClick(window, toggle);
+      if (await toggle.isVisible()) {
+        await expect(toggle).toHaveAttribute("aria-pressed", "true");
+        await pointAndClick(window, toggle);
+      } else {
+        await pointAndClick(window, panelClose);
+      }
+      await expect(panel).toHaveCount(0);
     }
   }
 
+  // Choosing an item shows the page at its highlight.
   await viewerWidth(window, 700);
   await ensureViewer();
-  await close();
-  await pointAndClick(window, toggle);
-  await expect(back).toBeVisible();
-  await pointAndClick(window, back);
   await expect(panel).toHaveCount(0);
-  await expect(viewer.getByTestId("viewer-text")).toBeVisible();
-  await pointAndClick(window, toggle);
-  await window.getByTestId("annotations-list").click();
-  await window.keyboard.press("Escape");
-  await expect(panel).toHaveCount(0);
-  await pointAndClick(window, toggle);
-  await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await pointAndClick(window, toggle);
-  await expect(panel).toHaveCount(0);
-
   await pointAndClick(window, toggle);
   await pointAndClick(window, panel.getByTestId("annotation-quote").first());
   await expect(panel).toHaveCount(0);
   await expect(viewer.locator("[data-annotation-id]").first()).toContainText(words);
 
   // Resizing: a widened in-place list becomes the pane; a narrowed pane closes and keeps the page.
-  await viewerWidth(window, 700);
-  await ensureViewer();
-  await close();
   await pointAndClick(window, toggle);
-  await expect(back).toBeVisible();
+  await expect(panel).toHaveClass(/annotations-panel--in-place/);
   await viewerWidth(window, 800);
   await ensureViewer();
-  await expect(back).toHaveCount(0);
-  await expect(panel).toBeVisible();
+  await expect(panel).not.toHaveClass(/annotations-panel--in-place/);
   await close();
   await pointAndClick(window, toggle);
-  await expect(back).toHaveCount(0);
+  await expect(panel).not.toHaveClass(/annotations-panel--in-place/);
   await viewerWidth(window, 700);
   await ensureViewer();
   await expect(panel).toHaveCount(0);
@@ -721,6 +721,55 @@ const LONG_MARKDOWN = `${MARKDOWN}\n${Array.from(
   { length: 40 },
   (_, index) => `## Filler ${index}\n\nFiller paragraph number ${index} of the page.`,
 ).join("\n\n")}\n`;
+
+test("the in-place list fills the viewer, scrolls, and its × closes it", async () => {
+  const { app, window, viewer } = await openMarkdown("en", LONG_MARKDOWN, "Long.md", {
+    mind: true,
+  });
+  await setWindowSize(app, window, 2000, 900);
+  const documentId = await documentIdOf(window);
+  await (await coreOf(window)).evaluate(async (core, id) => {
+    for (let index = 0; index < 15; index++) {
+      await core.createAnnotation({
+        documentId: id,
+        parts: [{ unit: null, text: `Filler paragraph number ${index} of the page.` }],
+        colour: "yellow",
+      });
+    }
+  }, documentId);
+  const header = viewer.getByTestId("viewer-header");
+  const showViewer = async () => {
+    if (!(await header.isVisible())) {
+      await pointAndClick(window, window.getByRole("tab", { name: "Long" }).first());
+    }
+  };
+  await viewerWidth(window, 700);
+  await showViewer();
+  const toggle = viewer.getByTestId("viewer-annotations-toggle");
+  await pointAndClick(window, toggle);
+  const panel = window.getByTestId("annotations-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveClass(/annotations-panel--in-place/);
+
+  const viewerBox = await viewer.boundingBox();
+  const panelBox = await panel.boundingBox();
+  if (!viewerBox || !panelBox) throw new Error("The viewer or the list has no box.");
+  expect(panelBox.y + panelBox.height).toBeGreaterThanOrEqual(viewerBox.y + viewerBox.height - 2);
+
+  const list = window.getByTestId("annotations-list");
+  expect(
+    await list.evaluate((element) => element.scrollHeight > element.clientHeight),
+    "the list is longer than its room",
+  ).toBe(true);
+  await list.evaluate((element) => {
+    element.scrollTop = 200;
+  });
+  expect(await list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  await pointAndClick(window, window.getByTestId("annotations-close"));
+  await expect(panel).toHaveCount(0);
+  await app.close();
+});
 
 test("a selection's menu follows its words on a scroll and a resize", async () => {
   const { app, window, viewer } = await openMarkdown("en", LONG_MARKDOWN, "Long.md");
