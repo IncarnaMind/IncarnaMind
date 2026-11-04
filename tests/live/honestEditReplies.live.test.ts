@@ -8,8 +8,10 @@
  * made or waits, and those the Answer's status marks as not having made every change it says.
  *
  * INCARNAMIND_LIVE_RUNS sets how many times each request runs (2 by default),
+ * INCARNAMIND_LIVE_ASK keeps only the requests that contain these words,
  * INCARNAMIND_LIVE_CONCURRENCY how many run at once (3); set INCARNAMIND_LIVE_REPORT to a file to
- * keep the numbers, with the edit's own reply for each run that went wrong.
+ * keep the numbers, with the edit's own reply and the Answer's Note calls for each run that went
+ * wrong.
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
@@ -208,6 +210,8 @@ describe.each(LIVE)("Honest edit replies, live: $name", (live) => {
       const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 2);
       const report: string[] = [`## ${live.name} · ${live.model} (#2356, honest edit replies)`];
       const edits: string[] = [];
+      /** What each Tool call came to, as the assistant read it next. */
+      const told: string[] = [];
       const dataDir = await createTempDataFolder();
       const core = startCore(dataDir, {
         createChatModel: (spec) =>
@@ -217,7 +221,18 @@ describe.each(LIVE)("Honest edit replies, live: $name", (live) => {
               specificationVersion: "v4",
               wrapStream: async ({ doStream, params }) => {
                 const result = await doStream();
-                if (!JSON.stringify(params.prompt).includes("<passage>")) return result;
+                if (!JSON.stringify(params.prompt).includes("<passage>")) {
+                  const last = params.prompt
+                    .flatMap((message) => (message.role === "tool" ? message.content : []))
+                    .flatMap((part) =>
+                      part.type === "tool-result" && part.output.type === "text"
+                        ? [part.output.value]
+                        : [],
+                    )
+                    .at(-1);
+                  if (last !== undefined && told.at(-1) !== last) told.push(last);
+                  return result;
+                }
                 let text = "";
                 const kept = new TransformStream<
                   LanguageModelV4StreamPart,
@@ -246,7 +261,9 @@ describe.each(LIVE)("Honest edit replies, live: $name", (live) => {
         ...(live.apiKey && { apiKey: live.apiKey }),
         modelId: live.model,
       });
-      const jobs = REQUESTS.flatMap((request) => Array.from({ length: runs }, () => request));
+      const only = process.env.INCARNAMIND_LIVE_ASK;
+      const asked = REQUESTS.filter((request) => !only || request.ask.includes(only));
+      const jobs = asked.flatMap((request) => Array.from({ length: runs }, () => request));
       const tally = new Map<
         Request,
         { made: number; held: number; talks: number; denied: number; flagged: number }
@@ -271,6 +288,7 @@ describe.each(LIVE)("Honest edit replies, live: $name", (live) => {
             );
             await client.settled();
             const editsBefore = edits.length;
+            const toldBefore = told.length;
             const answer = await ask(core, request.ask, mind.id);
             await apply(core, answer, mind.id);
             await client.settled();
@@ -305,6 +323,17 @@ describe.each(LIVE)("Honest edit replies, live: $name", (live) => {
                 `  reply: ${JSON.stringify(answer.text).slice(0, 400)}`,
                 `  edit: ${JSON.stringify(edits.slice(editsBefore).join(" | ")).slice(0, 600)}`,
                 `  note after: ${JSON.stringify(after).slice(0, 400)}`,
+                `  told: ${JSON.stringify(told.slice(toldBefore)).slice(0, 1200)}`,
+                `  calls: ${JSON.stringify(
+                  answer.toolCalls
+                    .filter((call) => call.source === "minds")
+                    .map(({ tool, status, mindChange, mindProblem }) => ({
+                      tool,
+                      status,
+                      ...(mindChange && { mindChange }),
+                      ...(mindProblem && { mindProblem }),
+                    })),
+                )}`,
               );
             }
           } catch (error) {
@@ -317,7 +346,7 @@ describe.each(LIVE)("Honest edit replies, live: $name", (live) => {
         Array.from({ length: Number(process.env.INCARNAMIND_LIVE_CONCURRENCY ?? 3) }, one),
       );
       const all = { made: 0, held: 0, talks: 0, denied: 0, flagged: 0 };
-      for (const request of REQUESTS) {
+      for (const request of asked) {
         const counts = tally.get(request) ?? { made: 0, held: 0, talks: 0, denied: 0, flagged: 0 };
         for (const key of Object.keys(all) as (keyof typeof all)[]) all[key] += counts[key];
         report.push(

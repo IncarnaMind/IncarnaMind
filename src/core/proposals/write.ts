@@ -2428,7 +2428,7 @@ export function createRewriteStream(
   let anew = false;
   const kept: Segment[] = [];
   /** Kept paragraphs a quote took words out of: the text spoke of them, so none is left out. */
-  const quotedFrom = new Set<Segment>();
+  const quotedOutOf = new Set<Segment>();
   /** Of the selection's paragraphs, those new ones stand in for: they go, even when left-out ones are kept. */
   const replaced = new Set<Segment>();
   /** The new text's finished paragraphs so far. */
@@ -2874,7 +2874,7 @@ export function createRewriteStream(
         const part = partOf(segment, from, (at[end - 1] ?? from) + 1);
         if (part) {
           removePart(segment, part);
-          quotedFrom.add(segment);
+          quotedOutOf.add(segment);
         } else {
           const start = first;
           unplaced.push(
@@ -3167,7 +3167,7 @@ export function createRewriteStream(
     leftOut: (): LeftOutPart[] =>
       (byName || seen.length === 0
         ? []
-        : kept.filter((segment) => !quotedFrom.has(segment))
+        : kept.filter((segment) => !quotedOutOf.has(segment))
       ).flatMap((segment) => {
         const blockId = segment.element.getAttribute(BLOCK_ID_ATTRIBUTE);
         return typeof blockId === "string"

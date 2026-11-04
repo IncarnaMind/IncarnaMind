@@ -852,6 +852,58 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
     },
   );
 
+  // protects=a rewrite the assistant asks for that names a paragraph twice, or one the Note hasn't, changes nothing (#2356): the Answer's change fails with the problem whose plain line says so, the model is told nothing changed, nothing waits, and the Note is byte for byte as it was; English and Chinese; fails_when=any of the rewrite goes in or waits, or the change reads as made; no_claim=how often a real model misnames.
+  test.each([
+    {
+      asked: "Make the parking line say 120",
+      lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
+      reply: "¶2 Parking is 120 a month.\n\n¶2 Parking is paid by card.",
+    },
+    {
+      asked: "Make the parking line say 120",
+      lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
+      reply: "¶6 Parking is 120 a month.",
+    },
+    {
+      asked: "把停车那行改成120元",
+      lines: ["房租每月1200元。", "停车每月100元。", "水费每月30元。"],
+      reply: "¶2 停车每月120元。\n\n¶2 停车费刷卡支付。",
+    },
+    {
+      asked: "把停车那行改成120元",
+      lines: ["房租每月1200元。", "停车每月100元。", "水费每月30元。"],
+      reply: "¶6 停车每月120元。",
+    },
+  ])(
+    "a rewrite that names a paragraph wrongly is refused, the Note as it was: $reply",
+    async ({ asked, lines, reply }) => {
+      const model = scriptedModel((call: ModelCall): ScriptedReply => {
+        if (call.prompt.includes("<passage>")) return { text: `${reply}\n<why>Done.</why>` };
+        return call.results.length === 0
+          ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+          : { text: "Done." };
+      });
+      const { core, mind, client } = await setUp(model);
+      writeMind(
+        client,
+        lines.map((line) => note(line)),
+      );
+      await client.settled();
+      const before = client.blocks.toString();
+
+      const answer = await ask(core, { text: asked, mindId: mind.id });
+      await client.settled();
+
+      expect(mindCalls(answer)[0]?.mindProblem).toEqual({ kind: "misnamed", mindId: mind.id });
+      expect(lastResult(model)).toContain(
+        "didn't say clearly which paragraph each of its own replaces",
+      );
+      expect(pendingProposals(client.blocks)).toEqual([]);
+      expect(client.blocks.toString()).toBe(before);
+      expect(shownWithChanges(client)).toEqual(lines);
+    },
+  );
+
   // protects=the length the model is told is the Note's once the change is in, with the paragraphs the reply left out and kept, not the reply's words alone (#880, #2180); in Chinese too; fails_when=the length counts only the rewritten paragraph; no_claim=how the model words its reply.
   test.each([
     {
@@ -1886,5 +1938,45 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       `they are still in the text, as it didn't mark them as taken out: “${lines[1]}”`,
     );
     expect(told).not.toContain(`(taken out or reworded): “${lines[1]}”`);
+  });
+
+  // protects=a reply without names that rewrites one paragraph and quotes a sentence out of another is told that sentence went and that the paragraph it never spoke of stayed, but nothing of the paragraph it quoted from as left out, which would read as contradicting the quote (#2356); English and Chinese; fails_when=the rest of the paragraph it quoted from is told as left out and still there; no_claim=how a real model words its reply.
+  test.each([
+    {
+      asked: "Rent is 1,250 now, and drop the garage sentence.",
+      lines: [
+        "Rent is 1,200 a month.",
+        "Parking is 100 a month. The space is in the north garage.",
+        "Water is 30 a month.",
+      ],
+      reply: "Rent is 1,250 a month.\n\n<removed>The space is in the north garage.</removed>",
+      gone: "The space is in the north garage.",
+      rest: "Parking is 100 a month.",
+    },
+    {
+      asked: "房租改成1250元，删掉车位那句。",
+      lines: ["房租每月1200元。", "停车每月100元。车位在北区车库。", "水费每月30元。"],
+      reply: "房租每月1250元。\n\n<removed>车位在北区车库。</removed>",
+      gone: "车位在北区车库。",
+      rest: "停车每月100元。",
+    },
+  ])("a paragraph a quote took words from is not told as left out: $asked", async (each) => {
+    const model = editing(each.asked, each.reply);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: each.asked, mindId: mind.id });
+    await client.settled();
+
+    const told = lastResult(model);
+    expect(told).toContain(`“${each.gone}”`);
+    expect(told).toContain(
+      `they are still in the text, as it didn't mark them as taken out: “${each.lines[2]}”`,
+    );
+    expect(told).not.toContain(`“${each.rest}”`);
   });
 });
