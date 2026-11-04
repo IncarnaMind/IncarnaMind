@@ -43,7 +43,7 @@ import { ChartView } from "../editor/ChartView";
 import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
-import { type CitePlace, CiteSearch } from "../editor/CiteSearch";
+import { CiteSearch } from "../editor/CiteSearch";
 import { CodeBlockView } from "../editor/CodeBlockView";
 import { comparisonCellView } from "../editor/ComparisonCellView";
 import { ComparisonRowView } from "../editor/ComparisonRowView";
@@ -52,6 +52,7 @@ import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
 import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
+import { type CitePlace, offerCite } from "../editor/citeRequest";
 import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
 import { CopyCitations } from "../editor/copyCitations";
@@ -388,7 +389,6 @@ function MindEditorView({
         : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
-  /** Where Cite… is open, and the "/" it replaces (#281). */
   const [cite, setCite] = useState<CitePlace | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
   const importing = useWordFile(doc).progress !== null;
@@ -908,6 +908,8 @@ function MindEditorView({
   );
   const reviewing = !readOnly && slots.reviewShown !== "closed";
   useEffect(() => followMindStyle(mindId, doc), [mindId, doc]);
+  // ⌘K reaches Cite… as the "/" menu does.
+  useEffect(() => (readOnly ? undefined : offerCite(editor, setCite)), [editor, readOnly]);
   // Another Mind's document is another editor: a Cite… open in the one before is gone.
   const citeDoc = useRef(doc);
   useEffect(() => {

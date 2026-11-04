@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -206,6 +207,12 @@ test('Link a Document in the "/" menu, and "@", put in a chip that opens its Doc
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1600, 760);
+    // A Folder and a Tag: a Note's "@" still offers Documents alone, as the composer's offers all.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.createLibraryGroup({ name: "Thesis", description: "" });
+      await bridge.createTag({ name: "Review" });
+    });
     await addDocuments(window, [join(sources, "Harbour times.txt")]);
     await newMind(window);
     const editor = window.getByTestId("mind-editor");
@@ -245,6 +252,16 @@ test('Link a Document in the "/" menu, and "@", put in a chip that opens its Doc
     await window.keyboard.press("Enter");
     await expect(chips).toHaveCount(2);
     await expect(chips.nth(1)).toHaveText("Harbour times");
+
+    // The composer's own "@" shows the Folder and the Tag: the Note's offers Documents alone.
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type("@");
+    const all = window.getByTestId("scope-picker");
+    await expect(all).toBeVisible();
+    expect(await all.locator('[data-kind="folder"]').count()).toBeGreaterThan(0);
+    expect(await all.locator('[data-kind="tag"]').count()).toBeGreaterThan(0);
+    await window.keyboard.press("Escape");
+    await expect(all).toHaveCount(0);
   } finally {
     await app.close();
   }
@@ -288,6 +305,31 @@ test('"/" finds the existing items by the words Cite… and Link a Document leav
     // Its own name still finds Cite….
     await window.keyboard.type("/cite");
     await expect(window.getByTestId("slash-item-cite")).toHaveAttribute("aria-selected", "true");
+  } finally {
+    await app.close();
+  }
+});
+
+test("the “/” menu opened under a resting pointer chooses its first row, not the one under the pointer", async () => {
+  const { app, window, editor } = await started();
+  try {
+    // Where the menu's second row sits, learned from the menu once.
+    await window.keyboard.type(" /");
+    const second = window.getByTestId("slash-item-link-document");
+    await expect(second).toBeVisible();
+    const box = await second.boundingBox();
+    if (!box) throw new Error("The menu wasn't laid out.");
+    await window.keyboard.press("Escape");
+    await window.keyboard.press("Backspace");
+    await expect(window.getByTestId("slash-menu")).toHaveCount(0);
+
+    // The pointer rests there, without moving, as the menu opens under it.
+    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await window.keyboard.type("/");
+    await expect(window.getByTestId("slash-menu")).toBeVisible();
+    await expect(window.getByTestId("slash-item-cite")).toHaveAttribute("aria-selected", "true");
+    await expect(second).toHaveAttribute("aria-selected", "false");
+    await expect(editor.locator(":scope > p").first()).toHaveText(" /");
   } finally {
     await app.close();
   }
@@ -451,6 +493,86 @@ test("a Chinese input method composing “/” or “@” opens no menu", async 
     await window.keyboard.press("Escape");
   } finally {
     await session.detach();
+    await app.close();
+  }
+});
+
+test("an input method's Esc or Enter in the field leaves the search open, and cites nothing", async () => {
+  const { app, window, editor } = await started();
+  try {
+    await window.keyboard.type("Spring tides flood. /");
+    const search = await chooseCite(window);
+    await expect(search.getByTestId("cite-result").first()).toBeVisible();
+    const field = search.getByTestId("cite-query");
+
+    for (const key of ["Escape", "Enter"]) {
+      await field.evaluate(
+        (input, typed) =>
+          input.dispatchEvent(
+            new KeyboardEvent("keydown", { key: typed, isComposing: true, bubbles: true }),
+          ),
+        key,
+      );
+      await expect(search).toBeVisible();
+    }
+    await expect(editor.getByTestId("citation")).toHaveCount(0);
+
+    // The keys do their work once the composition is done.
+    await window.keyboard.press("Enter");
+    await expect(editor.getByTestId("citation")).toHaveCount(1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("⌘K reaches Cite… and Link a Document", async () => {
+  const { app, window, editor } = await started();
+  try {
+    await window.keyboard.type("Spring tides flood.");
+    const palette = window.getByTestId("palette");
+
+    await window.keyboard.press("ControlOrMeta+k");
+    await palette.getByTestId("palette-search").fill(">cite a passage");
+    const cite = palette.getByTestId("palette-item").filter({ hasText: "Cite a passage…" }).first();
+    await expect(cite).toBeVisible();
+    await window.keyboard.press("Enter");
+    const search = window.getByTestId("cite-search");
+    await expect(search).toBeVisible();
+    await expect(search.getByTestId("cite-query")).toHaveValue("Spring tides flood.");
+    await expect(search.getByTestId("cite-query")).toBeFocused();
+    // No "/" was typed, so Esc leaves the Note as it was.
+    await window.keyboard.press("Escape");
+    await expect(search).toHaveCount(0);
+    await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides flood.");
+
+    await window.keyboard.press("ControlOrMeta+k");
+    await palette.getByTestId("palette-search").fill(">link a document");
+    const link = palette
+      .getByTestId("palette-item")
+      .filter({ hasText: "Link a Document…" })
+      .first();
+    await expect(link).toBeVisible();
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("scope-picker")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("scope-picker")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a later search shows it is looking, and its rows follow", async () => {
+  const { app, window } = await started();
+  try {
+    await window.keyboard.type("Spring tides flood. /");
+    const search = await chooseCite(window);
+    await expect(search.getByTestId("cite-result").first()).toBeVisible();
+
+    await search.getByTestId("cite-query").fill("spring tides happen at new moon");
+    await expect(search.getByTestId("cite-progress")).toBeVisible();
+    await expect(search.getByTestId("cite-result").first()).toContainText("Spring tides happen");
+    await expect(search.getByTestId("cite-progress")).toHaveCount(0);
+  } finally {
     await app.close();
   }
 });

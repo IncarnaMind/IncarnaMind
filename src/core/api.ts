@@ -2231,6 +2231,8 @@ export interface FoundPassage {
   /** Where it is, for its label ("p. 11", "§ History", "rows 40–44"); null as for `pageFrom`. */
   location: CitationLocation | null;
   text: string;
+  /** The sentence `citePassage` would store: the one holding most of the searched words. */
+  quote: string;
   /** Its Document is the User's own workings: shown to the User, never cited without their say. */
   notCited: boolean;
   /**
@@ -2246,9 +2248,7 @@ export interface FoundPassage {
   matches: string[];
 }
 
-/** What `findPassages` looks for, and where (#281). */
 export interface FindPassagesInput {
-  /** The words to find Passages for: the sentence being written. */
   text: string;
   /**
    * The Mind whose side of a Folder wall the search stays on; null for none.
@@ -2261,7 +2261,6 @@ export interface FindPassagesInput {
   scope: SearchScope | null;
 }
 
-/** What `citePassage` cites (#281). */
 export interface CitePassageInput {
   passageId: string;
   /** The User's text: the Passage's sentence holding most of its words becomes the quote. */
@@ -11610,7 +11609,8 @@ export interface CoreApi {
    * A Citation of the words of a Passage that best match `text` (#281): its
    * sentence holding most of the text's words, or the Passage's whole text
    * when none does, checked at once as `citeSelection` checks a selection.
-   * Null for a Passage that no longer exists.
+   * Null for a Passage that no longer exists, and for one of the User's own
+   * workings, which is never cited without their say.
    */
   citePassage(input: CitePassageInput): Promise<Citation | null>;
   /**

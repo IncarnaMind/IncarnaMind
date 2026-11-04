@@ -28,6 +28,12 @@ const hasWords = (text: string) => /[\p{L}\p{N}]/u.test(text);
 /** A title or an abbreviation the segmenter takes for a sentence's end: "Mr. Smith", "Fig. 2". */
 const ABBREVIATION = /(?:^|\s)(?:mr|mrs|ms|dr|prof|st|sr|jr|vs|etc|fig|no|inc|ltd|co|corp)\.$/iu;
 
+/**
+ * A page reference the segmenter ends a sentence at: "at p. 4" is one
+ * sentence, but "the plan was p." followed by "4" would not be.
+ */
+const PAGE_REFERENCE = /(?:^|\s)(?:p|pp)\.$/iu;
+
 /** A company's abbreviation ends a sentence when a court decision's citation follows it: "…bought from Acme Co. Smith v. Jones, …". */
 const COMPANY_ABBREVIATION = /(?:^|\s)(?:inc|ltd|co|corp)\.$/iu;
 
@@ -83,8 +89,8 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
     const startsDecision = decisions.some((each) => each.from === from);
     const joined =
       before !== undefined &&
-      ABBREVIATION.test(before) &&
-      !(startsDecision && COMPANY_ABBREVIATION.test(before));
+      ((ABBREVIATION.test(before) && !(startsDecision && COMPANY_ABBREVIATION.test(before))) ||
+        (PAGE_REFERENCE.test(before) && /^\d/u.test(text.slice(from, to))));
     if (previous && joined && from < to) previous.to = to;
     else if (
       previous &&
@@ -111,13 +117,14 @@ const LONGEST_START = 400;
 
 /**
  * The sentence being written (#281): the last of the text before the caret,
- * which may not have its full stop yet; empty when nothing is written.
+ * which may not have its full stop yet; empty when nothing is written. Inline
+ * nodes are left out, as the words around them are what is searched.
  */
 export function lastSentence(text: string): string {
   const spans = sentenceSpans(text);
   const last = spans.at(-1);
   if (!last) return "";
-  const sentence = text.slice(last.from, last.to).trim();
+  const sentence = text.slice(last.from, last.to).replaceAll(INLINE_NODE, "").trim();
   if (sentence.length <= LONGEST_START) return sentence;
   const tail = sentence.slice(-LONGEST_START);
   const word = tail.search(/\s/u);

@@ -61,6 +61,9 @@ describe("Cite… in a Note (#281): the Passages a sentence is about", () => {
     expect(best?.documentKind).toBe("markdown");
     expect(best?.text).toContain("Spring tides happen at new moon");
     expect(best?.matches).toEqual(expect.arrayContaining(["spring", "tides"]));
+    expect(best?.quote).toBe(
+      "Spring tides happen at new moon and at full moon, when the Sun and the Moon pull together.",
+    );
     expect(best?.location).not.toBeNull();
   });
 
@@ -144,13 +147,68 @@ describe("Cite… in a Note (#281): the Passages a sentence is about", () => {
     expect(cited?.location).not.toBeNull();
   });
 
-  test("a Passage deleted between the search and the choice cites nothing", async () => {
+  test("a Passage of a Document deleted between the search and the choice cites nothing", async () => {
     const { core, mind } = await setUpWithDocuments(unusedModel(), [TIDES]);
+    const [passage] = await core.findPassages({
+      text: "spring tides",
+      mindId: mind.id,
+      scope: null,
+    });
+    if (!passage) throw new Error("No Passage was found.");
 
+    await core.deleteDocuments([passage.documentId]);
+
+    expect(
+      await core.citePassage({ passageId: passage.passageId, text: "spring tides" }),
+    ).toBeNull();
     expect(
       await core.citePassage({ passageId: "no-such-passage", text: "spring tides" }),
     ).toBeNull();
-    expect(mind.id).not.toBe("");
+  });
+
+  test("a Document the User keeps as their own workings is never offered nor cited", async () => {
+    const { core, mind, documents } = await setUpWithDocuments(unusedModel(), [TIDES, BREAD]);
+    const workings = documents.find((document) => document.name === "Bread");
+    if (!workings) throw new Error("Bread wasn't added.");
+    const [offered] = await core.findPassages({
+      text: "sourdough starter",
+      mindId: mind.id,
+      scope: null,
+    });
+    if (!offered) throw new Error("Bread wasn't found before it was marked.");
+
+    await core.setNotCited(workings.id, true);
+
+    const after = await core.findPassages({
+      text: "sourdough starter",
+      mindId: mind.id,
+      scope: null,
+    });
+    expect(after).toEqual([]);
+    expect(
+      await core.citePassage({ passageId: offered.passageId, text: "sourdough starter" }),
+    ).toBeNull();
+  });
+
+  test("a Mind inside a Folder wall searches only its Folder", async () => {
+    const { core, documents } = await setUpWithDocuments(unusedModel(), [TIDES, BREAD]);
+    const folder = await core.createLibraryGroup({ name: "Thesis", description: "" });
+    const inside = await core.createMind({ title: "Chapter", folderId: folder.id });
+    const tides = documents.find((document) => document.name === "Tides");
+    if (!tides) throw new Error("Tides wasn't added.");
+    await core.assignDocumentGroup(tides.id, folder.id);
+    await core.updateLibraryGroup(folder.id, {
+      name: folder.name,
+      description: folder.description,
+      keepInside: true,
+    });
+
+    // Bread is outside the wall: the Mind inside it never finds it.
+    expect(
+      await core.findPassages({ text: "sourdough starter", mindId: inside.id, scope: null }),
+    ).toEqual([]);
+    const found = await core.findPassages({ text: "spring tides", mindId: inside.id, scope: null });
+    expect(found[0]?.documentName).toBe("Tides");
   });
 });
 

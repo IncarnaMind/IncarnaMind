@@ -100,6 +100,17 @@ function SlashMenuList({ items, query, command, ref }: SlashMenuListProps) {
   const selected = choice.query === query ? Math.min(choice.index, shown.length - 1) : 0;
   const setSelected = (index: number) => setChoice({ query, index });
   const options = useRef<(HTMLButtonElement | null)[]>([]);
+  // A menu opened under a resting pointer must not choose the row beneath it: only a
+  // pointer that moved chooses.
+  const moved = useRef(false);
+
+  useEffect(() => {
+    const pointed = () => {
+      moved.current = true;
+    };
+    window.addEventListener("pointermove", pointed, { once: true });
+    return () => window.removeEventListener("pointermove", pointed);
+  }, []);
 
   useEffect(() => {
     options.current[selected]?.scrollIntoView({ block: "nearest" });
@@ -142,7 +153,9 @@ function SlashMenuList({ items, query, command, ref }: SlashMenuListProps) {
           data-testid={`slash-item-${item.id}`}
           // Keep the cursor in the editor.
           onMouseDown={(event) => event.preventDefault()}
-          onMouseEnter={() => setSelected(index)}
+          onMouseEnter={() => {
+            if (moved.current) setSelected(index);
+          }}
           onClick={() => command(item)}
           title={item.hint}
           className="editor-menu-item"

@@ -1,6 +1,8 @@
 import type { Editor } from "@tiptap/core";
 import { flushSync } from "react-dom";
 import { core } from "../core";
+import { requestCite } from "../editor/citeRequest";
+import { openDocumentPicker } from "../editor/documentPicker";
 import { mindEditor } from "../editor/openEditors";
 import { tidyNote } from "../editor/tidyNote";
 import { insertTableOfContents } from "../editor/tocCommands";
@@ -61,6 +63,34 @@ export const noteBasicsCommands: readonly Command[] = [
     run(ctx) {
       const editor = openNote(ctx);
       if (editor) insertTableOfContents(editor);
+    },
+  },
+  {
+    id: "mind.cite",
+    label: "editor.cite.command",
+    keywords: ["editor.cite.keywords"],
+    group: "main",
+    appliesTo: ["mind", "tab", "block"],
+    // The Citation goes into the Note, and the Note's own undo (⌘Z) takes it back.
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && openNote(ctx) !== null,
+    run(ctx) {
+      const editor = openNote(ctx);
+      if (editor) requestCite(editor);
+    },
+  },
+  {
+    id: "mind.linkDocument",
+    label: "editor.linkDocument.command",
+    keywords: ["editor.linkDocument.keywords"],
+    group: "main",
+    appliesTo: ["mind", "tab", "block"],
+    // The "@" and the chip it puts in are the Note's own to undo.
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && openNote(ctx) !== null,
+    run(ctx) {
+      const editor = openNote(ctx);
+      if (editor) openDocumentPicker(editor);
     },
   },
   {

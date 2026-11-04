@@ -7,6 +7,7 @@ import { SkillIcon } from "../components/icons";
 import { ImageLineIcon } from "../components/lineIcons";
 import { matchName, queryWords } from "../matcher";
 import { showBibliography } from "./bibliographyCommands";
+import { openDocumentPicker } from "./documentPicker";
 import { insertFootnote } from "./footnoteSchema";
 import { TableIcon } from "./icons";
 import { insertBlock } from "./insertBlock";
@@ -259,7 +260,8 @@ export function citeWhileWritingItems(
       keywords: ["link", "file", "mention", "lianjie", "wendang", "文档"],
       icon: "@",
       run(editor, range) {
-        editor.chain().focus().deleteRange(range).insertContent({ type: "text", text: "@" }).run();
+        editor.chain().focus().deleteRange(range).run();
+        openDocumentPicker(editor, range.from);
       },
     },
   ];

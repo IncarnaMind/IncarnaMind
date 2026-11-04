@@ -228,6 +228,8 @@ export function createCiting(documents: CitingDocuments): Citing {
           pageTo: passage.pageTo,
           location: passageLocation(passage),
           text: passage.text,
+          // The sentence Cite… would store, so a list can show what choosing it cites.
+          quote: bestQuote(passage.text, text),
           notCited: documents.citationSource(passage.passageId)?.notCited ?? false,
           relevance: passage.relevance ?? null,
           matches: matchingTerms(terms, passage.text),
@@ -248,7 +250,10 @@ export function createCiting(documents: CitingDocuments): Citing {
 
     quoteFor(passageId, text) {
       const source = documents.citationSource(passageId);
-      return source ? bestQuote(source.text, text) : null;
+      // The User's workings, and a Document gone since, are never cited: no quote is offered.
+      return source && !source.notCited && !source.documentDeleted
+        ? bestQuote(source.text, text)
+        : null;
     },
 
     citeUnit(passageId, given, page, at) {
