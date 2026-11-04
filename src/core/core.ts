@@ -4781,15 +4781,10 @@ export function createCore(adapters: CoreAdapters): Core {
       if (
         !isRecord(input) ||
         typeof input.text !== "string" ||
-        typeof input.snapshotAt !== "string"
+        typeof input.snapshotAt !== "string" ||
+        Number.isNaN(new Date(input.snapshotAt).getTime())
       )
-        throw new InvalidInputError(
-          "restoreMindSourceSnapshot expects the snapshot's text and time.",
-        );
-      if (Number.isNaN(new Date(input.snapshotAt).getTime()))
-        throw new InvalidInputError(
-          "restoreMindSourceSnapshot expects the snapshot's time as ISO 8601.",
-        );
+        throw new InvalidInputError({ key: "error.mindSource.restore" });
       return mindSources.restore(documentId, {
         text: input.text,
         snapshotAt: input.snapshotAt,

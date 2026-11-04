@@ -4618,6 +4618,7 @@ export const zhCN = {
   "error.document.notFound": "找不到这个文档。",
   "error.mindSource.none": "这篇笔记还没有作为来源的快照。",
   "error.mindSource.notSnapshot": "这个文档不是笔记的快照。",
+  "error.mindSource.restore": "无法恢复快照。",
   "error.checkRecord.noPdf": "这个版本的 IncarnaMind 无法生成 PDF。",
   "error.print.noPrinter": "这个版本的 IncarnaMind 无法打印。",
   "error.print.failed": "无法打印这篇笔记。",

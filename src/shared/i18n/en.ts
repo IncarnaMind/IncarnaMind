@@ -4841,6 +4841,7 @@ export const en = {
   "error.document.notFound": "There is no such Document.",
   "error.mindSource.none": "This note has no snapshot as a source.",
   "error.mindSource.notSnapshot": "This Document isn’t a snapshot of a note.",
+  "error.mindSource.restore": "The snapshot couldn’t be put back.",
   "sheet.noSavedValue": "No saved value",
   "error.checkRecord.noPdf": "This copy of IncarnaMind can’t make PDFs.",
   "error.print.noPrinter": "This copy of IncarnaMind can’t print.",
