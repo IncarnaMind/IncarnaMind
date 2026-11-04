@@ -17,6 +17,7 @@ import { useNoteEditor } from "../annotationNote";
 import { useAnnotations } from "../annotations";
 import { useAppStore } from "../store";
 import { addsWithoutAsking } from "../viewer/selectionActions";
+import { viewerTabOf } from "../viewerTab";
 import type { Command, CommandContext } from "./registry";
 
 const focused = (ctx: CommandContext): Annotation | null => {
@@ -93,7 +94,10 @@ export const annotationCommands: readonly Command[] = [
       const documentId = documentOf(ctx);
       if (!documentId) return;
       useAppStore.getState().openDocument({ documentId }, { as: "list" });
-      useAnnotations.getState().togglePanel(true, documentId);
+      requestAnimationFrame(() => {
+        const tab = viewerTabOf(documentId);
+        if (tab) useAnnotations.getState().togglePanel(true, tab);
+      });
     },
   },
   {

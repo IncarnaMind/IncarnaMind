@@ -185,7 +185,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const [viewerWidth, setViewerWidth] = useState(0);
   const setRoom = useAnnotations((state) => state.setRoom);
   const setListInPlace = useAnnotations((state) => state.setListInPlace);
-  const viewerId = document?.id ?? "";
+  const viewerId = tab.id;
   const panelOpen = useAnnotations((state) => state.panelOpen[viewerId] === true);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const loadAnnotations = useAnnotations((state) => state.load);

@@ -50,6 +50,7 @@ import { moveFromPalette } from "./sidebarMoves";
 import { useAppStore } from "./store";
 import { findTab } from "./tabs";
 import { taskAt } from "./taskFocus";
+import { viewerTabOf } from "./viewerTab";
 
 const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette" };
 
@@ -588,7 +589,10 @@ export async function runItem(
         },
         { as: inTab ? "here" : "list" },
       );
-      useAnnotations.getState().togglePanel(true, item.documentId);
+      requestAnimationFrame(() => {
+        const tab = viewerTabOf(item.documentId);
+        if (tab) useAnnotations.getState().togglePanel(true, tab);
+      });
       return;
     case "said":
       await openConversation(item.conversationId, item.answerId ?? undefined);

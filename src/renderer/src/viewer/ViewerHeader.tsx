@@ -83,7 +83,7 @@ export function ViewerHeader({
   const t = useT();
   const language = useLanguage();
   const gap = useGap();
-  const { document, preview, keep, target } = useContext(ViewerFrameContext);
+  const { document, tabId, preview, keep, target } = useContext(ViewerFrameContext);
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -146,9 +146,9 @@ export function ViewerHeader({
   const [problem, setProblem] = useState<Said | null>(null);
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
-  const panelOpen = useAnnotations((state) => state.panelOpen[document?.id ?? ""] === true);
-  const room = useAnnotations((state) => state.room[document?.id ?? ""] ?? true);
-  const listInPlace = useAnnotations((state) => state.listInPlace[document?.id ?? ""] === true);
+  const panelOpen = useAnnotations((state) => state.panelOpen[tabId] === true);
+  const room = useAnnotations((state) => state.room[tabId] ?? true);
+  const listInPlace = useAnnotations((state) => state.listInPlace[tabId] === true);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const areaMode = useContext(AreaModeContext);
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
@@ -281,7 +281,7 @@ ${sourceOf(document)}`
                 : t(panelOpen ? "annotations.close" : "annotations.open")
             }
             disabled={!room && !panelOpen}
-            onClick={() => togglePanel(!panelOpen, document.id)}
+            onClick={() => togglePanel(!panelOpen, tabId)}
             className="viewer-icon-button viewer-annotations-toggle"
           >
             <NoteLineIcon className="size-4" />

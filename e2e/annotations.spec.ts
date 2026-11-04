@@ -18,6 +18,7 @@ import {
   setLanguage,
   setWindowSize,
   slideSelect,
+  splitFromTabMenu,
 } from "./app";
 
 /**
@@ -613,7 +614,7 @@ async function viewerWidth(window: Page, wanted: number): Promise<void> {
     await bridge.changeLayout("main", { type: "resize", widths: [room - width, width] });
   }, wanted);
   await expect
-    .poll(async () => (await window.getByTestId("viewer").boundingBox())?.width ?? 0)
+    .poll(async () => (await window.getByTestId("viewer").last().boundingBox())?.width ?? 0)
     .toBeCloseTo(wanted, 0);
 }
 
@@ -721,6 +722,44 @@ const LONG_MARKDOWN = `${MARKDOWN}\n${Array.from(
   { length: 40 },
   (_, index) => `## Filler ${index}\n\nFiller paragraph number ${index} of the page.`,
 ).join("\n\n")}\n`;
+
+test("two viewers of one Document keep their own lists, in English and Chinese", async () => {
+  const { app, window } = await openMarkdown("en", MARKDOWN, "Costs.md");
+  await setWindowSize(app, window, 2000, 900);
+  await splitFromTabMenu(window);
+  const viewers = window.getByTestId("viewer");
+  await expect(viewers).toHaveCount(2);
+
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    await viewerWidth(window, 760);
+    const left = viewers.nth(0);
+    const right = viewers.nth(1);
+    const leftToggle = left.getByTestId("viewer-annotations-toggle");
+    const rightToggle = right.getByTestId("viewer-annotations-toggle");
+    // One viewer's list opens in that viewer only; the same Document's other viewer is untouched.
+    await pointAndClick(window, rightToggle);
+    await expect(window.getByTestId("annotations-panel")).toHaveCount(1);
+    await expect(rightToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(leftToggle).toHaveAttribute("aria-pressed", "false");
+    await pointAndClick(window, window.getByTestId("annotations-close"));
+    await expect(window.getByTestId("annotations-panel")).toHaveCount(0);
+    await pointAndClick(window, leftToggle);
+    await expect(window.getByTestId("annotations-panel")).toHaveCount(1);
+    await expect(leftToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(rightToggle).toHaveAttribute("aria-pressed", "false");
+    await pointAndClick(window, window.getByTestId("annotations-close"));
+
+    // A narrow copy never disables or closes the wide viewer's list.
+    await viewerWidth(window, 405);
+    await expect(rightToggle).toBeHidden();
+    await pointAndClick(window, leftToggle);
+    await expect(leftToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(window.getByTestId("annotations-panel")).toHaveCount(1);
+    await pointAndClick(window, window.getByTestId("annotations-close"));
+  }
+  await app.close();
+});
 
 test("the in-place list fills the viewer, scrolls, and its × closes it", async () => {
   const { app, window, viewer } = await openMarkdown("en", LONG_MARKDOWN, "Long.md", {
