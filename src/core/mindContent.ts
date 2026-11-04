@@ -4,6 +4,7 @@ import {
   CONTENT_SCHEMA_VERSION,
   CONTENT_SCHEMA_VERSION_KEY,
   type EditCause,
+  MIND_COMMENTS_FIELD,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
 } from "./api";
@@ -433,6 +434,22 @@ export function createMindContent(
       } finally {
         doc.destroy();
       }
+    },
+
+    /** Changes the Mind's comments in one transaction, stored and reported like `edit`. */
+    editComments<T>(mindId: string, change: (comments: Y.Map<unknown>) => T): T {
+      const mind = load(mindId);
+      requireWritable(mind);
+      let result: T | undefined;
+      try {
+        mind.doc.transact(() => {
+          result = change(mind.doc.getMap(MIND_COMMENTS_FIELD));
+          stampContentVersion(mind.doc);
+        }, CORE_ORIGIN);
+      } finally {
+        flush(mindId, mind);
+      }
+      return result as T;
     },
 
     /** Changes the Mind's own choices in one transaction, stored and reported like `edit`. */

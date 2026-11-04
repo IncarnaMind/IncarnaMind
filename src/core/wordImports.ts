@@ -473,6 +473,12 @@ export function createWordImports(options: WordImportsOptions) {
           setWordNoteNumbering(blocks.doc, structure.noteNumbering);
         }
       });
+      // Its comments are the Mind's own (#328): their words get the mark as the Blocks arrive.
+      if (structure.comments.length > 0) {
+        content.editComments(mind.id, (comments) => {
+          for (const comment of structure.comments) comments.set(comment.id, comment);
+        });
+      }
       if (structure.lookUnreadable.length > 0) {
         log.warn("word.look.partsUnreadable", { parts: structure.lookUnreadable.join(", ") });
       }

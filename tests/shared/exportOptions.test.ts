@@ -51,6 +51,18 @@ describe("What an export asks the core for", () => {
       expect(optionsFor(format, preferences(null))).not.toHaveProperty("markAiText");
     }
   });
+
+  test("the comments choice belongs to one Note, so no other Note's export asks for it (#328)", () => {
+    const chosen = preferences("mark");
+    chosen.docx = {
+      ...chosen.docx,
+      includeMyComments: true,
+      myCommentsFile: "note-a",
+    };
+    // Only that Note's export adds it; this is what every other Note would ask for.
+    expect(optionsFor("docx", chosen)).not.toHaveProperty("includeMyComments");
+    expect(optionsFor("docx", chosen)).not.toHaveProperty("myCommentsFile");
+  });
 });
 
 describe("Where Word and PDF put the Citations", () => {
