@@ -1885,6 +1885,7 @@ export const en = {
   "command.viewer.selection.copy": "Copy the selected text with its citation",
   "annotations.title": "Highlights and comments",
   "annotations.needsRoom": "The window is too narrow to show the list.",
+  "annotations.backToPage": "Back to the page",
   "annotations.open": "Show highlights and comments",
   "annotations.close": "Hide highlights and comments",
   "annotations.empty": "Select text in the page and choose Highlight.",

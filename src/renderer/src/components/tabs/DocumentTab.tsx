@@ -19,10 +19,10 @@ import { DocumentRemoved } from "../../viewer/ViewerMessage";
 
 /** How far the User scrolls a preview, at least, to keep it: the jump to the quote doesn't count. */
 const KEEP_AFTER_SCROLL_PX = 120;
-/** The page a list beside it must leave: its toolbar's own give-way needs this to keep ⋯ and Open. */
-const LEAST_PAGE_WITH_LIST = 600;
-/** The list's width, as `viewer.css` sets it. */
-const LIST_WIDTH = 280;
+/** The least viewer the list opens in at all. */
+const LEAST_VIEWER_WITH_LIST = 420;
+/** Below this the list takes the page's place; from it, it sits beside the page. */
+const LIST_BESIDE_FROM = 760;
 
 /**
  * What the viewer shows of a Document's file, as a key that changes when
@@ -182,7 +182,9 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   const fileKey = useFileKey(document);
   const places = usePlaceMemory(target);
   const [section, setSection] = useState<HTMLElement | null>(null);
+  const [viewerWidth, setViewerWidth] = useState(0);
   const setRoom = useAnnotations((state) => state.setRoom);
+  const setListInPlace = useAnnotations((state) => state.setListInPlace);
   const panelOpen = useAnnotations((state) => state.panelOpen);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const loadAnnotations = useAnnotations((state) => state.load);
@@ -200,19 +202,24 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
   // A reader is a function: kept as one, not called as an update.
   const lendReader = useCallback((lent: SelectionReader | null) => setReader(() => lent), []);
   useKeepOnReading(section, tab.id, tab.preview);
-  // The list is a pane: it opens only where a page keeps the width its toolbar needs.
+  // Below 760 the list takes the page's place; a pane that a resize narrows past it closes, keeping the page.
+  const wide = useRef(false);
   useEffect(() => {
-    if (!section) return;
+    if (!section || !document) return;
     const measure = () => {
-      const room = section.clientWidth - LIST_WIDTH >= LEAST_PAGE_WITH_LIST;
-      setRoom(room);
-      if (!room) useAnnotations.getState().togglePanel(false);
+      const width = section.clientWidth;
+      setViewerWidth(width);
+      setRoom(document.id, width >= LEAST_VIEWER_WITH_LIST);
+      if (useAnnotations.getState().panelOpen && wide.current && width < LIST_BESIDE_FROM) {
+        useAnnotations.getState().togglePanel(false, document.id);
+      }
+      wide.current = width >= LIST_BESIDE_FROM;
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(section);
     return () => observer.disconnect();
-  }, [section, setRoom]);
+  }, [section, document, setRoom]);
   const areaMode = useMemo(
     () => ({
       active: areaActive,
@@ -245,6 +252,8 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
     [areaAvailable, areaMode, section],
   );
   useViewerHandle("area", areaCommand, tab.id);
+  const inPlace = panelOpen && viewerWidth > 0 && viewerWidth < LIST_BESIDE_FROM;
+  useEffect(() => setListInPlace(inPlace), [inPlace, setListInPlace]);
 
   return (
     <section
@@ -261,7 +270,11 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
           <ViewerFrameContext.Provider value={frame}>
             <PlaceMemoryContext.Provider value={places}>
               <div className="flex min-h-0 min-w-0 flex-1">
-                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+                <div
+                  className={`relative flex min-h-0 min-w-0 flex-col [container:viewer/inline-size] ${
+                    inPlace ? "h-9 shrink-0 overflow-hidden" : "flex-1"
+                  }`}
+                >
                   {!document ? (
                     <>
                       <ViewerHeader />
@@ -298,7 +311,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                   )}
                   {document && <AnnotationExportLine documentId={document.id} />}
                 </div>
-                {document && panelOpen && (
+                {document && panelOpen && !inPlace && (
                   <AnnotationsPanel
                     document={document}
                     container={section}
@@ -306,6 +319,14 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                   />
                 )}
               </div>
+              {document && panelOpen && inPlace && (
+                <AnnotationsPanel
+                  document={document}
+                  container={section}
+                  inPlace
+                  onClose={() => togglePanel(false)}
+                />
+              )}
             </PlaceMemoryContext.Provider>
           </ViewerFrameContext.Provider>
         </AreaModeContext.Provider>

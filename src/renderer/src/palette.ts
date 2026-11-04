@@ -588,7 +588,7 @@ export async function runItem(
         },
         { as: inTab ? "here" : "list" },
       );
-      useAnnotations.getState().togglePanel(true);
+      useAnnotations.getState().togglePanel(true, item.documentId);
       return;
     case "said":
       await openConversation(item.conversationId, item.answerId ?? undefined);

@@ -180,14 +180,20 @@ export function scrollToAnnotation(container: HTMLElement | null, annotation: An
   return true;
 }
 
+/** The list's scroll, by Document, so reopening it returns where it was. */
+const scrolledAt = new Map<string, number>();
+
 export function AnnotationsPanel({
   document,
   container,
+  inPlace = false,
   onClose,
 }: {
   document: Document;
   /** The viewer's scroller, whose page holds the highlights. */
   container: HTMLElement | null;
+  /** It takes the page's place below 760px, with a way back at its top. */
+  inPlace?: boolean;
   onClose(): void;
 }) {
   const t = useT();
@@ -202,7 +208,7 @@ export function AnnotationsPanel({
 
   return (
     <aside
-      className="annotations-panel"
+      className={inPlace ? "annotations-panel annotations-panel--in-place" : "annotations-panel"}
       data-testid="annotations-panel"
       aria-label={t("annotations.title")}
       onKeyDown={(event) => {
@@ -220,6 +226,16 @@ export function AnnotationsPanel({
       }}
     >
       <header className="annotations-panel-head">
+        {inPlace && (
+          <button
+            type="button"
+            data-testid="annotations-back"
+            onClick={onClose}
+            className="annotations-back"
+          >
+            {t("annotations.backToPage")}
+          </button>
+        )}
         <h2 className="annotations-panel-title">{t("annotations.title")}</h2>
         <span className="annotations-panel-count">
           {stored?.length === 1
@@ -263,12 +279,20 @@ export function AnnotationsPanel({
       {stored && stored.length === 0 ? (
         <p className="annotations-panel-empty">{t("annotations.empty")}</p>
       ) : (
-        <ol className="annotations-list">
+        <ol
+          ref={(list) => {
+            if (list) list.scrollTop = scrolledAt.get(document.id) ?? 0;
+          }}
+          onScroll={(event) => scrolledAt.set(document.id, event.currentTarget.scrollTop)}
+          data-testid="annotations-list"
+          className="annotations-list"
+        >
           {(stored ?? []).map((annotation) => (
             <Row
               key={annotation.id}
               annotation={annotation}
               onGo={(chosen) => {
+                if (inPlace) onClose();
                 if (chosen.missing) {
                   setNotHere(chosen.id);
                   return;

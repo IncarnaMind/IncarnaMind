@@ -3,8 +3,8 @@
  * it is ("Saved “{name}” in {folder}") with Open and Show in Finder, over the
  * page's foot (#327).
  */
-import { useEffect, useRef } from "react";
-import { useAnnotations } from "../annotations";
+import { useCallback, useEffect, useRef } from "react";
+import { type AnnotationExport, useAnnotations } from "../annotations";
 import { files } from "../core";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { showFileLabelKey } from "../fileInfo";
@@ -17,23 +17,28 @@ import { useHeld } from "../useHeld";
 const SHOWN_MS = 10_000;
 
 export function AnnotationExportLine({ documentId }: { documentId: string }) {
-  const t = useT();
   const exported = useAnnotations((state) => state.exported);
-  const showExport = useAnnotations((state) => state.showExport);
   const shown = exported?.documentId === documentId ? exported : null;
+  if (!shown) return null;
+  return <ExportLine shown={shown} />;
+}
+
+/** The line itself, mounted with its ref: it is held and entered from its first frame. */
+function ExportLine({ shown }: { shown: AnnotationExport }) {
+  const t = useT();
+  const showExport = useAnnotations((state) => state.showExport);
   const line = useRef<HTMLParagraphElement>(null);
   const held = useHeld(line, { focusHolds: true });
-  useDismissOnEscape(shown !== null, () => showExport(null));
+  const dismiss = useCallback(() => showExport(null), [showExport]);
+  useDismissOnEscape(true, dismiss);
   useEffect(() => {
-    if (!shown) return;
     if (line.current) enter(line.current, { y: 8 });
-  }, [shown]);
+  }, []);
   useEffect(() => {
-    if (!shown || held) return;
-    const timer = setTimeout(() => showExport(null), SHOWN_MS);
+    if (held) return;
+    const timer = setTimeout(dismiss, SHOWN_MS);
     return () => clearTimeout(timer);
-  }, [shown, held, showExport]);
-  if (!shown) return null;
+  }, [held, dismiss]);
   const said = t("export.doneIn", {
     name: "\u0000",
     folder: savedFolderLabel(shown, t),

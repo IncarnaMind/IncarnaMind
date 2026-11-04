@@ -3,7 +3,6 @@
 
 @layer components {
   .viewer-pane {
-    container: viewer / inline-size;
     /* The quote's wash: a found Citation's green, unless the scroller says otherwise. */
     --quote-wash: var(--color-success-wash);
     --quote-edge: var(--color-success);
@@ -1125,9 +1124,20 @@
     @apply flex shrink-0 items-center gap-1;
   }
 
-  /* A Document tab's list beside the page, never over it: the page gives way to the pane. */
+  /* The list takes the page's place below 760px: the toolbar keeps its height, its page controls dimmed. */
+  .viewer-header--list-only button:not(.viewer-annotations-toggle),
+  .viewer-header--list-only input {
+    @apply pointer-events-none opacity-40;
+  }
+  .annotations-back {
+    @apply col-span-3 mb-1 self-start rounded-sm text-[13px] font-semibold text-ink-secondary hover:text-ink;
+  }
+  /* A Document tab's list beside the page, which gives way; in place of the page when it must. */
   .annotations-panel {
     @apply flex w-[280px] shrink-0 flex-col border-l border-rule bg-sheet;
+  }
+  .annotations-panel--in-place {
+    @apply w-auto flex-1 border-l-0;
   }
 
   /* An export's Saved line over the page's foot, as a Mind's is (DESIGN.md, Export). */

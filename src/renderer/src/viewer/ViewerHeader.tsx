@@ -147,7 +147,8 @@ export function ViewerHeader({
   const leftOut = useLeftOutOfEvidence(document);
   const objectMenu = useObjectMenu({ kind: "document", id: document?.id ?? "" });
   const panelOpen = useAnnotations((state) => state.panelOpen);
-  const room = useAnnotations((state) => state.room);
+  const room = useAnnotations((state) => (document ? (state.room[document.id] ?? true) : true));
+  const listInPlace = useAnnotations((state) => state.listInPlace);
   const togglePanel = useAnnotations((state) => state.togglePanel);
   const areaMode = useContext(AreaModeContext);
   const rename = useRename<HTMLButtonElement>(`viewer:${document?.id}`);
@@ -173,7 +174,9 @@ export function ViewerHeader({
         data-testid="viewer-header"
         {...(document ? objectMenu.rowProps : {})}
         ref={header}
-        className={areaMode ? "viewer-header viewer-header--area" : "viewer-header"}
+        className={`viewer-header${areaMode ? " viewer-header--area" : ""}${
+          listInPlace ? " viewer-header--list-only" : ""
+        }`}
       >
         {leading}
         {document && (
@@ -276,7 +279,7 @@ ${sourceOf(document)}`
                 : t(panelOpen ? "annotations.close" : "annotations.open")
             }
             disabled={!room && !panelOpen}
-            onClick={() => togglePanel(!panelOpen)}
+            onClick={() => togglePanel(!panelOpen, document.id)}
             className="viewer-icon-button viewer-annotations-toggle"
           >
             <NoteLineIcon className="size-4" />

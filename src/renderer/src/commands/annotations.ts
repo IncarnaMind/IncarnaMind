@@ -80,7 +80,14 @@ export const annotationCommands: readonly Command[] = [
     group: "main",
     appliesTo: ["document"],
     when: (ctx) => documentOf(ctx) !== null,
-    enabled: () => useAnnotations.getState().room || { reason: "annotations.needsRoom" },
+    enabled: (ctx) => {
+      const documentId = documentOf(ctx);
+      return (
+        (documentId !== null && useAnnotations.getState().room[documentId] !== false) || {
+          reason: "annotations.needsRoom",
+        }
+      );
+    },
     reversible: true,
     run: (ctx) => {
       const documentId = documentOf(ctx);

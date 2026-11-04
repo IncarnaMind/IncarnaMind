@@ -42,10 +42,13 @@ interface AnnotationsState {
   colour: AnnotationColour;
   /** The Document tab's Annotations list is open. */
   panelOpen: boolean;
-  /** The viewer is wide enough for the list beside a page that keeps its toolbar whole. */
-  room: boolean;
-  setRoom(room: boolean): void;
-  togglePanel(open: boolean): void;
+  /** The list is showing in place of the page, under the toolbar, in this viewer. */
+  listInPlace: boolean;
+  setListInPlace(listInPlace: boolean): void;
+  /** Each Document's viewer is wide enough for its list: by Document, as two viewers may differ. */
+  room: Record<string, boolean>;
+  setRoom(documentId: string, room: boolean): void;
+  togglePanel(open: boolean, documentId?: string): void;
   /** Reads a Document's annotations, unless they are being read now. */
   load(documentId: string): Promise<void>;
   /** Reads how many annotations each Document has. */
@@ -63,10 +66,15 @@ export const useAnnotations = create<AnnotationsState>()((set) => ({
   showExport: (exported) => set({ exported }),
   colour: rememberedColour(),
   panelOpen: false,
-  room: true,
-  setRoom: (room) => set({ room }),
-  togglePanel: (open) =>
-    set((state) => (open && !state.room ? { panelOpen: false } : { panelOpen: open })),
+  listInPlace: false,
+  setListInPlace: (listInPlace) => set({ listInPlace }),
+  room: {},
+  setRoom: (documentId, room) => set((state) => ({ room: { ...state.room, [documentId]: room } })),
+  togglePanel: (open, documentId) =>
+    set((state) => ({
+      panelOpen:
+        open && documentId !== undefined && state.room[documentId] === false ? false : open,
+    })),
   load: async (documentId) => {
     if (documentId === "") return;
     if (loading.has(documentId)) {

@@ -1799,6 +1799,7 @@ export const zhCN = {
   "command.viewer.selection.copy": "复制所选文字（含引用）",
   "annotations.title": "高亮和批注",
   "annotations.needsRoom": "窗口太窄，无法显示列表。",
+  "annotations.backToPage": "返回页面",
   "annotations.open": "显示高亮和批注",
   "annotations.close": "隐藏高亮和批注",
   "annotations.empty": "在页面中选中文字，然后选择“高亮”。",
