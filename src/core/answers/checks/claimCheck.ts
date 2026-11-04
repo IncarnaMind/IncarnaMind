@@ -2276,7 +2276,10 @@ function inLanguageAt(claim: string, first: number, end: number, wording: string
   return written === (scriptOf(claim.slice(first, end)) ?? scriptOf(nearest));
 }
 
-const sameNumber = (a: { value: number; unit: unknown }, b: { value: number; unit: unknown }) =>
+export const sameNumber = (
+  a: { value: number; unit: unknown },
+  b: { value: number; unit: unknown },
+) =>
   Math.abs(a.value - b.value) <= 1e-9 * Math.max(1, Math.abs(a.value), Math.abs(b.value)) &&
   JSON.stringify(a.unit) === JSON.stringify(b.unit);
 
@@ -2541,7 +2544,7 @@ function inPlace(before: string, after: string, wording: string): string {
  * that occur once in it, never all the sentence's words, each choice's wording in its own found
  * quote, keeping the sentence's named periods.
  */
-function correctionFor(
+export function correctionFor(
   sentence: string,
   claim: string,
   read: ReadCorrection | undefined,

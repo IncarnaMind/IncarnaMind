@@ -2812,6 +2812,7 @@ export function createCore(adapters: CoreAdapters): Core {
     engine: answerEngine,
     retention,
     editText,
+    recheckCitation: (citation) => recheckCitation(documents, citation),
     estimateRead(model, read) {
       const metered = chat.metered(model ?? undefined);
       return metered && meter.estimateRead(metered, read);
@@ -5542,6 +5543,8 @@ export function createCore(adapters: CoreAdapters): Core {
     planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
+    rewriteFromDocuments: (input) =>
+      inFlow("check-claim", () => checks.rewriteFromDocuments(input)),
     chooseRecordCiteSource: (input) =>
       inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),

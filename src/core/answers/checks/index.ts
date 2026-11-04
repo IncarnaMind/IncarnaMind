@@ -31,6 +31,7 @@ import { keepRecordCites, restsOn } from "../../../shared/claimChecks";
 import {
   boundedCheck,
   boundedCheckParts,
+  checkedCitation,
   checkWithParts,
   figuresByPart,
   partWithResult,
@@ -81,6 +82,7 @@ import {
   type DocumentCheckProgress,
   type ExternalService,
   type Money,
+  type RewriteFromDocumentsResult,
   type RunEstimate,
   type SearchScope,
   type TextPlace,
@@ -133,6 +135,7 @@ import {
   unplacedRecordCites,
   withRecordCites,
 } from "./recordCites";
+import { rewriteFromPassage } from "./rewrite";
 import { pendingParts } from "./runChecks";
 import {
   markedSentences as allMarks,
@@ -241,6 +244,14 @@ export interface ChecksOptions
       /** A live Document's Passages, in reading order. */
       passages(documentId: string): WindowedPassage[];
     };
+  /** A Citation checked again in its Document's current version, at the Units it cites. */
+  recheckCitation(citation: {
+    documentId: string;
+    quote: string;
+    pageFrom: number | null;
+    pageTo: number | null;
+    contentHash: string;
+  }): { check: CitationAttributes["check"]; contentHash: string | null };
   /** The estimate of a whole read's requests. */
   estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
   /** What a whole read's requests have settled at, by its request id, in `currency`. */
@@ -1701,6 +1712,48 @@ export function createChecks(options: ChecksOptions) {
         model: ready.prepared,
         // Reading the document being checked makes the Run third-party (#78).
         ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
+        signal: new AbortController().signal,
+      });
+    },
+
+    async rewriteFromDocuments(input: unknown): Promise<RewriteFromDocumentsResult> {
+      if (!isRecord(input) || typeof input.checkId !== "string" || input.checkId === "") {
+        throw new InvalidInputError("rewriteFromDocuments expects a Mind and a sentence check.");
+      }
+      const mindId = parseMindId(input.mindId);
+      options.requireMind(mindId);
+      const { checkId } = input;
+      const stored = content.read(mindId, (blocks) =>
+        checkedSentences(blocks).find(({ check }) => check.id === checkId),
+      );
+      const evidence = checkedCitation(stored?.check.evidence ?? undefined);
+      if (
+        !stored ||
+        !evidence ||
+        stored.check.state !== "unsupported" ||
+        stored.cited.length > 0 ||
+        stored.sentence !== stored.check.text
+      )
+        return { kind: "changed" };
+      // The quote is taken again from the Document as it is now, never from the Mind's copy of it.
+      const source = options.documents.citationSource(evidence.passageId);
+      const now = options.recheckCitation(evidence);
+      if (
+        !source ||
+        source.documentDeleted ||
+        source.notCited ||
+        now.check !== "found" ||
+        now.contentHash !== evidence.contentHash
+      )
+        return { kind: "changed" };
+      const ready = await prepare(parseModel(input.model) ?? options.defaultModel());
+      if (!ready.ok) return ready.result;
+      return rewriteFromPassage({
+        sentence: stored.sentence,
+        evidence,
+        passage: source.text,
+        model: ready.prepared,
+        documentDate: options.documents.documentDate,
         signal: new AbortController().signal,
       });
     },

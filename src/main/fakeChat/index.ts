@@ -30,7 +30,7 @@ import { searchParts } from "./answers";
 import { isCell } from "./cells";
 import { fakeAbsence, fakePresence, fakeSentenceBatch } from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
-import { fakeConfirm } from "./confirm";
+import { fakeConfirm, fakeRewrite } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
 import { asksForPlan, fakePlan } from "./plan";
 import {
@@ -95,6 +95,7 @@ const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[
   fakePlan,
   fakeResearchTags,
   fakeClaims,
+  fakeRewrite,
   fakeConfirm,
   fakeSkillDraft,
   (options) => fakeEdit(options.prompt)?.text ?? null,
