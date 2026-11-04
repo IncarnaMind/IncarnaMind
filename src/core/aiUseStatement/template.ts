@@ -158,14 +158,10 @@ export function statementBlocks(
           ...(removed > 0 ? [paragraph(t("aiStatement.text.removed", { count: removed }))] : []),
         ];
 
-  const checkedRow = ({ sentence, result, model, wordForWord, checkedAt }: CheckedSentence) => [
+  const checkedRow = ({ sentence, result, model, checkedAt }: CheckedSentence) => [
     sentence,
     t(SENTENCE_RESULT_LABELS[result]),
-    checkedAt === null
-      ? ""
-      : wordForWord
-        ? t("checks.wordForWord")
-        : (model ?? t("aiStatement.uses.modelUnknown")),
+    checkedAt === null ? "" : (model ?? t("aiStatement.uses.modelUnknown")),
     checkedAt === null ? "" : formatDate(checkedAt, language),
   ];
 

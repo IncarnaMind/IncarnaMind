@@ -104,14 +104,8 @@ const paragraph = (...content: object[]) => ({ type: "paragraph", content });
 const HAIKU = { providerId: null, modelId: "claude-haiku-5-5" };
 /** What a verdict card's last line says checked it (#1667); the time is the dates module's. */
 const CHECKED_BY = {
-  en: {
-    model: /^Checked with Claude Haiku 5\.5, \S/u,
-    copy: /^Checked word for word against its quote, no AI model, \S/u,
-  },
-  "zh-CN": {
-    model: /^由 Claude Haiku 5\.5 核对，\S/u,
-    copy: /^与引文逐字一致，未使用 AI 模型，\S/u,
-  },
+  en: /^Checked with Claude Haiku 5\.5, \S/u,
+  "zh-CN": /^由 Claude Haiku 5\.5 核对，\S/u,
 } as const;
 
 async function box(locator: Locator) {
@@ -176,10 +170,7 @@ for (const language of ["en", "zh-CN"] as const) {
         }),
         // A checked claim and one not checked yet, starting on the same line (#1941).
         paragraph(
-          checked("check-7", "supported", words.besideChecked, {
-            evidence: passage,
-            wordForWord: true,
-          }),
+          checked("check-7", "supported", words.besideChecked, { evidence: passage }),
           { type: "text", text: " " },
           checked("check-8", "not-checked", words.besideUnchecked, { reason: "refused" }),
         ),
@@ -270,7 +261,7 @@ for (const language of ["en", "zh-CN"] as const) {
       if (kind === "not-checked" || kind === "needs-recheck")
         await expect(checkedBy).toHaveCount(0);
       else {
-        await expect(checkedBy).toHaveText(CHECKED_BY[language].model);
+        await expect(checkedBy).toHaveText(CHECKED_BY[language]);
         await expect(checkedBy).toHaveCSS("font-size", "12px");
         await expect(checkedBy).toHaveCSS("color", metaInk);
       }
@@ -306,13 +297,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(outlined).toHaveCount(0);
       await expect(mark).not.toHaveAttribute("data-open", "true");
     }
-
-    await pointAndClick(window, beside);
-    await expect(card).toHaveAttribute("data-check", "supported");
-    await expect(card.getByTestId("claim-checked-by")).toHaveText(CHECKED_BY[language].copy);
-    await screenshot(window, `card-word-for-word-${language}-900`);
-    await window.keyboard.press("Escape");
-    await expect(card).toHaveCount(0);
 
     await pointAndClick(window, marks.nth(5));
     await expect(card).toHaveAttribute("data-check", "supported");

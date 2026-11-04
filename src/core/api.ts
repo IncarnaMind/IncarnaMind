@@ -6945,11 +6945,9 @@ export interface ClaimCheckBasis {
   reason: ClaimCheckFailure | null;
   /** "failed": the provider's message. */
   detail: string | null;
-  /** The model that checked it; null on a mark made before it was kept, and when no model did (`wordForWord`). */
+  /** The model that checked it; null on a mark made before it was kept. */
   providerId: string | null;
   modelId: string | null;
-  /** Supported with no model: the sentence is, word for word, the Document's sentence its one Citation quotes (#1667). */
-  wordForWord?: true;
   /** The sentence as checked; part ranges index this exact text. */
   text: string;
   /** "supported" and "contradicted": the Passage that decides it, as a Citation found. */

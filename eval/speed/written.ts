@@ -1,7 +1,7 @@
 /**
  * The written set of a paired run (README.md › Paired runs › The written set): sentences the
  * assistant writes into a new Note, each with its Citation, checked before they land as a write's
- * are (#1667). The writing is scripted, so both arms land the same words and Citations, and only
+ * are, the quick model looking first on one arm (#1667). The writing is scripted, so both arms land the same words and Citations, and only
  * the check's requests go to the model under test: the held-out near-copies (./writtenCases),
  * and the 40-check set's sentences (eval/repeats), each citing the line its search finds first.
  */
@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { vi } from "vitest";
 import type { ChatModelFactory, Core } from "../../src/core";
+import { mayLookFirst } from "../../src/core/answers/checks/fastPaths";
 import { keywordTerms } from "../../src/core/documents/keywords";
 import { sentenceSpans } from "../../src/shared/sentences";
 import { normaliseText } from "../../src/shared/text";
@@ -41,6 +42,8 @@ const FORTY = [
 
 /** What one write lands: a paragraph, its last sentence cited. */
 interface Plan {
+  /** A paragraph before the sentence's, with no Citation. */
+  paragraphBefore?: string;
   before?: string;
   sentence: string;
   /** What its Citation quotes; absent: the line of the search's Passages that shares most of its words. */
@@ -94,14 +97,8 @@ export function scriptedWriter() {
     }
     if (!call.results.some((result) => result.tool === "create_mind")) {
       const paragraph = [asked.before, `${asked.sentence}[^1]`].filter(Boolean).join(" ");
-      return {
-        calls: [
-          {
-            tool: "create_mind",
-            input: { title: "Written check", content: `## Notes\n\n${paragraph}` },
-          },
-        ],
-      };
+      const content = ["## Notes", asked.paragraphBefore, paragraph].filter(Boolean).join("\n\n");
+      return { calls: [{ tool: "create_mind", input: { title: "Written check", content } }] };
     }
     return { text: "Wrote it into a new note." };
   });
@@ -128,19 +125,21 @@ export function scriptedWriter() {
   };
 }
 
-type Path = "copy" | "quick" | "check" | "none";
+type Path = "quick" | "check" | "none";
 
 /**
- * One write of one sentence, read from its mark: Supported or not, and which path decided it. A
- * fast path's Supported on a sentence the Documents don't state is the false Supported that stops
- * the arm; the check's own is counted apart, in `failures`, since both arms run that check.
+ * One write of one sentence, read from its mark: Supported or not, and whether the quick model or
+ * the check's Run decided it. A false Supported counts on the arm that has no first look, and on
+ * the other only where the quick model gave it, so one counts as new where the quick model gave
+ * it and today's check didn't; the check's own on that arm, the same check today's arm runs, is
+ * listed apart, in `failures`.
  */
 async function writeOne(
   core: Core,
   writer: ReturnType<typeof scriptedWriter>,
-  plan: Plan,
+  plan: Plan & { neverAsked: boolean },
   stated: boolean,
-  answersModel: string,
+  { answersModel, looksFirst }: { answersModel: string; looksFirst: boolean },
   begin: () => void,
 ): Promise<Measured> {
   writer.use(plan);
@@ -166,13 +165,12 @@ async function writeOne(
   const outcome = outcomeOf(mark);
   const path: Path = !mark
     ? "none"
-    : mark.wordForWord
-      ? "copy"
-      : mark.modelId && mark.modelId !== answersModel
-        ? "quick"
-        : "check";
+    : mark.modelId && mark.modelId !== answersModel
+      ? "quick"
+      : "check";
   const supported = outcome === "supported";
   const wrong = supported !== stated;
+  const counted = path === "quick" || !looksFirst;
   return {
     status: "done",
     error: null,
@@ -180,11 +178,13 @@ async function writeOne(
     found: 1,
     cited: null,
     grade: outcome === "not-checked" || outcome === "no-mark" ? null : wrong ? "wrong" : "right",
-    falseSupported: supported && !stated && path !== "check" ? 1 : 0,
+    falseSupported: supported && !stated && counted ? 1 : 0,
     duplicate: false,
     failures: [
       ...(supported && !stated && path === "check" ? ["false-supported-by-the-check"] : []),
       ...(outcome === "not-checked" ? ["not-checked"] : []),
+      // A sentence with a figure or a time, or one another Document holds, is never looked at first.
+      ...(plan.neverAsked && path === "quick" ? ["looked-at-first"] : []),
     ],
     text: `${path} ${outcome}: ${plan.sentence} | ${writer.cited()}`,
   };
@@ -195,7 +195,7 @@ function item(
   id: string,
   kind: string,
   language: "en" | "zh-CN",
-  plan: Plan,
+  plan: Plan & { neverAsked: boolean },
   stated: boolean,
   writer: ReturnType<typeof scriptedWriter>,
 ): PairedItem {
@@ -205,9 +205,14 @@ function item(
     kind,
     language,
     words: "events",
-    async run({ library, model }) {
-      return writeOne(library.core, writer, plan, stated, model.split("/")[1] ?? model, () =>
-        library.timings?.begin(),
+    async run({ library, model, arm }) {
+      return writeOne(
+        library.core,
+        writer,
+        plan,
+        stated,
+        { answersModel: model.split("/")[1] ?? model, looksFirst: arm === "quick-look" },
+        () => library.timings?.begin(),
       );
     },
   };
@@ -254,16 +259,18 @@ async function openWith(
   };
 }
 
-const planOf = (each: WrittenItem): Plan => ({
+const planOf = (each: WrittenItem): Plan & { neverAsked: boolean } => ({
+  ...(each.paragraphBefore && { paragraphBefore: each.paragraphBefore }),
   ...(each.before && { before: each.before }),
   sentence: each.sentence,
   quote: each.quote,
+  neverAsked: each.fastPath === "none",
 });
 
 export function writtenSet(root: string): PairedGroup[] {
   const examples = join(root, "resources", "examples");
   const heldOut = (["en", "zh-CN"] as const).flatMap((language) =>
-    (["terms", "editions"] as const).map((libraryName): PairedGroup => {
+    (["terms", "editions", "deposition"] as const).map((libraryName): PairedGroup => {
       const writer = scriptedWriter();
       const items = WRITTEN_ITEMS.filter(
         (each) => each.language === language && each.library === libraryName,
@@ -299,16 +306,17 @@ export function writtenSet(root: string): PairedGroup[] {
     const writer = scriptedWriter();
     return {
       name: `written-${set.id}`,
+      // A sentence with a figure or a time goes straight to its check on both arms: no item.
       items: set.sentences
-        .filter((sentence) => sentence.knownMiss === undefined)
+        .filter((sentence) => sentence.knownMiss === undefined && mayLookFirst(sentence.text, 0))
         .map((sentence) =>
           item(
             `${set.id}:${sentence.key}`,
             set.id,
             set.language,
-            { sentence: sentence.text },
+            { sentence: sentence.text, neverAsked: false },
             // "Staff" for the agreement's Employee gets the partly-supported card (DESIGN.md ›
-            // Checks), so Supported there is no right verdict for a fast path to give.
+            // Checks), so Supported there is no right verdict for the quick model to give.
             sentence.expected === "supported",
             writer,
           ),

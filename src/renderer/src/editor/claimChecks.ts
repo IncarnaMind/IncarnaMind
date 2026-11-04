@@ -47,7 +47,6 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "detail",
   "providerId",
   "modelId",
-  "wordForWord",
   "text",
   "evidence",
   "correction",

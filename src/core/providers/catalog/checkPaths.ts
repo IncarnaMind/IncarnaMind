@@ -1,10 +1,9 @@
 /**
- * The written check's fast paths (#1667, ../../answers/checks/fastPaths), beside the catalog
- * entry as the faster Answer paths are (./answerPaths). The copy test uses no model and runs for
- * every model. The quick-tasks model's first look runs only under an Answers model listed here,
- * with the quick model it was measured with, once the pair passes the quality gate on paired runs
- * against today's check (eval/speed/README.md › The written set); it is taken off the same way if
- * it regresses. An Answers model not listed checks every sentence as before.
+ * The written check's quick first look (#1667, ../../answers/checks/fastPaths), beside the catalog
+ * entry as the faster Answer paths are (./answerPaths). It runs only under an Answers model listed
+ * here, with the quick model it was measured with, once the pair passes the quality gate on paired
+ * runs against today's check (eval/speed/README.md › The written set); it is taken off the same
+ * way if it regresses. An Answers model not listed checks every sentence as before.
  */
 import { withoutDateSuffix } from ".";
 import type { ListedModel } from "./answerPaths";
@@ -23,16 +22,11 @@ const QUICK_FIRST_LOOK: readonly Admitted[] = [];
 
 /** What tests and the evaluation decide instead of the list; undefined: the list's. */
 export interface CheckPathsOverride {
-  copies?(): boolean | undefined;
   quickFirstLook?(answers: ListedModel, quick: ListedModel): boolean | undefined;
 }
 
 const named = ({ catalogId, modelId }: ListedModel) =>
   catalogId === null ? null : `${catalogId}/${withoutDateSuffix(modelId)}`;
-
-/** Whether a sentence its Citation states word for word is Supported with no model. */
-export const checksCopies = (override?: CheckPathsOverride): boolean =>
-  override?.copies?.() ?? true;
 
 /** Whether `quick` looks first at the sentences written under `answers`. */
 export function quickLooksFirst(

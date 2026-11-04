@@ -109,10 +109,8 @@ export interface CheckedSentence {
   /** Its first words, with "…" when it goes on, as it reads in the Mind now. */
   sentence: string;
   result: SentenceResult;
-  /** The model that checked it; null when the mark doesn't say, when no check ran, or when none did. */
+  /** The model that checked it; null when the mark doesn't say, or when no check ran. */
   model: string | null;
-  /** Supported with no model: it is, word for word, the sentence its Citation quotes (#1667). */
-  wordForWord: boolean;
   /** When it was checked, ISO 8601 UTC; null when no check ran. */
   checkedAt: string | null;
 }
@@ -355,14 +353,13 @@ export function readFigures(sources: FigureSources): AiUseFigures {
       sentence: quoted.cut ? `${quoted.text}…` : quoted.text,
       result,
       model: ran ? sources.modelName(check.providerId, check.modelId) : null,
-      wordForWord: ran && check.wordForWord === true,
       checkedAt: ran ? check.checkedAt : null,
     });
   }
   // A Mind whose record holds no check (made before checks were recorded, or cleared) still used the model.
   if (!uses.some((each) => each.use === "sentence-checked")) {
-    for (const { result, model, wordForWord } of checked) {
-      if (result !== "notChecked" && !wordForWord) use("sentence-checked", model);
+    for (const { result, model } of checked) {
+      if (result !== "notChecked") use("sentence-checked", model);
     }
   }
 

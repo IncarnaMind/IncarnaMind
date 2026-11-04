@@ -24,8 +24,8 @@ export interface Arm {
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
   /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
   paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
-  /** The written check's fast paths every model takes or doesn't (#1667); unset: the list's. */
-  checks?: { copies?: boolean; quickFirstLook?: boolean };
+  /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
+  checks?: { quickFirstLook?: boolean };
 }
 
 // An arm that compares one Answer path keeps every other as the Tool loop has it from its first
@@ -48,15 +48,15 @@ export const ARMS: readonly Arm[] = [
     paths: { retrievesFirst: false },
   },
   {
-    id: "no-fast-checks",
+    id: "no-quick-look",
     label: "every written sentence checked by the check's Run, as before #1667",
-    checks: { copies: false, quickFirstLook: false },
+    checks: { quickFirstLook: false },
   },
   {
-    id: "fast-checks",
+    id: "quick-look",
     label:
-      "a written sentence its Citation states word for word Supported with no model, and the quick-tasks model's plain yes first (#1667)",
-    checks: { copies: true, quickFirstLook: true },
+      "the quick-tasks model looks first at a written sentence, and only its plain yes stands (#1667)",
+    checks: { quickFirstLook: true },
   },
   {
     id: "retrieve-first",
@@ -88,7 +88,6 @@ export function armSwitch() {
     retrievesFirst: () => current?.paths?.retrievesFirst,
   };
   const checkPaths: CheckPathsOverride = {
-    copies: () => current?.checks?.copies,
     quickFirstLook: () => current?.checks?.quickFirstLook,
   };
   return {

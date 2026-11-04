@@ -107,11 +107,7 @@ import { augmentFigureFooting } from "../../figureSchedule";
 import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
-import {
-  type CheckPathsOverride,
-  checksCopies,
-  quickLooksFirst,
-} from "../../providers/catalog/checkPaths";
+import { type CheckPathsOverride, quickLooksFirst } from "../../providers/catalog/checkPaths";
 import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
@@ -232,8 +228,6 @@ export interface ChecksOptions
     /** The quick-tasks model for Answers on `answers` (../../providers/chat). */
     quickTasksModel(answers: ChatModelChoice): ChatModelChoice | null;
   };
-  /** The quick-tasks model the User chose themselves; null: the catalog's. */
-  ownQuickTasksModel(): ChatModelChoice | null;
   /** Which written sentences take the fast paths, instead of the list beside the catalog. */
   checkPaths?: CheckPathsOverride;
   consent: Consent;
@@ -1488,14 +1482,13 @@ export function createChecks(options: ChecksOptions) {
   });
 
   /**
-   * The fast paths of a write checked on `prepared` (./fastPaths): none once the User has set the
-   * quick-tasks model to the Answers model; the quick model's first look only where it is listed
-   * beside the catalog with this Answers model, on the same provider, so the same service.
+   * The quick model that looks first at a write's sentences checked on `prepared` (./fastPaths):
+   * another model than the Answers model, so none once the User has set the quick-tasks model to
+   * it; listed beside the catalog with this Answers model; and on the same provider, so the same
+   * service.
    */
-  async function fastPathsOf(prepared: PreparedChatModel) {
+  async function quickModelOf(prepared: PreparedChatModel): Promise<PreparedChatModel | null> {
     const answers = { providerId: prepared.provider.id, modelId: prepared.modelId };
-    const own = options.ownQuickTasksModel();
-    if (own?.providerId === answers.providerId && own.modelId === answers.modelId) return null;
     const quick = chat.quickTasksModel(answers);
     const { catalogId } = prepared.provider;
     const looks =
@@ -1507,10 +1500,7 @@ export function createChecks(options: ChecksOptions) {
         { catalogId, modelId: quick.modelId },
         options.checkPaths,
       );
-    return {
-      copy: checksCopies(options.checkPaths),
-      quick: looks ? await prepareQuietly(quick) : null,
-    };
+    return looks ? prepareQuietly(quick) : null;
   }
 
   const firstLook = createFastPaths({
@@ -1529,7 +1519,7 @@ export function createChecks(options: ChecksOptions) {
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }),
-    fastPaths: fastPathsOf,
+    quickModel: quickModelOf,
     firstLook,
     claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),

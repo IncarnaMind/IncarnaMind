@@ -78,8 +78,6 @@ interface RecordItemFields {
 
 export interface SentenceCheck {
   model: ModelDescription | null;
-  /** Supported with no model: the sentence is, word for word, the sentence its Citation quotes (#1667). */
-  wordForWord: boolean;
   at: string | null;
   scope: ClaimCheckScope;
 }
@@ -286,7 +284,6 @@ export function readRecord(sources: RecordSources): {
       (holdsAiText(element, from, to) ? "ai" : "user");
     const checked = {
       model: model(check.providerId, check.modelId),
-      wordForWord: check.wordForWord === true,
       at: check.checkedAt === "" ? null : check.checkedAt,
       scope: check.scope,
     };

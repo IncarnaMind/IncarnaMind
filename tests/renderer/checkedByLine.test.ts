@@ -5,9 +5,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Language } from "../../src/core/language";
 
 /*
- * A verdict card's last line names what checked its sentence, and when (#1667): the model whose
- * verdict it is, or, for a sentence its Citation states word for word, that no AI model did. A
- * card with no verdict has no such line.
+ * A verdict card's last line names the model that checked its sentence, and when (#1667): the
+ * model whose verdict it is. A card with no verdict, or no model known, has no such line.
  */
 
 let root: Root | null = null;
@@ -77,14 +76,6 @@ describe("the line that names what checked a sentence", () => {
     ["zh-CN", /^由 Claude Haiku 5\.5 核对，/u],
   ] as const)("names the model that checked it (%s)", async (language, said) => {
     expect(await lineOf({ modelId: "claude-haiku-5-5" }, true, language)).toMatch(said);
-  });
-
-  // protects=a sentence its Citation states word for word says no AI model checked it, in English and Chinese (#1667); fails_when=the copy test's card names a model, or none; no_claim=none beyond protects.
-  test.each([
-    ["en", /^Checked word for word against its quote, no AI model, /u],
-    ["zh-CN", /^与引文逐字一致，未使用 AI 模型，/u],
-  ] as const)("says no AI model checked a copy (%s)", async (language, said) => {
-    expect(await lineOf({ wordForWord: true }, true, language)).toMatch(said);
   });
 
   // protects=a card with no verdict, or whose model isn't known, has no line (#1667); fails_when=a not-checked card names a model; no_claim=none beyond protects.

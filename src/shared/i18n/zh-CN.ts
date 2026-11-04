@@ -1046,8 +1046,6 @@ export const zhCN = {
   "claim.showCard": "查看这句话的核对结果",
   "claim.sentence": "“{sentence}”",
   "claim.checkedWith": "由 {model} 核对，{when}",
-  "claim.checkedWordForWord": "与引文逐字一致，未使用 AI 模型，{when}",
-  "checks.wordForWord": "未使用 AI 模型：与引文逐字一致",
   "claim.recordCites.label": "这句话中的记录引用",
   "claim.recordCites.partly": "部分有依据",
   "claim.recordCites.choose": "选择文档",

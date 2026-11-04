@@ -25,10 +25,9 @@
  * it was written: one the User changed meanwhile keeps their words, marked to
  * be checked again.
  *
- * Before its check, a sentence with one Citation may be found Supported by a fast
- * path (./fastPaths, #1667): its Citation's own sentence word for word, with no
- * model, or a plain yes from the provider's quick-tasks model, the same service.
- * Anything else goes on to its check.
+ * Before its check, a sentence with one Citation may be found Supported by a plain
+ * yes from the provider's quick-tasks model, the same service (./fastPaths,
+ * #1667). Anything else goes on to its check.
  *
  * One check per sentence, and one edit per sentence it cuts, on the Answer's
  * model prepared for the checks flow: each request checks that flow's consent
@@ -49,7 +48,7 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
-import { comparableSentence, INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
+import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -77,7 +76,7 @@ import {
   recordJudged,
   runFailureOf,
 } from "./claimCheck";
-import type { FastVerdict, FirstLook } from "./fastPaths";
+import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { recordOpinions } from "./opinions";
 import { claimsAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
@@ -115,15 +114,9 @@ export interface WrittenCheckOptions {
     passage: { text: string; context: string; quotes: readonly string[] },
     signal: AbortSignal,
   ): Promise<string | null>;
-  /**
-   * The fast paths a write's sentences may take under the checks' model (./fastPaths): the copy
-   * test, and the quick model that may look first; null when none may.
-   */
-  fastPaths(prepared: PreparedChatModel): Promise<{
-    copy: boolean;
-    quick: PreparedChatModel | null;
-  } | null>;
-  firstLook(look: FirstLook): Promise<FastVerdict | null>;
+  /** The quick model that looks first at a write's sentences under the checks' model (./fastPaths); null: none. */
+  quickModel(prepared: PreparedChatModel): Promise<PreparedChatModel | null>;
+  firstLook(look: FirstLook): Promise<FirstLookResult>;
   /** How long one check may take, as contradiction watch gives one claim: a reply may never come. */
   claimTimeLimitMs: number;
   now(): Date;
@@ -178,8 +171,10 @@ interface Sentence {
   rawContext: string;
   projection: InlineTextProjection;
   cited: CitedQuote[];
-  /** Its Citations as they are written, for the fast paths (./fastPaths). */
+  /** Its Citations as they are written, for the quick model's first look (./fastPaths). */
   citations: Partial<CitationAttributes>[];
+  /** The paragraph or heading before its own in what was written, for what its words refer to. */
+  before: string | null;
   /** In a table's cell, whose words are a figure, not a clause a cut could take out. */
   inCell: boolean;
 }
@@ -220,6 +215,7 @@ function projectedContent(content: readonly NodeJSON[]) {
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
 function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
+  let before: string | null = null;
   const visit = (
     nodes: readonly NodeJSON[],
     path: number[],
@@ -227,6 +223,7 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
     inHeader: boolean,
   ) => {
     nodes.forEach((node, index) => {
+      if (node.type === "heading") before = projectedContent(node.content ?? []).projection.text;
       if (UNCHECKED.has(node.type)) return;
       const here = [...path, index];
       const content = node.content ?? [];
@@ -273,9 +270,11 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
           projection,
           cited,
           citations,
+          before,
           inCell,
         });
       }
+      before = whole.text;
     });
   };
   visit(blocks, [], false, false);
@@ -488,20 +487,19 @@ function cutNodes(
   return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
 }
 
-/** A sentence's check: `by`, the model whose verdict it is; null for the copy test, which uses none. */
+/** A sentence's check: `by`, the model whose verdict it is, the quick model's or the checks' own. */
 interface Checked {
   result: ClaimCheckResult;
   uncovered: string | null;
   nodes: NodeJSON[] | null;
-  by: PreparedChatModel | null;
+  by: PreparedChatModel;
 }
 
-/** The sentences before it in its paragraph, as a check reads them. */
-function sentencesBefore(sentence: Sentence): string[] {
-  return sentenceSpans(sentence.rawContext)
-    .filter((span) => span.to <= sentence.from)
-    .map((span) => comparableSentence(sentence.rawContext.slice(span.from, span.to)));
-}
+/**
+ * The first look gets a tenth of a sentence's time, and its check all of it after: a small
+ * model's one-word reply takes about a second, so one that takes longer has more likely hung.
+ */
+const FIRST_LOOK_SHARE = 0.1;
 
 type Landing =
   | {
@@ -734,10 +732,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     return checked.verdict === "supported" ? nodes : null;
   }
 
-  /**
-   * One sentence's check, given up on once it takes longer than the time limit: `timedOut`, when
-   * the sentence's time began before, with its quick model's first look.
-   */
+  /** One sentence's check, given up on once it takes longer than the time limit. */
   async function checkWithin(
     sentence: Sentence,
     read: ReturnType<typeof checkText> & { place?: RecordCitePlace },
@@ -746,14 +741,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     limit: Slots,
     signal: AbortSignal,
-    timedOut: AbortSignal = AbortSignal.timeout(options.claimTimeLimitMs),
   ): Promise<ClaimCheckResult> {
+    const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
     const ended = AbortSignal.any([signal, timedOut]);
     // A reply that never comes, even once aborted, is given up on all the same.
-    const givenUp = new Promise<null>((resolve) => {
-      if (ended.aborted) resolve(null);
-      else ended.addEventListener("abort", () => resolve(null), { once: true });
-    });
+    const givenUp = new Promise<null>((resolve) =>
+      ended.addEventListener("abort", () => resolve(null), { once: true }),
+    );
     const replied = await Promise.race([
       options.claimCheck({
         ...read,
@@ -808,36 +802,44 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const limit = slots(claimsAtOnce(prepared));
-    const fast = await options.fastPaths(prepared);
+    const quick = await options.quickModel(prepared);
     const { outcomes, stop } = await runItems(
       sending,
       async (sentence): Promise<Checked> => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-        const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
         const first =
-          fast &&
+          quick &&
           (await options.firstLook({
             claim: read.claim,
             figures: read.figures?.length ?? 0,
             inCell: sentence.inCell,
-            before: sentencesBefore(sentence),
+            before: sentence.before,
             paragraph: sentence.context,
             citations: sentence.citations,
             scope: scope.scope,
-            ...fast,
-            signal: AbortSignal.any([signal, timedOut]),
+            ask: (asked, until) => quickLook(quick, asked, until),
+            signal: AbortSignal.any([
+              signal,
+              AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
+            ]),
           }));
-        if (first) return { result: first.result, uncovered: null, nodes: null, by: first.model };
-        const result = await checkWithin(
-          sentence,
-          read,
-          mindId,
-          scope,
-          prepared,
-          limit,
-          signal,
-          timedOut,
-        );
+        if (quick && first?.result) {
+          return { result: first.result, uncovered: null, nodes: null, by: quick };
+        }
+        // A quick model that read the sentence was used, whatever it replied.
+        if (quick && first?.asked) {
+          options.recordAiUse([
+            {
+              mindId,
+              kind: "sentence-checked",
+              providerId: quick.provider.id,
+              modelId: quick.modelId,
+              characters: 0,
+              occurredAt: options.now().toISOString(),
+            },
+          ]);
+        }
+        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
         // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
@@ -871,7 +873,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const landings: Landing[] = [];
     const markOf = (
       sentence: Sentence,
-      by: PreparedChatModel | null = prepared,
+      by: PreparedChatModel = prepared,
     ): ClaimCheckAttributes => ({
       id: randomUUID(),
       request,
@@ -879,9 +881,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       state: "checking",
       reason: null,
       detail: null,
-      providerId: by?.provider.id ?? null,
-      modelId: by?.modelId ?? null,
-      ...(by === null && { wordForWord: true }),
+      providerId: by.provider.id,
+      modelId: by.modelId,
       text: reads.get(sentence)?.claim ?? sentence.text,
       evidence: null,
       says: null,
@@ -894,7 +895,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       excluded: [],
       checkedAt: startedAt,
     });
-    const begun = (sentence: Sentence, by: PreparedChatModel | null): ClaimCheckAttributes => {
+    const begun = (sentence: Sentence, by: PreparedChatModel): ClaimCheckAttributes => {
       const figures = reads.get(sentence)?.figures;
       return figures?.length
         ? beginFigureCheck(
@@ -949,8 +950,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       const at = options.now().toISOString();
-      // The copy test uses no model, so it is no use of AI.
-      if (by) recordJudged(options.recordAiUse, mindId, by, result, at);
+      recordJudged(options.recordAiUse, mindId, by, result, at);
       if (result.verdict === "not-checked") {
         failed(sentence, result.reason, result.detail);
         return;

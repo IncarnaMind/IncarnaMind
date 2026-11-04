@@ -3,17 +3,14 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { CheckPathsOverride, ClaimCheckAttributes, Core } from "../../src/core";
 import {
-  copiedSentence,
   createFastPaths,
   type FastPathDependencies,
   type FirstLook,
   holdsFigure,
-  locationText,
   QUICK_CHECK_INSTRUCTIONS,
 } from "../../src/core/answers/checks/fastPaths";
 import type { CitationSource } from "../../src/core/documents";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { readClaimCheck } from "../../src/shared/claimChecks";
 import { askAssistant } from "../helpers/assistant";
 import { checkGenerate, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -25,39 +22,38 @@ import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 /**
- * A sentence the assistant writes with one Citation is Supported without the check's Run when it
- * is, word for word, the Document's own sentence its Citation quotes, or when the quick-tasks
- * model of the same provider answers a plain yes; anything else, and any sentence another
- * Document or period could contradict, is checked as before (#1667). The models are scripted.
+ * Before a sentence the assistant writes with one Citation goes to its check's Run, the quick-tasks
+ * model of the same provider looks first, under an Answers model listed beside the catalog: only
+ * its plain yes makes the sentence Supported, named for it; anything else, and any sentence
+ * another Document or period could contradict, is checked as before (#1667). The models are
+ * scripted.
  */
 
-const LOOKS_AFTER = "The Hirer looks after the equipment during the hire.";
 const DELIVERY = "Northgate delivers the equipment free of charge within the city boundary.";
 const REFUND =
   "Northgate refunds the deposit only if the equipment comes back clean and undamaged.";
 const CHARGE = "The hire charge is 120 pounds per week.";
-const TERMS = `# Terms of hire\n\n${LOOKS_AFTER} ${DELIVERY} ${REFUND} ${CHARGE}\n`;
+const TERMS = `# Terms of hire\n\nThe Hirer looks after the equipment. ${DELIVERY} ${REFUND} ${CHARGE}\n`;
+const PARAPHRASE = "Within the city boundary, Northgate brings the equipment over for free.";
 const ZH_DELIVERY = "北岭在市区范围内免费送货。";
-const ZH_LEND = "承租人不得将设备转借他人。";
-const ZH_TERMS = `# 租赁条款\n\n承租人在租期内负责设备的日常保养。${ZH_DELIVERY}${ZH_LEND}\n`;
+const ZH_TERMS = `# 租赁条款\n\n承租人负责设备的保养。${ZH_DELIVERY}\n`;
+const ZH_PARAPHRASE = "在市区范围内，北岭送货不收费。";
 const AMENDMENT =
-  "# Amendment\n\nNorthgate delivers the equipment free of charge anywhere in the county.\n";
-const CANTEEN = "# Canteen\n\nThe canteen opens at noon on weekdays.\n";
+  "# Amendment\n\nWithin the city boundary, Northgate now brings the equipment over for a fee.\n";
+const CANTEEN = "# Canteen\n\nThe canteen opens at noon in the city.\n";
+const LISTED: CheckPathsOverride = { quickFirstLook: () => true };
 
 interface Writing {
   content: string;
   /** What the Citation quotes, and the search that finds it. */
   quote: string;
-  /** What the Citations after the first quote, as markers 2, 3, …. */
-  more?: readonly string[];
-  query?: string;
   documents?: readonly { name: string; contents: string }[];
-  /** The Answers model: a cloud model of Anthropic, or one in Ollama on this computer. */
-  cloud?: string;
-  /** What the quick model replies to its first look; it is never asked when absent. */
+  /** The Answers model, of Anthropic. */
+  answers?: string;
+  /** What the quick model replies to its first look; absent: it never replies. */
   quick?: string;
   checkPaths?: CheckPathsOverride;
-  /** How long a sentence's check may take, its quick model's first look included. */
+  /** How long a sentence's check may take; its first look has a tenth of it. */
   timeLimitMs?: number;
   /** Before the write: the core, the saved provider's id. */
   before?: (core: Core, providerId: string) => Promise<void>;
@@ -79,16 +75,12 @@ async function write(writing: Writing) {
       if (isCheckRun(call)) return checkReply(call, plans);
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
-        return {
-          calls: [{ tool: "search_documents", input: { query: writing.query ?? writing.quote } }],
-        };
+        return { calls: [{ tool: "search_documents", input: { query: writing.quote } }] };
       if (!call.results.some((result) => result.tool === "cite")) {
-        const quotes = [writing.quote, ...(writing.more ?? [])];
-        const citations = quotes.map((quote, index) => ({
-          marker: index + 1,
-          passage: shownPassages(search.text).find((each) => each.text.includes(quote))?.id,
-          quote,
-        }));
+        const passage = shownPassages(search.text).find((each) =>
+          each.text.includes(writing.quote),
+        );
+        const citations = [{ marker: 1, passage: passage?.id, quote: writing.quote }];
         return { calls: [{ tool: "cite", input: { citations } }] };
       }
       if (!call.results.some((result) => result.tool === "create_mind"))
@@ -101,30 +93,25 @@ async function write(writing: Writing) {
     },
     {
       generate: (call) => {
-        if (call.system === QUICK_CHECK_INSTRUCTIONS) {
-          quickCalls.push(call.prompt);
-          // A reply that never comes.
-          if (writing.quick === undefined) return { text: "", until: new Promise(() => undefined) };
-          return { text: writing.quick };
-        }
-        return generate(call);
+        if (call.system !== QUICK_CHECK_INSTRUCTIONS) return generate(call);
+        quickCalls.push(call.prompt);
+        // A reply that never comes.
+        if (writing.quick === undefined) return { text: "", until: new Promise(() => undefined) };
+        return { text: writing.quick };
       },
     },
   );
-  const models = scriptedModels(model);
   const core = startCore(await createTempDataFolder(), {
-    createChatModel: models.createChatModel,
+    createChatModel: scriptedModels(model).createChatModel,
     ...(writing.checkPaths && { checkPaths: writing.checkPaths }),
     ...(writing.timeLimitMs && { contradictionWatch: { claimTimeLimitMs: writing.timeLimitMs } }),
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-  const saved = writing.cloud
-    ? await core.saveChatProvider({
-        kind: "anthropic",
-        modelId: writing.cloud,
-        apiKey: "sk-ant-test",
-      })
-    : await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const saved = await core.saveChatProvider({
+    kind: "anthropic",
+    modelId: writing.answers ?? "claude-sonnet-5-5",
+    apiKey: "sk-ant-test",
+  });
   if (saved.service) {
     for (const flow of ["chat", "checks"] as const)
       await core.allowDataFlow(flow, saved.service.id);
@@ -157,200 +144,43 @@ async function write(writing: Writing) {
   return { core, mindId: change?.mindId ?? "", marks, checkRuns, quickCalls, sentenceChecks };
 }
 
-describe("the copy test, with no model", () => {
-  // protects=a sentence its one Citation's Document states word for word, as a whole sentence, lands Supported with no check Run and no use of AI recorded, its mark saying no model checked it, in English and Chinese (#1667); fails_when=the copy test is removed or a model is named; no_claim=none beyond protects.
+describe("the quick model's first look", () => {
+  // protects=under a listed Answers model, the same provider's quick-tasks model looks first, shown the sentence, the paragraph before its own, the quote and its Passage, and a plain yes lands Supported with no check Run, its mark and the record of AI use naming the quick model, in English and Chinese (#1667); fails_when=the quick model isn't asked, its yes still runs the check, or the Answers model is named; no_claim=none beyond protects.
   test.each([
-    { language: "en", content: `## Notes\n\n${DELIVERY}[^1]`, quote: DELIVERY, terms: TERMS },
+    { language: "en", heading: "Notes", sentence: PARAPHRASE, quote: DELIVERY, terms: TERMS },
     {
       language: "zh-CN",
-      content: `## 笔记\n\n${ZH_DELIVERY}[^1]`,
+      heading: "笔记",
+      sentence: ZH_PARAPHRASE,
       quote: ZH_DELIVERY,
       terms: ZH_TERMS,
     },
-  ])("its Citation's own sentence is Supported with no model ($language)", async (each) => {
-    const { marks, checkRuns, sentenceChecks } = await write({
-      content: each.content,
-      quote: each.quote,
-      documents: [
-        { name: "Terms.md", contents: each.terms },
-        { name: "Canteen.md", contents: CANTEEN },
-      ],
-    });
-
-    expect(checkRuns).toBe(0);
-    expect(marks).toHaveLength(1);
-    expect(marks[0]).toMatchObject({
-      state: "supported",
-      wordForWord: true,
-      providerId: null,
-      modelId: null,
-    });
-    expect(marks[0]?.evidence?.quote).toBe(each.quote);
-    expect(sentenceChecks).toHaveLength(0);
-  });
-
-  // protects=two sentences that follow the Document sentence by sentence are both its copies (#1667); fails_when=a later sentence in a paragraph is never a copy; no_claim=none beyond protects.
-  test("sentences in the Document's own order are its copies", async () => {
-    const { marks, checkRuns } = await write({
-      content: `## Notes\n\n${DELIVERY}[^1] ${REFUND}[^2]`,
-      quote: DELIVERY,
-      more: [REFUND],
-      query: "Northgate",
-    });
-
-    expect(checkRuns).toBe(0);
-    expect(marks.map((mark) => mark.wordForWord ?? false)).toEqual([true, true]);
-  });
-
-  // protects=another Document stops the copy test only when one of its Passages holds half the sentence's words, and an identical copy of the cited file never does (#1667); fails_when=a Document that shares a word or two, or the same file at another path, sends the sentence to the check; no_claim=none beyond protects.
-  test.each([
-    {
-      name: "a Document that shares fewer than half its words",
-      contents: CANTEEN.replace("noon", "noon in the city"),
-    },
-    { name: "the same file at another path", contents: TERMS },
-  ])("$name doesn't stop the copy test", async ({ contents }) => {
-    const { marks, checkRuns } = await write({
-      content: `## Notes\n\n${DELIVERY}[^1]`,
-      quote: DELIVERY,
-      documents: [
-        { name: "Terms.md", contents: TERMS },
-        { name: "Other.md", contents },
-      ],
-    });
-
-    expect(checkRuns).toBe(0);
-    expect(marks[0]?.wordForWord).toBe(true);
-  });
-
-  // protects=the guards that send a written sentence to the check's Run: a part of a longer sentence, another Document with its words, a figure, a sentence after one the Document doesn't have before it, and the quick-tasks model set to the Answers model (#1667); fails_when=any guard is removed and the sentence lands Supported with no model; no_claim=none beyond protects.
-  test.each([
-    {
-      name: "a part of a longer sentence",
-      content: "## Notes\n\nNorthgate refunds the deposit.[^1]",
-      quote: "Northgate refunds the deposit",
-    },
-    {
-      name: "another Document with its words",
-      content: `## Notes\n\n${DELIVERY}[^1]`,
-      quote: DELIVERY,
-      documents: [
-        { name: "Terms.md", contents: TERMS },
-        { name: "Amendment.md", contents: AMENDMENT },
-      ],
-    },
-    { name: "a figure", content: `## Notes\n\n${CHARGE}[^1]`, quote: CHARGE },
-    {
-      name: "a sentence before it the Document doesn't have there",
-      content: `## Notes\n\nLate returns cost more. ${DELIVERY}[^1]`,
-      quote: DELIVERY,
-    },
-    {
-      name: "the quick-tasks model set to the Answers model",
-      content: `## Notes\n\n${DELIVERY}[^1]`,
-      quote: DELIVERY,
-      before: (core: Core, providerId: string) =>
-        core
-          .updateSettings({ user: { quickTasksModel: { providerId, modelId: "local-model" } } })
-          .then(() => undefined),
-    },
-    {
-      name: "the copy test turned off",
-      content: `## Notes\n\n${DELIVERY}[^1]`,
-      quote: DELIVERY,
-      checkPaths: { copies: () => false },
-    },
-  ])("$name goes to the check", async (each) => {
-    const { marks, checkRuns } = await write(each);
-
-    expect(checkRuns).toBe(1);
-    expect(marks[0]).toMatchObject({ state: "supported", modelId: "local-model" });
-    expect(marks[0]?.wordForWord).toBeUndefined();
-  });
-});
-
-describe("what says the copy test checked a sentence", () => {
-  /** The AI use statement's text and the check record's rows, in the interface language. */
-  async function told(core: Core, mindId: string) {
-    const made = await core.createAiUseStatement(mindId);
-    const client = await connectToMind(core, made.id);
-    await client.settled();
-    const out = await createTempDataFolder();
-    await core.setOutputLocation(out);
-    const saved = await core.saveCheckRecord(mindId);
-    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
-    const csv = readFileSync(join(out, saved.file.name.replace(/\.pdf$/, ".csv")), "utf8");
-    return { statement: readMind(client).textContent, csv, rows: recordRows(csv) };
-  }
-
-  // protects=the AI use statement's Model cell and the check record's Model column and Models line say no AI model checked a copy, in English and Chinese, and the statement counts no use of AI for it (#1667); fails_when=either names a model, says "Not recorded", or counts the copy as a check by a model; no_claim=none beyond protects.
-  test.each([
-    {
-      language: "en" as const,
-      content: `## Notes\n\n${DELIVERY}[^1]`,
-      quote: DELIVERY,
-      terms: TERMS,
-      said: "No AI model: matched its quote word for word",
-      model: "Model",
-      models: "No AI model: matched its quote word for word, 1 sentence check",
-    },
-    {
-      language: "zh-CN" as const,
-      content: `## 笔记\n\n${ZH_DELIVERY}[^1]`,
-      quote: ZH_DELIVERY,
-      terms: ZH_TERMS,
-      said: "未使用 AI 模型：与引文逐字一致",
-      model: "模型",
-      models: "未使用 AI 模型：与引文逐字一致，1 次句子核对",
-    },
-  ])("the statement and the record say no AI model ($language)", async (each) => {
-    const { core, mindId } = await write({
-      ...each,
-      documents: [{ name: "Terms.md", contents: each.terms }],
-      before: (core) =>
-        core.updateSettings({ user: { language: each.language } }).then(() => undefined),
-    });
-    const { statement, csv, rows } = await told(core, mindId);
-
-    expect(statement).toContain(each.said);
-    expect(statement).not.toContain("local-model");
-    expect(statement).not.toContain(each.language === "en" ? "Not recorded" : "未记录");
-    expect(rows.map((row) => row[each.model])).toEqual([each.said]);
-    expect(csv).toContain(each.models);
-  });
-});
-
-describe("the quick model's first look", () => {
-  const PARAPHRASE = "Within the city boundary, Northgate brings the equipment over for free.";
-  const LISTED: CheckPathsOverride = { quickFirstLook: () => true };
-
-  // protects=under a listed Answers model, the same provider's quick-tasks model looks first, and a plain yes lands Supported with no check Run, its mark and the record of AI use naming the quick model (#1667); fails_when=the quick model isn't asked, or its yes still runs the check, or the Answers model is named; no_claim=none beyond protects.
-  test("a plain yes is Supported, named for the quick model", async () => {
+  ])("a plain yes is Supported, named for the quick model ($language)", async (each) => {
     const { marks, checkRuns, quickCalls, sentenceChecks } = await write({
-      content: `## Notes\n\n${PARAPHRASE}[^1]`,
-      quote: DELIVERY,
-      cloud: "claude-sonnet-5-5",
+      content: `## ${each.heading}\n\n${each.sentence}[^1]`,
+      quote: each.quote,
+      documents: [{ name: "Terms.md", contents: each.terms }],
       quick: "Yes.",
       checkPaths: LISTED,
     });
 
     expect(quickCalls).toHaveLength(1);
-    expect(quickCalls[0]).toContain(`<sentence>${PARAPHRASE}</sentence>`);
-    expect(quickCalls[0]).toContain(`<quote>${DELIVERY}</quote>`);
+    expect(quickCalls[0]).toContain(`<paragraph-before>${each.heading}</paragraph-before>`);
+    expect(quickCalls[0]).toContain(`<sentence>${each.sentence}</sentence>`);
+    expect(quickCalls[0]).toContain(`<quote>${each.quote}</quote>`);
     expect(checkRuns).toBe(0);
     expect(marks[0]).toMatchObject({ state: "supported", modelId: "claude-haiku-5-5" });
-    expect(marks[0]?.wordForWord).toBeUndefined();
-    expect(sentenceChecks.map((each) => each.modelId)).toEqual(["claude-haiku-5-5"]);
+    expect(marks[0]?.evidence?.quote).toBe(each.quote);
+    expect(sentenceChecks.map((use) => use.modelId)).toEqual(["claude-haiku-5-5"]);
   });
 
-  // protects=anything but a plain yes goes to the check's Run on the User's model, whose mark names it (#1667); fails_when=a hedged yes or a no is taken as Supported; no_claim=none beyond protects.
+  // protects=anything but a plain yes goes to the check's Run on the User's model, whose mark names it, and a quick model that read the sentence is still recorded as a use of AI (#1667); fails_when=a hedged yes or a no is taken as Supported, or the quick model's look goes unrecorded; no_claim=none beyond protects.
   test.each(["no", "Yes, within the city boundary.", ""])(
     "%j goes to the check on the Answers model",
     async (quick) => {
-      const { marks, checkRuns, quickCalls } = await write({
+      const { marks, checkRuns, quickCalls, sentenceChecks } = await write({
         content: `## Notes\n\n${PARAPHRASE}[^1]`,
         quote: DELIVERY,
-        cloud: "claude-sonnet-5-5",
         quick,
         checkPaths: LISTED,
       });
@@ -358,30 +188,44 @@ describe("the quick model's first look", () => {
       expect(quickCalls).toHaveLength(1);
       expect(checkRuns).toBe(1);
       expect(marks[0]).toMatchObject({ state: "supported", modelId: "claude-sonnet-5-5" });
+      expect(sentenceChecks.map((use) => use.modelId).sort()).toEqual([
+        "claude-haiku-5-5",
+        "claude-sonnet-5-5",
+      ]);
     },
   );
 
-  // protects=a quick model that never replies is given up on within the sentence's own time limit, and the sentence lands not checked, never waiting on it (#1667); fails_when=the first look has no time limit, or the check's Run gets a time of its own after it; no_claim=none beyond protects.
-  test("a first look that never replies uses up the sentence's time", async () => {
-    const { marks, checkRuns } = await write({
+  // protects=a quick model that never replies is given up on after a tenth of the sentence's time, and the sentence then gets its check with all of its time (#1667); fails_when=the first look has no limit of its own, or a hang leaves the sentence not checked; no_claim=none beyond protects.
+  test("a first look that never replies goes to the check", async () => {
+    const { marks, checkRuns, quickCalls, sentenceChecks } = await write({
       content: `## Notes\n\n${PARAPHRASE}[^1]`,
       quote: DELIVERY,
-      cloud: "claude-sonnet-5-5",
       checkPaths: LISTED,
-      timeLimitMs: 300,
+      timeLimitMs: 5_000,
     });
 
-    expect(checkRuns).toBe(0);
-    expect(marks[0]).toMatchObject({ state: "not-checked", reason: "failed" });
+    expect(quickCalls).toHaveLength(1);
+    expect(checkRuns).toBe(1);
+    expect(marks[0]).toMatchObject({ state: "supported", modelId: "claude-sonnet-5-5" });
+    expect(sentenceChecks.map((use) => use.modelId)).toEqual(["claude-sonnet-5-5"]);
   });
 
-  // protects=a quick-tasks model the User set on another provider is another service, so it never looks first, even with that service allowed (#1667); fails_when=the quick model of another provider is asked; no_claim=none beyond protects.
-  test("a quick model of another provider: no first look", async () => {
-    const { quickCalls, checkRuns, marks } = await write({
-      content: `## Notes\n\n${PARAPHRASE}[^1]`,
-      quote: DELIVERY,
-      cloud: "claude-sonnet-5-5",
-      quick: "yes",
+  // protects=no first look where the Answers model isn't listed, is the quick model itself, or the User set the quick-tasks model to it, or set one on another provider, a service with its own consent, allowed or not (#1667); fails_when=any of them asks a quick model; no_claim=none beyond protects.
+  test.each<{ name: string } & Partial<Writing>>([
+    { name: "an Answers model not listed" },
+    { name: "the Answers model is the quick one", answers: "claude-haiku-5-5", checkPaths: LISTED },
+    {
+      name: "the quick-tasks model set to the Answers model",
+      checkPaths: LISTED,
+      before: (core, providerId) =>
+        core
+          .updateSettings({
+            user: { quickTasksModel: { providerId, modelId: "claude-sonnet-5-5" } },
+          })
+          .then(() => undefined),
+    },
+    {
+      name: "a quick model of another provider",
       checkPaths: LISTED,
       before: async (core, providerId) => {
         const other = await core.saveChatProvider({
@@ -400,142 +244,91 @@ describe("the quick model's first look", () => {
           },
         });
       },
-    });
-
-    expect(quickCalls).toHaveLength(0);
-    expect(checkRuns).toBe(1);
-    expect(marks[0]).toMatchObject({ modelId: "claude-sonnet-5-5" });
-  });
-
-  // protects=the quick model looks first only where the Answers model is listed beside the catalog, and never when it is the Answers model itself (#1667); fails_when=an unlisted Answers model, or Claude Haiku 5.5 answering, still asks a quick model; no_claim=none beyond protects.
-  test.each([
-    { name: "an Answers model not listed", cloud: "claude-sonnet-5-5", checkPaths: undefined },
-    { name: "the Answers model is the quick one", cloud: "claude-haiku-5-5", checkPaths: LISTED },
-  ])("$name: no first look", async ({ cloud, checkPaths }) => {
+    },
+  ])("$name: no first look", async ({ name: _, ...each }) => {
     const { quickCalls, checkRuns } = await write({
       content: `## Notes\n\n${PARAPHRASE}[^1]`,
       quote: DELIVERY,
-      cloud,
       quick: "yes",
-      ...(checkPaths && { checkPaths }),
+      ...each,
     });
 
     expect(quickCalls).toHaveLength(0);
     expect(checkRuns).toBe(1);
   });
-});
 
-describe("the copy test's text", () => {
-  const location = (text: string, startsDocument = true) => ({
-    text,
-    from: 0,
-    to: text.length,
-    startsDocument,
-  });
-  const TEXT = `Terms of hire\n${LOOKS_AFTER} ${DELIVERY}\nThis does not apply to tracked excavators. ${REFUND}`;
-
-  // protects=only spaces, quotation marks, dashes and character forms may differ, and the sentence must be whole, hold the quote and follow the Document's sentences before it (#1667); fails_when=a part of a sentence, another word, or a sentence after another the Document doesn't have counts as a copy; no_claim=none beyond protects.
+  // protects=the guards a write's Library decides: a figure the check reads, and another Document with half the sentence's words, and only those, not a Document sharing a word or an identical copy of the file (#1667); fails_when=a guard is removed and the quick model is asked, or a harmless Document stops it; no_claim=none beyond protects.
   test.each([
-    { sentences: [DELIVERY], quote: DELIVERY, copied: DELIVERY },
+    { name: "a figure", sentence: "The weekly charge is 120 pounds.", quote: CHARGE, asked: 0 },
     {
-      sentences: ["Northgate  delivers the equipment free of charge within the city boundary ."],
-      quote: "delivers the equipment",
-      copied: DELIVERY,
+      name: "another Document with half its words",
+      sentence: PARAPHRASE,
+      quote: DELIVERY,
+      other: AMENDMENT,
+      asked: 0,
     },
     {
-      sentences: ["Northgate refunds the deposit."],
-      quote: "Northgate refunds the deposit",
-      copied: null,
-    },
-    { sentences: [DELIVERY], quote: "the deposit", copied: null },
-    {
-      sentences: ["This does not apply to tracked excavators."],
-      quote: "tracked excavators",
-      copied: "This does not apply to tracked excavators.",
+      name: "a Document that shares a word",
+      sentence: PARAPHRASE,
+      quote: DELIVERY,
+      other: CANTEEN,
+      asked: 1,
     },
     {
-      sentences: ["Late returns cost more.", "This does not apply to tracked excavators."],
-      quote: "tracked excavators",
-      copied: null,
+      name: "the same file at another path",
+      sentence: PARAPHRASE,
+      quote: DELIVERY,
+      other: TERMS,
+      asked: 1,
     },
-    {
-      sentences: [DELIVERY, "This does not apply to tracked excavators."],
-      quote: "tracked excavators",
-      copied: "This does not apply to tracked excavators.",
-    },
-    {
-      sentences: ["Northgate delivers the equipment free of charge within the county boundary."],
-      quote: "delivers the equipment",
-      copied: null,
-    },
-  ])("$sentences → $copied", ({ sentences, quote, copied }) => {
-    expect(copiedSentence(sentences, quote, location(TEXT))).toBe(copied);
-  });
-
-  // protects=a copy ends with its sentence's own stop, and lies at the Citation's Location, not in a Unit beside it (#1667); fails_when=words with no stop, which may go on past the text read, or a sentence of the next Unit count as a copy; no_claim=none beyond protects.
-  test("a copy is a whole sentence at the Location", () => {
-    const unstopped = "Northgate refunds the deposit";
-    expect(copiedSentence([unstopped], unstopped, location(unstopped))).toBeNull();
-    const twoUnits = { ...location(`${DELIVERY} ${REFUND}`), to: DELIVERY.length };
-    expect(copiedSentence([DELIVERY], "delivers", twoUnits)).toBe(DELIVERY);
-    expect(copiedSentence([REFUND], "refunds", twoUnits)).toBeNull();
-  });
-
-  // protects=quotation marks and full-width forms are read alike (#1667); fails_when=a curly apostrophe or half-width parentheses stop a copy; no_claim=none beyond protects.
-  test.each([
-    ["The Hirer’s site is open.", "The Hirer's site is open."],
-    ["押金以人民币(现金或转账)支付。", "押金以人民币（现金或转账）支付。"],
-  ])("%s copies %s", (written, stated) => {
-    expect(copiedSentence([written], stated.slice(0, 4), location(stated))).toBe(stated);
-  });
-
-  // protects=the first sentence of a text that doesn't start the Document may be the end of a longer one, so it is never a copy (#1667); fails_when=a sentence cut at a Unit's edge counts as whole; no_claim=none beyond protects.
-  test("a text's first sentence counts only where the Document starts", () => {
-    const cut = "by giving one week's written notice.";
-    expect(copiedSentence([cut], cut, location(`${cut} The rest follows.`, false))).toBeNull();
-    expect(copiedSentence([cut], cut, location(`${cut} The rest follows.`, true))).toBe(cut);
-  });
-
-  // protects=the Location's Units are read with one on each side, and a sheet's rows are never sentences (#1667); fails_when=a sentence across a page break is cut, or a row is read as one; no_claim=none beyond protects.
-  test("a Location is read with its neighbouring Units", () => {
-    const units = [
-      { page: 1, text: "First page ends with the start of" },
-      { page: 2, text: "a sentence that ends here." },
-      { page: 3, text: "Third page." },
-    ];
-    const read = locationText({ pageFrom: 2, pageTo: 2 }, (from, to) =>
-      units.filter((unit) => unit.page >= from && unit.page <= to),
-    );
-    expect(read).toEqual({
-      text: "First page ends with the start of a sentence that ends here. Third page.",
-      from: 34,
-      to: 60,
-      startsDocument: true,
+  ])("$name: asked $asked times", async ({ sentence, quote, other, asked }) => {
+    const { quickCalls } = await write({
+      content: `## Notes\n\n${sentence}[^1]`,
+      quote,
+      quick: "no",
+      checkPaths: LISTED,
+      documents: [
+        { name: "Terms.md", contents: TERMS },
+        ...(other ? [{ name: "Other.md", contents: other }] : []),
+      ],
     });
-    expect(read && copiedSentence(["a sentence that ends here."], "ends here", read)).toBeNull();
-    expect(
-      locationText({ pageFrom: 1, pageTo: 1 }, () => [{ page: 1, text: "a | b", kind: "rows" }]),
-    ).toBeNull();
-  });
 
-  // protects=a sentence with any number, in digits, Chinese numerals or English words, or a month, never takes a fast path (#1667); fails_when=a number or month written out passes as no figure; no_claim=none beyond protects.
-  test.each([
-    ["Up to five unused days may be carried over.", true],
-    ["员工每年有十五天带薪年休假。", true],
-    ["The fee is twice the deposit.", true],
-    ["The policy starts in March.", true],
-    ["The rent is 950 a month.", true],
-    ["The Hirer may lend the equipment.", false],
-    ["承租人不得将设备转借他人。", false],
-  ])("%s holds a figure: %s", (text, held) => {
-    expect(holdsFigure(text)).toBe(held);
+    expect(quickCalls).toHaveLength(asked);
   });
 });
 
-describe("which sentences and Citations a fast path may take", () => {
+describe("what says the quick model checked a sentence", () => {
+  // protects=the AI use statement and the check record name the quick model for a sentence its yes decided, in English and Chinese (#1667); fails_when=either names the Answers model, or none; no_claim=none beyond protects.
+  test.each([
+    { language: "en" as const, column: "Model", heading: "Notes" },
+    { language: "zh-CN" as const, column: "模型", heading: "笔记" },
+  ])("the statement and the record name the quick model ($language)", async (each) => {
+    const { core, mindId } = await write({
+      content: `## ${each.heading}\n\n${PARAPHRASE}[^1]`,
+      quote: DELIVERY,
+      quick: "yes",
+      checkPaths: LISTED,
+      before: (core) =>
+        core.updateSettings({ user: { language: each.language } }).then(() => undefined),
+    });
+    const made = await core.createAiUseStatement(mindId);
+    const statement = await connectToMind(core, made.id);
+    await statement.settled();
+    const out = await createTempDataFolder();
+    await core.setOutputLocation(out);
+    const saved = await core.saveCheckRecord(mindId);
+    if (saved.status !== "saved") throw new Error(`Not saved: ${saved.status}`);
+    const csv = readFileSync(join(out, saved.file.name.replace(/\.pdf$/, ".csv")), "utf8");
+
+    expect(readMind(statement).textContent).toContain("Claude Haiku 5.5 (Anthropic)");
+    expect(readMind(statement).textContent).not.toContain("Claude Sonnet 5.5");
+    expect(recordRows(csv).map((row) => row[each.column])).toEqual(["Claude Haiku 5.5"]);
+  });
+});
+
+describe("which sentences and Citations the quick model may look at", () => {
   const RECORD = "Id. states the terms.";
-  const IN_WORDS = "Up to five machines may be hired at once.";
-  const TEXT = `${LOOKS_AFTER} ${DELIVERY} ${RECORD} ${IN_WORDS}`;
+  const TEXT = `${DELIVERY} ${RECORD}`;
   const SOURCE: CitationSource = {
     passageId: "passage",
     text: TEXT,
@@ -568,30 +361,26 @@ describe("which sentences and Citations a fast path may take", () => {
     ...changed,
   });
   const look = (changed: Partial<FirstLook> = {}): FirstLook => ({
-    claim: DELIVERY,
+    claim: PARAPHRASE,
     figures: 0,
     inCell: false,
-    before: [],
-    paragraph: DELIVERY,
+    before: null,
+    paragraph: PARAPHRASE,
     citations: [CITATION],
     scope: { documentIds: null, excluded: new Map() },
-    copy: true,
-    quick: null,
+    ask: async () => "yes",
     signal: new AbortController().signal,
     ...changed,
   });
 
-  // protects=the fast paths' every guard on the sentence and its Citation: one Citation, not in a cell, no figure or record cite, a Document still there, cited, not a Note's snapshot, a quote not found elsewhere, read for sure, of the version cited and current, outside any wall, in the check's scope, its quote on its page, and no other Document with its words (#1667); fails_when=any guard is removed and the copy test decides the sentence; no_claim=none beyond protects.
+  // protects=every guard on the sentence and its Citation: one Citation, not in a cell, no figure, time or record cite, a Document still there, cited, not a Note's snapshot, a quote not found elsewhere, read for sure, of the version cited and current, outside any wall, in the check's scope, its quote on its page, and no other Document with its words (#1667); fails_when=any guard is removed and the quick model is asked; no_claim=none beyond protects.
   test.each<[string, Partial<FastPathDependencies>, Partial<FirstLook>]>([
     ["two Citations", {}, { citations: [CITATION, CITATION] }],
     ["in a table's cell", {}, { inCell: true }],
     ["a figure the check reads", {}, { figures: 1 }],
-    ["a record cite", {}, { claim: RECORD, citations: [{ ...CITATION, quote: RECORD }] }],
-    [
-      "a number in words, which the check reads as no figure",
-      {},
-      { claim: IN_WORDS, citations: [{ ...CITATION, quote: IN_WORDS }] },
-    ],
+    ["a number in words", {}, { claim: "Up to five machines are delivered free." }],
+    ["a time", {}, { claim: "Northgate delivers free on the last day." }],
+    ["a record cite", {}, { claim: RECORD }],
     ["a deleted Document", { citationSource: () => ({ ...SOURCE, documentDeleted: true }) }, {}],
     ["own workings", { citationSource: () => ({ ...SOURCE, notCited: true }) }, {}],
     ["a Note's snapshot", { citationSource: () => ({ ...SOURCE, yourNoteAt: "2026-10-01" }) }, {}],
@@ -606,26 +395,51 @@ describe("which sentences and Citations a fast path may take", () => {
       { scope: { documentIds: null, excluded: new Map([["terms", "own-workings" as const]]) } },
     ],
     ["outside the check's scope", {}, { scope: { documentIds: ["other"], excluded: new Map() } }],
-    [
-      "a quote not on its page",
-      {},
-      { citations: [{ ...CITATION, quote: "free of charge anywhere" }] },
-    ],
+    ["a quote not on its page", {}, { citations: [{ ...CITATION, quote: "free anywhere" }] }],
     [
       "a Location with no Units",
       {},
       { citations: [{ ...CITATION, pageFrom: null, pageTo: null }] },
     ],
     ["another Document with its words", { othersHoldTerms: () => true }, {}],
-  ])("%s: no fast path", async (_, changed, looked) => {
-    expect(await createFastPaths(deps())(look())).toMatchObject({ model: null });
-    expect(await createFastPaths(deps(changed))(look(looked))).toBeNull();
+  ])("%s: no first look", async (_, changed, looked) => {
+    const asked: string[] = [];
+    const ask = async ({ sentence }: { sentence: string }) => {
+      asked.push(sentence);
+      return "yes" as const;
+    };
+    expect((await createFastPaths(deps())(look({ ask }))).result?.verdict).toBe("supported");
+    expect(await createFastPaths(deps(changed))(look({ ask, ...looked }))).toEqual({
+      result: null,
+      asked: false,
+    });
+    expect(asked).toHaveLength(1);
   });
 
-  // protects=a mark says no model checked it only while it is Supported (#1667); fails_when=a mark read with another verdict keeps "no AI model"; no_claim=none beyond protects.
-  test("a mark is word for word only while Supported", () => {
-    const mark = { id: "check", wordForWord: true, providerId: null, modelId: null };
-    expect(readClaimCheck({ ...mark, state: "supported" })?.wordForWord).toBe(true);
-    expect(readClaimCheck({ ...mark, state: "unsupported" })?.wordForWord).toBeUndefined();
+  // protects=only a plain yes is Supported, and a failure is no use of AI (#1667); fails_when=a no or a failure lands Supported, or a failure counts as read; no_claim=none beyond protects.
+  test.each([
+    ["no" as const, { result: null, asked: true }],
+    ["failed" as const, { result: null, asked: false }],
+  ])("%s is no Supported", async (reply, outcome) => {
+    expect(await createFastPaths(deps())(look({ ask: async () => reply }))).toEqual(outcome);
+  });
+
+  // protects=a sentence with any number or time, in digits, Chinese or English words, or a month, never gets a first look (#1667); fails_when=a number, order or time written out passes as none; no_claim=none beyond protects.
+  test.each([
+    ["Up to five unused days may be carried over.", true],
+    ["员工每年有十五天带薪年休假。", true],
+    ["The fee is twice the deposit.", true],
+    ["The policy starts in March.", true],
+    ["Revenue rose in the third quarter.", true],
+    ["Last year the company was profitable.", true],
+    ["Payment is due on Monday.", true],
+    ["去年公司盈利。", true],
+    ["本季度收入上升。", true],
+    ["北岭每星期送货。", true],
+    ["The rent is 950 a month.", true],
+    ["The Hirer may lend the equipment.", false],
+    ["承租人不得将设备转借他人。", false],
+  ])("%s holds a figure or a time: %s", (text, held) => {
+    expect(holdsFigure(text)).toBe(held);
   });
 });

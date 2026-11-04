@@ -2784,7 +2784,6 @@ export function createCore(adapters: CoreAdapters): Core {
     modelInUse: (own) => chat.modelInUse(own),
     recordAiUse: (inputs) => void aiUse.record(inputs),
     chat,
-    ownQuickTasksModel: () => settings.get().user.quickTasksModel,
     ...(adapters.checkPaths && { checkPaths: adapters.checkPaths }),
     consent,
     localOnly: () => embedding.localOnly(),
