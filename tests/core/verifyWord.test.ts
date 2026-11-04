@@ -23,6 +23,7 @@ import { openDatabase } from "../../src/core/storage";
 import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
+import { mindCommentsOf } from "../../src/shared/mindComments";
 import { pendingProposals } from "../../src/shared/proposals";
 import { NO_SCOPE } from "../../src/shared/searchScope";
 import { textOriginOf } from "../../src/shared/textOrigins";
@@ -158,7 +159,11 @@ describe("Verify a Word file someone else wrote", () => {
       blocks.map(() => "checked-document"),
     );
     expect(pendingProposals(client.blocks)).toHaveLength(1);
-    expect(JSON.stringify(blocks)).toContain("Please confirm the source.");
+    // Their comment is the Mind's own (#328), on its words, not text in the Blocks.
+    expect(mindCommentsOf(client.doc).map((comment) => comment.text)).toContain(
+      "Please confirm the source.",
+    );
+    expect(JSON.stringify(blocks)).not.toContain("Please confirm the source.");
 
     expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 4 });
     await client.settled();

@@ -94,7 +94,7 @@ async function inView(window: Page, target: Locator): Promise<boolean> {
   );
 }
 
-test("the reviewing pane lists their changes and comments in order, follows the text both ways, filters by status and author, and folds under a narrow Mind", async () => {
+test("the reviewing pane lists their changes in order, follows the text both ways, filters by status and author, and folds under a narrow Mind", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   // The sidebar and the assistant both shown.
   await setWindowSize(app, window, 1440, 900);
@@ -113,9 +113,9 @@ test("the reviewing pane lists their changes and comments in order, follows the 
   await expect(pane).toHaveAttribute("data-placement", "beside");
   await expect(line).toHaveCount(0);
 
-  // Every change and comment, in the Mind's order; the first card has the focus.
+  // Every change, in the Mind's order; the file's comments are the Note's own, not cards here.
   const cards = cardsOf(pane);
-  await expect(cards).toHaveCount(9);
+  await expect(cards).toHaveCount(7);
   await expect(pane.getByTestId("review-change").getByTestId("review-clause")).toHaveText([
     "1.2",
     "1.3",
@@ -125,15 +125,11 @@ test("the reviewing pane lists their changes and comments in order, follows the 
     "6.2",
     "7.1",
   ]);
-  await expect(cards.nth(3)).toHaveAttribute("data-testid", "review-comment");
-  await expect(cards.nth(3).getByTestId("review-comment-text")).toHaveText(
-    "Resin is up 11% since June. Our letter of 19 September has the figures.",
-  );
   const notice = cards.nth(1);
   await expect(notice.locator("del")).toHaveText("90");
   await expect(notice.locator("ins")).toHaveText("60");
   await expect(notice.getByRole("button")).toHaveAttribute("title", "Luis Ortega, 5 Oct 2026");
-  await expect(cards.first().getByRole("button")).toBeFocused();
+  await expect(cards.first().locator("[data-review-id]")).toBeFocused();
   await expect(pane.getByTestId("review-filter-all")).toBeChecked();
 
   // The pane sits beside the page, which keeps its text clear of it.
@@ -142,51 +138,57 @@ test("the reviewing pane lists their changes and comments in order, follows the 
 
   // A card selected scrolls the Mind to its change and washes it there; ↓ goes to the next.
   const editor = window.getByTestId("mind-editor");
-  await pointAndClick(window, cards.nth(6).getByRole("button"));
-  await expect(cards.nth(6)).toHaveAttribute("data-selected", "true");
+  await pointAndClick(window, cards.nth(5).getByRole("button"));
+  await expect(cards.nth(5)).toHaveAttribute("data-selected", "true");
   const picked = editor.locator(".review-picked");
   await expect(picked.first()).toContainText("Northwind’s total liability");
   await expect.poll(() => inView(window, picked.first())).toBe(true);
   await expectClearOf(window, pane, picked.first());
   await window.keyboard.press("ArrowDown");
-  await expect(cards.nth(7)).toHaveAttribute("data-selected", "true");
-  await expect(cards.nth(7).getByRole("button")).toBeFocused();
+  await expect(cards.nth(6)).toHaveAttribute("data-selected", "true");
+  await expect(cards.nth(6).locator("[data-review-id]")).toBeFocused();
   await window.keyboard.press("ArrowUp");
   await window.keyboard.press("ArrowUp");
-  await expect(cards.nth(5)).toHaveAttribute("data-selected", "true");
+  await expect(cards.nth(4)).toHaveAttribute("data-selected", "true");
   await expect(picked).toHaveText([", for orders of at least 40 pallets"]);
 
-  // A change clicked in the text selects its card, and so does a comment's mark.
+  // A change clicked in the text selects its card.
   await pointAndClick(window, editor.locator("ins.proposal-theirs", { hasText: "and Gdańsk" }));
   await expect(cards.first()).toHaveAttribute("data-selected", "true");
-  await pointAndClick(window, editor.locator(".word-atom-comment").nth(1));
-  await expect(cards.nth(7)).toHaveAttribute("data-selected", "true");
+
+  // Their comments are the Note's own, with their text and author, in the Comments list rather than the pane.
+  await pointAndClick(window, window.getByTestId("comments-count"));
+  await expect(window.getByTestId("comments-list")).toContainText(
+    "Resin is up 11% since June. Our letter of 19 September has the figures.",
+  );
+  await expect(window.getByTestId("comments-list")).toContainText("Dana Kim");
+  await window.keyboard.press("Escape");
 
   // Only one person's.
   await pointAndClick(window, pane.getByTestId("review-author-menu"));
   const luis = window.getByTestId("review-author").filter({ hasText: "Luis Ortega (2)" });
-  await expect(window.getByTestId("review-author")).toHaveText(["Dana Kim (7)", "Luis Ortega (2)"]);
+  await expect(window.getByTestId("review-author")).toHaveText(["Dana Kim (5)", "Luis Ortega (2)"]);
   await pointAndClick(window, luis);
   await expect(cards).toHaveCount(2);
   await expect(pane.getByTestId("review-author-menu")).toHaveText("Luis Ortega");
   await pointAndClick(window, pane.getByTestId("review-author-menu"));
   await pointAndClick(window, window.getByTestId("review-author-everyone"));
-  await expect(cards).toHaveCount(9);
+  await expect(cards).toHaveCount(7);
 
   // Accepted in the text, the change stays in All as Accepted, and leaves Unresolved.
   await editor.locator("ins.proposal-theirs", { hasText: "60" }).hover();
   await pointAndClick(window, window.getByTestId("change-bar").getByTestId("change-accept"));
   await expect(notice).toHaveAttribute("data-state", "accepted");
   await expect(notice.getByTestId("review-status")).toHaveText("Accepted");
-  await expect(cards).toHaveCount(9);
+  await expect(cards).toHaveCount(7);
   await pointAndClick(window, pane.getByTestId("review-filter-unresolved").locator(".."));
-  await expect(cards).toHaveCount(8);
+  await expect(cards).toHaveCount(6);
   await expect(pane.getByTestId("review-change").getByTestId("review-clause")).not.toContainText([
     "1.3",
   ]);
 
   // Esc closes it; the line comes back with what still waits.
-  await cards.first().getByRole("button").focus();
+  await cards.first().locator("[data-review-id]").focus();
   await window.keyboard.press("Escape");
   await expect(pane).toHaveCount(0);
   await expect(line.getByTestId("their-changes-count")).toHaveText(
@@ -345,18 +347,18 @@ test("Accept and Reject on the selected card act at once with Undo, from the mou
     );
   };
   await palette("Next change");
-  await expect(cards.nth(4)).toHaveAttribute("data-selected", "true");
+  await expect(cards.nth(3)).toHaveAttribute("data-selected", "true");
   await palette("Accept all changes from Luis Ortega");
-  await expect(cards.nth(4)).toHaveAttribute("data-state", "accepted");
+  await expect(cards.nth(3)).toHaveAttribute("data-state", "accepted");
   const waiting = pane.locator('[data-testid="review-change"][data-state="waiting"]');
   await expect(waiting).toHaveCount(5);
   // ⌘Z and ⇧⌘Z in the pane take it back and do it again.
   await expect(pane.locator("[data-review-id]:focus")).toHaveCount(1);
   await window.keyboard.press("ControlOrMeta+z");
-  await expect(cards.nth(4)).toHaveAttribute("data-state", "waiting");
+  await expect(cards.nth(3)).toHaveAttribute("data-state", "waiting");
   await expect(waiting).toHaveCount(6);
   await window.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(cards.nth(4)).toHaveAttribute("data-state", "accepted");
+  await expect(cards.nth(3)).toHaveAttribute("data-state", "accepted");
   await expect(waiting).toHaveCount(5);
 
   // In Unresolved, a card decided leaves; the last leaves nothing to review.
@@ -375,15 +377,9 @@ test("Accept and Reject on the selected card act at once with Undo, from the mou
     await expect(pane.locator("[data-selected] [data-review-id]")).toBeFocused();
     await window.keyboard.press("ControlOrMeta+Enter");
   }
-  // Dana's comments stay, and the first takes the focus.
+  // With every change decided the pane has no cards; the Note's comments are not here.
   await expect(pane.locator('[data-testid="review-change"]')).toHaveCount(0);
-  await expect(pane.getByTestId("review-comment")).toHaveCount(2);
-  const comment = pane.getByTestId("review-comment").first().locator("[data-review-id]");
-  await expect(comment).toBeFocused();
-  // On a comment ⌘↵ has nothing to accept: the focus stays where it is.
-  await window.keyboard.press("ControlOrMeta+Enter");
-  await expect(comment).toBeFocused();
-  await expect(pane.getByTestId("review-comment")).toHaveCount(2);
+  await expect(pane.getByTestId("review-comment")).toHaveCount(0);
   await window.keyboard.press("Escape");
   await expect(pane).toHaveCount(0);
   await expect(window.getByTestId("their-changes-line")).toHaveCount(0);

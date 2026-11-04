@@ -323,8 +323,13 @@ export interface CreateMindInput {
  *   An older version's reader refuses a bash run's record and would keep the
  *   Note again without it, so it opens these Notes read-only. Older content is
  *   version 49 content as it is.
+ * - 50: comments on text (#328): the `comment` mark on the words a comment is
+ *   on, and its thread (author, time, replies, resolved) in the Mind's
+ *   `comments` map. An older version would strip the mark, so it opens these
+ *   Notes read-only. Older content is version 49 content as it is: a Note
+ *   written before has no comments.
  */
-export const CONTENT_SCHEMA_VERSION = 49;
+export const CONTENT_SCHEMA_VERSION = 50;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -442,6 +447,51 @@ export const MIND_FIGURE_RUNS_FIELD = "figureRuns";
  * marks go and sync with the Note. See src/shared/signOffs.ts.
  */
 export const MIND_SIGN_OFFS_FIELD = "signOffs";
+
+/**
+ * The name of the mark on the words a comment is on (#328): its `id` is the comment's,
+ * which names a record in the Mind's `comments` map. The mark goes with the words through
+ * edits, moves and sync; the record holds the thread.
+ */
+export const COMMENT_MARK = "comment";
+
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that holds its comments (#328), by
+ * comment id: the words they are on carry the `comment` mark with that id. A comment is
+ * stored here, not in the mark, so it stays when its text is deleted, as "Text removed".
+ */
+export const MIND_COMMENTS_FIELD = "comments";
+
+/** Where a comment came from in a Word file (#328): its `w:id`, and its last paragraph's `w14:paraId`. */
+export interface WordCommentMark {
+  /** `w:id`, which its range's `w:commentRangeStart`, `w:commentRangeEnd` and `w:commentReference` share. */
+  id: number;
+  /** Its last paragraph's `w14:paraId`, which `commentsExtended.xml` names; null when the file has none, so replies can't be linked. */
+  paraId: string | null;
+}
+
+/** One message of a comment's thread (#328): the comment itself, or a reply. */
+export interface CommentMessage {
+  id: string;
+  /**
+   * Its author's name as it was written: a Word file's author, "IncarnaMind" for the
+   * assistant, or null for the User, shown as their Settings name (or "Me").
+   */
+  author: string | null;
+  /** When it was written (ISO 8601, UTC). */
+  createdAt: string;
+  text: string;
+  /** Its place in the Word file it was imported from; applied to the export as it goes out. */
+  word?: WordCommentMark;
+}
+
+/** A comment on a Mind's text (#328), as the Mind stores it: its thread, and whether it's resolved. */
+export interface MindComment extends CommentMessage {
+  /** When the User resolved it (ISO 8601, UTC); null while it's open. */
+  resolvedAt: string | null;
+  /** Replies to it, in the order they were written, or imported. */
+  replies: CommentMessage[];
+}
 
 /** What a person checked (#1933): a Citation by its own id, a figure by its id, a comparison cell. */
 export interface SignOffTarget {
@@ -10010,6 +10060,14 @@ export interface WordExportPreferences {
   trackChanges: boolean;
   markAiText: MarkAiTextChoice | null;
   commentFailedChecks: boolean;
+  /**
+   * In someone else's file, whether the User's own comments and replies go into the Word
+   * file (#328). Chosen in Export options and kept for the Note named by `myCommentsFile`
+   * only, so another file starts off. Absent: off there, and always on in the User's own Note.
+   */
+  includeMyComments?: boolean;
+  /** The Note `includeMyComments` was chosen for (#328): no other Note's export takes it. */
+  myCommentsFile?: string;
 }
 
 export interface ExportMindOptions {
@@ -10051,6 +10109,11 @@ export interface ExportMindOptions {
    * else's file keeps its own choice instead (`setCheckComments`).
    */
   commentFailedChecks?: boolean;
+  /**
+   * Word only (#328): whether the User's own comments and replies go into the file. The file's
+   * own imported comments always do. Absent: on in the User's own Note, off in someone else's.
+   */
+  includeMyComments?: boolean;
   /**
    * A web page to share only: each Citation's marker opens a card with
    * its quote, the part of its Document around it, and its check. Off, the
@@ -10100,6 +10163,12 @@ export interface MindExportPreview {
   othersFile: boolean;
   /** For someone else's file: whether its Word export gets check comments (`setCheckComments`); false otherwise. */
   othersComments: boolean;
+  /** The User's own comments and replies in the Note (#328): what a Word file includes, or leaves out. */
+  myComments: number;
+  /** Whether the Word file includes them; true for a format that writes no comments. */
+  myCommentsShown: boolean;
+  /** Whether a Word export offers "Include my comments": the file came from someone else (#328). */
+  myCommentsOptional: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */

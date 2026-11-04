@@ -534,8 +534,12 @@ export function writeParagraph(
 ): { xml: string; lost: number } {
   const { base, current } = input;
   const { text, parents, places, review } = context;
-  const sameAsFile = (was: TextMarks, now: TextMarks) =>
+  const sameFormat = (was: TextMarks, now: TextMarks) =>
     sameMarks(was, context.lookCurrent ? now : withFileFormat(now, was));
+  // A comment made here writes its words again, for its range; the file's own comment
+  // stays on text copied as it was (#328). It isn't a format, so it asks for no `w:rPrChange`.
+  const sameAsFile = (was: TextMarks, now: TextMarks) =>
+    sameFormat(was, now) && !(now.comment !== null && context.review.renewsComment(now.comment));
   const element = base?.element ?? null;
   const children = element ? elements(element).filter((each) => each.name !== "w:pPr") : [];
   const childIndex = new Map(children.map((each, index) => [each, index]));
@@ -747,14 +751,14 @@ export function writeParagraph(
         passiveBefore(piece.from);
         verbatim(piece);
       }
-      if (from < 0 || !sameAsFile((baseList[from] as Token).marks, token.marks)) lost++;
+      if (from < 0 || !sameFormat((baseList[from] as Token).marks, token.marks)) lost++;
       continue;
     }
     if (piece) passiveBefore(piece.from);
     lastVerbatim = -1;
     if (each.step === "equal") {
       const was = baseList[from] as Token;
-      const reformatted = isText(was) && !sameAsFile(was.marks, token.marks);
+      const reformatted = isText(was) && !sameFormat(was.marks, token.marks);
       const kept = wordChangesOf(was.pending) === wordChangesOf(token.pending);
       writer.add(
         token,

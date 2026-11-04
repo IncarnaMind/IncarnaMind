@@ -28,7 +28,8 @@ import {
   useMindTextLanguage,
 } from "../citationFormatting";
 import { noteHandle, readMindHandle } from "../commands/handles";
-import { shortcutLabel } from "../commands/keymap";
+import { keysHere, shortcutLabel } from "../commands/keymap";
+import { commentIdsOf, commentOnSelection } from "../comments";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { useComposer } from "../composer";
 import { core } from "../core";
@@ -45,6 +46,7 @@ import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
 import { CiteSearch } from "../editor/CiteSearch";
 import { CodeBlockView } from "../editor/CodeBlockView";
+import { AskedComment, CommentLayer, CommentsButton, DraftComment } from "../editor/CommentLayer";
 import { comparisonCellView } from "../editor/ComparisonCellView";
 import { ComparisonRowView } from "../editor/ComparisonRowView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
@@ -55,6 +57,7 @@ import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/cit
 import { type CitePlace, offerCite } from "../editor/citeRequest";
 import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
+import { commentDecorations } from "../editor/commentSchema";
 import { CopyCitations } from "../editor/copyCitations";
 import { DocumentChipView } from "../editor/DocumentChipView";
 import { useDefaultStyleNotice } from "../editor/defaultStyleNotice";
@@ -437,6 +440,8 @@ function MindEditorView({
         Pictures,
         CitationClusters,
         ClaimChecks,
+        // The quiet underline of each live comment, and where a click on it finds the card (#328).
+        commentDecorations(() => commentIdsOf(doc)),
         // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
         UncheckedFigures,
         CopyCitations.configure({
@@ -935,6 +940,7 @@ function MindEditorView({
               {reviewing && slots.reviewShown !== "beside" && (
                 <ReviewFold editor={editor} mindId={mindId} />
               )}
+              <CommentsButton editor={editor} mindId={mindId} doc={doc} />
               <PageMenu
                 editor={editor}
                 doc={doc}
@@ -982,6 +988,8 @@ function MindEditorView({
           </OpinionMenu>
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
+          <CommentLayer editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
+          <DraftComment editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
           {!readOnly && <TableMenu editor={editor} />}
           {!readOnly && <ListMenu editor={editor} />}
           <FootnoteArea editor={editor} citationView={citationView} />
@@ -1006,7 +1014,17 @@ function MindEditorView({
           !readOnly &&
           createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
         {!readOnly && <BlockHandle editor={editor} />}
-        {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
+        {!readOnly && (
+          <SelectionMenu
+            editor={editor}
+            ai={aiActions}
+            edit={editField}
+            comment={{
+              keys: keysHere({ mac: "Cmd+Alt+M", other: "Ctrl+Alt+M" }),
+              run: (current) => commentOnSelection(current, mindId, doc),
+            }}
+          />
+        )}
         {!readOnly && cite && (
           <CiteSearch
             key={`${cite.from}:${cite.to}`}
@@ -1016,6 +1034,13 @@ function MindEditorView({
             onDone={() => setCite(null)}
           />
         )}
+        <AskedComment
+          editor={editor}
+          mindId={mindId}
+          doc={doc}
+          fallback={slots.menu}
+          readOnly={readOnly}
+        />
         {!readOnly && <LinkBubble editor={editor} />}
         {findShown && (
           <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />

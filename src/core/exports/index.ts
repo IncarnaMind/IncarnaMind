@@ -18,6 +18,7 @@ import { titleWithoutSite } from "../../shared/documentNames";
 import { propertyWords } from "../../shared/fileProperties";
 import { translate } from "../../shared/i18n";
 import { citationLocation, type Translate } from "../../shared/locations";
+import { mindCommentsOf } from "../../shared/mindComments";
 import { mindScopeOf } from "../../shared/mindScope";
 import { mindName } from "../../shared/naming";
 import type { PrintPaper } from "../../shared/printDocument";
@@ -27,7 +28,7 @@ import { citationMarksNow, signOffsOf } from "../../shared/signOffs";
 import { type SourceDocument, sourcesOf } from "../../shared/sources";
 import type { UnitText } from "../../shared/units";
 import { verificationOf } from "../../shared/verification";
-import { wordFileOf, wordImportProgressOf } from "../../shared/wordFiles";
+import { wordFileOf, wordImportProgressOf, wordOriginOf } from "../../shared/wordFiles";
 import type { Logger, Pictures, Printer } from "../adapters";
 import { citationSentences } from "../answers/checks/sentences";
 import {
@@ -36,6 +37,7 @@ import {
   type CitationFormatRequest,
   type CitationPlace,
   COMPARISON_TABLE_NODE,
+  type CommentMessage,
   type Document,
   EXPORT_FORMATS,
   type ExportFile,
@@ -45,6 +47,7 @@ import {
   type KeptCitationText,
   MIND_CONTENT_FIELD,
   type Mind,
+  type MindComment,
   type MindExport,
   type MindExportPreview,
   type SharedDocument,
@@ -90,6 +93,7 @@ import { renderSharePage, type SharePicture } from "./sharePage";
 import { isUnverified, numberCitations, packPages, renderSourcePack } from "./sourcePack";
 import { exportWordPatch } from "./wordPatch";
 import type { ReviewChoices } from "./wordReview";
+import { INCARNAMIND } from "./wordReview";
 
 /** What a footnote needs of a live Document: a web page's site, address and fetch dates. */
 type LiveDocument = SourceDocument;
@@ -179,9 +183,13 @@ function withoutEmptyTitle(blocks: Block[]): Block[] {
 }
 
 /** What an export holds, read once for both its preview and its file. */
+type ParsedExportOptions = Required<Omit<ExportMindOptions, "includeMyComments">> & {
+  includeMyComments?: boolean;
+};
+
 interface Prepared {
   format: ExportFormat;
-  options: Required<ExportMindOptions>;
+  options: ParsedExportOptions;
   mindId: string;
   title: string;
   readOptions: ReadOptions;
@@ -201,6 +209,8 @@ interface Prepared {
   lineSpacing: number | null;
   /** Each Citation's footnote with the attributes it was made from, for the source pack. */
   attributesOf: ReadonlyMap<Footnote, Partial<CitationAttributes>>;
+  /** The Mind's comments (#328), written as Word comments with their threads and resolved state. */
+  comments: MindComment[];
 }
 
 export function createExports(deps: ExportsDependencies) {
@@ -253,6 +263,8 @@ export function createExports(deps: ExportsDependencies) {
       theirChanges,
       trackedChanges,
       othersComments: noteComments,
+      comments,
+      fromSomeoneElse,
     } = deps.read(mind.id, (fragment) => {
       const { doc } = fragment;
       name = exportName(mind, fragment);
@@ -301,13 +313,34 @@ export function createExports(deps: ExportsDependencies) {
         trackedChanges:
           format === "docx" && review ? waiting.filter((each) => !review.skips(each.id)).length : 0,
         othersComments: doc ? (verificationOf(doc)?.comments ?? null) : null,
+        fromSomeoneElse: doc !== null && wordOriginOf(doc) === "someone-else",
+        comments: doc ? mindCommentsOf(doc) : [],
       };
     });
     // Someone else's file goes back to them: comments that quote the User's Documents only when asked.
     const othersFile = noteComments !== null;
     const commentsNow = othersFile ? (othersComments ?? noteComments) : null;
-    const options: Required<ExportMindOptions> =
+    const someoneElses = othersFile || fromSomeoneElse;
+    const options: ParsedExportOptions =
       commentsNow !== null ? { ...parsed, commentFailedChecks: commentsNow } : parsed;
+    // The User's own comments and replies, and the assistant's replies written for them, which
+    // someone else's file leaves out unless asked (#328).
+    // Only messages made here: an imported message keeps the file's own place, author and date,
+    // even when the file names no author, and is never the User's (#328).
+    const userMessage = (message: CommentMessage) =>
+      message.word === undefined && message.author === null;
+    const mine = (message: CommentMessage) =>
+      message.word === undefined && (message.author === null || message.author === INCARNAMIND);
+    const myComments = comments
+      .flatMap((root) => [root, ...root.replies])
+      .filter(userMessage).length;
+    const myCommentsShown = format !== "docx" || (options.includeMyComments ?? !someoneElses);
+    const writtenComments =
+      format === "docx" && !myCommentsShown
+        ? comments
+            .filter((root) => !mine(root))
+            .map((root) => ({ ...root, replies: root.replies.filter((reply) => !mine(reply)) }))
+        : comments;
     const shown = withoutEmptyTitle(read);
     const blocks =
       format !== "docx" && options.theirChanges === "accepted"
@@ -340,6 +373,9 @@ export function createExports(deps: ExportsDependencies) {
       markAiText: format === "docx" ? options.markAiText === true : null,
       othersFile,
       othersComments: commentsNow === true,
+      myComments,
+      myCommentsShown,
+      myCommentsOptional: someoneElses,
     };
     const failed = new Map<string, FailedSentence>();
     for (const { sentence } of piecesOf(blocks)) if (sentence) failed.set(sentence.id, sentence);
@@ -363,6 +399,7 @@ export function createExports(deps: ExportsDependencies) {
       font: deps.font(mind.id),
       lineSpacing: deps.lineSpacing(mind.id),
       attributesOf,
+      comments: writtenComments,
     };
   };
 
@@ -701,12 +738,14 @@ export function createExports(deps: ExportsDependencies) {
       let commented: readonly FailedSentence[] = [];
       let checkComments = 0;
       let footnotes = 0;
+      /** Comments a new .docx has no words for, told before saving like a Word file's losses (#328). */
+      let lostComments: MindComment[] = [];
       if (format === "markdown") {
         const written = renderMarkdown("", blocks, labels);
         data = new TextEncoder().encode(written.text);
         files = written.pictures.map(({ name, data: bytes }) => ({ name, data: bytes }));
       } else if (format === "docx") {
-        ({ data, commented, checkComments, footnotes } = renderDocx(
+        ({ data, commented, checkComments, footnotes, lostComments } = renderDocx(
           await withPictures(blocks, language, deps),
           {
             title,
@@ -715,6 +754,7 @@ export function createExports(deps: ExportsDependencies) {
             paper: deps.paper(),
             created: deps.now(),
             review: reviewChoices(prepared, false),
+            comments: prepared.comments,
             font: prepared.font,
             lineSpacing: prepared.lineSpacing,
           },
@@ -745,9 +785,26 @@ export function createExports(deps: ExportsDependencies) {
       }
       return {
         ...preview,
+        // A comment whose words the text lost isn't in the file, so the Saved line doesn't count it.
+        myComments: preview.myCommentsShown
+          ? preview.myComments - lostMine(lostComments)
+          : preview.myComments,
         footnotes,
         data,
-        word: null,
+        // A new Word file says what it couldn't keep too, as an imported one does (#328).
+        word:
+          lostComments.length === 0
+            ? null
+            : {
+                notKept: lostComments.map((comment) => ({
+                  key: `comment:${comment.id}`,
+                  kind: "comment" as const,
+                  author: comment.author,
+                  text: comment.text.slice(0, 120),
+                })),
+                unknownParts: [],
+                keptFurniture: [],
+              },
         needsDetails: [...thin.documents],
         ...(files.length > 0 && { files }),
         ...reviewOf(prepared, commented, checkComments),
@@ -763,6 +820,8 @@ export function createExports(deps: ExportsDependencies) {
       markAiText: options.markAiText,
       commentFailedChecks: options.commentFailedChecks,
       now: deps.now(),
+      intoWordFile: imported,
+      authorName: deps.author(),
     };
   }
 
@@ -794,13 +853,20 @@ export function createExports(deps: ExportsDependencies) {
         formatCitations: thin.format,
         withPictures: (blocks) => withPictures(blocks, language, deps),
         review: reviewChoices(prepared, true),
+        comments: prepared.comments,
       });
       deps.log.info("export.word", {
         notKept: report.notKept.length,
         unknownParts: report.unknownParts.length,
       });
+      const lost = prepared.comments.filter((root) =>
+        report.notKept.some((loss) => loss.key === `comment:${root.id}`),
+      );
       return {
         ...prepared.preview,
+        myComments: prepared.preview.myCommentsShown
+          ? prepared.preview.myComments - lostMine(lost)
+          : prepared.preview.myComments,
         footnotes,
         data,
         word: report,
@@ -843,6 +909,13 @@ function thinEntries(
     },
   };
 }
+
+/** The User's own comments and replies among the comments a file couldn't keep (#328). */
+const lostMine = (lost: readonly MindComment[]): number =>
+  lost.reduce(
+    (count, root) => count + [root, ...root.replies].filter((each) => each.author === null).length,
+    0,
+  );
 
 function reviewOf(
   prepared: Prepared,
@@ -932,7 +1005,7 @@ async function withPictures(
   return inOrder(blocks, visit);
 }
 
-function parseExportOptions(input: unknown): Required<ExportMindOptions> {
+function parseExportOptions(input: unknown): ParsedExportOptions {
   if (!isRecord(input)) throw new InvalidInputError("Export options must be an object.");
   const { format, includeQuestions, accept, theirChanges, citationPlace } = input;
   const choice = (
@@ -952,6 +1025,12 @@ function parseExportOptions(input: unknown): Required<ExportMindOptions> {
   }
   if (includeQuestions !== undefined && typeof includeQuestions !== "boolean") {
     throw new InvalidInputError("includeQuestions must be true or false.");
+  }
+  if (input.includeMyComments !== undefined && typeof input.includeMyComments !== "boolean") {
+    throw new InvalidInputError({
+      key: "error.export.choice",
+      values: { name: "includeMyComments" },
+    });
   }
   if (theirChanges !== undefined && theirChanges !== "shown" && theirChanges !== "accepted") {
     throw new InvalidInputError({ key: "error.export.theirChanges" });
@@ -978,6 +1057,9 @@ function parseExportOptions(input: unknown): Required<ExportMindOptions> {
     checkedLine: choice("checkedLine"),
     theirChanges: theirChanges ?? "shown",
     citationPlace: place ?? "footnotes",
+    ...(typeof input.includeMyComments === "boolean" && {
+      includeMyComments: input.includeMyComments,
+    }),
   };
 }
 

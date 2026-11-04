@@ -290,7 +290,7 @@ export async function requestEdit(
     result = failure(error);
   }
   watch.stop();
-  await arrived(
+  return arrived(
     editor,
     mindId,
     requestId,
@@ -301,7 +301,6 @@ export async function requestEdit(
     },
     applying,
   );
-  return result.kind === "proposed";
 }
 
 /**
@@ -319,7 +318,7 @@ async function arrived(
   result: EditWithAiResult,
   retry: () => Promise<void>,
   applying: Applying | null = null,
-): Promise<void> {
+): Promise<boolean> {
   const edits = useEdits.getState();
   const menu = edits.pending[mindId]?.menu;
   const mine = edits.pending[mindId]?.requestId === requestId;
@@ -339,7 +338,7 @@ async function arrived(
     set("problems", mindId, menu ? { ...found, menu } : found);
   if (outcome === "late") {
     problem({ kind: "late" });
-    return;
+    return false;
   }
   if (outcome !== null && outcome !== "held") {
     const { paragraphs, tables } = outcome.applied;
@@ -347,10 +346,10 @@ async function arrived(
     // The parts already written stay: what stopped is said beside them (#2348).
     if (result.kind === "proposed" && result.stopped === "changed")
       problem({ kind: "part-changed" });
-    return;
+    return paragraphs + tables > 0;
   }
   // Only a Stop of this request is silent: a refusal that came before it still says why (#2424).
-  if (!mine || (stopped && result.kind === "cancelled")) return;
+  if (!mine || (stopped && result.kind === "cancelled")) return false;
 
   if (result.kind === "proposed") {
     const first = await whenShown(editor, result.request);
@@ -374,9 +373,9 @@ async function arrived(
         .scrollIntoView()
         .run();
     }
-    return;
+    return false;
   }
-  if (result.kind === "cancelled") return;
+  if (result.kind === "cancelled") return false;
   if (result.kind === "too-long" || result.kind === "block-too-long") {
     // What can't fit names the model to change: the Mind's own, else the one the app asks with.
     const inUse = modelInUseOf(editorDoc(editor) ?? null);
@@ -384,9 +383,10 @@ async function arrived(
       ...result,
       ...(inUse && { model: shownModelNow(inUse.modelId, inUse.providerId).name }),
     });
-    return;
+    return false;
   }
   problem(result.kind === "failed" ? failedEdit(result.error, () => void retry()) : result);
+  return false;
 }
 
 /**
