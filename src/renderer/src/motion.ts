@@ -411,8 +411,17 @@ function track(controls: AnimationPlaybackControlsWithThen, done: () => void): v
   };
   running.set(controls, end);
   // An animation stopped by a newer one may never settle its promise: the ceiling ends it then.
+  // A renderer short of frames advances a spring slowly, so the ceiling lands it at its end too:
+  // a menu must hold still within seconds even when the screen is drawn a frame at a time.
   controls.finished.then(end, end);
-  window.setTimeout(end, CEILING_MS / Math.min(1, speed));
+  window.setTimeout(() => {
+    try {
+      controls.complete();
+    } catch {
+      // It had already been cancelled, or replaced by a newer one: that one holds the element.
+    }
+    end();
+  }, CEILING_MS / Math.min(1, speed));
 }
 
 /** Back to the elements' own styles, as if they had never moved (`opacity`: or faded). */
