@@ -14,6 +14,7 @@ import {
   setUpWithDocuments,
 } from "../helpers/citations";
 import { buildPdf } from "../helpers/pdf";
+import { para, pptxOf, sp, txBody } from "../helpers/pptx";
 
 interface Case {
   file: SourceFile;
@@ -115,6 +116,8 @@ const RUN_ON = {
     number:
       "The card must say there is “no obligation to grant an interview when 3 items are delivered” [^1].",
     nextPageOnly: "The card says “Items can be returned without explanation” [^1].",
+    ellipsis:
+      "The card must say there is “no obligation to grant an interview … give the health professional a way to say no” [^1].",
   },
   zh: {
     file: {
@@ -128,7 +131,7 @@ const RUN_ON = {
         },
         {
           chineseLines: [
-            "时接受面谈。物品可以退回，无须说明理由。",
+            "时接受面谈。物品可以退回，无须向代表说明任何理由。",
             "回执卡必须让医务人员可以拒绝。",
           ],
         },
@@ -140,7 +143,9 @@ const RUN_ON = {
     found: "回执卡必须写明“医务人员没有义务在物品送达时接受面谈”[^1]。",
     otherLine: "回执卡必须写明“医务人员没有义务在物品退回时接受面谈”[^1]。",
     number: "回执卡必须写明“医务人员没有义务在3件物品送达时接受面谈”[^1]。",
-    nextPageOnly: "回执卡写明“物品可以退回，无须说明理由”[^1]。",
+    nextPageOnly: "回执卡写明“物品可以退回，无须向代表说明任何理由”[^1]。",
+    ellipsis:
+      "回执卡写明“回执卡必须写明医务人员没有义务在物品送达……物品可以退回，无须向代表说明任何理由”[^1]。",
   },
 } as const;
 
@@ -157,11 +162,40 @@ describe.each(["en", "zh"] as const)(
       ["a word from another line", "otherLine"],
       ["a number added", "number"],
       ["words only on the next page", "nextPageOnly"],
+      ["a part after an ellipsis only on the next page", "ellipsis"],
     ] as const)("with %s, not found", async (_, key) => {
       expect(await checkOf(runOn, runOn[key])).toEqual(NOT_FOUND);
     });
   },
 );
+
+describe("Quoted words that run on to the next slide", () => {
+  test("a slide is a place of its own: words joined from two slides are not found", async () => {
+    const slideOf = (text: string) => ({
+      shapes: sp({ id: 2, name: "Body", txBox: true, body: txBody(para(text)) }),
+    });
+    const deck = {
+      file: {
+        name: "Results.pptx",
+        contents: new Uint8Array(
+          pptxOf({
+            slides: [
+              slideOf("Costs fell 4% this year and revenue grew"),
+              slideOf("12% in Asia was the target for next year."),
+            ],
+          }),
+        ),
+      },
+      query: "revenue grew",
+      question: "How did revenue do?",
+      quote: "Costs fell 4% this year and revenue grew",
+    };
+
+    expect(
+      await checkOf(deck, "It says “costs fell 4% this year and revenue grew 12% in Asia” [^1]."),
+    ).toEqual(NOT_FOUND);
+  });
+});
 
 const GLOSS = {
   en: {

@@ -324,6 +324,13 @@ describe("a quote nested in a quote, in the other kind of mark (#2504)", () => {
     );
   });
 
+  test("after a digit the marks are inches and feet, or seconds and minutes: not one for the other", () => {
+    expect(findQuote('Use a 6" pipe under the road.', "use a 6' pipe under the road")).toBeNull();
+    expect(findQuote("Use a 6” pipe under the road.", "use a 6′ pipe under the road")).toBeNull();
+    expect(findQuote('The mast stands at 51°30" N.', "the mast stands at 51°30' N")).toBeNull();
+    expect(covered('Use a 6" pipe under the road.', 'use a 6" pipe')).toBe('Use a 6" pipe');
+  });
+
   test("a changed word or number, or an added not, still isn't found", () => {
     const text = "The “cooling-off period” lasts 14 days.";
     expect(findQuote(text, "the ‘cooling-off period’ lasts 15 days")).toBeNull();
@@ -342,6 +349,46 @@ describe("a bracketed gloss of a term left out (#2504)", () => {
     expect(covered(en, "stochastic gradient descent is the most basic algorithm")).toBe(
       "Stochastic gradient descent (Chinese: 随机梯度下降) is the most basic algorithm",
     );
+  });
+
+  test("a gloss in ASCII brackets, and one whose language is written with a radical, is left out too", () => {
+    expect(
+      covered("深度学习结构(English: deep networks)的最基本的算法。", "深度学习结构的最基本的算法"),
+    ).toBe("深度学习结构(English: deep networks)的最基本的算法");
+    expect(
+      findQuote(
+        "深度学习结构（英⽂：deep networks）的最基本的算法。",
+        "深度学习结构的最基本的算法",
+      ),
+    ).not.toBeNull();
+  });
+
+  test("brackets that say more than a term in another script are the page's words", () => {
+    expect(
+      findQuote(
+        "All modules (English: not offered in 2026) run every year.",
+        "all modules run every year",
+      ),
+    ).toBeNull();
+    expect(
+      findQuote("所有科目（英语：不低于60分）均须达到80分。", "所有科目均须达到80分"),
+    ).toBeNull();
+    expect(
+      findQuote("所有科目（英语：not offered）均须达到80分。", "所有科目均须达到80分"),
+    ).toBeNull();
+    expect(
+      findQuote(
+        "Fees (English: tuition is not refundable; 2) are refundable in full.",
+        "fees are refundable in full",
+      ),
+    ).toBeNull();
+    // A term in the script of the words it follows doesn't gloss them.
+    expect(
+      findQuote(
+        "Das Gradientenverfahren (English: gradient descent) ist alt.",
+        "das gradientenverfahren ist alt",
+      ),
+    ).toBeNull();
   });
 
   test("a quote that keeps the gloss is found as before", () => {

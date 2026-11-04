@@ -15,9 +15,11 @@
  * - letters are compared in lower case, with the final sigma "ς" as "σ": a
  *   quote that starts mid-sentence is often given a capital;
  * - the quote marks and dashes the shared normaliser leaves alone ("‹", "›",
- *   "ʼ", "⸺", "⸻") are unified too, and a double quote mark reads as a single
- *   one: a quote nested in a quote is written in the other kind of mark ("the
- *   ‘soft weights’ property" for the page's “soft weights”, #2504);
+ *   "ʼ", "⸺", "⸻") are unified too;
+ * - a double quotation mark reads as a single one, as a quote nested in a
+ *   quote is written in the other kind of mark ("the ‘soft weights’ property"
+ *   for the page's “soft weights”, #2504). Not after a digit, where the marks
+ *   are inches and feet, or seconds and minutes ("6\"", "6'");
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
@@ -36,7 +38,7 @@
  *   converted, and a character stays one character, so offsets hold
  *   (ADR-0009).
  *
- * The match itself has two tolerances:
+ * The match itself has these tolerances:
  *
  * - A hyphen that ended a line between two letters may be in the quote or
  *   not ("inter-\nnational" matches "international" and "inter-national"), or
@@ -51,10 +53,13 @@
  *   page. Each part is returned, for the viewer to highlight. An ellipsis at
  *   the start or the end of a quote leaves nothing out of it.
  *
- * - A gloss in brackets that names a language and gives a term in it, such as
- *   "（英語：deep networks）" or "(English: SGD)", may be left out of a quote
- *   when it isn't found with it: the words around it are the page's, in order
- *   (#2504). Only such a gloss; any other words left out are not forgiven.
+ * - A gloss of a term in another language, in brackets that name the language,
+ *   such as "（英語：deep networks）" in Chinese or "(Chinese: 随机梯度下降)" in
+ *   English, may be left out of a quote that isn't found with it: the words
+ *   around it are the page's, in order (#2504). Only a short term in the
+ *   script of the language named, which isn't the script of the words it
+ *   follows, with no digit, sentence punctuation or negation: brackets that
+ *   say more, such as "(English: not offered in 2026)", are words of the page.
  *
  * - In a Document whose text lost its f-ligatures (see `lostLigatures`), a
  *   quote's "fi", "fl", "ff", "ffi" or "ffl" may be the lone "f" the text
@@ -66,7 +71,7 @@
  *   "flood", "four" a "flour"), which is a word changed (ADR-0009).
  *
  * Nothing else is forgiven: a quote with a word changed, added or dropped
- * isn't found.
+ * isn't found, except a gloss as above.
  *
  * Spreadsheets (ADR-0011) are matched with `numbers` on: number formatting is
  * normalised in the quote and the text alike, so a figure matches however it
@@ -126,27 +131,56 @@ const FOLDED: Readonly<Record<string, string>> = {
   ʼ: "'",
   "⸺": "-",
   "⸻": "-",
-  '"': "'",
   ς: "σ",
 };
 
 /**
- * A gloss in a normalised, folded text: brackets that name a language and give a term in it, with
- * the space before it. Brackets and the colon are ASCII after NFKC, and 語 is folded to 语.
+ * A gloss's brackets in a normalised, folded text, with the space before them: the language
+ * named, then its term. Brackets and the colon are ASCII after NFKC, and 語 is folded to 语.
  */
 const GLOSS =
-  / ?\((?:english|chinese|japanese|german|french|latin|英语|英文|中文|日语|日文|德语|法语|拉丁语) ?: ?[^()]{1,80}\)/g;
+  / ?\((english|german|french|latin|英语|英文|德语|法语|拉丁语|chinese|中文|japanese|日语|日文) ?: ?([^()]{1,40})\)/g;
 
-/** Whether a text may hold a gloss (see `GLOSS`), before it is normalised. */
-const GLOSS_IN_TEXT =
-  /[(（]\s*(?:english|chinese|japanese|german|french|latin|英[語语文]|中文|日[語语文]|德[語语]|法[語语]|拉丁[語语])\s*[:：]/iu;
+const LATIN_NAMED = new Set([
+  "english",
+  "german",
+  "french",
+  "latin",
+  "英语",
+  "英文",
+  "德语",
+  "法语",
+  "拉丁语",
+]);
+const HAN_NAMED = new Set(["chinese", "中文"]);
+/** A term in Latin letters, up to five words, or in Chinese or Japanese characters. */
+const LATIN_TERM = /^\p{Script=Latin}+(?:[ '-]\p{Script=Latin}+){0,4}$/u;
+const HAN_TERM = /^\p{Script=Han}{1,12}$/u;
+const JAPANESE_TERM = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]{1,12}$/u;
+const HAN_OR_KANA = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+const LATIN_OR_DIGIT = /[\p{Script=Latin}0-9]/u;
+/** Words that make brackets say something of their own: they are never a term's gloss. */
+const NOT_A_TERM = /\b(?:not|no|never|none|nor|without|except|unless|only)\b|[不没無无非未否勿]/u;
 
-/** A text's units with each gloss (see `GLOSS`) marked `removed`, so offsets still point into the text. */
+/** Whether brackets after `before` naming `language` hold only a term in it, in another script. */
+function isGloss(language: string, term: string, before: string | undefined): boolean {
+  if (before === undefined || NOT_A_TERM.test(term)) return false;
+  if (LATIN_NAMED.has(language)) return LATIN_TERM.test(term) && HAN_OR_KANA.test(before);
+  const termIn = HAN_NAMED.has(language) ? HAN_TERM : JAPANESE_TERM;
+  return termIn.test(term) && LATIN_OR_DIGIT.test(before);
+}
+
+/** Whether a text may hold a gloss's brackets, before it is normalised: a bracket, a short name, a colon. */
+const GLOSS_IN_TEXT = /[(（][^()（）]{1,10}[:：]/u;
+
+/** A text's units with each gloss (see `isGloss`) marked `removed`, so offsets still point into the text. */
 function unitsWithoutGlosses(units: NormalisedUnit[]): NormalisedUnit[] {
   const live = units.filter((unit) => !unit.removed);
   const chars = live.map((unit) => unit.char).join("");
   for (const match of chars.matchAll(GLOSS)) {
-    for (let at = 0; at < match[0].length; at++) {
+    const [whole, language = "", term = ""] = match;
+    if (!isGloss(language, term.trim(), chars[match.index - 1])) continue;
+    for (let at = 0; at < whole.length; at++) {
       (live[match.index + at] as NormalisedUnit).removed = true;
     }
   }
@@ -296,6 +330,11 @@ function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
     cellBreaksAsSpaces(text.replace(SOFT_HYPHEN_AT_LINE_END, "-")),
   );
   const folded = units.map((unit) => ({ ...unit, char: fold(unit.char) }));
+  let before: NormalisedUnit | undefined;
+  for (const unit of folded) {
+    if (unit.char === '"' && !DIGIT.test(before?.char ?? "")) unit.char = "'";
+    if (!unit.removed) before = unit;
+  }
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
     let end = at + 2;

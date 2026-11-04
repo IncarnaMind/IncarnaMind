@@ -15,9 +15,10 @@
  * at most two consecutive ones of one sheet or Document (the Location rule),
  * and the quote must be in their text, matched exactly after both are
  * normalised the same way (see `findQuote`: letter case, spacing, hyphenation
- * at line ends, quote marks and "[^36]" for "[36]" don't count, and a quote
+ * at line ends, quote marks and "[^36]" for "[36]" don't count, a quote
  * with an ellipsis is found when each part, of at least 3 words, is there in
- * order; in spreadsheets, number formatting doesn't count either). The Units
+ * order, and a bracketed gloss of a term in another language may be left out;
+ * in spreadsheets, number formatting doesn't count either). The Units
  * are read as stored when the Document was processed, a PDF's without
  * running headers, footers and page numbers, so a quote may run across a page
  * break. "Found" means the quote is there, never that it supports the sentence.
@@ -2287,8 +2288,9 @@ export function createCitationSession(
      * each span (see ./quotedWords) is looked for with the Citation check's own
      * matching in the Units its Citation cites, and, in a sheet, in its title
      * rows: the rows above the header, which name the table the Citation's
-     * rows are in, as a Document's name is not a quote (#2358). One found
-     * changes nothing. One not found makes the Citation whose Units are nearest
+     * rows are in, as a Document's name is not a quote (#2358), and words
+     * that start on the one page cited may run on to the next page of its
+     * Passage (#2504). One found changes nothing. One not found makes the Citation whose Units are nearest
      * it "not found", with the Answer's words and the Document's nearest for
      * its card. Where a Citation of the sentence couldn't be checked, no span
      * of it is. Words in another language than every page cited are a
@@ -2297,13 +2299,14 @@ export function createCitationSession(
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
       /**
-       * Whether the words start on the pages a record cites and run on to the next page of its
+       * Whether the words start on the one page a record cites and run on to the next page of its
        * Passage: a record's quote ends where its page does, and the Answer may quote on (#2504).
+       * Only a document's pages run on; a slide or a section is a place of its own.
        */
       const runsOnToNextPage = (record: Accepted, words: string, matching: Matching) => {
         const { pageFrom, pageTo } = record.range;
         const passageTo = record.source.pageTo;
-        if (pageFrom === null || pageTo === null || passageTo === null || pageTo >= passageTo) {
+        if (pageFrom === null || pageFrom !== pageTo || passageTo === null || pageTo >= passageTo) {
           return false;
         }
         const units = documents.pageTexts(
@@ -2313,10 +2316,10 @@ export function createCitationSession(
           pageTo + 1,
         );
         const next = units.findIndex((unit) => unit.page === pageTo + 1);
-        if (next <= 0) return false;
+        if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return false;
         const found = quoteInUnits(units, words, matching);
         const nextStarts = joinUnits(units).starts[next] ?? 0;
-        return found !== null && (found[0]?.start ?? nextStarts) < nextStarts;
+        return found !== null && found.every((range) => range.start < nextStarts);
       };
       /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
       const titled = (
