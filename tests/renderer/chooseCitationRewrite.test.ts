@@ -253,7 +253,7 @@ describe("Rewrite with what the Documents say", () => {
     core.rewriteFromDocuments.mockResolvedValue(REWRITTEN);
     const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
 
-    expect(await rewriteWithDocuments(editor, "mind", doc, claim(editor))).toBe(true);
+    expect(await rewriteWithDocuments(editor, "mind", doc, claim(editor))).toBe("written");
 
     expect(core.rewriteFromDocuments).toHaveBeenCalledWith({
       mindId: "mind",
@@ -289,11 +289,22 @@ describe("Rewrite with what the Documents say", () => {
     });
   });
 
+  test("says there is nothing to change, as no failure, when the Documents give the same value", async () => {
+    core.rewriteFromDocuments.mockResolvedValue({ kind: "same" });
+    const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
+
+    expect(await rewriteWithDocuments(editor, "mind", doc, claim(editor))).toBe("same");
+
+    expect(textOf(editor)).toBe(SENTENCE);
+    expect(errors()).toEqual([]);
+    expect(useNotices.getState().confirmation?.message).toBe("claim.rewrite.same");
+  });
+
   test("keeps the sentence, saying so, when the core keeps it", async () => {
     core.rewriteFromDocuments.mockResolvedValue({ kind: "kept" });
     const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
 
-    expect(await rewriteWithDocuments(editor, "mind", doc, claim(editor))).toBe(false);
+    expect(await rewriteWithDocuments(editor, "mind", doc, claim(editor))).toBe("not-written");
 
     expect(textOf(editor)).toBe(SENTENCE);
     expect(citationsIn(editor)).toEqual([]);
@@ -311,12 +322,12 @@ describe("Rewrite with what the Documents say", () => {
     const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
     const asked = rewriteWithDocuments(editor, "mind", doc, claim(editor));
     // A second ask while the first works sends nothing.
-    expect(await rewriteWithDocuments(editor, "mind", doc, claim(editor))).toBe(false);
+    expect(await rewriteWithDocuments(editor, "mind", doc, claim(editor))).toBe("not-written");
     expect(core.rewriteFromDocuments).toHaveBeenCalledTimes(1);
     editor.commands.insertContentAt(9, "about ");
     answer(REWRITTEN);
 
-    expect(await asked).toBe(false);
+    expect(await asked).toBe("not-written");
 
     expect(textOf(editor)).toBe("Rent is about 1100 dollars.");
     expect(aiText(editor)).toEqual([]);
@@ -350,7 +361,7 @@ test("Rewrite writes nothing once the sentence was given a Citation while the mo
   editor.commands.insertContentAt(SENTENCE.length, { type: CITATION_NODE, attrs: evidence });
   answer(REWRITTEN);
 
-  expect(await asked).toBe(false);
+  expect(await asked).toBe("not-written");
 
   expect(textOf(editor)).toBe(`Rent is 1100 dollars${INLINE_NODE}.`);
   expect(aiText(editor)).toEqual([]);

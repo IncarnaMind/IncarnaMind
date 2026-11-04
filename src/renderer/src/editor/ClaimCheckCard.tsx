@@ -50,7 +50,7 @@ import { LineAction } from "../components/ProblemLine";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { askInAssistant } from "../conversations";
 import { applyCorrection, correctionsFor, type PartCorrection } from "../correctionFixes";
-import { reasonText } from "../cost";
+import { readRestText, reasonText } from "../cost";
 import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
@@ -772,15 +772,9 @@ export function ClaimCard({
   // on those it did: Continue sizes what is left and asks again.
   const sentenceStopped = shown.state === "not-checked" && shown.reason === "read-budget";
   const stoppedPart = check.parts?.find(stoppedAtBudget);
+  const stopDetail = sentenceStopped ? check.detail : (stoppedPart?.detail ?? null);
   const stopLine =
-    sentenceStopped || stoppedPart
-      ? reasonText(
-          t,
-          language,
-          "read-budget",
-          sentenceStopped ? check.detail : (stoppedPart?.detail ?? null),
-        )
-      : null;
+    sentenceStopped || stoppedPart ? reasonText(t, language, "read-budget", stopDetail) : null;
   const reason =
     shown.state === "not-checked"
       ? reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
@@ -1149,7 +1143,7 @@ export function ClaimCard({
               <LineAction
                 key="continue"
                 action={{
-                  label: t("claim.readBudget.continue"),
+                  label: readRestText(t, language, stopDetail),
                   testId: "claim-read-continue",
                   onClick: () => onCheckAgain(),
                 }}

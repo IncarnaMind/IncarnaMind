@@ -58,6 +58,9 @@ const showError = (message: string) => useNotices.getState().showError(new Error
 
 function said(result: Exclude<RewriteFromDocumentsResult, { kind: "rewritten" }>, mindId: string) {
   switch (result.kind) {
+    case "same":
+      useNotices.getState().confirm("claim.rewrite.same");
+      return;
     case "kept":
       showError(translateNow("claim.rewrite.kept"));
       return;
@@ -79,15 +82,16 @@ function said(result: Exclude<RewriteFromDocumentsResult, { kind: "rewritten" }>
 /**
  * Asks for the rewrite and writes it: the old words as the Passage's, cited, as one step of Undo
  * that brings the sentence back with the check it had; then checks it again. Says whether it
- * wrote one. While the model works, the sentence's mark shows it is being worked on.
+ * wrote one, or found nothing to change. While the model works, the sentence's mark shows it is
+ * being worked on.
  */
 export async function rewriteWithDocuments(
   editor: Editor,
   mindId: string,
   doc: Y.Doc,
   claim: ShownClaim,
-): Promise<boolean> {
-  if (!fixesFree(mindId) || !offersRewrite(editor, doc, claim)) return false;
+): Promise<"written" | "same" | "not-written"> {
+  if (!fixesFree(mindId) || !offersRewrite(editor, doc, claim)) return "not-written";
   const earlier = claim.check;
   setRewriting(mindId, earlier.id);
   let result: RewriteFromDocumentsResult;
@@ -99,14 +103,14 @@ export async function rewriteWithDocuments(
     });
   } catch (error) {
     useNotices.getState().showError(error);
-    return false;
+    return "not-written";
   } finally {
     if (useChecks.getState().rewriting[mindId] === earlier.id) setRewriting(mindId, null);
   }
-  if (editor.isDestroyed) return false;
+  if (editor.isDestroyed) return "not-written";
   if (result.kind !== "rewritten") {
     said(result, mindId);
-    return false;
+    return result.kind === "same" ? "same" : "not-written";
   }
   const now = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
   const plan =
@@ -116,7 +120,7 @@ export async function rewriteWithDocuments(
   const tr = editor.state.tr;
   if (!now || !plan || !writeCorrections(tr, [plan])) {
     showError(translateNow("error.check.partChanged"));
-    return false;
+    return "not-written";
   }
   asOneStep(editor, () => editor.view.dispatch(tr));
   const recheck = () => {
@@ -132,5 +136,5 @@ export async function rewriteWithDocuments(
   );
   recordCorrections(editor, mindId, [plan], tr, result);
   recheck();
-  return true;
+  return "written";
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  atLineStart,
   estimateLine,
   estimateText,
   formatMoney,
@@ -7,6 +8,7 @@ import {
   formatTokens,
   notCheckedKey,
   perHundredAnswers,
+  readRestText,
   reasonText,
   runStopParts,
   runStopText,
@@ -95,8 +97,11 @@ describe("Cost in words", () => {
   test("in Chinese, an amount under a cent sits in its sentence with no space between Chinese words", () => {
     const under = formatMoney({ amount: 0.0048, currency: "USD" }, "zh-CN");
     const most = formatMoney({ amount: 0.5, currency: "USD" }, "zh-CN");
-    expect(translate("zh-CN", "claim.reason.read-budget", { spent: under, most })).toBe(
-      "已花不到 $0.01 后停止，这次读取最多可花 $0.50。",
+    expect(translate("zh-CN", "claim.reason.read-budget", { spent: under })).toBe(
+      "已停止 · 已花费不到 $0.01",
+    );
+    expect(translate("zh-CN", "claim.readBudget.readRest", { most })).toBe(
+      "读取其余部分 · 最多 $0.50",
     );
     expect(translate("zh-CN", "cost.provider.thisMonth", { spent: under })).toBe(
       "本月已花不到 $0.01",
@@ -108,17 +113,54 @@ describe("Cost in words", () => {
     expect(translate("zh-CN", "cost.estimate.month", { spent: under, cap: "$20.00" })).toBe(
       "本月已用不到 $0.01，上限 $20.00",
     );
-    expect(translate("en", "claim.reason.read-budget", { spent: "under $0.01", most })).toBe(
-      "Stopped after under $0.01; this read may spend up to $0.50.",
-    );
   });
 
   test.each([
-    ["en", "USD", 0.004, "About $0.40 per 100 Answers", "Cost per 100 Answers"],
-    ["zh-CN", "USD", 0.004, "每 100 个回答约 $0.40", "每 100 个回答的费用"],
-    ["en", "CNY", 0.0213, "About ¥2.13 per 100 Answers", "Cost per 100 Answers"],
-    ["zh-CN", "CNY", 0.0213, "每 100 个回答约 ¥2.13", "每 100 个回答的费用"],
-    ["en", "CNY", 0.00004, "Under ¥0.01 per 100 Answers", "Cost per 100 Answers"],
+    ["en", "Stopped · Under $0.01 spent", "Read the rest · up to $0.50"],
+    ["zh-CN", "已停止 · 已花费不到 $0.01", "读取其余部分 · 最多 $0.50"],
+  ] as const)(
+    "a stopped read says what it spent, and the action that reads the rest the most it may (%s)",
+    (language, line, action) => {
+      const detail = JSON.stringify({
+        most: { amount: 0.5, currency: "USD" },
+        spent: { amount: 0.0048, currency: "USD" },
+        judgesAbsence: false,
+      });
+      expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
+      expect(readRestText(t(language), language, detail)).toBe(action);
+    },
+  );
+
+  test("a line that begins with an amount under a cent begins with a capital", () => {
+    const under = { amount: 0.004, currency: "USD" as const };
+    expect(setAsideText([under], t("en"), "en")).toBe("Under $0.01 set aside for work in progress");
+    expect(
+      atLineStart(translate("en", "task.details.cost", { cost: formatMoney(under, "en") })),
+    ).toBe("Under $0.01 so far");
+    expect(
+      estimateLine(
+        {
+          billing: "per-token",
+          calls: 2,
+          tokens: 1_200,
+          cost: { amount: 0.4, currency: "USD" },
+          spentTowardCap: under,
+          setAsideTowardCap: null,
+          cap: { amount: 20, currency: "USD" },
+        },
+        t("en"),
+        "en",
+      )?.parts.at(-1),
+    ).toBe("Under $0.01 of $20.00 used this month");
+    expect(atLineStart("不到 $0.01")).toBe("不到 $0.01");
+  });
+
+  test.each([
+    ["en", "USD", 0.004, "About $0.40", "Cost per 100 Answers"],
+    ["zh-CN", "USD", 0.004, "约 $0.40", "每 100 个回答的费用"],
+    ["en", "CNY", 0.0213, "About ¥2.13", "Cost per 100 Answers"],
+    ["zh-CN", "CNY", 0.0213, "约 ¥2.13", "每 100 个回答的费用"],
+    ["en", "CNY", 0.00004, "Under ¥0.01", "Cost per 100 Answers"],
   ] as const)(
     "a model's page compares its models per 100 Answers (%s, %s)",
     (language, currency, perAnswer, line, label) => {
@@ -337,17 +379,23 @@ test.each([
 
 describe("A whole read stopped at the most it may spend", () => {
   test.each([
-    ["en", "Stopped after $0.38; this read may spend up to $0.41.", "Continue"],
-    ["zh-CN", "已花 $0.38 后停止，这次读取最多可花 $0.41。", "继续"],
-  ] as const)("says what it spent and its most, with Continue (%s)", (language, line, action) => {
-    const detail = JSON.stringify({
-      most: { amount: 0.41, currency: "USD" },
-      spent: { amount: 0.38, currency: "USD" },
-      judgesAbsence: false,
-    });
-    expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
-    expect(t(language)("claim.readBudget.continue")).toBe(action);
-  });
+    ["en", "Stopped · $0.38 spent", "Read the rest · up to $0.41"],
+    ["zh-CN", "已停止 · 已花费 $0.38", "读取其余部分 · 最多 $0.41"],
+  ] as const)(
+    "says what it spent, and its most on Read the rest (%s)",
+    (language, line, action) => {
+      const detail = JSON.stringify({
+        most: { amount: 0.41, currency: "USD" },
+        spent: { amount: 0.38, currency: "USD" },
+        judgesAbsence: false,
+      });
+      expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
+      expect(readRestText(t(language), language, detail)).toBe(action);
+      expect(readRestText(t(language), language, "not money")).toBe(
+        language === "en" ? "Read the rest" : "读取其余部分",
+      );
+    },
+  );
 
   test.each([
     ["en", "Stopped at the most this read may spend."],

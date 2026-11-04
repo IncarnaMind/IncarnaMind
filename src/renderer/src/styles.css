@@ -1939,18 +1939,27 @@
     /* A Chinese question would otherwise leave "句子？" alone on its last line, at 900 and 1,440 px alike (#1554). */
     text-wrap: balance;
   }
-  /*
-   * Under the viewer's toolbar while a sentence waits for its Citation (#1554), as the lines about
-   * the Document are: in the page's flow, so it never covers the words to select.
-   */
-  .citation-pick-line {
+  /* At the viewer's foot while a sentence waits for its Citation (#1554), as an export's result line floats. */
+  .citation-pick-line-place {
+    pointer-events: none;
+    position: absolute;
+    inset-inline: 24px;
+    bottom: 24px;
+    z-index: 10;
     display: flex;
-    flex-shrink: 0;
+    justify-content: center;
+  }
+  .citation-pick-line {
+    pointer-events: auto;
+    display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--color-rule);
+    min-width: 0;
+    max-width: 100%;
+    padding: 8px 8px 8px 12px;
+    border-radius: 8px;
     background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
     font-size: 13px;
     line-height: 20px;
     color: var(--color-ink-secondary);
@@ -1962,18 +1971,19 @@
       color: var(--color-ink);
     }
   }
-  /* The two actions keep together, after the words or under them where the pane is narrow. */
+  /* The two actions keep together, after the words or under them, their words lined up with these. */
   .citation-pick-line-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 2px 8px;
+    gap: 2px 18px;
     min-width: 0;
   }
   .citation-pick-line-actions {
     display: flex;
     flex-shrink: 0;
     gap: 4px;
+    margin-inline-start: -10px;
   }
   .citation-pick-line-sentence {
     overflow: hidden;
@@ -1982,6 +1992,10 @@
     color: var(--color-ink-meta);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* The pages end lower while the line shows, so their last lines can scroll clear of it. */
+  .viewer-pane[data-foot-line] :is(.viewer-backdrop, .viewer-grid-scroll) {
+    padding-bottom: var(--viewer-foot-room);
   }
   /* Continue starts its own line, so it stands in one place however long the words are, in either language (#1554). */
   .claim-stop-line > .meta-part:last-child {

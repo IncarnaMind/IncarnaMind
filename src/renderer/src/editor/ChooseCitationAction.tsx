@@ -104,8 +104,8 @@ export function CitationDocumentPicker({
       startsOnScreen={startsOnScreen}
       labels={{
         title: t("claim.chooseCitation"),
-        search: t("scope.picker.label"),
-        noMatch: t("scope.picker.empty"),
+        search: t("claim.chooseCitation.find"),
+        noMatch: t("claim.chooseCitation.noMatch"),
       }}
       testId="citation-document"
       onChoose={(scope) => {

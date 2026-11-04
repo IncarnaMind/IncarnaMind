@@ -7050,6 +7050,8 @@ export type RewriteFromDocumentsResult =
   | { kind: "rewritten"; correction: ClaimCorrection; providerId: string; modelId: string }
   /** The reply gave no rewrite the rules hold: the sentence stays. */
   | { kind: "kept" }
+  /** The model found no value the Passage gives otherwise: there is nothing to change. */
+  | { kind: "same" }
   /** The sentence, its check or its Passage changed since the check: nothing was sent. */
   | { kind: "changed" }
   | Extract<CheckSentencesResult, { kind: "not-ready" | "local-mode" | "cancelled" }>

@@ -22,7 +22,6 @@ import { useAppStore, type ViewerTarget } from "../store";
 import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
 import { AreaModeContext } from "./areaSelection";
-import { CitationPickLine } from "./CitationPickLine";
 import { AreaIcon, OpenExternallyIcon } from "./icons";
 
 /** What every view's toolbar needs from its tab: the Document shown, and whether it is a preview. */
@@ -292,7 +291,6 @@ ${sourceOf(document)}`
           {t("evidence.ownFile")}
         </CountItLine>
       )}
-      {document && <CitationPickLine documentId={document.id} />}
     </>
   );
 }

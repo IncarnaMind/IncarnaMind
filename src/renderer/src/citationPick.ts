@@ -9,12 +9,18 @@
  */
 import type { Editor } from "@tiptap/core";
 import { create } from "zustand";
-import { CITATION_NODE, type Citation, type CitedSelection, type Document } from "../../core/api";
+import {
+  CITATION_NODE,
+  type Citation,
+  type CitedSelection,
+  type Document,
+  type WindowLayout,
+} from "../../core/api";
 import { checkAgain, citationClosingLength } from "./checks";
 import { citationAttributesOf } from "./citedSelection";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
-import { mindEditor } from "./editor/openEditors";
+import { mindEditor, whenMindEditor } from "./editor/openEditors";
 import { editorDoc } from "./editor/proposalReview";
 import { noteBusy } from "./editWithAi";
 import { translateNow } from "./i18n";
@@ -46,6 +52,35 @@ export const usePickIn = (documentId: string): CitationPick | null =>
 
 export const dropCitationPick = () => useCitationPick.setState({ pick: null });
 
+const holdsDocument = (layout: WindowLayout | null, documentId: string): boolean =>
+  (layout?.groups ?? []).some((group) =>
+    group.tabs.some((tab) => tab.item.kind === "document" && tab.item.documentId === documentId),
+  );
+
+let stopWatching: (() => void) | null = null;
+
+/** Ends the wait once no tab holds the Document it waits in, as closing that tab does. */
+function watchPickTab(): void {
+  if (stopWatching) return;
+  let held: string | null = null;
+  const look = () => {
+    const { pick } = useCitationPick.getState();
+    if (!pick) {
+      stopWatching?.();
+      stopWatching = null;
+      return;
+    }
+    if (holdsDocument(useAppStore.getState().layout, pick.documentId)) held = pick.documentId;
+    else if (held === pick.documentId) dropCitationPick();
+  };
+  const fromLayout = useAppStore.subscribe(look);
+  const fromPick = useCitationPick.subscribe(look);
+  stopWatching = () => {
+    fromLayout();
+    fromPick();
+  };
+}
+
 /**
  * Opens the Document beside the Note, with the sentence waiting for its Citation: at the Passage
  * `at`, when given, its words shown, else at its start. `inGroup`: in place of the Document the
@@ -57,6 +92,7 @@ export function chooseCitationIn(
   inGroup?: string,
 ): void {
   useCitationPick.setState({ pick });
+  watchPickTab();
   useAppStore.getState().openDocument(
     {
       documentId: pick.documentId,
@@ -72,9 +108,27 @@ export function chooseCitationIn(
 
 const showError = (message: string) => useNotices.getState().showError(new Error(message));
 
+/**
+ * The Note's editor, its tab brought to the front when another is in front of it, as a window
+ * under 1,000 px puts the Document in front of the Note; null when no tab holds the Note.
+ */
+async function noteEditor(mindId: string): Promise<Editor | null> {
+  const open = mindEditor(mindId);
+  if (open) return open;
+  const state = useAppStore.getState();
+  const tab = (state.layout?.groups ?? [])
+    .flatMap((group) => group.tabs)
+    .find((each) => each.item.kind === "mind" && each.item.mindId === mindId);
+  if (!tab) return null;
+  await state.changeLayout({ type: "show", tabId: tab.id });
+  return whenMindEditor(mindId, 5_000);
+}
+
 /** The sentence a pick waits for, while its card still offers Choose the Citation…. */
-function waitingSentence(pick: CitationPick): { editor: Editor; claim: ShownClaim } | null {
-  const editor = mindEditor(pick.mindId);
+async function waitingSentence(
+  pick: CitationPick,
+): Promise<{ editor: Editor; claim: ShownClaim } | null> {
+  const editor = await noteEditor(pick.mindId);
   const claim = editor
     ? shownClaims(editor.state).find((each) => each.check.id === pick.checkId)
     : undefined;
@@ -103,7 +157,7 @@ export async function citeChosenWords(
     showError(translateNow("viewer.selection.refused.unsure"));
     return false;
   }
-  const waiting = waitingSentence(pick);
+  const waiting = await waitingSentence(pick);
   const doc = waiting && editorDoc(waiting.editor);
   if (!waiting || !doc) {
     dropCitationPick();

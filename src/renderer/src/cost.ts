@@ -52,10 +52,15 @@ export function estimateText(
     : t("cost.estimate.priceUpTo", { cost: about, most: formatMoney(top, language) });
 }
 
+/** A line that begins with an amount, its first letter in capitals: "Under $0.01 so far". */
+export const atLineStart = (text: string): string =>
+  text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
 /**
  * What a check's reason says (`claim.reason.*`): a whole read stopped at its budget says what it
- * spent and the most it may spend, kept in `detail`, or that it stopped there when the detail
- * can't be read; any other reason says its `detail` as it is.
+ * spent, kept in `detail`, or that it stopped there when the detail can't be read; the most it
+ * may spend goes on the action that reads the rest (`readRestText`). Any other reason says its
+ * `detail` as it is.
  */
 export function reasonText(
   t: Translate,
@@ -68,25 +73,28 @@ export function reasonText(
     return t(`claim.reason.${reason}`, { detail: detail ?? "", ...params });
   const stop = budgetStopOf(detail);
   return stop
-    ? t("claim.reason.read-budget", {
-        spent: formatMoney(stop.spent, language),
-        most: formatMoney(stop.most, language),
-      })
+    ? t("claim.reason.read-budget", { spent: atLineStart(formatMoney(stop.spent, language)) })
     : t("claim.reason.read-budget.unknown");
 }
 
+/** The action that reads the rest of a read stopped at its budget, with the most it may spend. */
+export function readRestText(t: Translate, language: Language, detail: string | null): string {
+  const stop = budgetStopOf(detail);
+  return stop
+    ? t("claim.readBudget.readRest", { most: formatMoney(stop.most, language) })
+    : t("claim.readBudget.continue");
+}
+
 /**
- * A model's estimate where models are compared, per 100 Answers, so those under a cent an Answer
- * still differ: "About $0.40 per 100 Answers". Null for one of exactly nothing.
+ * A model's estimate where models are compared, for 100 Answers, under a heading that says so, so
+ * those under a cent an Answer still differ: "About $0.40". Null for one of exactly nothing.
  */
-export function perHundredAnswers(
+export const perHundredAnswers = (
   perAnswer: Money,
   t: Translate,
   language: Language,
-): string | null {
-  const cost = estimateText({ ...perAnswer, amount: perAnswer.amount * 100 }, null, t, language);
-  return cost && t("models.provider.cost.estimate", { cost });
-}
+): string | null =>
+  estimateText({ ...perAnswer, amount: perAnswer.amount * 100 }, null, t, language);
 
 /** Amounts in one or two currencies: "$3.20", "$3.20 and ¥1.40"; null for none. */
 export function formatSpent(
@@ -109,7 +117,7 @@ export function setAsideText(
     t,
     language,
   );
-  return amount && t("cost.setAside", { amount });
+  return amount && atLineStart(t("cost.setAside", { amount }));
 }
 
 /** When a plan's limit resets: the time today, else the day and time. */
@@ -185,10 +193,12 @@ export function estimateLine(
   const month =
     estimate.cap && estimate.spentTowardCap
       ? [
-          t("cost.estimate.month", {
-            spent: formatMoney(estimate.spentTowardCap, language),
-            cap: formatMoney(estimate.cap, language),
-          }),
+          atLineStart(
+            t("cost.estimate.month", {
+              spent: formatMoney(estimate.spentTowardCap, language),
+              cap: formatMoney(estimate.cap, language),
+            }),
+          ),
           ...(aside ? [aside] : []),
         ]
       : [];

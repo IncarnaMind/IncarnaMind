@@ -267,6 +267,7 @@ function changesOnlyTheValue(
 export type RewriteOutcome =
   | { kind: "rewritten"; correction: ClaimCorrection }
   | { kind: "kept" }
+  | { kind: "same" }
   | { kind: "failed"; error: ProviderError };
 
 /** Past this, a rewrite nobody can stop gives up, so the Note's other fixes aren't held behind it. */
@@ -274,7 +275,8 @@ export const REWRITE_TIMEOUT_MS = 120_000;
 
 /**
  * The model's rewrite of `sentence` to what `evidence` quotes, as a correction of its old words,
- * when every rule holds; "kept" when any doesn't.
+ * when every rule holds; "same" when the model found nothing the quote gives otherwise; "kept"
+ * when any rule doesn't hold.
  */
 export function rewriteOf(
   sentence: string,
@@ -282,6 +284,7 @@ export function rewriteOf(
   evidence: Citation,
   documentDate: AnswerDocuments["documentDate"],
 ): RewriteOutcome {
+  if (/^\s*Change 1:\s*none\s*$/imu.test(reply)) return { kind: "same" };
   const read = readChangeLines(reply);
   if (read?.choices.length !== 1) return { kind: "kept" };
   const found = correctionFor(

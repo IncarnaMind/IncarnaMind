@@ -135,10 +135,10 @@ describe("A rewrite is refused, and the sentence kept", () => {
     ).toEqual({ kind: "kept" });
   });
 
-  test("when the reply says nothing differs, or gives two choices", () => {
+  test("as the same value when the reply says nothing differs, and when it gives two choices", () => {
     expect(
       rewritten("The Tenant pays a monthly rent of $12,500.", "Change 1: none\nTo 1: none"),
-    ).toEqual({ kind: "kept" });
+    ).toEqual({ kind: "same" });
     expect(
       rewritten(
         "The rent is $12,500.",

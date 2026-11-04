@@ -275,8 +275,12 @@ export const checkCommands: readonly Command[] = [
     async run(ctx) {
       const at = withRewrite();
       if (!at) return;
-      const wrote = await rewriteWithDocuments(at.editor, at.mindId, at.doc, at.claim);
-      if (!wrote && ctx.assistant) throw new TranslatableError({ key: "claim.rewrite.kept" });
+      const end = await rewriteWithDocuments(at.editor, at.mindId, at.doc, at.claim);
+      if (end !== "written" && ctx.assistant) {
+        throw new TranslatableError({
+          key: end === "same" ? "claim.rewrite.same" : "claim.rewrite.kept",
+        });
+      }
     },
   },
   {

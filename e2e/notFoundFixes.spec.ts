@@ -9,6 +9,7 @@ import {
   useLocalChatModel as chooseScriptedModel,
   createDataFolder,
   dismissChatSetup,
+  expectReadyDocuments,
   film,
   launchApp,
   motionSettled,
@@ -189,9 +190,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, choose);
       const picker = window.getByTestId("citation-document-picker");
       await expect(picker).toBeVisible();
-      // One Document, never a Folder.
+      // One Document, never a Folder, in words that say so.
       await expect(picker.getByTestId("citation-document-section")).toHaveCount(1);
-      await window.getByTestId("citation-document-search").fill("Harbour");
+      const search = window.getByTestId("citation-document-search");
+      await expect(search).toHaveAttribute(
+        "placeholder",
+        language === "en" ? "Find a Document" : "查找文档",
+      );
+      await search.fill("Lighthouse");
+      await expect(picker).toContainText(
+        language === "en" ? "No Document matches" : "没有匹配的文档",
+      );
+      await search.fill("Harbour");
       await pointAndClick(window, picker.getByText("Harbour times", { exact: true }));
       const viewer = window.getByTestId("viewer");
       await expect(viewer).toBeVisible();
@@ -205,7 +215,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const menu = window.getByTestId("viewer-selection-menu");
       await expect(menu).toBeVisible();
       const cite = menu.getByTestId("viewer-selection-cite");
-      await expect(cite).toHaveText(t("claim.useAsCitation"));
+      await expect(cite).toContainText(t("claim.useAsCitation"));
       await expect(menu.getByRole("menuitem").first()).toHaveAttribute(
         "data-testid",
         "viewer-selection-cite",
@@ -285,20 +295,25 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(viewer.locator("[data-quote-highlight]")).toContainText("12 months");
     await expect(window.getByTestId("citation-document-picker")).toHaveCount(0);
     const line = window.getByTestId("citation-pick-line");
-    await expect(line).toContainText(t("claim.chooseCitation.hint"));
-    await expect(line).toContainText(DIFFERENT);
+    // Its first line names the sentence; then what to select, Choose another Document… and Cancel.
+    await expect(line.locator(".citation-pick-line-sentence")).toHaveText(
+      language === "en" ? `For “${DIFFERENT}”` : `用于“${DIFFERENT}”`,
+    );
+    await expect(line.getByRole("status")).toHaveText(
+      language === "en" ? "Select the words that say this" : "选中能支持这句话的文字",
+    );
     await expect(line.getByTestId("citation-pick-cancel")).toHaveText(
       t("claim.chooseCitation.cancel"),
     );
-    // Under the viewer's toolbar, above the page, so it covers none of the words to select.
-    const [top, toolbar, page] = [
-      await line.boundingBox(),
-      await viewer.getByTestId("viewer-header").boundingBox(),
-      await viewer.getByTestId("viewer-text").boundingBox(),
-    ];
-    if (!top || !toolbar || !page) throw new Error("The waiting line isn't laid out.");
-    expect(Math.abs(top.y - (toolbar.y + toolbar.height))).toBeLessThan(2);
-    expect(page.y).toBeGreaterThanOrEqual(top.y + top.height - 1);
+    // At the viewer's foot, over the page, whose last line scrolls clear of it.
+    const [box, pane] = [await line.boundingBox(), await viewer.boundingBox()];
+    if (!box || !pane) throw new Error("The waiting line isn't laid out.");
+    expect(Math.abs(pane.y + pane.height - (box.y + box.height) - 24)).toBeLessThan(4);
+    await viewer.locator(".viewer-backdrop").evaluate((scroll) => {
+      scroll.scrollTop = scroll.scrollHeight;
+    });
+    const last = await wordsBox(viewer.getByTestId("viewer-text"), "12 months.");
+    expect(last.y).toBeLessThan(box.y);
     await capture(window, `after-choose-waiting-${language}-1440`);
 
     // Choose another Document… opens the shared picker; the sentence waits in the one chosen.
@@ -325,16 +340,37 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(() => noteText(editor)).toBe(DIFFERENT);
 
     // ⌘K's one Check against a Document… opens the picker with the Document open beside the
-    // Note chosen, so Enter reads it.
+    // Note chosen, so Enter reads it, though a newer Document heads the list.
+    await writeFile(join(sources, "Moorings.txt"), "Moorings are let by the season.");
+    await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Moorings.txt")]);
+    await expectReadyDocuments(window, 3);
     await pointAndClick(window, editor.getByText("forecast tides"));
     await runCommand(window, "check.againstDocument", t("claim.checkAgainstDocument"));
     const documents = window.getByTestId("document-or-folder-picker");
     await expect(documents).toBeVisible();
+    const documentRows = documents.locator('[role="option"][data-scope-kind="document"]');
+    await expect(documentRows.first()).toContainText("Moorings");
     await expect(documents.locator('[role="option"][aria-selected="true"]')).toContainText(
       "Seabirds",
     );
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("claim-card")).toContainText("Seabirds");
+    await expect(
+      window.getByTestId("claim-mark").and(window.locator('[data-check="checking"]')),
+    ).toHaveCount(0);
+    await window.keyboard.press("Escape");
+
+    // So does ⌘K's Choose the Citation…, for a sentence with no close Passage.
+    await checkSentence(window, editor, ABSENT);
+    await window.keyboard.press("Escape");
+    await pointAndClick(window, editor.getByText("deep bay"));
+    await runCommand(window, "check.chooseCitation", t("claim.chooseCitation"));
+    const citationDocuments = window.getByTestId("citation-document-picker");
+    await expect(citationDocuments).toBeVisible();
+    await expect(citationDocuments.locator('[role="option"]').first()).toContainText("Moorings");
+    await expect(citationDocuments.locator('[role="option"][aria-selected="true"]')).toContainText(
+      "Seabirds",
+    );
     await app.close();
   });
 
@@ -419,6 +455,87 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 }
+
+/** Chooses `name` in the card's picker of Documents for the sentence's Citation. */
+async function chooseIn(window: Page, card: Locator, name: string): Promise<void> {
+  await pointAndClick(window, card.getByTestId("claim-choose-citation"));
+  await window.getByTestId("citation-document-search").fill(name);
+  await pointAndClick(
+    window,
+    window.getByTestId("citation-document-picker").getByText(name, { exact: true }),
+  );
+  await expect(window.getByTestId("citation-pick-line")).toBeVisible();
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+  test(`at 900 px the words become the Citation with ⌘/ and Enter, and the Note comes back to the front (${language})`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, editor } = await launchNote(language, 900, "Seabirds");
+    const card = await checkSentence(window, editor, OWN);
+    await chooseIn(window, card, "Harbour times");
+    // One group at this width: the Document is in front of the Note.
+    await expect(editor).toBeHidden();
+    await selectOwn(window);
+    await window.keyboard.press("ControlOrMeta+/");
+    await expect(window.getByTestId("viewer-selection-cite")).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect(editor).toBeVisible();
+    await expect.poll(() => noteText(editor)).toBe(`${OWN.slice(0, -1)}￼.`);
+    await expect(window.getByTestId("undo-message")).toHaveText(t("claim.chosenCitation.done"));
+    await expect(window.getByTestId("error-notice-message")).toHaveCount(0);
+    await app.close();
+  });
+}
+
+test("closing the Document's tab ends the wait: opened again, it offers no Use as Citation", async () => {
+  test.setTimeout(240_000);
+  const { app, window, editor } = await launchNote("en", 1440, "Seabirds");
+  const card = await checkSentence(window, editor, OWN);
+  await chooseIn(window, card, "Harbour times");
+  const line = window.getByTestId("citation-pick-line");
+  await pointAndClick(
+    window,
+    window.getByRole("tab").filter({ hasText: "Harbour times" }).getByTestId("tab-close"),
+  );
+  await expect(line).toHaveCount(0);
+  await pointAndClick(
+    window,
+    window
+      .getByTestId("document-list-item")
+      .filter({ hasText: "Harbour times" })
+      .getByTestId("open-document"),
+  );
+  await expect(window.getByTestId("viewer-text").filter({ visible: true })).toContainText(
+    "12 months",
+  );
+  await expect(line).toHaveCount(0);
+  await selectOwn(window);
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+  await expect(window.getByTestId("viewer-selection-cite")).toHaveCount(0);
+  await app.close();
+});
+
+test("in a sheet the line asks for cells, and Enter, Enter cites the cells selected", async () => {
+  test.setTimeout(240_000);
+  const { app, window, editor } = await launchNote("en", 1440, "Seabirds", [
+    ...FILES,
+    { name: "Ports.csv", contents: "Port,Ships\nNorth,12\nSouth,8\n" },
+  ]);
+  const card = await checkSentence(window, editor, OWN);
+  await chooseIn(window, card, "Ports");
+  await expect(window.getByTestId("citation-pick-line").getByRole("status")).toHaveText(
+    "Select the cells that say this",
+  );
+  await pointAndClick(window, window.getByTestId("viewer-grid").locator('td[data-ref="B2"]'));
+  await window.keyboard.press("Shift+ArrowDown");
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("viewer-selection-cite")).toBeFocused();
+  await window.keyboard.press("Enter");
+  await expect.poll(() => noteText(editor)).toBe(`${OWN.slice(0, -1)}￼.`);
+  await expect(window.getByTestId("citation-pick-line")).toHaveCount(0);
+  await app.close();
+});
 
 /** Files the Document named `name` in a new Folder that keeps its work inside it, as the Library's menu does. */
 const wallOff = (window: Page, name: string) =>
@@ -619,23 +736,24 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+Shift+K");
       const card = window.getByTestId("claim-card");
       const stop = card.getByTestId("claim-read-stopped");
-      // An amount under a cent says so, never "$0.01" or "$0.00".
+      // It says what it spent, under a cent as such; the most it may spend is on Read the rest.
       await expect(stop).toContainText(
-        language === "en"
-          ? "Stopped after under $0.01; this read may spend up to $0.50."
-          : "已花不到 $0.01 后停止，这次读取最多可花 $0.50。",
+        language === "en" ? "Stopped · Under $0.01 spent" : "已停止 · 已花费不到 $0.01",
+      );
+      await expect(card.getByTestId("claim-read-continue")).toHaveText(
+        language === "en" ? "Read the rest · up to $0.50" : "读取其余部分 · 最多 $0.50",
       );
       const words = await linesOf(stop.locator(".meta-part").first());
       const action = await card.getByTestId("claim-read-continue").boundingBox();
       const lastWords = words.at(-1);
       const firstWords = words[0];
       if (!action || !lastWords || !firstWords) throw new Error("The stop line isn't laid out.");
-      // Continue starts its own line, under the words, in either language.
+      // Read the rest starts its own line, under the words, in either language.
       expect(action.y).toBeGreaterThan(lastWords.top);
       expect(Math.abs(action.x - firstWords.left)).toBeLessThan(4);
       await capture(window, `after-stop-line-${language}-${width}`);
 
-      // Continue asks before it reads again: the question's last line is no stub.
+      // Read the rest asks before it reads again: the question's last line is no stub.
       await pointAndClick(window, card.getByTestId("claim-read-continue"));
       const title = card.getByTestId("document-check-ask").locator(".check-card-ask-title");
       await expect(title).toHaveText(t("claim.readAsk.one", { scope: TIDE_TABLES }));

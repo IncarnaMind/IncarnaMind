@@ -274,9 +274,7 @@ test("a key provider's page: where its data goes, its key with Test, and each mo
         const flash = page.getByTestId("provider-model-row").first();
         await expect(flash).toHaveAttribute("data-model", "deepseek-flash");
         const cost = flash.getByTestId("provider-model-cost");
-        await expect(cost).toHaveText(
-          zh ? /^每 100 个回答约 ¥\d+\.\d+$/ : /^About ¥\d+\.\d+ per 100 Answers$/,
-        );
+        await expect(cost).toHaveText(zh ? /^约 ¥\d+\.\d+$/ : /^About ¥\d+\.\d+$/);
         await expect(cost).toHaveAttribute(
           "title",
           zh

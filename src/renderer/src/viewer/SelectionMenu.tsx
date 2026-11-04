@@ -12,7 +12,7 @@ import {
 import type { AskedQuote, Document } from "../../../core/api";
 import { type CitationPick, citeChosenWords, usePickIn } from "../citationPick";
 import { useViewerHandle } from "../commands/handles";
-import { shortcutLabel } from "../commands/keymap";
+import { keysHere, shortcutLabel } from "../commands/keymap";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
 import { ChatLineIcon, CopyLineIcon, LinkLineIcon, PlusLineIcon } from "../components/lineIcons";
 import { holdsQuote, useComposer } from "../composer";
@@ -94,8 +94,9 @@ export function SelectionMenu({
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
-  const firstAsk = useRef<HTMLButtonElement>(null);
+  const firstItem = useRef<HTMLButtonElement>(null);
   const firstAdd = useRef<HTMLButtonElement>(null);
+  const pick = usePickIn(document.id);
   const [adding, setAdding] = useState<HTMLButtonElement | null>(null);
   const addButton = useCallback((element: HTMLButtonElement | null) => {
     setAdding(element);
@@ -180,7 +181,7 @@ export function SelectionMenu({
       if (!menu.current?.contains(window.document.activeElement)) {
         focusBeforeMenu.current = window.document.activeElement as HTMLElement | null;
       }
-      if (open) (settingUp ? firstAdd : firstAsk).current?.focus();
+      if (open) (settingUp && !pick ? firstAdd : firstItem).current?.focus();
       else {
         setFocusWanted(true);
         setOpen(true);
@@ -188,7 +189,7 @@ export function SelectionMenu({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [held, open, settingUp]);
+  }, [held, open, settingUp, pick]);
 
   // Asked about, the words stay drawn while their chip waits in the composer, and go with it.
   useEffect(() => {
@@ -245,7 +246,6 @@ export function SelectionMenu({
     [held, settingUp, close, heldNow],
   );
 
-  const pick = usePickIn(document.id);
   const cite = useMemo(
     () =>
       held && pick
@@ -308,7 +308,7 @@ export function SelectionMenu({
         role="menu"
         aria-label={t("viewer.selection.label")}
         data-testid="viewer-selection-menu"
-        {...(focusWanted && { initialFocus: settingUp ? firstAdd : firstAsk })}
+        {...(focusWanted && { initialFocus: settingUp && !pick ? firstAdd : firstItem })}
         onDismiss={close}
         onKeyDown={menuKeys(menu)}
         className="viewer-selection-menu"
@@ -316,7 +316,7 @@ export function SelectionMenu({
         <SelectionMenuBody
           menu={menu}
           actions={actions}
-          firstAsk={firstAsk}
+          firstItem={firstItem}
           addButton={addButton}
         />
       </Popover>
@@ -374,13 +374,14 @@ export function menuKeys(menu: RefObject<HTMLDivElement | null>) {
 export function SelectionMenuBody({
   menu,
   actions,
-  firstAsk,
+  firstItem,
   addButton,
   size,
 }: {
   menu: RefObject<HTMLDivElement | null>;
   actions: SelectionMenuActions;
-  firstAsk: RefObject<HTMLButtonElement | null>;
+  /** The first item, which takes the focus as the menu opens: Use as Citation while a sentence waits, else Ask. */
+  firstItem: RefObject<HTMLButtonElement | null>;
   addButton: (element: HTMLButtonElement | null) => void;
   /** A range's size, above its actions: "3 rows × 4 columns". */
   size?: string;
@@ -393,10 +394,10 @@ export function SelectionMenuBody({
           {size}
         </p>
       )}
-      {actions.cite && <UseAsCitationItem onClick={actions.cite} />}
+      {actions.cite && <UseAsCitationItem ref={firstItem} onClick={actions.cite} />}
       {actions.ask && (
         <button
-          ref={firstAsk}
+          ref={actions.cite ? undefined : firstItem}
           type="button"
           role="menuitem"
           data-testid="viewer-selection-ask"
@@ -438,10 +439,17 @@ export function SelectionMenuBody({
 }
 
 /** Use as Citation (#1554): the item that gives the waiting sentence these words as its Citation. */
-function UseAsCitationItem({ onClick }: { onClick(): void }) {
+function UseAsCitationItem({
+  ref,
+  onClick,
+}: {
+  ref: RefObject<HTMLButtonElement | null>;
+  onClick(): void;
+}) {
   const t = useT();
   return (
     <button
+      ref={ref}
       type="button"
       role="menuitem"
       data-testid="viewer-selection-cite"
@@ -451,6 +459,7 @@ function UseAsCitationItem({ onClick }: { onClick(): void }) {
     >
       <LinkLineIcon className="size-4 shrink-0 text-ink-secondary" />
       <span className="flex-1 truncate">{t("claim.useAsCitation")}</span>
+      <kbd className="editor-menu-shortcut">{keysHere("Enter")}</kbd>
     </button>
   );
 }
@@ -492,7 +501,7 @@ export function SheetSelectionMenu({
 }) {
   const t = useT();
   const menu = useRef<HTMLDivElement>(null);
-  const firstAsk = useRef<HTMLButtonElement>(null);
+  const firstItem = useRef<HTMLButtonElement>(null);
   const addRef = useRef<HTMLButtonElement | null>(null);
   const [adding, setAdding] = useState<HTMLButtonElement | null>(null);
   const addButton = useCallback((element: HTMLButtonElement | null) => {
@@ -534,7 +543,7 @@ export function SheetSelectionMenu({
           role="menu"
           aria-label={t("viewer.selection.range")}
           data-testid="viewer-selection-menu"
-          initialFocus={askable ? firstAsk : addRef}
+          initialFocus={askable || pick ? firstItem : addRef}
           onDismiss={onClose}
           onKeyDown={menuKeys(menu)}
           className="viewer-selection-menu"
@@ -542,7 +551,7 @@ export function SheetSelectionMenu({
           <SelectionMenuBody
             menu={menu}
             actions={actions}
-            firstAsk={firstAsk}
+            firstItem={firstItem}
             addButton={addButton}
             size={size}
           />
