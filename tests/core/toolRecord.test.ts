@@ -184,6 +184,56 @@ describe("The record of an Answer's Tool calls", () => {
     ).toBe("- run_command mind.check: 0 items, started in the window and still going on");
   });
 
+  // protects=a Tag merge's record names every pair and says the merged Tags are in Recently deleted, where the reply says so and they can be restored (#2252); fails_when=the record leaves it out and the claim check flags the reply's true sentence; no_claim=how a model reads it.
+  test("a Tag merge's record names every pair and where the merged Tags go (#2252)", () => {
+    const line = toolRecordLines(
+      [
+        call({
+          tool: "run_command",
+          source: "commands",
+          command: {
+            command: "tag.merge",
+            run: "r",
+            items: [],
+            merges: [
+              { from: "Book", into: "Report" },
+              { from: "Paper", into: "Report" },
+            ],
+          } as never,
+        }),
+      ],
+      names,
+    ).at(0);
+    expect(line).toContain("merged “Book” into “Report”, “Paper” into “Report”");
+    expect(line).toContain(
+      "the merged Tags are in Recently deleted, where the User can restore them",
+    );
+  });
+
+  // protects=Organize's record says how many Documents it was asked to sort, which a reply's "7 of the 8" adds up from (#2252); fails_when=the total is left out and the claim check flags a true count; no_claim=how a model reads it.
+  test("Organize's record says how many Documents it read (#2252)", () => {
+    const line = toolRecordLines(
+      [
+        call({
+          tool: "run_command",
+          source: "commands",
+          command: {
+            command: "documents.organize",
+            run: "r",
+            items: [{ kind: "document", id: "d1", name: "Mill Lane" }],
+            folders: [{ name: "Leases", count: 1 }],
+            unsorted: 1,
+            considered: 2,
+          } as never,
+        }),
+      ],
+      names,
+    ).at(0);
+    expect(line).toContain("filed 1 item in the folder “Leases”");
+    expect(line).toContain("1 item not sorted");
+    expect(line).toContain("read 2 items");
+  });
+
   // protects=the record says how many Citations a change wrote and how many markers it left out, and how many the reply holds; fails_when=a page whose Citations were lost reads as cited, or the reply's are left out; no_claim=none beyond protects.
   test("the Citations a change wrote, the markers it left out, and the reply's", () => {
     const made = call({

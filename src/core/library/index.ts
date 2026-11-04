@@ -10,11 +10,13 @@ import {
 import { libraryPresetKeys } from "../../shared/libraryPresets";
 import { sameName } from "../../shared/names";
 import type {
+  CloudReadPermit,
   DocumentKind,
   ExternalService,
   FolderDeletion,
   MovedDocument,
   ProviderError,
+  TagLinkChange,
 } from "../api";
 import type { BackgroundQueue } from "../backgroundQueue";
 import {
@@ -342,7 +344,7 @@ export function createLibrary(options: {
   tagged(ids: string[]): void;
   /** Organize made new Tags: the list of Tags is to be read again. */
   tagsMade?(): void;
-  prepare(settings: LibrarySettings): Promise<GroupClassifier>;
+  prepare(settings: LibrarySettings, permit?: CloudReadPermit): Promise<GroupClassifier>;
   providerExists(id: string): boolean;
   /**
    * Whether a model that tags reads a PDF's pages, so it can organize one with
@@ -903,126 +905,8 @@ export function createLibrary(options: {
     background.add({
       kind: "classification",
       async run(call) {
-        const initial = assignment(id);
-        const version = revision;
-        const stale = () =>
-          lifetime.signal.aborted ||
-          call.signal.aborted ||
-          version !== revision ||
-          assignment(id)?.request_id !== initial?.request_id;
         try {
-          if (!initial || initial.status === "classified") return;
-          const current = document(id);
-          if (!hasContent(current)) {
-            state(id, "waiting", scanWaits(current));
-            return;
-          }
-          const definitions = groups();
-          const tagDefinitions = options.tags.list();
-          if (definitions.length === 0) {
-            state(id, "waiting");
-            return;
-          }
-          if (taggingStoppedFor(id) && !asked.has(id)) {
-            stopped(id);
-            return;
-          }
-          const limitedUntil = options.rateLimit.pausedUntil();
-          if (limitedUntil !== null) {
-            state(id, "waiting", rateLimitError(limitedUntil));
-            return;
-          }
-          const refusal = options.rateLimit.refusal();
-          if (refusal !== null) {
-            state(id, "waiting", refusal);
-            return;
-          }
-          state(id, "classifying");
-          const settingsNow = getSettings();
-          const classifier = await options.prepare(settingsNow);
-          if (classifier.local) call.runsLocally();
-          if (stale()) return;
-          // Checked on where this request goes, as prepared; the User's own Organize goes.
-          const service = options.organizeService(settingsNow);
-          const services = service ? [service] : [];
-          if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
-            holdBack(id, initial);
-            return;
-          }
-          const declined = rejected(id);
-          const offered = definitions.filter((item) => !declined.has(item.id));
-          const read = source(current);
-          const signal = AbortSignal.any([lifetime.signal, call.signal]);
-          const images = organizeReadsPages(classifier.pageImages, read)
-            ? await options.pageImages(id, current.content_hash ?? "", signal)
-            : [];
-          if (stale()) return;
-          const result = await classifier.organize(
-            offered,
-            tagDefinitions,
-            organizeExcerpt(read),
-            signal,
-            images,
-          );
-          if (stale()) return;
-          options.rateLimit.succeeded();
-          const latest = document(id);
-          if (!hasContent(latest) || latest.content_hash !== current.content_hash) {
-            state(id, "pending");
-            return;
-          }
-          // Definition changes make the complete result stale, including tags.
-          if (JSON.stringify(tagDefinitions) !== JSON.stringify(options.tags.list())) {
-            state(id, "pending");
-            return;
-          }
-          const { groupId } = result;
-          if (groupId !== null && !offered.some((item) => item.id === groupId))
-            throw new Error("The classifier returned an unknown group.");
-          if (result.fallback) console.info(fallbackLine(id));
-          const chosen = initial.source === "user";
-          const { made } = db.transaction(() => {
-            write(
-              latest,
-              chosen ? initial.group_id : groupId,
-              initial.source,
-              "classified",
-              classifier.model
-                ? { ...classifier.model, images: images.length > 0 && classifier.model.images }
-                : null,
-              !chosen && groupId !== null,
-            );
-            const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
-            tagState(id, "classified");
-            if (asked.has(id)) clearForService(db, id, services, now());
-            return applied;
-          });
-          if (made > 0) options.tagsMade?.();
-          options.tagged([id]);
-          announce([id]);
-        } catch (error) {
-          if (!stale()) {
-            if (error instanceof NotFoundError) return;
-            const limitedUntil = options.rateLimit.pause(error);
-            const refused = limitedUntil === null ? options.rateLimit.refuse(error) : null;
-            // The plan's limit: it waits for the plan to reset (see ./planPace).
-            const waiting =
-              limitedUntil !== null ||
-              refused !== null ||
-              error instanceof ChatNotReadyError ||
-              error instanceof ConsentDeclinedError ||
-              error instanceof ConsentNeededError ||
-              gateStop(error) !== null ||
-              error instanceof TaggingNotReadyError ||
-              reachedPlanLimit(error);
-            state(
-              id,
-              waiting ? "waiting" : "failed",
-              limitedUntil === null
-                ? (refused ?? classifyProviderError(error))
-                : rateLimitError(limitedUntil, error),
-            );
-          }
+          await classifyOne(id, { signal: call.signal, runsLocally: () => call.runsLocally() });
         } finally {
           if (!lifetime.signal.aborted) {
             if (assignment(id)?.status === "classifying") state(id, "pending");
@@ -1038,6 +922,171 @@ export function createLibrary(options: {
       },
     });
   }
+
+  async function classifyOne(
+    id: string,
+    call: {
+      /** Stops the work when the turn or the app does. */
+      signal: AbortSignal;
+      /** The model is on this computer: an Answer that starts makes the queue's job give way. */
+      runsLocally(): void;
+      /** What stopped it, once the Document's state says why. */
+      failed?(error: unknown): void;
+      /** The links automatic tagging changed, before and after (#2252). */
+      applied?(id: string, links: readonly TagLinkChange[]): void;
+      /** The Folders it may choose, when a wall keeps it to some (#1934); none: all of them. */
+      allowedGroups?: ReadonlySet<string>;
+      /** The one service this run's Allow covers, without storing consent (#2252). */
+      permit?: CloudReadPermit;
+    },
+  ): Promise<void> {
+    const initial = assignment(id);
+    const version = revision;
+    const stale = () =>
+      lifetime.signal.aborted ||
+      call.signal.aborted ||
+      version !== revision ||
+      assignment(id)?.request_id !== initial?.request_id;
+    try {
+      if (!initial || initial.status === "classified") return;
+      const current = document(id);
+      if (!hasContent(current)) {
+        state(id, "waiting", scanWaits(current));
+        return;
+      }
+      const definitions = groups().filter(
+        (group) => !call.allowedGroups || call.allowedGroups.has(group.id),
+      );
+      const tagDefinitions = options.tags.list();
+      if (definitions.length === 0) {
+        state(id, "waiting");
+        return;
+      }
+      if (taggingStoppedFor(id) && !asked.has(id)) {
+        stopped(id);
+        return;
+      }
+      const limitedUntil = options.rateLimit.pausedUntil();
+      if (limitedUntil !== null) {
+        state(id, "waiting", rateLimitError(limitedUntil));
+        return;
+      }
+      const refusal = options.rateLimit.refusal();
+      if (refusal !== null) {
+        state(id, "waiting", refusal);
+        return;
+      }
+      state(id, "classifying");
+      const settingsNow = getSettings();
+      const classifier = await options.prepare(settingsNow, call.permit);
+      if (classifier.local) call.runsLocally();
+      if (stale()) return;
+      // Checked on where this request goes, as prepared; the User's own Organize goes.
+      const service = options.organizeService(settingsNow);
+      const services = service ? [service] : [];
+      if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
+        holdBack(id, initial);
+        return;
+      }
+      const declined = rejected(id);
+      const offered = definitions.filter((item) => !declined.has(item.id));
+      const read = source(current);
+      const signal = AbortSignal.any([lifetime.signal, call.signal]);
+      const images = organizeReadsPages(classifier.pageImages, read)
+        ? await options.pageImages(id, current.content_hash ?? "", signal)
+        : [];
+      if (stale()) return;
+      const result = await classifier.organize(
+        offered,
+        tagDefinitions,
+        organizeExcerpt(read),
+        signal,
+        images,
+      );
+      if (stale()) return;
+      options.rateLimit.succeeded();
+      const latest = document(id);
+      if (!hasContent(latest) || latest.content_hash !== current.content_hash) {
+        state(id, "pending");
+        return;
+      }
+      // Definition changes make the complete result stale, including tags.
+      if (JSON.stringify(tagDefinitions) !== JSON.stringify(options.tags.list())) {
+        state(id, "pending");
+        return;
+      }
+      const { groupId } = result;
+      if (groupId !== null && !offered.some((item) => item.id === groupId))
+        throw new Error("The classifier returned an unknown group.");
+      if (result.fallback) console.info(fallbackLine(id));
+      const chosen = initial.source === "user";
+      const { made, links } = db.transaction(() => {
+        write(
+          latest,
+          chosen ? initial.group_id : groupId,
+          initial.source,
+          "classified",
+          classifier.model
+            ? { ...classifier.model, images: images.length > 0 && classifier.model.images }
+            : null,
+          !chosen && groupId !== null,
+        );
+        const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
+        tagState(id, "classified");
+        if (asked.has(id)) clearForService(db, id, services, now());
+        return applied;
+      });
+      if (made > 0) options.tagsMade?.();
+      if (links.length > 0) call.applied?.(id, links);
+      options.tagged([id]);
+      announce([id]);
+    } catch (error) {
+      if (!stale()) {
+        if (error instanceof NotFoundError) return;
+        const limitedUntil = options.rateLimit.pause(error);
+        const refused = limitedUntil === null ? options.rateLimit.refuse(error) : null;
+        // The plan's limit: it waits for the plan to reset (see ./planPace).
+        const waiting =
+          limitedUntil !== null ||
+          refused !== null ||
+          error instanceof ChatNotReadyError ||
+          error instanceof ConsentDeclinedError ||
+          error instanceof ConsentNeededError ||
+          gateStop(error) !== null ||
+          error instanceof TaggingNotReadyError ||
+          reachedPlanLimit(error);
+        state(
+          id,
+          waiting ? "waiting" : "failed",
+          limitedUntil === null
+            ? (refused ?? classifyProviderError(error))
+            : rateLimitError(limitedUntil, error),
+        );
+        call.failed?.(error);
+      }
+    }
+  }
+
+  const queueClassification = (ids: readonly string[]) => {
+    const docs = ids.map(document);
+    for (const doc of docs) asked.add(doc.id);
+    db.transaction(() => {
+      for (const doc of docs) {
+        const existing = assignment(doc.id);
+        write(
+          doc,
+          existing?.group_id ?? null,
+          existing?.source ?? "automatic",
+          hasContent(doc) ? "pending" : "waiting",
+          null,
+          existing?.suggested === 1,
+        );
+        tagState(doc.id, hasContent(doc) ? "pending" : "waiting");
+      }
+    });
+    options.tagged(docs.map((doc) => doc.id));
+    announce(docs.map((doc) => doc.id));
+  };
 
   function resume(): void {
     if (lifetime.signal.aborted) return;
@@ -1647,7 +1696,11 @@ export function createLibrary(options: {
      * `language` and makes them; Organize then sorts the Documents into them (`classify`).
      * Returns the Folders made. Throws InvalidInputError when Organize's model can't name Folders.
      */
-    async propose(input: unknown, language: Language): Promise<LibraryGroup[]> {
+    async propose(
+      input: unknown,
+      language: Language,
+      permit?: CloudReadPermit,
+    ): Promise<LibraryGroup[]> {
       const settings = getSettings();
       if (!organizeModelOf(settings))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
@@ -1656,7 +1709,7 @@ export function createLibrary(options: {
         .map(document)
         .filter(hasContent);
       if (docs.length === 0) return [];
-      const classifier = await options.prepare(settings);
+      const classifier = await options.prepare(settings, permit);
       if (!classifier.proposeFolders)
         throw new InvalidInputError({ key: "error.library.cantPropose" });
       const existing = groups().map((each) => each.name);
@@ -1685,25 +1738,74 @@ export function createLibrary(options: {
               .map((row) => row.id)
           : documentIdsOf(input)
       ).filter((id) => !options.isExampleDocument?.(id));
-      const docs = ids.map(document);
-      for (const doc of docs) asked.add(doc.id);
-      db.transaction(() => {
-        for (const doc of docs) {
-          const existing = assignment(doc.id);
-          write(
-            doc,
-            existing?.group_id ?? null,
-            existing?.source ?? "automatic",
-            hasContent(doc) ? "pending" : "waiting",
-            null,
-            existing?.suggested === 1,
-          );
-          tagState(doc.id, hasContent(doc) ? "pending" : "waiting");
-        }
-      });
-      options.tagged(docs.map((doc) => doc.id));
-      announce(docs.map((doc) => doc.id));
+      queueClassification(ids);
       resume();
+    },
+    /**
+     * Organize these Documents and wait for the model, inside the turn that asked (#2252): the
+     * queue never starts while an Answer is written, so a request that files them before its reply
+     * sorts here, as the Library does. It stops at the first failure and puts every Document it
+     * hadn't reached back as it was, so none is left working with no job to finish it.
+     */
+    async organizeAtOnce(
+      input: unknown,
+      signal: AbortSignal,
+      allowedGroups?: ReadonlySet<string>,
+      permit?: CloudReadPermit,
+    ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }> {
+      if (!organizeModelOf(getSettings()))
+        throw new InvalidInputError({ key: "error.library.noClassifier" });
+      if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
+      const ids = documentIdsOf(input).filter((id) => !options.isExampleDocument?.(id));
+      const before = new Map(
+        ids.map((id) => {
+          const row = assignment(id);
+          return [
+            id,
+            { assignment: row ? assignmentFields(row) : null, tagging: taggingSnapshot(id) },
+          ];
+        }),
+      );
+      queueClassification(ids);
+      let failure: unknown | null = null;
+      const reached = new Set<string>();
+      const tagChanges: TagLinkChange[] = [];
+      for (const id of ids) {
+        if (signal.aborted) break;
+        let stopped: unknown = null;
+        await classifyOne(id, {
+          signal,
+          runsLocally: () => undefined,
+          failed: (error) => {
+            stopped = error;
+          },
+          applied: (_id, links) => tagChanges.push(...links),
+          allowedGroups,
+          permit,
+        });
+        // Stopped during this one: it goes back as it was, like the ones after it.
+        if (signal.aborted && !lifetime.signal.aborted) break;
+        reached.add(id);
+        if (stopped) {
+          failure = stopped;
+          break;
+        }
+      }
+      const untouched = ids.filter((id) => !reached.has(id));
+      for (const id of untouched) {
+        const prior = before.get(id);
+        if (!prior) continue;
+        try {
+          restoreAssignmentRow(document(id), prior.assignment);
+          if (prior.tagging) restoreTaggingRow(id, prior.tagging);
+        } catch (error) {
+          if (!(error instanceof NotFoundError)) throw error;
+        }
+        if (prior.assignment?.status === "pending" || prior.assignment?.status === "waiting") {
+          enqueue(id);
+        }
+      }
+      return { failed: failure, untouched: untouched.length, tagChanges };
     },
     assign(id: unknown, groupId: unknown): AssignmentChange {
       const doc = document(id);

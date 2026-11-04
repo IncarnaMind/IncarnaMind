@@ -161,17 +161,6 @@ export function CommandsCard({
                 ))}
               </p>
             </div>
-            {done.map((each) =>
-              each.command === "documents.organize" && each.into ? (
-                <OrganizeLine
-                  key={`${run}-organize`}
-                  ids={each.items.map((item) => item.id)}
-                  folderId={each.into.id}
-                  folder={each.into.name}
-                  undone={undone[run] === true}
-                />
-              ) : null,
-            )}
             {lines.map((line, index) => (
               <div
                 // biome-ignore lint/suspicious/noArrayIndexKey: two things changed may have the same name.
@@ -255,82 +244,6 @@ function YoursLine({
           </span>
         )}
       </p>
-    </div>
-  );
-}
-
-/**
- * How Organize's sorting of what the assistant asked for goes (#1421), from the Library as it is:
- * reading, then how many wait in To review for the Folder the request named, with Review; none
- * moves until the User accepts it there.
- */
-function OrganizeLine({
-  ids,
-  folderId,
-  folder,
-  undone,
-}: {
-  ids: readonly string[];
-  folderId: string;
-  folder: string;
-  undone: boolean;
-}) {
-  const t = useT();
-  const assignments = useAppStore((state) => state.library?.assignments);
-  const { reading, waiting, elsewhere } = useMemo(() => {
-    const mine = new Set(ids);
-    const rows = (assignments ?? []).filter((each) => mine.has(each.documentId));
-    return {
-      reading: rows.some((each) => each.status === "pending" || each.status === "classifying"),
-      waiting: rows.filter((each) => each.suggested && each.groupId === folderId).length,
-      elsewhere: rows.filter((each) => each.suggested && each.groupId !== folderId).length,
-    };
-  }, [assignments, ids, folderId]);
-  if (undone || ids.length === 0) return null;
-  const said = reading
-    ? t("commands.organize.reading")
-    : waiting === 0 && elsewhere === 0
-      ? t("commands.organize.none", { folder })
-      : [
-          ...(waiting > 0
-            ? [
-                t(waiting === 1 ? "commands.organize.waiting.one" : "commands.organize.waiting", {
-                  count: waiting,
-                  folder,
-                }),
-              ]
-            : []),
-          ...(elsewhere > 0
-            ? [
-                t(
-                  elsewhere === 1
-                    ? "commands.organize.elsewhere.one"
-                    : "commands.organize.elsewhere",
-                  { count: elsewhere },
-                ),
-              ]
-            : []),
-        ].join(" · ");
-  return (
-    <div
-      data-testid="command-organize"
-      data-reading={reading || undefined}
-      className="mind-changes-row"
-    >
-      <span className="mind-changes-count">{said}</span>
-      {!reading && waiting + elsewhere > 0 && (
-        <>
-          <Dot />
-          <button
-            type="button"
-            data-testid="command-organize-review"
-            onClick={() => useAppStore.getState().openLibrary("review")}
-            className="mind-changes-review"
-          >
-            {t("library.review.review")}
-          </button>
-        </>
-      )}
     </div>
   );
 }

@@ -74,7 +74,9 @@ const FOLDER_AND_MOVE =
   /\bmake a folder called (.+?) and move the (.+?)s? into it\b|新建一个叫“(.+?)”的文件夹，把(.+?)移进去/i;
 const BESIDE = /\bopen the (.+?) beside this one\b|在旁边打开“(.+?)”/i;
 const CHECK = /\bcheck this (?:mind|note)\b|核对这篇笔记/i;
+const ORGANIZE_FILES = /\bre[ -]?organi[sz]e the files\b|重新整理(?:一下)?(?:这些)?文件/i;
 const ORGANIZE_ABOUT = /\bput the documents about (.+?) together\b|把关于(.+?)的文档放在一起/i;
+const REDUCE_TAGS = /\breduce the number of tags\b|减少标签(?:数量)?/i;
 const LOCAL_MODE = /\bturn on local mode\b|打开本地模式/i;
 const CLAIMS_LOCAL_MODE = /^say you turned on local mode|^说你打开了本地模式/i;
 const WALL_OFF = /\bstop keeping this folder's work inside it\b|让本文件夹不再只在本文件夹内工作/i;
@@ -192,6 +194,43 @@ export function commandsReply(
     );
   }
   if (CHECK.test(question)) return runOnce(prompt, { command: "mind.check", done: true });
+  if (ORGANIZE_FILES.test(asked)) {
+    if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
+    return {
+      tool: "run_command",
+      input: { command: "documents.organize", about: "the files, each by what it says" },
+    };
+  }
+  if (REDUCE_TAGS.test(asked)) {
+    const listed = lastResult(prompt, "list_commands");
+    if (listed === undefined) return { tool: "list_commands", input: { kind: "tag" } };
+    if (lastResult(prompt, "run_command") !== undefined) return said(prompt);
+    // Tags are listed by id and name, with no dates or Folder after them.
+    const found: Found[] = [...listed.matchAll(/^- (\S+): “(.+?)”(?= |$)/gm)].map((match) => ({
+      id: match[1] ?? "",
+      name: match[2] ?? "",
+      added: "",
+      focused: false,
+    }));
+    const shorter = (one: Found, other: Found) =>
+      other.name.length > one.name.length &&
+      other.name.toLowerCase().startsWith(one.name.toLowerCase());
+    const groups = found
+      .filter((each) => found.some((other) => shorter(each, other)))
+      .map((kept) => ({
+        ids: found.filter((each) => shorter(kept, each)).map((each) => each.id),
+        tag: kept.name,
+      }));
+    if (groups.length === 0) return { text: firstSentence(listed) };
+    const [one] = groups;
+    return {
+      tool: "run_command",
+      input:
+        groups.length === 1 && one
+          ? { command: "tag.merge", ids: one.ids, tag: one.tag }
+          : { command: "tag.merge", merges: groups },
+    };
+  }
   const about = ORGANIZE_ABOUT.exec(question);
   if (about) {
     const topic = (about[1] ?? about[2] ?? "").trim();
