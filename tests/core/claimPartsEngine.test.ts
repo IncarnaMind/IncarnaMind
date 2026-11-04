@@ -295,18 +295,25 @@ describe("literal sentence parts", () => {
 
   test.each([
     { field: "Roles", said: "Roles: the Tenant pays / the Landlord pays, differs" },
-    { field: "Time", said: "Time: has closed / will close next year, differs" },
-    { field: "Scope", said: "Scope: staff, wider" },
+    {
+      field: "Time",
+      said:
+        "Roles: the Tenant pays / the Tenant pays, same\n" +
+        "Time: has closed / will close next year, differs",
+    },
+    {
+      field: "Scope",
+      said: "Roles: the Tenant pays / the Tenant pays, same\nScope: staff, wider",
+    },
   ])(
     "a part whose own $field differ keeps the judge's verdict, not Support (#2313)",
     async ({ said }) => {
       const claim = "Under the lease, the Tenant pays the Landlord's repair costs.";
       const first = "Under the lease";
       const part = "the Tenant pays the Landlord's repair costs";
-      const quote = "Under the lease, the Landlord pays the Tenant's repair costs.";
       const reply = (fields: string) =>
         `Verdict: contradicted\n${fields}\nThe Document gives it the other way.\nEvidence: [1]`;
-      const run = (fields: string) =>
+      const run = (fields: string, stated = claim) =>
         check(
           claim,
           [
@@ -314,8 +321,8 @@ describe("literal sentence parts", () => {
             { kind: "fact", text: part },
           ],
           {
-            [first]: { quotes: [quote] },
-            [part]: { quotes: [quote], reply: reply(fields), judgement: "same" },
+            [first]: { quotes: [stated] },
+            [part]: { quotes: [stated], reply: reply(fields), judgement: "same" },
           },
         );
       const judged = (
@@ -329,6 +336,7 @@ describe("literal sentence parts", () => {
           (
             await run(
               "Roles: the Tenant pays / the Tenant pays, same\nTime: none / none, same\nScope: none, same",
+              claim,
             )
           ).result.parts ?? [],
         ),
@@ -474,7 +482,7 @@ describe("literal sentence parts", () => {
         [part]: {
           quotes: ["The leverage was 3.25x."],
           calculation,
-          reply: `Verdict: contradicted\nThe Document gives it another way.\nCalculation: 3.25x\nEvidence: [1]`,
+          reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nCalculation: 3.25x\nEvidence: [1]`,
           judgement: "same",
         },
       },
@@ -508,6 +516,14 @@ describe("literal sentence parts", () => {
       own: "Under the agreement, the fee is capped.",
     },
     {
+      name: "en isn’t capped with a typographic apostrophe",
+      claim: "Under the agreement, the fee is capped.",
+      first: "Under the agreement",
+      part: "the fee is capped",
+      quote: "Under the agreement, the fee isn’t capped.",
+      own: "Under the agreement, the fee is capped.",
+    },
+    {
       name: "en never capped",
       claim: "Under the agreement, the fee is capped.",
       first: "Under the agreement",
@@ -521,6 +537,15 @@ describe("literal sentence parts", () => {
       first: "根据合同",
       part: "乙方应当支付违约金",
       quote: "根据合同，乙方不应当支付违约金。",
+      own: "根据合同，乙方应当支付违约金。",
+      language: "zh-CN" as const,
+    },
+    {
+      name: "zh 不 added later in the same run",
+      claim: "根据合同，乙方应当支付违约金。",
+      first: "根据合同",
+      part: "乙方应当支付违约金",
+      quote: "根据合同，乙方应当支付违约金的说法不成立。",
       own: "根据合同，乙方应当支付违约金。",
       language: "zh-CN" as const,
     },
@@ -610,6 +635,185 @@ describe("literal sentence parts", () => {
   );
 
   test.each([
+    {
+      name: "en revenue fell in Q2, quote says rose in Q2 and fell in Q3",
+      claim: "Revenue fell in Q2, and costs rose in Q2.",
+      first: "Revenue fell in Q2",
+      part: "costs rose in Q2",
+      quote: "Revenue rose in Q2, and costs fell in Q2.",
+      own: "Revenue fell in Q2, and costs rose in Q2.",
+    },
+    {
+      name: "en every year, quote says every week of the year",
+      claim: "The harbour office publishes the times of high water every year.",
+      first: "The harbour office publishes the times of high water",
+      part: "every year",
+      quote: "The harbour office publishes the times of high water every week of the year.",
+      own: "The harbour office publishes the times of high water every year.",
+    },
+    {
+      name: "en not capped, quote says capped but not refundable",
+      claim: "Under the agreement, the fee is not capped.",
+      first: "Under the agreement",
+      part: "the fee is not capped",
+      quote: "Under the agreement, the fee is capped but not refundable.",
+      own: "Under the agreement, the fee is not capped.",
+    },
+    {
+      name: "zh every year, quote says every week with the year elsewhere",
+      claim: "据通知，港口办公室每年公布一次高潮时间。",
+      first: "据通知",
+      part: "港口办公室每年公布一次高潮时间",
+      quote: "据通知，港口办公室每周公布一次高潮时间，全年如此。",
+      own: "据通知，港口办公室每年公布一次高潮时间。",
+      language: "zh-CN" as const,
+    },
+  ])(
+    "a part's own words must be adjacent in the quote, not only present ($name, #2313)",
+    async ({ claim, first, part, quote, own, language }) => {
+      const run = (said: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: first },
+            { kind: "fact", text: part },
+          ],
+          {
+            [first]: { quotes: [said] },
+            [part]: {
+              quotes: [said],
+              reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
+              judgement: "same",
+            },
+          },
+          language ?? "en",
+        );
+      const judged = (
+        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
+      expect(judged((await run(own)).result.parts ?? [])).toBe("supported");
+    },
+  );
+
+  test.each([
+    {
+      name: "en is not / isn't",
+      claim: "Under the agreement, the fee is not capped.",
+      first: "Under the agreement",
+      part: "the fee is not capped",
+      quote: "Under the agreement, the fee isn't capped.",
+    },
+    {
+      name: "en is not / isn’t with a typographic apostrophe",
+      claim: "Under the agreement, the fee is not capped.",
+      first: "Under the agreement",
+      part: "the fee is not capped",
+      quote: "Under the agreement, the fee isn’t capped.",
+    },
+    {
+      name: "en cannot / can't",
+      claim: "Under the agreement, the board cannot approve the plan.",
+      first: "Under the agreement",
+      part: "the board cannot approve the plan",
+      quote: "Under the agreement, the board can't approve the plan.",
+    },
+    {
+      name: "en does not / doesn't",
+      claim: "Under the agreement, the board does not approve the plan.",
+      first: "Under the agreement",
+      part: "the board does not approve the plan",
+      quote: "Under the agreement, the board doesn't approve the plan.",
+    },
+  ])(
+    "a contraction says the same words as its expansion ($name, #2313)",
+    async ({ claim, first, part, quote }) => {
+      const run = (said: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: first },
+            { kind: "fact", text: part },
+          ],
+          {
+            [first]: { quotes: [said] },
+            [part]: {
+              quotes: [said],
+              reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
+              judgement: "same",
+            },
+          },
+        );
+      const judged = (
+        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+      expect(judged((await run(quote)).result.parts ?? [])).toBe("supported");
+      expect(judged((await run(claim)).result.parts ?? [])).toBe("supported");
+    },
+  );
+
+  test("full-width letters compare after NFKC, while 应当 and 应该 stay a recall miss (#2313)", async () => {
+    const claim = "根据公告，ＡＢＣ公司每年公布一次报告。";
+    const first = "根据公告";
+    const part = "ＡＢＣ公司每年公布一次报告";
+    const run = (said: string) =>
+      check(
+        claim,
+        [
+          { kind: "fact", text: first },
+          { kind: "fact", text: part },
+        ],
+        {
+          [first]: { quotes: [said] },
+          [part]: {
+            quotes: [said],
+            reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
+            judgement: "same",
+          },
+        },
+        "zh-CN",
+      );
+    const judged = (
+      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+    ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+    expect(judged((await run("根据公告，ABC公司每年公布一次报告。")).result.parts ?? [])).toBe(
+      "supported",
+    );
+    expect(judged((await run(claim)).result.parts ?? [])).toBe("supported");
+
+    const dutyClaim = "根据合同，乙方应当支付违约金。";
+    const dutyPart = "乙方应当支付违约金";
+    const duty = (said: string) =>
+      check(
+        dutyClaim,
+        [
+          { kind: "fact", text: "根据合同" },
+          { kind: "fact", text: dutyPart },
+        ],
+        {
+          根据合同: { quotes: [said] },
+          [dutyPart]: {
+            quotes: [said],
+            reply: `Verdict: contradicted\nRoles: ${dutyPart} / ${dutyPart}, same\nThe Document gives it another way.\nEvidence: [1]`,
+            judgement: "same",
+          },
+        },
+        "zh-CN",
+      );
+    const judgedDuty = (
+      parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+    ) =>
+      parts.find((each) => dutyClaim.slice(each.span.start, each.span.end) === dutyPart)?.verdict;
+
+    expect(judgedDuty((await duty("根据合同，乙方应该支付违约金。")).result.parts ?? [])).not.toBe(
+      "supported",
+    );
+  });
+
+  test.each([
     { name: "no Roles line", fields: "" },
     { name: "Roles: same", fields: "Roles: same\n" },
     { name: "none / none", fields: "Roles: none / none, same\n" },
@@ -621,7 +825,7 @@ describe("literal sentence parts", () => {
       const first = "Under the contract";
       const part = "the Buyer indemnifies the Seller";
       const quote = "Under the contract, the Seller indemnifies the Buyer.";
-      const run = (reply: string) =>
+      const run = (reply: string, stated = quote) =>
         check(
           claim,
           [
@@ -629,8 +833,8 @@ describe("literal sentence parts", () => {
             { kind: "fact", text: part },
           ],
           {
-            [first]: { quotes: [quote] },
-            [part]: { quotes: [quote], reply, judgement: "same" },
+            [first]: { quotes: [stated] },
+            [part]: { quotes: [stated], reply, judgement: "same" },
           },
         );
       const judged = (
@@ -652,6 +856,7 @@ describe("literal sentence parts", () => {
           (
             await run(
               `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it the other way.\nEvidence: [1]`,
+              claim,
             )
           ).result.parts ?? [],
         ),

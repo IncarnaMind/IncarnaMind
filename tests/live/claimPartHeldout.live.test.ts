@@ -5,8 +5,6 @@
  * the one checked; everything else is the real model. Runs only with
  * INCARNAMIND_LIVE_ANTHROPIC_KEY. The cases were committed before the run.
  */
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import { type Core, createAiSdkChatModel } from "../../src/core";
@@ -15,7 +13,11 @@ import {
   isPartOf,
   quoteStatesDetail,
 } from "../../src/core/answers/checks/claimCheck";
-import { readJudgement, readVerdict } from "../../src/core/answers/checks/prompt";
+import {
+  CONFIRM_INSTRUCTIONS,
+  readJudgement,
+  readVerdict,
+} from "../../src/core/answers/checks/prompt";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -239,7 +241,7 @@ function heardReply(prompt: unknown, text: string): void {
   if (!sentence) return;
   const system = systemText(prompt);
   if (system.startsWith("You check one sentence")) heard.replies.set(sentence, text);
-  else if (system.startsWith("Compare a sentence")) {
+  else if (system === CONFIRM_INSTRUCTIONS) {
     const word = readJudgement(text);
     if (word) heard.comparisons.set(sentence, [...(heard.comparisons.get(sentence) ?? []), word]);
   }
@@ -424,8 +426,6 @@ describe("held-out parts on the judge", () => {
         positiveSamples: flat.filter((one) => !one.negative).length,
         spent,
       };
-      const file = join(dataDir, "held-out.json");
-      writeFileSync(file, JSON.stringify(report, null, 2));
       process.stdout.write(
         `held out: ${report.falseSupported}/${report.decoySamples} decoy samples read Supported; ${report.trueSupported}/${report.positiveSamples} true samples read Supported; spend ${JSON.stringify(spent)}\n`,
       );
