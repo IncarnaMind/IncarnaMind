@@ -803,50 +803,91 @@ console.log(JSON.stringify(results));
       },
     );
 
-    test("a prefix's lib that links elsewhere in the home is read where it really is, and one that links to the home opens nothing of it", async () => {
+    test("a prefix's lib that links inside the prefix is read where it really is; one that links anywhere else in the home opens nothing", async () => {
       const { root, home, data, canary } = await setUp();
-      const env = { tempDir: join(root, "temp"), denyRead: deniedFor(home, data) };
+      await mkdir(join(home, "Library", "Keychains"), { recursive: true });
+      await writeFile(join(home, "Library", "Keychains", "login.keychain-db"), "KEYCHAIN SECRET");
+      const elsewhere = join(home, "elsewhere", "lib");
+      await mkdir(join(elsewhere, "python3.12"), { recursive: true });
+      await writeFile(join(elsewhere, "python3.12", "os.py"), "STDLIB\n");
       const roots = interpreterRoots({ platform: process.platform, home });
-      const probe = (path: string) =>
-        [
-          "echo started",
-          `cat '${path}' 2>/dev/null || echo denied`,
-          `cat '${canary}' 2>/dev/null || echo denied`,
-        ].join("; ");
-      const prefixWith = async (name: string, lib: string) => {
+      const run = async (
+        name: string,
+        lib: (prefix: string) => Promise<string>,
+        through: string,
+      ) => {
         const prefix = join(home, name);
         await mkdir(join(prefix, "bin"), { recursive: true });
         await writeFile(join(prefix, "bin", "python3"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
           mode: 0o755,
         });
-        await symlink(lib, join(prefix, "lib"));
-        return osExecutor({
-          ...env,
-          env: { PATH: `${join(prefix, "bin")}:/usr/bin:/bin` },
+        await symlink(await lib(prefix), join(prefix, "lib"));
+        const ran = await osExecutor({
+          tempDir: join(root, "temp"),
+          denyRead: deniedFor(home, data),
           interpreterRoots: roots,
+          env: { PATH: `${join(prefix, "bin")}:/usr/bin:/bin` },
+        }).run({
+          ...shell(
+            [
+              "echo started",
+              `cat '${join(prefix, "lib", through)}' 2>/dev/null || echo denied`,
+              `cat '${canary}' 2>/dev/null || echo denied`,
+            ].join("; "),
+          ),
+          command: "python3",
         });
+        return { name, exitCode: ran.exitCode, stdout: ran.stdout };
       };
-      const elsewhere = join(home, "elsewhere", "lib");
-      await mkdir(join(elsewhere, "python3.12"), { recursive: true });
-      await writeFile(join(elsewhere, "python3.12", "os.py"), "STDLIB\n");
+      const inside = async (prefix: string) => {
+        await mkdir(join(prefix, "lib-3.12", "python3.12"), { recursive: true });
+        await writeFile(join(prefix, "lib-3.12", "python3.12", "os.py"), "STDLIB\n");
+        return join(prefix, "lib-3.12");
+      };
+      const cases = [
+        await run("inside", inside, join("python3.12", "os.py")),
+        await run("to-elsewhere", async () => elsewhere, join("python3.12", "os.py")),
+        await run("to-home", async () => home, join(".ssh", "id_canary")),
+        await run("to-ssh", async () => join(home, ".ssh"), "id_canary"),
+        await run(
+          "to-keychains",
+          async () => join(home, "Library", "Keychains"),
+          "login.keychain-db",
+        ),
+        // APFS and HFS+ ignore letter case: another spelling of ~/.ssh is ~/.ssh.
+        ...(process.platform === "darwin"
+          ? [await run("to-ssh-other-case", async () => join(home, ".SSH"), "id_canary")]
+          : []),
+      ];
 
-      const linked = await (await prefixWith("linked", elsewhere)).run({
-        ...shell(probe(join(home, "linked", "lib", "python3.12", "os.py"))),
-        command: "python3",
+      expect(cases).toEqual(
+        cases.map(({ name }) => ({
+          name,
+          exitCode: 0,
+          stdout: name === "inside" ? "started\nSTDLIB\ndenied\n" : "started\ndenied\ndenied\n",
+        })),
+      );
+    });
+
+    test("a prefix's lib that links in a loop stops the run with the sandbox's own words", async () => {
+      const { root, home, data } = await setUp();
+      const prefix = join(home, "looped");
+      await mkdir(join(prefix, "bin"), { recursive: true });
+      await writeFile(join(prefix, "bin", "python3"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
+        mode: 0o755,
       });
-      const toHome = await (await prefixWith("to-home", home)).run({
-        ...shell(probe(join(home, "to-home", "lib", ".ssh", "id_canary"))),
-        command: "python3",
+      await symlink(join(prefix, "lib2"), join(prefix, "lib"));
+      await symlink(join(prefix, "lib"), join(prefix, "lib2"));
+      const executor = osExecutor({
+        tempDir: join(root, "temp"),
+        denyRead: deniedFor(home, data),
+        interpreterRoots: interpreterRoots({ platform: process.platform, home }),
+        env: { PATH: `${join(prefix, "bin")}:/usr/bin:/bin` },
       });
 
-      expect({ exitCode: linked.exitCode, stdout: linked.stdout }).toEqual({
-        exitCode: 0,
-        stdout: "started\nSTDLIB\ndenied\n",
-      });
-      expect({ exitCode: toHome.exitCode, stdout: toHome.stdout }).toEqual({
-        exitCode: 0,
-        stdout: "started\ndenied\ndenied\n",
-      });
+      await expect(executor.run({ ...shell("echo started"), command: "python3" })).rejects.toThrow(
+        "The OS sandbox couldn't start, so the program didn't run",
+      );
     });
 
     test("a venv's python in a home runs with its site-packages, and the project beside the venv stays unread", async () => {
