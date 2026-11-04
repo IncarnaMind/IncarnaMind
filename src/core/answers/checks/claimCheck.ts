@@ -1667,14 +1667,15 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     };
     // The fields-only second look (#2313): a judge's own reply that said it could not state the
     // sentence, and then said the claim is stated and the same, is asked once more; a still
-    // inconsistent reply is Not checked rather than Supported or cut.
+    // inconsistent reply, or a Supported one without its Duty or Condition, is Not checked rather
+    // than Supported or cut (#1766, #1708).
     const rechecked = async (
       again: ReadVerdict | null,
       shown: Citation | null,
     ): Promise<ClaimCheckResult> => {
       if (!again) return notChecked("malformed");
       if (again.verdict === "supported") {
-        if (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+        if (ownDetailDiffers(again) || again.scope === "wider")
           return unsupported(
             {
               reason: again.says,
@@ -1689,6 +1690,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           again.absence !== "no" ||
           again.topic !== "found" ||
           again.roles !== "same" ||
+          ownDetailUnread(again) ||
           !again.evidence?.length ||
           comparesOtherWords(again, request.claim, true)
         )
@@ -1723,7 +1725,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           ...facts(),
         };
       }
-      if (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+      if (ownDetailDiffers(again) || again.scope === "wider")
         return unsupported(
           {
             reason: again.says,
@@ -1872,21 +1874,11 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         return unsupported({ reason: verdict.says, ...part, found: true }, evidence, nearest);
       if (differs) return unsupported({ ...UNBACKED, reason: verdict.says });
     }
-    if (
-      byCalculation &&
-      onlyCalculation &&
-      verdict.verdict === "contradicted" &&
-      verdict.says === null &&
-      verdict.covered === null &&
-      verdict.uncovered === null
-    )
-      return byCalculation;
     if (verdict.verdict === "contradicted") {
       // The judgements disagree with the check: the card shows the part the quote states
       // (DESIGN.md › Checks).
       const inDoubt = async (): Promise<ClaimCheckResult> => {
         if (unit) return unsupported(unit, unitProblem?.quote ?? null, null);
-        if (byCalculation) return byCalculation;
         if (verdict.topic === "not found") return unsupported();
         const part = await parts(deciding);
         if (signal.aborted) return notChecked("stopped");
@@ -1902,7 +1894,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       if (confirmation.kind === "unrelated") {
         return unit
           ? unsupported(unit, unitProblem?.quote ?? null, null)
-          : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
+          : unsupported(verdict.topic === "not found" ? undefined : UNBACKED);
       }
       // A part whose quote states it on its own, and whose own Roles, Time, Duty, Condition and
       // Scope agree: the reply's contradiction was about words outside the part, as a sentence's

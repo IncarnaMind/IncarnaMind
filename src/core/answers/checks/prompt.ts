@@ -65,6 +65,17 @@ const rules = (calculate = false) => [
   `- a sentence that adds a detail the Passages don't mention${calculate ? " and calculate doesn't establish" : ""}.`,
 ];
 
+const ABSENCE_LINE =
+  'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.';
+
+// Under Roles alone, "should" for "must" and a rule stated without its Passage's condition were
+// "same" (a side that says neither must nor may; a condition one side adds), so Claude Sonnet
+// 5.5 called every such near copy of a held-out set Supported (#1766, #1708).
+const DUTY_LINE =
+  'Duty: how each side puts it, one word each: must (a duty), should (advice, or what is expected), may (a permission or an ability), must not (a prohibition) or none (it says only what is or happens); the sentence\'s first, then " / " and the Passage\'s for that very thing, then same or differs ("Duty: should / must, differs"; "Duty: must / may, differs"; "Duty: must / must, same" for "is bound to" against "must"). "differs" when they are two different words of the first four. Anything else is "same": the same word, a side that is none, or one rule put the other way round ("must keep it shut" against "must not leave it open").';
+const CONDITION_LINE =
+  'Condition: the condition or exception it holds on, copied as written (such as only if, unless, except, provided that, subject to, after notice; none when it has none), first as the sentence says it, then " / " and as the Passage says it for that very thing, then same or differs ("Condition: none / unless it rains, differs"; "Condition: on Sundays only / only on Sundays, same"; "Condition: none / none, same"). "differs" when one side holds it only on a condition, or with an exception, that the other leaves out or puts otherwise. Anything else is "same".';
+
 /**
  * The sentence is written in the interface's language, whatever language the
  * User's sentence or the Documents are in (#701): without this, a model that
@@ -74,7 +85,7 @@ const reply = (language: Language, calculate: boolean) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     "Verdict: supported, unsupported or contradicted",
-    'Absence: yes only when the sentence asserts that a clause, disclosure, figure, approval, event or fact is absent ("The lease has no break clause"); otherwise no. One word, on this line alone.',
+    ABSENCE_LINE,
     'Scope: the sentence\'s own word for the Passage\'s party or term, then same or wider ("Scope: tenants, wider" for "the Tenant"; "Scope: none, same" when the sentence names none). "wider" when that word is a general one for a wider group than the Passage\'s; "same" otherwise: the Passage\'s own word for its party ("the Tenant" for "the Tenant"), a name for it or another word for the very same party ("Ms Patel" for "the Tenant").',
     'Topic: found or not found. "found" when a Passage is about the sentence\'s own subject and detail, even when it gives another value or only part of it; "not found" when none is, though one may be about a neighbouring topic (rent, for a parking fee).',
     // The words are an anchor for the model, not a list the app matches. Worded without them,
@@ -84,11 +95,8 @@ const reply = (language: Language, calculate: boolean) =>
     // Weighed inside the verdict, a Chinese "并已安装好" (already installed) passed as an English price
     // line's "installed", which is installation included, while the Passage scheduled it later (#2311).
     'Time: whether it has already happened or is still to happen, with the words that say so copied as written (such as 已, 将, already, will, scheduled; none when it says neither), first as the sentence says it, then " / " and as the Passage says it, then same or differs ("Time: already signed / to be signed on 3 May, differs"; "Time: 已于 3 月完成 / completed in March, same"; "Time: none / none, same"). "differs" only when one says it has happened and the other that it is still to happen. Anything else is "same": a date only one of them gives, or a side that says neither.',
-    // Under Roles alone, "should" for "must" and a rule stated without its Passage's condition were
-    // "same" (a side that says neither must nor may; a condition one side adds), so Claude Sonnet
-    // 5.5 called every such near copy of a held-out set Supported (#1766, #1708).
-    'Duty: how each side puts it, one word each: must (a duty), should (advice, or what is expected), may (a permission or an ability), must not (a prohibition) or none (it says only what is or happens); the sentence\'s first, then " / " and the Passage\'s for that very thing, then same or differs ("Duty: should / must, differs"; "Duty: must / may, differs"; "Duty: must / must, same" for "is bound to" against "must"). "differs" when they are two different words of the first four. Anything else is "same": the same word, a side that is none, or one rule put the other way round ("must keep it shut" against "must not leave it open").',
-    'Condition: the condition or exception it holds on, copied as written (such as only if, unless, except, provided that, subject to, after notice; none when it has none), first as the sentence says it, then " / " and as the Passage says it for that very thing, then same or differs ("Condition: none / unless it rains, differs"; "Condition: on Sundays only / only on Sundays, same"; "Condition: none / none, same"). "differs" when one side holds it only on a condition, or with an exception, that the other leaves out or puts otherwise. Anything else is "same".',
+    DUTY_LINE,
+    CONDITION_LINE,
     `Then, for supported or contradicted, one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in, saying what the Document says, with the markers of the deciding checked quotes at its end. For contradicted, name the thing, and give the Document's value and the sentence's.`,
     `For unsupported, one plain sentence in ${LANGUAGE_NAMES[language]} saying what the Documents don't say.`,
     // Asked for "the old words", Claude Haiku 5.5 named the whole sentence for a lease's base rent
@@ -351,18 +359,25 @@ export const CONFIRM_INSTRUCTIONS = [
   "- neither: they are about different things, or the quote doesn't settle the sentence either way.",
 ].join("\n");
 
-/** The fields-only reply of a check that disagreed with itself, asked once more (#2313). */
+/**
+ * The fields-only reply of a check that disagreed with itself, asked once more (#2313). Its form
+ * has every line its reply is read by: a Supported reply without its Absence, Duty or Condition
+ * line is Not checked (#1766, #1708).
+ */
 export const RECHECK_INSTRUCTIONS = [
   "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own field lines said the claim is stated and the same.",
   "Check the sentence once more against the quoted words and the Passage, by those fields:",
   "- supported: the quoted words state what the sentence says;",
-  "- contradicted or unsupported: name the field that differs (Roles, Time or Scope), or the value the quote gives instead.",
+  "- contradicted or unsupported: name the field that differs (Roles, Time, Duty, Condition or Scope), or the value the quote gives instead.",
   "Reply in exactly this form, the verdict word in English:",
   "Verdict: supported, unsupported or contradicted",
+  ABSENCE_LINE,
   "Scope: the sentence's own word for the Passage's party or term, then same or wider",
   "Topic: found or not found",
   'Roles: the words that say who does it, copied from the sentence, then " / " and from the Passage, then same, differs or other',
   "Time: the words that say whether it has happened, the sentence's then \" / \" and the Passage's, then same or differs",
+  DUTY_LINE,
+  CONDITION_LINE,
   "Then one plain sentence saying what the Document says, and Evidence: [1] naming the quote used.",
   "Write nothing else.",
 ].join("\n");
@@ -951,20 +966,22 @@ const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
   return time === "same" || time === "differs" ? { time } : {};
 };
 
-/** The one word each side of a Duty line takes, as the reply form gives them. */
-const DUTY_SIDES = new Set(["must", "should", "may", "must not", "none"]);
-
+/** A Duty or Condition side's words, without what it glosses in brackets ("must (a duty)"). */
 const sideWords = (side: string) =>
   side
     .toLowerCase()
-    .replace(/[^\p{L}\s]/gu, "")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
     .replace(/\s+/g, " ")
     .trim();
 
+/** A side with no letters or digits ("—", "(none)") says none, as the form's word for it does. */
+const saysNone = (words: string) => words === "" || NO_PHRASE.test(words);
+
 /**
- * A Duty line whose two sides are two different words of the form, short of "must" against "must
- * not" (one rule put the other way round), called "same": it recorded the difference and then
- * denied it, in English and Chinese replies alike.
+ * A Duty line called "same" whose sides are two different duties, in any words: it recorded the
+ * difference and then denied it. A side that is none, and "must" against "must not" (one rule put
+ * the other way round), are the same, as the form says.
  */
 const dutySidesDiffer = (lineSides: readonly string[]): boolean => {
   const [own, theirs] = lineSides.map(sideWords);
@@ -972,24 +989,22 @@ const dutySidesDiffer = (lineSides: readonly string[]): boolean => {
     lineSides.length === 2 &&
     own !== undefined &&
     theirs !== undefined &&
-    DUTY_SIDES.has(own) &&
-    DUTY_SIDES.has(theirs) &&
     own !== theirs &&
-    own !== "none" &&
-    theirs !== "none" &&
+    !saysNone(own) &&
+    !saysNone(theirs) &&
     !(own.startsWith("must") && theirs.startsWith("must"))
   );
 };
 
 /** A Condition line with a condition on one side only, called "same". */
 const conditionSidesDiffer = (lineSides: readonly string[]): boolean =>
-  lineSides.length === 2 &&
-  lineSides.filter((side) => side === "" || NO_PHRASE.test(side)).length === 1;
+  lineSides.length === 2 && lineSides.filter((side) => saysNone(sideWords(side))).length === 1;
 
 /**
- * A Duty or Condition line's closing word: one that starts a piece after the sides, or the field's
- * very last word, never a "same" inside the copied words ("used by the same person", "same-day").
- * A "same" its own sides deny can't be read either. Undefined when there is none to read.
+ * A Duty or Condition line's closing word. A "same" counts only where it starts a piece after the
+ * sides, never inside or at the end of the copied words ("of the same age group", "same-day"), and
+ * never when its own sides deny it. A "differs" also counts as the field's very last word, as it
+ * only takes support away. Undefined when there is none to read.
  */
 function detailWord(
   label: RegExp,
@@ -999,9 +1014,9 @@ function detailWord(
   const field = label.exec(line)?.[1];
   if (field === undefined) return undefined;
   const { word, sides: lineSides, placed } = closingWord(field, ["same", "differs"]);
-  if (word !== "same" && word !== "differs") return undefined;
-  if (!placed && !/\b(?:same|differs?)[\s"'`*_.。]*$/i.test(field)) return undefined;
-  return word === "same" && denied(lineSides) ? undefined : word;
+  if (word === "differs")
+    return placed || /\bdiffers?[\s"'`*_.。]*$/i.test(field) ? word : undefined;
+  return word === "same" && placed && !denied(lineSides) ? word : undefined;
 }
 
 /**
@@ -1304,7 +1319,9 @@ const linesOf = (turn: string): string[] =>
  * A last turn with a verdict of its own keeps the Roles, Scope, Time, Duty and Condition lines it
  * leaves out from the turns set aside after the search: Claude Haiku 5.5 wrote them beside `cite`
  * and only its verdict and sentence after them. Each can hold a verdict back ("…, other"), and a
- * kept Duty or Condition line also stands for the one a Supported reply would otherwise lack.
+ * kept Duty or Condition line also stands for the one a Supported reply would otherwise lack. An
+ * earlier Duty or Condition "differs" is kept beside the last turn's own line: a difference the
+ * check wrote down holds, as it does across one turn's lines.
  */
 function withFieldsSetAside(last: string, setAside: readonly string[]): string {
   const own = linesOf(last);
@@ -1314,7 +1331,13 @@ function withFieldsSetAside(last: string, setAside: readonly string[]): string {
       ? []
       : (earlier.findLast((line) => field.test(line)) ?? []),
   );
-  return kept.length === 0 ? last : `${last}\n${kept.join("\n")}`;
+  const differing = [DUTY, CONDITION].flatMap((field) =>
+    earlier.filter(
+      (line) => !kept.includes(line) && detailWord(field, line, () => false) === "differs",
+    ),
+  );
+  const added = [...kept, ...differing];
+  return added.length === 0 ? last : `${last}\n${added.join("\n")}`;
 }
 
 /**
