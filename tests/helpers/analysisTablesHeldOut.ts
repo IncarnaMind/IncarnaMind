@@ -78,6 +78,7 @@ export function clinicReference(): Map<string, number> {
       known.set(`${key}:${label}:fee:max`, Math.max(...visits.map((each) => each.fee)));
       known.set(`${key}:${label}:count`, visits.length);
     }
+  known.set("all:count", VISITS.length);
   known.set("all:fee:sum", sum(VISITS.map((each) => each.fee)));
   known.set("all:minutes:mean", sum(VISITS.map((each) => each.minutes)) / VISITS.length);
   for (const [clinic, visits] of by("clinic")) {
