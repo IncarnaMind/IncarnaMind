@@ -5830,14 +5830,13 @@
     color: var(--color-ink-meta);
   }
 
-  /* A name moves whole to the next line; only one wider than the card wraps, at its spaces. */
-  .claim-card-checked-by-name {
-    display: inline-block;
-    max-width: 100%;
-  }
-
+  .claim-card-checked-by-name,
   .claim-card-checked-by-when {
     white-space: nowrap;
+  }
+
+  .claim-card-checked-by-name--wide {
+    white-space: normal;
   }
 
   /* A figure a check worked out (#707): how, then each input's Citation. */

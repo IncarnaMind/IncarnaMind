@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef } from "react";
 import type { ClaimCheckAttributes } from "../../../core/api";
 import { type ClaimCheckShown, checkedWith } from "../../../shared/claimChecks";
 import { formatDateTime } from "../../../shared/dates";
@@ -21,6 +21,21 @@ export function CheckedByLine({
   const t = useT();
   const language = useLanguage();
   const nameOf = useModelNames();
+  const line = useRef<HTMLParagraphElement>(null);
+  // A name stays whole; one wider than the card can't, so it wraps at its own spaces.
+  useLayoutEffect(() => {
+    const element = line.current;
+    const style = element?.ownerDocument.defaultView?.getComputedStyle?.(element);
+    if (!element || !style) return;
+    const room =
+      element.clientWidth -
+      Number.parseFloat(style.paddingLeft) -
+      Number.parseFloat(style.paddingRight);
+    for (const name of element.querySelectorAll<HTMLElement>(".claim-card-checked-by-name")) {
+      name.classList.remove(WIDE);
+      if (name.getBoundingClientRect().width > room) name.classList.add(WIDE);
+    }
+  });
   const by =
     shown === "supported" ||
     shown === "unsupported" ||
@@ -38,28 +53,19 @@ export function CheckedByLine({
   });
   // The text before the first name, between the names, before the time and after it.
   const pieces = message.split(SLOT);
-  const line: ReactNode[] = [pieces[0]];
-  by.models.forEach(({ modelId, providerId }, index) => {
-    const next = pieces[index + 1] ?? "";
-    // A name keeps the comma after it, so a wrapped line never starts with "," or "、".
-    const comma = /^[,，、]/u.exec(next)?.[0] ?? "";
-    line.push(
-      <span key={`${providerId}:${modelId}`} className="claim-card-checked-by-name">
-        {nameOf(modelId, providerId).name}
-        {comma}
-      </span>,
-      next.slice(comma.length),
-    );
-  });
-  line.push(
-    <span key="when" className="claim-card-checked-by-when">
-      {formatDateTime(by.checkedAt, language)}
-    </span>,
-    pieces.at(-1) ?? "",
-  );
   return (
-    <p data-testid="claim-checked-by" className="claim-card-checked-by">
-      {line}
+    <p ref={line} data-testid="claim-checked-by" className="claim-card-checked-by">
+      {pieces[0]}
+      {by.models.map(({ modelId, providerId }, index) => (
+        <Fragment key={`${providerId}:${modelId}`}>
+          <span className="claim-card-checked-by-name">{nameOf(modelId, providerId).name}</span>
+          {pieces[index + 1]}
+        </Fragment>
+      ))}
+      <span className="claim-card-checked-by-when">{formatDateTime(by.checkedAt, language)}</span>
+      {pieces.at(-1)}
     </p>
   );
 }
+
+const WIDE = "claim-card-checked-by-name--wide";

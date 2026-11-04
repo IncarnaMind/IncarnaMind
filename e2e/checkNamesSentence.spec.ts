@@ -576,14 +576,18 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     const card = window.getByTestId("claim-card");
     const line = card.getByTestId("claim-checked-by");
-    /** How many lines of the card's last line an element of it takes. */
+    /** How many lines of the card's last line an element of it takes: its words' line boxes. */
     const linesOf = (locator: Locator) =>
       locator.evaluate((element) => {
         const height = Number.parseFloat(
           getComputedStyle(element.closest("[data-testid='claim-checked-by']") ?? element)
             .lineHeight,
         );
-        return Math.round(element.getBoundingClientRect().height / height);
+        const range = element.ownerDocument.createRange();
+        range.selectNodeContents(element);
+        const tops = Array.from(range.getClientRects(), (rect) => rect.top).sort((a, b) => a - b);
+        return tops.filter((top, at) => at === 0 || top - (tops[at - 1] ?? top) > height / 2)
+          .length;
       });
     const clock = await clockOf(window);
 
@@ -607,8 +611,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, window.getByTestId("claim-mark").nth(1));
     await expect(card).toHaveAttribute("data-check", "supported");
     const long = line.locator(".claim-card-checked-by-name");
-    // In English the name keeps the comma before the time, so no line starts with it.
-    await expect(long).toHaveText(language === "en" ? `${LONG_NAME},` : LONG_NAME);
+    await expect(long).toHaveText(LONG_NAME);
     expect(await linesOf(long), "a name wider than the card wraps").toBeGreaterThanOrEqual(2);
     const broken = await long.evaluate((element) => {
       const text = element.firstChild;
