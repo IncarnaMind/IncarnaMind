@@ -554,8 +554,26 @@ test("⌘K reaches Cite… and Link a Document", async () => {
     await expect(link).toBeVisible();
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("scope-picker")).toBeVisible();
+    // The "@" the command typed for the User goes with the picker when it closes unchoosing.
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("scope-picker")).toHaveCount(0);
+    await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides flood.");
+
+    // Neither command is offered where the Note's own text isn't: a code block's caret.
+    await pointAndClick(window, editor.locator(":scope > p").first());
+    await window.keyboard.press("End");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("/code");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("const tides = 2;");
+    await expect(editor.locator("pre")).toHaveCount(1);
+    await window.keyboard.press("ControlOrMeta+k");
+    await palette.getByTestId("palette-search").fill(">cite a passage");
+    await expect(
+      palette.getByTestId("palette-item").filter({ hasText: "Cite a passage…" }),
+    ).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("cite-search")).toHaveCount(0);
   } finally {
     await app.close();
   }
