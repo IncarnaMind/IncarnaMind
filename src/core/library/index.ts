@@ -459,6 +459,8 @@ export function createLibrary(options: {
     const saved = savedSettings();
     return shownSettings(lent && !saved.organizeWith ? { ...saved, organizeWith: lent } : saved);
   };
+  /** What the User chose: the same as `settings`, without a model lent to a run (#2252). */
+  const chosenSettings = (): LibrarySettings => shownSettings(savedSettings());
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
   const automaticOffNotice = (): boolean => {
     const marker = settings.readDeviceValue(AUTOMATIC_OFF_NOTICE);
@@ -1223,6 +1225,7 @@ export function createLibrary(options: {
 
   return {
     settings: getSettings,
+    chosenSettings,
     /**
      * Organize uses this model, as if the User had chosen it, until the returned function is
      * called; nothing is stored, so a quit leaves no trace (#2252). One the User chose wins.
@@ -1646,7 +1649,7 @@ export function createLibrary(options: {
       const chosen = input.classifier ?? AUTOMATIC;
       const automaticChosen = isRecord(chosen) && chosen.kind === "automatic";
       const organizeWith =
-        input.organizeWith === undefined ? getSettings().organizeWith : input.organizeWith;
+        input.organizeWith === undefined ? savedSettings().organizeWith : input.organizeWith;
       const toCheck: unknown[] = automaticChosen ? [] : [chosen];
       if (organizeWith !== null) toCheck.push(organizeWith);
       for (const each of toCheck) {

@@ -5759,9 +5759,9 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteLibraryGroup: async (id) => removeFolder(id),
     addLibraryStarterGroups: async (keys) => library.addStarters(keys),
     saveLibrarySettings: async (input) => {
-      const before = library.settings();
+      const before = library.chosenSettings();
       library.saveSettings(input);
-      const after = library.settings();
+      const after = library.chosenSettings();
       // Turning tagging on where its line says what goes is the consent for where it sends now
       // (ADR-0022, #1617). Nothing else is: a save sends the switch as shown (#2308).
       const turnedOn = isRecord(input) && input.turnOn === true;
