@@ -5970,11 +5970,11 @@ describe("A rewrite of text marked as code (#2362)", () => {
     {
       case: "a paragraph with code written anew",
       content: [text("Check the build, then run "), code("npm test"), text(" before you push.")],
-      reply: "Check the build before you push.",
+      reply: "Build it first and push afterwards.",
       shown:
-        "[-Check the build, then run npm test before you push.-]{+Check the build before you push.+}",
+        "[-Check the build, then run npm test before you push.-]{+Build it first and push afterwards.+}",
       runs: ["-npm test"],
-      after: "Check the build before you push.",
+      after: "Build it first and push afterwards.",
     },
     {
       case: "code taken out in part",
