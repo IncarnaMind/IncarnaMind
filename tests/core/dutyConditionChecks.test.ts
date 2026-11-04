@@ -65,6 +65,8 @@ interface Case {
   split?: true;
   /** The Document's number each figure of the sentence is bound to, when it has one. */
   number?: string;
+  /** Its Duty and Condition lines as written, in place of `duty` and `condition`. */
+  lines?: readonly string[];
 }
 
 /** How the check's ask for the Duty and Condition lines starts. */
@@ -92,8 +94,10 @@ function replying(each: Case, calls: ModelCall[], looks: string[]) {
         "Topic: found",
         "Roles: none / none, same",
         "Time: none / none, same",
-        ...(fields.duty === null ? [] : [`Duty: ${fields.duty}`]),
-        ...(fields.condition === null ? [] : [`Condition: ${fields.condition}`]),
+        ...(each.lines ?? [
+          ...(fields.duty === null ? [] : [`Duty: ${fields.duty}`]),
+          ...(fields.condition === null ? [] : [`Condition: ${fields.condition}`]),
+        ]),
       ];
       if (!cited) {
         const passage = shownPassages(searched.at(-1)?.text ?? "").find((shown) =>
@@ -558,5 +562,166 @@ describe("an Unsupported reply whose own Duty or Condition says why is not asked
     const checked = await check(each, BERTHS, [], looks);
     expect(looks).toHaveLength(asked);
     expect(checked?.state).not.toBe("supported");
+  });
+});
+
+describe("a Duty or Condition line is read only by its own closing word (#1766, #1708)", () => {
+  const RENT = {
+    name: "Boat hire.md",
+    contents: [
+      "# Boat hire",
+      "",
+      "Members may hire a paddle board, provided that both hirers are of the same age group.",
+      "",
+      "Members may hire a kayak, delivered same-day to the slipway.",
+      "",
+      "Members must sign the hire book before they launch.",
+      "",
+      "Members may hire a canoe only if they paddle with a partner from the same club.",
+      "",
+    ].join("\n"),
+  };
+  const asks = (calls: readonly ModelCall[]) => calls.filter((call) => call.prompt.includes(ASKED));
+  test.each<[string, Case, "supported" | "unsupported" | "not-checked", number]>([
+    [
+      "a 'same' inside the copied words is no closing word",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / provided that both hirers are of the same age group",
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a 'same-day' inside the copied words is no closing word",
+      {
+        sentence: "Members may hire a kayak.",
+        quote: "Members may hire a kayak, delivered same-day to the slipway.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / delivered same-day",
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a line whose only 'same' is inside both copied sides",
+      {
+        sentence: "Members may hire a canoe if they paddle with a partner from the same club.",
+        quote: "Members may hire a canoe only if they paddle with a partner from the same club.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition:
+          "if they paddle with a partner from the same club / only if they paddle with a partner from the same club",
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a Duty line that names two duties and calls them the same",
+      {
+        sentence: "Members should sign the hire book before they launch.",
+        quote: "Members must sign the hire book before they launch.",
+        verdict: "supported",
+        duty: "should / must, same",
+        condition: SAME,
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a Condition line with a condition on one side, called the same",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / provided that both hirers are of the same age group, same",
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "two Condition lines, the first that differs",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: null,
+        condition: null,
+        lines: [
+          "Duty: may / may, same",
+          "Condition: none / provided that both hirers are of the same age group, differs",
+          "Condition: none / none, same",
+        ],
+      },
+      "unsupported",
+      0,
+    ],
+    [
+      "the same duty, its closing word last",
+      {
+        sentence: "Members are required to sign the hire book before they launch.",
+        quote: "Members must sign the hire book before they launch.",
+        verdict: "supported",
+        duty: "must / must, same",
+        condition: SAME,
+      },
+      "supported",
+      0,
+    ],
+  ])("%s", async (_, each, state, asked) => {
+    const calls: ModelCall[] = [];
+    const checked = await check(each, RENT, calls);
+    expect(checked?.state).toBe(state);
+    expect(asks(calls)).toHaveLength(asked);
+  });
+
+  test.each<[string, Case, "supported" | "unsupported"]>([
+    [
+      "zh, 义务 and 条件 lines, the condition left out",
+      {
+        sentence: "泊位持有人可以使用发电机。",
+        quote: "只有经港务长同意，泊位持有人才可以使用发电机。",
+        verdict: "supported",
+        duty: null,
+        condition: null,
+        lines: ["义务：may / may, same", "条件：none / 只有经港务长同意, differs"],
+      },
+      "unsupported",
+    ],
+    [
+      "zh, 义务 and 条件 lines, both the same",
+      {
+        sentence: "码头办公室可以为泊位持有人保管备用帆。",
+        quote: "码头办公室可以为泊位持有人保管备用帆。",
+        verdict: "supported",
+        duty: null,
+        condition: null,
+        lines: ["义务：may / may, same", "条件：none / none, same"],
+      },
+      "supported",
+    ],
+    [
+      "zh, a Duty line that names two duties and calls them the same",
+      {
+        sentence: "泊位持有人应该在浮桥上穿救生衣。",
+        quote: "泊位持有人必须在浮桥上穿救生衣。",
+        verdict: "supported",
+        duty: "should / must, same",
+        condition: SAME,
+      },
+      "unsupported",
+    ],
+  ])("%s", async (_, each, state) => {
+    const checked = await check(each, BERTHS_ZH);
+    if (state === "supported") expect(checked?.state).toBe("supported");
+    else expect(checked?.state).not.toBe("supported");
   });
 });

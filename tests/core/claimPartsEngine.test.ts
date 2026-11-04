@@ -2422,6 +2422,27 @@ describe("a part the quote states keeps its own duty and condition (#1766, #1708
       (await run("Duty: may / may, same\nCondition: none / none, same")).rechecks,
     ).toHaveLength(1);
   });
+
+  test("a part whose own reply is Supported, both lines the same, is Supported as the judge said", async () => {
+    const stated = "The berth costs 30 pounds a night, and berth holders may run a generator.";
+    const { result, rechecks } = await check(
+      claim,
+      [
+        { kind: "fact", text: first },
+        { kind: "fact", text: part },
+      ],
+      {
+        [first]: { quotes: [stated] },
+        // The scripted judge's own Supported reply, its Duty and Condition lines the same.
+        [part]: { quotes: [stated] },
+      },
+    );
+    const probe = result.parts?.find(
+      (each) => claim.slice(each.span.start, each.span.end) === part,
+    );
+    expect(probe?.verdict, `${probe?.reason}: ${probe?.detail}`).toBe("supported");
+    expect(rechecks).toHaveLength(0);
+  });
 });
 
 describe("a part the judge didn't call Supported stays as it said, its Duty and Condition the same (#1766, #1708)", () => {

@@ -1992,8 +1992,8 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
             return {
               text:
                 kind === "reason"
-                  ? "Verdict: unsupported\nThe Documents do not state the 4.55x coverage multiple itself"
-                  : "Verdict: unsupported\nCovered: finance costs of (41.2)\nNot covered: the 4.55x coverage multiple itself",
+                  ? `Verdict: unsupported\n${SAME_DETAIL}\nThe Documents do not state the 4.55x coverage multiple itself`
+                  : `Verdict: unsupported\n${SAME_DETAIL}\nCovered: finance costs of (41.2)\nNot covered: the 4.55x coverage multiple itself`,
             };
           }
           return checkReply(call, plans);
@@ -2014,6 +2014,49 @@ describe("A limit the figure stays within, and a cost printed in brackets (#1908
       });
     },
   );
+
+  // A worked figure settles its number alone (#1766, #1708): a reply whose own Duty or Condition
+  // differs, or that gives neither line, isn't made Supported by it.
+  test.each([
+    {
+      name: "a Condition that differs",
+      lines:
+        "Duty: none / none, same\nCondition: none / unless the lenders waive the test, differs",
+    },
+    {
+      name: "a Duty that differs",
+      lines: "Duty: must / should, differs\nCondition: none / none, same",
+    },
+    { name: "neither line", lines: "" },
+  ])("an uncovered derived figure is not Supported over $name", async ({ lines }) => {
+    const claim = COVERED("4.55x");
+    const calculation = { ...COVER, stated: "4.55x" };
+    const plans = {
+      [claim]: { verdict: "unsupported" as const, calculation, strict: { text: "same" } },
+    };
+    const model = scriptedModel(
+      (call) => {
+        if (isCheckRun(call) && call.results.some((each) => each.tool === "calculate")) {
+          return {
+            text: `Verdict: unsupported\n${lines}\nThe Documents do not state the 4.55x coverage multiple itself`,
+          };
+        }
+        return checkReply(call, plans);
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const setup = await setUpWithDocuments(model, [RESULTS]);
+    const saved = await setup.core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await setup.core.allowDataFlow("checks", saved.service.id);
+
+    const result = await setup.core.checkClaim({ claim });
+    expect(result.verdict).toBe("unsupported");
+    expect(result.verdict).not.toBe("supported");
+  });
 
   const LEDGER = {
     name: "Ledger.md",
