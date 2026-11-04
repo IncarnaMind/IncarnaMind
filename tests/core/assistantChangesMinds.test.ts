@@ -1979,4 +1979,78 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     );
     expect(told).not.toContain(`“${each.rest}”`);
   });
+
+  // protects=a reply by names that doesn't name a paragraph the User asked to delete is told, in one neutral line, that what it didn't name stays as it was, so the Answer can't say that paragraph went (#2356); English and Chinese; fails_when=the model isn't told the paragraph stayed, or is told in the "left out" words the walk's reply called contradictory; no_claim=how a real model words its reply.
+  test.each([
+    {
+      asked: "Delete the paragraph about working hours and say pay is paid monthly.",
+      lines: ["Pay is monthly.", "Work is full time, Monday to Friday."],
+      reply: "¶1 Pay is paid monthly.",
+      now: "Pay is paid monthly.",
+    },
+    {
+      asked: "删掉工时那段，并把薪酬改成每月支付。",
+      lines: ["薪酬按月发放。", "工作为全职，周一至周五。"],
+      reply: "¶1 薪酬每月支付。",
+      now: "薪酬每月支付。",
+    },
+  ])("a reply by names is told that what it didn't name stays as it was: $asked", async (each) => {
+    const model = editing(each.asked, each.reply);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: each.asked, mindId: mind.id });
+    await client.settled();
+
+    const told = lastResult(model);
+    expect(told).toContain(`What the rewrite didn't name stays as it was: “${each.lines[1]}”`);
+    expect(told).not.toContain("left these sentences out");
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([each.now, each.lines[1]]);
+  });
+
+  // protects=through the assistant too, a new line of a reply without names on the pattern of the Note's lines is added, and every line of the User's stays (#2356, part 4 of #2333); Chinese and the English mirror; fails_when=the water line is written over; no_claim=how often a model leaves its names out.
+  test.each([
+    {
+      asked: "在停车后面加一行网费，每月40元。",
+      lines: ["房租每月1200元。", "停车每月100元。", "水费每月30元。"],
+      reply: "停车每月100元。\n\n网费每月40元。",
+      added: "网费每月40元。",
+    },
+    {
+      asked: "在停车后面加一行网费，每月40元。",
+      lines: ["房租每月1200元。", "停车每月100元。", "水费每月30元。"],
+      reply: "网费每月40元。",
+      added: null,
+    },
+    {
+      asked: "Add internet after parking, 40 a month.",
+      lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
+      reply: "Parking is 100 a month.\n\nInternet is 40 a month.",
+      added: "Internet is 40 a month.",
+    },
+  ])(
+    "a new line on the pattern of the others is added through the assistant: $reply",
+    async (each) => {
+      const model = editing(each.asked, each.reply);
+      const { core, mind, client } = await setUp(model);
+      writeMind(
+        client,
+        each.lines.map((line) => note(line)),
+      );
+      await client.settled();
+
+      await ask(core, { text: each.asked, mindId: mind.id });
+      await client.settled();
+      await resolveChanges(client, "accept");
+
+      expect(shownWithChanges(client)).toEqual(
+        each.added === null ? each.lines : expect.arrayContaining([...each.lines, each.added]),
+      );
+    },
+  );
 });
