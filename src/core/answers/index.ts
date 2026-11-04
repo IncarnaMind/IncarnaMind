@@ -3126,17 +3126,21 @@ export function createAnswers(options: AnswersOptions) {
         ];
       };
       /**
-       * `text` with each refusal line cut where it stands (#2407): a copy with straight quotes is
-       * found after `sameWords`, and the words around it stay as they were written, so the judge
-       * reads the model's own text (#2252). `sameWords` swaps each quote for one character, so an
-       * offset found in the compared text is the same offset in the original.
+       * `text` with every copy of each refusal line cut where it stands (#2407): a copy with
+       * straight quotes is found after `sameWords`, and the words around it stay as they were
+       * written, so the judge reads the model's own text (#2252). `sameWords` swaps each quote for
+       * one character, so an offset found in the compared text is the same offset in the original.
        */
       const withoutRefusals = (text: string) =>
         refusalLines()
           .flatMap((line) => LANGUAGES.map(line))
-          .reduce((rest, line) => {
-            const at = sameWords(rest).indexOf(sameWords(line));
-            return at < 0 ? rest : rest.slice(0, at) + rest.slice(at + line.length);
+          .reduce((cut, line) => {
+            const words = sameWords(line);
+            for (let at = sameWords(cut).indexOf(words); at >= 0; ) {
+              cut = cut.slice(0, at) + cut.slice(at + line.length);
+              at = sameWords(cut).indexOf(words, at);
+            }
+            return cut;
           }, text);
       const heldBack = holdBack(() => mindsListed().map((mind) => mind.name));
       // After a command that was refused, failed or not allowed, the reply shows only once it is

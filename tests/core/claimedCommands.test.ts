@@ -351,7 +351,7 @@ describe("A reply that says a command ran that didn't (#2407)", { timeout: 60_00
 });
 
 describe("The refusal's own line is never read as a claim (#2407)", { timeout: 60_000 }, () => {
-  // protects=a reply that copies the refusal's line, with the app's quotes or straight ones, is judged without it, and one that is only the line isn't judged at all, in English and Chinese; a near miss is read as written; fails_when=the judge reads the app's own sentence as the reply's; no_claim=none beyond protects.
+  // protects=a reply that copies the refusal's line, with the app's quotes or straight ones, each time it says it, is judged without it, and one that is only the line isn't judged at all, in English and Chinese; a near miss is read as written; fails_when=the judge reads the app's own sentence as the reply's; no_claim=none beyond protects.
   test.each([
     {
       language: "en" as const,
@@ -374,6 +374,10 @@ describe("The refusal's own line is never read as a claim (#2407)", { timeout: 6
       [said, null],
       [`${straight} ${rest}`, rest],
       [straight, null],
+      // Said twice: every copy is cut, in the app's quotes, straight ones, or one of each.
+      [`${said} ${rest} ${said}`, rest],
+      [`${straight} ${rest} ${straight}`, rest],
+      [`${said} ${rest} ${straight}`, rest],
       // A near miss isn't the refusal's line, so the judge reads it as it was written.
       [`${near} ${rest}`, `${near} ${rest}`],
     ];

@@ -2384,6 +2384,61 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
   });
 
+  // protects=a Folder whose name is copied with a straight apostrophe counts as named, so the app adds no summary, while a name one letter different doesn't; fails_when=the apostrophe's form decides, or another name counts; no_claim=which Folder the classifier picks.
+  test.each([
+    ["Bob's deals are filed now.", true],
+    ["Rob's deals are filed now.", false],
+  ])("a Folder's name with a straight apostrophe: %s", async (reply, said) => {
+    const folder = "Bob’s deals";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder, about: "Deal papers" },
+                },
+              ],
+            }
+          : { text: reply };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as {
+            groups?: { id: string; name: string }[];
+          };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const into = data.groups.find((each) => each.name === folder);
+          return { text: JSON.stringify({ groupId: into?.id ?? "__unsorted__", tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createLibraryGroup({ name: folder, description: "" });
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const summary = translate("en", "library.review.summary", {
+      count: 4,
+      parts: translate("en", "library.review.part", { count: 4, folder }),
+    });
+    expect(answer.text).toBe(said ? reply : `${reply}\n\n${summary}.`);
+  });
+
   // protects=a Tag merge that fails on the second Tag puts the first merge back, so the User is not left with half of it (#2252); fails_when=the first merge stays or the failure is swallowed; no_claim=how the error reads.
   test("a Tag merge that fails halfway puts the first one back", async () => {
     const model = scriptedModel((call) => {
