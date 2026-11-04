@@ -245,6 +245,7 @@ function Sheets({
         sheets.find((each) => each.name === found?.sheet),
         found,
         language === "zh-CN" ? "、" : ", ",
+        language === "zh-CN" ? "：" : ": ",
       ),
     [target.citation, found, sheets, language],
   );

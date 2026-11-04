@@ -34,14 +34,13 @@ export interface CitedRow {
 
 /**
  * The rows a quote covers on `sheet`, in row order, each with its name: every
- * text cell left of its first cited figure, in column order, joined by " · "
- * ("Current liabilities · VAT"). The first figure is the leftmost cited one
- * with text left of it, so an account code stored as a number in column A
- * neither joins the name nor hides it. A figure stored as text counts as a
- * figure. A merged cell's text counts once, where the merge starts. Hidden
- * columns, text the cell's number format hides, and text that names nothing
- * (no letter, as a figure or year typed as text, "-", or else "n/a", an Excel
- * error or a boolean) are passed over.
+ * text cell left of its last cited figure, in column order, joined by " · "
+ * ("Current liabilities · VAT"). An account code stored as a number neither
+ * joins the name nor hides it. A figure stored as text counts as a figure. A
+ * merged cell's text counts once, where the merge starts. Hidden columns, text
+ * the cell's number format hides, and text that names nothing (no letter, as a
+ * figure or year typed as text, "-", or else "n/a", an Excel error or a
+ * boolean) are passed over.
  */
 export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[] {
   const cells = new Map(sheet.cells.map((cell) => [`${cell.row}:${cell.column}`, cell]));
@@ -83,15 +82,13 @@ export function citedRowNames(sheet: Sheet, cited: Iterable<string>): CitedRow[]
   return [...figures.entries()]
     .sort(([a], [b]) => a - b)
     .map(([row, columns]) => {
-      for (const figure of [...columns].sort((a, b) => a - b)) {
-        const parts = new Map<Cell, string>();
-        for (let column = 0; column < figure; column++) {
-          const name = nameAt(row, column);
-          if (name) parts.set(name.cell, name.text);
-        }
-        if (parts.size > 0) return { row, name: joinMeta([...parts.values()]) };
+      const last = Math.max(-1, ...columns);
+      const parts = new Map<Cell, string>();
+      for (let column = 0; column < last; column++) {
+        const name = nameAt(row, column);
+        if (name) parts.set(name.cell, name.text);
       }
-      return { row, name: null };
+      return { row, name: parts.size > 0 ? joinMeta([...parts.values()]) : null };
     });
 }
 
@@ -108,14 +105,16 @@ export const shortRowName = (name: string): string =>
 /**
  * A sheet Citation's mark with its rows' names (#2388): a one-row quote shows
  * its row's name in place of the label; several rows keep their range on the
- * mark. The tooltip's label adds the names, joined by `separator`, only when
- * every cited row has one, so no name is read against the wrong row.
+ * mark. The tooltip's label adds the names, joined by `separator` and set after
+ * the place by `placeSeparator` ("Trial balance, row 8: Cash at bank"), only
+ * when every cited row has one, so no name is read against the wrong row.
  */
 export function withRowNames<Mark extends { label?: string; shown?: string }>(
   mark: Mark | null,
   sheet: Sheet | undefined,
   found: FoundCells | null,
   separator: string,
+  placeSeparator: string,
 ): Mark | null {
   if (!mark || !sheet || !found) return mark;
   const rows = citedRowNames(sheet, cellsOn(found));
@@ -123,5 +122,6 @@ export function withRowNames<Mark extends { label?: string; shown?: string }>(
   if (names.length === 0 || names.length < rows.length) return mark;
   const shown = rows.length === 1 && names[0] ? shortRowName(names[0]) : mark.label;
   if (!shown) return mark;
-  return { ...mark, label: joinMeta([mark.label ?? "", names.join(separator)]), shown };
+  const list = names.join(separator);
+  return { ...mark, label: mark.label ? `${mark.label}${placeSeparator}${list}` : list, shown };
 }
