@@ -313,3 +313,52 @@ describe("a Document whose text lost its f-ligatures", () => {
     expect(findQuote(text, "to fnance and", { lostLigatures: true })).not.toBeNull();
   });
 });
+
+describe("a quote nested in a quote, in the other kind of mark (#2504)", () => {
+  test("single and double quotation marks read as one, in English and Chinese", () => {
+    expect(
+      covered("The “cooling-off period” lasts 14 days.", "the ‘cooling-off period’ lasts 14 days"),
+    ).toBe("The “cooling-off period” lasts 14 days");
+    expect(covered("它的“软权重”特性，即这种权重可以改变。", "它的‘软权重’特性，即这种权重")).toBe(
+      "它的“软权重”特性，即这种权重",
+    );
+  });
+
+  test("a changed word or number, or an added not, still isn't found", () => {
+    const text = "The “cooling-off period” lasts 14 days.";
+    expect(findQuote(text, "the ‘cooling-off period’ lasts 15 days")).toBeNull();
+    expect(findQuote(text, "the ‘cooling-off period’ does not last 14 days")).toBeNull();
+    expect(findQuote(text, "the ‘refund period’ lasts 14 days")).toBeNull();
+  });
+});
+
+describe("a bracketed gloss of a term left out (#2504)", () => {
+  test("the words around a gloss naming a language are found, and the match covers the gloss", () => {
+    const zh = "是目前用于训练大多数深度学习结构（英語：deep networks）的最基本的算法。";
+    expect(covered(zh, "是目前用于训练大多数深度学习结构的最基本的算法")).toBe(
+      "是目前用于训练大多数深度学习结构（英語：deep networks）的最基本的算法",
+    );
+    const en = "Stochastic gradient descent (Chinese: 随机梯度下降) is the most basic algorithm.";
+    expect(covered(en, "stochastic gradient descent is the most basic algorithm")).toBe(
+      "Stochastic gradient descent (Chinese: 随机梯度下降) is the most basic algorithm",
+    );
+  });
+
+  test("a quote that keeps the gloss is found as before", () => {
+    const zh = "深度学习结构（英语：deep networks）的最基本的算法";
+    expect(covered(zh, "深度学习结构（英语：deep networks）的最基本的算法")).toBe(zh);
+  });
+
+  test("other words in brackets, a changed word, an added not or a changed gloss still aren't found", () => {
+    const text =
+      "Stochastic gradient descent (Chinese: 随机梯度下降) is the most basic algorithm for deep networks (since 2012) at scale.";
+    expect(findQuote(text, "for deep networks at scale")).toBeNull();
+    expect(findQuote(text, "stochastic gradient descent is the most used algorithm")).toBeNull();
+    expect(
+      findQuote(text, "stochastic gradient descent is not the most basic algorithm"),
+    ).toBeNull();
+    const zh = "大多数深度学习结构（英語：deep networks）的最基本的算法";
+    expect(findQuote(zh, "大多数深度学习结构（英語：deep learning）的最基本的算法")).toBeNull();
+    expect(findQuote(zh, "深度学习结构的最基本的2种算法")).toBeNull();
+  });
+});

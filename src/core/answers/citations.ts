@@ -2296,6 +2296,28 @@ export function createCitationSession(
      * quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
+      /**
+       * Whether the words start on the pages a record cites and run on to the next page of its
+       * Passage: a record's quote ends where its page does, and the Answer may quote on (#2504).
+       */
+      const runsOnToNextPage = (record: Accepted, words: string, matching: Matching) => {
+        const { pageFrom, pageTo } = record.range;
+        const passageTo = record.source.pageTo;
+        if (pageFrom === null || pageTo === null || passageTo === null || pageTo >= passageTo) {
+          return false;
+        }
+        const units = documents.pageTexts(
+          record.source.documentId,
+          record.source.contentHash,
+          pageFrom,
+          pageTo + 1,
+        );
+        const next = units.findIndex((unit) => unit.page === pageTo + 1);
+        if (next <= 0) return false;
+        const found = quoteInUnits(units, words, matching);
+        const nextStarts = joinUnits(units).starts[next] ?? 0;
+        return found !== null && (found[0]?.start ?? nextStarts) < nextStarts;
+      };
       /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
       const titled = (
         record: Accepted,
@@ -2329,6 +2351,9 @@ export function createCitationSession(
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
         if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        if (cited.some(({ record, matching }) => runsOnToNextPage(record, words, matching))) {
+          continue;
+        }
         if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
           continue;
         const inCjk = writtenInCjk(words);

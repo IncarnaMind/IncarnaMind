@@ -15,7 +15,9 @@
  * - letters are compared in lower case, with the final sigma "ς" as "σ": a
  *   quote that starts mid-sentence is often given a capital;
  * - the quote marks and dashes the shared normaliser leaves alone ("‹", "›",
- *   "ʼ", "⸺", "⸻") are unified too;
+ *   "ʼ", "⸺", "⸻") are unified too, and a double quote mark reads as a single
+ *   one: a quote nested in a quote is written in the other kind of mark ("the
+ *   ‘soft weights’ property" for the page's “soft weights”, #2504);
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
@@ -48,6 +50,11 @@
  *   almost anywhere, and "found" must keep meaning that these words are on the
  *   page. Each part is returned, for the viewer to highlight. An ellipsis at
  *   the start or the end of a quote leaves nothing out of it.
+ *
+ * - A gloss in brackets that names a language and gives a term in it, such as
+ *   "（英語：deep networks）" or "(English: SGD)", may be left out of a quote
+ *   when it isn't found with it: the words around it are the page's, in order
+ *   (#2504). Only such a gloss; any other words left out are not forgiven.
  *
  * - In a Document whose text lost its f-ligatures (see `lostLigatures`), a
  *   quote's "fi", "fl", "ff", "ffi" or "ffl" may be the lone "f" the text
@@ -119,8 +126,32 @@ const FOLDED: Readonly<Record<string, string>> = {
   ʼ: "'",
   "⸺": "-",
   "⸻": "-",
+  '"': "'",
   ς: "σ",
 };
+
+/**
+ * A gloss in a normalised, folded text: brackets that name a language and give a term in it, with
+ * the space before it. Brackets and the colon are ASCII after NFKC, and 語 is folded to 语.
+ */
+const GLOSS =
+  / ?\((?:english|chinese|japanese|german|french|latin|英语|英文|中文|日语|日文|德语|法语|拉丁语) ?: ?[^()]{1,80}\)/g;
+
+/** Whether a text may hold a gloss (see `GLOSS`), before it is normalised. */
+const GLOSS_IN_TEXT =
+  /[(（]\s*(?:english|chinese|japanese|german|french|latin|英[語语文]|中文|日[語语文]|德[語语]|法[語语]|拉丁[語语])\s*[:：]/iu;
+
+/** A text's units with each gloss (see `GLOSS`) marked `removed`, so offsets still point into the text. */
+function unitsWithoutGlosses(units: NormalisedUnit[]): NormalisedUnit[] {
+  const live = units.filter((unit) => !unit.removed);
+  const chars = live.map((unit) => unit.char).join("");
+  for (const match of chars.matchAll(GLOSS)) {
+    for (let at = 0; at < match[0].length; at++) {
+      (live[match.index + at] as NormalisedUnit).removed = true;
+    }
+  }
+  return units;
+}
 
 /** A soft hyphen at the end of a line: read as a hyphen, so rule 5 of the normaliser joins the word. */
 const SOFT_HYPHEN_AT_LINE_END =
@@ -441,10 +472,17 @@ export function findQuote(
   options: MatchOptions = {},
 ): TextRange[] | null {
   const readings = options.numbers === "if-needed" ? [false, true] : [options.numbers === true];
+  const ligatures = options.lostLigatures === true;
+  const glossed = GLOSS_IN_TEXT.test(text);
   for (const numbers of readings) {
     const found =
-      findRead(text, quote, numbers, false, options.unique) ??
-      (options.lostLigatures ? findRead(text, quote, numbers, true, options.unique) : null);
+      findRead(text, quote, numbers, { ligatures: false, glosses: false }, options.unique) ??
+      (ligatures
+        ? findRead(text, quote, numbers, { ligatures: true, glosses: false }, options.unique)
+        : null) ??
+      (glossed
+        ? findRead(text, quote, numbers, { ligatures, glosses: true }, options.unique)
+        : null);
     if (found === "ambiguous") return null;
     if (found) return found;
   }
@@ -452,18 +490,22 @@ export function findQuote(
 }
 
 /**
- * `findQuote` in one reading: with number formatting normalised or not, and
- * with the quote and the text both read without f-ligatures' letters or not.
+ * `findQuote` in one reading: with number formatting normalised or not, with
+ * the quote and the text both read without f-ligatures' letters or not, and
+ * with the text's glosses left out or not.
  */
 function findRead(
   text: string,
   quote: string,
   numbers: boolean,
-  withoutLigatureLetters: boolean,
+  without: { ligatures: boolean; glosses: boolean },
   unique = false,
 ): TextRange[] | "ambiguous" | null {
-  const shape = withoutLigatureLetters ? withoutLigatures : (needle: string) => needle;
-  const read = withoutLigatureLetters ? unitsWithoutLigatures : (units: NormalisedUnit[]) => units;
+  const shape = without.ligatures ? withoutLigatures : (needle: string) => needle;
+  const read = (units: NormalisedUnit[]) => {
+    const kept = without.ligatures ? unitsWithoutLigatures(units) : units;
+    return without.glosses ? unitsWithoutGlosses(kept) : kept;
+  };
   if (!numbers)
     return findNeedle(read(matchUnits(text)), shape(needleOf(quote)), undefined, unique);
   const units = read(matchUnits(text, "text"));
