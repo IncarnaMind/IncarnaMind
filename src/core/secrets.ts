@@ -53,13 +53,17 @@ export function createSecrets(
   /**
    * The secret, or null when it is absent or can't be read; `unreadable` tells
    * a saved secret this device can't open (e.g. the keyring changed) from a
-   * missing one. The failure is logged here, once.
+   * missing one. The failure is logged once per secret per run.
    */
+  const toldUnreadable = new Set<string>();
   const tryRead = async (name: string): Promise<{ secret: string | null; unreadable: boolean }> => {
     try {
       return { secret: await read(name), unreadable: false };
     } catch (error) {
-      console.error(`The secret "${name}" saved on this computer couldn't be read.`, error);
+      if (!toldUnreadable.has(name)) {
+        toldUnreadable.add(name);
+        console.error(`The secret "${name}" saved on this computer couldn't be read.`, error);
+      }
       return { secret: null, unreadable: true };
     }
   };

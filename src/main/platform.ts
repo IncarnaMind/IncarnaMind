@@ -800,7 +800,9 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
   const dataDir = app.getPath("userData");
   const { cipher: safeStorageCipher, ready: secretsReady } = createSafeStorageCipher(log);
   // The page's calls wait for `served`: nothing it can ask about secrets runs before the answer.
+  log.info("secrets.encryption.waiting");
   await secretsReady;
+  log.info("secrets.encryption.ready", { protection: safeStorageCipher.protection() });
   const crashReporter = createCrashReporter(dataDir);
   const usageData = createUsageDataSender();
   const chatGptStore = chatGptTestProfile(log, safeStorageCipher);

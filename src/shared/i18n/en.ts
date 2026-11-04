@@ -2258,6 +2258,8 @@ export const en = {
   "tagging.problem.network": "Couldn’t tag: the AI model couldn’t be reached.",
   "tagging.problem.auth":
     "Couldn’t tag: the AI model’s service refused its key. Check it in Settings.",
+  "tagging.problem.api-key-unreadable":
+    "Couldn’t tag: the saved key can’t be read. Enter it again.",
   "tagging.problem.model":
     "Couldn’t tag: the AI model’s service doesn’t have this model. Choose another in Settings.",
   "tagging.problem.rate-limit":
@@ -2890,6 +2892,7 @@ export const en = {
 
   "providers.test.ok": "Connected: the provider answered.",
   "providers.test.auth": "The key was refused. Check that it is correct and still active.",
+  "providers.test.api-key-unreadable": "The saved key can’t be read. Enter it again.",
   "providers.test.model": "The provider doesn’t know this model. Check its name.",
   "providers.test.rate-limit": "The provider is limiting requests for this key. Try again shortly.",
   "providers.test.network": "Couldn’t reach the server. Check its URL and your connection.",
@@ -2940,7 +2943,7 @@ export const en = {
   "providers.readiness.missing-api-key":
     "No API key for {service} on this device. Add it in Settings.",
   "providers.readiness.api-key-unreadable":
-    "The saved API key for {service} on this computer can’t be read. Enter it again.",
+    "The saved API key for {service} on this device can’t be read. Enter it again.",
   "providers.readiness.consent-declined": "Questions are off: you chose not to send to {service}.",
   "providers.readiness.local-mode":
     "Not sent to {service}: “Keep everything on this computer” is on.",
@@ -3664,6 +3667,7 @@ export const en = {
   "answer.offline.none": "Nothing in your Documents matched.",
   "answer.error.thisModel": "this model",
   "answer.error.auth": "The key for {model} was refused",
+  "answer.error.apiKeyUnreadable": "The saved key for {model} can’t be read. Enter it again",
   "answer.error.thisService": "This service",
   "answer.error.model": "{service} doesn’t know {model}",
   "answer.error.rate-limit": "{service} is limiting requests right now",

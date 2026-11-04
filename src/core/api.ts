@@ -5394,6 +5394,8 @@ export interface TestChatConnectionInput {
 /** Why a request to a model provider failed, so the UI can say what to fix. */
 export type ProviderErrorKind =
   | "auth"
+  /** A saved key this device can't open (e.g. the keyring changed): the User enters it again. */
+  | "api-key-unreadable"
   | "model"
   | "rate-limit"
   | "network"
