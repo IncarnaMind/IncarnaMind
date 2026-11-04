@@ -278,10 +278,7 @@
       {
         "name": "Final archive master format",
         "kind": "decision",
-        "pattern": [
-          "\\b(?:archive|interview|masters?)\\b",
-          "\\bFLAC\\b"
-        ],
+        "pattern": ["\\b(?:archive|interview|masters?)\\b", "\\bFLAC\\b"],
         "said": [2, 3],
         "subject": "\\b(?:archive|interview|master\\s+format|masters)\\b"
       },
@@ -388,10 +385,7 @@
       {
         "name": "最终的存档母版格式",
         "kind": "decision",
-        "pattern": [
-          "(?:存档|访谈|母版)",
-          "FLAC"
-        ],
+        "pattern": ["(?:存档|访谈|母版)", "FLAC"],
         "said": [2, 3],
         "subject": "(?:存档|访谈|母版格式|母版)"
       },

@@ -636,7 +636,7 @@ describe("Record a voice memo (#1568)", { timeout: 60_000 }, () => {
       const fill = await settledFill(core, memo);
       expect(fill.state).toBe("filled");
       expect(feedback).toContain("Recorded [^1], [^2]");
-      expect(feedback).toContain("isn't word for word");
+      expect(feedback).toContain("not found at the requested time/speaker");
       await vi.waitFor(() => {
         const paragraphs: string[] = [];
         readMind(client).forEach((node) => {
