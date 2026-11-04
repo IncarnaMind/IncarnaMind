@@ -87,19 +87,19 @@ const CALLS: Call[] = [
       {
         name: "invitation draft by Wednesday",
         kind: "action",
-        pattern: [/invitation/i, /Wednesday/i],
+        pattern: [/invitation/i, /Wednesday/i, /Nia/i],
         said: [4],
       },
       {
         name: "book the lighting inspector",
         kind: "action",
-        pattern: [/book/i, /inspect/i],
+        pattern: [/book/i, /inspect/i, /Ellis/i, /tomorrow/i],
         said: [5],
       },
       {
         name: "Jo delivers the labels on Friday",
         kind: "action",
-        pattern: [/label/i, /Friday/i],
+        pattern: [/label/i, /Friday/i, /\bJo\b/i],
         said: [6],
       },
     ],
@@ -128,9 +128,9 @@ const CALLS: Call[] = [
         pattern: [/4\s*月\s*19|四月十九|十九日/, /开幕/],
         said: [3],
       },
-      { name: "周三发邀请函初稿", kind: "action", pattern: [/邀请/, /周三/], said: [4] },
-      { name: "预约灯光验收人员", kind: "action", pattern: [/预约/, /验收/], said: [5] },
-      { name: "小乔周五送展签", kind: "action", pattern: [/展签/, /周五/], said: [6] },
+      { name: "周三发邀请函初稿", kind: "action", pattern: [/邀请/, /周三/, /小倪/], said: [4] },
+      { name: "预约灯光验收人员", kind: "action", pattern: [/预约/, /验收/, /老易/, /明天/], said: [5] },
+      { name: "小乔周五送展签", kind: "action", pattern: [/展签/, /周五/, /小乔/], said: [6] },
     ],
     notDecided: [/(?:定|选)(?:在)?(?:四月四日|4\s*月\s*4\s*日)开幕/],
   },
@@ -1062,7 +1062,7 @@ const FINAL_CALLS: Call[] = [
       {
         name: "call Leeds about references",
         kind: "action",
-        pattern: [/Leeds/i, /reference/i],
+        pattern: [/Leeds/i, /reference/i, /call|contact|ask|check with/i],
         said: [9],
       },
     ],
@@ -1087,7 +1087,7 @@ const FINAL_CALLS: Call[] = [
     ],
     facts: [
       { name: "转发云朵的报价", kind: "action", pattern: [/云朵/, /转发/], said: [8] },
-      { name: "问杭州分公司", kind: "action", pattern: /杭州/, said: [9] },
+      { name: "问杭州分公司", kind: "action", pattern: [/杭州/, /问|联系|咨询/], said: [9] },
     ],
     notDecided: [/清风|洁亮|试用/],
   },
@@ -1135,7 +1135,7 @@ const FINAL_CALLS: Call[] = [
       them("我周五前把排班表做出来。"),
     ],
     facts: [
-      { name: "周六请学生", kind: "decision", pattern: [/学生/, /周六/], said: [4] },
+      { name: "周六请学生", kind: "decision", pattern: [/学生/, /周六/, /请|雇|聘|招/], said: [4] },
       { name: "汉娜工作日收银", kind: "action", pattern: [/汉娜/, /收银/], said: [6] },
       { name: "周五前做排班表", kind: "action", pattern: [/排班/, /周五/], said: [7] },
     ],
@@ -1446,7 +1446,8 @@ describe.skipIf(!KEY)(
         actions: scored.filter((each) => each.fact.kind === "action" && each.count > 0).length,
         duplicates: scored.reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
         invented: decisions.filter((each) =>
-          call.notDecided?.some((pattern) => pattern.test(each.text)),
+          call.notDecided?.some((pattern) => pattern.test(each.text)) &&
+          !call.facts.some((fact) => fact.kind === "decision" && says(fact, each.text)),
         ).length,
         summary: summary.length,
         decisionsSection: decisions.length,
@@ -1477,8 +1478,11 @@ describe.skipIf(!KEY)(
             rows,
             "",
             "```",
-            shownNote(doc),
-            "```",
+             shownNote(doc),
+             "```",
+             ...(fill.state === "filled" && once === call.facts.length ? [] : [
+               `Citation details: ${JSON.stringify(units.map((unit) => ({ text: unit.text, citations: unit.citations })))}`,
+             ]),
             "",
             ...(fill.state === "filled" && !process.env.INCARNAMIND_LIVE_REPLIES
               ? []
