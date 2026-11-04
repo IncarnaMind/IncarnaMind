@@ -307,13 +307,59 @@ export function figureJudgment(
   };
 }
 
-/** The words a figure's label names it by (#2378): each of three letters or more, and each Han character. */
+/**
+ * The words a figure's label names it by (#2378): each word of three letters or more, each word
+ * with a digit (a year, "Q3"), and each Han character.
+ */
 function labelWords(label: string): string[] {
   const han = label.match(/\p{Script=Han}/gu) ?? [];
-  const words = (label.replace(/\p{Script=Han}/gu, " ").match(/[\p{L}\p{M}]+/gu) ?? []).filter(
-    (word) => [...word].length >= 3,
+  const words = (label.replace(/\p{Script=Han}/gu, " ").match(/[\p{L}\p{M}\p{N}]+/gu) ?? []).filter(
+    (word) => [...word].length >= 3 || /\p{N}/u.test(word),
   );
   return [...words, ...han].map((word) => word.toLowerCase());
+}
+
+/** A word and its plural name the same: "visit" and "visits", "category" and "categories". */
+const plurals = (word: string) => [word, `${word}s`, `${word}es`, word.replace(/y$/u, "ies")];
+const sameWord = (word: string, token: string) =>
+  plurals(word).includes(token) || plurals(token).includes(word);
+
+/**
+ * Where a label's word first stands in `said`, lowercased; -1 when it doesn't. A Han character
+ * stands anywhere; a word stands only as a whole word, so "age" is never found in "average".
+ */
+function wordAt(said: string, word: string): number {
+  if (/^\p{Script=Han}$/u.test(word)) return said.indexOf(word);
+  for (const token of said.replace(/\p{Script=Han}/gu, " ").matchAll(/[\p{L}\p{M}\p{N}]+/gu))
+    if (/\p{N}/u.test(word) ? token[0] === word : sameWord(word, token[0])) return token.index;
+  return -1;
+}
+
+/**
+ * The Analysis figures of one sentence that its words name in another order than the figures
+ * stand (#2378): in "North had [Central's], Central [North's]" each label's words are there, but
+ * each figure stands where the other's are. Only the words a label doesn't share with another's
+ * say which is which.
+ */
+function misordered(figures: readonly CheckFigure[], claim: string): ReadonlySet<string> {
+  const said = claim.toLowerCase();
+  const words = figures.map((figure) => new Set(labelWords(figure.calculated?.figure.label ?? "")));
+  const placed = figures.flatMap((figure, at) => {
+    const found = [...(words[at] ?? [])]
+      .filter((word) => words.every((other, each) => each === at || !other.has(word)))
+      .map((word) => wordAt(said, word))
+      .filter((place) => place >= 0);
+    return found.length > 0 && figure.locator.kind === "text"
+      ? [{ id: figure.id, word: Math.min(...found), offset: figure.locator.from.offset }]
+      : [];
+  });
+  const byWords = [...placed].sort((a, b) => a.word - b.word);
+  return new Set(
+    [...placed]
+      .sort((a, b) => a.offset - b.offset)
+      .filter((each, at) => byWords[at]?.id !== each.id)
+      .map((each) => each.id),
+  );
 }
 
 /**
@@ -328,7 +374,7 @@ function analysisJudgment(
   target: CheckFigure,
   claim: string,
   facts: Facts,
-  options: Pick<FigureCheckOptions, "misnamed" | "keptInside">,
+  options: Pick<FigureCheckOptions, "misnamed" | "keptInside"> & { outOfOrder: boolean },
 ): ClaimJudgment {
   const record = target.analysisRecord;
   const read = (record?.citations ?? []).map(({ documentId, contentHash }) => ({
@@ -345,7 +391,7 @@ function analysisJudgment(
     return { verdict: "not-checked", reason: "analysis", detail: null, ...known };
   const label = target.calculated?.figure.label ?? "";
   const said = [claim, target.label ?? ""].join(" ").toLowerCase();
-  if (!labelWords(label).every((word) => said.includes(word)))
+  if (options.outOfOrder || !labelWords(label).every((word) => wordAt(said, word) >= 0))
     return {
       verdict: "unsupported",
       evidence: null,
@@ -578,12 +624,19 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
   calculations.check();
   const items = new Map(parsed.items.map((item) => [item.id, item]));
   const rows: FigureCheckResult[] = [];
+  const outOfOrder = misordered(
+    requested.filter((each) => each.calculated?.figure.analysis),
+    options.claim,
+  );
   for (const original of requested) {
     let target = original;
     if (target.calculated?.figure.analysis) {
       rows.push({
         ...finding(target),
-        result: analysisJudgment(target, options.claim, options.facts(), options),
+        result: analysisJudgment(target, options.claim, options.facts(), {
+          ...options,
+          outOfOrder: outOfOrder.has(target.id),
+        }),
       });
       continue;
     }

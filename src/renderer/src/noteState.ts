@@ -311,6 +311,7 @@ export function readNoteState({
   documents,
   keptCitationTexts,
   folderId,
+  keptInside = null,
 }: {
   doc: Y.Doc;
   /** Where its table cells hold figures, as the core reads them (`MindContentSnapshot`). */
@@ -318,6 +319,8 @@ export function readNoteState({
   documents: readonly LiveDocument[] | null;
   keptCitationTexts: readonly KeptCitationText[];
   folderId: string | null;
+  /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
+  keptInside?: ((documentId: string) => string | null) | null;
 }): { health: NoteHealth; state: NoteState | null; filedAnswers: ReadonlySet<string> } {
   schema ??= getSchema(noteExtensions());
   const root = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(MIND_CONTENT_FIELD), schema);
@@ -329,6 +332,7 @@ export function readNoteState({
     folderId,
     scope: mindScopeOf(doc),
     figurePlaces: figurePlacesOf(cellFigures),
+    keptInside,
   });
   const health = noteHealth(root, {
     claims,
@@ -336,7 +340,8 @@ export function readNoteState({
     skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
     omitted: opinionSentenceRanges(root, doc),
     citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
-    tableShown: (table) => tableShownIn(doc, table.toJSON(), "en", liveVersions(documents)),
+    tableShown: (table) =>
+      tableShownIn(doc, table.toJSON(), "en", liveVersions(documents), keptInside),
     tableKept: (table) => keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
   });
   const requests = new Set(

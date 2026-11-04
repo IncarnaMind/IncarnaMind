@@ -329,6 +329,8 @@ export interface ClaimContext {
   versions: ReadonlyMap<string, string> | null;
   folderId: string | null;
   scope: SearchScope | null;
+  /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
+  keptInside?: ((documentId: string) => string | null) | null;
 }
 
 export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes["parts"] {
@@ -580,6 +582,8 @@ export function figureShownIn(
       run,
       result,
       versions: now.versions,
+      keptInside: context.keptInside ?? null,
+      check: child,
     });
     // A workbook's figure shows how it was worked out on its own card (#2347).
     return shown.state === "supported" && child.calculation && !child.calculation.figure.workbook
@@ -588,7 +592,7 @@ export function figureShownIn(
   }
   return analysisFigureShown(
     { state: "not-checked", reason: "unread" },
-    { run, result, versions: context.versions },
+    { run, result, versions: context.versions, keptInside: context.keptInside ?? null },
   );
 }
 
@@ -610,7 +614,8 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
     now.folderId === context.folderId &&
     sameScopes &&
     now.figureContexts === context.figureContexts &&
-    now.figurePlaces === context.figurePlaces
+    now.figurePlaces === context.figurePlaces &&
+    now.keptInside === context.keptInside
   )
     return;
   view.dispatch(view.state.tr.setMeta(CONTEXT, context).setMeta("addToHistory", false));

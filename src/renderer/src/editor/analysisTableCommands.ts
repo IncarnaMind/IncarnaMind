@@ -102,11 +102,12 @@ function markersIn(doc: ProseMirrorNode): { pos: number; binding: AnalysisTableB
 }
 
 /**
- * What keeps each Analysis table's caption whole after a change (#2378): a marker stands at the end
- * of the paragraph just above its table. Typing over the marker with the caption's words puts it
- * back at the caption's end; a marker whose table is gone, or that stands anywhere else, goes; a
- * table whose caption line is gone, or that never had one, is a typed table, as Convert to text
- * leaves it. Null when every table's caption is whole.
+ * What keeps each Analysis table's caption whole after a change (#2378): one marker of the table's
+ * stands in a line of the Note, its caption. Typing over the marker with the caption's words puts it
+ * back at that line's end; a marker whose table is gone, or a second one of a table, goes; a table
+ * whose caption line is gone, or that never had one, is a typed table, as Convert to text leaves
+ * it. A line put between the caption and its table, as Enter at the caption's end puts one, leaves
+ * both as they were. Null when every table's caption is whole.
  */
 function captionsKept(
   transactions: readonly Transaction[],
@@ -114,60 +115,42 @@ function captionsKept(
   after: EditorState,
 ): Transaction | null {
   const { doc } = after;
-  const tables: { pos: number; index: number; binding: AnalysisTableBinding }[] = [];
-  doc.forEach((node, pos, index) => {
+  const tables: { pos: number; binding: AnalysisTableBinding }[] = [];
+  const lines: { node: ProseMirrorNode; from: number; to: number }[] = [];
+  doc.forEach((node, pos) => {
+    if (node.type.name === "paragraph") lines.push({ node, from: pos, to: pos + node.nodeSize });
     const binding =
       node.type.name === "table" ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) : null;
-    if (binding) tables.push({ pos, index, binding });
+    if (binding) tables.push({ pos, binding });
   });
-  const captionOf = (table: (typeof tables)[number]) => {
-    const above = table.index > 0 ? doc.child(table.index - 1) : null;
-    return above?.type.name === "paragraph"
-      ? { node: above, from: table.pos - above.nodeSize, to: table.pos }
-      : null;
-  };
+  const lineAt = (pos: number) => lines.find((line) => pos > line.from && pos < line.to) ?? null;
   const markers = markersIn(doc);
-  const onCaption = (pos: number, binding: AnalysisTableBinding) =>
-    tables.some((table) => {
-      const caption = captionOf(table);
-      return (
-        caption !== null &&
-        sameBinding(table.binding, binding) &&
-        pos > caption.from &&
-        pos < caption.to
-      );
-    });
+  const captioned = new Set<number>();
+  const steps: { at: number; run: (tr: Transaction) => void }[] = [];
   const markerType = doc.type.schema.nodes[ANALYSIS_TABLE_NODE];
   const mapping = new Mapping();
   for (const tr of transactions) mapping.appendMapping(tr.mapping);
-  const steps: { at: number; run: (tr: Transaction) => void }[] = markers
-    .filter(({ pos, binding }) => !onCaption(pos, binding))
-    .map(({ pos }) => ({ at: pos, run: (tr) => tr.delete(pos, pos + 1) }));
   for (const table of tables) {
-    const caption = captionOf(table);
-    if (
-      markers.some(
-        ({ pos, binding }) =>
-          caption !== null &&
-          sameBinding(binding, table.binding) &&
-          pos > caption.from &&
-          pos < caption.to,
-      )
-    )
+    const own = markers.find(
+      ({ pos, binding }) => sameBinding(binding, table.binding) && lineAt(pos) !== null,
+    );
+    if (own) {
+      captioned.add(own.pos);
       continue;
-    // The paragraph its marker ended before the change: still the line above, its words were typed
-    // over. A line with no id yet is followed through the change by its place.
+    }
+    // The line its marker stood in before the change, its words typed over. A line with no id yet
+    // is followed through the change by its place.
     const was = markersIn(before.doc).find(({ binding }) => sameBinding(binding, table.binding));
-    const line = was ? before.doc.resolve(was.pos).parent.attrs[BLOCK_ID_ATTRIBUTE] : undefined;
+    const id = was ? before.doc.resolve(was.pos).parent.attrs[BLOCK_ID_ATTRIBUTE] : undefined;
     const mapped = was ? mapping.map(was.pos, -1) : -1;
-    const same =
-      caption !== null &&
-      was !== undefined &&
-      (typeof line === "string"
-        ? caption.node.attrs[BLOCK_ID_ATTRIBUTE] === line
-        : mapped > caption.from && mapped < caption.to);
-    const end = caption ? caption.to - 1 : null;
-    if (caption && end !== null && markerType && same) {
+    const line =
+      was === undefined
+        ? null
+        : typeof id === "string"
+          ? (lines.find((each) => each.node.attrs[BLOCK_ID_ATTRIBUTE] === id) ?? null)
+          : lineAt(mapped);
+    if (line && markerType) {
+      const end = line.to - 1;
       steps.push({
         at: end,
         run: (tr) =>
@@ -180,6 +163,8 @@ function captionsKept(
       });
     }
   }
+  for (const { pos } of markers)
+    if (!captioned.has(pos)) steps.push({ at: pos, run: (tr) => tr.delete(pos, pos + 1) });
   if (steps.length === 0) return null;
   const tr = after.tr;
   // From the end back, so each position is still the one it was read at.

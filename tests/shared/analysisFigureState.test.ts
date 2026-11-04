@@ -76,6 +76,40 @@ test("a claim check never stands for the core's record, either way (#2378)", () 
     );
 });
 
+test("a figure its sentence calls something its label doesn't stays Unsupported on its own marker", () => {
+  const misnamed = {
+    state: "unsupported" as const,
+    unsupported: {
+      kind: "analysis-name" as const,
+      reason: "The sentence doesn’t say this figure is Total yield",
+      covered: null,
+      uncovered: null,
+      found: true as const,
+    },
+  };
+  expect(
+    analysisFigureShown(
+      { state: "unsupported" },
+      { run, result: "total", versions, check: misnamed },
+    ),
+  ).toEqual({ state: "unsupported" });
+  // Only IncarnaMind’s own finding on the naming stands, not an Unsupported of another kind.
+  expect(
+    analysisFigureShown(
+      { state: "unsupported" },
+      {
+        run,
+        result: "total",
+        versions,
+        check: {
+          state: "unsupported",
+          unsupported: { ...misnamed.unsupported, kind: "unbacked-cause" },
+        },
+      },
+    ),
+  ).toEqual({ state: "supported" });
+});
+
 test("a figure whose Document changed or went needs a re-check, as a calculated figure does", () => {
   expect(
     analysisFigureShown(unchecked, {

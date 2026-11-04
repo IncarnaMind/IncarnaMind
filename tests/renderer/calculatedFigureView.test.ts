@@ -24,7 +24,11 @@ import {
   formattingClusters,
 } from "../../src/renderer/src/editor/citationClusters";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
-import { figureShownIn } from "../../src/renderer/src/editor/claimChecks";
+import {
+  ClaimChecks,
+  figureShownIn,
+  setClaimContext,
+} from "../../src/renderer/src/editor/claimChecks";
 import { FigureEvidence } from "../../src/renderer/src/editor/figureEvidence";
 import { figureHandle } from "../../src/renderer/src/editor/figureHandle";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -495,6 +499,7 @@ const checkFinding = (
 function checkedFigureInText(
   child: Partial<FigureCheckAttributes> | null,
   checkedText: string | null = null,
+  keptInside: ((documentId: string) => string | null) | null = null,
 ) {
   const doc = new Y.Doc();
   docs.push(doc);
@@ -531,10 +536,13 @@ function checkedFigureInText(
     editorProps: { handleScrollToSelection: () => true },
     extensions: [
       ...noteExtensions(),
+      ClaimChecks,
       Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
     ],
   });
   editors.push(editor);
+  if (keptInside)
+    setClaimContext(editor.view, { versions: null, folderId: null, scope: null, keptInside });
   return figureShownIn(
     editor.state,
     "figure",
@@ -553,6 +561,24 @@ test("no claim check of the sentence keeps the figure in the text from its own r
   expect(checkedFigureInText(null, "Total revenue 300 kg, as checked.")).toEqual({
     state: "supported",
   });
+});
+
+test("a figure its sentence misnames reads Unsupported on its marker, and one behind a wall Not checked", () => {
+  const misnamed = {
+    kind: "analysis-name" as const,
+    reason: "The sentence doesn’t say this figure is Total revenue",
+    covered: null,
+    uncovered: null,
+    found: true as const,
+  };
+  expect(checkedFigureInText({ state: "unsupported", unsupported: misnamed })).toEqual({
+    state: "unsupported",
+  });
+  expect(
+    checkedFigureInText({ state: "not-checked", reason: "unread" }, null, (documentId) =>
+      documentId === "source" ? "Matter" : null,
+    ),
+  ).toEqual({ state: "not-checked", reason: "kept-inside" });
 });
 
 const rangeCitation: Citation = {

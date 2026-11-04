@@ -415,11 +415,21 @@ describe("a column's line names what it was worked out from (#2378)", () => {
   });
 
   test.each([
-    ["en", "1 row of the Analysis isn’t in the note", "2 rows of the Analysis aren’t in the note"],
-    ["zh-CN", "数据分析中有 1 行不在笔记里", "数据分析中有 2 行不在笔记里"],
+    [
+      "en",
+      "1 row of the Analysis isn’t in the note",
+      "2 rows of the Analysis aren’t in the note",
+      "Revenue: from the Analysis · not recalculated",
+    ],
+    [
+      "zh-CN",
+      "数据分析中有 1 行不在笔记里",
+      "数据分析中有 2 行不在笔记里",
+      "Revenue：来自数据分析 · 未重新计算",
+    ],
   ] as const)(
-    "%s: rows the User deletes are named, and a table with none left is never recalculated",
-    (language, one, two) => {
+    "%s: rows the User deletes are named, and a table with none left is never recalculated, nor any of its columns",
+    (language, one, two, unearned) => {
       const [north] = rows;
       const less = analysisTableShown(
         bound(tableBlock(north ? [north] : [])),
@@ -431,6 +441,7 @@ describe("a column's line names what it was worked out from (#2378)", () => {
       expect(missingLine(less.missing, language)).toBe(one);
       const none = analysisTableShown(bound(tableBlock([])), kept(sum), language, null);
       expect(none.state.kind).toBe("calculated");
+      expect(none.columns.map((column) => columnLine(column, language))).toEqual([unearned]);
       expect(missingLine(none.missing, language)).toBe(two);
     },
   );

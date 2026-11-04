@@ -205,6 +205,19 @@ test("Backspace beside the marker selects it, and a second takes it away as Conv
   expect(inAnalysisTable(editor.state)).toBe(true);
 });
 
+test("Enter at the caption's end opens a line above the table, and the table stays the Analysis's", () => {
+  const editor = editorOf(NOTE);
+  editor.commands.setTextSelection(markerAt(editor) + 1);
+  press(editor, "Enter");
+  editor.commands.insertContent("Read with the notes below.");
+  expect(markers(editor)).toBe(1);
+  expect(editor.state.doc.child(1).lastChild?.type.name).toBe(ANALYSIS_TABLE_NODE);
+  expect(editor.state.doc.child(2).textContent).toBe("Read with the notes below.");
+  expect(editor.state.doc.child(3).type.name).toBe("table");
+  intoTable(editor);
+  expect(inAnalysisTable(editor.state)).toBe(true);
+});
+
 test("a marker whose table is deleted goes with it, and the caption's words stay", () => {
   const editor = editorOf(NOTE);
   intoTable(editor);

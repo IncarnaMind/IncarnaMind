@@ -8,6 +8,7 @@ import { type NoteReading, readNoteState } from "./noteState";
 import { suggestedIds } from "./organizeOutcome";
 import { useSelection } from "./selection";
 import { type AppState, exampleMindIds, useAppStore } from "./store";
+import { keptInsideName } from "./walls";
 
 const NO_MINDS: readonly Mind[] = [];
 
@@ -91,6 +92,7 @@ export function useMindNoteStates(
     state.status.kind === "ready" ? state.documents : null,
   );
   const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
+  const library = useAppStore((state) => state.library);
   const [saves, setSaves] = useState(0);
   const [states, setStates] = useState<ReadonlyMap<string, NoteReading>>(new Map());
   useEffect(() => {
@@ -120,6 +122,7 @@ export function useMindNoteStates(
         const found = new Map<string, NoteReading>();
         for (const { mindId, state, cellFigures } of snapshots) {
           const doc = new Y.Doc();
+          const folderId = folders.get(mindId) ?? null;
           try {
             Y.applyUpdate(doc, state);
             found.set(
@@ -129,7 +132,8 @@ export function useMindNoteStates(
                 cellFigures,
                 documents,
                 keptCitationTexts,
-                folderId: folders.get(mindId) ?? null,
+                folderId,
+                keptInside: (documentId) => keptInsideName(library, documentId, folderId),
               }),
             );
           } catch (error) {
@@ -148,7 +152,7 @@ export function useMindNoteStates(
     return () => {
       current = false;
     };
-  }, [wanted, documents, keptCitationTexts, saves]);
+  }, [wanted, documents, keptCitationTexts, library, saves]);
   return states;
 }
 

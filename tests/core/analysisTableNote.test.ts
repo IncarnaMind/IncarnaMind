@@ -770,6 +770,9 @@ const NAMED = {
     rests: "1 figure not recalculated",
     two: "2 figures not recalculated",
     whole: "North's total is [=3], of [=6] in all.",
+    inWord: "Central's subtotal amount is [=6].",
+    inOrder: "Central's total amount is [=6], and its average amount is [=7].",
+    outOfOrder: "Central's average amount is [=6], and its total amount is [=7].",
   },
   "zh-CN": {
     total: "中部地区金额合计",
@@ -784,6 +787,9 @@ const NAMED = {
     rests: "1 个数字未重新计算",
     two: "2 个数字未重新计算",
     whole: "North地区合计为 [=3]，全部合计为 [=6]。",
+    inWord: null,
+    inOrder: "中部地区金额合计为 [=6]，平均金额为 [=7]。",
+    outOfOrder: "中部地区平均金额为 [=6]，金额合计为 [=7]。",
   },
 } as const;
 
@@ -833,10 +839,50 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       state: "unsupported",
       reason: words.misnamed(words.mean),
     });
-    // It holds the badge: never quietly green.
+    // It holds the badge, and its own row in the schedule: never quietly green.
     expect((await reading(core, client))?.kind).toBe("needs-look");
+    const schedule = await core.getFigureSchedule(madeId);
+    expect(schedule.rows.filter((row) => !row.analysisTable).map((row) => row.shown.state)).toEqual(
+      ["supported", "unsupported", "unsupported"],
+    );
     core.close();
   });
+
+  test("two figures each under the other's words both need a look; in their own order, both are Supported", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.inOrder, words.outOfOrder),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.inOrder)?.state).toBe("supported");
+    expect(stateOf(client, words.outOfOrder)?.state).toBe("unsupported");
+    core.close();
+  });
+
+  test.runIf(words.inWord !== null)(
+    "a word of the label found only inside another word doesn't name the figure",
+    async () => {
+      const said = words.inWord ?? "";
+      const { core, madeId, client } = await walked(
+        language,
+        lines(said),
+        false,
+        null,
+        withFigures(),
+      );
+      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+      await client.settled();
+      expect(stateOf(client, said)).toMatchObject({
+        state: "unsupported",
+        reason: words.misnamed(words.total),
+      });
+      core.close();
+    },
+  );
 
   test("a figure in a typed table is named by its row and column headings", async () => {
     const north = language === "en" ? "North's total amount" : "北部地区金额合计";
@@ -1063,6 +1109,17 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     expect(
       outside.rows.filter((row) => !row.analysisTable).map((row) => row.shown.state),
     ).not.toContain("supported");
+    // Home's row reads the wall as the badge does: the walled table earns no ✓ there either.
+    const home = readNoteState({
+      doc: client.doc,
+      cellFigures: [],
+      documents: await core.listDocuments(),
+      keptCitationTexts: [],
+      folderId: null,
+      keptInside: (documentId) => (documentId === orders.id ? "Matter" : null),
+    });
+    expect(home.health.supported).toBe(0);
+    expect(home.state?.kind).toBe("not-checked");
     await core.moveToFolder({ mindIds: [madeId], folderId: matter.id });
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();

@@ -483,7 +483,8 @@ export function analysisTableShown(
       return {
         column,
         heading: headings[column] ?? given.columns[column] ?? "",
-        rule: shaped && check?.rule && earned(check.rule) ? check.rule : null,
+        // A table with none of its rows left holds nothing a rule reproduced.
+        rule: shaped && rows.length > 0 && check?.rule && earned(check.rule) ? check.rule : null,
         rows: shaped ? (check?.rows ?? 0) : 0,
         differs,
         footed,
@@ -502,9 +503,7 @@ export function analysisTableShown(
     if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
       return { state: { kind: "needs-recheck", why: "new-version" }, columns, missing };
   }
-  // A table with none of its rows left holds nothing a rule reproduced.
-  const recalculated =
-    rows.length > 0 && columns.length > 0 && columns.every((column) => column.rule !== null);
+  const recalculated = columns.length > 0 && columns.every((column) => column.rule !== null);
   return { state: { kind: recalculated ? "recalculated" : "calculated" }, columns, missing };
 }
 

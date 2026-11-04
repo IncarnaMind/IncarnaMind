@@ -886,6 +886,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       result: occurrence.calculated?.figure.analysis?.result ?? null,
       versions: input.versions,
       keptInside: input.keptInside ?? null,
+      check: state?.child ?? null,
     });
     if (
       shown.state !== "needs-recheck" &&

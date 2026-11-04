@@ -740,7 +740,8 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
  * How an Analysis figure shows (#2378): what the core worked out when the Analysis ran, while the
  * Documents it read are as they were, and Not checked otherwise. A claim check reads the
  * Documents' text, which never holds a figure an Analysis worked out, so its verdict never stands
- * for the figure, either way; only the User's own Keep of the sentence does.
+ * for the figure, either way; only the User's own Keep of the sentence does, and the core's own
+ * finding that the sentence calls the figure something its label doesn't.
  */
 export function analysisFigureShown(
   shown: ClaimCheckShown,
@@ -752,6 +753,8 @@ export function analysisFigureShown(
     versions: ReadonlyMap<string, string> | null;
     /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
     keptInside?: ((documentId: string) => string | null) | null;
+    /** The figure's check: its sentence doesn't name it as its label does (`analysis-name`). */
+    check?: Pick<FigureCheckAttributes, "state" | "unsupported"> | null;
   },
 ): ClaimCheckShown {
   if (figure.result === null || shown.state === "kept") return shown;
@@ -778,6 +781,8 @@ export function analysisFigureShown(
     if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
       return { state: "needs-recheck", why: "new-version" };
   }
+  if (figure.check?.state === "unsupported" && figure.check.unsupported?.kind === "analysis-name")
+    return { state: "unsupported" };
   return { state: "supported" };
 }
 
