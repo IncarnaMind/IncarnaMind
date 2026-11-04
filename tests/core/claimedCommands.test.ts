@@ -351,13 +351,37 @@ describe("A reply that says a command ran that didn't (#2407)", { timeout: 60_00
 });
 
 describe("The refusal's own line is never read as a claim (#2407)", { timeout: 60_000 }, () => {
-  // protects=a reply that copies the refusal's line is judged without it, and one that is only the line isn't judged at all, in English and Chinese; fails_when=the judge reads the app's own sentence as the reply's; no_claim=none beyond protects.
+  // protects=a reply that copies the refusal's line, with the app's quotes or straight ones, each time it says it, is judged without it, and one that is only the line isn't judged at all, in English and Chinese; a near miss is read as written; fails_when=the judge reads the app's own sentence as the reply's; no_claim=none beyond protects.
   test.each([
-    { language: "en" as const, rest: "Harbour Street is open beside your note." },
-    { language: "zh-CN" as const, rest: "Harbour Street 已在右边打开。" },
-  ])("$language: the judge gets the reply without it", async ({ language, rest }) => {
+    {
+      language: "en" as const,
+      rest: "Harbour Street is open, “beside” your note.",
+      from: "this computer",
+      to: "your computer",
+    },
+    {
+      language: "zh-CN" as const,
+      rest: "Harbour Street 已在“右边”打开。",
+      from: "这台电脑",
+      to: "那台电脑",
+    },
+  ])("$language: the judge gets the reply without it", async ({ language, rest, from, to }) => {
     const said = translate(language, "commands.yours.privacy");
-    for (const reply of [`${said} ${rest}`, said]) {
+    const straight = said.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    const near = straight.replace(from, to);
+    const cases: [string, string | null][] = [
+      [`${said} ${rest}`, rest],
+      [said, null],
+      [`${straight} ${rest}`, rest],
+      [straight, null],
+      // Said twice: every copy is cut, in the app's quotes, straight ones, or one of each.
+      [`${said} ${rest} ${said}`, rest],
+      [`${straight} ${rest} ${straight}`, rest],
+      [`${said} ${rest} ${straight}`, rest],
+      // A near miss isn't the refusal's line, so the judge reads it as it was written.
+      [`${near} ${rest}`, `${near} ${rest}`],
+    ];
+    for (const [reply, judgedAs] of cases) {
       const { model, judged } = assistant(reply, [
         run("settings.change", { setting: "localMode", value: "on" }, false),
         find("Harbour Street"),
@@ -372,11 +396,8 @@ describe("The refusal's own line is never read as a claim (#2407)", { timeout: 6
         ...FROM_WINDOW,
       });
 
-      if (reply === said) {
-        expect(judged).toEqual([]);
-      } else {
-        expect(judgedReply(judged[0])?.trim()).toBe(rest);
-      }
+      if (judgedAs === null) expect(judged).toEqual([]);
+      else expect(judgedReply(judged[0])?.trim()).toBe(judgedAs);
       core.close();
     }
   });
