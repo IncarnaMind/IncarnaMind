@@ -287,12 +287,27 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     title,
     rows: rows.filter((row) => `${row.model} · ${row.set}` === title),
   }));
-  const sections = groups.flatMap((group) => [
-    `## ${group.title} (${group.rows.length} items)`,
-    "",
-    pairedSection(group.rows, names, margin),
-    "",
-  ]);
+  // The guards hold on both languages together; each language's own table is beside them.
+  const sections = groups.flatMap((group) => {
+    const languages = [...new Set(group.rows.map((row) => row.language))];
+    return [
+      `## ${group.title} (${group.rows.length} items)`,
+      "",
+      pairedSection(group.rows, names, margin),
+      "",
+      ...(languages.length > 1
+        ? languages.flatMap((language) => {
+            const ofLanguage = group.rows.filter((row) => row.language === language);
+            return [
+              `### ${group.title} · ${language} (${ofLanguage.length} items)`,
+              "",
+              pairedSection(ofLanguage, names, margin),
+              "",
+            ];
+          })
+        : []),
+    ];
+  });
   const items = groups.flatMap((group) => [
     `### ${group.title}`,
     "",

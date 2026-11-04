@@ -191,6 +191,12 @@ export function pairedSection(
     const done = rows.map(run).filter((each) => each.status === "done");
     return `${done.filter((each) => each.answerCalls === 1).length} of ${done.length}`;
   };
+  const counted = (run: (row: PairedRow) => ArmRun) =>
+    rows.map(run).filter((each) => each.status === "done" && each.searches !== null);
+  const searchedAgain = (run: (row: PairedRow) => ArmRun) => {
+    const done = counted(run);
+    return `${done.filter((each) => (each.searches ?? 0) > 1).length} of ${done.length}`;
+  };
   const rule = (each: Guard) =>
     `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""} |`;
   return [
@@ -203,6 +209,11 @@ export function pairedSection(
     `| Tokens in / out (median) | ${tokens((row) => row.baseline)} | ${tokens((row) => row.candidate)} | |`,
     `| Citations found | ${found((row) => row.baseline)} | ${found((row) => row.candidate)} | |`,
     `| Answered in one call | ${oneCall((row) => row.baseline)} | ${oneCall((row) => row.candidate)} | |`,
+    ...(counted((row) => row.candidate).length > 0
+      ? [
+          `| Searched more than once | ${searchedAgain((row) => row.baseline)} | ${searchedAgain((row) => row.candidate)} | |`,
+        ]
+      : []),
     "",
     `| Guard, items both finished | ${a} | ${b} | lost / gained | holds |`,
     "|---|---|---|---|---|",

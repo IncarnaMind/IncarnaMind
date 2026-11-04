@@ -45,6 +45,8 @@ export interface ArmRun {
   modelCalls: number;
   /** Of them, the Answer's own: not its search rewrite, translation or checks. */
   answerCalls: number;
+  /** The searches the Answer made, a search made before the first call included; null: not counted. */
+  searches: number | null;
   inputTokens: number;
   outputTokens: number;
   citations: number;
@@ -120,6 +122,7 @@ const languageOf = (language: "en" | "zh" | "zh-CN"): Language =>
 const NOTHING: Measured = {
   status: "done",
   error: null,
+  searches: null,
   citations: 0,
   found: 0,
   cited: null,
@@ -154,6 +157,7 @@ function questionItem(
           : answer.error
             ? `${answer.error.kind}: ${answer.error.message}`
             : answer.status,
+        searches: answer.searches.length,
         citations: answer.citations.length,
         found: answer.citations.filter((citation) => citation.outcome === "found").length,
         cited: done && answer.expected ? answer.expected.cited === answer.expected.needed : null,

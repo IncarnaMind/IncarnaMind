@@ -7,7 +7,12 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
 import type { ArmRun } from "../../eval/speed/paired";
-import { guards, newFalseSupported, type PairedRow } from "../../eval/speed/pairedReport";
+import {
+  guards,
+  newFalseSupported,
+  type PairedRow,
+  pairedSection,
+} from "../../eval/speed/pairedReport";
 import {
   type AnswerPathsOverride,
   retrievesFirst,
@@ -22,6 +27,7 @@ const RUN: ArmRun = {
   doneMs: 5000,
   modelCalls: 3,
   answerCalls: 3,
+  searches: 1,
   inputTokens: 30_000,
   outputTokens: 900,
   citations: 2,
@@ -98,6 +104,24 @@ describe("the guards", () => {
   });
 });
 
+describe("the report", () => {
+  test("counts the Answers that searched more than once, the search made first included", () => {
+    const section = pairedSection(
+      [row({ searches: 1 }, { searches: 2 }), row({ searches: 1 }, { searches: 1 }, "en-02")],
+      ["loop", "retrieve-first"],
+    );
+    expect(section).toContain("| Searched more than once | 0 of 2 | 1 of 2 | |");
+  });
+
+  test("leaves the row out where no search was counted", () => {
+    const section = pairedSection(
+      [row({ searches: null }, { searches: null })],
+      ["loop", "retrieve-first"],
+    );
+    expect(section).not.toContain("Searched more than once");
+  });
+});
+
 describe("the arm switch", () => {
   test("each request goes as the arm in use has it", async () => {
     const systems: string[] = [];
@@ -143,15 +167,11 @@ describe("the arm switch", () => {
 });
 
 describe("the arms' Answer paths", () => {
-  // An Answer in the question flow, the one the arms' sets ask in, writes first when it retrieves
-  // first or writes then cites (src/core/answers/index.ts).
-  const pathOf = (model: { catalogId: string; modelId: string }, paths: AnswerPathsOverride) => {
-    const searchesFirst = retrievesFirst(model, "question", paths);
-    return {
-      searchesFirst,
-      writesFirst: searchesFirst || writesThenCites(model, "question", paths),
-    };
-  };
+  // In the question flow, the one the arms' sets ask in; each list decides its own path.
+  const pathOf = (model: { catalogId: string; modelId: string }, paths: AnswerPathsOverride) => ({
+    searchesFirst: retrievesFirst(model, "question", paths),
+    writesFirst: writesThenCites(model, "question", paths),
+  });
 
   test.each([
     [
@@ -179,7 +199,7 @@ describe("the arms' Answer paths", () => {
         "cite-first": { searchesFirst: false, writesFirst: false },
         "write-then-cite": { searchesFirst: false, writesFirst: true },
         loop: { searchesFirst: false, writesFirst: listed.writesFirst },
-        "retrieve-first": { searchesFirst: true, writesFirst: true },
+        "retrieve-first": { searchesFirst: true, writesFirst: listed.writesFirst },
         today: listed,
       });
     },
