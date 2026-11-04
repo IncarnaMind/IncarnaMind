@@ -13,6 +13,7 @@ import {
 import {
   type FigureContext,
   type FigureFacts,
+  FiguresNotRead,
   figureFactsOf,
   readFigures,
 } from "../../../shared/figures";
@@ -351,8 +352,8 @@ function figuresOfBlock(
       const blockId = element.getAttribute("id");
       if (typeof blockId !== "string") continue;
       const text = textOf(element);
-      found.push(
-        ...inSentence(
+      try {
+        const figures = inSentence(
           {
             element,
             blockId,
@@ -365,8 +366,14 @@ function figuresOfBlock(
           },
           grids,
           note,
-        ),
-      );
+        );
+        for (const figure of figures) found.push(figure);
+      } catch (error) {
+        if (!(error instanceof FiguresNotRead)) throw error;
+        // The rest of the Note is still read: the check of each sentence here reads its own
+        // figures again, and one it can't read is not checked and says so (#2510).
+        console.error(`The figures in Block ${blockId} couldn't be read: ${String(error.cause)}`);
+      }
     }
   }
   read.readWith = key;

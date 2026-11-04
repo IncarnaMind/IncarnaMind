@@ -25,12 +25,18 @@
 import { generateText } from "ai";
 import { citedInputs } from "../../../shared/calculatedFigures";
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import { type Figure, type FigureContext, readFigures } from "../../../shared/figures";
+import {
+  type Figure,
+  type FigureContext,
+  FiguresNotRead,
+  readFigures,
+} from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
 import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { isPeriod } from "../../../shared/periods";
 import { sentenceSpans } from "../../../shared/sentences";
+import { type UnreadFigures, unreadFiguresDetail } from "../../../shared/unreadFigures";
 import type {
   CheckedVersion,
   CheckFigure,
@@ -597,6 +603,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
 }
 
 function createSentenceCheck(deps: ClaimCheckDependencies) {
+  // The Passages each check was given or shown, so that a text whose figures couldn't be read is
+  // named by the one it came from.
+  const passagesOf = new WeakMap<ClaimCheckRequest, () => readonly string[]>();
   const check = async function checkClaim(
     request: ClaimCheckRequest,
   ): Promise<AtomicClaimCheckResult> {
@@ -688,6 +697,10 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
     for (const passage of citedPassages) read.set(passage.documentId, passage.contentHash);
     const citedShown = citedPassages.length > 0 ? session.show(citedPassages.map(asPassage)) : null;
+    passagesOf.set(request, () => [
+      ...citedPassages.map((passage) => passage.passageId),
+      ...session.shownPassages().map((passage) => passage.passageId),
+    ]);
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
@@ -1890,9 +1903,87 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     };
   };
   return async function checkClaim(request: ClaimCheckRequest): Promise<AtomicClaimCheckResult> {
-    const result = await check(request);
-    return result.verdict === "supported" ? withDollarClause(deps, request.claim, result) : result;
+    try {
+      const result = await check(request);
+      return result.verdict === "supported"
+        ? withDollarClause(deps, request.claim, result)
+        : result;
+    } catch (error) {
+      if (!(error instanceof FiguresNotRead)) throw error;
+      return figuresNotRead(deps, request, error, passagesOf.get(request)?.() ?? []);
+    }
   };
+}
+
+/**
+ * A check whose figures couldn't be read (#2510) is never Supported, and its text is never taken
+ * for one that holds no figures: it is not checked, and says where, as the Passage the text came
+ * from, else the sentence itself.
+ */
+function figuresNotRead(
+  deps: ClaimCheckDependencies,
+  request: ClaimCheckRequest,
+  error: FiguresNotRead,
+  passageIds: readonly string[],
+): AtomicClaimCheckResult {
+  const loose = (text: string) => text.replace(/\s+/g, " ").trim();
+  const unread = loose(error.text);
+  const holds = (text: string) => unread !== "" && loose(text).includes(unread);
+  // The text read may be a quote of a Passage, or a search's result that holds several: the place
+  // is the Passage whose own figures can't be read.
+  const near = passageIds
+    .map((id) => deps.documents.citationSource(id))
+    .filter(
+      (each): each is CitationSource =>
+        each !== null &&
+        (holds(each.text) || (loose(each.text) !== "" && unread.includes(loose(each.text)))),
+    );
+  const source = near.find((each) => !figuresReadIn(each.text)) ?? near[0] ?? null;
+  const sentence = [request.claim, request.originalClaim, request.recordClaim].some(
+    (text) => text !== undefined && (holds(text) || unread.includes(loose(text))),
+  );
+  const where = source
+    ? `Passage ${source.passageId}`
+    : sentence
+      ? "its sentence"
+      : "a text it read";
+  console.error(`A check couldn't read the figures in ${where}: ${messageOf(error.cause)}`);
+  const result: ClaimCheckResult = source
+    ? {
+        verdict: "not-checked",
+        reason: "figures-not-read",
+        detail: unreadFiguresDetail(unreadPlaceOf(deps, source)),
+        versions: [{ documentId: source.documentId, contentHash: source.contentHash }],
+        excluded: [],
+      }
+    : {
+        verdict: "not-checked",
+        reason: sentence ? "sentence-figures-not-read" : "figures-not-read",
+        detail: null,
+        versions: [],
+        excluded: [],
+      };
+  return request.figures?.length ? uncheckedFigureResults(request.figures, result) : result;
+}
+
+function figuresReadIn(text: string): boolean {
+  try {
+    readFigures(text);
+    return true;
+  } catch (error) {
+    if (error instanceof FiguresNotRead) return false;
+    throw error;
+  }
+}
+
+function unreadPlaceOf(deps: ClaimCheckDependencies, source: CitationSource): UnreadFigures {
+  const { documentId, documentName, contentHash, pageFrom, pageTo } = source;
+  const units =
+    pageFrom === null || pageTo === null
+      ? []
+      : deps.documents.pageTexts(documentId, contentHash, pageFrom, pageTo);
+  const location = units.length > 0 ? locationOf(units, null) : null;
+  return { documentId, documentName, contentHash, pageFrom, pageTo, location };
 }
 
 /**

@@ -163,6 +163,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(answer).toContainText(
         language === "en" ? "Python couldn't run this time." : "这次无法运行 Python。",
       );
+      // The step is folded away: the line under the Answer says why, with Try again.
+      const problem = answer.getByTestId("answer-python-problem");
+      await expect(problem).toContainText(
+        t("analysis.unavailable.python", { reason: t("embedding.model.failure.network") }),
+      );
+      await expect(problem.getByTestId("answer-python-retry")).toBeVisible();
       await pointAndClick(window, answer.getByTestId("answer-steps"));
       await expect(answer.getByTestId("answer-timeline")).toContainText(
         t("analysis.unavailable.python", { reason: t("embedding.model.failure.network") }),
