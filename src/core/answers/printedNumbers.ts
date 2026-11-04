@@ -226,7 +226,10 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
       (analysis.recalculations ?? []).flatMap(({ result, check }) => {
         const figure = analysis.output.results.find((each) => each.name === result);
         if (check.kind !== "differs" || figure?.kind !== "figure") return [];
-        return [figure.value];
+        // A share is written as its fraction or in points ("0.999", "99.9"), whichever it was given.
+        const share =
+          figure.unit !== null && readFigures(`1${figure.unit}`)[0]?.unit.kind === "percent";
+        return share ? [figure.value, figure.value / 100, figure.value * 100] : [figure.value];
       }),
     );
     // A marker the model wrote with no figure stays one: a printed figure never takes its number.

@@ -16,7 +16,7 @@ import { createLocalExecutor } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
 import { programMeter } from "../../src/main/programMeter";
 import { createCodeHost } from "../../src/main/runCode/host";
-import { type AnalysisOutput, noAnalysisOutput } from "../../src/shared/analysis";
+import { type AnalysisEnd, type AnalysisOutput, noAnalysisOutput } from "../../src/shared/analysis";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import {
@@ -223,20 +223,22 @@ describe.skipIf(process.platform === "win32")("numbers code printed, in the Answ
   );
 
   test.each<[Language, string]>([
-    ["en", "Before it stopped, the code had counted 42 rows."],
-    ["zh-CN", "代码在出错前已数出 42 行。"],
+    ["en", "Before it stopped, the code had counted 42 rows, of 12,345 in all."],
+    ["zh-CN", "代码在出错前已数出 42 行，共 12,345 行。"],
   ])(
     "%s: a number printed by a run that then failed is a figure calculated by code too",
     async (language, reply) => {
       const { answer } = await answered(
         language,
-        [bash("printf 'rows %s\\n' 42; exit 3")],
+        // Its last line may have been cut where it stopped, so only the lines before it count.
+        [bash("printf 'rows %s\\ntotal %s\\n' 42 12345; exit 3")],
         () => reply,
       );
       expect(answer.analyses[0]?.end.kind).toBe("error");
       expect(answer.figures.map((figure) => [figure.value, figure.analysis?.result])).toEqual([
         [42, "printed@5"],
       ]);
+      expect(answer.text).toContain("12,345");
       const blocks = answerBlocks(answer);
       expect(readText(blocks)).toBe(reply);
       expect(figureRunsOfAnswer(answer, blocks)).toEqual([
@@ -670,6 +672,113 @@ describe.skipIf(process.platform === "win32")("what a reply's numbers are not", 
         },
       );
       expect(answer.figures).toHaveLength(90);
+    },
+  );
+});
+
+describe.skipIf(process.platform === "win32")("where printed output may have been cut", () => {
+  test.each<[Language, string]>([
+    ["en", "The total is 12,345 over 7 rows."],
+    ["zh-CN", "合计 12,345，共 7 行。"],
+  ])(
+    "%s: the line a stream cut, before its (cut) line, was never printed",
+    async (language, reply) => {
+      const { answer } = await answered(language, [pyodide], () => reply, {
+        analysis: printing("rows 7\ntotal 12345\n(cut)"),
+      });
+      expect(values(answer)).toEqual([7]);
+    },
+  );
+
+  test.each<[Language, AnalysisEnd]>([
+    ["en", { kind: "error", message: "Folder limit reached.", line: null }],
+    ["zh-CN", { kind: "error", message: "Folder limit reached.", line: null }],
+    ["en", { kind: "out-of-memory" }],
+    ["zh-CN", { kind: "out-of-memory" }],
+    ["en", { kind: "timed-out", limitMs: 60_000 }],
+    ["zh-CN", { kind: "timed-out", limitMs: 60_000 }],
+    ["en", { kind: "stopped" }],
+    ["zh-CN", { kind: "stopped" }],
+  ])("%s: a run that ended %o may have cut its last line", async (language, end) => {
+    const reply = language === "en" ? "The total is 12,345 over 7 rows." : "合计 12,345，共 7 行。";
+    const { answer } = await answered(language, [pyodide], () => reply, {
+      analysis: { end, output: { ...noAnalysisOutput(), printed: "rows 7\ntotal 12345" } },
+    });
+    expect(answer.analyses[0]?.end.kind).toBe(end.kind);
+    expect(values(answer)).toEqual([7]);
+  });
+
+  test.each<[Language, string]>([
+    [
+      "en",
+      "| Region | Revenue | Source |\n| --- | --- | --- |\n| North | 1,234.5 | [^1] |\n\nThe code read 3 rows.",
+    ],
+    [
+      "zh-CN",
+      "| 地区 | 收入 | 来源 |\n| --- | --- | --- |\n| 北区 | 1,234.5 | [^1] |\n\n代码读了 3 行。",
+    ],
+  ])(
+    "%s: a Citation anywhere in a table's row is its numbers' Citation",
+    async (language, reply) => {
+      const { answer } = await answered(
+        language,
+        [
+          pyodide,
+          (passage) => ({
+            tool: "cite",
+            input: {
+              citations: [
+                {
+                  marker: 1,
+                  passage: passage("summary"),
+                  quote: "The North region earned 1234.5 in 2025.",
+                },
+              ],
+            },
+          }),
+        ],
+        () => reply,
+        { analysis: printing("North 1234.5\nrows 3\n") },
+      );
+      expect(values(answer)).toEqual([3]);
+      expect(answer.text).toContain("| 1,234.5 |");
+    },
+  );
+
+  test.each<[Language, string]>([
+    ["en", "Of 0 failures, North has 1,234.5."],
+    ["zh-CN", "0 次失败中，北区为 1,234.5。"],
+  ])("%s: a printed frame of one row has an index too", async (language, reply) => {
+    const { answer } = await answered(
+      language,
+      [bash("printf '  region  amount\\n0  North  1234.5\\n'")],
+      () => reply,
+    );
+    expect(values(answer)).toEqual([1234.5]);
+  });
+
+  test.each<[Language, string]>([
+    ["en", "The share is 99.9% of 2 rows."],
+    ["zh-CN", "占比 99.9%，共 2 行。"],
+  ])(
+    "%s: a refused share given in points is refused as a fraction too",
+    async (language, reply) => {
+      const { answer } = await answered(language, [pyodide], () => reply, {
+        analysis: printing("share 99.9%\nrows 2\n", {
+          results: [
+            {
+              kind: "figure",
+              name: "share",
+              label: "Share",
+              unit: "%",
+              value: 99.9,
+              of: { input: "sales", columns: ["Revenue"], rows: [[2, 3]], count: 2, how: "mean" },
+            },
+          ],
+        }),
+      });
+      expect(answer.analyses[0]?.recalculations?.[0]?.check.kind).toBe("differs");
+      expect(values(answer)).toEqual([2]);
     },
   );
 });

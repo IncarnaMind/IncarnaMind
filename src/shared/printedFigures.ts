@@ -27,14 +27,6 @@ const unitText = (unit: FigureUnit): string | null =>
         ? unit.word
         : null;
 
-/** A run that ended under its code may have stopped writing partway through a line. */
-const UNFINISHED: ReadonlySet<AnswerAnalysis["end"]["kind"]> = new Set([
-  "timed-out",
-  "stopped",
-  "out-of-memory",
-  "crashed",
-]);
-
 /**
  * `text` up to where it was cut: a number at a cut edge ("1234567.89" cut to "12345") was never
  * printed. A stream cut by its own limit ends in a "(cut)" line, after the line it cut.
@@ -52,7 +44,9 @@ const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
 function printedTexts(run: PrintedRun): { source: string; text: string }[] {
   if (run.end.kind === "unavailable") return [];
   const { printed, cut } = run.output;
-  const unfinished = UNFINISHED.has(run.end.kind);
+  // A run that didn't end done, by an error, a limit or a stop, may have stopped partway through
+  // a line: a limit is reported as an error.
+  const unfinished = run.end.kind !== "done";
   return [
     {
       source: "printed",
@@ -76,12 +70,33 @@ function printedTexts(run: PrintedRun): { source: string; text: string }[] {
 const SCIENTIFIC = /\d(?:[\d.]*)[eE][+-]?\d+/g;
 const FIRST_FIELD = /^(\s*)(-?\d+)(?=\s+\S)/;
 
+const fields = (line: string) => line.trim().split(/\s+/).filter(Boolean);
+const NUMBER = /^[-+(]?[\d.,]+%?\)?,?$/;
+
+/**
+ * Whether `lines[at]` is a printed frame's first row: under a line of column names, one fewer
+ * than its own fields, with its index's name between them when the index has one.
+ */
+function firstRow(lines: readonly string[], at: number): boolean {
+  let above = at - 1;
+  if (fields(lines[above] ?? "").length === 1) above--;
+  const heading = fields(lines[above] ?? "");
+  return (
+    heading.length > 0 &&
+    heading.length === fields(lines[at] ?? "").length - 1 &&
+    heading.every((field) => !NUMBER.test(field))
+  );
+}
+
 /**
  * The lines whose first field names their row: a printed table's index, which pandas prints
- * before every row (0, 1, 2…), in two or more lines in a row that count up.
+ * before every row (0, 1, 2…): two or more lines in a row that count up, or a frame's one row.
  */
 function indexLines(lines: readonly string[]): Set<number> {
   const labelled = new Set<number>();
+  lines.forEach((line, at) => {
+    if (FIRST_FIELD.test(line) && firstRow(lines, at)) labelled.add(at);
+  });
   let run: number[] = [];
   const close = () => {
     if (run.length >= 2) for (const at of run) labelled.add(at);
