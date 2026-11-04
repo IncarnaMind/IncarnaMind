@@ -174,7 +174,16 @@ function questionItem(
         duplicate: answer.timing?.writtenTwice ?? false,
         // A Tool's call written as text that still shows fails the Answer, whatever it is graded.
         failures: toolTextIn(answer.text).length > 0 ? ["tool-text"] : [],
-        text: answer.text,
+        // Each Citation not found, to tell a quote the model changed from one it put on the wrong page.
+        text: [
+          answer.text,
+          ...answer.citations
+            .filter((citation) => citation.outcome !== "found")
+            .map(
+              (citation) =>
+                `[${citation.outcome}] “${citation.quote}” (${citation.documentName}, p. ${citation.pageFrom ?? "?"}–${citation.pageTo ?? "?"}; on p. ${citation.quoteOn?.join("–") ?? "none"}; ${citation.checkReason ?? citation.check})`,
+            ),
+        ].join("\n"),
       };
     },
   };
