@@ -30,6 +30,7 @@
   "assistantAsks.spec.ts": 64,
   "assistantChangesMinds.spec.ts": 75,
   "assistantCharts.spec.ts": 44,
+  "assistantCheckQuestion.spec.ts": 30,
   "assistantCommands.spec.ts": 40,
   "assistantCoverage.spec.ts": 12,
   "assistantEdge.spec.ts": 15,
