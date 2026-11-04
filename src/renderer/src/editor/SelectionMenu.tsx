@@ -17,7 +17,7 @@ import { keysHere, shortcutLabel } from "../commands/keymap";
 import { ChevronIcon, CommentIcon } from "../components/icons";
 import { PageBreakLineIcon } from "../components/lineIcons";
 import { useT } from "../i18n";
-import { COMMENT_KEYSHORTCUTS, commentCommandName } from "./commentButton";
+import { commentCommandName, commentKeyshortcuts } from "./commentButton";
 import { isComposing } from "./composing";
 import { EditField, EditWorking } from "./EditField";
 import { selectionForEdit } from "./editSelection";
@@ -696,7 +696,7 @@ export function SelectionMenu({
                 data-testid="selection-comment"
                 title={commentName}
                 aria-label={commentName}
-                aria-keyshortcuts={COMMENT_KEYSHORTCUTS}
+                aria-keyshortcuts={commentKeyshortcuts()}
                 onMouseDown={keepSelection}
                 onClick={() => {
                   // The card opens at the words where the menu stood, and keeps the focus the menu
