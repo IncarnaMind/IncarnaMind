@@ -178,6 +178,7 @@ import {
   offersWorkbookTools,
 } from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
+import type { ThinkingKind } from "../providers/catalog/types";
 import type { PreparedChatModel } from "../providers/chat";
 import type { ModelCallKind } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
@@ -627,7 +628,7 @@ export interface AnswersOptions {
   /** The model, once the User has accepted its data flow (see `Core.prepareChatModel`). */
   prepareModel(
     choice: ChatModelChoice,
-    thinking: "off" | "summary" | "answer" | "careful",
+    thinking: "off" | "summary" | ThinkingKind,
   ): Promise<PreparedChatModel>;
   /**
    * The model for the calls that don't write the Answer, asked to skip thinking:
@@ -998,9 +999,11 @@ function failureOf(error: unknown): ProviderError {
     const kind =
       reason === "consent-declined" || reason === "local-mode"
         ? reason
-        : reason === "missing-api-key"
-          ? "auth"
-          : "model";
+        : reason === "api-key-unreadable"
+          ? "api-key-unreadable"
+          : reason === "missing-api-key"
+            ? "auth"
+            : "model";
     return { kind, message: error.message };
   }
   return classifyProviderError(error);
@@ -1228,9 +1231,10 @@ export function createAnswers(options: AnswersOptions) {
     outputKind?: ModelCallKind;
     /**
      * How much it thinks first, when not as its kind does. A Meeting's notes think as an Answer
-     * does: at a Task's effort the thinking alone filled their replies' limits (#2306).
+     * does: at the provider's default effort, the thinking alone filled their replies' limits
+     * (#2306).
      */
-    thinking?: "answer";
+    thinking?: "answer" | "summary";
     /** A comparison table's cell (#1798): an amount it writes at another scale than its Citations give is asked about once. */
     checkScales?: boolean;
     /**
@@ -2376,9 +2380,7 @@ export function createAnswers(options: AnswersOptions) {
         prepared = await options.prepareModel(
           model,
           // Help during a call is read within seconds: the model answers without thinking first.
-          help
-            ? "off"
-            : (input.thinking ?? (input.task ? "summary" : careful ? "careful" : "answer")),
+          help ? "off" : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer")),
         );
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
@@ -4707,6 +4709,8 @@ export function createAnswers(options: AnswersOptions) {
       model: ChatModelChoice;
       signal: AbortSignal;
       onText?(streamed: Pick<CellAnswer, "markdown" | "blocks">): void;
+      /** How much it thinks first, when not as a comparison cell does. */
+      thinking?: "summary";
     }): Promise<CellAnswer> {
       const answerId = randomUUID();
       return new Promise<CellAnswer>((resolve) => {
@@ -4742,6 +4746,7 @@ export function createAnswers(options: AnswersOptions) {
           toolSet: "check",
           checkScales: true,
           task: true,
+          ...(input.thinking && { thinking: input.thinking }),
         });
         const stop = () => active.get(answerId)?.finish({ status: "stopped" });
         if (input.signal.aborted) stop();
@@ -4852,6 +4857,8 @@ export function createAnswers(options: AnswersOptions) {
           consentNeeded: false,
           outside: true,
           task: true,
+          // A Research step keeps its provider's default effort: no quality set measures it yet (#1631).
+          thinking: "summary",
           web: input.web,
           onCall: input.onCall,
         });

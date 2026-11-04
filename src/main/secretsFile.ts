@@ -16,8 +16,8 @@ export interface SecretCipher {
   protection(): SecretProtection;
   /** Lets encryption work without a keyring (Linux "basic_text"), after the User accepted the risk. */
   allowPlainText(): void;
-  encrypt(plainText: string): Buffer;
-  decrypt(cipherText: Buffer): string;
+  encrypt(plainText: string): Promise<Buffer>;
+  decrypt(cipherText: Buffer): Promise<string>;
 }
 
 const isStringRecord = (value: unknown): value is Record<string, string> =>
@@ -91,7 +91,7 @@ export function createFileKeychain(file: string, cipher: SecretCipher): Keychain
       serially(async () => {
         assertProtected();
         const entries = await load();
-        entries[name] = cipher.encrypt(secret).toString("base64");
+        entries[name] = (await cipher.encrypt(secret)).toString("base64");
         await save(entries);
       }),
 
