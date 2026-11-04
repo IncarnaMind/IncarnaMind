@@ -480,8 +480,8 @@ test("a PDF's own highlights and notes are shown, marked From the file, and a ne
         marks: [
           {
             subtype: "Highlight",
-            rect: [72, 748, 300, 764],
-            quadPoints: [72, 764, 300, 764, 72, 748, 300, 748],
+            rect: [72, 758, 300, 770],
+            quadPoints: [72, 770, 300, 770, 72, 758, 300, 758],
             contents: "Compare with Table 3.",
             title: "Priya Raman",
             color: [1, 0.9, 0.2],

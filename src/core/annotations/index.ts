@@ -194,6 +194,9 @@ function safeJson(json: string, id: string): unknown {
 const located = (check: CitationCheck, reason: CitationCheckReason | null) =>
   check === "found" || (check === "cant-check" && reason === "unsure-word");
 
+/** The words as a key: a file's read may break a line where the stored quote has a space. */
+const collapsed = (text: string) => text.replace(/\s+/g, " ").trim();
+
 const wordsOf = (quote: string, note: string | null) =>
   keywordText(note === null || note === "" ? quote : `${quote}\n${note}`);
 
@@ -203,6 +206,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     const words = wordsOf(quote, note);
     if (words !== "")
       db.run("INSERT INTO annotation_text_fts (rowid, text) VALUES (?, ?)", [BigInt(seq), words]);
+  };
+  const reindex = (id: string, quote: string, note: string | null) => {
+    const seq = db.get<{ seq: number }>("SELECT seq FROM document_annotations WHERE id = ?", [
+      id,
+    ])?.seq;
+    if (seq !== undefined) index(seq, quote, note);
   };
 
   const stored = (id: string): AnnotationRow => {
@@ -573,9 +582,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     },
 
     /**
-     * Stores a PDF's own highlights and notes for a version. A version already
-     * read keeps what it has, so the User's edits and deletes stay; a new one
-     * carries those edits across by page and quote. The User's own are untouched.
+     * Stores a PDF's own highlights and notes for a version. A row the new read
+     * matches is updated in place, so its id, the User's note and colour and
+     * their delete stay with it: a highlight by its words (whitespace aside),
+     * preferring the same page, and a sticky note by its page. A row the version
+     * lacks stays in the list, saying it is missing, and returns when its words
+     * do. The User's own annotations are untouched.
      */
     replaceFileAnnotations(
       documentId: string,
@@ -586,27 +598,22 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         `SELECT ${COLUMNS}, a.deleted_at ${FROM} WHERE a.document_id = ? AND a.source = 'file'`,
         [documentId],
       );
-      if (existing.some((row) => row.content_hash === contentHash)) return;
-      const edits = new Map<
-        string,
-        { note: string | null; colour: AnnotationColour; deleted: boolean }
-      >();
-      for (const row of existing) {
-        edits.set(`${row.page_from ?? ""}\u0000${row.quote}`, {
-          note: row.note,
-          colour: row.colour,
-          deleted: row.deleted_at !== null,
-        });
-      }
       const at = now();
       db.transaction(() => {
-        db.run(
-          `UPDATE document_annotations SET deleted_at = ?, updated_at = ?
-           WHERE document_id = ? AND source = 'file' AND deleted_at IS NULL`,
-          [at, at, documentId],
-        );
+        const taken = new Set<string>();
+        const matchOf = (annotation: FileAnnotation, quote: string) => {
+          const free = existing.filter((row) => !taken.has(row.id));
+          if (annotation.kind === "note") {
+            return (
+              free.find((row) => row.quote === "" && row.page_from === annotation.page) ??
+              free.find((row) => row.quote === "")
+            );
+          }
+          const wanted = collapsed(quote);
+          const same = free.filter((row) => row.quote !== "" && collapsed(row.quote) === wanted);
+          return same.find((row) => row.page_from === annotation.page) ?? same[0];
+        };
         for (const annotation of found) {
-          const edit = edits.get(`${annotation.page ?? ""}\u0000${annotation.quote}`);
           // Cited against the pages just stored, as the User's own are: the words' own check.
           const cited =
             annotation.kind === "highlight" && annotation.quote.trim() !== ""
@@ -614,46 +621,88 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                   parts: [{ unit: annotation.page, text: annotation.quote }],
                 })
               : null;
-          const found = cited !== null && located(cited.check, cited.checkReason);
-          const saved = insert(
+          const there = cited !== null && located(cited.check, cited.checkReason);
+          const quote = there && cited && cited.quote !== "" ? cited.quote : annotation.quote;
+          const match = matchOf(annotation, quote);
+          if (match) {
+            taken.add(match.id);
+            const pageFrom = there && cited?.pageFrom != null ? cited.pageFrom : annotation.page;
+            const pageTo = there && cited?.pageTo != null ? cited.pageTo : pageFrom;
+            const location =
+              there && cited?.location
+                ? cited.location
+                : { kind: "page" as const, from: annotation.page, to: annotation.page };
+            db.run(
+              `UPDATE document_annotations
+                 SET content_hash = ?, passage_id = ?, quote = ?, page_from = ?, page_to = ?,
+                   location = ?, check_state = ?, check_reason = ?, missing = ?, author = ?,
+                   updated_at = ?
+               WHERE id = ?`,
+              [
+                contentHash,
+                there && cited ? cited.passageId : null,
+                quote,
+                pageFrom,
+                pageTo,
+                JSON.stringify(location),
+                annotation.kind === "note" ? "cant-check" : there ? "found" : "not-found",
+                annotation.kind === "note"
+                  ? "no-text"
+                  : there
+                    ? (cited?.checkReason ?? null)
+                    : "quote-not-on-pages",
+                annotation.kind === "highlight" && !there ? 1 : 0,
+                annotation.author,
+                at,
+                match.id,
+              ],
+            );
+            if (match.deleted_at === null && quote !== match.quote) {
+              reindex(match.id, quote, match.note);
+            }
+            continue;
+          }
+          insert(
             {
               id: randomUUID(),
               documentId,
               documentName: "",
               contentHash,
-              passageId: found && cited ? cited.passageId : null,
+              passageId: there && cited ? cited.passageId : null,
               source: "file",
-              colour: edit?.colour ?? annotation.colour,
-              quote: found && cited && cited.quote !== "" ? cited.quote : annotation.quote,
-              note: edit?.note ?? annotation.note,
-              pageFrom: found && cited?.pageFrom != null ? cited.pageFrom : annotation.page,
-              pageTo: found && cited?.pageTo != null ? cited.pageTo : annotation.page,
+              colour: annotation.colour,
+              quote,
+              note: annotation.note,
+              pageFrom: there && cited?.pageFrom != null ? cited.pageFrom : annotation.page,
+              pageTo: there && cited?.pageTo != null ? cited.pageTo : annotation.page,
               location:
-                found && cited?.location
+                there && cited?.location
                   ? cited.location
                   : { kind: "page", from: annotation.page, to: annotation.page },
-              check: annotation.kind === "note" ? "cant-check" : found ? "found" : "not-found",
+              check: annotation.kind === "note" ? "cant-check" : there ? "found" : "not-found",
               checkReason:
                 annotation.kind === "note"
                   ? "no-text"
-                  : found
+                  : there
                     ? (cited?.checkReason ?? null)
                     : "quote-not-on-pages",
               anchor: null,
               author: annotation.author,
-              missing: annotation.kind === "highlight" && !found,
+              missing: annotation.kind === "highlight" && !there,
               createdAt: at,
               updatedAt: at,
             },
             at,
           );
-          if (edit?.deleted) {
-            db.run("UPDATE document_annotations SET deleted_at = ?, updated_at = ? WHERE id = ?", [
-              at,
-              at,
-              saved.id,
-            ]);
+        }
+        for (const row of existing) {
+          if (taken.has(row.id) || row.deleted_at !== null || row.quote === "" || row.missing) {
+            continue;
           }
+          db.run(`UPDATE document_annotations SET missing = 1, updated_at = ? WHERE id = ?`, [
+            at,
+            row.id,
+          ]);
         }
       });
     },

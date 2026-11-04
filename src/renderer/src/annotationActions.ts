@@ -328,6 +328,7 @@ export async function exportAnnotations(document: Document): Promise<void> {
       useNotices.getState().confirm("annotations.export.empty");
       return;
     }
+    if (saved.status === "cancelled") return;
     if (saved.status === "saved") {
       useAnnotations.getState().showExport({
         documentId: document.id,
