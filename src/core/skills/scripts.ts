@@ -14,7 +14,8 @@
  *   isn't run on `python3` instead: it would see other packages than the
  *   locked ones, without the User knowing. A script that stops at importing a
  *   package it doesn't include is a Problem naming the package, never its
- *   traceback.
+ *   traceback; the model is also told that installing it on this computer
+ *   won't help, which it otherwise tells the User to do.
  * - The script finds its Skill's folder in the `SKILL_DIR` environment variable.
  * - The core's `Executor` (see ../execution) runs it: in a new, empty
  *   temporary working folder, removed afterwards; with no input, until it
@@ -45,7 +46,18 @@ import type { InstalledPython } from "../runCode";
  */
 class SkillScriptError extends Error {
   override name = "SkillScriptError";
+  constructor(
+    message: string,
+    /** What the model is told, where it needs more than the card says. */
+    readonly toModel = message,
+  ) {
+    super(message);
+  }
 }
+
+/** What the model is told of a script that couldn't run, where that isn't the card's reason. */
+export const toldTheModel = (error: unknown): string | null =>
+  error instanceof SkillScriptError ? error.toModel : null;
 
 /** What runs a script: the command, and what its environment needs. */
 export interface Interpreter {
@@ -345,8 +357,12 @@ export function createScriptRunner(options: ScriptRunnerOptions) {
           if (why !== null && !signal.aborted) throw ownPythonCantStart(request.script, why);
           const missing = missingPackage(run.stderr);
           if (missing !== null) {
+            const problem = translate(request.language, "scripts.call.missingPackage", {
+              package: missing,
+            });
             throw new SkillScriptError(
-              translate(request.language, "scripts.call.missingPackage", { package: missing }),
+              problem,
+              translate(request.language, "scripts.call.missingPackage.model", { problem }),
             );
           }
         }

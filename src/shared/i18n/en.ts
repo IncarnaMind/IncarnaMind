@@ -4375,6 +4375,8 @@ export const en = {
   "scripts.call.cantRun": "Couldn’t run {script} ({skill})",
   "scripts.call.missingPackage":
     "This Skill needs the Python package “{package}”, which isn’t included in IncarnaMind.",
+  "scripts.call.missingPackage.model":
+    "{problem} Installing it on this computer won’t help: IncarnaMind runs Skills on its own Python.",
   "scripts.call.timedOut": "{script} ({skill}) ran too long and was stopped",
   "scripts.call.exited": "Ran {script} ({skill}): exit code {code}",
   "scripts.call.stopped": "{script} ({skill}) was stopped",

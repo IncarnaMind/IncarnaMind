@@ -257,14 +257,19 @@ describe.skipIf(process.platform === "win32")(
       expect(calls).toMatchObject([{ status: "failed", script: { exitCode: 1, error: null } }]);
     });
 
-    for (const [language, words] of [
+    for (const [language, words, alsoTold] of [
       [
         "en",
         "This Skill needs the Python package “zorblax_quant”, which isn’t included in IncarnaMind.",
+        " Installing it on this computer won’t help: IncarnaMind runs Skills on its own Python.",
       ],
-      ["zh-CN", "这个技能需要 Python 包“zorblax_quant”，IncarnaMind 未包含这个包。"],
+      [
+        "zh-CN",
+        "这个技能需要 Python 包“zorblax_quant”，IncarnaMind 未包含这个包。",
+        "在这台电脑上安装这个包也没有用：IncarnaMind 用自己的 Python 运行技能。",
+      ],
     ] as const) {
-      test(`a package it doesn't include is a plain Problem on the card and for the model, with nothing the script wrote (${language})`, async () => {
+      test(`a package it doesn't include is a plain Problem on the card and for the model, which is also told installing it here won't help, with nothing the script wrote (${language})`, async () => {
         const { skillDir, model, results, runWhere } = await setUp({
           language,
           runtime: {
@@ -285,8 +290,9 @@ describe.skipIf(process.platform === "win32")(
           { status: "failed", script: { exitCode: null, stdout: "", stderr: "", error: words } },
         ]);
         // A failed Tool call reaches the model as an error, as every one does.
-        expect(toldOfScripts(model)).toEqual([{ type: "error-text", value: `Error: ${words}` }]);
-        expect(results[0]).toBe(`Error: ${words}`);
+        const told = `Error: ${words}${alsoTold}`;
+        expect(toldOfScripts(model)).toEqual([{ type: "error-text", value: told }]);
+        expect(results[0]).toBe(told);
         for (const raw of ["Traceback", "ModuleNotFoundError", "Read 12 rows", skillDir]) {
           expect(results[0]).not.toContain(raw);
         }
