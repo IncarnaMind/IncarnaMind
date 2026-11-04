@@ -2163,12 +2163,117 @@ function coreAt(s: string, at: number, settled: Settled): Core[] | null {
   return [found];
 }
 
+const EN_NUMBER_WORDS: ReadonlyMap<string, number> = new Map([
+  ...(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen " +
+    "fifteen sixteen seventeen eighteen nineteen"
+  )
+    .split(" ")
+    .map((word, value) => [word, value] as const),
+  ..."twenty thirty forty fifty sixty seventy eighty ninety"
+    .split(" ")
+    .map((word, index) => [word, (index + 2) * 10] as const),
+]);
+const EN_WORD_SCALES: ReadonlyMap<string, number> = new Map([
+  ["thousand", 1e3],
+  ["million", 1e6],
+  ["billion", 1e9],
+  ["trillion", 1e12],
+]);
+const isNumberWord = (word: string) =>
+  EN_NUMBER_WORDS.has(word) || EN_WORD_SCALES.has(word) || word === "hundred" || word === "and";
+
+/**
+ * The amount English words end `text` with, and the currencies they name: "Seventy-Five Thousand
+ * Dollars" is 75,000 in dollars, and "Twelve Thousand and 50/100 Dollars" 12,000.50. Null when no
+ * number word ends it.
+ */
+function amountInWords(text: string, settled: Settled): { value: number; codes: string[] } | null {
+  const words = text.split(/[\s-]+/);
+  let codes: string[] = [];
+  const named = !isNumberWord(words.at(-1)?.toLowerCase() ?? "");
+  for (const size of named ? [3, 2, 1] : []) {
+    if (words.length <= size) continue;
+    codes = currencyCodes(words.slice(-size).join(" "), settled);
+    if (codes.length > 0) {
+      words.splice(-size);
+      break;
+    }
+  }
+  const cents = /^(\d{2})\/100$/.exec(words.at(-1) ?? "")?.[1];
+  if (cents) words.pop();
+  let start = words.length;
+  while (start > 0 && isNumberWord(words[start - 1]?.toLowerCase() ?? "")) start--;
+  let total = 0;
+  let group = 0;
+  let counted = false;
+  for (const word of words.slice(start)) {
+    const lower = word.toLowerCase();
+    const unit = EN_NUMBER_WORDS.get(lower);
+    const scale = EN_WORD_SCALES.get(lower);
+    if (unit !== undefined) {
+      group += unit;
+      counted = true;
+    } else if (lower === "hundred") group *= 100;
+    else if (scale !== undefined) {
+      total += group * scale;
+      group = 0;
+    }
+  }
+  return counted ? { value: Number(`${total + group}.${cents ?? 0}`), codes } : null;
+}
+
+/**
+ * Whether a figure in brackets gives again the amount written right before it, in figures:
+ * "人民币九万八千元（¥98,000）", "USD 1.2 million ($1,200,000)", "Seventy-Five Thousand Dollars
+ * ($75,000.00)". Only an amount in words or with a scale word is given again so: two cells of a
+ * statement line write one form twice, as an elimination's "3,600 (3,600)" does, and a tab or a
+ * line between them parts two cells.
+ */
+function restates(
+  prepared: Prepared,
+  before: Draft | undefined,
+  floor: number,
+  bracket: number,
+  inner: Draft,
+  settled: Settled,
+): boolean {
+  const { s } = prepared;
+  const value = readingOf({ ...inner, negative: false }).value;
+  const line = s.lastIndexOf("\n", bracket - 1) + 1;
+  const gap = /[ \u00a0]*$/.exec(s.slice(Math.max(floor, line), bracket))?.[0].length ?? 0;
+  const end = bracket - gap;
+  for (let at = end; at <= bracket; at++)
+    if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return false;
+  if (before && before.to === end) {
+    if (!before.core.chinese && before.scaleWord === null) return false;
+    const unitsAgree =
+      before.unit.kind === "plain" ||
+      inner.unit.kind === "plain" ||
+      (before.unit.kind === "currency" && inner.unit.kind === "currency"
+        ? before.currencies.some((code) => inner.currencies.includes(code))
+        : JSON.stringify(before.unit) === JSON.stringify(inner.unit));
+    return unitsAgree && readingOf(before).value === value;
+  }
+  // Back to the line's start, not to the last figure ("and 50/100" may have been read as a date),
+  // and no further than one amount's words reach.
+  const words = amountInWords(s.slice(Math.max(line, end - 160), end), settled);
+  return (
+    words !== null &&
+    words.value === value &&
+    (words.codes.length === 0 ||
+      inner.currencies.length === 0 ||
+      words.codes.some((code) => inner.currencies.includes(code)))
+  );
+}
+
 /** Reads the words around a number into a figure; null when it isn't one (a year, a reference, a word). */
 function readAround(
   prepared: Prepared,
   found: Core,
   floor: number,
   settled: Settled,
+  before?: Draft,
 ): Draft | null {
   const { s } = prepared;
   const draft: Draft = {
@@ -2441,7 +2546,11 @@ function readAround(
       (isAlnum(s[bracket - 1]) || s[bracket - 1] === ")");
     // In running text brackets are an aside; only a table's cell or a statement line makes one a minus.
     const row = glued || reference ? null : rowOf(prepared, outer?.from ?? bracket, close + 1);
+    // Brackets that give the amount before them again are neither a minus nor a question, and
+    // make no figure of a "thirty (30) days" that has none.
+    const aside = restates(prepared, before, floor, bracket, draft, settled);
     const negate = () => {
+      if (aside) return;
       draft.negative = true;
       if (outer) {
         draft.currencies = outer.codes;
@@ -2464,6 +2573,7 @@ function readAround(
       right = close + 1;
     };
     const question = () => {
+      if (aside) return;
       draft.signUnsure = true;
       enclose();
     };
@@ -2788,7 +2898,7 @@ export function readFigures(text: string, context: FigureContext = {}): Figure[]
     }
     let next = at + 1;
     for (const found of cores) {
-      const draft = readAround(prepared, found, floor, settled);
+      const draft = readAround(prepared, found, floor, settled, drafts.at(-1));
       next = Math.max(next, found.to);
       if (!draft) {
         // The other end of a reference's or a year's range isn't a figure either: "pp. 3–5".
