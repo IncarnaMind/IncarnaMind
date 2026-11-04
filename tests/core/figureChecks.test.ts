@@ -2347,6 +2347,73 @@ test.each([
     supported: true,
   },
   {
+    name: "a negative word before a place's abbreviation",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance at the St. Louis branch was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence against a negative word before a place's abbreviation",
+    claim: "The balance is -$95,000.",
+    figure: "-$95,000",
+    language: "en",
+    body: "The negative balance at the St. Louis branch was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
+    name: "a negative word before a title",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance due to Prof. Wang was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word before an account's number",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance in Account No. A12 was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a negative word before a company's abbreviations",
+    claim: "The balance is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The negative balance of Acme Co. Ltd. was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a sentence that ends after a company's abbreviation keeps the minus",
+    claim: "The fee is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The balance was negative for Acme Inc. The fee was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: false,
+  },
+  {
+    name: "the same sentence ending after a lowercase word",
+    claim: "The fee is $95,000.",
+    figure: "$95,000",
+    language: "en",
+    body: "The balance was negative for the group. The fee was ninety-five thousand dollars ($95,000.00).",
+    number: "$95,000.00",
+    supported: true,
+  },
+  {
     name: "English words with an article",
     claim: "The deposit is $160,000.",
     figure: "$160,000",
@@ -2376,6 +2443,7 @@ test.each([
     expect(result.figures?.[0]?.result.verdict).not.toBe("supported");
     expect(result.verdict).not.toBe("supported");
   }
+  if ("verdict" in each) expect(result.verdict).toBe(each.verdict);
 });
 
 // The figure the Check reads its number from is backed only when every formula behind it was
