@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -3582,4 +3582,50 @@ export function controlReads(
     },
     { name: channel, what: change },
   );
+}
+
+/**
+ * A window picture for the pull request's before and after, where `INCARNAMIND_SCREENSHOTS`
+ * names a folder: motion settled first, so nothing is caught moving.
+ */
+export async function capture(window: Page, name: string): Promise<void> {
+  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  if (!folder) return;
+  await motionSettled(window);
+  await window.screenshot({ path: join(folder, `${name}.png`) });
+}
+
+/**
+ * Films what `run` does in the window, where `INCARNAMIND_RECORDING` names a folder: one JPEG a
+ * frame with when each was taken, for the pull request's flow beside the prototype.
+ */
+export async function film<T>(window: Page, run: () => Promise<T>): Promise<T> {
+  const folder = process.env.INCARNAMIND_RECORDING;
+  if (!folder) return run();
+  await mkdir(folder, { recursive: true });
+  const session = await window.context().newCDPSession(window);
+  const writes: Promise<void>[] = [];
+  const stamps: string[] = [];
+  let frame = 0;
+  session.on("Page.screencastFrame", (event) => {
+    const name = `frame-${String(frame++).padStart(5, "0")}.jpg`;
+    stamps.push(`${name} ${Date.now()}`);
+    writes.push(writeFile(join(folder, name), Buffer.from(event.data, "base64")));
+    void session.send("Page.screencastFrameAck", { sessionId: event.sessionId });
+  });
+  await session.send("Page.startScreencast", {
+    format: "jpeg",
+    quality: 85,
+    maxWidth: 1440,
+    maxHeight: 900,
+    everyNthFrame: 2,
+  });
+  try {
+    return await run();
+  } finally {
+    await session.send("Page.stopScreencast");
+    await Promise.all(writes);
+    await writeFile(join(folder, "frames.txt"), stamps.join("\n"));
+    await session.detach();
+  }
 }

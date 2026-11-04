@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -6,9 +6,11 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
   addDocuments,
+  capture,
   useLocalChatModel as chooseScriptedModel,
   createDataFolder,
   dismissChatSetup,
+  film,
   launchApp,
   motionSettled,
   newMind,
@@ -20,9 +22,6 @@ import {
   slideSelect,
 } from "./app";
 
-const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
-const RECORDING = process.env.INCARNAMIND_RECORDING;
-
 const OWN = "Harbours publish the times of high water every week.";
 const ELSEWHERE = "Penguins nest on the harbour cliffs every spring.";
 const ABSENT = "Whales sing in the deep bay.";
@@ -30,42 +29,6 @@ const SLOW_ABSENT = "Whales sing in the deep bay slowly.";
 const LONG = Array.from({ length: 6000 }, (_, index) => `Unrelated lease paragraph ${index}.`).join(
   "\n",
 );
-
-async function capture(window: Page, name: string) {
-  if (!SCREENSHOTS) return;
-  await motionSettled(window);
-  await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
-}
-
-async function film(window: Page, run: () => Promise<void>) {
-  if (!RECORDING) return run();
-  await mkdir(RECORDING, { recursive: true });
-  const session = await window.context().newCDPSession(window);
-  const writes: Promise<void>[] = [];
-  const stamps: string[] = [];
-  let frame = 0;
-  session.on("Page.screencastFrame", (event) => {
-    const name = `frame-${String(frame++).padStart(5, "0")}.jpg`;
-    stamps.push(`${name} ${Date.now()}`);
-    writes.push(writeFile(join(RECORDING, name), Buffer.from(event.data, "base64")));
-    void session.send("Page.screencastFrameAck", { sessionId: event.sessionId });
-  });
-  await session.send("Page.startScreencast", {
-    format: "jpeg",
-    quality: 85,
-    maxWidth: 1440,
-    maxHeight: 900,
-    everyNthFrame: 2,
-  });
-  try {
-    await run();
-  } finally {
-    await session.send("Page.stopScreencast");
-    await Promise.all(writes);
-    await writeFile(join(RECORDING, "frames.txt"), stamps.join("\n"));
-    await session.detach();
-  }
-}
 
 let dataDirs: string[];
 let sources: string;

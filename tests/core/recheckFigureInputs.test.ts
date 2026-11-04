@@ -25,6 +25,7 @@ function source(units: Unit[], language: "en" | "zh-CN" = "en", passageText?: st
             documentKind: pages[0]?.kind === "rows" ? "xlsx" : "pdf",
             documentDeleted: deleted,
             notCited: false,
+            yourNoteAt: null,
             text: passageText ?? pages.map((unit) => unit.text).join("\n"),
             pageFrom: 1,
             pageTo: 1,

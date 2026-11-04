@@ -27,6 +27,7 @@ const SOURCE: CitationSource = {
   contentHash: "a".repeat(64),
   documentDeleted: false,
   notCited: false,
+  yourNoteAt: null,
 };
 
 /** sales.csv's table as the runner reads it: North 10, South 20, on rows 2 and 3. */

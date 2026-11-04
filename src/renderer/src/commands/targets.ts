@@ -1,4 +1,4 @@
-import type { Document } from "../../../core/api";
+import type { Document, Mind } from "../../../core/api";
 import { currentTabOf } from "../layoutSlice";
 import type { ObjectKind, ObjectRef } from "../objects";
 import { useAppStore } from "../store";
@@ -24,6 +24,23 @@ export function everyDocument(ctx: CommandContext, test: (document: Document) =>
   const count = targetsOf(ctx).length;
   const documents = documentsOf(ctx);
   return count > 0 && documents.length === count && documents.every(test);
+}
+
+/** The Minds a menu or ⌘K acts on, in the store's order: a tab shows its Mind. */
+export function mindsOf(ctx: CommandContext): Mind[] {
+  const ids = new Set(idsOf(ctx, "mind"));
+  for (const tabId of idsOf(ctx, "tab")) {
+    const item = findTab(useAppStore.getState().layout, tabId)?.item;
+    if (item?.kind === "mind") ids.add(item.mindId);
+  }
+  return useAppStore.getState().minds.filter((mind) => ids.has(mind.id));
+}
+
+/** Only while every target is a Mind that passes `test`. */
+export function everyMind(ctx: CommandContext, test: (mindId: string) => boolean): boolean {
+  const count = targetsOf(ctx).length;
+  const minds = mindsOf(ctx);
+  return count > 0 && minds.length === count && minds.every((mind) => test(mind.id));
 }
 
 /** The Mind in the tab the User is in, if that tab holds one. */

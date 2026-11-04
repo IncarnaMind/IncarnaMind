@@ -86,11 +86,13 @@ export const OVERRIDES: CatalogOverrides = {
       "claude-fable-5": { thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-fable-5-1": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
       "claude-opus-5-5": { forcedToolChoice: false, thinkingOff: CLAUDE_LOW_EFFORT },
-      // run_code (#2351) is offered to no model yet: the numbers its code prints reach the Answer
-      // unmarked until they are marked. Then Haiku 5.5 and Sonnet 5.5, where it was measured.
+      // run_code (#2351) only where it was measured: the numbers its code prints reach the
+      // Answer as figures calculated by code.
+      "claude-haiku-5-5": { codeTool: true },
       "claude-sonnet-5-5": {
         forcedToolChoice: false,
         thinkingOff: CLAUDE_BETWEEN_TOOLS,
+        codeTool: true,
       },
     },
     openai: {

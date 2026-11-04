@@ -4,7 +4,7 @@
  * into a sheet book (./comparisonSheet) and written as an .xlsx (./xlsx).
  */
 import { deflateRawSync } from "node:zlib";
-import { citationState, citedLocation, shownDocumentName } from "../../shared/citations";
+import { citationState, citedLocation, citedName, shownDocumentName } from "../../shared/citations";
 import { comparisonQuestionsOf, comparisonTitleOf } from "../../shared/comparisons";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { readableQuoteText } from "../../shared/readableQuote";
@@ -98,7 +98,15 @@ export function createComparisonExport(deps: ComparisonExportDependencies) {
         facts: (footnote) => {
           const attributes = attributesOf.get(footnote) ?? {};
           return {
-            document: shownDocumentName(attributes, documents) || t("export.unnamedDocument"),
+            document: citedName(
+              {
+                ...attributes,
+                documentName:
+                  shownDocumentName(attributes, documents) || t("export.unnamedDocument"),
+              },
+              t,
+              language,
+            ),
             location: citedLocation(attributes, t),
             quote: attributes.quote
               ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))

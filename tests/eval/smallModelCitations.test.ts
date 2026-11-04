@@ -72,7 +72,14 @@ function sessionOver({ name, pages, passages }: Excerpt) {
       citationSource: (passageId) => {
         const passage = stored.find((each) => each.passageId === passageId);
         return passage
-          ? { ...passage, ...source, documentKind: "pdf", documentDeleted: false, notCited: false }
+          ? {
+              ...passage,
+              ...source,
+              documentKind: "pdf",
+              documentDeleted: false,
+              notCited: false,
+              yourNoteAt: null,
+            }
           : null;
       },
       pageTexts: (_documentId, _contentHash, from, to) =>

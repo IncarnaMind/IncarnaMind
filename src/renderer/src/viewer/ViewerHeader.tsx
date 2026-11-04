@@ -6,6 +6,7 @@ import { displayName, sourceOf } from "../../../shared/documentNames";
 import { useAnnotations } from "../annotations";
 import { useCitationRecheck } from "../citationVersion";
 import { CountItLine } from "../components/CountItLine";
+import { YourNoteLabel } from "../components/DocumentsSection";
 import { InlineName } from "../components/InlineName";
 import { moveDocumentsBeside } from "../components/library/DocumentMoveTo";
 import { DocumentLineIcon, NoteLineIcon, PinLineIcon } from "../components/lineIcons";
@@ -208,6 +209,7 @@ ${sourceOf(document)}`
               {displayName(document)}
             </button>
           ) : null}
+          {document && <YourNoteLabel item={document} />}
           {document && <DocumentTagChips document={document} />}
         </div>
         {children}

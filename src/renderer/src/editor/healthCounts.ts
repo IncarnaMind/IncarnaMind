@@ -35,6 +35,7 @@ import {
   checkedSentence,
   type KeptMark,
   keptOn,
+  supportedByOwnNotesOnly,
 } from "../../../shared/claimChecks";
 import { readFigures } from "../../../shared/figures";
 import { memoized } from "../../../shared/memo";
@@ -90,6 +91,8 @@ export interface NoteHealth {
   kept: number[];
   tableCells: number[];
   noCitation: number[];
+  /** The supported claims whose only evidence is one of the User's own notes (#335). */
+  ownNotes: number[];
   checkable: number;
   supported: number;
   checkedAt: string | null;
@@ -270,6 +273,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     kept: [],
     tableCells: [],
     noCitation: [],
+    ownNotes: [],
     checkable: 0,
     supported: 0,
     checkedAt: null,
@@ -333,6 +337,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     else if (contradicted) health.contradicted.push(from);
     else {
       health.supported++;
+      if (kind !== "chart" && supportedByOwnNotesOnly(claim.check)) health.ownNotes.push(from);
       if (kind !== "chart" && isClaim(text) && citations.length === 0) health.noCitation.push(from);
     }
     if (unsupported || contradicted || missing.length > 0) {

@@ -132,7 +132,11 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
       checkReason: null,
     };
     // Its own id, which "Checked by me" names it by (#1933).
-    expect(onlyCitation(client, answerId)).toEqual({ ...expected, id: expect.any(String) });
+    expect(onlyCitation(client, answerId)).toEqual({
+      ...expected,
+      yourNoteAt: null,
+      id: expect.any(String),
+    });
     expect(finished).toMatchObject({
       status: "done",
       citations: [expected],

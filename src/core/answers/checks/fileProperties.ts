@@ -440,6 +440,7 @@ function propertyRun(deps: ClaimCheckDependencies, request: ClaimCheckRequest) {
         contentHash: source.passage.contentHash,
         documentDeleted: false,
         notCited: false,
+        yourNoteAt: null,
       };
     },
     pageTexts: (documentId, contentHash, from, to) => {

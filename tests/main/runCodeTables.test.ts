@@ -21,6 +21,7 @@ const SOURCE: CitationSource = {
   contentHash: "a".repeat(64),
   documentDeleted: false,
   notCited: false,
+  yourNoteAt: null,
 };
 
 test("a hidden sheet is given only where the User had the Library read hidden sheets", async () => {

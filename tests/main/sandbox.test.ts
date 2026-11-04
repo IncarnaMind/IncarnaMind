@@ -362,6 +362,12 @@ describe("the folders no program may read", () => {
   });
 });
 
+// The job that runs these on a Mac says it needs the sandbox: a sandbox that can't start there
+// fails it, rather than skipping every test that would show it.
+test.runIf(process.env.INCARNAMIND_TEST_OS_SANDBOX === "required")("the OS sandbox starts", () => {
+  expect(unavailable).toBeUndefined();
+});
+
 describe.skipIf(unavailable !== undefined)(
   `The OS sandbox${unavailable === undefined ? "" : ` (skipped: ${unavailable})`}`,
   { timeout: 60_000 },

@@ -75,6 +75,7 @@ In this order:
      - **Figures without `of`.** A regression coefficient, a p-value or a forecast is an Analysis figure. It is kept with its code, its Inputs' Document versions and hashes, and the runtime's versions, and shown as calculated by code and not recalculated. Both runtimes are pinned, so it can be run again to the same result (amended 2026-11-01).
      - **One contract for both runtimes.** `run_code`'s helper takes the same `figure()` an Analysis's does (above), and the check on Recalculate covers both.
      - **What run_code's figures go through.** They reach an Answer only as markers (`[=n]`), as an Analysis's do. A number the reply writes without a marker is caught as ADR-0021 already catches one (#1796).
+     - **A number its code printed** (amended 2026-11-03, #2351). Models copy what code prints into their replies, and an instruction not to didn't stop Claude Haiku 5.5 on held-out requests, so the Answer does it structurally. A number the reply types that equals one an Analysis of the Answer printed, or wrote to a text file in `out/`, also before the run failed, becomes the figure it is: calculated by code and not checked, as a `result()` figure without a way to work it out is, kept with its run, its printed line as its label, in the Answer and in what it writes into a Note (content schema 49, as a bash run's record is new there). It matches as the figure check matches a sentence's number to a calculated figure (`agreesAtShownPrecision`): the same unit, scale, percent and sign as `src/shared/figures.ts` reads them, at the reply's own rounding, so "12.3" is the 12.345 printed, and "45.2%" isn't the 0.452 printed, a bare number. A whole number written plainly, or as approximate with one or two significant digits ("about 40", "below 100"), matches only the same number printed: rounded to a whole, every count and id in a reply would match some printed decimal. Where printed numbers of different values match, one printed exactly as written decides, else none. A number its sentence's Citation quotes stays the Citation's. A printed copy of a `figure()` figure whose cells came to another number ("differs"), in any of the Answer's runs and at the reply's rounding, is refused, never marked; a printed copy of one IncarnaMind couldn't work out again is marked "calculated by code, not checked": the code did work it out, and nothing checked it. It never reads as recalculated. A number cut off where a printed stream or an `out/` file's preview ends was never printed, so it matches nothing, nor does a printed table's index (0, 1, 2…); a table's headings and row labels stay text, as the checks read a table; and one whose characters would read differently as a figure stays as typed. A printed figure's marker is above every figure marker the reply wrote, so one it wrote with no figure never shows a printed number. Only `figure()` is worked out again: a printed number, bash's included, is never marked recalculated. One that matches nothing printed and nothing cited goes on to the net above.
 4. **What asks.** The rules are approvals by Effect, as ADR-0013 sets out:
    - **Runs without asking.** `run_code` at level "os" is "sandboxed code", ADR-0023's Effect scope, which now covers both sandboxes. It reads only copies of Documents the Run may already read, writes only its own folder, and can't send anything. So it runs without asking, also after the Run has read third-party text (#78).
    - **Asks every time, Allow or Don't allow, never "always":** a call that names a folder outside the Library to read (a granted folder). #2351 builds none: `run_code` reads only Documents named by their Passages, so nothing it does asks.
@@ -161,6 +162,18 @@ On the M2 Max used for ADR-0023, with macOS 26.5, Electron 44.9.1 and Pyodide 31
 - With `figure()`, one failure was the column's name given in place of the column, which the helper's message fixed on the next call.
 - The replies wrote markers where the figures go. One also wrote "about 33.5%" without one, which #1796's line marks.
 - The check shows the arithmetic over the cited cells, not that they were the right cells: "the highest in Q3" came back as the maximum of East's Q3 row alone. As ADR-0021 says, that is for the User to judge from the Inputs.
+
+**Numbers code printed, in the Answer** (#2351; Claude Haiku 5.5 on a direct Anthropic key, `run_code` offered on both sides for the run, in the OS sandbox with IncarnaMind's own Python; ten held-out requests whose code prints the numbers asked for, seven in English and three in Chinese, written and committed before any run, `eval/runCode/cases.ts`):
+
+| | `main` | With printed numbers marked |
+|---|---|---|
+| Numbers the reply typed that its code printed, unmarked | 26, in 7 of 10 replies | none |
+| Numbers its code printed, reaching the Answer as figures calculated by code | none | 23, in 9 of 10 replies, each checked by hand against what was printed: all 23 genuine |
+| Spend | $0.033 | $0.037 |
+
+- Both count by the marking's own rule, which on the marked side comes to none by construction; a check by digits alone found there only a number written before its own figure's marker and an IP address.
+- An earlier pair, before the review's fixes, had 12 marks, 11 genuine: "below 100", the User's own threshold, was marked from a printed 74.5, which the rule for approximate numbers now refuses.
+- Nine earlier runs, while the count and the rule were settled, cost $0.29; the eleven came to $0.36.
 
 **Not measured:** Linux and Windows. On GitHub's ubuntu-24.04 runners, the OS sandbox's tests are skipped today (6 of 6 in the last green run on `main`), as `run_code`'s would be.
 
@@ -249,7 +262,7 @@ Of what #2346 built:
 
 Of the rest, once built (#2351):
 
-- **It ships off.** The catalog's `codeTool` fact is on for no model, so `run_code` is offered to none, until a number its code prints is marked in the Answer (on the fresh held-out requests, Claude Haiku 5.5 wrote such numbers into every `run_code` reply). Tests and the routing eval turn it on in their own setup. Then it goes to Claude Haiku 5.5 and Sonnet 5.5, where it was measured.
+- **Offered where it was measured.** It shipped off, the catalog's `codeTool` fact on for no model, until a number its code prints was marked in the Answer (on the fresh held-out requests, Claude Haiku 5.5 wrote such numbers into every `run_code` reply). With them marked (#2351), the fact is on for Claude Haiku 5.5 and Sonnet 5.5, and off for every other model until a run measures it. It is the model's fact, as `calculates` is: the Claude account's sign-in serves the same two models and reads their facts.
 
 - **The Executor.**
   - `ExecRequest` gains `limits`.

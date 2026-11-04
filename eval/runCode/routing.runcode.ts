@@ -20,13 +20,17 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "vitest";
-import type { AnswerAnalysis, AnswerToolCall, Core } from "../../src/core";
+import type { AnswerAnalysis, AnswerToolCall, ConversationAnswer, Core } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
+import { withAnalysisResults } from "../../src/core/analysis/markers";
+import { createPrintedNumbers } from "../../src/core/answers/printedNumbers";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import type { PythonRuntimeManifest } from "../../src/core/runCode";
 import { createProcessLauncher } from "../../src/main/processes";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
+import { FIGURE_MARKER } from "../../src/shared/figureMarkers";
+import { printedValues } from "../../src/shared/printedFigures";
 import { queryDatabase } from "../../tests/helpers/core";
 import { codeToolOn } from "../../tests/helpers/models";
 import { createSweepGuard } from "../../tests/helpers/sweepGuard";
@@ -34,7 +38,7 @@ import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
 import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
-import { FRESH_CASES, ROUTING_CASES, type Route, type RoutingCase } from "./cases";
+import { FRESH_CASES, PRINTED_CASES, ROUTING_CASES, type Route, type RoutingCase } from "./cases";
 import { writeRoutingDocuments } from "./documents";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -71,6 +75,19 @@ interface Observed {
    * User unchecked. Dates, years, ordinals and list numbers count too; the report lists them.
    */
   typedNumbers: string[];
+  /** Numbers code printed that reach the Answer as figures calculated by code (#2351). */
+  printedMarked: string[];
+  /**
+   * Numbers the reply typed that equal one code printed, by the figure check's rule, and that its
+   * Citations don't quote: what the marking would still mark in its text. Where the reply was
+   * marked already this comes to none by construction: `typedAsPrinted` is the check apart.
+   */
+  printedUnmarked: string[];
+  /** A cross-check by digits alone: typed numbers whose digits stand as a number in what code printed. */
+  typedAsPrinted: string[];
+  /** The reply as the conversation keeps it, and what each of its Analyses printed. */
+  reply: string;
+  printed: string[];
   codeCalls: number;
   /** `run_code` calls that didn't end done. */
   failedCalls: number;
@@ -118,7 +135,11 @@ test("run_code routing", async () => {
   }
   const provider = chatProviderOf(config.chat);
   const ids = process.env.INCARNAMIND_EVAL_RUNCODE_CASES?.split(",").map((id) => id.trim());
-  const set = process.env.INCARNAMIND_EVAL_RUNCODE_SET === "fresh" ? FRESH_CASES : ROUTING_CASES;
+  const sets = { fresh: FRESH_CASES, printed: PRINTED_CASES } as const;
+  const named = process.env.INCARNAMIND_EVAL_RUNCODE_SET;
+  if (named !== undefined && named !== "fresh" && named !== "printed")
+    throw new Error(`INCARNAMIND_EVAL_RUNCODE_SET is "fresh", "printed" or unset, not "${named}".`);
+  const set = named ? sets[named] : ROUTING_CASES;
   const cases = ids ? set.filter((each) => ids.includes(each.id)) : set;
   const sandbox = await loadOsSandbox();
   const sources = await mkdtemp(join(tmpdir(), "incarnamind-eval-run-code-sources-"));
@@ -134,7 +155,7 @@ test("run_code routing", async () => {
     keep: config.keepData,
     log,
     analysisRuntime: createFakeAnalysisRuntime({ answer: () => ({}) }),
-    // The shipped catalog offers run_code to no model yet (#2351): this run measures it.
+    // On, as on a `main` that offered run_code to no model yet (#2351): both arms are measured alike.
     ...codeToolOn(),
     ...(sandbox.available && {
       executor: sandbox.createExecutor({
@@ -211,7 +232,7 @@ test("run_code routing", async () => {
     root,
     "eval",
     "results",
-    `${started.toISOString().replaceAll(":", "-")}-run-code.json`,
+    `${started.toISOString().replaceAll(":", "-")}-run-code${named ? `-${named}` : ""}.json`,
   );
   await mkdir(dirname(out), { recursive: true });
   await writeFile(out, `${JSON.stringify(report, null, 2)}\n`);
@@ -226,6 +247,74 @@ test("run_code routing", async () => {
 /** The numbers a reply's text gives, with its markers ([=1], [=table 1]) and Citations ([1]) left out. */
 const typedNumbersIn = (text: string): string[] =>
   text.replace(/\[[^\]]*\]/g, " ").match(/\d[\d,.]*/g) ?? [];
+
+const printedText = (analysis: AnswerAnalysis): string =>
+  [
+    analysis.output.printed,
+    ...(analysis.outFiles?.files ?? []).map((file) => file.text ?? ""),
+  ].join("\n");
+
+/** What a reply shows of the numbers its code printed: marked as figures, or typed. */
+function printedIn(answer: ConversationAnswer | null, language: RoutingCase["language"]) {
+  if (!answer)
+    return { printedMarked: [], printedUnmarked: [], typedAsPrinted: [], reply: "", printed: [] };
+  const printed = new Map(
+    answer.analyses.map((analysis) => [
+      analysis.number,
+      new Set(printedValues(analysis).map((each) => each.value.name)),
+    ]),
+  );
+  // The conversation keeps an Analysis's own tables and charts written out: they are its results,
+  // not numbers the reply typed, so they go back to their markers.
+  let reply = answer.text;
+  for (const analysis of answer.analyses) {
+    const markers = [
+      ...analysis.markers.tables.map(({ marker }) => `[=table ${marker}]`),
+      ...analysis.markers.charts.map((marker) => `[=chart ${marker}]`),
+    ];
+    for (const marker of markers) {
+      const shown = withAnalysisResults(marker, answer.analyses, language).trim();
+      if (shown) reply = reply.replaceAll(shown, marker);
+    }
+  }
+  const figures = new Map(answer.figures.map((figure) => [figure.marker, figure]));
+  const printedMarked = [...reply.matchAll(FIGURE_MARKER)].flatMap((found) => {
+    const figure = figures.get(Number(found[1]));
+    return figure?.analysis && printed.get(figure.analysis.analysis)?.has(figure.analysis.result)
+      ? [figure.shown]
+      : [];
+  });
+  const quotes = new Map(answer.citations.map((citation) => [citation.marker, citation.quote]));
+  // Each number the marking would still mark, however often the same one is written.
+  const shown = new Map<number, string>();
+  const marked = createPrintedNumbers({
+    language,
+    record: (figure) => {
+      shown.set(9000 + shown.size, figure.shown);
+      return 9000 + shown.size - 1;
+    },
+  })(reply, {
+    analyses: answer.analyses,
+    quoteOf: (marker) => quotes.get(marker) ?? null,
+    figureOf: (marker) => figures.get(marker) ?? null,
+  });
+  const printedUnmarked = [...marked.matchAll(/\[=(9\d{3})\]/g)].flatMap(
+    (found) => shown.get(Number(found[1])) ?? [],
+  );
+  const tokens = new Set(
+    answer.analyses.flatMap((analysis) => printedText(analysis).match(/\d[\d.]*/g) ?? []),
+  );
+  const typedAsPrinted = typedNumbersIn(reply).filter((typed) =>
+    tokens.has(typed.replaceAll(",", "").replace(/\.$/, "")),
+  );
+  return {
+    printedMarked,
+    printedUnmarked,
+    typedAsPrinted,
+    reply: answer.text,
+    printed: answer.analyses.map(printedText),
+  };
+}
 
 const isAnalysis = (call: AnswerToolCall) =>
   call.tool === "run_code" || call.tool === "run_analysis";
@@ -288,6 +377,7 @@ async function ask(core: Core, dataDir: string, each: RoutingCase, log: (line: s
     routed: first,
     reached: calls.some((call) => call.tool === "run_code"),
     typedNumbers: typedNumbersIn(answer?.kind === "answer" ? answer.text : ""),
+    ...printedIn(answer?.kind === "answer" ? answer : null, each.language),
     refused,
     codeCalls: code.length,
     failedCalls: code.filter((analysis) => analysis.end.kind !== "done").length,
@@ -306,7 +396,7 @@ async function ask(core: Core, dataDir: string, each: RoutingCase, log: (line: s
     ...(error && { error }),
   };
   log(
-    `${each.id}: expected ${each.route}, routed ${first}${observed.routed !== "run_code" && observed.reached ? ", then run_code" : ""}${refused.length ? `, ${refused.length} refused` : ""}${observed.codeCalls ? `, ${observed.codeCalls} run_code call(s), ${observed.failedCalls} failed, ${observed.recalculated} recalculated, ${observed.unchecked} unchecked` : ""}${observed.typedNumbers.length ? `, typed ${observed.typedNumbers.join(" ")}` : ""} (${observed.seconds} s, $${observed.spent.toFixed(4)})`,
+    `${each.id}: expected ${each.route}, routed ${first}${observed.routed !== "run_code" && observed.reached ? ", then run_code" : ""}${refused.length ? `, ${refused.length} refused` : ""}${observed.codeCalls ? `, ${observed.codeCalls} run_code call(s), ${observed.failedCalls} failed, ${observed.recalculated} recalculated, ${observed.unchecked} unchecked` : ""}${observed.typedNumbers.length ? `, typed ${observed.typedNumbers.join(" ")}` : ""}, printed numbers marked ${observed.printedMarked.length}, unmarked ${observed.printedUnmarked.length} (${observed.printedUnmarked.join(" ")}), typed as printed by digits ${observed.typedAsPrinted.join(" ") || "none"} (${observed.seconds} s, $${observed.spent.toFixed(4)})`,
   );
   return observed;
 }

@@ -318,8 +318,13 @@ export interface CreateMindInput {
  *   opens these Notes read-only.
  *   Older content is version 47 content as it is: a figure kept before carries
  *   no check, and shows as not checked.
+ * - 49: a figure can be a number an Analysis's code printed (#2351), kept as a
+ *   value of its run's record, and that run can be bash (`language: "bash"`).
+ *   An older version's reader refuses a bash run's record and would keep the
+ *   Note again without it, so it opens these Notes read-only. Older content is
+ *   version 49 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 48;
+export const CONTENT_SCHEMA_VERSION = 49;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2195,6 +2200,8 @@ export interface CitationRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /** The Document is a snapshot of the User's own note: when it was taken (#335). */
+  yourNoteAt?: string;
   /**
    * Asked with the version the Citation quotes, which is no longer the current one: its check
    * in that version, at the Units it cites (ADR-0017's amendment); null once that version's
@@ -2556,6 +2563,12 @@ export interface CitationAttributes {
   location: CitationLocation | null;
   /** The quote the model gave, which it was asked to copy word for word from the Passage. */
   quote: string | null;
+  /**
+   * Set when it quotes a snapshot of a Mind, the User's own note (#335): when that
+   * snapshot was taken, so its card reads "Your note: Field visit, 12 Oct" even
+   * after the snapshot is updated or removed.
+   */
+  yourNoteAt?: string | null;
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
   /**
@@ -2594,6 +2607,8 @@ export interface Citation {
   pageTo: number | null;
   location: CitationLocation | null;
   quote: string;
+  /** Set for a snapshot of a Mind, the User's own note (#335): when it was taken. */
+  yourNoteAt?: string | null;
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
   /** The unsure words of a scanned page the quote covers (#535). */
@@ -2863,7 +2878,10 @@ export type RetainedFigureValue = Extract<AnalysisValue, { kind: "figure" }> & {
   check?: AnalysisRecalculation;
 };
 
-/** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
+/**
+ * A run kept once by a Note, with only the values its figures still use (ADR-0021): a finished
+ * run's results, and the numbers any run printed (#2351).
+ */
 export interface RetainedFigureAnalysis
   extends Pick<
     AnswerAnalysis,
@@ -3656,6 +3674,27 @@ export interface DocumentTag {
  */
 export type DocumentFileStatus = "available" | "missing" | "unavailable";
 
+/** What taking a new snapshot of a Mind changed, and what Undo puts back (#335). */
+export interface MindSourceUpdate {
+  document: Document;
+  /** The snapshot text before this update. */
+  previousText: string;
+  /** When that earlier snapshot was taken, ISO 8601, UTC. */
+  previousSnapshotAt: string;
+  /** The snapshot text this update wrote, which Redo writes again. */
+  snapshotText: string;
+  /** When this snapshot was taken, ISO 8601, UTC. */
+  snapshotAt: string;
+}
+
+/** A Document that is a snapshot of a Mind, the User's own record ("Your note", #335). */
+export interface DocumentYourNote {
+  /** The Mind the snapshot was taken from. */
+  mindId: string;
+  /** When the snapshot was last taken, ISO 8601, UTC: what its Citation is dated. */
+  snapshotAt: string;
+}
+
 export interface Document {
   /** A random UUID generated on this device. */
   id: string;
@@ -3801,6 +3840,12 @@ export interface Document {
   /** Where its text came from, when Find sources added it (#296); null for any other Document. */
   found: DocumentFoundSource | null;
   /**
+   * Set when the Document is a snapshot of a Mind, marked "Your note" (#335): the
+   * Mind it was taken from, and when it was last taken. It is a copy, never a live
+   * link, so edits to the Mind don't change what its Citations quote.
+   */
+  yourNote: DocumentYourNote | null;
+  /**
    * The Mind this file was last imported as, still there (#720): the User's working copy of
    * it, which is never cited. Null for a file never imported.
    */
@@ -3871,7 +3916,7 @@ export interface OwnFile {
  *   of it, or a copy of either (the same content fingerprint, at any path).
  *   Never evidence for that check.
  */
-export type EvidenceExclusion = "own-file" | "own-workings" | "checked-document";
+export type EvidenceExclusion = "own-file" | "own-workings" | "own-note" | "checked-document";
 
 /** The document a check verifies (#97, #110): it, its earlier versions and their copies are never its evidence. */
 export interface CheckedDocument {
@@ -3879,11 +3924,18 @@ export interface CheckedDocument {
   documentIds?: string[];
   /** The content fingerprints (SHA-256, hex) of a checked file that isn't a Document, e.g. an imported .docx. */
   contentHashes?: string[];
+  /**
+   * Minds whose own snapshots are never evidence for this check (#335): a
+   * Mind's note can't support itself.
+   */
+  ownNoteMindIds?: string[];
 }
 
 export interface SearchEvidenceOptions {
   /** The check's Search scope. None: every Document. */
   scope?: SearchScope;
+  /** The Mind whose own snapshot is never its evidence (#335). None: no Mind. */
+  mindId?: string;
   checked?: CheckedDocument;
 }
 
@@ -6869,6 +6921,8 @@ export interface CheckClaimInput {
   cited?: CitedQuote[];
   /** Where to look. None: every Document. */
   scope?: SearchScope | null;
+  /** The Mind being checked, whose own snapshot is never its evidence (#335). */
+  mindId?: string;
   /** The document being checked, which is never its own evidence (#97). */
   checked?: CheckedDocument;
   /** The model to check with; none, or null, the default chat model. */
@@ -11176,6 +11230,34 @@ export interface CoreApi {
    */
   duplicateMind(mindId: string): Promise<Mind>;
   /**
+   * Saves a snapshot of a Mind as a Document marked "Your note" (#335), in the
+   * Mind's Folder and named after it: its headings and paragraphs are the
+   * Document's Locations, so a Citation points at the exact passage. A Mind
+   * with a snapshot already updates it, as `updateMindSourceSnapshot` does.
+   */
+  saveMindAsSource(mindId: string): Promise<Document>;
+  /**
+   * Takes a new snapshot of a Mind over its Document's file, so the Document
+   * has a new version and old Citations keep the version they quoted (#79).
+   * Resolves with the Document and what Undo writes back.
+   */
+  updateMindSourceSnapshot(mindId: string): Promise<MindSourceUpdate>;
+  /**
+   * Writes a previous snapshot's text back as the Document's next version:
+   * what Undo of `updateMindSourceSnapshot` does (#335). Only the Document's
+   * own snapshot can be written this way.
+   */
+  restoreMindSourceSnapshot(
+    documentId: string,
+    input: { text: string; snapshotAt: string },
+  ): Promise<Document>;
+  /**
+   * Removes a Mind's snapshot: the Document goes to Recently deleted, where
+   * Undo restores it, and Citations to it say its source was removed (#335).
+   * The Mind is an ordinary Mind again.
+   */
+  removeMindSource(mindId: string): Promise<void>;
+  /**
    * Reads a Word file for the import screen (#104): whether it can be imported, whose
    * document it looks like, and an earlier draft of it imported into the Folder (none, or
    * null: Not in a Folder). Keeps nothing, and changes nothing.
@@ -13303,6 +13385,10 @@ export type CoreApiMethod = keyof CoreApi;
 const methods: Record<CoreApiMethod, true> = {
   createMind: true,
   duplicateMind: true,
+  saveMindAsSource: true,
+  updateMindSourceSnapshot: true,
+  restoreMindSourceSnapshot: true,
+  removeMindSource: true,
   checkWordFile: true,
   importWordFile: true,
   addWordOriginal: true,

@@ -264,6 +264,7 @@ function sourceTable(lines: string[]) {
             documentKind: "xlsx",
             documentDeleted: false,
             notCited: false,
+            yourNoteAt: null,
             text,
             pageFrom: 1,
             pageTo: 1,

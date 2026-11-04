@@ -2678,10 +2678,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
 
     /**
      * Records a figure an Analysis or a workbook's formulas gave (#447, #2347) under the next
-     * marker no figure has: that marker. `cited`: the quotes the Answer cites it to.
+     * marker no figure has, and above `above`: that marker. `cited`: the quotes the Answer cites
+     * it to.
      */
-    record(figure: CalculatedFigure, cited: readonly QuoteInput[] = []): number {
-      const marker = Math.max(0, ...recorded.keys()) + 1;
+    record(figure: CalculatedFigure, cited: readonly QuoteInput[] = [], above = 0): number {
+      const marker = Math.max(above, ...recorded.keys()) + 1;
       recorded.set(marker, { figure, note: "", signAsked: false, quotes: [], cited });
       options.onRecord?.(marker, figure);
       return marker;

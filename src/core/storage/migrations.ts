@@ -2277,6 +2277,32 @@ export const migrations: readonly Migration[] = [
   {
     version: 127,
     description:
+      "A Document can be a snapshot of a Mind, marked as the User's own note and never evidence for that Mind (#335)",
+    sql: `
+      -- The Mind whose snapshot this Document is: null for every other Document. Checks leave it
+      -- out as evidence for that Mind, and the interface marks it "Your note".
+      ALTER TABLE documents ADD COLUMN your_note_mind_id TEXT;
+      -- When the snapshot was last taken, ISO 8601: what its Citation is dated.
+      ALTER TABLE documents ADD COLUMN your_note_at TEXT;
+      -- A Mind has one snapshot: saveMindAsSource updates the one it finds. The index is not
+      -- unique, so Undo can always put a removed snapshot back.
+      CREATE INDEX documents_by_your_note_mind ON documents (your_note_mind_id)
+        WHERE your_note_mind_id IS NOT NULL AND deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 128,
+    description:
+      "A Mind copied from another leaves that Mind's own snapshot out of its checks, as a copy leaves its Word original out (#335, #1935)",
+    sql: `
+      -- Null for a Mind not copied from another. A copy's checks leave the source Mind out of
+      -- their evidence, so the copy can't support itself with a snapshot of the words it copied.
+      ALTER TABLE minds ADD COLUMN duplicated_from_mind_id TEXT;
+    `,
+  },
+  {
+    version: 129,
+    description:
       "A Document keeps its highlights and notes, with their quote and Location, ready to sync (#327)",
     sql: `
       -- A highlight on a Document, with the note the User wrote under it: the quote, its

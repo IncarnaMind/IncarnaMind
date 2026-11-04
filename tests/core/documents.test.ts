@@ -129,6 +129,7 @@ describe("Documents", { timeout: 30_000 }, () => {
         ownFile: null,
         convertedFrom: null,
         notCited: false,
+        yourNote: null,
         found: null,
         importedAs: null,
         createdAt: "2026-10-06T12:00:00.000Z",
