@@ -9,7 +9,7 @@ import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { citationNode } from "../../src/shared/blockJson";
-import { citationSource, citationState } from "../../src/shared/citations";
+import { citationSource, citationState, newVersionCitation } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
 import { checkReply } from "../helpers/checks";
 import { answerEnded, citationsIn, setUpWithDocuments } from "../helpers/citations";
@@ -361,6 +361,36 @@ describe("Using a Mind as a source", () => {
     expect(undone.yourNoteAt).toBe("2026-10-12T10:00:00.000Z");
   });
 
+  test("a Citation moved to a new version takes that version's date", async () => {
+    const { core, clock } = await setUp();
+    const { mind, client } = await mindWith(core, "Field visit", CLAIM);
+    const saved = await core.saveMindAsSource(mind.id);
+    const document = await ready(core, saved.id);
+    const old = await core.citeSelection({
+      documentId: document.id,
+      parts: [{ unit: null, text: CLAIM }],
+    });
+    expect(old.yourNoteAt).toBe("2026-10-12T10:00:00.000Z");
+
+    editMind(client, (blocks) => blocks.map((block, at) => (at === 1 ? note(CHANGED) : block)));
+    await client.settled();
+    clock.advance(2 * 24 * 60 * 60 * 1000);
+    await core.updateMindSourceSnapshot(mind.id);
+    await ready(core, document.id);
+
+    const recheck = await core.recheckCitation({
+      documentId: document.id,
+      contentHash: document.contentHash,
+      pageFrom: old.pageFrom,
+      pageTo: old.pageTo,
+      quote: CLAIM,
+      mindId: null,
+    });
+    if ("keptInside" in recheck) throw new Error("The snapshot was read as kept inside a Folder.");
+    expect(recheck.changed?.now.yourNoteAt).toBe("2026-10-14T10:00:00.000Z");
+    expect(newVersionCitation(old, recheck)?.yourNoteAt).toBe("2026-10-14T10:00:00.000Z");
+  });
+
   test("a new Citation made from the viewer carries the snapshot's date", async () => {
     const { core } = await setUp();
     const { mind } = await mindWith(core, "Field visit", CLAIM);
@@ -381,9 +411,29 @@ describe("Using a Mind as a source", () => {
     const file = join(dataDir, "Notes", `${document.id}.md`);
     await expect(access(file)).resolves.toBeUndefined();
     await core.deleteDocument(document.id);
+    // A soft delete keeps the file, so Undo can bring the snapshot back.
+    await expect(access(file)).resolves.toBeUndefined();
     await core.deletePermanently([{ kind: "document", id: document.id }]);
     await expect(stat(file)).rejects.toThrow();
-    expect(mind.id).toBeTruthy();
+  });
+
+  test("a search with the Mind's id leaves its snapshot out, and another Mind's id finds it", async () => {
+    const { core } = await setUp();
+    const { mind } = await mindWith(core, "Field visit", CLAIM);
+    const other = await mindWith(core, "Draft", "The tide table is checked each week.");
+    const saved = await core.saveMindAsSource(mind.id);
+    const snapshot = await ready(core, saved.id);
+
+    const own = await core.searchEvidence("Harbours publish high water", { mindId: mind.id });
+    expect(own.passages.some((each) => each.documentId === snapshot.id)).toBe(false);
+    expect(own.excluded).toContainEqual(
+      expect.objectContaining({ documentId: snapshot.id, reason: "own-note" }),
+    );
+
+    const theirs = await core.searchEvidence("Harbours publish high water", {
+      mindId: other.mind.id,
+    });
+    expect(theirs.passages.some((each) => each.documentId === snapshot.id)).toBe(true);
   });
 
   test("a copy of a Mind never uses its source Mind's snapshot as evidence", async () => {
@@ -410,6 +460,39 @@ describe("Using a Mind as a source", () => {
       action: "check-against-documents",
       from: { blockId: "two", offset: 0 },
       to: { blockId: "two", offset: CLAIM.length },
+    });
+    await client.settled();
+    const mark = claimSpans(readMind(client))[0];
+    expect(mark?.check.excluded).toContainEqual(
+      expect.objectContaining({ documentId: snapshot.id, reason: "own-note" }),
+    );
+  });
+
+  test("a copy of a copy leaves the first Mind's snapshot out too", async () => {
+    const { core } = await setUp();
+    const { mind } = await mindWithBlock(core, "Field visit", CLAIM);
+    const sources = await createTempDataFolder();
+    const control = await writeSourceFile(
+      sources,
+      "Tides.txt",
+      "Spring tides come at the new moon and the full moon.",
+    );
+    await addAndProcess(core, [control]);
+    const saved = await core.saveMindAsSource(mind.id);
+    const snapshot = await ready(core, saved.id);
+    const copy = await core.duplicateMind(mind.id);
+    const grand = await core.duplicateMind(copy.id);
+    const client = await connectToMind(core, grand.id);
+    writeMind(client, [
+      { type: "paragraph", attrs: { id: "three" }, content: [{ type: "text", text: CLAIM }] },
+    ]);
+    await client.settled();
+    await core.checkSentences({
+      requestId: "grand-check",
+      mindId: grand.id,
+      action: "check-against-documents",
+      from: { blockId: "three", offset: 0 },
+      to: { blockId: "three", offset: CLAIM.length },
     });
     await client.settled();
     const mark = claimSpans(readMind(client))[0];

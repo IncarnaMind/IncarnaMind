@@ -475,6 +475,8 @@ export function newVersionCitation(
     quote: now.quote,
     check: now.check,
     checkReason: now.checkReason,
+    // The version it moves to has the date of that version of the User's note (#335).
+    ...(now.yourNoteAt && { yourNoteAt: now.yourNoteAt }),
     // The confirmation was for the quote and page the User looked at, and those changed.
     pageChecked: null,
     unsure: now.unsure ?? null,

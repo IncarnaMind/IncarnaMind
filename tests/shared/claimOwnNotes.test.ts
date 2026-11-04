@@ -27,6 +27,15 @@ describe("support from the User's own notes only", () => {
     ).toBe(true);
   });
 
+  test("is the ordinary tick when a plain Document supports it alone", () => {
+    expect(
+      supportedByOwnNotesOnly({
+        state: "supported",
+        evidence: cited({ documentName: "Tides" }),
+      }),
+    ).toBe(false);
+  });
+
   test("is the ordinary tick when a Document of theirs also supports it", () => {
     expect(
       supportedByOwnNotesOnly({

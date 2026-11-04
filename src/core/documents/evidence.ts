@@ -185,10 +185,16 @@ export function createEvidence(deps: EvidenceDependencies) {
       const ownNoteMinds = new Set(checked.ownNoteMindIds ?? []);
       if (mindId !== null) ownNoteMinds.add(mindId);
       if (ownNoteMinds.size > 0) {
+        // A copy's own snapshot is left out too, and its source's, all the way up the copy line.
         const notes = db.all<{ id: string }>(
-          `SELECT d.id FROM documents d
-           WHERE d.deleted_at IS NULL
-             AND d.your_note_mind_id IN (SELECT value FROM json_each(?))
+          `WITH RECURSIVE line(id) AS (
+             SELECT value FROM json_each(?)
+             UNION
+             SELECT m.duplicated_from_mind_id FROM minds m JOIN line ON m.id = line.id
+             WHERE m.duplicated_from_mind_id IS NOT NULL
+           )
+           SELECT d.id FROM documents d
+           WHERE d.deleted_at IS NULL AND d.your_note_mind_id IN (SELECT id FROM line)
              ${scoped}`,
           [JSON.stringify([...ownNoteMinds]), ...scopeParams],
         );

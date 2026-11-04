@@ -320,6 +320,7 @@ export async function editComparisonCell(
             },
           ],
           scope: { folderIds: [], tagIds: [], documentIds: [handle.documentId] },
+          mindId: handle.mindId,
           ...(model && { model }),
         }),
       ),

@@ -2915,8 +2915,11 @@ export function createDocuments(options: DocumentsOptions) {
       );
     },
 
-    /** When the live Document's snapshot was taken, or null for a Document that isn't one (#335). */
-    yourNoteAt(documentId: string): string | null {
+    /**
+     * When the version of the live Document's snapshot was taken, or null for a Document that
+     * isn't one (#335). `contentHash`: the version quoted, null for the Document's own.
+     */
+    yourNoteAt(documentId: string, contentHash: string | null): string | null {
       const row = db.get<{
         mind: string | null;
         at: string | null;
@@ -2924,11 +2927,11 @@ export function createDocuments(options: DocumentsOptions) {
       }>(
         `SELECT d.your_note_mind_id AS mind, d.your_note_at AS at,
            (SELECT dp.version_at FROM document_pages dp
-            WHERE dp.document_id = d.id AND dp.content_hash = d.content_hash
+            WHERE dp.document_id = d.id AND dp.content_hash = coalesce(?, d.content_hash)
               AND dp.deleted_at IS NULL
             ORDER BY dp.page LIMIT 1) AS version_at
          FROM documents d WHERE d.id = ? AND d.deleted_at IS NULL`,
-        [documentId],
+        [contentHash, documentId],
       );
       return row && row.mind !== null ? (row.version_at ?? row.at) : null;
     },
@@ -3272,9 +3275,8 @@ export function createDocuments(options: DocumentsOptions) {
       // A note's snapshot is a Document's file too: once the Document is purged, its words go (#335).
       const notes = db
         .all<{ id: string }>(
-          `SELECT d.id FROM documents d
-           WHERE d.purged_at IS NOT NULL AND d.your_note_mind_id IS NOT NULL
-             AND NOT EXISTS (SELECT 1 FROM documents o WHERE o.id = d.id AND o.purged_at IS NULL)`,
+          `SELECT id FROM documents
+           WHERE purged_at IS NOT NULL AND your_note_mind_id IS NOT NULL`,
         )
         .map((row) => join(dataDir, "Notes", `${row.id}.md`));
       await Promise.all([

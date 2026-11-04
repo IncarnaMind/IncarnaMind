@@ -2263,7 +2263,7 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
-    version: 126,
+    version: 127,
     description:
       "A Document can be a snapshot of a Mind, marked as the User's own note and never evidence for that Mind (#335)",
     sql: `
@@ -2279,7 +2279,7 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
-    version: 127,
+    version: 128,
     description:
       "A Mind copied from another leaves that Mind's own snapshot out of its checks, as a copy leaves its Word original out (#335, #1935)",
     sql: `
