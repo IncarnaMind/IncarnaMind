@@ -11,6 +11,7 @@ import {
   type SourceGrid,
 } from "../../../shared/charts";
 import {
+  countFigureSteps,
   type FigureContext,
   type FigureFacts,
   FiguresNotRead,
@@ -31,7 +32,14 @@ import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
-import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf } from "./sentences";
+import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf, wordsReader } from "./sentences";
+
+interface Around {
+  span: { from: number; to: number };
+  key: string;
+  context: string;
+  stretch: TextStretch;
+}
 
 export interface FigureOccurrence extends CheckFigure {
   sentence: TextStretch | null;
@@ -130,20 +138,41 @@ function inSentence(
   const raw = textOf(sentence.element);
   const parts = layout(sentence.element);
   const spans = sentenceSpansIn(sentence.element);
-  const spanOf = (start: number, end: number) =>
-    spans.find((span) => span.from <= start && span.to >= end) ?? { from: 0, to: raw.length };
-  const around = (start: number, end: number) => {
+  const whole = { from: 0, to: raw.length };
+  // The spans come in order and don't overlap, so the one a figure is in is found by its start.
+  const spanOf = (start: number, end: number) => {
+    let low = 0;
+    let high = spans.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((spans[middle]?.from ?? 0) <= start) low = middle + 1;
+      else high = middle;
+    }
+    const span = spans[low - 1];
+    return span && span.to >= end ? span : whole;
+  };
+  // Each sentence is read once for all its figures: read again for each, a sentence of many
+  // figures took time that grew with their number × its length (#2512).
+  const sentences = new Map<{ from: number; to: number }, Around>();
+  const wordsIn = wordsReader(sentence.element);
+  countFigureSteps(raw.length);
+  const around = (start: number, end: number): Around => {
     const span = spanOf(start, end);
-    const words = wordsOf(sentence.element, span.from, span.to);
-    return {
+    const known = sentences.get(span);
+    if (known) return known;
+    countFigureSteps(span.to - span.from);
+    const words = wordsIn(span.from, span.to);
+    const found: Around = {
       span,
       key: targetHash(raw.slice(span.from, span.to)),
       context: [table?.header, words].filter(Boolean).join("\n"),
       stretch: {
         from: { blockId: sentence.blockId, offset: span.from },
         to: { blockId: sentence.blockId, offset: span.to },
-      } satisfies TextStretch,
+      },
     };
+    sentences.set(span, found);
+    return found;
   };
   // A cell is named by its row and its column, so the check reads which year it is for.
   const common = table

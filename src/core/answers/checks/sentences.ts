@@ -147,9 +147,21 @@ function projectedRange(
 }
 
 export function wordsOf(element: Y.XmlElement, from = 0, to = textOf(element).length): string {
-  if (element.nodeName === CHART_NODE) return textOf(element);
+  return wordsReader(element)(from, to);
+}
+
+/**
+ * The words of any stretch of a Block, its text projected once: projected again for each sentence,
+ * a paragraph of many took time that grew with their number × its length (#2512).
+ */
+export function wordsReader(element: Y.XmlElement): (from: number, to: number) => string {
+  if (element.nodeName === CHART_NODE) {
+    const text = textOf(element);
+    return () => text;
+  }
   const pieces = inlinePieces(element);
-  return projectedRange(projectInlineText(pieces), pieces, from, to)?.text ?? "";
+  const projection = projectInlineText(pieces);
+  return (from, to) => projectedRange(projection, pieces, from, to)?.text ?? "";
 }
 
 export function checkText(sentence: SelectedSentence) {
