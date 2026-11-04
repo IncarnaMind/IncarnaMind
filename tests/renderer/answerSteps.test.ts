@@ -508,10 +508,10 @@ describe("an Answer's steps", () => {
       const check = stepRows(steps).at(-1);
       expect(check).toEqual({ kind: "check", count: 3, notFound: 0 });
       expect(check?.kind === "check" && checkedWords(en, check.count)).toBe(
-        "Checked 3 Citations against their sources",
+        "Citation check: 3 Citations against their sources",
       );
       expect(check?.kind === "check" && checkedWords(zh, check.count)).toBe(
-        "把 3 处引用和原文逐一核对",
+        "引用核对：3 处引用和原文逐一对照",
       );
     }
     const lost = input({
@@ -564,8 +564,29 @@ describe("an Answer's steps", () => {
       needALook: 2,
       contradicted: 1,
     });
-    expect(checkedWords(en, 1)).toBe("Checked 1 Citation against its source");
-    expect(checkedWords(zh, 1)).toBe("把 1 处引用和原文核对");
+    expect(checkedWords(en, 1)).toBe("Citation check: 1 Citation against its source");
+    expect(checkedWords(zh, 1)).toBe("引用核对：1 处引用和原文对照");
+  });
+
+  // protects=#535: a Citation that can't be checked, a scan's unsure word among them, is counted in the check line and the line never says all found; fails_when=the row leaves it out; no_claim=how its card asks for the page (e2e).
+  test("a Citation that can't be checked is counted in the check line (#535)", () => {
+    const unsure = input({
+      text: "Spring tides follow the new moon [^1].",
+      citations: [
+        {
+          ...citation(1, "a", "d1", 4),
+          check: "cant-check",
+          checkReason: "unsure-word",
+          unsure: ["convenience"],
+        },
+      ],
+    });
+    expect(stepRows(unsure).at(-1)).toEqual({
+      kind: "check",
+      count: 1,
+      notFound: 0,
+      cantCheck: 1,
+    });
   });
 
   test("a limit that stopped judging its sentences: how many of them were checked, and which limit, in English and Chinese (#2311)", () => {

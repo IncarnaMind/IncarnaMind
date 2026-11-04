@@ -3,11 +3,12 @@ import type { NodeType } from "@tiptap/pm/model";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import type { DecorationSet } from "@tiptap/pm/view";
 import { describe, expect, test } from "vitest";
-import { CITATION_NODE } from "../../src/core/api";
+import { CITATION_NODE, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import {
   citationNumbersPlugin,
   numberCitations,
   numberedCitations,
+  numberFootnotes,
   textBlockEdited,
 } from "../../src/renderer/src/editor/citationNumbers";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -17,6 +18,21 @@ const schema = getSchema(noteExtensions());
 const citation = (documentId: string): JSONContent => ({
   type: CITATION_NODE,
   attrs: { documentId, documentName: documentId, check: "found" },
+});
+
+/** A Citation of a Document's page, as the editor stores it after a check found its quote. */
+const placed = (documentId: string, page: number, check = "found"): JSONContent => ({
+  type: CITATION_NODE,
+  attrs: {
+    documentId,
+    documentName: documentId,
+    contentHash: `${documentId}-v1`,
+    pageFrom: page,
+    pageTo: page,
+    quote: "A quote from the page.",
+    check,
+    checkReason: null,
+  },
 });
 
 const paragraph = (id: string, ...content: JSONContent[]): JSONContent => ({
@@ -99,6 +115,78 @@ describe("Citation numbers", () => {
     expect(decorated(state)).toEqual(
       numberCitations(state.doc).map((each) => [each.pos, each.number]),
     );
+  });
+
+  test("a Numbered Citation of a source and place already cited repeats that footnote's number", () => {
+    // The Word export has one footnote for each source and place (#1381), so the marks the
+    // reader matches to it say the same number (#2292).
+    const state = stateWith([
+      paragraph("a", placed("tides", 1), text(" and "), placed("tides", 1), text(".")),
+      paragraph("b", placed("tides", 2)),
+      paragraph("c", placed("tides", 1), placed("moon", 1)),
+    ]);
+    expect(
+      numberedCitations(state).map((each) => `${each.number}${each.footnote ? "" : " reused"}`),
+    ).toEqual(["1", "1 reused", "2", "1 reused", "3"]);
+  });
+
+  test("a source and place whose check differs, or another version, is a footnote of its own", () => {
+    const state = stateWith([
+      paragraph("a", placed("tides", 1), placed("tides", 1, "not-found"), text(" and "), {
+        ...placed("tides", 1),
+        attrs: { ...placed("tides", 1).attrs, contentHash: "tides-v2" },
+      }),
+    ]);
+    expect(numberedCitations(state).map((each) => each.number)).toEqual([1, 2, 3]);
+    expect(numberedCitations(state).every((each) => each.footnote)).toBe(true);
+  });
+
+  test("a footnote the User wrote keeps the number the export gives the next source and place", () => {
+    const own: JSONContent = {
+      type: "footnote",
+      attrs: { id: "own-1" },
+      content: [{ type: "text", text: "Mine." }],
+    };
+    const state = stateWith([
+      paragraph("a", placed("tides", 1), own, placed("tides", 1)),
+      paragraph("b", placed("moon", 1)),
+    ]);
+    // One footnote for the repeated source and place, the User's second, the new one third.
+    expect(numberedCitations(state).map((each) => each.number)).toEqual([1, 1, 3]);
+  });
+
+  test("a Citation a change still waiting adds or removes is a footnote of its own, so later numbers stay", () => {
+    const pending = {
+      ...placed("tides", 1),
+      attrs: {
+        ...placed("tides", 1).attrs,
+        [PROPOSAL_ATTRIBUTE]: { id: "p1", request: "r", kind: "insert" },
+      },
+    };
+    const state = stateWith([
+      paragraph("a", pending),
+      paragraph("b", placed("tides", 1), placed("moon", 1)),
+    ]);
+    // The change's mark takes one note, the live mark of the same place another, so Moon is 3
+    // in the file and on screen.
+    expect(numberedCitations(state).map((each) => each.number)).toEqual([1, 2, 3]);
+  });
+
+  test("a Document removed since turns a found and a not-found mark of one place into one footnote", () => {
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [paragraph("a", placed("tides", 1), placed("tides", 1, "not-found"))],
+    });
+    // Live, the two checks differ, so they are two footnotes; with the Document gone neither can
+    // be checked, and they are the one unverified footnote the file writes.
+    expect(
+      numberFootnotes(doc, "numbered", {
+        documents: [{ id: "tides", contentHash: "tides-v1" }],
+      }).citations.map((each) => each.number),
+    ).toEqual([1, 2]);
+    expect(
+      numberFootnotes(doc, "numbered", { documents: [] }).citations.map((each) => each.number),
+    ).toEqual([1, 1]);
   });
 });
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import type { CalculatedFigure } from "../../src/core/api";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import {
@@ -39,6 +40,27 @@ describe("a chart of calculated figures", () => {
     expect(west?.values[1]?.figure?.id).toBe("figure-growth");
     expect(north?.values[0]?.figure).toBeUndefined();
     expect(north?.values[0]?.citation?.quote).toBe(Q1.citation.quote);
+  });
+
+  test("a calculated figure shown rounded charts its value, never the number the rounding reads as", () => {
+    const rounded: CalculatedFigure = {
+      ...TOTAL,
+      label: "Central total",
+      value: 8325,
+      shown: "8 thousand",
+    };
+    const table: NodeJSON = {
+      type: "table",
+      content: [
+        row(header("Region"), header("Total amount")),
+        row(tableCell(text("Central")), tableCell(calculatedFigureNode(rounded, "figure-central"))),
+      ],
+    };
+    expect(chartOf(table).data.rows[0]?.values[0]).toMatchObject({
+      value: 8325,
+      shown: "8 thousand",
+      figure: { id: "figure-central" },
+    });
   });
 
   test("a calculated value rests on each of its Inputs' Citations", () => {

@@ -13,6 +13,7 @@ const tag = (name: string, description = ""): Tag => ({
   name,
   description,
   preset: false,
+  madeByUser: true,
   colour: "gray",
   createdAt: "",
   updatedAt: "",

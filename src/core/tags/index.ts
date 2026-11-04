@@ -9,8 +9,17 @@
  * Document and Tag that has one.
  */
 import { randomUUID } from "node:crypto";
+import { sameName } from "../../shared/names";
 import { isTagColour, nextTagColour, type TagColour } from "../../shared/tagColours";
-import type { DocumentTag, Tag, TagLinkState, TagSource } from "../api";
+import type {
+  DocumentTag,
+  Tag,
+  TagAsShown,
+  TagLinkChange,
+  TagLinkState,
+  TagSource,
+  TagSourceRevert,
+} from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { Language } from "../language";
 import type { Database } from "../storage";
@@ -26,6 +35,8 @@ interface TagRow {
   name: string;
   description: string;
   preset: string | null;
+  /** 1 when the User made it or changed its name, colour or description; automatic tagging's are 0. */
+  made_by_user: number;
   colour: TagColour;
   created_at: string;
   updated_at: string;
@@ -39,20 +50,42 @@ interface LinkRow {
   needs_review: number;
 }
 
-const COLUMNS = "id, name, description, preset, colour, created_at, updated_at";
+const COLUMNS = "id, name, description, preset, made_by_user, colour, created_at, updated_at";
 
 const toTag = (row: TagRow): Tag => ({
   id: row.id,
   name: row.name,
   description: row.description,
   preset: row.preset !== null,
+  madeByUser: row.made_by_user !== 0,
   colour: row.colour,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
 
-/** How names are compared: two names that differ only in case are the same Tag. */
-export const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+function parseShown(value: unknown): TagAsShown {
+  if (
+    !isRecord(value) ||
+    typeof value.name !== "string" ||
+    typeof value.description !== "string" ||
+    !isTagColour(value.colour)
+  ) {
+    throw new InvalidInputError(
+      "The Undo of a Tag needs whether it was the User's and what it showed.",
+    );
+  }
+  return { name: value.name, description: value.description, colour: value.colour };
+}
+
+function parseSourceRevert(source: unknown): TagSourceRevert | undefined {
+  if (source === undefined) return undefined;
+  if (!isRecord(source) || typeof source.madeByUser !== "boolean") {
+    throw new InvalidInputError(
+      "The Undo of a Tag edit needs whether it was the User's and what it showed.",
+    );
+  }
+  return { madeByUser: source.madeByUser, expected: parseShown(source.expected) };
+}
 
 function parseTagId(id: unknown): string {
   if (typeof id !== "string" || id === "") {
@@ -154,6 +187,15 @@ export function createTags(db: Database, now: () => string) {
       )
       .map(toTag);
 
+  /** The Tags the User decided on for a Document, added or removed: automatic tagging leaves them alone. */
+  const owned = (documentId: string): string[] =>
+    db
+      .all<{ tag_id: string }>(
+        "SELECT DISTINCT tag_id FROM document_tags WHERE document_id = ? AND source = 'user'",
+        [documentId],
+      )
+      .map((row) => row.tag_id);
+
   /** Refuses a name another live Tag has, ignoring case. */
   const checkUnique = (name: string, exceptId?: string) => {
     const taken = list().find((tag) => tag.id !== exceptId && sameName(tag.name, name));
@@ -196,12 +238,18 @@ export function createTags(db: Database, now: () => string) {
       ],
     );
 
-  const insertTag = (name: string, description: string, colour: TagColour, at: string) => {
+  const insertTag = (
+    name: string,
+    description: string,
+    colour: TagColour,
+    at: string,
+    madeByUser: boolean,
+  ) => {
     const id = randomUUID();
     db.run(
-      `INSERT INTO tags (id, name, description, preset, colour, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, ?, ?, ?)`,
-      [id, name, description, colour, at, at],
+      `INSERT INTO tags (id, name, description, preset, made_by_user, colour, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?)`,
+      [id, name, description, madeByUser ? 1 : 0, colour, at, at],
     );
     return id;
   };
@@ -228,13 +276,14 @@ export function createTags(db: Database, now: () => string) {
       }
       if (deleted.has(key) || live.length >= NEW_TAG_LIMIT) continue;
       const colour = nextTagColour(live.map((each) => each.colour));
-      const id = insertTag(tag.name, tag.description, colour, at);
+      const id = insertTag(tag.name, tag.description, colour, at, false);
       live.push({
         id,
         name: tag.name,
         description: tag.description,
         preset: false,
         colour,
+        madeByUser: false,
         createdAt: at,
         updatedAt: at,
       });
@@ -247,6 +296,7 @@ export function createTags(db: Database, now: () => string) {
   return {
     get,
     list,
+    owned,
 
     /**
      * Creates the preset Tags if no Tag has ever existed here (deleted ones
@@ -269,7 +319,8 @@ export function createTags(db: Database, now: () => string) {
       });
     },
 
-    create(input: unknown): Tag {
+    /** Makes a Tag; one the User did not make (Research's) leaves madeByUser false. */
+    create(input: unknown, madeByUser = true): Tag {
       if (!isRecord(input)) throw new InvalidInputError("createTag expects an object.");
       const name = parseName(input.name);
       const description =
@@ -279,33 +330,88 @@ export function createTags(db: Database, now: () => string) {
         checkUnique(name);
         const at = now();
         const colour = chosen ?? nextTagColour(list().map((tag) => tag.colour));
-        const id = insertTag(name, description, colour, at);
-        return { id, name, description, preset: false, colour, createdAt: at, updatedAt: at };
+        const id = insertTag(name, description, colour, at, madeByUser);
+        return {
+          id,
+          name,
+          description,
+          preset: false,
+          madeByUser,
+          colour,
+          createdAt: at,
+          updatedAt: at,
+        };
       });
     },
 
-    update(tagId: unknown, patch: unknown): Tag {
+    /**
+     * Changes a Tag's name, description or colour. With `source`, the Undo of an edit, it also
+     * puts back whether the Tag was the User's, if it still shows what the edit left.
+     */
+    update(tagId: unknown, patch: unknown, source?: unknown): Tag {
       if (!isRecord(patch)) throw new InvalidInputError("updateTag expects an object.");
       for (const key of Object.keys(patch)) {
         if (key !== "name" && key !== "description" && key !== "colour") {
           throw new InvalidInputError(`A Tag has no field "${key}".`);
         }
       }
+      const revert = parseSourceRevert(source);
       return db.transaction(() => {
         const tag = get(tagId);
         const name = patch.name === undefined ? tag.name : parseName(patch.name);
         const description =
           patch.description === undefined ? tag.description : parseDescription(patch.description);
         const colour = patch.colour === undefined ? tag.colour : parseColour(patch.colour);
+        const putsBack =
+          revert !== undefined &&
+          tag.name === revert.expected.name &&
+          tag.description === revert.expected.description &&
+          tag.colour === revert.expected.colour;
         if (name === tag.name && description === tag.description && colour === tag.colour)
           return tag;
         checkUnique(name, tag.id);
         const at = now();
+        const madeByUser = putsBack ? revert.madeByUser : true;
         db.run(
-          "UPDATE tags SET name = ?, description = ?, colour = ?, updated_at = ? WHERE id = ?",
-          [name, description, colour, at, tag.id],
+          `UPDATE tags SET name = ?, description = ?, colour = ?, made_by_user = ?,
+             updated_at = ? WHERE id = ?`,
+          [name, description, colour, madeByUser ? 1 : 0, at, tag.id],
         );
-        return { ...tag, name, description, colour, updatedAt: at };
+        return { ...tag, name, description, madeByUser, colour, updatedAt: at };
+      });
+    },
+
+    /**
+     * Puts back whether a Tag was the User's, if it still shows `expected`: the Undo of a merge.
+     * A Tag changed since, or deleted since, keeps its source. Returns whether it changed.
+     */
+    setSource(tagId: unknown, madeByUser: unknown, expected: unknown): boolean {
+      if (typeof madeByUser !== "boolean") {
+        throw new InvalidInputError(
+          "Putting back a Tag's source needs whether it was the User's and what it showed.",
+        );
+      }
+      const shown = parseShown(expected);
+      return db.transaction(() => {
+        const id = parseTagId(tagId);
+        const row = db.get<TagRow>(
+          `SELECT ${COLUMNS} FROM tags WHERE id = ? AND deleted_at IS NULL`,
+          [id],
+        );
+        if (
+          !row ||
+          row.name !== shown.name ||
+          row.description !== shown.description ||
+          row.colour !== shown.colour
+        )
+          return false;
+        if ((row.made_by_user !== 0) === madeByUser) return false;
+        db.run("UPDATE tags SET made_by_user = ?, updated_at = ? WHERE id = ?", [
+          madeByUser ? 1 : 0,
+          now(),
+          id,
+        ]);
+        return true;
       });
     },
 
@@ -459,6 +565,8 @@ export function createTags(db: Database, now: () => string) {
           }
         }
         db.run("UPDATE tags SET deleted_at = ?, updated_at = ? WHERE id = ?", [at, at, from.id]);
+        // The Tag kept is the User's from now on, so its row stays at 0 in the sidebar.
+        db.run("UPDATE tags SET made_by_user = 1, updated_at = ? WHERE id = ?", [at, into.id]);
         db.run(
           `UPDATE document_tags SET deleted_at = ?, updated_at = ?
            WHERE tag_id = ? AND deleted_at IS NULL`,
@@ -558,9 +666,15 @@ export function createTags(db: Database, now: () => string) {
       documentId: string,
       decisions: readonly TagDecision[],
       newTags: readonly NewTag[] = [],
-    ): { changed: boolean; made: number } {
+    ): { changed: boolean; made: number; links: TagLinkChange[] } {
       return db.transaction(() => {
         const at = now();
+        const changes: TagLinkChange[] = [];
+        const linkState = (link: LinkRow) => ({
+          source: "automatic" as const,
+          confidence: link.confidence,
+          needsReview: link.needs_review !== 0,
+        });
         const named = tagsNamed(newTags, at);
         const owned = new Set(
           db
@@ -589,6 +703,12 @@ export function createTags(db: Database, now: () => string) {
           const decision = wanted.get(link.tag_id);
           wanted.delete(link.tag_id);
           if (!decision) {
+            changes.push({
+              documentId,
+              tagId: link.tag_id,
+              before: linkState(link),
+              after: null,
+            });
             db.run("UPDATE document_tags SET deleted_at = ?, updated_at = ? WHERE id = ?", [
               at,
               at,
@@ -600,6 +720,16 @@ export function createTags(db: Database, now: () => string) {
             (link.needs_review !== 0) !== decision.needsReview
           ) {
             // Still applies, decided afresh: e.g. Jev's probability moved on a re-tag.
+            changes.push({
+              documentId,
+              tagId: link.tag_id,
+              before: linkState(link),
+              after: {
+                source: "automatic",
+                confidence: decision.confidence,
+                needsReview: decision.needsReview,
+              },
+            });
             db.run(
               `UPDATE document_tags SET confidence = ?, needs_review = ?, updated_at = ?
                WHERE id = ?`,
@@ -609,10 +739,20 @@ export function createTags(db: Database, now: () => string) {
           }
         }
         for (const [tagId, decision] of wanted) {
+          changes.push({
+            documentId,
+            tagId,
+            before: null,
+            after: {
+              source: "automatic",
+              confidence: decision.confidence,
+              needsReview: decision.needsReview,
+            },
+          });
           insertLink(documentId, tagId, "automatic", at, null, decision);
           changed = true;
         }
-        return { changed, made: named.made };
+        return { changed, made: named.made, links: changes };
       });
     },
   };

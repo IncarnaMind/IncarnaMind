@@ -131,14 +131,14 @@ export function ToReview({
         }
       />
       {open &&
-        review.groups.map(({ folder, documents }) => {
+        review.groups.map(({ folder, path, documents }) => {
           const all = showingAll.has(`${TO_REVIEW}:${folder.id}`);
           const listed = all ? documents : documents.slice(0, FIRST_ROWS);
           return (
             <div key={folder.id} data-testid="library-review-group" data-folder={folder.id}>
               <p className="flex h-8 items-end border-b border-rule pb-1 pl-14 text-[12px] leading-4 font-semibold text-ink-secondary">
                 {t("library.review.group", {
-                  folder: folder.name,
+                  folder: path,
                   count: formatCount(documents.length, language),
                 })}
               </p>

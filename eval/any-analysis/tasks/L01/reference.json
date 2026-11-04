@@ -1,0 +1,53 @@
+{
+  "task": "L01",
+  "inputs": {
+    "en": "3f93cbb81ed5e4b078ed434f3f1e162ad027c49bbd24d3175e9b49d6bc0bd779"
+  },
+  "values": {
+    "error_share": 0.0049905,
+    "spike_hour": "2026-Oct-03 14:00",
+    "spike_rate": 0.17918346774193547,
+    "slowest": [
+      {
+        "key": "/api/reports/annual",
+        "p95": 4261
+      },
+      {
+        "key": "/api/exports",
+        "p95": 3374
+      },
+      {
+        "key": "/api/search",
+        "p95": 2673
+      },
+      {
+        "key": "/api/invoices/batch",
+        "p95": 2138.399999999994
+      },
+      {
+        "key": "/api/analytics/cohorts",
+        "p95": 1743
+      },
+      {
+        "key": "/api/orders/history",
+        "p95": 1387
+      },
+      {
+        "key": "/api/checkout",
+        "p95": 1100
+      },
+      {
+        "key": "/api/recommendations",
+        "p95": 889
+      },
+      {
+        "key": "/api/profile/avatar",
+        "p95": 712
+      },
+      {
+        "key": "/api/inventory",
+        "p95": 572
+      }
+    ]
+  }
+}

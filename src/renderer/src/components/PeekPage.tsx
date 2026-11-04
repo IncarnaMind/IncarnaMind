@@ -24,6 +24,9 @@ const LAID_OUT_AT: Record<DocumentKind, number> = {
   csv: 420,
   markdown: 420,
   text: 420,
+  image: 584,
+  rtf: 420,
+  html: 420,
   web: 420,
   transcript: 420,
 };

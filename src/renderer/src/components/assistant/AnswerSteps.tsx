@@ -12,6 +12,7 @@ import type {
   AskedFrom,
   ConversationAnswer,
   ConversationQuestion,
+  EmbeddingModelStatus,
 } from "../../../../core/api";
 import { shownDocumentName } from "../../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
@@ -52,6 +53,7 @@ import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
 import type { Translate } from "../../objects";
 import { openCited, quoteSaysSo } from "../../openCited";
+import { usePythonRuntime } from "../../pythonRuntime";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
 import { useAppStore } from "../../store";
@@ -230,9 +232,10 @@ export function LiveLine({
       ? call.input.mind
       : askedFrom?.name || namedMind(t, call);
   };
+  const python = usePythonRuntime((state) => state.status);
   const waitingSeconds = useSecondsOn(liveStepKey(shown));
   const summary = shown.kind === "thinking" ? shown.summary : "";
-  const label = liveText(t, shown, scope, mindOf);
+  const label = liveText(t, shown, scope, mindOf, python);
   const waiting = shown.kind === "waiting" || shown.kind === "consent";
   return (
     <p
@@ -332,6 +335,7 @@ function liveText(
   step: LiveStep,
   scope: string,
   mindOf: (call: AnswerToolCall) => string,
+  python: EmbeddingModelStatus | null,
 ): string {
   switch (step.kind) {
     case "waiting":
@@ -345,7 +349,7 @@ function liveText(
     case "searching":
       return t("steps.live.searching", { scope });
     case "call":
-      return runningText(t, step.call, mindOf);
+      return runningText(t, step.call, mindOf, python);
     case "thinking":
       return t(step.summary ? "steps.live.thinkingAbout" : "steps.live.thinking");
     case "writing":
@@ -370,13 +374,14 @@ function runningText(
   t: Translate,
   call: AnswerToolCall,
   mindOf: (call: AnswerToolCall) => string,
+  python: EmbeddingModelStatus | null = null,
 ): string {
   if (call.source === "connector") {
     return t("connectors.call.running", { connector: call.connector?.name ?? "", tool: call.tool });
   }
   if (call.source === "sources") return t("sources.call.running", { query: field(call, "query") });
   if (call.source === "minds") return mindCallText(t, call, mindOf(call));
-  if (call.source === "analysis") return analysisCallText(t, call);
+  if (call.source === "analysis") return analysisCallText(t, call, python);
   if (call.source === "commands") return commandCallText(t, call);
   if (call.source === "asks") return askCallText(t, call);
   if (call.tool === "read_document") return documentReadText(t, call, true);
@@ -688,6 +693,7 @@ function StepItem({
         <CheckStep
           count={row.count}
           notFound={row.notFound}
+          cantCheck={row.cantCheck ?? 0}
           needALook={row.needALook ?? 0}
           contradicted={row.contradicted ?? 0}
           notChecked={row.notChecked ?? 0}
@@ -962,6 +968,7 @@ function FailedSearch({
 function CheckStep({
   count,
   notFound,
+  cantCheck,
   needALook,
   contradicted,
   notChecked,
@@ -971,6 +978,7 @@ function CheckStep({
 }: {
   count: number;
   notFound: number;
+  cantCheck: number;
   needALook: number;
   contradicted: number;
   notChecked: number;
@@ -1016,7 +1024,7 @@ function CheckStep({
       </Step>
     );
   }
-  const allFound = notFound === 0 && needALook === 0 && notChecked === 0;
+  const allFound = notFound === 0 && needALook === 0 && notChecked === 0 && cantCheck === 0;
   const mark =
     contradicted > 0
       ? "contradicted"
@@ -1026,11 +1034,14 @@ function CheckStep({
           ? "unsupported"
           : notChecked > 0
             ? "not-checked"
-            : "found";
+            : cantCheck > 0
+              ? "cant-check"
+              : "found";
   const result = allFound
     ? t(count === 1 ? "steps.check.found" : "steps.check.allFound")
     : [
         ...(notFound > 0 ? [t("steps.check.notFound", { count: notFound })] : []),
+        ...(cantCheck > 0 ? [t("steps.check.cantCheck", { count: cantCheck })] : []),
         ...(needALook === 1 ? [t("steps.check.needALook.one")] : []),
         ...(needALook > 1 ? [t("steps.check.needALook", { count: needALook })] : []),
         ...(notChecked > 0 ? [t("steps.check.notChecked", { count: notChecked })] : []),

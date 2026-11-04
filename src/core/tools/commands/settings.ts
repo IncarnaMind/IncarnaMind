@@ -246,6 +246,7 @@ export const settingsChecker: Checker = async (input, { core }) => {
     final: false,
     recording: null,
     yours: null,
+    confirm: null,
     async run() {
       const from = setting.read(now);
       const after = await core.updateSettings(patch);
@@ -282,6 +283,7 @@ async function outputLocation(core: CommandsCore, folder: string): Promise<Check
     final: false,
     recording: null,
     yours: null,
+    confirm: null,
     async run() {
       if (before === folder) {
         return {

@@ -24,7 +24,7 @@ import {
 
 /*
  * A note says when it is done (D266, #1915): the corner badge, the note's row in Home and
- * the Export menu say the same state — "Not checked", "1 needs a look", "Checked 14:25" —
+ * the Export menu say the same state — "Claims not checked", "1 needs a look", "Checked 14:25" —
  * in English and Chinese. The scripted model finds a sentence contradicted when it shares
  * three words with a Document line and has a number the line doesn't (#96). Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save the screenshots.
@@ -45,7 +45,7 @@ const SUPPORTED = "Spring tides happened 12 times in 2026.";
 
 const WORDS = {
   en: {
-    notChecked: "Not checked",
+    notChecked: "Claims not checked",
     look: "1 needs a look",
     checked: "Checked ",
     checkFirst: "1 claim not checked yet · Check first",
@@ -54,7 +54,7 @@ const WORDS = {
     checking: /claims? being checked/,
   },
   "zh-CN": {
-    notChecked: "未核对",
+    notChecked: "说法未核对",
     look: "需要留意 1 处",
     checked: "已核对 ",
     checkFirst: "1 条说法待核对 · 先核对",
@@ -87,16 +87,11 @@ async function launchWithTides() {
 const badge = (window: Page) => window.getByTestId("check-badge");
 const stateWords = (window: Page) => badge(window).locator(".check-badge-words");
 
-/**
- * Runs the one Check from its card. It asks before it names the claims; a re-check of one
- * edited claim may run at once, so wait for the question, the run, or the mark to change.
- */
+/** Runs the one Check from its card in one press, and waits for it to end. */
 async function checkWholeMind(window: Page, from: string | null) {
   const card = await checkCard(window);
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
-  const ask = card.getByTestId("mind-check-ask");
   await expect(async () => {
-    if (await ask.isVisible()) return;
     if (await window.getByTestId("badge-stop").isVisible()) return;
     const marks = window.getByTestId("claim-mark");
     const mark =
@@ -104,7 +99,6 @@ async function checkWholeMind(window: Page, from: string | null) {
     if (mark !== from) return;
     throw new Error("The check hasn't started.");
   }).toPass({ timeout: 30_000 });
-  if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-check"));
   await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 60_000 });
 }
 
@@ -274,14 +268,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     const card = await checkCard(window);
     await pointAndClick(window, card.getByTestId("badge-check-mind"));
-    const ask = card.getByTestId("mind-check-ask");
-    await expect
-      .poll(
-        async () => (await ask.isVisible()) || (await window.getByTestId("badge-stop").isVisible()),
-      )
-      .toBe(true);
-    if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-check"));
-    await expect(window.getByTestId("badge-stop")).toBeVisible();
+    await expect(window.getByTestId("badge-stop")).toBeVisible({ timeout: 30_000 });
 
     // While it runs, Export says so; clicking opens the card at its progress, never a second Check.
     await pointAndClick(window, window.getByTestId("export-mind"));
@@ -398,9 +385,10 @@ for (const language of ["en", "zh-CN"] as const) {
       // Citation, so nothing says everything is checked.
       const done = await checkCard(window);
       await expect(done.getByTestId("health-summary")).toHaveText(
-        language === "en"
-          ? "1 claim supported · 1 claim with no Citation"
-          : "1 条说法有依据 · 1 条说法没有引用",
+        language === "en" ? "1 claim supported" : "1 条说法有依据",
+      );
+      await expect(done.getByTestId("health-noCitation")).toContainText(
+        language === "en" ? "1 claim with no Citation" : "1 条说法没有引用",
       );
       await expect(done.getByTestId("health-all-checked")).toHaveCount(0);
       await expect(done.getByTestId("checks-unread")).toContainText(
@@ -493,9 +481,10 @@ for (const language of ["en", "zh-CN"] as const) {
       // The card names what is left under its rows: the claim holds but still has no Citation.
       const narrow = await checkCard(window);
       await expect(narrow.getByTestId("health-summary")).toHaveText(
-        language === "en"
-          ? "1 claim supported · 1 claim with no Citation"
-          : "1 条说法有依据 · 1 条说法没有引用",
+        language === "en" ? "1 claim supported" : "1 条说法有依据",
+      );
+      await expect(narrow.getByTestId("health-noCitation")).toContainText(
+        language === "en" ? "1 claim with no Citation" : "1 条说法没有引用",
       );
       await expect(narrow.getByTestId("health-all-checked")).toHaveCount(0);
 

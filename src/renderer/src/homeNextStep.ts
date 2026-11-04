@@ -114,5 +114,10 @@ export function chooseHomeNextStep({
     const count = note.health.toCheck.length;
     return count > 0 ? { kind: "check", note, count } : null;
   }
+  // A sentence a change left to check keeps the note from being ready to send, and the count is
+  // that one: a sentence a check cannot settle is the badge's caveat, not work Check can do (#2313).
+  if (note.state.needsCheck > 0) {
+    return { kind: "check", note, count: note.state.needsCheck };
+  }
   return exported ? null : { kind: "export", note, count: 0 };
 }

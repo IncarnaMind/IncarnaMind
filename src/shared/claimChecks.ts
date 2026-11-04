@@ -12,11 +12,14 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckBasis,
   type ClaimCheckFailure,
+  type ClaimCheckPart,
   type ClaimCheckScope,
+  type ClaimReadDocument,
   type ClaimVerdict,
   claimCheckActions,
   type FigureCheckAttributes,
   type RecordCiteResult,
+  type RetainedFigureAnalysis,
   type SearchScope,
   type UnsupportedReason,
   type WholeRead,
@@ -295,7 +298,9 @@ export function readClaimCheck(value: unknown): ClaimCheckAttributes | null {
  * Why a check no longer holds: its sentence was edited (an accepted change
  * or a restored Checkpoint edits it too), a Document it read has a new
  * version, one its result rests on was deleted, the Mind moved to another
- * Folder ("scope"), or the Search scope the User set for the Mind changed.
+ * Folder while the result rests on a whole Folder's contents ("scope"), or the
+ * Search scope the User set for the Mind changed. A result its Citations back
+ * stays true wherever the Note is filed.
  */
 export type RecheckReason =
   | "edited"
@@ -316,6 +321,19 @@ export type ClaimCheckShown =
   | { state: "needs-recheck"; why: RecheckReason }
   | { state: "kept" };
 
+/**
+ * The one failure a check on the same sentence and Documents cannot settle: the Citation it needs
+ * is kept inside another Folder. A reply that failed, was refused or couldn't be used, a service
+ * limit, a cap, a stop, or a sentence a later Check takes may be settled next time, so those stay
+ * Not checked.
+ */
+export const UNCHECKABLE_FAILURES: ReadonlySet<ClaimCheckFailure> = new Set(["kept-inside"]);
+
+/** Whether a check's result is one a check cannot settle for this sentence, rather than one still to make. */
+export function cantBeChecked(shown: ClaimCheckShown): boolean {
+  return shown.state === "not-checked" && UNCHECKABLE_FAILURES.has(shown.reason);
+}
+
 /** What a check is compared with. */
 export interface ClaimCheckNow {
   figureContexts?: ReadonlyMap<string, string> | null;
@@ -333,6 +351,37 @@ export interface ClaimCheckNow {
   note?: RecordCiteNote;
   /** The sentence as the Note holds it, its Citations included, where `text` leaves them out: what its record cites are read in. */
   noteText?(): string;
+}
+
+/** A verdict a check landed, the only kind a Folder move has a result to keep (#2313). */
+const LANDED: ReadonlySet<ClaimCheckBasis["state"]> = new Set([
+  "supported",
+  "unsupported",
+  "contradicted",
+]);
+
+/** Whether a result rests on any Citation at all: a found quote stays true wherever the Note is filed (#2313). */
+const backedByCitation = (check: ClaimCheckBasis): boolean =>
+  restsOn(check).some((each) => each.documentId !== null);
+
+/** Whether the check read whole Documents: an absence rests on the Folder's contents, and a move changes them (#2313). */
+function readWholeFolder(check: {
+  readDocuments?: readonly ClaimReadDocument[];
+  parts?: readonly ClaimCheckPart[];
+}): boolean {
+  // The editor's mark declares every attribute, so an unread Document list is [] and not absent.
+  return (
+    (check.readDocuments?.length ?? 0) > 0 ||
+    (check.parts ?? []).some((part) => (part.readDocuments?.length ?? 0) > 0)
+  );
+}
+
+/** Whether anything the check judged is Unsupported: a quote backs only what it states, and the rest said nothing in the Folder it searched (#2313). */
+function saysUnsupported(check: ClaimCheckBasis): boolean {
+  return (
+    check.state === "unsupported" ||
+    (check.parts ?? []).some((part) => part.verdict === "unsupported")
+  );
 }
 
 /** Whether a sentence's `Id.` or `supra` refers back through other cites now than when it was checked. */
@@ -374,19 +423,57 @@ export function coveredPart(
 }
 
 /**
+ * Whether the card lists a check's parts as rows (#2002): more than one, or one with a card of
+ * its own. A check with rows shows each part's own result there; the sentence's result is the
+ * parts' verdict, Not found only when every part found nothing (#2313).
+ */
+export function showsPartRows(check: Pick<ClaimCheckAttributes, "parts">): boolean {
+  return Boolean(
+    check.parts &&
+      (check.parts.length > 1 ||
+        check.parts.some(
+          (part) =>
+            part.kind === "opinion" ||
+            part.coverage ||
+            part.evidence.length > 1 ||
+            part.unsupported?.kind,
+        )),
+  );
+}
+
+/**
+ * Whether one part's own check found nothing (#2313): no quoted Passage, no Passage read and
+ * judged, no court decision, none of the User's own workings, and no covered quote.
+ */
+export function partFoundNothing(part: ClaimCheckPart): boolean {
+  return (
+    part.verdict === "unsupported" &&
+    part.evidence.length === 0 &&
+    !part.citedCaseUnchecked &&
+    !part.excluded.some((left) => left.reason === "own-workings") &&
+    !part.unsupported?.found &&
+    coveredPart(part.unsupported) === null
+  );
+}
+
+/**
  * Whether nothing in its scope was about an unsupported sentence (#1608): its card is headed Not
  * found and says where it looked, and its Word comment says the same. A Passage the check found
  * makes it Unsupported: one quoted as saying something different or as stating part of it, or one
  * it read and judged (`UnsupportedReason.found`). A sentence with Citations, one citing a court
- * decision no Document holds, and one only the User's own workings state have cards of their own.
+ * decision no Document holds, or one only the User's own workings state is Unsupported; one whose
+ * parts the card lists as rows is Not found only when every part found nothing (#2313).
  */
 export function saysNotFound(
   shown: ClaimCheckShown,
   check: ClaimCheckAttributes,
   citations: number,
 ): boolean {
+  if (shown.state !== "unsupported") return false;
+  if (showsPartRows(check)) {
+    return Boolean(check.parts?.length) && (check.parts ?? []).every(partFoundNothing);
+  }
   return (
-    shown.state === "unsupported" &&
     citations === 0 &&
     check.evidence === null &&
     !check.citedCaseUnchecked &&
@@ -483,7 +570,16 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
       }
     }
   }
-  if (!check.scope.widened && !check.scope.chosen && check.scope.folderId !== now.folderId) {
+  // A landed result searched the Folder it was in: filed elsewhere with Documents never read, a
+  // whole-Folder read or a result with no quote to rest on must be checked there (#2313). A check
+  // that landed nothing is not a result the move can rewrite.
+  if (
+    LANDED.has(check.state) &&
+    !check.scope.widened &&
+    !check.scope.chosen &&
+    check.scope.folderId !== now.folderId &&
+    (!backedByCitation(check) || readWholeFolder(check) || saysUnsupported(check))
+  ) {
     return { state: "needs-recheck", why: "scope" };
   }
   // Contradiction watch looks in the Mind's Folder, and a whole read in the User's pick.
@@ -506,6 +602,26 @@ const RECORD_MISSES: ReadonlySet<RecordCiteResult["outcome"]> = new Set([
   "not-found",
   "choose",
 ]);
+
+/**
+ * Whether every Document that supports the sentence is one of the User's own notes (#335):
+ * its own evidence and the evidence of each supported part, with nothing read whole behind it.
+ * A Document of theirs that also supports it makes this false, so the mark stays the usual one.
+ */
+export function supportedByOwnNotesOnly(check: {
+  state: ClaimCheckAttributes["state"];
+  evidence: CitationAttributes | null;
+  parts?: readonly Pick<ClaimCheckPart, "verdict" | "evidence">[];
+  readDocuments?: readonly unknown[];
+}): boolean {
+  if (check.state !== "supported") return false;
+  if ((check.readDocuments ?? []).length > 0) return false;
+  const evidence = [
+    ...(check.evidence ? [check.evidence] : []),
+    ...(check.parts ?? []).flatMap((part) => (part.verdict === "supported" ? part.evidence : [])),
+  ];
+  return evidence.length > 0 && evidence.every((each) => typeof each.yourNoteAt === "string");
+}
 
 /**
  * What a check's margin glyph shows: its sentence's state, but Unsupported rather than Supported
@@ -549,6 +665,42 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
         ? basisShown(check.remainder, now)
         : undefined,
   );
+}
+
+/**
+ * How an Analysis figure shows (#2378): a claim check's own state when one covers it — one that
+ * passed it over did not check it — else what the core worked out when the Analysis ran, while the
+ * Documents it read are as they were. A check that differs or couldn't be made stays as it shows.
+ */
+export function analysisFigureShown(
+  shown: ClaimCheckShown,
+  figure: {
+    /** Whether a claim check covers the figure, whatever it found: a check that left it unread saw it. */
+    checked: boolean;
+    /** The record the Note keeps of the figure's Analysis; null when it kept none. */
+    run: RetainedFigureAnalysis | null;
+    result: string | null;
+    /** Each live Document's version now; null while they aren't known. */
+    versions: ReadonlyMap<string, string> | null;
+  },
+): ClaimCheckShown {
+  const value = figure.run?.values.find((each) => each.name === figure.result);
+  // A figure that names an Analysis whose record the Note no longer keeps reads as its value and
+  // Not checked: neither a sentence's check nor a recalculation can stand for a record that is
+  // gone, and an earlier build could take one away (#2378).
+  if (figure.result !== null && !value)
+    return shown.state === "kept" ? shown : { state: "not-checked", reason: "unread" };
+  if (figure.checked) return shown;
+  if (value?.check?.kind !== "same") return shown;
+  for (const input of figure.run?.inputs ?? []) {
+    const citation = input.kind === "figure" ? input.input.citation : input.citation;
+    const current = figure.versions?.get(citation.documentId);
+    if (figure.versions && current === undefined)
+      return { state: "needs-recheck", why: "document-removed" };
+    if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
+      return { state: "needs-recheck", why: "new-version" };
+  }
+  return { state: "supported" };
 }
 
 export function figureCheckShown(

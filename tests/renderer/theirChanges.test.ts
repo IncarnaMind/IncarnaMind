@@ -1,8 +1,9 @@
 /**
  * The reviewing pane's cards (#697), from a Word file imported through the
- * core: someone's changes and the file's comments in the Mind's order, with
- * their clause numbers, authors and excerpts, and a change decided keeping
- * its card until Undo makes it wait again.
+ * core: someone's changes in the Mind's order, with their clause numbers,
+ * authors and excerpts, and a change decided keeping its card until Undo
+ * makes it wait again. The file's comments are the Note's comments, not
+ * cards here (#328).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,12 +24,13 @@ import {
 } from "../../src/renderer/src/editor/theirChanges";
 import { authorShown, filterOf, shownIn } from "../../src/renderer/src/reviewPane";
 import { translate } from "../../src/shared/i18n";
+import { mindCommentsOf } from "../../src/shared/mindComments";
 import { decideProposals, pendingProposals } from "../../src/shared/proposals";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import type { MindClient } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { supplyRedline } from "../helpers/redline";
-import { paragraph, wordFile } from "../helpers/word";
+import { commented, paragraph, run, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
 async function imported(bytes: Buffer): Promise<MindClient> {
@@ -42,17 +44,15 @@ const itemsOf = (client: MindClient) => reviewItemsIn(readMind(client), client.d
 
 /** A card as the pane shows it: who, the clause, its state, and its words, struck [-…-] and underlined {+…+}. */
 const card = (item: ReviewItem) =>
-  item.kind === "comment"
-    ? `comment · ${item.author}: ${item.text}`
-    : `${item.clause} · ${initialsOf(item.author)} · ${item.state}: ${item.excerpt
-        .map((part) =>
-          part.kind === "insert"
-            ? `{+${part.text}+}`
-            : part.kind === "delete"
-              ? `[-${part.text}-]`
-              : part.text,
-        )
-        .join("")}`;
+  `${item.clause} · ${initialsOf(item.author)} · ${item.state}: ${item.excerpt
+    .map((part) =>
+      part.kind === "insert"
+        ? `{+${part.text}+}`
+        : part.kind === "delete"
+          ? `[-${part.text}-]`
+          : part.text,
+    )
+    .join("")}`;
 
 /** Accepts or rejects changes as the editor does: in one step, keeping each one's card. */
 function decide(client: MindClient, ids: readonly string[], outcome: "accept" | "reject"): void {
@@ -64,17 +64,15 @@ function decide(client: MindClient, ids: readonly string[], outcome: "accept" | 
 }
 
 describe("the reviewing pane's cards", () => {
-  test("list every change and comment in the Mind's order: clause, initials and a few words around each change", async () => {
+  test("list every change in the Mind's order: clause, initials and a few words around each change (#328)", async () => {
     const client = await imported(supplyRedline());
     expect(itemsOf(client).map(card)).toEqual([
       "1.2 · DK · waiting: …at its plants in Leeds{+ and Gdańsk+} and delivers them to Corran under clause 4.",
       "1.3 · LO · waiting: Northwind gives [-90-]{+60+} days’ notice before moving production to another plant.",
       "2.1 · DK · waiting: …a year by up to [-8%, on 30 days’ notice-]{+6%, on 45 days’ notice, as agreed on the call of 3 September+}.",
-      "comment · Dana Kim: Resin is up 11% since June. Our letter of 19 September has the figures.",
       "3.1 · LO · waiting: Corran pays each invoice within [-14-]{+30+} days of the invoice date. Late payments carry interest at 4% a year above the Bank of England base rate.",
       "4.2 · DK · waiting: …the sites in Schedule 3{+, for orders of at least 40 pallets+}.",
       "6.2 · DK · waiting: Otherwise, {+Northwind’s total liability is capped at the fees paid in the three months before the claim+}.",
-      "comment · Dana Kim: Our insurer needs a cap in every supply contract.",
       "7.1 · DK · waiting: {+Every plant that makes the Products holds ISO 22000 certification.+}",
     ]);
     const changes = waitingChanges(itemsOf(client));
@@ -110,7 +108,7 @@ describe("the reviewing pane's cards", () => {
     expect(after.map(card).at(-1)).toBe(
       "7.1 · DK · rejected: {+Every plant that makes the Products holds ISO 22000 certification.+}",
     );
-    expect(after.filter((item) => item.kind === "change").map((item) => item.id)).toHaveLength(7);
+    expect(after.map((item) => item.id)).toHaveLength(7);
     expect(waitingChanges(after)).toHaveLength(5);
     expect(readMind(client).textContent).not.toContain("ISO 22000");
 
@@ -124,9 +122,18 @@ describe("the reviewing pane's cards", () => {
     );
   });
 
-  test("a file with no changes or comments has nothing to review", async () => {
+  test("a file with no changes has nothing to review", async () => {
     const client = await imported(wordFile({ body: paragraph("1. A clause nobody changed.") }));
     expect(itemsOf(client)).toEqual([]);
+  });
+
+  test("a file's comment is the Note's own, beside its words, not a card in the pane (#328)", async () => {
+    const said = commented(0, "Dana Kim", "Please confirm.", run("A clause."));
+    const client = await imported(
+      wordFile({ body: paragraph(said.inline), comments: said.comment }),
+    );
+    expect(itemsOf(client)).toEqual([]);
+    expect(mindCommentsOf(client.doc).map((comment) => comment.text)).toEqual(["Please confirm."]);
   });
 });
 
@@ -134,24 +141,20 @@ describe("which cards a pane shows", () => {
   const cards = [
     { kind: "change", author: "Dana Kim", state: "accepted" },
     { kind: "change", author: "Luis Ortega", state: "accepted" },
-    { kind: "comment", author: "Dana Kim" },
     { kind: "change", author: "Dana Kim", state: "waiting" },
   ] as const;
 
-  test("Unresolved once anything is decided, unless the User picked; decided cards leave it, comments stay", () => {
+  test("Unresolved once anything is decided, unless the User picked; decided cards leave it", () => {
     expect(filterOf(undefined, cards)).toBe("unresolved");
     expect(filterOf({ filter: "all" }, cards)).toBe("all");
-    expect(filterOf(undefined, [cards[2], cards[3]])).toBe("all");
-    expect(shownIn(cards, { filter: "unresolved", who: null })).toEqual([cards[2], cards[3]]);
+    expect(filterOf(undefined, [cards[2]])).toBe("all");
+    expect(shownIn(cards, { filter: "unresolved", who: null })).toEqual([cards[2]]);
     expect(shownIn(cards, { filter: "all", who: "Luis Ortega" })).toEqual([cards[1]]);
   });
 
   test("an author with nothing in the filter shown is no choice there: everyone shows", () => {
     expect(authorShown(cards, { filter: "unresolved", who: "Luis Ortega" })).toBeNull();
-    expect(shownIn(cards, { filter: "unresolved", who: "Luis Ortega" })).toEqual([
-      cards[2],
-      cards[3],
-    ]);
+    expect(shownIn(cards, { filter: "unresolved", who: "Luis Ortega" })).toEqual([cards[2]]);
     expect(authorShown(cards, { filter: "all", who: "Luis Ortega" })).toBe("Luis Ortega");
   });
 });
@@ -201,11 +204,11 @@ describe("what a card says", () => {
 });
 
 const reviewed = readManifest()
-  .filter((entry) => entry.features.trackedChanges > 0 || entry.features.comments > 0)
+  .filter((entry) => entry.features.trackedChanges > 0)
   .map((entry) => entry.file);
 
 test.each(reviewed)(
-  "%s: the pane has a card for every change waiting and every comment, in the Mind's order, and every one decided keeps it",
+  "%s: the pane has a card for every change waiting and none for the file's comments, in the Mind's order, and every one decided keeps it",
   async (file) => {
     let doc: Y.Doc;
     try {
@@ -220,11 +223,7 @@ test.each(reviewed)(
       .filter((each) => each.id.startsWith(WORD_CHANGE_ID))
       .map((each) => each.id);
     expect(waitingChanges(items).map((each) => each.id)).toEqual(theirs);
-    let comments = 0;
-    readMind(client).descendants((node) => {
-      if (node.type.name === "wordAtom" && node.attrs.kind === "comment") comments++;
-    });
-    expect(items.filter((item) => item.kind === "comment")).toHaveLength(comments);
+    expect(items.some((item) => item.kind !== "change")).toBe(false);
     const places = items.map((item) => item.from);
     expect(places).toEqual([...places].sort((a, b) => a - b));
     for (const change of waitingChanges(items)) {
@@ -234,7 +233,7 @@ test.each(reviewed)(
     theirs.forEach((id, index) => {
       decide(client, [id], index % 2 === 0 ? "accept" : "reject");
     });
-    const decided = itemsOf(client).filter((item) => item.kind === "change");
+    const decided = itemsOf(client);
     expect(waitingChanges(decided)).toEqual([]);
     expect(
       decided

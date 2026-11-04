@@ -7,6 +7,7 @@ import { SkillIcon } from "../components/icons";
 import { ImageLineIcon } from "../components/lineIcons";
 import { matchName, queryWords } from "../matcher";
 import { showBibliography } from "./bibliographyCommands";
+import { openDocumentPicker } from "./documentPicker";
 import { insertFootnote } from "./footnoteSchema";
 import { TableIcon } from "./icons";
 import { insertBlock } from "./insertBlock";
@@ -229,6 +230,41 @@ export function compareSlashItem(onCompare: (afterBlockId: string | null) => voi
       onCompare(typeof block?.attrs.id === "string" ? block.attrs.id : null);
     },
   };
+}
+
+/**
+ * The two things writing a Note does with its Documents (#281), first in its
+ * "/" menu: Cite… opens a search for the sentence being written and puts a
+ * checked Citation where the "/" was; Link a Document types the "@" that
+ * opens the picker of Documents, in a Note, where the "/" was.
+ */
+export function citeWhileWritingItems(
+  citeHint: string,
+  onCite: (editor: Editor, range: Range) => void,
+): readonly SlashItem[] {
+  return [
+    {
+      id: "cite",
+      label: "editor.slash.cite",
+      hint: citeHint,
+      // "citation", "reference" and "source" stay the Quote block's and the Bibliography's,
+      // which they find, as before #281.
+      keywords: ["passage", "yinyong", "引用"],
+      icon: "[1]",
+      run: (editor, range) => onCite(editor, range),
+    },
+    {
+      id: "link-document",
+      label: "editor.slash.linkDocument",
+      // "document" stays Compare Documents…'s, which it finds, as before #281.
+      keywords: ["link", "file", "mention", "lianjie", "wendang", "文档"],
+      icon: "@",
+      run(editor, range) {
+        editor.chain().focus().deleteRange(range).run();
+        openDocumentPicker(editor, range.from);
+      },
+    },
+  ];
 }
 
 /**

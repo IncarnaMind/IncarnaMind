@@ -66,6 +66,7 @@ export function createAiUseStatement(options: AiUseStatementOptions) {
           kept: options.keptCitationTexts(),
           folderId: source.folderId,
           modelName: modelNames,
+          agentName: (agent) => translate(language, "aiStatement.uses.agent", { agent }),
           untitled: translate(language, "aiStatement.text.untitled"),
         }),
       );

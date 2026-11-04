@@ -100,7 +100,9 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     ]);
     expect(mindCalls(answer)[0]?.status).toBe("done");
     expect(answer.text).toBe("Shortened the summary in “Q3 review”: dropped two fillers.");
-    expect(lastResult(model)).toMatch(/^Changed 2 places in “Q3 review” \(from 11 to 9 words\)/);
+    expect(lastResult(model)).toMatch(
+      /^Changed 2 places in “Q3 review” \(from 11 to 9 words: 0.8 times as long\)/,
+    );
   });
 
   // protects=a rewrite that is no shorter is reported that way to the model, with no keyword reading of the instruction; fails_when=the result says only the same count and lets a reply call it shortened; no_claim=whether the model heeds the result.
@@ -863,13 +865,13 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
         "Water is billed each quarter.",
       ],
       reply: "Parking is 100 a month, in the north garage.",
-      went: "from 28 to 24 words",
+      went: "from 28 to 24 words: 0.9 times as long",
     },
     {
       asked: "把停车那一行改短",
       lines: ["租金每月1200元。", "停车每月100元，车位在北区车库。", "水费每月30元。"],
       reply: "停车每月100元。",
-      went: "from 25 to 18 characters",
+      went: "from 25 to 18 characters: 0.7 times as long",
     },
   ])("the length told counts what the reply left out and kept: $asked", async (each) => {
     const model = scriptedModel((call: ModelCall): ScriptedReply => {

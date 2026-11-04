@@ -164,9 +164,6 @@ for (const language of ["en", "zh-CN"] as const)
         );
         await picture(window, `home-next-check-${language}-${width}`);
         await check.click();
-        const ask = window.getByTestId("mind-check-ask");
-        await expect(ask).toBeVisible();
-        await ask.getByTestId("mind-check-check").click();
         await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
         await window.keyboard.press("Escape");
         await goHome(window);
@@ -204,9 +201,6 @@ for (const language of ["en", "zh-CN"] as const)
         await window.keyboard.type(" The harbour publishes tide times every 6 months.");
         await goHome(window);
         await palette(window, await shown(window, "check"));
-        const again = window.getByTestId("mind-check-ask");
-        await expect(again).toBeVisible();
-        await again.getByTestId("mind-check-check").click();
         await expect(
           window.locator('[data-testid="claim-mark"][data-check="unsupported"]'),
         ).toHaveCount(1);

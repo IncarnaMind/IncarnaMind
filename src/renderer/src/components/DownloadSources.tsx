@@ -14,6 +14,7 @@ const SOURCE_NAMES: Record<ModelSourceId, MessageKey> = {
   modelscope: "modelSource.modelscope",
   "hf-mirror": "modelSource.hfMirror",
   r2: "modelSource.copy",
+  github: "modelSource.github",
 };
 
 const CHOICE_NAMES: Record<ModelSourceChoice, MessageKey> = {

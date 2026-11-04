@@ -12,6 +12,8 @@ blob-report/
 coverage/
 # What Analyses run with, fetched by the build (scripts/pythonRuntime.ts)
 resources/python/
+# Where run_code's Python is downloaded from, with its size and SHA-256 (scripts/pythonNative.ts)
+resources/python-native/
 
 # Evaluation reports (npm run eval)
 eval/results/

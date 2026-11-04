@@ -97,15 +97,15 @@ test("the tab strip comes with the second tab, and the Library with the User's f
 });
 
 test("a file the first open can't take still says so in the footer, though its other news waits (#123)", async () => {
-  await writeFile(join(sources, "Picture.png"), "not a document");
+  await writeFile(join(sources, "Archive.zip"), "not a document");
   const { app, window } = await launchApp(dataDir, { examples: true });
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("mind-pane")).toBeVisible();
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
-  await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Picture.png")]);
+  await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Archive.zip")]);
   const skipped = sidebar.getByTestId("skipped-files");
   await expect(skipped).toBeVisible();
-  await expect(skipped).toHaveAttribute("title", /Picture\.png/);
+  await expect(skipped).toHaveAttribute("title", /Archive\.zip/);
   await expect(sidebar.getByTestId("tagging-waiting")).toHaveCount(0);
   await app.close();
 });

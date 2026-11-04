@@ -96,13 +96,13 @@ function contextFor(
     ? { checked: targets, checkedWall: wall }
     : {};
   if (!command.appliesTo) {
-    return { ...inFront(mindId), checked: targets, checkedWall: wall };
+    return { ...inFront(mindId), checked: targets, checkedWall: wall, assistant: true };
   }
   const [one] = targets;
-  if (!one) return inFront(mindId);
+  if (!one) return { ...inFront(mindId), assistant: true };
   return targets.length === 1
-    ? { selection: [], focus: one, surface: "palette", ...checkedIn }
-    : { selection: targets, focus: null, surface: "palette", ...checkedIn };
+    ? { selection: [], focus: one, surface: "palette", ...checkedIn, assistant: true }
+    : { selection: targets, focus: null, surface: "palette", ...checkedIn, assistant: true };
 }
 
 /** How a command the assistant asked for ended: why it didn't, or the change it made, for the Undo. */

@@ -1,5 +1,6 @@
 import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, useRef } from "react";
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
+import { ADDABLE_FILES_ACCEPT } from "../../../shared/addFilesAction";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { isProcessing } from "../../../shared/documentStatus";
 import type { MessageKey } from "../../../shared/i18n";
@@ -55,7 +56,7 @@ import {
 import { TagMarks, TagNamesTip, tagNamesTipListProps } from "./TagMarks";
 
 /** What the file picker offers. The core decides what it takes. */
-const ACCEPTED_FILES = ".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.markdown";
+const ACCEPTED_FILES = ADDABLE_FILES_ACCEPT;
 
 /** A Document's status as its row's end shows it: nothing once it's ready. */
 const shortStatusMessages: Record<DocumentStatus, MessageKey | null> = {
@@ -406,6 +407,7 @@ const DocumentRow = memo(function DocumentRow({
                 </span>
               )}
             </span>
+            <YourNoteLabel item={item} />
             <NotCitedLabel item={item} />
             <TagMarks
               chips={chips}
@@ -447,6 +449,21 @@ export function NotCitedLabel({ item }: { item: Pick<Document, "notCited"> }) {
   );
 }
 
+/** "Your note" beside a Document that is a snapshot of a Mind (#335). */
+export function YourNoteLabel({ item }: { item: Pick<Document, "yourNote"> }) {
+  const t = useT();
+  if (!item.yourNote) return null;
+  return (
+    <span
+      data-testid="document-your-note"
+      title={t("mind.yourNote")}
+      className="shrink-0 text-label font-semibold text-ink-meta"
+    >
+      {t("mind.yourNote")}
+    </span>
+  );
+}
+
 /**
  * The status at a row's end: "Missing" or "Unavailable" when its file isn't
  * where it was (that comes first: it's what the User can act on), "38%"
@@ -476,7 +493,11 @@ export function DocumentStatusLabel({ item }: { item: Document }) {
   const unread = item.status === "failed" && item.failure?.reason === "pages-unread";
   const full = documentStatusText(item, t, language, scanning?.full ?? null);
   const percent = Math.floor((item.progress ?? 0) * 100);
-  const shortKey = unread ? "documents.statusShort.pagesUnread" : shortStatusMessages[item.status];
+  const shortKey = unread
+    ? item.kind === "image"
+      ? "documents.statusShort.pictureUnread"
+      : "documents.statusShort.pagesUnread"
+    : shortStatusMessages[item.status];
   const short = shortKey && (scanning?.short ?? t(shortKey, { percent }));
   const title = item.failure?.message ? `${full}\n${item.failure.message}` : full;
   if (!short) {

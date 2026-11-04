@@ -26,7 +26,7 @@ const send = (response: WorkerResponse) => {
   port.postMessage(response, transfer);
 };
 
-type Answer = Pick<Extract<WorkerRequest, { request: number }>, "lines" | "read">;
+type Answer = Pick<Extract<WorkerRequest, { request: number }>, "lines" | "read" | "refused">;
 
 /** The jobs under way, by id: their stop signals and the pages waiting to be read. */
 const running = new Map<
@@ -62,8 +62,11 @@ port.on("message", (message: WorkerRequest) => {
         new Promise((resolve, reject) => {
           const request = nextRequest++;
           job.waiting.set(request, {
-            resolve: (answer: Answer) =>
-              answer.read ? resolve(answer.read) : reject(new Error("No lines were read.")),
+            resolve: (answer: Answer) => {
+              if (answer.refused) resolve({ refused: answer.refused });
+              else if (answer.read) resolve(answer.read);
+              else reject(new Error("No lines were read."));
+            },
             reject,
           });
           send({ id, request, page, file });
@@ -86,7 +89,7 @@ port.on("message", (message: WorkerRequest) => {
   const waiter = job.waiting.get(message.request);
   job.waiting.delete(message.request);
   if (!waiter) return;
-  if (message.lines || message.read) waiter.resolve(message);
+  if (message.lines || message.read || message.refused) waiter.resolve(message);
   else {
     const { message: text = "", unavailable = false } = message.error ?? {};
     waiter.reject(unavailable ? new ReadingUnavailable(text) : new Error(text));

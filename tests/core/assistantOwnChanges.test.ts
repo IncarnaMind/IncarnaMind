@@ -1118,7 +1118,9 @@ describe("A reply that claims a change no call made", { timeout: 30_000 }, () =>
     const answer = await askAssistant(core, { text: "add risks", mindId: mind.id });
 
     expect(instructions).toContain("For every claim, about says what the sentence is about");
-    expect(instructions).toContain("Only a claim about a mind counts.");
+    expect(instructions).toContain(
+      "Only a claim about a mind, the app, local_mode, keys, spending_cap, approval_rules or deleted_for_good counts.",
+    );
     expect(instructions).toContain("The record's Tool names and fields say mind for a Note.");
     expect(instructions).not.toContain("A Note is called a Mind in the record.");
     expect(instructions).toContain(
@@ -1892,7 +1894,9 @@ describe("The assistant's own text already in the Mind (#1061)", { timeout: 30_0
   // protects=new text for the assistant's summary that leaves out a Citation tells the model so, as an instruction's rewrite does; fails_when=the Citation goes with no word to the model; no_claim=what the model then says.
   test("new text that leaves out a Citation of the summary says so to the model", async () => {
     const model = scriptedModel((call): ScriptedReply => {
-      if (call.results.length > 0) return { text: "Done." };
+      // Its new words cite nothing, which is refused once (#1385): the model gives them again.
+      const refused = call.results.some((each) => each.text.includes("cites nothing"));
+      if (call.results.length > (refused ? 1 : 0)) return { text: "Done." };
       return {
         calls: [
           {

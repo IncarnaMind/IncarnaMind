@@ -24,3 +24,12 @@ export function useRunsWithoutSandbox(): boolean {
 export function openSandboxHelp(): void {
   window.open(LINUX_SANDBOX_HELP_URL, "_blank", "noreferrer");
 }
+
+/** Opens the same page at how to let code run in its sandbox, on Linux (ADR-0025). */
+export function openCodeSandboxHelp(): void {
+  window.open(
+    `${LINUX_SANDBOX_HELP_URL}#code-on-whole-files-and-skill-scripts`,
+    "_blank",
+    "noreferrer",
+  );
+}

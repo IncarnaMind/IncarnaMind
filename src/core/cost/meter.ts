@@ -135,6 +135,21 @@ const ITEM_COSTS: Record<NonNullable<RunEstimateInput["each"]>, ItemCost> = {
     },
     flow: "checks",
   },
+  /**
+   * One part of an Edit with AI too long for one request (#2348): the passage at its limit
+   * (12,000 characters, about 3,000 tokens), the paragraphs it is in read with it, and the
+   * edit's instructions (3,305 characters, about 830 tokens), rewritten at about its own length.
+   */
+  edit: {
+    calls: 1,
+    call: {
+      inputTokens: 6_900,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 3_000,
+    },
+    flow: "edits",
+  },
 };
 /** The recorded requests an estimate averages, once there are two items' worth. */
 const RECORDED_CALLS = 100;

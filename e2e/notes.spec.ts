@@ -37,8 +37,16 @@ test("a heading and a formula inserted from the slash menu are still there, rend
   await expect(menu).toHaveCount(0);
   await window.keyboard.press("Backspace");
 
-  // The arrows choose an entry and Enter inserts it: Text, then Heading 1.
+  // The arrows choose an entry: Cite… and Link a Document come first when nothing is typed,
+  // then Text, then Heading 1.
   await window.keyboard.type("/");
+  await expect(window.getByTestId("slash-item-cite")).toHaveAttribute("aria-selected", "true");
+  await window.keyboard.press("ArrowDown");
+  await expect(window.getByTestId("slash-item-link-document")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await window.keyboard.press("ArrowDown");
   await expect(window.getByTestId("slash-item-text")).toHaveAttribute("aria-selected", "true");
   await window.keyboard.press("ArrowDown");
   await expect(window.getByTestId("slash-item-heading-1")).toHaveAttribute("aria-selected", "true");

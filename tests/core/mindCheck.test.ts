@@ -963,29 +963,29 @@ describe("Check this note", () => {
     expect({ finds: finds.length, runs: runsIn(checks).length }).toEqual(sent);
   });
 
-  // protects=a check holds only while the Documents it rests on are in its scope, and while no Document has joined it (#1669); fails_when=a Document moved out of the Folder, a Mind moved to another Folder, or a Document filed in since still reads as nothing changed; no_claim=the card's words.
-  test("a source Document moved out of the Folder, or the Mind moved to another, changes the checks; a Document filed in since is the added ones' to check, not nothing changed", async () => {
+  // protects=#2313: a Folder move changes what a new check searches; a result its Citations back holds (a quoted Document leaving the Folder changes nothing), while a result the whole Folder backed — an Unsupported with no quote — needs a check in the new Folder; a Document that joined the Folder since is the added ones' to check; fails_when=moving a cited Document out makes a quoted check look changed, a whole-Folder result is kept in a Folder never read, or a Document filed in since reads as nothing changed; no_claim=the Search scope a new Check looks in (checkScope.test.ts).
+  test("moving a cited Document out keeps a quoted result; a whole-Folder result needs a check in the Mind's new Folder", async () => {
     const { core, mindId, folderId, clock } = await setUp();
     await core.checkMind(request(mindId, "all"));
     const unchanged = { kind: "unchanged", since: "2026-10-02T14:20:00.000Z" };
     expect(await core.planMindCheck(mindId, "changed")).toEqual(unchanged);
 
+    // The Document a quoted result rests on leaves the Folder: the quote is still where it was.
     const [tides] = (await core.listDocuments()).filter((each) => each.name === "Tides");
     if (!tides) throw new Error("The Tides Document isn't there.");
     await core.moveToFolder({ documentIds: [tides.id], folderId: null });
-    expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
-      kind: "ready",
-      sentences: 1,
-      findsClaims: false,
-    });
+    expect(await core.planMindCheck(mindId, "changed")).toEqual(unchanged);
     await core.moveToFolder({ documentIds: [tides.id], folderId });
     expect(await core.planMindCheck(mindId, "changed")).toEqual(unchanged);
 
+    // The Mind goes to another Folder: its quoted results hold, the Unsupported with no quote
+    // rested on the Folder it was read in and is checked in the new one.
     const elsewhere = await core.createLibraryGroup({ name: "Elsewhere", description: "" });
     await core.moveToFolder({ mindIds: [mindId], folderId: elsewhere.id });
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({
       kind: "ready",
-      sentences: 3,
+      sentences: 1,
+      findsClaims: false,
     });
     await core.moveToFolder({ mindIds: [mindId], folderId });
     expect(await core.planMindCheck(mindId, "changed")).toEqual(unchanged);

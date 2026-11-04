@@ -14,12 +14,20 @@
  *   that it supports the User's sentence.
  */
 import { locationOf, quoteInUnits } from "../../shared/locations";
-import type { Citation, CitationLocation, DocumentKind } from "../api";
+import { sentenceSpans } from "../../shared/sentences";
+import type { Citation, CitationLocation, FoundPassage } from "../api";
 import type { CitationSource } from "../documents";
 import { keywordTerms, keywordText } from "../documents/keywords";
 import type { PageText } from "../documents/passages";
 import type { WindowedPassage } from "../documents/search";
-import { checkCitation, cleanQuote, locateQuote, matchingOf, type PageRange } from "./citations";
+import {
+  checkCitation,
+  cleanQuote,
+  locateQuote,
+  matchingOf,
+  type PageRange,
+  quoteAsIn,
+} from "./citations";
 
 /** What citing needs from Documents: Answers' search, and what Citations point to. */
 export interface CitingDocuments {
@@ -41,31 +49,7 @@ export interface CitingDocuments {
 }
 
 /** A Passage found for the User's text. */
-export interface FoundPassage {
-  passageId: string;
-  documentId: string;
-  documentName: string;
-  documentKind: DocumentKind;
-  /** The Units it covers; null for a whole TXT or Markdown file stored before Units. */
-  pageFrom: number | null;
-  pageTo: number | null;
-  /** Where it is, for its label ("p. 11", "§ History", "rows 40–44"); null as for `pageFrom`. */
-  location: CitationLocation | null;
-  text: string;
-  /** Its Document is the User's own workings: shown to the User, never cited without their say. */
-  notCited: boolean;
-  /**
-   * How relevant the reranker found it, when search reranked it (see
-   * `WindowedPassage.relevance`), or null.
-   */
-  relevance: number | null;
-  /**
-   * The words of the text searched for (as keyword search reads them, without
-   * stopwords) that the Passage holds, each once, in the text's order: how
-   * closely it matches, and what a list of results shows in bold.
-   */
-  matches: string[];
-}
+export type { FoundPassage } from "../api";
 
 export interface Citing {
   /** The Passages `text` is about, of these Documents (null: every Document), best first. */
@@ -74,6 +58,12 @@ export interface Citing {
     documentIds: readonly string[] | null,
     signal?: AbortSignal,
   ): Promise<FoundPassage[]>;
+  /**
+   * The words of a Passage that best match `text` (#281): the sentence holding
+   * most of its terms, else the Passage's whole text; null for a Passage that
+   * no longer exists.
+   */
+  quoteFor(passageId: string, text: string): string | null;
   /**
    * A Citation of `quote` in the Passage, checked now (`check` is never
    * "checking"); null for a Passage that doesn't exist.
@@ -119,6 +109,26 @@ export function matchingTerms(terms: readonly string[], text: string): string[] 
   );
 }
 
+/**
+ * The sentence of `text` that holds most of `wanted`'s terms, whole; with none
+ * holding one, the text itself. The shortest sentence wins a tie, so a quote
+ * cites the words that match rather than a paragraph around them (#281).
+ */
+export function bestQuote(text: string, wanted: string): string {
+  const terms = matchingTerms(keywordTerms(wanted), text);
+  if (terms.length === 0) return text;
+  const scored = sentenceSpans(text)
+    .map(({ from, to }) => ({
+      from,
+      to,
+      held: matchingTerms(terms, text.slice(from, to)).length,
+    }))
+    .filter((sentence) => sentence.held > 0)
+    .sort((a, b) => b.held - a.held || a.to - a.from - (b.to - b.from));
+  const best = scored[0];
+  return best ? text.slice(best.from, best.to) : text;
+}
+
 export function createCiting(documents: CitingDocuments): Citing {
   const matchings = new Map<string, ReturnType<typeof matchingOf>>();
   /** How quotes are matched in a Document version's text: worked out once from all of it. */
@@ -157,10 +167,12 @@ export function createCiting(documents: CitingDocuments): Citing {
       ...matching,
     });
     const hasUnits = own.pageFrom !== null && own.pageTo !== null;
+    // A scan's unsure word was still found: its place is where the quote is (#535).
+    const held = result.check === "found" || result.checkReason === "unsure-word";
     const location: CitationLocation | null = !hasUnits
       ? null
       : pages.length > 0
-        ? locationOf(pages, result.check === "found" ? quoteInUnits(pages, quote, matching) : null)
+        ? locationOf(pages, held ? quoteInUnits(pages, quote, matching) : null)
         : source.documentKind === "pdf" && range.pageFrom !== null && range.pageTo !== null
           ? { kind: "page", from: range.pageFrom, to: range.pageTo }
           : null;
@@ -216,6 +228,8 @@ export function createCiting(documents: CitingDocuments): Citing {
           pageTo: passage.pageTo,
           location: passageLocation(passage),
           text: passage.text,
+          // The sentence Cite… would store, so a list can show what choosing it cites.
+          quote: bestQuote(passage.text, text),
           notCited: documents.citationSource(passage.passageId)?.notCited ?? false,
           relevance: passage.relevance ?? null,
           matches: matchingTerms(terms, passage.text),
@@ -225,13 +239,21 @@ export function createCiting(documents: CitingDocuments): Citing {
     citeQuote(passageId, given) {
       const source = documents.citationSource(passageId);
       if (!source) return null;
-      const quote = cleanQuote(given);
       const own: PageRange = { pageFrom: source.pageFrom, pageTo: source.pageTo };
       const hasUnits = own.pageFrom !== null && own.pageTo !== null;
       const matching = matchingFor(source);
-      const range =
-        (hasUnits && quote !== "" && locateQuote(unitsOf(source, own), quote, matching)) || own;
+      const units = unitsOf(source, own);
+      const quote = quoteAsIn(units, cleanQuote(given), matching);
+      const range = (hasUnits && quote !== "" && locateQuote(units, quote, matching)) || own;
       return citationOf(source, own, range, quote, matching);
+    },
+
+    quoteFor(passageId, text) {
+      const source = documents.citationSource(passageId);
+      // The User's workings, and a Document gone since, are never cited: no quote is offered.
+      return source && !source.notCited && !source.documentDeleted
+        ? bestQuote(source.text, text)
+        : null;
     },
 
     citeUnit(passageId, given, page, at) {

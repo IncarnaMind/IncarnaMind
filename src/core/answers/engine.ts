@@ -76,6 +76,7 @@ import type {
   AnswerPhase,
   CitationSupport,
   ClaimedChange,
+  ClaimedCommand,
   ClaimedTool,
   FigureRetry,
   ProviderError,
@@ -107,6 +108,7 @@ import type {
 } from "../runs/engine";
 import { inStep } from "../timing/flows";
 import {
+  ANALYSIS_TOOLS,
   DOCUMENT_TOOLS,
   offeredTools,
   type Tool,
@@ -130,7 +132,14 @@ import { replyJson, retryQuotes } from "./quoteRetry";
 import { formatDocumentPages, readDocumentPages } from "./readDocumentPages";
 import { type SmallCallModel, smallCallModel } from "./smallCalls";
 import { heldBackFrom, TOOL_TEXT_TAGS, takeToolText } from "./toolText";
-import { createNudges, type Flags, flagsOf, settleReply, type TurnCheck } from "./turnChecks";
+import {
+  createNudges,
+  type Flags,
+  flagsOf,
+  mergedFlags,
+  settleReply,
+  type TurnCheck,
+} from "./turnChecks";
 import { citeUnmarked, missingMarkerEvents, textEdits } from "./unmarkedQuotes";
 import { createWindowBudget, SEARCH_RESERVE_TOKENS, type WindowBudget } from "./window";
 
@@ -190,6 +199,8 @@ export interface AnswerSearchOptions {
   parameters?: Partial<SearchToolParameters>;
   /** Only this Document, by its name as the instructions list it. */
   document?: string;
+  /** The Documents' file properties too: a check's search, for a sentence about a file itself (#2458). */
+  properties?: true;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
@@ -247,6 +258,8 @@ export interface AnswerTools {
   unreadDocuments?(): readonly UnreadFile[];
   /** The Documents in the Search scope still being read: the search Tool says so, so a Document isn't taken for missing (#1503). */
   readingDocuments?(): readonly { name: string }[];
+  /** The search Tool can show the Documents' file properties: a check Run's (#2458). */
+  readonly fileProperties?: boolean;
   /** The document-search Tool. */
   searchDocuments(
     query: string,
@@ -309,6 +322,8 @@ export interface AnswerTools {
    * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
    */
   citeFigures?(text: string): string;
+  /** `text` with each mark of a row the file sets aside that the model copied into it said in words (#1979). */
+  setAsideInWords?(text: string): string;
 }
 
 /** What a Run still owes, by marker (`AnswerTools.owed`). */
@@ -343,6 +358,8 @@ export interface InstructionOptions {
   mindTools?: boolean;
   /** The model is offered `run_analysis` (#447). */
   analysisTools?: boolean;
+  /** The model is offered `run_code` (ADR-0025). */
+  codeTools?: boolean;
   /** The model is offered a workbook's formula Tools (#2347). */
   workbookTools?: boolean;
   /** The model is offered the commands' Tools (#1110). */
@@ -513,8 +530,12 @@ export interface AnswerRequest {
    * a turn that ended after a refused Tool still says why. Null: end blank.
    */
   blankReply?(): string | null;
-  /** A line to append after a Tool refused the request, without replacing the model's reply. Null: none. */
-  refusalSuffix?(): string | null;
+  /**
+   * What to append after the reply, without replacing it: the app's own words — a refusal's
+   * sentence, or what a command changed (#2252) — the lines `reply` doesn't already hold.
+   * Null: none.
+   */
+  appSuffix?(reply: string): string | null;
   /** Stops generating. The stream then ends, with neither "finished" nor "failed". */
   signal: AbortSignal;
 }
@@ -600,7 +621,12 @@ export type AnswerEngineEvent =
    * The reply claims these changes to a Mind, or says these Tools ran (#1796), which none of the
    * Answer's Tool calls made or ran.
    */
-  | { type: "claims-unbacked"; claims: ClaimedChange[]; tools?: ClaimedTool[] }
+  | {
+      type: "claims-unbacked";
+      claims: ClaimedChange[];
+      tools?: ClaimedTool[];
+      commands?: ClaimedCommand[];
+    }
   /** The reply said these Tools ran, and none had: the model was asked once more (#1796). */
   | { type: "asked-again"; tools: readonly ClaimedTool[] }
   /** The Answer is complete. Nothing follows. */
@@ -1430,6 +1456,7 @@ export function documentTools(
 ): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
+  const properties = checking && documents.fileProperties === true;
   return {
     search: {
       ...own(DOCUMENT_TOOLS.search),
@@ -1447,22 +1474,31 @@ export function documentTools(
             description:
               "Search only this Document, named as the instructions list it: to find what each of several Documents says.",
           },
+          ...(properties && {
+            properties: {
+              type: "boolean",
+              description:
+                "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds.",
+            },
+          }),
         },
         required: ["query"],
       },
-      shownInput: ({ query, document }) => ({
+      shownInput: ({ query, document, properties: asked }) => ({
         query: String(query ?? ""),
         ...(typeof document === "string" && document !== "" && { document }),
+        ...(properties && asked === true && { properties: true }),
       }),
       effects: () => [{ action: "read", scope: { kind: "documents" } }],
       // The User didn't write their Documents.
       untrustedResult: true,
-      async call({ query, document }, { toolCallId, signal, readThirdParty }) {
+      async call({ query, document, properties: asked }, { toolCallId, signal, readThirdParty }) {
         let found: SearchResultForModel;
         try {
           found = await documents.searchDocuments(String(query ?? ""), signal, {
             rerank: false,
             ...(typeof document === "string" && document !== "" && { document }),
+            ...(properties && asked === true && { properties: true }),
           });
         } catch (error) {
           // A failed search is the app's problem, so it is logged; the model is told it failed.
@@ -1814,7 +1850,8 @@ async function* toolLoop(
     sourceTools: tools.some((each) => each.provider.kind === "sources"),
     webTools: tools.some((each) => each.provider.kind === "web"),
     mindTools: tools.some((each) => each.provider.kind === "minds"),
-    analysisTools: tools.some((each) => each.provider.kind === "analysis"),
+    analysisTools: tools.some((each) => each.name === ANALYSIS_TOOLS.run),
+    codeTools: tools.some((each) => each.name === ANALYSIS_TOOLS.code),
     workbookTools: tools.some((each) => each.name === WORKBOOK_TOOLS.trace),
     commandTools: tools.some((each) => each.provider.kind === "commands"),
   });
@@ -1894,6 +1931,11 @@ async function* toolLoop(
   const rambling = new AbortController();
   /** The reply that stands if the model, asked once more, fails: as it was before the last ask. */
   let standing: string | null = null;
+  /**
+   * What the check that asked found in `standing`: it still flags that reply should it stand, even
+   * when the checks can't be run on it again (#2407).
+   */
+  let standingFlags: Flags = { claims: [] };
   let again: readonly RunMessage[] | null = null;
   /** The Tool the ask said to call: the asked-again Run's first step calls it. */
   let mustCall: string | null = null;
@@ -1914,18 +1956,19 @@ async function* toolLoop(
   const toolTextTags = [...new Set([...TOOL_TEXT_TAGS, ...offered.keys()])];
   const releasable = (text: string) =>
     Math.min(request.shownUpTo?.(text) ?? text.length, heldBackFrom(text, toolTextTags));
-  async function* flag(text: string): AsyncGenerator<AnswerEngineEvent> {
-    yield* flagged(await flagsOf(request.turnChecks ?? [], text));
-  }
   async function* backToFirst(written: string): AsyncGenerator<AnswerEngineEvent> {
     if (released > 0) yield { type: "text-retracted", length: released };
     released = 0;
     keptText = written;
     stepText = "";
     yield* release(keptText.length);
-    yield* flag(keptText);
+    yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
-  async function* endAnswer(suffix: string | null = null): AsyncGenerator<AnswerEngineEvent> {
+  async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    const worded = request.documents.setAsideInWords?.(keptText) ?? keptText;
+    yield* textEdits(keptText, worded);
+    keptText = worded;
+    const suffix = request.appSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
         const figured = request.documents.citeFigures?.(keptText) ?? keptText;
@@ -2126,7 +2169,7 @@ async function* toolLoop(
         // Asked once more, the reply before stands: trying another way now would call its Tools again.
         if (standing !== null) {
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         // Too long only with a window, so sized to one.
@@ -2145,13 +2188,12 @@ async function* toolLoop(
         if (standing !== null) {
           console.error(`Asking again for a better reply failed: ${event.error.message}`);
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         yield { type: "failed", error: event.error };
         return;
       case "finished": {
-        const refused = request.refusalSuffix?.() ?? null;
         if (keptText.trim() === "" && (setAside.at(-1)?.text ?? "").trim() !== "")
           keptText = setAside.pop()?.text ?? "";
         const taken = takeToolText(keptText, toolTextTags);
@@ -2164,7 +2206,7 @@ async function* toolLoop(
           (request.blankReply?.() ?? null) === null
         ) {
           yield* backToFirst(standing);
-          yield* endAnswer(request.refusalSuffix?.() ?? null);
+          yield* endAnswer();
           return;
         }
         if (mode === "tools" && !request.documents.wroteIntoMind?.()) {
@@ -2180,10 +2222,17 @@ async function* toolLoop(
             );
           }
         }
-        const settled = await settleReply(request.turnChecks ?? [], taken.text, nudges);
+        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
+        const settled = await settleReply(
+          request.turnChecks ?? [],
+          taken.text,
+          nudges,
+          afterSearch,
+        );
         if ("nudge" in settled) {
           if (settled.tools) yield { type: "asked-again", tools: settled.tools };
           standing = taken.text;
+          standingFlags = settled.flags;
           if (released > 0) yield { type: "text-retracted", length: released };
           released = 0;
           keptText = "";
@@ -2196,7 +2245,6 @@ async function* toolLoop(
           writeOnly = settled.writeOnly === true;
           break;
         }
-        const afterSearch = setAside.filter((each) => each.searched).map((each) => each.text);
         if (afterSearch.length > 0) yield { type: "text-set-aside", texts: afterSearch };
         // A turn that ends with no reply after a refused Tool says why in the app's words.
         const text = taken.text.trim() === "" ? (request.blankReply?.() ?? taken.text) : taken.text;
@@ -2207,7 +2255,7 @@ async function* toolLoop(
         }
         yield* release(keptText.length);
         yield* flagged(settled);
-        yield* endAnswer(refused);
+        yield* endAnswer();
         return;
       }
     }
@@ -2333,7 +2381,8 @@ async function* structured(
   } catch (error) {
     console.error(`The Citations couldn't be recorded: ${messageOf(error)}`);
   }
-  yield* emit(typeof answer === "string" ? takeToolText(answer).text : answer);
+  const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
+  yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
   if (typeof answer === "string") {
     // A small model often gives the records but leaves their markers out.
     const marked = yield* missingMarkerEvents(emitted, records, request.documents);
@@ -2365,9 +2414,14 @@ async function* flagClaims(
   yield* flagged(await flagsOf(request.turnChecks ?? [], text));
 }
 
-function* flagged({ claims, tools }: Flags): Generator<AnswerEngineEvent> {
-  if (claims.length > 0 || tools) {
-    yield { type: "claims-unbacked", claims, ...(tools && { tools }) };
+function* flagged({ claims, tools, commands }: Flags): Generator<AnswerEngineEvent> {
+  if (claims.length > 0 || tools || commands) {
+    yield {
+      type: "claims-unbacked",
+      claims,
+      ...(tools && { tools }),
+      ...(commands && { commands }),
+    };
   }
 }
 
@@ -2418,7 +2472,8 @@ async function* plain(
     return;
   }
   if (signal.aborted) return;
-  const written = takeToolText(produced).text;
+  const taken = takeToolText(produced).text;
+  const written = request.documents.setAsideInWords?.(taken) ?? taken;
   yield* textEdits(produced, written);
   yield* flagClaims(request, written);
   yield { type: "finished" };

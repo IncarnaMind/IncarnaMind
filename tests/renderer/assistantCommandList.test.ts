@@ -209,6 +209,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         ],
         focusedGroupId: "right",
         reopenable: 0,
+        conversationId: null,
         assistant: DEFAULT_ASSISTANT,
       } satisfies WindowLayout,
     });
@@ -380,6 +381,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         model: null,
       }));
       answers.set("planContradictionCheck", async () => ({ kind: "no-folder" }));
+      answers.set("estimateRun", async () => ({ billing: "free" }));
       answers.set("checkMind", async () => ({ kind: "running" }));
       const second = window.startForAssistant({
         requestId: "request-2",
@@ -576,6 +578,7 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
         "mind.rename",
         "mind.style",
         "tag.delete",
+        "tag.merge",
         "tag.rename",
         "deleted.restore",
       ].sort(),

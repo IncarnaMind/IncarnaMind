@@ -123,7 +123,7 @@ function doiPrinted(pages: readonly string[]): string | null {
 }
 
 /** XMP's properties, by their qualified names, from every rdf:Description, as elements or attributes. */
-function xmpProperties(raw: string): Map<string, string[]> {
+export function xmpProperties(raw: string): Map<string, string[]> {
   const found = new Map<string, string[]>();
   let root: XmlElement;
   try {

@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,12 +13,13 @@ import {
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import type { ClaimCalculation, ClaimCheckPart, ClaimPartSpan } from "../../../core/api";
-import { shownDocumentName } from "../../../shared/citations";
+import { citedName, shownDocumentName } from "../../../shared/citations";
 import {
   checkedScope,
   coveredPart,
   SENTENCES_CHECKED_AT_MOST,
   saysNotFound,
+  supportedByOwnNotesOnly,
 } from "../../../shared/claimChecks";
 import { quotedSourceText } from "../../../shared/figureSchedule";
 import { formulaText } from "../../../shared/formula";
@@ -91,6 +93,7 @@ import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { MindIdContext } from "./mindContext";
 import { checkOpinion, opinionChecks } from "./opinionChecks";
 import { Popover } from "./Popover";
+import { PropertySource } from "./PropertySource";
 import { isQuietFocus } from "./quietFocus";
 import { RecordCiteResults } from "./RecordCiteResults";
 import { CitationChip, OpenCitation, UnsupportedCited } from "./UnsupportedCited";
@@ -158,6 +161,8 @@ export function ClaimMark({
   // Its old verdict stands until the read's comes, but the mark says what its card says.
   const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
   const mark = reading ? "checking" : markOf(claim);
+  // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
+  const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.check);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
   const silent = mark === "not-checked";
   const id = claim.check.id;
@@ -186,9 +191,11 @@ export function ClaimMark({
   const editing = useEdits((store) => store.pending[mindId] !== undefined);
   // A check or an Edit with AI under way would write over the words a correction changes.
   const corrections = running || editing ? [] : correctionsFor(editor, claim);
-  const label = t("claim.mark.label", {
-    state: reading ? t("claim.state.checking") : heading,
-  });
+  const label = ownNoteOnly
+    ? t("claim.ownNote")
+    : t("claim.mark.label", {
+        state: reading ? t("claim.state.checking") : heading,
+      });
 
   const hold = useCallback((source: string, on: boolean) => {
     if (on) askers.current.add(source);
@@ -289,6 +296,7 @@ export function ClaimMark({
         data-open={open || undefined}
         data-guided={guided || undefined}
         data-addable={plus || undefined}
+        data-own-note={ownNoteOnly || undefined}
         className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
         aria-label={label}
@@ -319,7 +327,9 @@ export function ClaimMark({
           if (event.target === event.currentTarget && reveal) onRevealed();
         }}
       >
-        {!silent && <ClaimMarkIcon state={mark} className="margin-check-icon" />}
+        {!silent && (
+          <ClaimMarkIcon state={mark} ownNoteOnly={ownNoteOnly} className="margin-check-icon" />
+        )}
         {plus && <span aria-hidden="true">+</span>}
       </button>
       {open && outlineLayer && <ClaimOutline editor={editor} id={id} layer={outlineLayer} />}
@@ -662,6 +672,7 @@ export function ClaimCard({
   const { shown, check } = claim;
   const state = shown.state;
   const mark = markOf(claim);
+  const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(check);
   const sentence = comparableSentence(claim.sentence.text);
   const decided = state === "supported" || state === "contradicted";
   const calculation = decided ? check.calculation : null;
@@ -698,8 +709,10 @@ export function ClaimCard({
         )
       : [];
   const location = evidence ? citationLocation(evidence) : null;
+  // A file's properties decided it (#2458): its row names the property and opens the info panel.
+  const property = location?.kind === "properties" ? location : null;
   const already = decision.kind === "already" ? decision.citation : null;
-  const citedQuote = already?.attributes.quote ? already.attributes : evidence;
+  const citedQuote = already?.attributes.quote ? already.attributes : property ? null : evidence;
   const quote = useReadableQuote(citedQuote);
   const where = location ? formatLocation(location, t) : null;
   const decisionUnchecked = partRows
@@ -724,9 +737,10 @@ export function ClaimCard({
       return places ? `${name} (${places})` : name;
     })
     .join(t("claim.readDocuments.separator"));
-  const savedPage = evidence
-    ? documents.find((each) => each.id === evidence.documentId)?.web
+  const evidenceDocument = evidence
+    ? documents.find((each) => each.id === evidence.documentId)
     : undefined;
+  const savedPage = evidenceDocument?.web;
   const savedFrom = savedPage && {
     address: savedPage.address,
     savedAt:
@@ -764,6 +778,17 @@ export function ClaimCard({
     return read !== undefined && read.checkId === check.id;
   });
   const asking = useChecks((store) => store.documentAsk[check.id]?.plan.kind === "ready");
+  // Opened while its own sentence is still being checked, the card keeps the height it opened
+  // with, so verdicts landing in its rows do not make it jump; content that needs more room
+  // scrolls, and the next open fits the result (#2313). A card opened on a settled result sizes
+  // to it as its parts load, even while the Note's other sentences are still checked.
+  const [heldHeight, setHeldHeight] = useState<number | null>(null);
+  const holdHeight = state === "checking" && !reading && !asking && Boolean(mindId);
+  useLayoutEffect(() => {
+    if (!holdHeight || heldHeight !== null) return;
+    const element = rootRef.current;
+    if (element) setHeldHeight(element.offsetHeight);
+  }, [holdHeight, heldHeight, rootRef]);
   // Closing the card drops its question: opened again, it sizes the read afresh.
   useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
 
@@ -825,6 +850,7 @@ export function ClaimCard({
     <div
       ref={rootRef}
       className={`citation-card citation-card--${TONE[mark]} claim-card`}
+      style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
       contentEditable={false}
       {...objectMenu.rowProps}
     >
@@ -832,8 +858,18 @@ export function ClaimCard({
         <>
           <div className="citation-card-head">
             <p data-testid="claim-badge" data-check={mark} className="citation-badge">
-              <ClaimMarkIcon state={mark} className="citation-badge-icon" />
-              <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
+              <ClaimMarkIcon
+                state={mark}
+                ownNoteOnly={ownNoteOnly}
+                className="citation-badge-icon"
+              />
+              <span>
+                {decisionMissing
+                  ? t("claim.courtDecision.title")
+                  : ownNoteOnly
+                    ? t("claim.ownNote")
+                    : heading}
+              </span>
             </p>
             <p data-testid="claim-sentence" className="claim-card-sentence">
               {t("claim.sentence", { sentence })}
@@ -873,8 +909,18 @@ export function ClaimCard({
         <>
           <div className="citation-card-head">
             <p data-testid="claim-badge" data-check={mark} className="citation-badge">
-              <ClaimMarkIcon state={mark} className="citation-badge-icon" />
-              <span>{decisionMissing ? t("claim.courtDecision.title") : heading}</span>
+              <ClaimMarkIcon
+                state={mark}
+                ownNoteOnly={ownNoteOnly}
+                className="citation-badge-icon"
+              />
+              <span>
+                {decisionMissing
+                  ? t("claim.courtDecision.title")
+                  : ownNoteOnly
+                    ? t("claim.ownNote")
+                    : heading}
+              </span>
             </p>
             {sentence && (
               <p data-testid="claim-sentence" className="claim-card-sentence">
@@ -906,9 +952,36 @@ export function ClaimCard({
                 })}
               </p>
             )}
-            {evidence && (
+            {evidence && property && (
+              <PropertySource
+                citation={evidence}
+                location={property}
+                className="citation-card-source claim-property"
+                testId="claim-property"
+                onOpen={onOpen}
+              />
+            )}
+            {evidence && !property && (
               <p data-testid="claim-source" className="citation-card-source">
-                {[shownDocumentName(evidence, documents), where].filter(Boolean).join(" · ")}
+                {[
+                  citedName(
+                    {
+                      ...evidence,
+                      documentName:
+                        shownDocumentName(evidence, documents) || t("export.unnamedDocument"),
+                    },
+                    t,
+                    language,
+                  ),
+                  where,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+            {ownNoteOnly && (
+              <p data-testid="claim-own-note" className="citation-card-note">
+                {t("claim.ownSource")}
               </p>
             )}
             {savedFrom && (
@@ -1119,6 +1192,17 @@ export function ClaimCard({
       {check.excluded.map((left) => {
         const document = documents.find((each) => each.id === left.documentId);
         const name = left.documentName || document?.name || "";
+        if (left.reason === "own-note") {
+          return (
+            <p
+              key={left.documentId}
+              data-testid="claim-own-note-excluded"
+              className="citation-card-note"
+            >
+              {t("evidence.excluded.ownNote", { name })}
+            </p>
+          );
+        }
         // The file being checked says every sentence of it: only where nothing else did is it news.
         if (left.reason === "checked-document" && state === "unsupported") {
           if (left.documentId === verified) return null;
@@ -1185,7 +1269,7 @@ export function ClaimCard({
             {t("claim.useFigure", { figure: calculation.figure.shown })}
           </button>
         )}
-        {!partRows && evidence?.documentId && (
+        {!partRows && !property && evidence?.documentId && (
           <button
             type="button"
             data-testid="claim-open"

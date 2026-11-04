@@ -23,8 +23,9 @@ import {
 import { askedAgainCounts } from "../../coverage";
 import { AskedQuoteLines } from "../../editor/AskedQuotes";
 import { useT } from "../../i18n";
+import { useFoundPassages, useWaitingPlace } from "../../localPassages";
 import { isLive, useMeetings } from "../../meetings";
-import { useModelSetup } from "../../modelSetup";
+import { chooseModelInPlace, useModelSetup } from "../../modelSetup";
 import { useCitedSource } from "../../openCited";
 import { togglePlanView, useResearch } from "../../research";
 import { type ScopeChip, scopeChips } from "../../scope";
@@ -40,6 +41,7 @@ import { AddToMindPicker } from "./AddToMindPicker";
 import { WritingLine } from "./AnswerActions";
 import { LiveLine } from "./AnswerSteps";
 import { type AnswerKeeping, AssistantAnswer } from "./AssistantAnswer";
+import { FoundPassages } from "./FoundPassages";
 import { MeetingStarters } from "./MeetingStarters";
 import { useReadMindEmpty } from "./readMind";
 import { TaskProgress, type TaskProgressActions } from "./TaskProgress";
@@ -252,9 +254,21 @@ export function ConversationThread({
             quotes={waitingQuestion.quotes ?? []}
           />
           {!modelWorks && (
-            <p data-testid="assistant-waiting-model" className="assistant-empty">
-              {t("setup.waiting")}
-            </p>
+            <>
+              <p data-testid="assistant-waiting-model" className="assistant-empty">
+                {t("setup.waiting")}
+                <span aria-hidden="true"> · </span>
+                <button
+                  type="button"
+                  data-testid="assistant-waiting-choose"
+                  onClick={chooseModelInPlace}
+                  className="font-semibold text-accent underline-offset-2 hover:underline"
+                >
+                  {t("status.choose")}
+                </button>
+              </p>
+              <WaitingPassages question={waitingQuestion} />
+            </>
           )}
         </>
       )}
@@ -446,4 +460,24 @@ function useThreadStart(conversation: { id: string; createdAt: string } | null):
     : { since: conversation?.createdAt ?? new Date().toISOString(), seen: new Set() };
   setThread({ id, start });
   return start;
+}
+
+/**
+ * What a Question waiting for a model finds on this computer (#763): its own words, searched in
+ * the Documents, shown while the setup card asks for the model that will answer it. The turn's
+ * wall is the core's, from its Note or else the conversation it was typed in (#1934).
+ */
+function WaitingPassages({
+  question,
+}: {
+  question: {
+    text: string;
+    scope?: SearchScope | null;
+    mindId: string | null;
+    conversationId: string | null;
+  };
+}) {
+  const place = useWaitingPlace(question.mindId, question.conversationId);
+  const found = useFoundPassages(question.text, question.scope ?? null, place);
+  return <FoundPassages passages={found.passages} failed={found.failed} />;
 }

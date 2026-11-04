@@ -60,6 +60,7 @@ describe("a quoted row's unit cell", () => {
         pageTo: 1,
         documentDeleted: false,
         notCited: false,
+        yourNoteAt: null,
       };
       const shown = { ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 };
       const documents = {

@@ -28,7 +28,8 @@ import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
 import { ExampleBanner } from "./GettingStarted";
 import { ChatLineIcon, CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
-import { LineAction, ProblemLine } from "./ProblemLine";
+import { LineAction } from "./ProblemLine";
+import { SkippedFilesLine } from "./SkippedFilesLine";
 import { SLOT, Slotted } from "./Slotted";
 import { STEP_BUTTON_CLASS, StepNumber, type StepState } from "./StepNumber";
 import { UnreadFilesLine } from "./UnreadFilesLine";
@@ -241,9 +242,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
               </button>
             </div>
             {live && skipped.length > 0 && (
-              <ProblemLine testId="first-open-skipped">
-                {t("documents.skipped", { names: skipped.join(", ") })}
-              </ProblemLine>
+              <SkippedFilesLine files={skipped} testId="first-open-skipped" />
             )}
           </Step>
           <Step
