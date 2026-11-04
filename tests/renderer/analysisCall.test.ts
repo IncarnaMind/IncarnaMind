@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { AnswerToolCall } from "../../src/core/api";
-import { analysisCallText as textOf } from "../../src/renderer/src/analysisCall";
+import { pythonProblem, analysisCallText as textOf } from "../../src/renderer/src/analysisCall";
 import type { Translate } from "../../src/renderer/src/objects";
 import { translate } from "../../src/shared/i18n";
 
@@ -102,5 +102,59 @@ test.each([
     expect(textOf(t, ran)).toBe(
       language === "en" ? "Ran an analysis on sales.csv" : "对“sales.csv”运行了数据分析",
     );
+  },
+);
+
+test.each([
+  ["en", "Analysis couldn’t get Python: it doesn’t run on this computer."],
+  ["zh-CN", "无法获取数据分析所需的 Python：无法在这台电脑上启动。"],
+] as const)(
+  "%s: an Answer whose run_code couldn't get Python says so under it, once, whatever ran after",
+  (language, said) => {
+    const t: Translate = (key, params) => translate(language, key, params);
+    const unavailable: AnswerToolCall = {
+      ...runCode("python", "done"),
+      analysis: {
+        number: 1,
+        title: "Probe",
+        documents: ["sales.csv"],
+        end: "unavailable",
+        reason: "python",
+        python: "load",
+      },
+    };
+    const fellBack: AnswerToolCall = {
+      ...runCode("python", "done"),
+      id: "pyodide",
+      tool: "run_analysis",
+      analysis: { number: 2, title: "Probe", documents: ["sales.csv"], end: "done" },
+    };
+    expect(pythonProblem(t, [unavailable, { ...unavailable, id: "again" }, fellBack])).toBe(said);
+    expect(pythonProblem(t, [fellBack])).toBeNull();
+    const noPythonOfItsOwn: AnswerToolCall = {
+      ...unavailable,
+      analysis: {
+        number: 1,
+        title: "Probe",
+        documents: ["sales.csv"],
+        end: "unavailable",
+        reason: "missing",
+      },
+    };
+    expect(pythonProblem(t, [noPythonOfItsOwn])).toBeNull();
+    // A later run_code call that got Python, once its download resumed, takes the line away; bash doesn't.
+    const gotIt: AnswerToolCall = {
+      ...runCode("python", "done"),
+      id: "later",
+      analysis: { number: 3, title: "Probe", documents: ["sales.csv"], end: "done" },
+    };
+    const bash: AnswerToolCall = {
+      ...gotIt,
+      id: "bash",
+      input: { title: "Probe", language: "bash" },
+    };
+    expect(pythonProblem(t, [unavailable, gotIt])).toBeNull();
+    expect(pythonProblem(t, [unavailable, bash, fellBack])).toBe(said);
+    expect(pythonProblem(t, [gotIt, unavailable])).toBe(said);
   },
 );

@@ -10,6 +10,7 @@ import {
   type AnswerPathsOverride,
   type AnswerSearchTuning,
   type ChatModelFactory,
+  type CheckPathsOverride,
   type Core,
   type CoreAdapters,
   type CrossEncoder,
@@ -98,6 +99,8 @@ export interface LibraryOptions {
   recordTimings?: boolean;
   /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
   answerPaths?: AnswerPathsOverride;
+  /** Which written sentences take the check's fast paths, instead of the list beside the catalog. */
+  checkPaths?: CheckPathsOverride;
   /** How outside agents reach this core (#351): where its socket is and the shim they start. */
   agents?: CoreAdapters["agents"];
   /** The host sandbox for evaluation of Analysis Answers; absent: no Analysis Tool. */
@@ -307,6 +310,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     ...(chatModels && { createChatModel: chatModels }),
     ...(timings && { answerEngine: timings.engine }),
     ...(options.answerPaths && { answerPaths: options.answerPaths }),
+    ...(options.checkPaths && { checkPaths: options.checkPaths }),
   });
   const close = async () => {
     core.close();

@@ -9,30 +9,15 @@ import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
-import type { Executor } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
-import { createLocalExecutor } from "../../src/core/execution";
-import { createProcessLauncher } from "../../src/main/processes";
-import { programMeter } from "../../src/main/programMeter";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { answerEnded, shownPassages } from "../helpers/citations";
+import { localExecutorAt } from "../helpers/codeRunner";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { answerRequests, codeToolOn, scriptedModel, scriptedModels } from "../helpers/models";
 
 const LOG = ["GET /a 200", "GET /b 500", "GET /c 500", "POST /d 201", ""].join("\n");
-
-async function executorAt(level: "os" | "none"): Promise<Executor> {
-  const local = createLocalExecutor({
-    processes: createProcessLauncher(async () => ({ PATH: process.env.PATH ?? "/usr/bin:/bin" })),
-    tempDir: await createTempDataFolder(),
-    reportError: (error) => {
-      throw error;
-    },
-    meter: programMeter,
-  });
-  return { level, run: (request) => local.run(request) };
-}
 
 function told(model: MockLanguageModelV4, tool: string): string[] {
   const texts: string[] = [];
@@ -99,7 +84,7 @@ async function setUp(
         output: { results: [{ kind: "figure", name: "n", label: "Rows", unit: null, value: 4 }] },
       }),
     }),
-    executor: await executorAt(options.level ?? "os"),
+    executor: await localExecutorAt(options.level ?? "os"),
     ...(options.codeRuntime !== false && {
       codeRuntime: createCodeHost({
         python: options.manifestUrl
@@ -321,7 +306,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     ]);
     const answer = await ask(await setUp(model), "How many errors are in the log?");
     expect(told(model, "run_code")[0]).toBe(
-      "Python didn't run: this copy of IncarnaMind has no Python of its own. Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download. bash still runs here.",
+      "Python didn't run: this copy of IncarnaMind has no Python of its own. Your code and the Documents aren't the cause. Run this analysis with run_analysis instead, on ranges of the sheets you found; it needs no download. bash still runs here.",
     );
     expect(answer.analyses[0]?.end).toMatchObject({ kind: "unavailable", reason: "missing" });
   });
@@ -342,7 +327,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     expect(offered.at(-1)).not.toContain("run_analysis");
     expect(offered.at(-1)).toContain("run_code");
     expect(told(model, "run_code")[0]).toBe(
-      "Python didn't run: this copy of IncarnaMind has no Python of its own. Say in the Answer that the analysis couldn't run. bash still runs here.",
+      "Python didn't run: this copy of IncarnaMind has no Python of its own. Your code and the Documents aren't the cause. Say in the Answer that the analysis couldn't run. bash still runs here.",
     );
   });
 
@@ -363,7 +348,7 @@ describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
     });
     const answer = await ask(core, "How many errors are in the log?");
     expect(told(model, "run_code")[0]).toContain(
-      "Python didn't run: it couldn't be downloaded: the computer may be offline. Run this analysis with run_analysis instead",
+      "Python didn't run: it couldn't be downloaded: the computer may be offline. Your code and the Documents aren't the cause. Run this analysis with run_analysis instead",
     );
     const step = answer.toolCalls.find((call) => call.tool === "run_code");
     expect(step?.analysis).toMatchObject({

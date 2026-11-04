@@ -37,7 +37,8 @@ import { saidInLine } from "../../src/renderer/src/lineNames";
 import { useNotices } from "../../src/renderer/src/notices";
 import type { Translate } from "../../src/renderer/src/objects";
 import { nextToRedo, useUndo } from "../../src/renderer/src/undo";
-import { claimCheckShown } from "../../src/shared/claimChecks";
+import { offersFixes } from "../../src/renderer/src/unsupportedFixes";
+import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { checkWithParts } from "../../src/shared/claimParts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
@@ -615,6 +616,36 @@ describe("Correct a contradiction from the Documents", () => {
     expect(claim(editor, "one").shown.state).toBe("supported");
   });
 
+  // protects=a one-click correction asks no model, so the check keeps the model and time its card's line names, and adds no time of its own (#1667); fails_when=the corrected check takes the correction's time or another model; no_claim=the line's wording, which its own test reads.
+  test.each([
+    ["a part", check("one", "The rate is 36.8%.")],
+    [
+      "the whole sentence",
+      {
+        ...basis("one", "The rate is 36.8%."),
+        state: "contradicted" as const,
+        evidence: evidence(),
+        correction: { from: "36.8%", choices: [{ wording: "38.6%", evidence: evidence() }] },
+        says: "The Document says 38.6%, not 36.8%.",
+      },
+    ],
+  ])("a correction of %s keeps the check's model and time", (_, attrs) => {
+    const { editor } = editorWith([
+      { type: "paragraph", content: [marked("The rate is 36.8%.", attrs)] },
+    ]);
+    const before = checkedWith(claim(editor, "one").check);
+    expect(before).toEqual({
+      models: [{ providerId: "anthropic", modelId: "claude-haiku-5-5" }],
+      checkedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+
+    const corrected = claim(editor, "one");
+    expect(corrected.shown.state).toBe("supported");
+    expect(checkedWith(corrected.check)).toEqual(before);
+  });
+
   test("corrects a check of the whole sentence, as the background watch writes it", () => {
     const whole: ClaimCheckAttributes = {
       ...basis("one", "The rate is 36.8%."),
@@ -701,6 +732,55 @@ describe("Correct a contradiction from the Documents", () => {
     expect(generatedText(editor)).toEqual([]);
     expect(citationsOf(editor)).toEqual([]);
   });
+
+  test.each([
+    {
+      language: "en",
+      text: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      first: "Customer churn fell to 3.9 per cent",
+      timing: "after the onboarding redesign",
+      from: "3.9 per cent",
+      to: "4.2 per cent",
+      fixed: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+    },
+    {
+      language: "zh-CN",
+      text: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
+      first: "客户流失率降至 3.9%",
+      timing: "时点在引导流程重新设计之后",
+      from: "3.9%",
+      to: "4.2%",
+      fixed: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
+    },
+  ])(
+    "the walk's sentence ends Supported after the one press, never Cut, in $language (#2313)",
+    ({ text, first, timing, from, to, fixed }) => {
+      // The check the fixed judge writes: the figure's part contradicted, the part that says when
+      // it happened Supported on the Document's own words.
+      const deck = evidence("deck", fixed);
+      const attrs = checkWithParts(basis("one", text), [
+        contradictedPart(0, first.length, from, [{ wording: to, evidence: deck }]),
+        part(text.indexOf(timing), text.indexOf(timing) + timing.length, "supported", {
+          evidence: [deck],
+        }),
+      ]);
+      const { editor } = editorWith([{ type: "paragraph", content: [marked(text, attrs)] }]);
+      const shown = claim(editor, "one");
+      expect(shown.shown.state).toBe("contradicted");
+      expect(shown.check.parts?.[1]?.verdict).toBe("supported");
+
+      expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+
+      expect(textOf(editor)).toBe(`${fixed.slice(0, -1)}${INLINE_NODE}${fixed.slice(-1)}`);
+      const corrected = claim(editor, "one");
+      expect(corrected.shown.state).toBe("supported");
+      expect(corrected.check.parts?.map((each) => each.verdict)).toEqual([
+        "supported",
+        "supported",
+      ]);
+      expect(offersFixes(editor, corrected)).toBe(false);
+    },
+  );
 
   test("corrects each contradicted part of a two-part sentence on its own, then the other", () => {
     const text = "The break fee is $75,000, and the deposit is returned within 60 days.";

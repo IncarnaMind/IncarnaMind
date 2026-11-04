@@ -67,6 +67,8 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "workbook-no-saved-value": true,
   "other-cell": true,
   "workbook-unsupported": true,
+  "figures-not-read": true,
+  "sentence-figures-not-read": true,
 };
 export const CLAIM_CHECK_FAILURES: readonly ClaimCheckFailure[] = Object.keys(FAILURES).filter(
   (key): key is ClaimCheckFailure => Object.hasOwn(FAILURES, key),
@@ -633,6 +635,13 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
   };
 }
 
+/** The model and time that judged a part, those it has. */
+const judgedBy = (part: ClaimCheckPart) => ({
+  ...(part.checkedAt !== undefined && { checkedAt: part.checkedAt }),
+  ...(part.providerId !== undefined && { providerId: part.providerId }),
+  ...(part.modelId !== undefined && { modelId: part.modelId }),
+});
+
 export function readClaimParts(
   value: unknown,
   sentence: string,
@@ -683,6 +692,13 @@ export function readClaimParts(
     const reason = CLAIM_CHECK_FAILURES.find((reason) => reason === each.reason) ?? null;
     if (each.reason !== null && !reason) return null;
     if (typeof each.citedCaseUnchecked !== "boolean" || typeof each.citedCaseFound !== "boolean")
+      return null;
+    if (
+      (each.checkedAt !== undefined && typeof each.checkedAt !== "string") ||
+      ["providerId", "modelId"].some(
+        (key) => each[key] !== undefined && each[key] !== null && typeof each[key] !== "string",
+      )
+    )
       return null;
     const unsupported = readUnsupportedReason(each.unsupported);
     const calculation = readClaimCalculation(each.calculation);
@@ -758,6 +774,13 @@ export function readClaimParts(
       ...(each.kept === true && { kept: true }),
       ...(each.figures !== undefined && { figures }),
       ...(remainder !== undefined && { remainder }),
+      ...(typeof each.checkedAt === "string" && { checkedAt: each.checkedAt }),
+      ...((each.providerId === null || typeof each.providerId === "string") && {
+        providerId: each.providerId,
+      }),
+      ...((each.modelId === null || typeof each.modelId === "string") && {
+        modelId: each.modelId,
+      }),
     });
   }
   return parts;
@@ -954,19 +977,22 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
       } satisfies FigureCheckResult;
     });
     const remainder = part.remainder ? terminalJudgment(part.remainder) : part.remainder;
-    return partWithResult(
-      part,
-      {
-        ...aggregateFigureResults(figures, remainder),
-        versions: part.versions,
-        excluded: part.excluded,
-        figures,
-        ...(part.currencyClause && { currencyClause: part.currencyClause }),
-        ...(remainder !== undefined && { remainder }),
-      },
-      part.evidence,
-      part.coverage,
-    );
+    return {
+      ...partWithResult(
+        part,
+        {
+          ...aggregateFigureResults(figures, remainder),
+          versions: part.versions,
+          excluded: part.excluded,
+          figures,
+          ...(part.currencyClause && { currencyClause: part.currencyClause }),
+          ...(remainder !== undefined && { remainder }),
+        },
+        part.evidence,
+        part.coverage,
+      ),
+      ...judgedBy(part),
+    };
   });
   const versions = [
     ...new Map(
@@ -1341,6 +1367,10 @@ export function checkWithParts(
   );
   const stored = (pending ? [...kept] : (projected.parts ?? [])).map((part) => ({
     ...part,
+    // A part with no model of its own was judged by the check that wrote this one.
+    checkedAt: part.checkedAt ?? check.checkedAt,
+    providerId: part.providerId === undefined ? check.providerId : part.providerId,
+    modelId: part.modelId === undefined ? check.modelId : part.modelId,
     ...(part.figures && {
       figures: part.figures.map((figure) => ({
         ...figure,

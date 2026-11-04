@@ -1074,6 +1074,9 @@ export const en = {
   "claim.card.label": "Sentence check: {state}. {sentence}",
   "claim.showCard": "Show the check for this sentence",
   "claim.sentence": "“{sentence}”",
+  "claim.checkedWith": "Checked with {model}, {when}",
+  "list.and": "{first} and {last}",
+  "list.separator": ", ",
   "claim.recordCites.label": "Record cites in this sentence",
   "claim.recordCites.partly": "Partly supported",
   "claim.recordCites.choose": "Choose a Document",
@@ -1281,6 +1284,10 @@ export const en = {
     "It uses a formula IncarnaMind can’t work out, so this figure can’t be checked.",
   "claim.reason.workbook-changed":
     "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
+  "claim.reason.figures-not-read": "The figures in “{document}”, {location}, couldn’t be read.",
+  "claim.reason.figures-not-read.whole": "The figures in “{document}” couldn’t be read.",
+  "claim.reason.figures-not-read.unknown": "The figures in a Document couldn’t be read.",
+  "claim.reason.sentence-figures-not-read": "The figures in this sentence couldn’t be read.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
@@ -4316,7 +4323,6 @@ export const en = {
     "The sandbox for analyses and scripts can’t start on this computer: install {packages}, then restart IncarnaMind. Until then, analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
   "scripts.settings.problem.sandboxStart":
     "This computer doesn’t let IncarnaMind start a sandbox for analyses and scripts, so analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
-  "scripts.settings.sandboxPackages.and": "{first} and {last}",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 
