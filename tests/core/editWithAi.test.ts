@@ -5994,6 +5994,190 @@ describe("A rewrite of text marked as code (#2362)", () => {
     editor.commands.redo();
     expect(codeRuns(client)).toEqual([]);
   });
+
+  /** The Note's runs of text, each with the names of its marks. */
+  const runsOf = (client: MindClient): [string, string][] => {
+    const runs: [string, string][] = [];
+    readMind(client).descendants((node) => {
+      if (node.isText) {
+        runs.push([node.marks.map((mark) => mark.type.name).join("+"), node.text ?? ""]);
+      }
+      return true;
+    });
+    return runs;
+  };
+
+  // protects=a removal that cuts the end or the start of a span of code, bold or a link keeps the space outside the span, so after Accept the span ends at its last word, the space beside it is plain and Markdown writes the code closed; English and Chinese; fails_when=the span keeps the space ("`npm run dev `in"), or a span cut at its start loses the plain space before it; no_claim=which words a model keeps.
+  test.each([
+    {
+      case: "the end of code",
+      content: [text("Start it with "), code("npm run dev --open"), text(" in a terminal.")],
+      reply: "Start it with npm run dev in a terminal.",
+      line: "Start it with `npm run dev` in a terminal.",
+      runs: [
+        ["", "Start it with "],
+        ["code", "npm run dev"],
+        ["", " in a terminal."],
+      ],
+    },
+    {
+      case: "the end of code, a word before it changed",
+      content: [text("Begin it with "), code("npm run dev --open"), text(" in a terminal.")],
+      reply: "Start it with npm run dev in a terminal.",
+      line: "Start it with `npm run dev` in a terminal.",
+      runs: [
+        ["generated", "Start"],
+        ["", " it with "],
+        ["code", "npm run dev"],
+        ["", " in a terminal."],
+      ],
+    },
+    {
+      case: "the end of code, two words",
+      content: [text("Type "), code("npm run build"), text(" and wait for it.")],
+      reply: "Type npm and wait for it.",
+      line: "Type `npm` and wait for it.",
+      runs: [
+        ["", "Type "],
+        ["code", "npm"],
+        ["", " and wait for it."],
+      ],
+    },
+    {
+      case: "the end of bold",
+      content: [
+        text("Start it with "),
+        text("npm run dev --open", "bold"),
+        text(" in a terminal."),
+      ],
+      reply: "Start it with **npm run dev** in a terminal.",
+      line: "Start it with **npm run dev** in a terminal.",
+      runs: [
+        ["", "Start it with "],
+        ["bold", "npm run dev"],
+        ["", " in a terminal."],
+      ],
+    },
+    {
+      case: "the end of a link",
+      content: [text("Read "), link("the setup guide online"), text(" before you start.")],
+      reply: "Read the setup guide before you start.",
+      line: "Read [the setup guide](https://example.com/guide) before you start.",
+      runs: [
+        ["", "Read "],
+        ["link", "the setup guide"],
+        ["", " before you start."],
+      ],
+    },
+    {
+      case: "the start of code",
+      content: [text("Run "), code("--open npm run dev"), text(" now.")],
+      reply: "Run npm run dev now.",
+      line: "Run `npm run dev` now.",
+      runs: [
+        ["", "Run "],
+        ["code", "npm run dev"],
+        ["", " now."],
+      ],
+    },
+    {
+      case: "the end of code in Chinese",
+      content: [text("推送之前运行 "), code("npm test --watch"), text(" 再提交。")],
+      reply: "推送之前运行 npm test 再提交。",
+      line: "推送之前运行 `npm test` 再提交。",
+      runs: [
+        ["", "推送之前运行 "],
+        ["code", "npm test"],
+        ["", " 再提交。"],
+      ],
+    },
+  ])("a removal at $case keeps the space outside it", async ({ content, reply, line, runs }) => {
+    const note = paragraph(...content);
+    const { core, mind, client } = await noteOf([note], () => reply);
+
+    expect(
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve")),
+    ).toMatchObject({ kind: "proposed" });
+    await resolveChanges(client, "accept");
+
+    expect((await exported(core, mind.id)).split("\n")).toContain(line);
+    expect(runsOf(client)).toEqual(runs);
+  });
+
+  // protects=a removal beside spaces that carry no mark, or the same marks, is written where it always was: plain text, code or bold elsewhere in the line, a double space, a tab, a no-break space; English and Chinese; fails_when=a change starts or ends at another place, or Accept gives other words; no_claim=none beyond protects.
+  test.each([
+    {
+      content: [text("Start it with npm run dev --open in a terminal.")],
+      reply: "Start it with npm run dev in a terminal.",
+      shown: "Start it with npm run dev [---open -]in a terminal.",
+      after: "Start it with npm run dev in a terminal.",
+    },
+    {
+      content: [text("Run --open npm run dev now.")],
+      reply: "Run npm run dev now.",
+      shown: "Run [---open -]npm run dev now.",
+      after: "Run npm run dev now.",
+    },
+    {
+      content: [text("Run "), code("make docs"), text(" to build the pages really well.")],
+      reply: "Run make docs to build the pages well.",
+      shown: "Run make docs to build the pages [-really -]well.",
+      after: "Run make docs to build the pages well.",
+    },
+    {
+      content: [text("Note:", "bold"), text(" type npm run build and wait for it.")],
+      reply: "**Note:** type npm and wait for it.",
+      shown: "Note: type npm [-run build -]and wait for it.",
+      after: "Note: type npm and wait for it.",
+    },
+    {
+      content: [text("Type npm run build  and wait for it.")],
+      reply: "Type npm and wait for it.",
+      shown: "Type npm [-run build  -]and wait for it.",
+      after: "Type npm and wait for it.",
+    },
+    {
+      content: [text("Name:\tnpm run build\tdone.")],
+      reply: "Name:\tnpm\tdone.",
+      shown: "Name:\tnpm[- run build-]\tdone.",
+      after: "Name:\tnpm\tdone.",
+    },
+    {
+      content: [text("Mr. John Smith signs on 3 May.")],
+      reply: "Mr. Smith signs on 3 May.",
+      shown: "Mr.\u00a0[-John\u00a0-]Smith signs on 3\u00a0May.",
+      after: "Mr. Smith signs on 3 May.",
+    },
+    {
+      content: [text("推送之前先运行测试，然后检查测试结果和全部日志。")],
+      reply: "推送之前先检查测试结果和全部日志。",
+      shown: "推送之前先[-运行测试，然后-]检查测试结果和全部日志。",
+      after: "推送之前先检查测试结果和全部日志。",
+    },
+    {
+      content: [text("推送之前运行 npm test --watch 再提交。")],
+      reply: "推送之前运行 npm test 再提交。",
+      shown: "推送之前运行 npm test [---watch -]再提交。",
+      after: "推送之前运行 npm test 再提交。",
+    },
+    {
+      content: [text("先运行"), code("npm test"), text("，然后检查测试结果和全部日志。")],
+      reply: "先运行npm test，然后检查全部日志。",
+      shown: "先运行npm test，然后检查[-测试结果和-]全部日志。",
+      after: "先运行npm test，然后检查全部日志。",
+    },
+  ])(
+    "a removal beside spaces with no mark of their own is written as before: $reply",
+    async ({ content, reply, shown, after }) => {
+      const note = paragraph(...content);
+      const { core, mind, client, before } = await noteOf([note], () => reply);
+
+      await core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
+
+      expect(shownWithChanges(client)).toEqual([shown]);
+      expect(await acceptThenUndo(client, before)).toEqual([after]);
+    },
+  );
 });
 
 describe("A selection too long for the model is edited in parts (#2348)", () => {
