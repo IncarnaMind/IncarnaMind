@@ -733,4 +733,116 @@ describe("annotations", () => {
     expect(annotation.location).toMatchObject({ kind: "page", from: 1, area });
     expect(annotation.anchor).toMatchObject({ area, unit: 1 });
   });
+
+  test("a re-anchored highlight keeps no Passage of the words a new version dropped", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const before = "# Costs\n\n## Contingency\n\nInsurance covered the roof repair.\n";
+    const path = await writeSourceFile(sources, "Cover.md", before);
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The Document wasn't added.");
+    const covered = await core.createAnnotation({
+      documentId: document.id,
+      parts: [{ unit: null, text: "covered" }],
+      colour: "yellow",
+    });
+    expect(covered).toMatchObject({ check: "found" });
+    expect(covered.passageId).not.toBeNull();
+
+    await writeFile(path, "# Costs\n\n## Contingency\n\nInsurance excluded the roof repair.\n");
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [document.id]);
+
+    const [kept] = await core.listAnnotations(document.id);
+    expect(kept).toMatchObject({
+      id: covered.id,
+      missing: true,
+      check: "not-found",
+      passageId: null,
+    });
+  });
+
+  test("Collect re-anchors a highlight whose words are gone before it reads, with no list first", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const path = await writeSourceFile(
+      sources,
+      "Cover.md",
+      "# Costs\n\n## Contingency\n\nInsurance covered the roof repair.\n",
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The Document wasn't added.");
+    const covered = await core.createAnnotation({
+      documentId: document.id,
+      parts: [{ unit: null, text: "covered" }],
+      colour: "yellow",
+    });
+
+    await writeFile(path, "# Costs\n\n## Contingency\n\nInsurance excluded the roof repair.\n");
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [document.id]);
+
+    const groups = await core.annotationsIn({ documentId: document.id });
+    const [first] = groups.flatMap((group) => group.annotations);
+    expect(first).toMatchObject({
+      id: covered.id,
+      missing: true,
+      check: "not-found",
+      passageId: null,
+    });
+  });
+
+  test("Search re-anchors a highlight whose words are gone before it reads, with no list first", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const path = await writeSourceFile(
+      sources,
+      "Cover.md",
+      "# Costs\n\n## Contingency\n\nInsurance covered the roof repair.\n",
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The Document wasn't added.");
+    await core.createAnnotation({
+      documentId: document.id,
+      parts: [{ unit: null, text: "covered" }],
+      colour: "yellow",
+    });
+
+    await writeFile(path, "# Costs\n\n## Contingency\n\nInsurance excluded the roof repair.\n");
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [document.id]);
+
+    const matches = await core.searchAnnotations("covered");
+    expect(matches).toMatchObject([{ missing: true }]);
+  });
+
+  test("a PDF's own highlight over one line quotes that line alone", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(
+      core,
+      "Lines.pdf",
+      buildPdf([
+        {
+          lines: ["Line one has words.", "Line two has words.", "Line three has words."],
+          marks: [
+            {
+              subtype: "Highlight",
+              rect: [72, 744, 300, 756],
+              quadPoints: [72, 756, 300, 756, 72, 744, 300, 744],
+            },
+            {
+              subtype: "Highlight",
+              rect: [72, 758, 300, 770],
+              quadPoints: [72, 770, 300, 770, 72, 758, 300, 758],
+            },
+          ],
+        },
+      ]),
+    );
+    const quotes = (await core.listAnnotations(document.id))
+      .filter((each) => each.quote !== "")
+      .map((each) => each.quote)
+      .sort();
+    expect(quotes).toEqual(["Line one has words.", "Line two has words."]);
+  });
 });
