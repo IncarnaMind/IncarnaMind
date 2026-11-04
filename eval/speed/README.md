@@ -56,9 +56,9 @@ An arm is a path the core can take between two items without being opened again 
 Each kind's effort in the catalog (`RequestQuirks.effort`) is chosen against the provider's default (`default-effort` against `today`), and stated here before any run that decides it:
 
 - **The gate, per model and set**, on the items both arms finished: expected Passages cited, judged right and every Citation found no worse than the default by more than one item in 30 (`INCARNAMIND_EVAL_SPEED_MARGIN=1`); no new false Supported, duplicate Answer, tool text, change claimed that no Tool made, or other everyday guard; no more items failing to run. A kind keeps the provider's default unless it is also faster: its paired median time to the end below zero.
-- **Tasks** (`task`: a comparison table's cell, a Research step and its draft), Claude Haiku 5.5 and Sonnet 5.5: the `cells` set, English, Chinese, cross-lingual and paraphrased Questions.
+- **Tasks** (`task`: a comparison table's cell, and a Research Task's draft, which is written as one), Claude Haiku 5.5 and Sonnet 5.5: the `cells` set, English, Chinese, cross-lingual and paraphrased Questions.
 - **DeepSeek** (`answer` and `task`, DeepSeek Flash): `gating` and `cells`, and `everyday` with `EACH=10`; its assistant writes and edits also on `npm run eval:minds` against main, with no wrong Mind or paragraph changed and no change claimed that wasn't made.
-- **Unmeasured, so unchanged:** Kimi (its API refused every request with 429 when this was measured), Qwen and GLM (no key), OpenAI and the ChatGPT plan (no credit on the key), Google.
+- **Unmeasured, so unchanged:** Kimi (its API answered every request with 429 when this was measured), OpenAI and the ChatGPT plan, Qwen, GLM and Google. Research steps keep the default on every provider: no set here judges them yet.
 
 ## The token audit (#1634)
 
