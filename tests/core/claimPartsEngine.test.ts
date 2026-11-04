@@ -1590,3 +1590,48 @@ describe.each([
     });
   });
 });
+
+describe("a part the quote states keeps its own duty and condition (#1766, #1708)", () => {
+  const claim = "The berth costs 40 pounds a night, and berth holders may run a generator.";
+  const first = "The berth costs 40 pounds a night";
+  const part = "berth holders may run a generator";
+  const quote =
+    "The berth costs 30 pounds a night, and berth holders may run a generator only if the harbour master agrees.";
+  const run = (fields: string) =>
+    check(
+      claim,
+      [
+        { kind: "fact", text: first },
+        { kind: "fact", text: part },
+      ],
+      {
+        [first]: { quotes: [quote] },
+        [part]: {
+          quotes: [quote],
+          reply: `Verdict: contradicted\nRoles: berth holders may run / berth holders may run, same\nTime: none / none, same\nScope: none, same\n${fields}\nThe Document gives another price.\nEvidence: [1]`,
+          judgement: "same",
+        },
+      },
+    );
+  const judged = (
+    parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+  ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+  test.each([
+    {
+      name: "a condition the part leaves out",
+      said: "Duty: may / may, same\nCondition: none / only if the harbour master agrees, differs",
+    },
+    { name: "no Duty or Condition line", said: "" },
+    {
+      name: "a Condition line with no closing word",
+      said: "Duty: may / may, same\nCondition: none",
+    },
+  ])("$name keeps the judge's verdict, not Support", async ({ said }) => {
+    expect(judged((await run(said)).result.parts ?? [])).not.toBe("supported");
+    // Paired: with its own duty and condition the same, the same part is Supported.
+    expect(
+      judged((await run("Duty: may / may, same\nCondition: none / none, same")).result.parts ?? []),
+    ).toBe("supported");
+  });
+});
