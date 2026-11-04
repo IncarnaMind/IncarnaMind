@@ -3355,8 +3355,9 @@ export function createAnswers(options: AnswersOptions) {
         (input.toolSet ?? "answer") === "answer" &&
         !writesMinds &&
         (options.retrievesFirst?.(prepared, flow) ?? false);
-      // Its one call writes the Answer and then cites it (#1633 on #489's contract).
-      const writeFirst = retrieveFirst || (options.writesThenCites?.(prepared, flow) ?? false);
+      // A model cites as the write-then-cite list says, whichever way it searches, so it never
+      // cites in a way that list didn't admit it to (#1633).
+      const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
       for await (const event of engine.generate({
         instructions: (
           mode,

@@ -10,9 +10,10 @@
  *   folder, the shared and per-user temporary folders, and the roots volumes
  *   are mounted under), except the folders its request allows (a Skill
  *   script's Skill folder and working folder) and its interpreter's own
- *   install when that is inside one (pyenv, conda, the app itself in
- *   ~/Applications). The rest of the disk stays readable, as sandbox-runtime
- *   leaves it: the system's libraries and interpreters;
+ *   install when that is in a home or on a volume (pyenv, conda, the app itself
+ *   in ~/Applications), never in a temporary folder or the data folder. The
+ *   rest of the disk stays readable, as sandbox-runtime leaves it: the system's
+ *   libraries and interpreters;
  * - can write only the folders its request allows (its working folder),
  *   which is its TMPDIR too. sandbox-runtime hands out /tmp/claude, Claude
  *   Code's, which is denied here;
@@ -46,7 +47,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import type { ExecRequest, Executor, Logger, ProcessLauncher } from "../core";
@@ -88,6 +89,11 @@ export interface OsExecutorOptions {
    * allows, as `readDeniedFolders` builds them.
    */
   denyRead: readonly string[];
+  /**
+   * The denied folders an interpreter found on the PATH may still be read in where it is
+   * installed, as `interpreterRoots` builds them; none unless given.
+   */
+  interpreterRoots?: readonly string[];
   /** Told when a run's temporary working folder can't be removed. */
   reportError(error: unknown): void;
   /**
@@ -286,6 +292,11 @@ const NO_FILE_RULES = { denyRead: [], allowWrite: [], denyWrite: [] };
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+const startFailed = (error: unknown) =>
+  new Error(`The OS sandbox couldn't start, so the program didn't run: ${messageOf(error)}`, {
+    cause: error,
+  });
+
 /** `text` as one word for the shell, as it is. */
 const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
 
@@ -325,22 +336,114 @@ async function findCommand(command: string, path: string | undefined, cwd: strin
 }
 
 /**
- * Where the interpreter at `command` is installed, to read even inside a
- * denied folder: the folder above the one it is in (`<prefix>` of
- * `<prefix>/bin/python3`; the app bundle's Contents for Electron), else the
- * one it is in, for the command as found and as its real path (a venv's
- * python, Homebrew's links). Never a folder that holds a denied one.
+ * The one spelling of `path` the sandbox is given and compares: every link on its way followed,
+ * as realpath gives it (macOS's /tmp, /var and /etc are links into /private). A program in the
+ * sandbox can't follow a link the profile denies, and a rule compared in another spelling than
+ * the path it guards doesn't hold, so nothing reaches the profile, or is compared with a denied
+ * folder, in any other. For a path that isn't there, the folders on its way that are, and the
+ * rest as written; `mustExist`: refused instead, so a run never goes ahead on a spelling that
+ * may not be the real one.
  */
-async function installFolders(command: string, denied: readonly string[]): Promise<string[]> {
-  const real = await realpath(command).catch(() => command);
-  const folders = new Set<string>();
-  for (const path of [command, real]) {
-    const folder = [dirname(dirname(path)), dirname(path)].find(
-      (candidate) => !denied.some((deny) => isInside(deny, candidate)),
-    );
-    if (folder !== undefined) folders.add(folder);
+export async function canonicalPath(
+  path: string,
+  { mustExist = false }: { mustExist?: boolean } = {},
+): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    const parent = dirname(path);
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || parent === path) throw error;
+    if (mustExist) {
+      throw new Error("A folder or program the sandbox was given can't be found, so nothing ran.", {
+        cause: error,
+      });
+    }
+    return join(await canonicalPath(parent), basename(path));
   }
-  return [...folders];
+}
+
+/** Each of `folders` as written and as `canonicalPath` spells it: a link to one is it too. */
+async function bothSpellings(folders: readonly string[]): Promise<string[]> {
+  return [
+    ...new Set([...folders, ...(await Promise.all(folders.map((each) => canonicalPath(each))))]),
+  ];
+}
+
+/**
+ * The denied folders an interpreter's own install may still be read in (`installFolders`): the
+ * homes and the roots volumes are mounted under, where pyenv, conda, nvm, Homebrew in a home or
+ * the app itself in ~/Applications put them. In every other denied folder (the temporary folders,
+ * IncarnaMind's data folder, this User's runtime folder) another app's or another run's files
+ * could sit beside it, so it never is; IncarnaMind's own Python names its folder in its request.
+ */
+export function interpreterRoots(options: Pick<ReadDeniedOptions, "platform" | "home">): string[] {
+  const { platform, home } = options;
+  if (platform === "darwin") return [home, "/Users", "/Volumes"];
+  if (platform === "linux") return [home, "/home", "/root", "/media", "/mnt", "/run/media"];
+  return [];
+}
+
+/**
+ * What is read back inside the denied folders for the interpreter, no wider than the interpreter:
+ * for the command as it is run, its own folder, and the venv above it where there is one (whose
+ * packages it reads); for its real path, its own folder and, of the install it belongs to
+ * (`<prefix>` of `<prefix>/bin/python3`), the bin and lib folders only, never the rest of a prefix
+ * such as ~/.local; a venv or the app bundle's Contents whole. Never a folder that holds a denied
+ * one, nor one inside a denied folder but where interpreters are installed (`interpreterRoots`);
+ * nothing for one outside every denied folder, readable already. Every path here is canonical.
+ */
+export async function installFolders(
+  command: string,
+  real: string,
+  denied: readonly string[],
+  roots: readonly string[],
+): Promise<string[]> {
+  const reopens = (candidate: string) => {
+    if (denied.some((deny) => isInside(deny, candidate))) return false;
+    const around = denied.filter((deny) => isInside(candidate, deny));
+    const innermost = around.reduce<string | null>(
+      (deepest, deny) => (deepest === null || deny.length > deepest.length ? deny : deepest),
+      null,
+    );
+    return innermost !== null && roots.includes(innermost);
+  };
+  const there = (path: string) =>
+    access(path).then(
+      () => true,
+      () => false,
+    );
+  // A prefix's bin or lib may be a link: read where it really is, with its name to follow there,
+  // only when that place is itself a bin or lib folder of the prefix (lib-3.12, lib64). One that
+  // links anywhere else, the prefix itself or its share folder among them, opens nothing.
+  const linkedFolders = async (folders: readonly string[]) =>
+    (
+      await Promise.all(
+        folders.map(async (each) => {
+          const real = await canonicalPath(each);
+          return dirname(real) === dirname(each) &&
+            /^(bin|lib)([-._]?\d[\w.]*)?$/.test(basename(real))
+            ? [real, ...(real === each ? [] : [each])]
+            : [];
+        }),
+      )
+    ).flat();
+  const own = dirname(command);
+  const venv = dirname(own);
+  const named = (await there(join(venv, "pyvenv.cfg"))) ? [venv, own] : [own];
+  const prefix = dirname(dirname(real));
+  const whole =
+    (await there(join(prefix, "pyvenv.cfg"))) ||
+    (basename(prefix) === "Contents" && dirname(prefix).endsWith(".app"));
+  const installed = !reopens(prefix)
+    ? [dirname(real)]
+    : whole
+      ? [prefix]
+      : [dirname(real), ...(await linkedFolders([join(prefix, "bin"), join(prefix, "lib")]))];
+  const folders = [...new Set([...named, ...installed])].filter(reopens);
+  // bubblewrap refuses to start with a folder to read that isn't there.
+  return (
+    await Promise.all(folders.map(async (each) => ((await there(each)) ? each : null)))
+  ).filter((each): each is string => each !== null);
 }
 
 const execFileAsync = promisify(execFile);
@@ -419,24 +522,47 @@ function osConfinement(
         );
       }
       const env = { ...(await options.environment()), ...request.env };
-      const command = await findCommand(request.command, env.PATH, workingFolder);
-      const paths = (folders: ExecRequest["allow"]["read"]) =>
-        folders.map((folder) => folderPath(folder, workingFolder));
+      const strict = (path: string) => canonicalPath(path, { mustExist: true });
+      const found = await findCommand(request.command, env.PATH, workingFolder);
+      // Run by its own name in its canonical folder: a venv's python is a link, and finds its
+      // venv only when run by it.
+      const command = join(await strict(dirname(found)), basename(found));
+      const working = await strict(workingFolder);
+      const denied = await bothSpellings(options.denyRead);
+      // Canonical, an allowed folder that is a link opens what it points at, where sandbox-runtime
+      // would open only the name: safe because every folder a request allows is one the app made
+      // (a run's folders, a Skill's own folder, the runtime's and the font's).
+      const allowed = async (folders: ExecRequest["allow"]["read"]) => {
+        const real = await Promise.all(folders.map((each) => strict(folderPath(each, working))));
+        if (real.some((folder) => denied.some((deny) => isInside(deny, folder)))) {
+          throw new Error(
+            "A folder the program was to read or write holds one no program may read, so it didn't run.",
+          );
+        }
+        return real;
+      };
       const config: Partial<SandboxRuntimeConfig> = {
         network: NO_NETWORK,
         filesystem: {
-          denyRead: [...options.denyRead],
+          denyRead: denied,
           allowRead: [
-            ...paths(request.allow.read),
-            ...(await installFolders(command, options.denyRead)),
-            ...readable,
+            ...(await allowed(request.allow.read)),
+            ...(await installFolders(
+              command,
+              await strict(found),
+              denied,
+              await bothSpellings(options.interpreterRoots ?? []),
+            ).catch((error: unknown) => {
+              throw startFailed(error);
+            })),
+            ...(await Promise.all(readable.map(strict))),
           ],
-          allowWrite: paths(request.allow.write),
+          allowWrite: await allowed(request.allow.write),
           denyWrite: SANDBOX_RUNTIME_TEMP,
         },
       };
       const script = [
-        `export TMPDIR=${quote(workingFolder)}`,
+        `export TMPDIR=${quote(working)}`,
         ...(await limitLines(request.limits)),
         `exec ${[command, ...request.args].map(quote).join(" ")}`,
       ].join("; ");
@@ -444,15 +570,10 @@ function osConfinement(
         const run = randomUUID();
         const metered = request.limits?.memoryBytes !== undefined;
         const program = await wrap(sandbox, script, config, run, metered);
-        const sweep = await sweeper.begin(run, await realpath(workingFolder));
+        const sweep = await sweeper.begin(run, working);
         return { ...program, env: request.env, sweep };
       } catch (error) {
-        throw new Error(
-          `The OS sandbox couldn't start, so the program didn't run: ${messageOf(error)}`,
-          {
-            cause: error,
-          },
-        );
+        throw startFailed(error);
       }
     },
     release: () => sandbox.cleanupAfterCommand(),

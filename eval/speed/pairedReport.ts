@@ -166,13 +166,16 @@ function paired(rows: readonly PairedRow[], pick: (run: ArmRun) => number | null
     0.5,
   ) as number;
   const sooner = pairs.filter(({ a, b }) => b < a).length;
-  return `${difference <= 0 ? "−" : "+"}${seconds(Math.abs(difference))}, sooner in ${sooner} of ${pairs.length}`;
+  const sign = difference < 0 ? "−" : difference > 0 ? "+" : "±";
+  return `${sign}${seconds(Math.abs(difference))}, sooner in ${sooner} of ${pairs.length}`;
 }
 
 export function pairedSection(
   rows: readonly PairedRow[],
   names: [string, string],
   margin = 0,
+  /** False: the rows are part of a set the guards hold on as a whole, so none is judged here. */
+  judged = true,
 ): string {
   const [a, b] = names;
   const of = (pick: (run: ArmRun) => number | null) =>
@@ -191,8 +194,16 @@ export function pairedSection(
     const done = rows.map(run).filter((each) => each.status === "done");
     return `${done.filter((each) => each.answerCalls === 1).length} of ${done.length}`;
   };
+  const counted = (run: (row: PairedRow) => ArmRun) =>
+    rows.map(run).filter((each) => each.status === "done" && each.searches !== null);
+  const searchedAgain = (run: (row: PairedRow) => ArmRun) => {
+    const done = counted(run);
+    return `${done.filter((each) => (each.searches ?? 0) > 1).length} of ${done.length}`;
+  };
+  const holds = (each: Guard) =>
+    `${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""}`;
   const rule = (each: Guard) =>
-    `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""} |`;
+    `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${judged ? holds(each) : "–"} |`;
   return [
     `| | ${a} | ${b} | ${b} against ${a}, item by item |`,
     "|---|---|---|---|",
@@ -203,6 +214,11 @@ export function pairedSection(
     `| Tokens in / out (median) | ${tokens((row) => row.baseline)} | ${tokens((row) => row.candidate)} | |`,
     `| Citations found | ${found((row) => row.baseline)} | ${found((row) => row.candidate)} | |`,
     `| Answered in one call | ${oneCall((row) => row.baseline)} | ${oneCall((row) => row.candidate)} | |`,
+    ...(counted((row) => row.candidate).length > 0
+      ? [
+          `| Searched more than once | ${searchedAgain((row) => row.baseline)} | ${searchedAgain((row) => row.candidate)} | |`,
+        ]
+      : []),
     "",
     `| Guard, items both finished | ${a} | ${b} | lost / gained | holds |`,
     "|---|---|---|---|---|",

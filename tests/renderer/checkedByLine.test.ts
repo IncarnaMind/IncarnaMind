@@ -261,3 +261,43 @@ describe("the line that names what checked a sentence", () => {
     expect(await lineOf(verdict({ checkedAt: "" }))).toBeNull();
   });
 });
+
+describe("a language that puts the time first", () => {
+  // protects=each placeholder of the line is filled by its own piece, so a language that writes the time before the models still shows the time where the time is and the names where the names are (#1667); fails_when=the pieces are filled in the order they come; no_claim=none beyond protects.
+  test("fills the time and the names in their own places", async () => {
+    vi.resetModules();
+    vi.doMock("../../src/renderer/src/i18n", async (original) => {
+      const actual = await original<typeof import("../../src/renderer/src/i18n")>();
+      return {
+        ...actual,
+        useLanguage: () => "en" as const,
+        useT: () => (_key: string, params?: Record<string, unknown>) =>
+          `${String(params?.when)}: ${String(params?.model)}`,
+      };
+    });
+    const linePath = "../../src/renderer/src/editor/CheckedByLine.tsx";
+    const { CheckedByLine: Reordered } = (await import(linePath)) as {
+      CheckedByLine: ComponentType<Record<string, unknown>>;
+    };
+    const check = verdict({
+      ...SONNET,
+      checkedAt: LATER,
+      parts: [part(0, 19, HAIKU, EARLIER), part(24, 50, SONNET, LATER)],
+    });
+    await act(() => root?.render(createElement(Reordered, { check, shown: "supported" })));
+    const line = container.querySelector('[data-testid="claim-checked-by"]');
+    expect(line?.textContent).toBe(
+      `${formatDateTime(LATER, "en")}: Claude Haiku 5.5 and Claude Sonnet 5.5`,
+    );
+    expect(line?.querySelector(".claim-card-checked-by-when")?.textContent).toBe(
+      formatDateTime(LATER, "en"),
+    );
+    expect(
+      Array.from(
+        line?.querySelectorAll(".claim-card-checked-by-name") ?? [],
+        (name) => name.textContent,
+      ),
+    ).toEqual(["Claude Haiku 5.5", "Claude Sonnet 5.5"]);
+    vi.doUnmock("../../src/renderer/src/i18n");
+  });
+});
