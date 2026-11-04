@@ -1,8 +1,10 @@
+import { writeFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
-import type { Citation, CitationAttributes, ClaimCheckAttributes } from "../../src/core";
+import type { Citation, CitationAttributes, ClaimCheckAttributes, Core } from "../../src/core";
 import { readChangeLines } from "../../src/core/answers/checks/prompt";
 import { REWRITE_INSTRUCTIONS, rewriteOf } from "../../src/core/answers/checks/rewrite";
 import { setUpWithDocuments } from "../helpers/citations";
+import { waitForProcessing } from "../helpers/documents";
 import { writeMind } from "../helpers/minds";
 import { type GenerateCall, scriptedModel } from "../helpers/models";
 
@@ -145,10 +147,134 @@ describe("A rewrite is refused, and the sentence kept", () => {
       ),
     ).toEqual({ kind: "kept" });
     expect(
+      rewritten("The rent is $12,500.", "Change 1: $12,500\nTo 1: $14,250", "The rent is $14,250."),
+    ).toMatchObject({ kind: "rewritten" });
+  });
+});
+
+describe("A rewrite changes only the value that differs", () => {
+  test.each([
+    [
+      "a condition after the figure",
+      "The Tenant pays a monthly rent of $12,500.",
+      "Change 1: $12,500.\nTo 1: $14,250, due on the first day of each month.",
+      LEASE,
+    ],
+    [
+      "a condition after the words",
+      "Each tenant may keep one cat.",
+      "Change 1: one cat\nTo 1: two cats if they keep them on a lead",
+      "Each tenant may keep two cats if they keep them on a lead.",
+    ],
+    [
+      "words after the figure's unit",
+      "Invoices are paid within 30 days.",
+      "Change 1: 30 days\nTo 1: 45 days after the invoice is received",
+      "Invoices are paid within 45 days after the invoice is received.",
+    ],
+    [
+      "a clause after the figure, in Chinese",
+      "货款应在30日内支付。",
+      "Change 1: 30日内支付\nTo 1: 45日内支付，逾期按日加收万分之五滞纳金",
+      "货款应在45日内支付，逾期按日加收万分之五滞纳金。",
+    ],
+    [
+      "a condition after a Chinese name",
+      "项目负责人为李明。",
+      "Change 1: 李明\nTo 1: 王芳但须经董事会批准",
+      "项目负责人为王芳但须经董事会批准。",
+    ],
+    [
+      "a negation",
+      "The Landlord may enter the premises.",
+      "Change 1: may enter\nTo 1: may not enter",
+      "The Landlord may not enter the premises without notice.",
+    ],
+    [
+      "another thing's name with its figure",
+      "The deposit is $40,000.",
+      "Change 1: deposit is $40,000\nTo 1: rent is $14,250",
+      "The monthly rent is $14,250.",
+    ],
+    ["a role in Chinese", "合同由董事签署。", "Change 1: 董事\nTo 1: 经理", "合同由经理签署。"],
+  ])("refuses %s", (_, sentence, reply, quote) => {
+    expect(rewritten(sentence, reply, quote)).toEqual({ kind: "kept" });
+  });
+
+  test.each([
+    [
+      "a figure",
+      "The Tenant pays a monthly rent of $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      LEASE,
+    ],
+    [
+      "a figure with its scale, in Chinese",
+      "公司去年营收 1.2亿元。",
+      "Change 1: 1.2亿元\nTo 1: 1.5亿元",
+      "公司去年营收 1.5亿元。",
+    ],
+    [
+      "a date",
+      "The lease term starts on 1 March 2026.",
+      "Change 1: 1 March 2026\nTo 1: 15 March 2026",
+      "The lease term starts on 15 March 2026 and runs for five years.",
+    ],
+    [
+      "a name",
+      "The Landlord is Northgate Holdings.",
+      "Change 1: Northgate Holdings\nTo 1: Westmarch Commercial Property Investments Limited",
+      "The Landlord is Westmarch Commercial Property Investments Limited.",
+    ],
+    ["a Chinese name", "项目负责人为李明。", "Change 1: 李明\nTo 1: 王芳", "项目负责人为王芳。"],
+  ])("keeps %s for one", (_, sentence, reply, quote) => {
+    expect(rewritten(sentence, reply, quote)).toMatchObject({ kind: "rewritten" });
+  });
+
+  test("refuses a figure for another rate", () => {
+    expect(
       rewritten(
-        "The rent is $12,500.",
-        "Change 1: $12,500\nTo 1: $14,250",
-        "The rent is $14,250 and the deposit is $42,750.",
+        "Rent is $12,000 per year.",
+        "Change 1: $12,000\nTo 1: $14,250",
+        "Rent is $14,250 per month.",
+      ),
+    ).toEqual({ kind: "kept" });
+    expect(
+      rewritten(
+        "每位员工每年享有 10 天带薪年假。",
+        "Change 1: 10\nTo 1: 15",
+        "每位员工每月享有 15 天带薪年假。",
+      ),
+    ).toEqual({ kind: "kept" });
+    expect(
+      rewritten(
+        "Rent is $12,000 per month.",
+        "Change 1: $12,000\nTo 1: $14,250",
+        "Rent is $14,250 per month.",
+      ),
+    ).toMatchObject({ kind: "rewritten" });
+  });
+
+  test("refuses a figure from a quote that gives two, which may be another thing's", () => {
+    const line = "The monthly rent is $14,250 and the deposit is $42,750.";
+    expect(rewritten("The deposit is $40,000.", "Change 1: $40,000\nTo 1: $14,250", line)).toEqual({
+      kind: "kept",
+    });
+    expect(rewritten("The deposit is $40,000.", "Change 1: $40,000\nTo 1: $42,750", line)).toEqual({
+      kind: "kept",
+    });
+    expect(
+      rewritten(
+        "每位员工每年享有 10 天病假。",
+        "Change 1: 10\nTo 1: 15",
+        "每位员工每年享有 15 天带薪年假和 5 天病假。",
+      ),
+    ).toEqual({ kind: "kept" });
+    expect(
+      rewritten(
+        "The security deposit is $40,000.",
+        "Change 1: $40,000\nTo 1: $42,750",
+        "The security deposit is $42,750, held by the Landlord until the lease ends.",
       ),
     ).toMatchObject({ kind: "rewritten" });
   });
@@ -230,7 +356,15 @@ async function noteWithCheck(
     },
   ]);
   await client.settled();
-  return { core, mindId: mind.id, calls, cited, documentId: rent.id };
+  return { core, mindId: mind.id, calls, cited, documentId: rent.id, path: rent.path };
+}
+
+/** Files the Document in a Folder that keeps its work inside it, which the Note is outside. */
+async function wallOff(core: Core, documentId: string): Promise<string> {
+  const folder = await core.createLibraryGroup({ name: "Client A", description: "" });
+  await core.assignDocumentGroup(documentId, folder.id);
+  await core.updateLibraryGroup(folder.id, { name: "Client A", description: "", keepInside: true });
+  return folder.id;
 }
 
 describe("rewriteFromDocuments", () => {
@@ -297,6 +431,35 @@ describe("rewriteFromDocuments", () => {
     expect(held.calls).toHaveLength(1);
   });
 
+  test("sends nothing once the Passage's Document is behind a Folder wall the Note is outside", async () => {
+    const { core, mindId, calls, documentId } = await noteWithCheck(() => ({
+      text: "Change 1: 1100\nTo 1: 1250",
+    }));
+    expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toMatchObject({
+      kind: "rewritten",
+    });
+    expect(calls).toHaveLength(1);
+    await wallOff(core, documentId);
+    expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toEqual({
+      kind: "changed",
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("sends nothing once a new version of the Document came, even one that still holds the quote", async () => {
+    const { core, mindId, calls, documentId, path } = await noteWithCheck(() => ({
+      text: "Change 1: 1100\nTo 1: 1250",
+    }));
+    await writeFile(path, `# Rent\n\nThe flat is on the second floor.\n\n${LINE}`);
+    await core.reconcileDocuments();
+    const [processed] = await waitForProcessing(core, [documentId]);
+    expect(processed?.status).toBe("ready");
+    expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toEqual({
+      kind: "changed",
+    });
+    expect(calls).toHaveLength(0);
+  });
+
   test.each([
     ["its Document went to Recently deleted", "deleted"],
     ["its Document is the User's own workings, never cited", "not cited"],
@@ -310,5 +473,24 @@ describe("rewriteFromDocuments", () => {
       kind: "changed",
     });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("A Citation chosen in a Document's viewer", () => {
+  test("is refused for a Note outside the Folder wall the Document is behind", async () => {
+    const { core, mindId, documentId } = await noteWithCheck(() => ({ text: "" }));
+    const parts = [{ unit: null, text: LINE }];
+    expect(await core.citeSelection({ documentId, parts, mindId })).toMatchObject({
+      quote: LINE,
+    });
+    const folderId = await wallOff(core, documentId);
+    await expect(core.citeSelection({ documentId, parts, mindId })).rejects.toThrow(
+      "This Folder keeps its work inside it.",
+    );
+    // Inside the wall, the same words are cited.
+    const inside = await core.createMind({ title: "Client A note", folderId });
+    expect(await core.citeSelection({ documentId, parts, mindId: inside.id })).toMatchObject({
+      quote: LINE,
+    });
   });
 });

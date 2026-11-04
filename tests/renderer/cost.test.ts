@@ -6,6 +6,7 @@ import {
   formatSpent,
   formatTokens,
   notCheckedKey,
+  perHundredAnswers,
   reasonText,
   runStopParts,
   runStopText,
@@ -112,17 +113,26 @@ describe("Cost in words", () => {
     );
   });
 
+  test.each([
+    ["en", "USD", 0.004, "About $0.40 per 100 Answers", "Cost per 100 Answers"],
+    ["zh-CN", "USD", 0.004, "每 100 个回答约 $0.40", "每 100 个回答的费用"],
+    ["en", "CNY", 0.0213, "About ¥2.13 per 100 Answers", "Cost per 100 Answers"],
+    ["zh-CN", "CNY", 0.0213, "每 100 个回答约 ¥2.13", "每 100 个回答的费用"],
+    ["en", "CNY", 0.00004, "Under ¥0.01 per 100 Answers", "Cost per 100 Answers"],
+  ] as const)(
+    "a model's page compares its models per 100 Answers (%s, %s)",
+    (language, currency, perAnswer, line, label) => {
+      expect(perHundredAnswers({ amount: perAnswer, currency }, t(language), language)).toBe(line);
+      expect(t(language)("models.provider.cost")).toBe(label);
+    },
+  );
+
   test("Settings and the research plan say their estimates through the same words", () => {
     expect(
       translate("en", "tagging.cost.estimate", {
         cost: estimateText({ amount: 0.004, currency: "USD" }, null, t("en"), "en") ?? "",
       }),
     ).toBe("Under $0.01 per 100 Documents");
-    expect(
-      translate("zh-CN", "models.provider.cost.estimate", {
-        cost: estimateText({ amount: 0.02, currency: "USD" }, null, t("zh-CN"), "zh-CN") ?? "",
-      }),
-    ).toBe("每个回答约 $0.02");
     expect(
       translate("en", "research.plan.estimate", {
         cost: estimateText({ amount: 0.004, currency: "USD" }, null, t("en"), "en") ?? "",

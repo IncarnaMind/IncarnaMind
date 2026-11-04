@@ -35,8 +35,9 @@ const { core } = vi.hoisted(() => ({
   },
 }));
 vi.mock("../../src/renderer/src/core", () => ({ core }));
+const { noteBusy } = vi.hoisted(() => ({ noteBusy: vi.fn() }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({
-  noteBusy: vi.fn(),
+  noteBusy,
   resolveProposalsIn: vi.fn(),
   useEdits: { getState: () => ({ pending: {} }) },
 }));
@@ -202,6 +203,7 @@ beforeEach(() => {
   core.recordAiUse.mockClear();
   core.checkSentences.mockClear();
   core.rewriteFromDocuments.mockReset();
+  noteBusy.mockClear();
   useNotices.setState({ errors: [], confirmation: null });
   useChecks.setState({ running: {}, rewriting: {} });
   useCitationPick.setState({ pick: null, asked: null });
@@ -401,6 +403,20 @@ describe("Use as Citation", () => {
     expect(core.checkSentences).not.toHaveBeenCalled();
     // The sentence still waits: the User can select other words.
     expect(useCitationPick.getState().pick).toEqual(pick);
+  });
+
+  test("cites nothing while another fix works on the Note, which says it is busy", async () => {
+    const { editor } = editorWith([marked(SENTENCE, unsupported({ evidence: null }))]);
+    useCitationPick.setState({ pick });
+    useChecks.setState({ running: {}, rewriting: { mind: "check-other" } });
+
+    expect(await citeChosenWords(pick, rent, () => Promise.resolve(CITED))).toBe(false);
+
+    expect(citationsIn(editor)).toEqual([]);
+    expect(noteBusy).toHaveBeenCalledWith("mind");
+    expect(core.checkSentences).not.toHaveBeenCalled();
+    useChecks.setState({ running: {}, rewriting: {} });
+    expect(await citeChosenWords(pick, rent, () => Promise.resolve(CITED))).toBe(true);
   });
 
   test("cites nothing once the sentence has a Citation of its own, and stops waiting", async () => {
