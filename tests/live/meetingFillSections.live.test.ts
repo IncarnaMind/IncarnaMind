@@ -10,7 +10,7 @@
  * 5.5 by default; INCARNAMIND_LIVE_CALLS picks calls by id, comma-separated), or with
  * INCARNAMIND_LIVE_OLLAMA_MODEL for a Local-mode check with an 8,192-token window.
  */
-import { appendFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { wrapLanguageModel } from "ai";
@@ -19,6 +19,7 @@ import { evalOllamaModels } from "../../eval/lib/citations";
 import type { Core, Meeting, MeetingFill } from "../../src/core";
 import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
 import { costOf } from "../../src/core/cost/price";
+import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import type { Language } from "../../src/core/language";
 import { catalogModel } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -168,19 +169,19 @@ const CALLS: Call[] = [
       {
         name: "Ravi sends the sign-up form on Monday",
         kind: "action",
-        pattern: [/form/i, /Monday/i],
+        pattern: [/form/i, /Monday/i, /Ravi/i],
         said: [4],
       },
       {
         name: "collect spare tools on Tuesday",
         kind: "action",
-        pattern: [/tools/i, /Tuesday/i],
+        pattern: [/tools/i, /Tuesday/i, /Them|other side|other party/i],
         said: [5],
       },
       {
         name: "Mina prints safety sheets on Thursday",
         kind: "action",
-        pattern: [/safety/i, /Thursday/i],
+        pattern: [/safety/i, /Thursday/i, /Mina/i],
         said: [6],
       },
     ],
@@ -204,9 +205,9 @@ const CALLS: Call[] = [
     ],
     facts: [
       { name: "图书馆教室九百元", kind: "decision", pattern: [/图书馆/, /900|九百/], said: [1, 2] },
-      { name: "小罗周一发报名表", kind: "action", pattern: [/报名/, /周一/], said: [4] },
-      { name: "周二取备用工具", kind: "action", pattern: [/工具/, /周二/], said: [5] },
-      { name: "小米周四印安全说明", kind: "action", pattern: [/安全/, /周四/], said: [6] },
+      { name: "小罗周一发报名表", kind: "action", pattern: [/报名/, /周一/, /小罗/], said: [4] },
+      { name: "周二取备用工具", kind: "action", pattern: [/工具/, /周二/, /对方/], said: [5] },
+      { name: "小米周四印安全说明", kind: "action", pattern: [/安全/, /周四/, /小米/], said: [6] },
     ],
     notDecided: [/学校教室/, /准备午饭/],
   },
@@ -1230,7 +1231,13 @@ interface Unit {
   text: string;
   ai: boolean;
   section: string | null;
-  citations: { quote: string; speaker: string | null; from: number | null; check: string }[];
+  citations: {
+    quote: string;
+    speaker: string | null;
+    from: number | null;
+    to: number | null;
+    check: string;
+  }[];
 }
 
 function unitsOf(doc: ProseMirrorNode): Unit[] {
@@ -1248,11 +1255,13 @@ function unitsOf(doc: ProseMirrorNode): Unit[] {
           kind?: string;
           speaker?: string;
           from?: number;
+          to?: number;
         } | null;
         citations.push({
           quote: String(inside.attrs.quote ?? ""),
           speaker: location?.kind === "time" ? (location.speaker ?? null) : null,
           from: location?.kind === "time" ? (location.from ?? null) : null,
+          to: location?.kind === "time" ? (location.to ?? null) : null,
           check: String(inside.attrs.check ?? ""),
         });
       }
@@ -1311,17 +1320,27 @@ const plain = (text: string) =>
 const SPEAKERS = { me: ["me", "我"], them: ["them", "对方"] } as const;
 
 /** A Citation of a turn that says the fact, found in the Transcript, with that turn's speaker. */
-function citesRightly(unit: Unit, fact: Fact, call: Call): boolean {
+function citesRightly(unit: Unit, fact: Fact, call: Call, cues: readonly Cue[]): boolean {
   return unit.citations.some((citation) => {
     if (citation.check !== "found" || citation.from === null || !Number.isFinite(citation.from))
       return false;
     const quote = plain(citation.quote);
+    const cue = cues.find(
+      (cue) =>
+        cue.startMs === citation.from &&
+        cue.endMs === citation.to &&
+        cue.speaker?.toLowerCase() === citation.speaker?.toLowerCase(),
+    );
+    if (!cue) return false;
     return fact.said.some((index) => {
       const turn = call.turns[index];
       if (!turn || quote === "") return false;
       const line = plain(turn.text);
+      const heard = plain(cue.text);
       const speaker = citation.speaker?.toLowerCase() ?? "";
-      const said = line.includes(quote) || quote.includes(line);
+      const said =
+        (line.includes(quote) || quote.includes(line)) &&
+        (line.includes(heard) || heard.includes(line));
       return (
         said &&
         (call.microphoneOnly
@@ -1331,6 +1350,70 @@ function citesRightly(unit: Unit, fact: Fact, call: Call): boolean {
     });
   });
 }
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores reject the right words at the wrong cue (%s)",
+  (language) => {
+    const budget = language === "en" ? "I will send the budget on Friday." : "我会在周五发预算。";
+    const estimate =
+      language === "en"
+        ? "I will send the engineers' estimate on Monday."
+        : "我会在周一发工程师的估价。";
+    const quote = language === "en" ? "I will" : "我会";
+    const fact: Fact = { name: "estimate", kind: "action", pattern: /estimate|估价/, said: [1] };
+    const call: Call = {
+      id: "citation-cue-score",
+      language,
+      notes: [],
+      turns: [me(budget), me(estimate)],
+      facts: [fact],
+      microphoneOnly: true,
+    };
+    const cues: Cue[] = [
+      { startMs: 1_000, endMs: 2_000, text: budget, speaker: "Speaker ?" },
+      { startMs: 7_000, endMs: 8_000, text: estimate, speaker: "Speaker ?" },
+    ];
+    const citation: Unit["citations"][number] = {
+      quote,
+      speaker: "Speaker ?",
+      from: 1_000,
+      to: 2_000,
+      check: "found",
+    };
+    const unit: Unit = { text: estimate, ai: true, section: null, citations: [citation] };
+    expect(citesRightly(unit, fact, call, cues)).toBe(false);
+    const selected = { ...citation, from: 7_000, to: 8_000 };
+    expect(citesRightly({ ...unit, citations: [selected] }, fact, call, cues)).toBe(true);
+    for (const invalid of [
+      { to: 9_000 },
+      { to: null },
+      { speaker: "Me" },
+      { check: "not-found" },
+      { quote: budget },
+    ]) {
+      expect(
+        citesRightly({ ...unit, citations: [{ ...selected, ...invalid }] }, fact, call, cues),
+      ).toBe(false);
+    }
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores require the action's owner (%s)",
+  (language) => {
+    const call = CALLS.find(
+      (each) => each.id === `sections-${language === "en" ? "en" : "zh"}-workshop`,
+    );
+    const fact = call?.facts.find((each) => each.kind === "action");
+    if (!fact) throw new Error("The workshop's form action is missing.");
+    const correct =
+      language === "en" ? "Send the sign-up form on Monday — Ravi" : "周一发报名表 — 小罗";
+    const wrong =
+      language === "en" ? "Send the sign-up form on Monday — Mina" : "周一发报名表 — 小米";
+    expect(says(fact, correct)).toBe(true);
+    expect(says(fact, wrong)).toBe(false);
+  },
+);
 
 async function settled(core: Core, meeting: Meeting): Promise<MeetingFill> {
   return vi.waitFor(
@@ -1403,8 +1486,10 @@ async function run(call: Call) {
     record(2_000, [call.microphoneOnly || turn.side === "me" ? "microphone" : "system"]);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
+  const stoppedAt = performance.now();
   await core.stopMeeting(meeting.id);
   const fill = await settled(core, meeting);
+  const fillMs = performance.now() - stoppedAt;
   if (fill.state === "filled") {
     await vi.waitFor(() => expect(unitsOf(readMind(client)).some((each) => each.ai)).toBe(true), {
       timeout: 10_000,
@@ -1412,6 +1497,10 @@ async function run(call: Call) {
   }
   const doc = readMind(client);
   const units = unitsOf(doc);
+  const transcript = (await core.listMeetings()).find((each) => each.id === meeting.id)?.transcript;
+  const cues = transcript?.savedPath
+    ? readVtt(await readFile(transcript.savedPath, "utf8")).cues
+    : [];
   const claimsTitles = (["en", "zh-CN"] as const).map((language) =>
     translate(language, "meetings.fill.section.claims"),
   );
@@ -1423,11 +1512,10 @@ async function run(call: Call) {
       fact,
       count: found.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
       inClaims: inClaims.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
-      cited: found.length > 0 && found.every((each) => citesRightly(each, fact, call)),
+      cited: found.length > 0 && found.every((each) => citesRightly(each, fact, call, cues)),
     };
   });
   const uncited = units.filter((each) => each.ai && each.citations.length === 0).length;
-  const transcript = (await core.listMeetings()).find((each) => each.id === meeting.id)?.transcript;
   let undone = false;
   if (fill.state === "filled" && call.requireSections) {
     await core.undoMeetingFill(meeting.id);
@@ -1435,7 +1523,7 @@ async function run(call: Call) {
     undone = true;
   }
   core.close();
-  return { fill, doc, typed, units, scored, uncited, usage, transcript, undone };
+  return { fill, doc, typed, units, scored, uncited, usage, transcript, cues, undone, fillMs };
 }
 
 const shownNote = (doc: ProseMirrorNode) => {
@@ -1484,7 +1572,8 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
   },
   () => {
     test.each(chosen)("$id", async (call) => {
-      const { fill, doc, typed, units, scored, uncited, usage, undone } = await run(call);
+      const { fill, doc, typed, units, scored, uncited, usage, cues, undone, fillMs } =
+        await run(call);
       const once = scored.filter((each) => each.count === 1 && each.cited).length;
       const title = (section: "summary" | "decisions" | "actions") =>
         call.sectionHeadings?.[section] ??
@@ -1536,7 +1625,8 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
             `Once and cited rightly: ${once} of ${call.facts.length}. AI parts without a Citation: ${uncited}. Fill: ${fill.state}${fill.problem ? ` (${fill.problem.message})` : ""}.`,
             `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
             `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
-            `Counts: ${JSON.stringify({ call: call.id, model: MODEL, dollars: usage.dollars, once, total: call.facts.length, ...counts })}`,
+            `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-v2", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
+            `Transcript cues: ${JSON.stringify(cues)}`,
             "",
             "| Kind | Fact | Times in the note | Cited rightly | In the claims list |",
             "|---|---|---|---|---|",
