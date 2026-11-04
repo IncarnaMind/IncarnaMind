@@ -174,6 +174,8 @@ export function pairedSection(
   rows: readonly PairedRow[],
   names: [string, string],
   margin = 0,
+  /** False: the rows are part of a set the guards hold on as a whole, so none is judged here. */
+  judged = true,
 ): string {
   const [a, b] = names;
   const of = (pick: (run: ArmRun) => number | null) =>
@@ -198,8 +200,10 @@ export function pairedSection(
     const done = counted(run);
     return `${done.filter((each) => (each.searches ?? 0) > 1).length} of ${done.length}`;
   };
+  const holds = (each: Guard) =>
+    `${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""}`;
   const rule = (each: Guard) =>
-    `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${each.holds ? "yes" : "**no**"}${each.allowed > 0 ? ` (${each.allowed} fewer allowed)` : ""} |`;
+    `| ${each.name} | ${each.baseline} | ${each.candidate} | ${each.lost} / ${each.gained} | ${judged ? holds(each) : "–"} |`;
   return [
     `| | ${a} | ${b} | ${b} against ${a}, item by item |`,
     "|---|---|---|---|",

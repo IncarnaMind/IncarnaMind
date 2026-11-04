@@ -50,7 +50,7 @@ export interface ArmRun {
   modelCalls: number;
   /** Of them, the Answer's own: not its search rewrite, translation or checks. */
   answerCalls: number;
-  /** The searches the Answer made, a search made before the first call included; null: not counted. */
+  /** The searches the Answer made, one made before the first call included; null: not counted. */
   searches: number | null;
   inputTokens: number;
   outputTokens: number;
@@ -135,7 +135,12 @@ export async function openForArms(
   try {
     return [first, await group.open(options(1))];
   } catch (error) {
-    await first.close();
+    await first.close().catch((closing: unknown) => {
+      console.error(
+        "The first arm's library didn't close after the second failed to open:",
+        closing,
+      );
+    });
     throw error;
   }
 }

@@ -1,8 +1,8 @@
 /**
  * `npm run eval:speed` with INCARNAMIND_EVAL_SPEED_PAIRED (README.md › Paired runs): each item of
  * the sets named, on each model, runs on two arms, today's path and a new one, each in a core of
- * its own, the order turning item by item. Both are read the same way and compared item by item; the run
- * stops at the new arm's first false Supported that today's didn't give. Writes
+ * its own, the order turning item by item. Both are read the same way and compared item by item;
+ * the run stops at the new arm's first false Supported that today's didn't give. Writes
  * eval/results/speed-paired-<time>/.
  */
 import { mkdir, writeFile } from "node:fs/promises";
@@ -180,7 +180,6 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const switches = [armSwitch(), armSwitch()] as const;
   switches[0].use(arms[0]);
   switches[1].use(arms[1]);
-  const reranker = createWorkerCrossEncoder(config.rerankOnCpu);
   const rows: PairedRow[] = [];
   const loads: number[] = [];
   let spentBefore = 0;
@@ -204,7 +203,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     const opened = await openForArms(group, (which) => ({
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
-      reranker,
+      // A reranker of its own: one shared by both cores loads its model again at each arm's turn,
+      // as each core keeps the model files in its own data folder.
+      reranker: createWorkerCrossEncoder(config.rerankOnCpu),
       keep: config.keepData,
       log,
       embeddings: false,
@@ -214,6 +215,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     }));
     const spentInCores = async () =>
       (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
+    log(
+      `The arms' libraries: ${opened[0].library.passageCount} and ${opened[1].library.passageCount} Passages`,
+    );
     try {
       const recorders = [recorderOf(opened[0].library), recorderOf(opened[1].library)] as const;
       for (const { library } of opened) {
@@ -300,8 +304,11 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
         }
       }
     } finally {
-      spentBefore += await spentInCores();
-      await Promise.all(opened.map((each) => each.close()));
+      try {
+        spentBefore += await spentInCores();
+      } finally {
+        await Promise.all(opened.map((each) => each.close()));
+      }
     }
   }
 
@@ -324,7 +331,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
             return [
               `### ${group.title} · ${language} (${ofLanguage.length} items; reported only, the guards hold on both languages together)`,
               "",
-              pairedSection(ofLanguage, names, margin),
+              pairedSection(ofLanguage, names, margin, false),
               "",
             ];
           })

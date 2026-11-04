@@ -135,6 +135,35 @@ describe("the arms' cores", () => {
       await Promise.all(opened.map((each) => each.close()));
     }
   });
+
+  test("when the second arm's library fails to open, the first is closed", async () => {
+    const closed: string[] = [];
+    let opens = 0;
+    const group = {
+      async open(options: GroupOptions) {
+        opens += 1;
+        if (opens === 2) throw new Error("The second library didn't open.");
+        const library = await openLibrary({ ...options, name: "paired-notes", documents: [] });
+        return {
+          library,
+          async close() {
+            closed.push(library.dataDir);
+            await library.close();
+          },
+        };
+      },
+    };
+
+    await expect(
+      openForArms(group, () => ({
+        embedder: createFakeEmbedder(),
+        keep: false,
+        log: () => undefined,
+        embeddings: false,
+      })),
+    ).rejects.toThrow("The second library didn't open.");
+    expect(closed).toHaveLength(1);
+  });
 });
 
 describe("the report", () => {
@@ -144,6 +173,17 @@ describe("the report", () => {
       ["loop", "retrieve-first"],
     );
     expect(section).toContain("| Searched more than once | 0 of 2 | 1 of 2 | |");
+  });
+
+  test("a language's table judges no guard: the set's own table does", () => {
+    const section = pairedSection(
+      [row({}, { grade: "wrong" })],
+      ["loop", "retrieve-first"],
+      1,
+      false,
+    );
+    expect(section).toContain("| Judged right | 1 | 0 | 1 / 0 | – |");
+    expect(section).not.toContain("**no**");
   });
 
   test("leaves the row out where no search was counted", () => {
