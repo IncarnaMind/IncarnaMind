@@ -72,6 +72,8 @@ interface Asking {
   estimate: EstimateLine | null;
   /** `estimateRun` failed: the ask says the cost couldn't be estimated. */
   unestimated: boolean;
+  /** A run of the Figure schedule's chosen figures: the OK checks those figures, never the whole Note. */
+  figureIds?: string[];
 }
 
 /** What a Check runs: what changed, and whether a Folder's other Documents are checked too. */
@@ -80,6 +82,8 @@ interface CheckToRun {
   allDocuments: boolean;
   /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
   watch: { claims: number } | null;
+  /** The figures to check, for a run from the Figure schedule; none for a whole-Note Check. */
+  figureIds?: string[];
 }
 
 /** A problem with the model or a stop ends the Check: the contradiction watch needs the model too. */
@@ -231,7 +235,7 @@ async function checkMindNow(
     else if (result.kind !== "cancelled" && result.kind !== "running")
       setCheckProblem(
         mindId,
-        withCheckAll(result, () => void startMindCheck(mindId, mode, { allDocuments: true })),
+        withCheckAll(result, () => checkAllDocuments(mindId, mode, figureIds)),
       );
     return result;
   } catch (error) {
@@ -291,12 +295,8 @@ async function readSentencesToCheck(mindId: string): Promise<SentencesToCheck | 
 }
 
 /** What a run is to check, and what it would send. */
-export interface Planned {
-  mode: CheckMindMode;
-  allDocuments: boolean;
+export interface Planned extends CheckToRun {
   plan: MindCheckPlan;
-  /** The Note's Folder holds other Documents; `claims` is every cited claim a full watch reads. */
-  watch: { claims: number } | null;
 }
 
 /**
@@ -329,11 +329,11 @@ async function start(
       return { kind: "running" };
     }
     held = true;
-    const { mode, allDocuments, plan, watch } = await planned();
+    const { mode, allDocuments, plan, watch, figureIds } = await planned();
     const outcome = await askOrCheck(
       mindId,
       requestId,
-      { mode, allDocuments, watch },
+      { mode, allDocuments, watch, ...(figureIds && { figureIds }) },
       plan,
       () => {
         ranCheck = true;
@@ -475,6 +475,53 @@ export const startCheckAsking = (mindId: string): Promise<CheckOutcome> =>
   start(mindId, () => planCheckThisMind(mindId), true);
 
 /**
+ * The Figure schedule's Check again: the figures the User chose, checked as every other way in
+ * asks — its price above $1 or with a spending cap, and the couldn't-estimate line when the
+ * estimate fails (#2313). With `allDocuments`, Check all Documents widens the same figures to
+ * every Document, never to the whole Note.
+ */
+export const startFigureCheckAsking = (
+  mindId: string,
+  figureIds: string[],
+  allDocuments = false,
+): Promise<CheckOutcome> =>
+  start(
+    mindId,
+    async (): Promise<Planned> => ({
+      mode: "all",
+      allDocuments,
+      plan: await core.planMindCheck(mindId, "all", allDocuments, figureIds),
+      watch: null,
+      figureIds,
+    }),
+  );
+
+/**
+ * Check all Documents for a run that found none in its Folder: a run of chosen figures plans
+ * and asks again for those figures, so widening never turns it into a whole-Note Check (#2313).
+ */
+function checkAllDocuments(mindId: string, mode: CheckMindMode, figureIds?: string[]): void {
+  if (figureIds) void startFigureCheckAsking(mindId, figureIds, true);
+  else void startMindCheck(mindId, mode, { allDocuments: true });
+}
+
+/**
+ * The re-check after Change to the source's figure: only what changed since the last check,
+ * with no Folder watch, asked as every other way in asks — its price above $1 or with a
+ * spending cap, and the couldn't-estimate line when the estimate fails (#2313).
+ */
+export const startChangedCheckAsking = (mindId: string): Promise<CheckOutcome> =>
+  start(
+    mindId,
+    async (): Promise<Planned> => ({
+      mode: "changed",
+      allDocuments: false,
+      plan: await core.planMindCheck(mindId, "changed", false),
+      watch: null,
+    }),
+  );
+
+/**
  * The assistant's Check (#1421), in the window that asked: the Note's one Check, or every sentence
  * again. It never answers its own question: with `reply`, an asked run ends as a reply that says
  * the check waits for the User's OK on the Note; from ⌘K the card's question is the answer. A Note
@@ -540,12 +587,13 @@ export async function confirmCheck(mindId: string): Promise<void> {
       mode: asking.mode,
       allDocuments: asking.allDocuments,
       watch: asking.watch,
+      ...(asking.figureIds && { figureIds: asking.figureIds }),
     });
   } catch (error) {
     setCheckProblem(mindId, {
       kind: "failed",
       error,
-      retry: again(mindId, asking.mode, asking.allDocuments),
+      retry: again(mindId, asking.mode, asking.allDocuments, asking.figureIds),
     });
   }
 }
@@ -573,7 +621,7 @@ async function runCheck(mindId: string, requestId: string, run: CheckToRun): Pro
     const full = run.watch !== null && (await fullWatchNeeded(mindId, run.watch));
     // Read before the run: the marks it writes cover every sentence it checks.
     const toCheck = run.watch !== null && !full ? await readSentencesToCheck(mindId) : null;
-    const result = await checkMindNow(mindId, run.mode, run.allDocuments, requestId);
+    const result = await checkMindNow(mindId, run.mode, run.allDocuments, requestId, run.figureIds);
     const stopped = endsCheck(result);
     if (!stopped && run.watch !== null) {
       const watchRequest = crypto.randomUUID();
@@ -636,11 +684,13 @@ async function askOrCheck(
       mindId,
       plan.kind === "nothing"
         ? { kind: "no-claims" }
-        : withCheckAll(plan, () => void startMindCheck(mindId, run.mode, { allDocuments: true })),
+        : withCheckAll(plan, () => checkAllDocuments(mindId, run.mode, run.figureIds)),
     );
     return null;
   }
   // No price arrived at the card's press: the question asks with the couldn't-estimate line.
+  // Only the card's whole-Note press forces a question; a figures run asks with its price or
+  // the couldn't-estimate line, so no figure ids reach this branch.
   if (forceAsk) {
     clearAsk(mindId);
     dismissCheckProblem(mindId);
@@ -703,6 +753,7 @@ async function askOrCheck(
         watch: run.watch,
         estimate,
         unestimated: estimated === null,
+        ...(run.figureIds && { figureIds: run.figureIds }),
       },
     },
   }));

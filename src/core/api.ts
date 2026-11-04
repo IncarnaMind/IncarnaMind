@@ -12392,12 +12392,14 @@ export interface CoreApi {
    * What "Check this Mind" (#737) would send in `mode`, against the Mind's
    * Folder or, with `allDocuments`, every Document; or why there is nothing
    * to check. Sends nothing. In "changed" mode the checks that couldn't be
-   * made count as changed.
+   * made count as changed. With `figureIds`, what a run of those figures
+   * would send: the sentences that hold them, counted for its estimate.
    */
   planMindCheck(
     mindId: string,
     mode: CheckMindMode,
     allDocuments?: boolean,
+    figureIds?: string[],
   ): Promise<MindCheckPlan>;
   /**
    * Keeps a Note for one Check from its planning until it runs or `cancelCheck` drops it
