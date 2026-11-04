@@ -13,7 +13,7 @@
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY; the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
  * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the checks of each case (1),
  * INCARNAMIND_LIVE_LANGUAGES the languages (`en,zh-CN`), INCARNAMIND_LIVE_CASES the files to run,
- * by origin (`held-out,two-part,reported,amended,beyond`; all of them when unset), and
+ * by origin (`held-out,two-part,reported,amended,beyond,second-look`; all of them when unset), and
  * INCARNAMIND_LIVE_BUDGET the dollars after which no further
  * case starts (3), at the app's own count. The report, every check with its path and each part's
  * verdict and quote, is written to INCARNAMIND_LIVE_REPORT when it is set.
@@ -31,6 +31,7 @@ import { AMENDED_SETS } from "./nearCopyAmended.cases";
 import { BEYOND_EXAMPLES_SETS } from "./nearCopyBeyondExamples.cases";
 import { CONFIRMED_SETS } from "./nearCopyConfirmed.cases";
 import { NEAR_COPY_SETS, type NearCopyDocument } from "./nearCopyHeldout.cases";
+import { SECOND_LOOK_SETS } from "./nearCopySecondLook.cases";
 import { WALK_SHAPE_SETS } from "./nearCopyWalkShape.cases";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
@@ -38,7 +39,7 @@ const MODEL = process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5"
 const RUNS = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 1) || 1;
 const LANGUAGES = process.env.INCARNAMIND_LIVE_LANGUAGES?.split(",") ?? ["en", "zh-CN"];
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
-type Origin = "held-out" | "two-part" | "reported" | "amended" | "beyond";
+type Origin = "held-out" | "two-part" | "reported" | "amended" | "beyond" | "second-look";
 const ORIGINS = process.env.INCARNAMIND_LIVE_CASES?.split(",") ?? null;
 const BUDGET = Number(process.env.INCARNAMIND_LIVE_BUDGET ?? 3) || 3;
 /** Libraries checked at once; within one, its cases are checked one after another. */
@@ -367,7 +368,19 @@ describe("held-out near copies on the judge", () => {
           probe: each.text,
           decoy: each.decoy,
         }));
-        const cases = [...earlier, ...added, ...beyondCases].filter(
+        const look = SECOND_LOOK_SETS.find((each) => each.language === set.language);
+        const lookCases: Case[] = (look?.cases ?? []).map((each) => ({
+          key: `look-${each.key}`,
+          kind: each.kind,
+          shape: each.twoPart ? "walk" : "whole",
+          origin: "second-look",
+          document: `look-${each.document}`,
+          sentence: each.text,
+          parts: each.twoPart ?? [each.text],
+          probe: each.twoPart?.[1] ?? each.text,
+          decoy: each.decoy,
+        }));
+        const cases = [...earlier, ...added, ...beyondCases, ...lookCases].filter(
           (each) => !ORIGINS || ORIGINS.includes(each.origin),
         );
         for (const each of cases) {
@@ -380,6 +393,10 @@ describe("held-out near copies on the judge", () => {
           ...(beyond?.documents ?? []).map((document) => ({
             ...document,
             key: `beyond-${document.key}`,
+          })),
+          ...(look?.documents ?? []).map((document) => ({
+            ...document,
+            key: `look-${document.key}`,
           })),
         ].filter((document) => cases.some((each) => each.document === document.key));
         const done: Awaited<ReturnType<typeof checkLibrary>>[] = [];
