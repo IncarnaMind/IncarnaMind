@@ -252,13 +252,12 @@ export function SelectionMenu({
         ? () => {
             close();
             const now = heldNow() ?? held;
-            void citeChosenWords(pick, document, () => citedSelection(now.selection));
+            void citeChosenWords(pick, document, () => citedSelection(now.selection, pick.mindId));
           }
         : null,
     [held, pick, close, heldNow, document],
   );
 
-  // While a sentence waits for its Citation, Enter takes the words selected, as Use as Citation.
   useEffect(() => {
     if (!cite) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -466,7 +465,7 @@ export const citeRangeAction = (
     ? {
         cite: () => {
           then?.();
-          void citeChosenWords(pick, selection.document, () => citeRange(selection));
+          void citeChosenWords(pick, selection.document, () => citeRange(selection, pick.mindId));
         },
       }
     : {};

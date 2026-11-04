@@ -4,14 +4,15 @@ import { useChecks } from "../checks";
 import { chooseCitationIn, requestCitationPicker, useCitationPick } from "../citationPick";
 import { DocumentOrFolderPicker } from "../components/DocumentOrFolderPicker";
 import { useT } from "../i18n";
+import { readableNow } from "../readableDocuments";
 import { useTurnWall } from "../turnWall";
 import type { ShownClaim } from "./claimChecks";
 
 /**
  * Choose the Citation… (#1554) on the card of a sentence the check didn't find: the Document of the
  * close Passage its check found opens beside the Note at that Passage, or, with none, one chosen
- * in the shared picker, where the User selects the words to cite. `onChosen`: the card goes, as
- * for Open.
+ * in the shared picker, a Document open beside the Note chosen first, where the User selects the
+ * words to cite. `onChosen`: the card goes, as for Open.
  */
 export function ChooseCitationAction({
   mindId,
@@ -28,9 +29,10 @@ export function ChooseCitationAction({
   const running = useChecks((state) => state.running[mindId] !== undefined);
   const asked = useCitationPick((state) => state.asked === claim.check.id);
   const pick = { mindId, checkId: claim.check.id, sentence: claim.sentence.text };
-  const close = checkedCitation(claim.check.evidence ?? undefined);
   const start = () => {
-    if (!close) {
+    const close = checkedCitation(claim.check.evidence ?? undefined);
+    // Filed behind a Folder wall since the check, or without text now: the picker instead.
+    if (!close || !readableNow(mindId, { kind: "document", id: close.documentId })) {
       setPicking(true);
       return;
     }
@@ -60,6 +62,7 @@ export function ChooseCitationAction({
         <CitationDocumentPicker
           anchor={button}
           mindId={mindId}
+          startsOnScreen
           onChoose={(documentId) => {
             setPicking(false);
             chooseCitationIn({ ...pick, documentId });
@@ -79,11 +82,14 @@ export function ChooseCitationAction({
 export function CitationDocumentPicker({
   anchor,
   mindId,
+  startsOnScreen = false,
   onChoose,
   onClose,
 }: {
   anchor: HTMLElement;
   mindId: string;
+  /** A Document open beside the Note is chosen when it opens, so Enter takes it. */
+  startsOnScreen?: boolean;
   onChoose(documentId: string): void;
   onClose(): void;
 }) {
@@ -95,6 +101,7 @@ export function CitationDocumentPicker({
       anchor={anchor}
       wall={wall}
       documentsOnly
+      startsOnScreen={startsOnScreen}
       labels={{
         title: t("claim.chooseCitation"),
         search: t("scope.picker.label"),

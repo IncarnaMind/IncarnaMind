@@ -199,8 +199,8 @@ export function commandsReply(
     );
   }
   for (const [asked, command] of [
-    [AGAINST, "check.againstThisDocument"],
-    [SOURCE, "check.chooseCitationInDocument"],
+    [AGAINST, "check.againstDocument"],
+    [SOURCE, "check.chooseCitation"],
   ] as const) {
     const named = asked.exec(question);
     if (named) {

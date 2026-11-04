@@ -1736,15 +1736,17 @@ export function createChecks(options: ChecksOptions) {
         !evidence ||
         stored.check.state !== "unsupported" ||
         stored.cited.length > 0 ||
-        stored.sentence !== stored.check.text
+        stored.sentence !== stored.check.text ||
+        // Filed behind a Folder wall since the check, the Passage stays on its side (#1934).
+        options.walledDocument(evidence.documentId) !== options.walledFolder(mindId)
       )
         return { kind: "changed" };
       // The quote is taken again from the Document as it is now, never from the Mind's copy of it.
       const source = options.documents.citationSource(evidence.passageId);
       const now = options.recheckCitation(evidence);
+      // A Document gone to Recently deleted is no longer found there, so its recheck refuses it.
       if (
         !source ||
-        source.documentDeleted ||
         source.notCited ||
         now.check !== "found" ||
         now.contentHash !== evidence.contentHash

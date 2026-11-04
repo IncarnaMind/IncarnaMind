@@ -11984,6 +11984,8 @@ export interface CoreApi {
   citeSelection(input: {
     documentId: string;
     parts: SelectedPart[];
+    /** The Note the Citation is for: refused from a Document behind a Folder wall it is outside. */
+    mindId?: string;
     area?: CitedArea;
     /** The Unit the area is on, when its text found no place there: a picture of that page or slide. */
     unit?: number | null;

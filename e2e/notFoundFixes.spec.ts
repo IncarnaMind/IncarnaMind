@@ -306,6 +306,19 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(line).toHaveCount(0);
     await expect.poll(() => noteText(editor)).toBe(DIFFERENT);
+
+    // ⌘K's one Check against a Document… opens the picker with the Document open beside the
+    // Note chosen, so Enter reads it.
+    await setWindowSize(app, window, 1440, 900);
+    await pointAndClick(window, editor.getByText("forecasts monthly"));
+    await runCommand(window, "check.againstDocument", t("claim.checkAgainstDocument"));
+    const documents = window.getByTestId("document-or-folder-picker");
+    await expect(documents).toBeVisible();
+    await expect(documents.locator('[role="option"][aria-selected="true"]')).toContainText(
+      "Seabirds",
+    );
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("claim-card")).toContainText("Seabirds");
     await app.close();
   });
 

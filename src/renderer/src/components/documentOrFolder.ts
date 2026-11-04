@@ -19,6 +19,23 @@ export function documentOrFolderChoices(
 }
 
 /**
+ * Whether a Note in the in-app Folder `folderId` (null: in none) may read a Document or Folder
+ * whole, as the shared picker offers them: on the Note's side of a Folder wall, and a Document
+ * with text.
+ */
+export function readableFrom(
+  library: ScopeLibrary,
+  folderId: string | null,
+  choice: Pick<DocumentOrFolderChoice, "kind" | "id">,
+): boolean {
+  const wall = folderId === null ? null : folderWallOf(library.groups ?? [], folderId);
+  const textless =
+    choice.kind === "document" &&
+    library.documents.find((each) => each.id === choice.id)?.status === "no-text";
+  return !textless && keptFrom(library, choice, wall) === null;
+}
+
+/**
  * Why a Note behind `wall` (null: outside every wall) can't read a choice whole, as its searches
  * can't (#1934): outside, one a wall keeps inside names that wall's Folder; inside, anything but
  * the wall's Folder and the Documents the User filed in it is outside. Null when it can.

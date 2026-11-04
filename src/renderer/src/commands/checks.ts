@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { TranslatableError } from "../../../core/errors";
 import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
@@ -11,16 +12,14 @@ import {
   useChecks,
 } from "../checks";
 import { chooseCitationIn, requestCitationPicker } from "../citationPick";
-import { keptFrom } from "../components/documentOrFolder";
 import { applyCorrection, correctionAt } from "../correctionFixes";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
-import { folderWallOf } from "../folders";
 import { startMindCheck } from "../mindCheck";
+import { readableNow } from "../readableDocuments";
 import { rewriteAt, rewriteWithDocuments } from "../rewriteFix";
-import { useAppStore } from "../store";
 import {
   applyDocumentWording,
   applyFigure,
@@ -119,34 +118,22 @@ const withRewrite = () => {
 };
 
 /**
- * The one Document or Folder the command was given, the assistant's find or what ⌘K has in focus,
- * when the Note at `mindId` may read it: on the Note's side of a Folder wall, and a Document with
- * text, as the card's picker offers them.
+ * What a command on the sentence at the caret acts on: its Note, or the one Document or Folder the
+ * assistant found or ⌘K has in focus, when the Note may read it: on the Note's side of a Folder
+ * wall, and a Document with text, as the card's picker offers them. Null for none.
  */
-function targetOf(
+function sentenceTarget(
   ctx: CommandContext,
   kinds: readonly ("document" | "folder")[],
-  mindId: string | undefined,
-): { kind: "document" | "folder"; id: string } | null {
+): { kind: "mind" | "document" | "folder"; id: string } | null {
+  const at = withCuttable();
   const [one, ...more] = ctx.selection.length > 0 ? ctx.selection : ctx.focus ? [ctx.focus] : [];
-  const kind = kinds.find((each) => each === one?.kind);
-  if (!one || !kind || more.length > 0 || mindId === undefined) return null;
-  const state = useAppStore.getState();
-  const groups = state.library?.groups ?? [];
-  const folderId = state.minds.find((each) => each.id === mindId)?.folderId ?? null;
-  const wall = folderId === null ? null : folderWallOf(groups, folderId);
-  const library = {
-    folders: state.folders,
-    groups,
-    tags: state.tags,
-    documents: state.documents,
-    assignments: state.library?.assignments,
-  };
-  const textless =
-    kind === "document" && state.documents.find((each) => each.id === one.id)?.status === "no-text";
-  return textless || keptFrom(library, { kind, id: one.id }, wall) !== null
-    ? null
-    : { kind, id: one.id };
+  if (!at || !one || more.length > 0) return null;
+  if (one.kind === "mind") return one.id === at.mindId ? { kind: "mind", id: one.id } : null;
+  const kind = kinds.find((each) => each === one.kind);
+  if (!kind) return null;
+  const target = { kind, id: one.id };
+  return readableNow(at.mindId, target) ? target : null;
 }
 
 function withOpinion() {
@@ -225,33 +212,25 @@ export const checkCommands: readonly Command[] = [
   },
   checkAgainstDocuments,
   {
+    // On the Note, the picker opens with a Document open beside it chosen; on a Document or Folder
+    // the assistant names ("check this sentence against the lease"), it is read with no picker,
+    // the card asking before it reads (#1554).
     id: "check.againstDocument",
     label: "claim.checkAgainstDocument",
     keywords: ["claim.checkAgainstDocument.keywords"],
     group: "main",
+    appliesTo: ["mind", "document", "folder"],
     reversible: true,
-    when: () => withCuttable() !== null,
-    run() {
-      const at = withCuttable();
-      if (!at) return;
-      showClaimCard(at);
-      requestDocumentPicker(at.claim.check.id);
-    },
-  },
-  {
-    // "Check this sentence against the lease", from the assistant too (#1554): the card asks
-    // before it reads, as for a pick.
-    id: "check.againstThisDocument",
-    label: "claim.checkAgainstThisDocument",
-    group: "main",
-    appliesTo: ["document", "folder"],
-    reversible: true,
-    when: (ctx) => targetOf(ctx, ["document", "folder"], withCuttable()?.mindId) !== null,
+    when: (ctx) => sentenceTarget(ctx, ["document", "folder"]) !== null,
     run(ctx) {
       const at = withCuttable();
-      const target = targetOf(ctx, ["document", "folder"], at?.mindId);
-      if (!target || !at) return;
+      const target = sentenceTarget(ctx, ["document", "folder"]);
+      if (!at || !target) return;
       showClaimCard(at);
+      if (target.kind === "mind" || !ctx.assistant) {
+        requestDocumentPicker(at.claim.check.id);
+        return;
+      }
       requestDocumentRead(at.claim.check.id, {
         folderIds: target.kind === "folder" ? [target.id] : [],
         tagIds: [],
@@ -260,32 +239,24 @@ export const checkCommands: readonly Command[] = [
     },
   },
   {
+    // On a Document the assistant names ("the source is the lease"), it opens beside the Note for
+    // the User to select the words; else as the card's action. The Citation is one step of Undo.
     id: "check.chooseCitation",
     label: "claim.chooseCitation",
     keywords: ["claim.chooseCitation.keywords"],
     group: "main",
-    // It opens a picker; the Citation the User then chooses is one step of Undo.
+    appliesTo: ["mind", "document"],
     reversible: true,
-    when: () => withCuttable() !== null,
-    run() {
-      const at = withCuttable();
-      if (!at) return;
-      showClaimCard(at);
-      requestCitationPicker(at.claim.check.id);
-    },
-  },
-  {
-    // "The source is the lease": the lease opens beside the Note for the User to select the words.
-    id: "check.chooseCitationInDocument",
-    label: "claim.chooseCitationInDocument",
-    group: "main",
-    appliesTo: ["document"],
-    reversible: true,
-    when: (ctx) => targetOf(ctx, ["document"], withCuttable()?.mindId) !== null,
+    when: (ctx) => sentenceTarget(ctx, ["document"]) !== null,
     run(ctx) {
       const at = withCuttable();
-      const target = targetOf(ctx, ["document"], at?.mindId);
-      if (!target || !at) return;
+      const target = sentenceTarget(ctx, ["document"]);
+      if (!at || !target) return;
+      if (target.kind === "mind" || !ctx.assistant) {
+        showClaimCard(at);
+        requestCitationPicker(at.claim.check.id);
+        return;
+      }
       chooseCitationIn({
         mindId: at.mindId,
         checkId: at.claim.check.id,
@@ -301,9 +272,11 @@ export const checkCommands: readonly Command[] = [
     // Applied as one step of the Note's Undo, which brings back the check it had.
     reversible: true,
     when: () => withRewrite() !== null,
-    run() {
+    async run(ctx) {
       const at = withRewrite();
-      if (at) void rewriteWithDocuments(at.editor, at.mindId, at.doc, at.claim);
+      if (!at) return;
+      const wrote = await rewriteWithDocuments(at.editor, at.mindId, at.doc, at.claim);
+      if (!wrote && ctx.assistant) throw new TranslatableError({ key: "claim.rewrite.kept" });
     },
   },
   {

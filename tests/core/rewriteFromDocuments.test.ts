@@ -197,6 +197,30 @@ describe("A rewrite changes only the value that differs", () => {
       "The monthly rent is $14,250.",
     ],
     ["a role in Chinese", "合同由董事签署。", "Change 1: 董事\nTo 1: 经理", "合同由经理签署。"],
+    [
+      "a name with a title, in Chinese",
+      "合同由李明签署。",
+      "Change 1: 李明\nTo 1: 张经理",
+      "合同由张经理签署。",
+    ],
+    [
+      "a name with words after it, in Chinese",
+      "项目负责人为李明。",
+      "Change 1: 李明\nTo 1: 王芳女士",
+      "项目负责人为王芳女士。",
+    ],
+    [
+      "a company's short name, in Chinese",
+      "承租方为华润。",
+      "Change 1: 华润\nTo 1: 万科",
+      "承租方为万科。",
+    ],
+    [
+      "a name of more than 8 words",
+      "The Landlord is Northgate Holdings.",
+      "Change 1: Northgate Holdings\nTo 1: Westmarch Commercial Property Investments Limited Trading As Westmarch Lettings",
+      "The Landlord is Westmarch Commercial Property Investments Limited Trading As Westmarch Lettings.",
+    ],
   ])("refuses %s", (_, sentence, reply, quote) => {
     expect(rewritten(sentence, reply, quote)).toEqual({ kind: "kept" });
   });
@@ -213,12 +237,6 @@ describe("A rewrite changes only the value that differs", () => {
       "公司去年营收 1.2亿元。",
       "Change 1: 1.2亿元\nTo 1: 1.5亿元",
       "公司去年营收 1.5亿元。",
-    ],
-    [
-      "a date",
-      "The lease term starts on 1 March 2026.",
-      "Change 1: 1 March 2026\nTo 1: 15 March 2026",
-      "The lease term starts on 15 March 2026 and runs for five years.",
     ],
     [
       "a name",

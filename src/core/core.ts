@@ -5349,8 +5349,15 @@ export function createCore(adapters: CoreAdapters): Core {
           ? input.unit
           : null;
       const around = parseAround(input.around);
+      const documentId = parseDocumentId(input.documentId);
+      if (
+        input.mindId !== undefined &&
+        walledDocument(documentId) !== walledFolder(parseMindId(input.mindId))
+      ) {
+        throw new InvalidInputError({ key: "error.folder.wall" });
+      }
       return citeSelection(documents, {
-        documentId: parseDocumentId(input.documentId),
+        documentId,
         parts,
         ...(area !== undefined && { area }),
         unit,
