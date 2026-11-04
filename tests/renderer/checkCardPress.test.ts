@@ -237,20 +237,22 @@ test("the run's line takes Check's own row", async () => {
   expect(check?.getAttribute("disabled")).not.toBeNull();
 });
 
-// protects=#2313: while the run is on the price line stays laid out, hidden, under the run's line; fails_when=the price line is removed at the press, so the foot moves; no_claim=the room kept before the run above.
-test("the price line keeps its room under the run's line", async () => {
+// protects=#2313: while the run is on the price line stays as it was, shown, so no blank band takes its room; fails_when=the price line is hidden or removed at the press; no_claim=the price line shown before the run above.
+test("the price line stays through the run", async () => {
   await render("price", planned);
   pressed.running.value = true;
   await render("price", null);
 
   const price = container.querySelector(".check-card-estimate");
   if (!price) throw new Error("The price line's room went at the press.");
-  expect(price.getAttribute("data-hidden")).toBe("");
-  expect(container.querySelector('[data-testid="check-estimate"]')).toBeNull();
+  expect(price.getAttribute("data-hidden")).toBeNull();
+  expect(container.querySelector('[data-testid="check-estimate"]')?.textContent).toBe(
+    "About $1.40",
+  );
 });
 
-// protects=#2313: after the run ends a card with no new price keeps the last price line laid out, hidden, and the Check comes back; fails_when=the price line goes at the end of the run, so the card jumps; no_claim=the room kept during the run above.
-test("the last price line keeps its room after the run ends", async () => {
+// protects=#2313: after the run ends a card with no new price keeps the last price line shown, and the Check comes back; fails_when=the price line goes at the end of the run, so the foot goes blank; no_claim=the run above.
+test("the last price line stays after the run ends", async () => {
   await render("price", planned);
   pressed.running.value = true;
   await render("price", null);
@@ -258,9 +260,9 @@ test("the last price line keeps its room after the run ends", async () => {
   await render("none", planned, null);
 
   const price = container.querySelector(".check-card-estimate");
-  if (!price) throw new Error("The card jumped when the run ended.");
-  expect(price.getAttribute("data-hidden")).toBe("");
-  expect(container.querySelector('[data-testid="check-estimate"]')).toBeNull();
+  if (!price) throw new Error("The card went blank when the run ended.");
+  expect(price.getAttribute("data-hidden")).toBeNull();
+  expect(container.querySelector('[data-testid="check-estimate"]')).not.toBeNull();
   const check = container.querySelector('[data-testid="badge-check-mind"]');
   expect(check?.getAttribute("data-hidden")).toBeNull();
 });

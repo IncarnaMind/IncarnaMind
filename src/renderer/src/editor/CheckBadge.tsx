@@ -140,17 +140,6 @@ function MindBadge({
   // Planned only while the card is open: the estimate is what the card shows before a press.
   const planned = useCheckThisMindPlan(doc, mindId, running !== undefined || !open);
   const { line: estimate, state: estimateState } = useCheckEstimate(mindId, open ? planned : null);
-  // The card's height holds only once its content is settled: a question, a problem or an
-  // estimate on its way sizes to its content, and a run's verdicts land in the held room.
-  const askingNow = askingMind || askingContradictions || problem;
-  const ready = !askingNow && (running !== undefined || estimateState !== "pending");
-  const [heldOnce, setHeldOnce] = useState(false);
-  useEffect(() => {
-    if (!open) setHeldOnce(false);
-  }, [open]);
-  useLayoutEffect(() => {
-    if (open && ready && !heldOnce) setHeldOnce(true);
-  }, [open, ready, heldOnce]);
   const state = noteStateOf(health, unread.length, narrowUnread.length);
   const input: BadgeInput = {
     marks: {
@@ -174,7 +163,6 @@ function MindBadge({
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
-      holds={!askingNow && (ready || heldOnce)}
       actions={
         <CheckActions
           editor={editor}
@@ -225,24 +213,32 @@ export function CheckActions({
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
   const language = useLanguage();
-  // The price line the card last showed stays laid out, hidden, once a run or a plan change takes
-  // it away, so the foot keeps its height until the card closes.
+  // The price line stays as it was through a run and until a new estimate replaces it, so the
+  // foot never goes blank and keeps its height until the card closes.
   const [lastPrice, setLastPrice] = useState<EstimateLine | null>(estimate);
   useEffect(() => {
     if (!running && estimate) setLastPrice(estimate);
   }, [estimate, running]);
   const price = estimate ?? lastPrice;
-  const priceShown = estimate !== null && !running;
-  // The press disables Check and focus falls away: it goes to Stop, so a keyboard User can stop
-  // the run, and back to Check when the run ends.
+  // The press disables Check and the focus falls to the page: it goes to Stop, so a keyboard User
+  // can stop the run, and back to Check when the run ends. A focus somewhere else, such as the
+  // composer being typed in, stays where the User put it.
   const checkPress = useRef<HTMLButtonElement>(null);
   const stopPress = useRef<HTMLButtonElement>(null);
   const wasRunning = useRef(running);
   useLayoutEffect(() => {
     if (wasRunning.current === running) return;
+    wasRunning.current = running;
+    const active = document.activeElement;
+    const lost =
+      !(active instanceof HTMLElement) ||
+      active === document.body ||
+      !active.isConnected ||
+      active === checkPress.current ||
+      active.matches(":disabled");
+    if (!lost) return;
     if (running) stopPress.current?.focus();
     else checkPress.current?.focus();
-    wasRunning.current = running;
   }, [running]);
   const correctable = useEditorState({
     editor,
@@ -255,27 +251,17 @@ export function CheckActions({
       {unchanged && planned?.plan.kind === "unchanged" && (
         <MindUnchanged mindId={mindId} since={planned.plan.since} />
       )}
-      <div className="check-card-foot-line">
-        {price && (
-          <div
-            className="check-card-estimate"
-            data-hidden={priceShown ? undefined : ""}
-            aria-hidden={priceShown ? undefined : true}
-          >
-            <MetaLine
-              data-testid={priceShown ? "check-estimate" : undefined}
-              parts={price.parts}
-              title={price.title}
-            />
-          </div>
-        )}
-      </div>
+      {price && (
+        <div className="check-card-estimate">
+          <MetaLine data-testid="check-estimate" parts={price.parts} title={price.title} />
+        </div>
+      )}
       <div className="check-card-actions">
-        {correctable > 0 && !running && (
+        {correctable > 0 && (
           <button
             type="button"
             data-testid="badge-correct-contradictions"
-            disabled={editing}
+            disabled={running || editing}
             className={buttonStyle("primary", "sm")}
             onClick={() => {
               if (correctContradictions(editor, mindId) === 0) return;
@@ -437,7 +423,6 @@ function BadgeFrame({
   running,
   onStop,
   foot,
-  holds = true,
   actions,
   children,
 }: {
@@ -449,11 +434,6 @@ function BadgeFrame({
   running: ReactNode;
   onStop(): void;
   foot?: ReactNode;
-  /**
-   * Whether the card holds its opening height. False while its content is still on its way (a
-   * question, a problem, an estimate).
-   */
-  holds?: boolean;
   /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
   actions?: ReactNode;
   children: ReactNode;
@@ -468,20 +448,19 @@ function BadgeFrame({
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  // Once its content is settled, the card keeps the height it opened with, so rows and verdicts
-  // landing do not make it jump; content that needs more room scrolls, and the next open fits
-  // the result (#2313).
+  // The card takes its first paint's height, so what lands later never moves what is above it;
+  // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (!open || !holds) {
+    if (!open) {
       setHeldHeight(null);
       return;
     }
     if (heldHeight !== null) return;
     const element = body.current;
     if (element) setHeldHeight(element.offsetHeight);
-  }, [open, holds, heldHeight]);
+  }, [open, heldHeight]);
   // Its cut edge fades while there is more under it, and not when everything fits or the body
   // has been scrolled to its end.
   const [cut, setCut] = useState(false);

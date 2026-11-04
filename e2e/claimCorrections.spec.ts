@@ -395,6 +395,66 @@ for (const [language, width] of [
     await app.close();
   });
 
+  test(`the foot keeps its height with a correction in its row (${language}, ${width}px)`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, check, evidence } = await launched(language, width);
+    const text = language === "en" ? "The first rate is 36.8%." : "第一个比率是 36.8%。";
+    await insert(window, [
+      paragraph(
+        marked(
+          text,
+          check("first", text, {
+            from: "36.8%",
+            choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+          }),
+        ),
+      ),
+    ]);
+    const card = await checkCard(window);
+    const correct = card.getByTestId("badge-correct-contradictions");
+    await expect(correct).toBeVisible();
+    const foot = card.getByTestId("check-card-foot");
+    const before = { card: await card.boundingBox(), foot: await foot.boundingBox() };
+    if (!before.card || !before.foot) throw new Error("The card isn't drawn.");
+
+    // The run's words take Check's row while the correction stays where it was, disabled.
+    await app.evaluate(() => {
+      (
+        globalThis as unknown as { incarnamindSlowCheck: { hold: boolean } }
+      ).incarnamindSlowCheck.hold = true;
+    });
+    await pointAndClick(window, card.getByTestId("badge-check-mind"));
+    // The press asks first while the estimate lands, and with nothing changed offers every
+    // sentence again; either way one more press runs it.
+    const ask = card.getByTestId("mind-check-check");
+    const every = card.getByTestId("mind-check-every");
+    await expect
+      .poll(
+        async () =>
+          (await card.getByTestId("card-foot-progress").count()) +
+          (await ask.count()) +
+          (await every.count()),
+      )
+      .toBeGreaterThan(0);
+    if ((await ask.count()) > 0) await pointAndClick(window, ask);
+    if ((await every.count()) > 0) await pointAndClick(window, every);
+    await expect(card.getByTestId("card-foot-progress")).toBeVisible();
+    const after = { card: await card.boundingBox(), foot: await foot.boundingBox() };
+    if (!after.card || !after.foot) throw new Error("The card went at the press.");
+    expect(after.card.height).toBeCloseTo(before.card.height, 0);
+    expect(after.foot.height).toBeCloseTo(before.foot.height, 0);
+    await expect(correct).toBeVisible();
+    await expect(correct).toBeDisabled();
+    await app.evaluate(() => {
+      const slow = (
+        globalThis as unknown as { incarnamindSlowCheck: { hold: boolean; release(): void } }
+      ).incarnamindSlowCheck;
+      slow.hold = false;
+      slow.release();
+    });
+    await app.close();
+  });
+
   test(`each contradicted part of a two-part sentence is corrected from its row (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const { app, window, editor, partsCheck, evidence } = await launched(language, width);

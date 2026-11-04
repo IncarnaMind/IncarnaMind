@@ -57,7 +57,7 @@ export const KNOWN: readonly Known[] = [
     step: "check the Mind",
     kind: "shift",
     moved: ["tab-group"],
-    max: 0.005,
+    max: 0.0017,
     sometimes: true,
     issue: 2519,
   },

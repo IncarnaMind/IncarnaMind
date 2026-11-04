@@ -1864,18 +1864,6 @@
       padding-left: 0;
     }
   }
-  /* The price line keeps its room while a run hides it, so the foot's price never moves (#2313). */
-  .check-card-foot-line {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-
-    & > * {
-      grid-area: 1 / 1;
-    }
-    & > [data-hidden] {
-      visibility: hidden;
-    }
-  }
   /* The run's words take Check's row: they lie over the hidden Check, to its left, so the row
      keeps the Check's own size and the words' length never moves it (#2313). */
   .check-card-press {
@@ -1894,6 +1882,7 @@
     right: 0;
     transform: translateY(-50%);
     flex-wrap: nowrap;
+    white-space: nowrap;
     font-variant-numeric: tabular-nums;
     margin: 0;
     padding-left: 0;
@@ -1905,12 +1894,7 @@
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
-    padding: 0 8px 6px;
-
-    /* Its line is kept while a run is on, so the card keeps one height as results land (#1312). */
-    &:empty::before {
-      content: "\00a0";
-    }
+    padding: 6px 8px 4px;
   }
   .check-card-note {
     padding: 4px 8px 6px;
@@ -1918,11 +1902,6 @@
     line-height: 18px;
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
-
-    /* A run ends a moment before its record reaches the Mind: the line keeps its one line. */
-    &:empty::before {
-      content: "\00a0";
-    }
   }
   .check-card-actions {
     display: flex;

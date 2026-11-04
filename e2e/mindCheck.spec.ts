@@ -553,10 +553,12 @@ for (const language of ["en", "zh-CN"] as const) {
       // At rest the row is Check's own: no progress line, no empty one.
       await expect(line).toHaveCount(0);
       await screenshot(window, `card-foot-${language}-${width}-open`);
-      // The lines a run will fill keep their room from the open, so its start adds no height and
-      // clips nothing the User was reading.
-      await expect(health.locator(".mind-health-summary")).toHaveCount(1);
-      await expect(health.locator(".check-card-note")).toHaveCount(1);
+      // The card takes its first paint's height; no line is reserved empty, and a finished
+      // check's note line shows its when, never the run's progress words.
+      const notes = health.locator(".check-card-note");
+      if ((await notes.count()) > 0) {
+        await expect(notes).not.toContainText(language === "en" ? "Checking" : "正在核对");
+      }
       const before = { card: await health.boundingBox(), foot: await foot.boundingBox() };
       if (!before.card || !before.foot) throw new Error("The card isn't drawn.");
 
@@ -575,13 +577,23 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(after.card.x).toBeCloseTo(before.card.x, 0);
       expect(after.card.y).toBeCloseTo(before.card.y, 0);
       expect(after.foot.height).toBeCloseTo(before.foot.height, 0);
-      await expect(price).toHaveCount(0);
+      // The run's own words are one line, in the foot's row, ending where Check ends.
+      const lineBox = await line.boundingBox();
+      const pressBox = await health.getByTestId("badge-check-mind").boundingBox();
+      if (!lineBox || !pressBox) throw new Error("The run's line isn't drawn.");
+      expect(lineBox.height).toBeCloseTo(20, 0);
+      expect(lineBox.y).toBeGreaterThanOrEqual(after.foot.y - 0.5);
+      expect(lineBox.y + lineBox.height).toBeLessThanOrEqual(
+        after.foot.y + after.foot.height + 0.5,
+      );
+      expect(lineBox.x + lineBox.width).toBeCloseTo(pressBox.x + pressBox.width, 0);
+      // The price line stays as it was, so the run leaves no blank band in the foot.
+      await expect(price).toBeVisible();
       // A keyboard User can stop the run: the press leaves them on Stop.
       await expect(health.getByTestId("card-foot-stop")).toBeFocused();
-      // The foot carries the run's words; the body's note line carries only what has landed.
-      await expect(health.locator(".check-card-note")).not.toContainText(
-        language === "en" ? "Checking" : "正在核对",
-      );
+      // The foot carries the run's words; the body's note line takes a line only with something
+      // to say, and nothing has landed yet.
+      await expect(health.locator(".check-card-note")).toHaveCount(0);
       await expect(line).toContainText(language === "en" ? "Checking" : "正在核对");
       // The badge keeps its words while the card is open.
       await expect(window.getByTestId("badge-progress")).toBeVisible();
@@ -593,6 +605,11 @@ for (const language of ["en", "zh-CN"] as const) {
       if (!ended.card || !ended.foot) throw new Error("The card went at the run's end.");
       expect(ended.card.height).toBeCloseTo(before.card.height, 0);
       expect(ended.foot.height).toBeCloseTo(before.foot.height, 0);
+      // The price stays, and the summary is in view at the top of the body, never under the fade.
+      await expect(price).toBeVisible();
+      const summary = health.locator(".mind-health-summary");
+      await expect(summary).toHaveCount(1);
+      await expect(summary).toBeInViewport();
       await expect(press).toBeVisible();
       await expect(press).toBeFocused();
       await screenshot(window, `card-${language}-${width}-ended`);
@@ -637,57 +654,121 @@ for (const language of ["en", "zh-CN"] as const) {
       await release();
       await mindCheckFinished(window, 17);
       await window.keyboard.press("Escape");
-
-      // A card that never showed a price line: no empty line at rest, and the run's words take
-      // Check's own row, so the card does not jump at the press.
-      await window.evaluate(async () => {
-        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        await core.updateSettings({ user: { monthlyCap: null } });
-      });
-      await editor.evaluate((dom) => {
-        (dom as unknown as { editor: Editor }).editor.commands.focus("end");
-      });
-      await focusSettled(window, editor);
-      await window.keyboard.type(" 海豹退潮时 slowly 睡在岩石上。");
-      const plain = await checkCard(window);
-      const plainPress = plain.getByTestId("badge-check-mind");
-      const plainPrice = plain.getByTestId("check-estimate");
-      const plainLine = plain.getByTestId("card-foot-progress");
-      const plainFoot = plain.getByTestId("check-card-foot");
-      await expect(plainPress).toHaveAttribute("title", "1 句待核对");
-      await expect(plainPrice).toHaveCount(0);
-      // Its content has settled: the estimate is none, not still on its way, so the press runs.
-      await expect(plain.locator(".check-card-body")).toHaveAttribute("style", /height/);
-      // No price line, no empty line: at rest the foot holds only the Check.
-      await expect(plainLine).toHaveCount(0);
-      const beforePlain = {
-        card: await plain.boundingBox(),
-        foot: await plainFoot.boundingBox(),
-      };
-      if (!beforePlain.card || !beforePlain.foot) throw new Error("The card isn't drawn.");
-      await screenshot(window, "card-foot-zh-CN-noprice");
-
-      await hold();
-      await pointAndClick(window, plainPress);
-      await expect(plainLine).toBeVisible();
-      await heldRun();
-      const heldPlain = { card: await plain.boundingBox(), foot: await plainFoot.boundingBox() };
-      if (!heldPlain.card || !heldPlain.foot) throw new Error("The card went at the press.");
-      expect(heldPlain.foot.height).toBeCloseTo(beforePlain.foot.height, 0);
-      expect(heldPlain.card.height).toBeCloseTo(beforePlain.card.height, 0);
-      await expect(plainLine).toContainText("正在核对");
-      await screenshot(window, "card-foot-zh-CN-noprice-held");
-      await release();
-      await mindCheckFinished(window, 18);
-      const endedPlain = { card: await plain.boundingBox(), foot: await plainFoot.boundingBox() };
-      if (!endedPlain.card || !endedPlain.foot) throw new Error("The card went at the run's end.");
-      expect(endedPlain.foot.height).toBeCloseTo(beforePlain.foot.height, 0);
-      expect(endedPlain.card.height).toBeCloseTo(beforePlain.card.height, 0);
-      await expect(plainPress).toBeVisible();
     }
+
+    // A card that never showed a price line: no empty line at rest, and the run's words take
+    // Check's own row, so the card does not jump at the press.
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await core.updateSettings({ user: { monthlyCap: null } });
+    });
+    await editor.evaluate((dom) => {
+      (dom as unknown as { editor: Editor }).editor.commands.focus("end");
+    });
+    await focusSettled(window, editor);
+    await window.keyboard.type(
+      language === "en"
+        ? " A seal sleeps on the rocks at low tide."
+        : " 海豹退潮时 slowly 睡在岩石上。",
+    );
+    const plain = await checkCard(window);
+    const plainPress = plain.getByTestId("badge-check-mind");
+    const plainPrice = plain.getByTestId("check-estimate");
+    const plainLine = plain.getByTestId("card-foot-progress");
+    const plainFoot = plain.getByTestId("check-card-foot");
+    await expect(plainPress).toHaveAttribute(
+      "title",
+      language === "en" ? "1 sentence to check" : "1 句待核对",
+    );
+    await expect(plainPrice).toHaveCount(0);
+    // Its content has settled: the estimate is none, not still on its way, so the press runs.
+    await expect(plain.locator(".check-card-body")).toHaveAttribute("style", /height/);
+    // No price line, no empty line: at rest the foot holds only the Check.
+    await expect(plainLine).toHaveCount(0);
+    const beforePlain = {
+      card: await plain.boundingBox(),
+      foot: await plainFoot.boundingBox(),
+    };
+    if (!beforePlain.card || !beforePlain.foot) throw new Error("The card isn't drawn.");
+    await screenshot(window, `card-foot-${language}-noprice`);
+
+    await hold();
+    await pointAndClick(window, plainPress);
+    await expect(plainLine).toBeVisible();
+    await heldRun();
+    const heldPlain = { card: await plain.boundingBox(), foot: await plainFoot.boundingBox() };
+    if (!heldPlain.card || !heldPlain.foot) throw new Error("The card went at the press.");
+    expect(heldPlain.foot.height).toBeCloseTo(beforePlain.foot.height, 0);
+    expect(heldPlain.card.height).toBeCloseTo(beforePlain.card.height, 0);
+    expect(heldPlain.card.x).toBeCloseTo(beforePlain.card.x, 0);
+    expect(heldPlain.card.y).toBeCloseTo(beforePlain.card.y, 0);
+    const plainLineBox = await plainLine.boundingBox();
+    const plainPressBox = await plainPress.boundingBox();
+    if (!plainLineBox || !plainPressBox) throw new Error("The run's line isn't drawn.");
+    expect(plainLineBox.height).toBeCloseTo(20, 0);
+    expect(plainLineBox.x + plainLineBox.width).toBeCloseTo(
+      plainPressBox.x + plainPressBox.width,
+      0,
+    );
+    await expect(plainLine).toContainText(language === "en" ? "Checking" : "正在核对");
+    await screenshot(window, `card-foot-${language}-noprice-held`);
+    await release();
+    await mindCheckFinished(window, language === "en" ? 17 : 18);
+    const endedPlain = { card: await plain.boundingBox(), foot: await plainFoot.boundingBox() };
+    if (!endedPlain.card || !endedPlain.foot) throw new Error("The card went at the run's end.");
+    expect(endedPlain.foot.height).toBeCloseTo(beforePlain.foot.height, 0);
+    expect(endedPlain.card.height).toBeCloseTo(beforePlain.card.height, 0);
+    await expect(plainPress).toBeVisible();
     await app.close();
   });
 }
+
+test("a run's start and end leave the composer's typing alone", async () => {
+  test.setTimeout(120_000);
+  await writeFile(join(sources, "Tides.pdf"), TIDES);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+  await useCloudChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  await harbourNotes(window);
+  const health = await checkCard(window);
+  await app.evaluate(() => {
+    (
+      globalThis as unknown as { incarnamindSlowCheck: { hold: boolean } }
+    ).incarnamindSlowCheck.hold = true;
+  });
+  await pointAndClick(window, health.getByTestId("badge-check-mind"));
+  await expect(health.getByTestId("card-foot-progress")).toBeVisible();
+  await expect
+    .poll(() =>
+      app.evaluate(
+        () =>
+          (globalThis as unknown as { incarnamindSlowCheck: { waiting: unknown[] } })
+            .incarnamindSlowCheck.waiting.length,
+      ),
+    )
+    .toBeGreaterThan(0);
+
+  // The User goes on typing in the composer while the run is on (⌘J reaches it without a press
+  // that would close the card), and the run's end leaves the words and the focus where they are.
+  const composer = window.getByTestId("composer-input");
+  await window.keyboard.press("ControlOrMeta+j");
+  await expect(composer).toBeFocused();
+  await window.keyboard.type("A note while the check runs");
+  await app.evaluate(() => {
+    const slow = (
+      globalThis as unknown as { incarnamindSlowCheck: { hold: boolean; release(): void } }
+    ).incarnamindSlowCheck;
+    slow.hold = false;
+    slow.release();
+  });
+  await mindCheckFinished(window, 15);
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue("A note while the check runs");
+  await app.close();
+});
 
 test("In Chinese and a narrow window, from the Mind's tab menu: a model on this computer checks at once with no price; a Folder that holds too little offers all Documents; Check checks a sentence written since", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
