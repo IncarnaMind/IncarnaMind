@@ -1364,6 +1364,16 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       state: "not-checked",
       reason: "kept-inside",
     });
+    // Nor does its column line say it was recalculated.
+    expect(
+      outside.rows
+        .find((row) => row.analysisTable)
+        ?.analysisTable?.columns.map((column) => columnLine(column, language)),
+    ).toEqual([
+      language === "en"
+        ? "amount: from the Analysis · not recalculated"
+        : "amount：来自数据分析 · 未重新计算",
+    ]);
     expect(
       outside.rows.filter((row) => !row.analysisTable).map((row) => row.shown.state),
     ).not.toContain("supported");

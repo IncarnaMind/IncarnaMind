@@ -493,7 +493,13 @@ export function analysisTableShown(
   const wall = keptInside
     ? kept.citations.map((citation) => keptInside(citation.documentId)).find(Boolean)
     : null;
-  if (wall) return { state: { kind: "kept-inside", folder: wall }, columns, missing };
+  // Behind a wall the Note is outside, the run backs nothing: no column reads recalculated.
+  if (wall)
+    return {
+      state: { kind: "kept-inside", folder: wall },
+      columns: columns.map((column) => ({ ...column, rule: null })),
+      missing,
+    };
   const differs = columns.some((column) => column.differs.length > 0);
   if (differs) return { state: { kind: "differs" }, columns, missing };
   for (const citation of kept.citations) {
