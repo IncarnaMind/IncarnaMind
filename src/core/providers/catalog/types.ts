@@ -141,7 +141,7 @@ export interface RequestQuirks {
    */
   effort?: {
     kinds: Partial<Record<ThinkingKind, ProviderOptions>>;
-    /** Kinds set apart for some models, by model id prefix: a model's entry replaces `kinds` for each kind it names. */
+    /** Kinds set apart for some models, by model id (dated ids too): a model's entry replaces `kinds` for each kind it names. */
     models?: Readonly<Record<string, Partial<Record<ThinkingKind, ProviderOptions>>>>;
     /** What to leave out when a refusal names `names`, for a model that takes no effort: an option set to undefined. */
     refused?: readonly { names: string; options: ProviderOptions }[];

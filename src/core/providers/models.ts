@@ -201,8 +201,8 @@ function effortOf(
   modelId: string,
   kind: ThinkingKind,
 ): ProviderOptions | undefined {
-  const own = Object.entries(effort?.models ?? {}).find(([prefix]) => modelId.startsWith(prefix));
-  return own && kind in own[1] ? own[1][kind] : effort?.kinds[kind];
+  const own = effort?.models?.[modelId] ?? effort?.models?.[withoutDateSuffix(modelId)];
+  return own && kind in own ? own[kind] : effort?.kinds[kind];
 }
 
 /** Whether thinking can be turned off on this model: not on one the provider says always thinks, nor one the catalog knows doesn't think. */

@@ -198,7 +198,7 @@ async function answer(
 }
 
 describe("An Answer's request to a model that thinks", () => {
-  // protects=Claude 5 models are asked for their summarized thinking, at the default effort for a call of no kind and for a Task's but on Haiku 5.5, low for an Answer and Haiku 5.5's Task, and high for an Answer that checks or calculates, and older ones get no thinking turned on; fails_when=a call of no kind or Sonnet's Task carries an effort, an Answer or Haiku's Task lacks its effort, or Claude 4.8's carries thinking; no_claim=the fake API doesn't check what Anthropic accepts.
+  // protects=Claude 5 models are asked for their summarized thinking, at the default effort for a call of no kind and for a Task's but on Haiku 5.5 (its id or dated id, not one it begins), low for an Answer and Haiku 5.5's Task, and high for an Answer that checks or calculates, and older ones get no thinking turned on; fails_when=a call of no kind, Sonnet's Task or another id's Task carries an effort, an Answer or Haiku's Task lacks its effort, or Claude 4.8's carries thinking; no_claim=the fake API doesn't check what Anthropic accepts.
   test.each([
     ["claude-sonnet-5-5", "summary", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-sonnet-5-5", "answer", { type: "adaptive", display: "summarized" }, { effort: "low" }],
@@ -218,6 +218,7 @@ describe("An Answer's request to a model that thinks", () => {
       { type: "adaptive", display: "summarized" },
       { effort: "low" },
     ],
+    ["claude-haiku-5-50", "task", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-opus-5-5", "task", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-opus-4-8", "answer", undefined, undefined],
     ["claude-opus-4-8", "careful", undefined, undefined],
@@ -280,8 +281,33 @@ describe("An Answer's request to a model that thinks", () => {
       }),
     );
     await generateText({ model: modelOf("deepseek", "deepseek-chat", "summary"), prompt: "OK?" });
-    expect(Object.keys(deepseek[0] ?? {})).not.toEqual(
-      expect.arrayContaining(["thinking", "reasoning", "reasoning_effort"]),
-    );
+    expect(deepseek).toHaveLength(1);
+    expect(deepseek[0]?.thinking).toBeUndefined();
+    expect(deepseek[0]?.reasoning).toBeUndefined();
+    expect(deepseek[0]?.reasoning_effort).toBeUndefined();
   });
+
+  // protects=DeepSeek Flash, which thinks by default, keeps DeepSeek's default for every kind of call: low was measured and failed the gate (#1631); fails_when=any kind sends thinking, reasoning or reasoning_effort; no_claim=the fake API doesn't check what DeepSeek accepts.
+  test.each(["answer", "careful", "task", "summary"] as const)(
+    "DeepSeek Flash, %s: none of thinking, reasoning or reasoning_effort",
+    async (thinking) => {
+      const bodies = fakeApi(() =>
+        Response.json({
+          id: "c1",
+          object: "chat.completion",
+          created: 1_790_000_000,
+          model: "deepseek-flash",
+          choices: [
+            { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+      );
+      await generateText({ model: modelOf("deepseek", "deepseek-flash", thinking), prompt: "OK?" });
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]?.thinking).toBeUndefined();
+      expect(bodies[0]?.reasoning).toBeUndefined();
+      expect(bodies[0]?.reasoning_effort).toBeUndefined();
+    },
+  );
 });
