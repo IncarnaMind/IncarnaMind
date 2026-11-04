@@ -37,6 +37,7 @@ import type { CitationSource } from "../../src/core/documents";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import type { CodeDocument } from "../../src/core/runCode";
 import { runCodeTool } from "../../src/core/runCode/tool";
+import { createScriptRunner } from "../../src/core/skills/scripts";
 import { createProcessLauncher } from "../../src/main/processes";
 import { readPythonManifest, runtimePlatform } from "../../src/main/runCode/manifest";
 import {
@@ -825,5 +826,49 @@ print(json.dumps(seen))
       );
       expect(roomy.analyses[0]?.end).toEqual({ kind: "out-of-memory" });
     }, 240_000);
+  },
+);
+
+describe.skipIf(unavailable !== undefined || !runtimeFolder)(
+  `A Skill's Python script on run_code's Python in the OS sandbox${unavailable ? ` (skipped: ${unavailable})` : runtimeFolder ? "" : " (skipped: no INCARNAMIND_TEST_PYTHON_RUNTIME)"}`,
+  () => {
+    test("runs on it, with its packages and none of the PATH's, and still can't read the home canary", async () => {
+      const own = python?.installed() ?? null;
+      if (!own) throw new Error("The runtime is ready, so it is installed.");
+      const skillDir = join(data, "skills", "toolbox-id");
+      await mkdir(join(skillDir, "scripts"), { recursive: true });
+      await writeFile(
+        join(skillDir, "scripts", "where.py"),
+        [
+          "import sys, numpy",
+          "print(sys.executable)",
+          "print(numpy.__version__)",
+          "print(sys.flags.ignore_environment)",
+          "try:",
+          "    open(sys.argv[1]).read()",
+          "    print('home: allowed')",
+          "except OSError:",
+          "    print('home: denied')",
+          "",
+        ].join("\n"),
+      );
+      const scripts = createScriptRunner({ executor: executor(), python: () => own });
+
+      const run = await scripts.run({
+        skillDir,
+        script: "scripts/where.py",
+        args: [homeCanary],
+        timeoutMs: 60_000,
+        signal: new AbortController().signal,
+      });
+
+      expect(run).toMatchObject({ exitCode: 0, error: null });
+      expect(run.stdout.trim().split("\n")).toEqual([
+        join(await realpath(dirname(own.command)), "python3"),
+        python?.manifest.packages.numpy,
+        "1",
+        "home: denied",
+      ]);
+    }, 120_000);
   },
 );

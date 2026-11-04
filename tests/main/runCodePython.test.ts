@@ -176,6 +176,25 @@ describe.skipIf(process.platform === "win32")("run_code's own Python", () => {
     expect(await imports()).toBe("imported\n");
   });
 
+  test("says it is installed only once it is ready, and asking downloads nothing", async () => {
+    const { manifest, served } = await release();
+    const { dataDir, make } = await runtimeFor(manifest);
+    const runtime = make();
+    expect(runtime.installed()).toBeNull();
+    expect(served()).toBe(0);
+    expect(runtime.status().state).toBe("not-downloaded");
+
+    expect((await runtime.ensure(new AbortController().signal)).ok).toBe(true);
+    const prefix = join(pythonRuntimeFolder(dataDir, manifest.sha256), "files", "python");
+    expect(runtime.installed()).toEqual({ command: join(prefix, "bin", "python3"), prefix });
+    expect(make().installed()).toEqual({ command: join(prefix, "bin", "python3"), prefix });
+
+    const failing = await release({ interpreter: interpreterExiting(3) });
+    const unready = (await runtimeFor(failing.manifest)).make();
+    expect((await unready.ensure(new AbortController().signal)).ok).toBe(false);
+    expect(unready.installed()).toBeNull();
+  });
+
   test("keeps nothing that doesn't match the SHA-256 built into the app", async () => {
     const { manifest } = await release();
     const { dataDir, make } = await runtimeFor({ ...manifest, sha256: "0".repeat(64) });

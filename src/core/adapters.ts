@@ -391,9 +391,10 @@ export interface Executor {
 }
 
 /**
- * What Skill scripts run with (see `src/core/skills/scripts.ts`). Python and
- * bash come from the User's login-shell PATH; JavaScript runs on the app's
- * own Node.js, so the User needn't install one.
+ * What Skill scripts run with (see `src/core/skills/scripts.ts`). bash, and
+ * Python until `codeRuntime` has IncarnaMind's own installed, come from the
+ * User's login-shell PATH; JavaScript runs on the app's own Node.js, so the
+ * User needn't install one.
  */
 export interface ScriptRuntimes {
   /**
