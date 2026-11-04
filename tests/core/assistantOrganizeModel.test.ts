@@ -455,7 +455,7 @@ describe("The first Organize tells the window and leaves nothing behind (#2252)"
     expect(consentTo(await core.listRegisteredDataFlows())).toBe("not-asked");
   });
 
-  // protects=under a standing no the Allow lets this one request send and stores nothing at all: the Library keeps no record of a model or a switch; fails_when=the Library's record exists after the run; no_claim=which Folder the classifier picks.
+  // protects=under a standing no the Allow lets this one request send and stores nothing at all: the Library keeps no record of a model or a switch, and the Library's own Sort has no model to use afterwards; fails_when=the Library's record exists after the run, or the model is still lent to the Library's Sort; no_claim=which Folder the classifier picks.
   test("a standing no leaves no record in the Library", async () => {
     const { core, provider, mind, dataDir } = await newUser();
     if (!provider.service) throw new Error("No service.");
@@ -471,6 +471,9 @@ describe("The first Organize tells the window and leaves nothing behind (#2252)"
         "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
       ),
     ).toEqual([]);
+    await expect(core.classifyDocuments()).rejects.toMatchObject({
+      wording: { key: "error.library.noClassifier" },
+    });
   });
 
   // protects=quitting while a request waits under a standing no leaves no model kept, so the Library's own "Use {company}" question is still offered at the next start; fails_when=the next start has a model for Organize or the decision is no longer no; no_claim=which Folder the classifier picks.

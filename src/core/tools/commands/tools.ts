@@ -366,7 +366,7 @@ export function commandTools(options: CommandToolsOptions): {
       // This run sends under a permit for that service, and the Allow is stored after it, as the
       // Library stores "Use {company}" after it saves the model: a consent stored first would
       // read as a turn-on of the switch for tagging by itself (#2308). A standing no is theirs to
-      // change in Settings: this Allow carries the permit for this run only, and stores nothing.
+      // change in Settings: this Allow carries the permit for this run only, and nothing is stored.
       const permit: CloudReadPermit | undefined = command.cloud && {
         flow: "classification",
         serviceId: command.cloud.id,
@@ -384,7 +384,8 @@ export function commandTools(options: CommandToolsOptions): {
         options.failed(toolCallId, problemOf(command.command, error));
         throw error;
       } finally {
-        if (command.cloud && !command.cloudDeclined) options.host.allowCloudRead(command.cloud);
+        if (command.cloud && !command.cloudDeclined)
+          await options.host.allowCloudRead(command.cloud);
         counted.delete(toolCallId);
         settle(toolCallId);
       }

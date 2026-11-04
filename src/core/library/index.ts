@@ -454,7 +454,11 @@ export function createLibrary(options: {
         saved.automatic === null ? defaultAutomatic(saved) : saved.automatic && turnedOnHere(saved),
     };
   };
-  const getSettings = (): LibrarySettings => shownSettings(savedSettings());
+  let lent: TaggingClassifier | null = null;
+  const getSettings = (): LibrarySettings => {
+    const saved = savedSettings();
+    return shownSettings(lent && !saved.organizeWith ? { ...saved, organizeWith: lent } : saved);
+  };
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
   const automaticOffNotice = (): boolean => {
     const marker = settings.readDeviceValue(AUTOMATIC_OFF_NOTICE);
@@ -1219,6 +1223,16 @@ export function createLibrary(options: {
 
   return {
     settings: getSettings,
+    /**
+     * Organize uses this model, as if the User had chosen it, until the returned function is
+     * called; nothing is stored, so a quit leaves no trace (#2252). One the User chose wins.
+     */
+    lendOrganizeModel(classifier: TaggingClassifier): () => void {
+      lent = classifier;
+      return () => {
+        lent = null;
+      };
+    },
     turnedOnAt,
     taggingStoppedFor,
     isOrganizing,

@@ -1869,7 +1869,12 @@ export function createCore(adapters: CoreAdapters): Core {
       return library.organizeAtOnce(ids, signal, allowed, permit);
     },
     proposeFolders: (ids, permit) => library.propose(ids, settings.get().language, permit),
-    allowCloudRead: (service) => consent.choose(["classification"], service),
+    allowCloudRead: async (service) => {
+      consent.choose(["classification"], service);
+      await dataFlowsChanged().catch((error: unknown) =>
+        console.error("The window couldn't be told which services may read the Documents.", error),
+      );
+    },
     offeredOrganizeModel: async () => {
       if (organizeModelOf(library.settings())) return null;
       const { automatic } = await taggingModels();
@@ -1884,13 +1889,7 @@ export function createCore(adapters: CoreAdapters): Core {
       await dataFlowsChanged();
       await taggingChanged();
     },
-    dropOrganizeModel: async (classifier) => {
-      const saved = library.settings();
-      if (JSON.stringify(saved.organizeWith) !== JSON.stringify(classifier)) return;
-      library.saveSettings({ ...saved, organizeWith: null });
-      await dataFlowsChanged();
-      await taggingChanged();
-    },
+    lendOrganizeModel: (classifier) => library.lendOrganizeModel(classifier),
     allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
       const refuse = () => {

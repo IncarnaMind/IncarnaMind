@@ -5,7 +5,7 @@
  * so it asks once in place and then files them, the way Accept all does (#2252): one Undo puts
  * every Document back and takes away the Folders it made. With no model chosen for Organize it
  * takes the one the Library offers as "Use {company}", asks where that Library question would, and
- * keeps it as Organize's model while it runs, for good unless the User had said no (#2252).
+ * keeps it as Organize's model; under a standing no it only lends it for the run (#2252).
  */
 import type {
   AssignmentChange,
@@ -122,18 +122,22 @@ export const organizeChecker: Checker = async (input, host, { wallId }) => {
   const cloud = route.where === "cloud" && flow?.consent !== "accepted" ? route.service : null;
   const cloudDeclined = route.where === "cloud" && flow?.consent === "declined";
   /**
-   * Runs with the pick kept as Organize's model. Under a standing no the Allow stores nothing, so
-   * the model goes back after the run, and the Library still offers its own question.
+   * Runs with the pick as Organize's model: kept, as the Library keeps "Use {company}", except
+   * under a standing no, where this Allow is for this run only and the model is lent, not kept.
    */
   const withPick =
     (run: CheckedCommand["run"]): CheckedCommand["run"] =>
     async (asking, signal, permit) => {
       if (!picked) return run(asking, signal, permit);
-      await host.keepOrganizeModel(picked.classifier);
+      if (!cloudDeclined) {
+        await host.keepOrganizeModel(picked.classifier);
+        return run(asking, signal, permit);
+      }
+      const giveBack = host.lendOrganizeModel(picked.classifier);
       try {
         return await run(asking, signal, permit);
       } finally {
-        if (cloudDeclined) await host.dropOrganizeModel(picked.classifier);
+        giveBack();
       }
     };
   return {
