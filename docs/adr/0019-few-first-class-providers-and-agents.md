@@ -42,7 +42,7 @@ A plan can also be reached through an experimental sign-in route, where the User
 
 ## Amendment: plans through a sign-in route
 
-- Under other ways, the User can sign in with a Claude plan or a GitHub Copilot plan, each an experimental sign-in route as the amendment above sets out.
+- Under other ways, the User can sign in with a Claude plan or a GitHub Copilot plan. The Claude plan is an experimental sign-in route as the amendment above sets out; the Copilot plan's own sign-in is the intended regular route, not yet tried with a real account (see the Copilot amendment below).
 - With either plan, the setup and Settings say that Answers count toward the plan's usage limits.
 
 ## Amendment: Add a provider (#179)
@@ -58,3 +58,13 @@ This changes two earlier lines. Consequences says "The first-run setup lists onl
 - **Why.** In mainland China few first-class providers work (DeepSeek, Qwen and SiliconFlow), and Kimi and GLM are among the most used there. A first-run line that left them out sent those Users to Settings to find them.
 - **The line.** The first-run key line names the providers that work for the language: DeepSeek, Qwen, Kimi and GLM in Chinese; OpenAI, Anthropic, Google, DeepSeek and Kimi in English. Each named provider opens its key form in one step. The form's row of choices follows the language: in Chinese DeepSeek, Qwen, Kimi and GLM come first.
 - **What the tiers still decide.** Which providers have a key guide of their own, and which are tried by hand before a release. Kimi and GLM have neither.
+
+## Amendment: the Copilot plan signs in through IncarnaMind's own GitHub app (#876)
+
+This changes the two amendments above for GitHub Copilot, and the line in ADR-0013 that called its sign-in experimental.
+
+- **The intended regular route.** The User signs in with GitHub's device flow through IncarnaMind's own GitHub OAuth App: a public client ID, the `read:user` scope, no client secret, and requests that identify as IncarnaMind. In the app this route has no Experimental tag, and its notice has no "GitHub may block this sign-in" line. It opens with focus on Sign in, where the experimental routes' notice opens with focus on the safe choice. It is still opt-in, listed under other ways, off until the User signs in and never preselected, and its notice says first, before anything is sent, that Answers count toward the plan's usage limits and what goes to GitHub.
+- **What stays experimental.** The Claude plan, and Copilot's editor profile, which signs in with an editor's client and trades the GitHub token for a Copilot token. The editor profile stays behind `EXPERIMENTAL_SIGN_IN_ROUTES`, is not offered in the window, and leaves the bundle with the flag. The experimental-route amendment applies to it as written. When an account signed in with the editor profile, the Copilot row carries the Experimental tag.
+- **The plan tier.** The own route does not read which Copilot plan the account has: GitHub documents no call that gives an individual's plan to an OAuth App's user token (its Copilot endpoints are for organizations and enterprises). Settings shows "Signed in to GitHub as {account}", which names GitHub and the account and never a plan, and never a tier taken from anywhere else; reading it waits for a documented call (#2481). An account GitHub says has no Copilot plan is told so at sign-in, and nothing is kept. The editor profile names the plan its token exchange returns.
+- **What is not yet checked.** The real GitHub/Copilot account check has not run yet. That Copilot's chat API accepts the own app's token, and that the sign-in renews, has been tried against a mock server only. Until a real account has tried it, the READMEs keep calling the Copilot sign-in experimental, that label comes off in its own small pull request once the check has run, and #876 stays open. A refusal shows "GitHub didn't let IncarnaMind use your Copilot plan" with its ways back, and an API key always works.
+- **Release check.** The own route is not one of the first-class providers, and it is tried by hand with a real GitHub account that has a Copilot plan before each release tag (`docs/agents/testing.md`).

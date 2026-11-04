@@ -2638,6 +2638,8 @@ export interface AnalysisRangeInput {
   rowCount: number;
   /** Only part of the range was read: it has more than an Analysis reads, or its sheet was cut when indexed. */
   cut: boolean;
+  /** Rows it read that the file strikes through or hides, which an earlier version of a row may be (#1979). */
+  setAside?: { struck: number[]; hidden: number[] };
   /** SHA-256 of its headings and rows as read. */
   sha256: string;
   /** A table of a PDF, Word file or deck (#448), whose rows `citation` covers from its first. */
@@ -3234,6 +3236,11 @@ export interface WindowLayout {
   focusedGroupId: string;
   /** How many closed tabs ⇧⌘T can reopen, most recent first. */
   reopenable: number;
+  /**
+   * The conversation the assistant shows; null for a New chat. Kept so a quit and reopening, or
+   * a reload of the page, shows it again (#258).
+   */
+  conversationId: string | null;
   /** Where the window's one assistant sits, outside the groups, and its sizes. */
   assistant: AssistantPlace;
 }
@@ -3347,7 +3354,9 @@ export type LayoutChange =
   /** Every group as wide as the others. */
   | { type: "equalize" }
   /** Moves, resizes, folds or unfolds the assistant: what is given changes, the rest stays. */
-  | { type: "assistant"; place: Partial<AssistantPlace> };
+  | { type: "assistant"; place: Partial<AssistantPlace> }
+  /** The conversation the assistant shows; null for a New chat (#258). */
+  | { type: "conversation"; conversationId: string | null };
 
 /**
  * The kinds of Document (ADR-0011): files of PDF, plain text, Markdown, Word

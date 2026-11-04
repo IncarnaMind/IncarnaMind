@@ -99,6 +99,7 @@ import type {
 } from "./engine";
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
 import { readDocumentPages } from "./readDocumentPages";
+import { withSetAsideMarks } from "./sheetRows";
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -121,11 +122,12 @@ export const asksForFixes = (told: string): boolean => told.includes(FIX_THESE);
 /**
  * Where a new Unit starts inside a Passage given to the model ("[p. 4]",
  * "[slide 4]", "[§ 2.1 Sensitivity]", "[Revenue, rows 2–41]", "[lines 51–100]"),
- * where a slide's speaker notes start ("[speaker notes]"), and where a Word
- * comment starts ("[comment by Reviewer]").
+ * where a slide's speaker notes start ("[speaker notes]"), where a Word
+ * comment starts ("[comment by Reviewer]"), and a row the file sets aside
+ * ("[row 4, struck through]", ./sheetRows).
  */
 const LOCATION_MARK =
-  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
+  /\[(?:p\.\s*\d+(?:[–-]\d+)?|slides?\s+\d+(?:[–-]\d+)?|(?:[^\]\n]{1,100},\s*)?rows?\s+\d+(?:[–-]\d+)?(?:, (?:struck through|hidden))*|lines?\s+\d+(?:[–-]\d+)?|§[^\]\n]{0,200}|speaker notes|comment(?: by [^\]\n]{1,100})?|\d{1,2}:\d{2}(?::\d{2})?(?: [^\]\n]{1,60})?)\]/gi;
 
 /** Marks where a slide's speaker notes start, inside a Passage given to the model. */
 const NOTES_MARK = "[speaker notes]";
@@ -1864,7 +1866,10 @@ export function createCitationSession(
         : handleFor(passage.passageId);
       // A browser-made PDF's "⼤" for "大": every other reader of the text folds it (ADR-0009).
       const plain = foldRadicals(
-        withCueMarks(firstMark ? `${firstMark} ${marked}` : marked, units),
+        withCueMarks(
+          withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
+          units,
+        ),
       );
       const text = withUnsureMarks(plain, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;

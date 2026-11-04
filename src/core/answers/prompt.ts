@@ -7,6 +7,7 @@ import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
 import { asData, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
+import { SET_ASIDE_MARK, UNPLACED_MARK } from "./sheetRows";
 
 const CJK_CHARACTERS = new RegExp(`[${CJK}]`, "gu");
 const LATIN_WORDS = /\p{Script=Latin}{2,}/gu;
@@ -303,6 +304,7 @@ export function withPassageNotes(
     notCitedNote(passages),
     bracketedAmountsNote(passages),
     formulaRowsNote(passages),
+    setAsideRowsNote(passages),
     unreadDocumentsNote(unread),
     stillReadingNote(reading),
   ]
@@ -561,6 +563,29 @@ export function formulaRowsNote(passages: string): string {
   return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one of the workbook's inputs at another value, call what_if.";
 }
 
+/**
+ * A reminder after a sheet's Passages that mark rows the file strikes through or hides (#1979):
+ * shown such rows as ordinary ones, Claude Haiku 5.5 took them for current ones, guessing from
+ * their order. Empty when no Passage marks any.
+ */
+export function setAsideRowsNote(passages: string): string {
+  const meaning = setAsideRowsMeaning(passages);
+  if (meaning === "") return "";
+  return `${meaning} Whenever you give a figure from a set-aside row, say in your own words that the file strikes it through or hides it: the mark itself is never written in the Answer, nor in a quote.`;
+}
+
+/**
+ * What the marks of rows the file sets aside mean, for any request that shows a sheet's Passages
+ * to a model: an Answer's, a check's, a retry's. Empty when they show none.
+ */
+export function setAsideRowsMeaning(passages: string): string {
+  if (!SET_ASIDE_MARK.test(passages)) return "";
+  const meaning =
+    'A line of a sheet that starts with a mark such as "[row 4, struck through]" or "[row 4, hidden]" is a row the file strikes through or hides: the file has set it aside, as people do with an earlier or removed row. Where a set-aside row and an unmarked one give one item different figures, the unmarked one is the sheet\'s current figure, and the set-aside one is never given as current.';
+  if (!passages.includes(UNPLACED_MARK)) return meaning;
+  return `${meaning} A Passage that starts with "${UNPLACED_MARK} …]" holds such rows without saying which of its lines they are: where its rows give one item different figures, none of them is known to be current.`;
+}
+
 const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";
 
 const RECORD = `the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14"). ${ROW_CONTEXT}`;
@@ -806,6 +831,7 @@ export function documentInstructions(
     fileDatesNote(passages),
     notCitedNote(passages),
     bracketedAmountsNote(passages),
+    setAsideRowsNote(passages),
   ].filter(Boolean);
   const added = addedLine(listed.total, library.total, scoped);
   const rest = library.total > listed.total ? [libraryNote(library.total, scoped)] : [];
@@ -861,7 +887,12 @@ export function documentInstructions(
         "",
         "Passages found in the User's Documents for this Question:",
         passages,
-        ...[dated, fileDatesNote(passages), bracketedAmountsNote(passages)].filter(Boolean),
+        ...[
+          dated,
+          fileDatesNote(passages),
+          bracketedAmountsNote(passages),
+          setAsideRowsNote(passages),
+        ].filter(Boolean),
         "",
         "Use them where they help. Don't write citation markers or a list of sources.",
         notCovered(false),
@@ -938,18 +969,24 @@ export interface FigureToRetry {
 
 /** The request to fix figures: each one as given, why it couldn't be worked out, and its Passages. */
 export function figureRetryPrompt(figures: readonly FigureToRetry[]): string {
-  return figures
-    .map((figure) =>
-      [
-        asData(`[=${figure.marker}] as you gave it: ${figure.given}`, ["passage"]),
-        `Why it couldn't be worked out: ${figure.problems.join(" ")}`,
-        ...figure.passages.map((passage) =>
-          tagged("passage", passage.text, ` id="${attribute(passage.id)}"`),
-        ),
-      ].join("\n"),
-    )
-    .join("\n\n");
+  return withMeaning(
+    figures
+      .map((figure) =>
+        [
+          asData(`[=${figure.marker}] as you gave it: ${figure.given}`, ["passage"]),
+          `Why it couldn't be worked out: ${figure.problems.join(" ")}`,
+          ...figure.passages.map((passage) =>
+            tagged("passage", passage.text, ` id="${attribute(passage.id)}"`),
+          ),
+        ].join("\n"),
+      )
+      .join("\n\n"),
+  );
 }
+
+/** A request that shows Passages, with what their set-aside rows' marks mean after it. */
+const withMeaning = (request: string): string =>
+  [request, setAsideRowsMeaning(request)].filter((part) => part !== "").join("\n\n");
 
 /** A record whose quote wasn't found, as the request for exact quotes shows it. */
 export interface QuoteToRetry {
@@ -966,20 +1003,22 @@ export interface QuoteToRetry {
 
 /** The request for exact quotes: each record's marker, sentence, quote and Passage text. */
 export function quoteRetryPrompt(records: readonly QuoteToRetry[]): string {
-  return records
-    .map((record) =>
-      [
-        asData(`[^${record.marker}] is on this sentence of the Answer: ${record.sentence}`, [
-          "passage",
-        ]),
-        asData(
-          `Its quote, not found word for word: ${record.quote ? `"${record.quote}"` : "(none)"}`,
-          ["passage"],
-        ),
-        tagged("passage", record.text, ` id="${attribute(record.passage)}"`),
-      ].join("\n"),
-    )
-    .join("\n\n");
+  return withMeaning(
+    records
+      .map((record) =>
+        [
+          asData(`[^${record.marker}] is on this sentence of the Answer: ${record.sentence}`, [
+            "passage",
+          ]),
+          asData(
+            `Its quote, not found word for word: ${record.quote ? `"${record.quote}"` : "(none)"}`,
+            ["passage"],
+          ),
+          tagged("passage", record.text, ` id="${attribute(record.passage)}"`),
+        ].join("\n"),
+      )
+      .join("\n\n"),
+  );
 }
 
 /**
@@ -999,12 +1038,14 @@ export function citeRetryPrompt(
   answer: string,
   passages: readonly { id: string; text: string }[],
 ): string {
+  const shown = passages.map((passage) =>
+    tagged("passage", passage.text, ` id="${attribute(passage.id)}"`, ["answer"]),
+  );
   return [
     tagged("answer", answer, "", ["passage"]),
     "",
-    ...passages.map((passage) =>
-      tagged("passage", passage.text, ` id="${attribute(passage.id)}"`, ["answer"]),
-    ),
+    ...shown,
+    ...[setAsideRowsMeaning(shown.join("\n"))].filter((note) => note !== ""),
   ].join("\n");
 }
 

@@ -324,6 +324,7 @@ export const en = {
   "folder.open": "Open in the Library",
   "folder.newInside": "New Folder inside",
   "folder.newMindHere": "New note here",
+  "folder.addDocumentsHere": "Add Documents here…",
   "folder.untitled": "Untitled Folder",
   "folder.untitled.numbered": "Untitled Folder {number}",
   "folder.fromStarters": "From starter Folders…",
@@ -442,6 +443,10 @@ export const en = {
   "drop.topLevel": "Move to the top level",
   "drop.addTag": "Add the Tag {tag}",
   "drop.addTag.documents": "Add the Tag {tag} to {count} Documents",
+  "drop.addFiles": "Add to {folder}",
+  "drop.addFiles.many": "Add {count} files to {folder}",
+  "drop.addWebPage": "Add the web page to {folder}",
+  "drop.addToLibrary": "Add to Library",
   "drop.importWord": "Import the Word file",
   "move.undo": "Undo",
   "move.undoLabel": "Undo: {message}",
@@ -2988,6 +2993,8 @@ export const en = {
   "copilot.plan.enterprise": "Copilot Enterprise",
   "copilot.plan.unknown": "GitHub Copilot",
   "copilot.signedIn.usage": "Answers count toward your plan’s usage limits.",
+  "copilot.signedIn.own": "Signed in to GitHub as {account}",
+  "copilot.signedIn.ownNoName": "Signed in to GitHub",
   "copilot.use": "Use for Questions",
   "copilot.signOut": "Sign out",
   "plans.copilot.title": "GitHub Copilot Pro, Pro+, Business or Enterprise",
@@ -3579,6 +3586,8 @@ export const en = {
     "1 figure couldn’t be calculated: {figures}. It was written without a calculation IncarnaMind could check.",
   "answer.figures.uncalculated.named":
     "{count} figures couldn’t be calculated: {figures}. They were written without a calculation IncarnaMind could check.",
+  "answer.setAsideHidden": "(hidden in the file)",
+  "answer.setAsideStruck": "(struck through in the file)",
   "answer.sourceNotKept": "(source couldn’t be kept)",
   "answer.status.stopped": "Stopped",
   "answer.stop": "Stop",
@@ -4887,6 +4896,7 @@ export const en = {
   "error.mind.notFound": "That note doesn’t exist or has been deleted.",
   "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
+  "error.layout.conversation": "The assistant shows a conversation, or a New chat.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",
   "error.mind.notFromWord":
     "This note wasn’t imported from a Word file, so it has no original to add.",
@@ -4917,7 +4927,7 @@ export const en = {
   "error.figure.paste":
     "The calculation’s evidence couldn’t be pasted. Copy the figure again, or paste as plain text.",
   "error.figure.copyIncomplete":
-    "This figure’s saved inputs are incomplete, so it can’t be copied with its check. Copy it as plain text, or check the figure again.",
+    "Copied as plain text: this figure’s saved inputs are incomplete, so its check didn’t come with it. Check the figure again, then copy it.",
   "error.conversation.notFound": "That conversation doesn’t exist or has been deleted.",
   "error.question.empty": "Write the Question before asking it.",
   "error.question.analyseChoice": "Whether a Question may analyse data must be true or false.",

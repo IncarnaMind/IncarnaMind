@@ -99,10 +99,12 @@ const dragLink = (target: Locator, address: string, drop = true) =>
       const transfer = new DataTransfer();
       transfer.setData("text/uri-list", link);
       transfer.setData("text/plain", link);
+      const box = element.getBoundingClientRect();
+      const at = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
       const types = dropping ? ["dragenter", "dragover", "drop"] : ["dragenter", "dragover"];
       for (const type of types) {
         element.dispatchEvent(
-          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }),
+          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer, ...at }),
         );
       }
     },
@@ -176,14 +178,44 @@ test("a link pasted or dropped on a Folder in the sidebar is saved there; one th
   await expect(folder).toHaveAttribute("data-count", "1");
   await expect(folder.getByTestId("document-list-item")).toContainText(TITLE);
 
-  // Dragged over the window, the Folders stay in sight; dropped on one, it is saved there.
-  await dragLink(row, `${site}/tea-dropped`, false);
+  // Over the card, it lights with the page's words; over a Folder only the Folder lights and the
+  // card's overlay is quiet, so the Folder being aimed at stays in sight; dropped on it, it is
+  // saved there.
+  await dragLink(window.getByTestId("tab-groups"), `${site}/tea-dropped`, false);
   await expect(window.getByTestId("drop-overlay")).toContainText("drop it on a Folder");
+  await dragLink(row, `${site}/tea-dropped`, false);
+  await expect(window.getByTestId("drop-overlay")).toHaveCount(0);
   await expect(folder).toHaveAttribute("data-drop-target", "true");
+  await expect(window.getByTestId("drop-label")).toHaveText("Add the web page to Reading");
   await screenshot(window, "web-page-drag");
   await dragLink(row, `${site}/tea-dropped`);
-  await expect(window.getByTestId("drop-overlay")).toBeHidden();
   await expect(folder).toHaveAttribute("data-count", "2");
+
+  // The browser's own cancel (Esc) sends the page no dragleave: the first pointer move after it
+  // ends the drag, so the Folder goes dark (#229).
+  const rowBox = await row.boundingBox();
+  if (!rowBox) throw new Error("The Folder row isn't showing.");
+  const point = {
+    x: Math.round(rowBox.x + rowBox.width / 2),
+    y: Math.round(rowBox.y + rowBox.height / 2),
+  };
+  const session = await window.context().newCDPSession(window);
+  const data = {
+    items: [{ mimeType: "text/uri-list", data: `${site}/tea-cancelled` }],
+    files: [],
+    dragOperationsMask: 1,
+  };
+  try {
+    await session.send("Input.dispatchDragEvent", { type: "dragEnter", ...point, data });
+    await session.send("Input.dispatchDragEvent", { type: "dragOver", ...point, data });
+    await expect(folder).toHaveAttribute("data-drop-target", "true");
+    await session.send("Input.dispatchDragEvent", { type: "dragCancel", ...point, data });
+    await window.mouse.move(point.x + 24, point.y + 24);
+    await expect(folder).not.toHaveAttribute("data-drop-target", "true");
+    await expect(window.getByTestId("drop-label")).toHaveCount(0);
+  } finally {
+    await session.detach();
+  }
 
   await paste(window, `${site}/gone`);
   const problem = window.locator('[data-testid^="web-page-problem"]');

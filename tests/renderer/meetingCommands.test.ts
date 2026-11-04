@@ -87,6 +87,7 @@ const showing = (mindId: string) =>
       ],
       focusedGroupId: "group",
       reopenable: 0,
+      conversationId: null,
       assistant: DEFAULT_ASSISTANT,
     } satisfies WindowLayout,
   });
