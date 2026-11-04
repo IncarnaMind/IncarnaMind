@@ -2063,6 +2063,12 @@ const TELLING_WORDS = 4;
 /** The share of the words only one paragraph has that a new one must say, or be made of, to read as it by likeness. */
 const HALF_ITS_OWN = 0.5;
 
+/**
+ * A word with a digit or a Chinese numeral, an amount, a date or a time: it says how much, not
+ * what a line is about. A pair of Chinese characters with a numeral in it is one ("月三", "十元").
+ */
+const AMOUNT = /[\d零〇一二三四五六七八九十百千万亿两]/u;
+
 /** A paragraph's words and signs as compared with a quote: no spaces, any case, each character where it is in its Block. */
 function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
   let chars = "";
@@ -2374,16 +2380,16 @@ export function createRewriteStream(
     const known = nearness.get(paragraph);
     if (known) return known;
     const words = wordsOf(paragraph.tokens);
-    const said = new Set(words);
+    const telling = new Set(words.filter((word) => !AMOUNT.test(word)));
     const ownSaid = segments.map((segment) => {
-      const own = [...(ownWords.get(segment) ?? [])];
-      return { said: own.filter((word) => said.has(word)).length, of: own.length };
+      const own = [...(ownWords.get(segment) ?? [])].filter((word) => !AMOUNT.test(word));
+      return { said: own.filter((word) => telling.has(word)).length, of: own.length };
     });
     const found = {
       alike: segments.map((segment) => placeLikeness(segment, paragraph)),
-      own: ownSaid.map(({ said }) => said > 0),
+      own: segments.map((segment) => words.some((word) => ownWords.get(segment)?.has(word))),
       ownShare: ownSaid.map(({ said, of }) => (of === 0 ? 1 : said / of)),
-      ofOwn: ownSaid.map(({ said: count }) => (said.size === 0 ? 0 : count / said.size)),
+      ofOwn: ownSaid.map(({ said }) => (telling.size === 0 ? 0 : said / telling.size)),
       cover: segments.map((segment) => covered(paragraph.tokens, segment.tokens)),
       words: words.length,
     };
@@ -2400,10 +2406,11 @@ export function createRewriteStream(
    * other's, in at least `TELLING_WORDS` of them (#2333). One that would `standIn` for a Block
    * of another kind, which it can't pair with, must also say no word only another paragraph has:
    * a summary, or a table, that names several takes none of them out. Read as it by likeness, it
-   * must also say at least half of the words only that one has, or be at least half made of them,
-   * as a short summary of a long paragraph is: a new line on the others' pattern shares their
-   * shape, not their facts, and "网费每月40元。" shared only "费每" with "水费每月30元。" (#2356). A
-   * name is checked against likeness alone (`ownWords: false`): refusing fails closed.
+   * must also say more than half of the words only that one has, or be at least half made of them,
+   * as a short summary of a long paragraph is, amounts left out of both: a new line on the others'
+   * pattern shares their shape and maybe an amount, not what they are about. "网费每月30元。"
+   * shares only "费每" and "30" with "水费每月30元。" (#2356). A name is checked against likeness
+   * alone (`ownWords: false`): refusing fails closed.
    */
   const readsAs = (
     segment: Segment,
@@ -2427,7 +2434,9 @@ export function createRewriteStream(
       );
     return (
       (mine >= least &&
-        (!saysOwn || Math.max(ownShare[index] ?? 0, ofOwn[index] ?? 0) >= HALF_ITS_OWN) &&
+        (!saysOwn ||
+          (ownShare[index] ?? 0) > HALF_ITS_OWN ||
+          (ofOwn[index] ?? 0) >= HALF_ITS_OWN) &&
         rivals((at) => (alike[at] ?? 0) <= mine - CLEARLY_MORE)) ||
       (words >= TELLING_WORDS &&
         (cover[index] ?? 0) >= NEARLY_ALL &&
