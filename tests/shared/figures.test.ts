@@ -1825,6 +1825,41 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("$95,000.00", 95000, { unit: "USD" })],
     ],
     [
+      "The fund's net position, sixty-two thousand dollars ($62,000.00), turned positive in March.",
+      EN,
+      [f("$62,000.00", 62000, { unit: "USD" })],
+    ],
+    [
+      "现金净流量为人民币六万二千元（¥62,000），属于正数。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "The subsidiary posted a net profit for the year. Its result was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("$62,000.00", 62000, { unit: "USD" })],
+    ],
+    [
+      "该子公司本年度实现盈利，经营成果为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "A minuscule share of the fund, sixty-two thousand dollars ($62,000.00), was paid out.",
+      EN,
+      [f("$62,000.00", 62000, { unit: "USD" })],
+    ],
+    [
+      `Cash came to sixty-two thousand dollars ($62,000.00). ${"The Tenant shall keep the premises in good repair. ".repeat(9)}That balance is negative.`,
+      EN,
+      [f("$62,000.00", 62000, { unit: "USD" })],
+    ],
+    [
+      `${"x".repeat(399)} sixty-two thousand dollars ($62,000.00)`,
+      EN,
+      [f("$62,000.00", 62000, { unit: "USD" })],
+    ],
+    [
       "| Deposit | Four Thousand Dollars ($4,000.00) |",
       EN,
       [f("$4,000.00", 4000, { unit: "USD" })],
@@ -2495,6 +2530,116 @@ describe("a bracket right after an amount (#2341)", () => {
       "前景为负。租金为人民币六万二千元（¥62,000）",
       ZH,
       [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "The fund's net position, sixty-two thousand dollars ($62,000.00), turned negative in March.",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Cash at the branch came to sixty-two thousand dollars ($62,000.00); this figure is negative.",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The adjustment was sixty-two thousand dollars ($62,000.00), shown with a minus sign.",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Net position | sixty-two thousand dollars ($62,000.00) | negative",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "现金净流量为人民币六万二千元（¥62,000），属于负数。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "期末未分配利润人民币六万二千元（¥62,000）系负值。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "The subsidiary posted a net loss for the year. Its result was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The company reported an operating loss. Operating income was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The current account is overdrawn by sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The division slipped into the red; its operating result was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The scheme ran a deficit, and its funding level was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Overdraft balance: sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Net result (−): sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "该子公司本年度出现亏损，经营成果为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "公司账户透支人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "公司由盈转亏，净利润为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "财政出现赤字，差额为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      `The negative ${"result for the region ".repeat(11)}was sixty-two thousand dollars ($62,000.00)`,
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      `${"x".repeat(400)} sixty-two thousand dollars ($62,000.00)`,
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The pension scheme remains in deficit; its funding position is sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The group recorded a small net loss. Its earnings were sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The loss-making unit's result was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
     ],
     [
       "Despite a negative outlook, the rent is sixty-two thousand dollars ($62,000.00).",
