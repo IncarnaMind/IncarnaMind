@@ -407,6 +407,17 @@ export async function installFolders(
       () => true,
       () => false,
     );
+  // A prefix's bin or lib may be a link: read where it really is, with its name to follow there,
+  // and only when that place may be read back itself.
+  const linkedFolders = async (folders: readonly string[]) =>
+    (
+      await Promise.all(
+        folders.map(async (each) => {
+          const real = await canonicalPath(each);
+          return reopens(real) ? [real, ...(real === each ? [] : [each])] : [];
+        }),
+      )
+    ).flat();
   const own = dirname(command);
   const venv = dirname(own);
   const named = (await there(join(venv, "pyvenv.cfg"))) ? [venv, own] : [own];
@@ -418,7 +429,7 @@ export async function installFolders(
     ? [dirname(real)]
     : whole
       ? [prefix]
-      : [dirname(real), join(prefix, "bin"), join(prefix, "lib")];
+      : [dirname(real), ...(await linkedFolders([join(prefix, "bin"), join(prefix, "lib")]))];
   const folders = [...new Set([...named, ...installed])].filter(reopens);
   // bubblewrap refuses to start with a folder to read that isn't there.
   return (
