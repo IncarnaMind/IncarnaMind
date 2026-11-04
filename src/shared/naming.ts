@@ -106,6 +106,20 @@ export function cutAtWord(text: string, limit: number): string {
   return withoutDanglingEnd(characters.slice(0, wordEnd(text, limit)).join(""));
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** The first `count` characters of `text`, less a letter's accent or an emoji's part left cut off; never empty. */
+function headOf(text: string, count: number): string {
+  let kept = "";
+  let used = 0;
+  for (const { segment } of graphemes.segment(text)) {
+    used += Array.from(segment).length;
+    if (used > count && kept) break;
+    kept += segment;
+  }
+  return kept;
+}
+
 /**
  * `name` shortened to one line: kept whole if `fits` says it fits, else cut and ended with "…",
  * so the longest start that fits shows. `atWords` cuts at a word, as English needs; without it,
@@ -122,15 +136,17 @@ export function fitName(name: string, fits: (text: string) => boolean, atWords =
     else high = middle - 1;
   }
   const shown = Math.max(low, 1);
-  const kept = withoutDanglingEnd(
-    characters.slice(0, atWords ? wordEnd(name, shown) : shown).join(""),
-  );
-  return `${kept || characters.slice(0, shown).join("")}…`;
+  const kept = withoutDanglingEnd(headOf(name, atWords ? wordEnd(name, shown) : shown));
+  return `${kept || headOf(name, shown)}…`;
 }
 
 const wide =
   /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6\u{20000}-\u{3fffd}]/u;
 const columnsOf = (character: string): number => (wide.test(character) ? 2 : 1);
+
+/** How many columns `text` takes as it is drawn: a Latin character one, a Chinese, Japanese or Korean one two. */
+export const textColumns = (text: string): number =>
+  Array.from(text).reduce((sum, character) => sum + columnsOf(character), 0);
 
 /**
  * `text` cut in the middle to at most `max` columns, ended and joined by "…", so its start and its
@@ -139,7 +155,7 @@ const columnsOf = (character: string): number => (wide.test(character) ? 2 : 1);
  */
 export function shortenMiddle(text: string, max: number): string {
   const characters = Array.from(text);
-  if (characters.reduce((sum, character) => sum + columnsOf(character), 0) <= max) return text;
+  if (textColumns(text) <= max) return text;
   const head = Math.ceil((max - 1) / 2);
   const tail = max - 1 - head;
   const kept = (from: readonly string[], room: number): string[] => {

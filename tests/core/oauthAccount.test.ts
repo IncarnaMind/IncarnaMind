@@ -20,6 +20,7 @@ function secretStore(read: () => Promise<string | null>) {
     status: () => status,
     acceptPlainText: () => status,
     get: read,
+    tryRead: async () => ({ secret: await read(), unreadable: false }),
     tryGet: async () => {
       try {
         return await read();
@@ -57,6 +58,7 @@ function sharedStore(read: () => string | null, write: (value: string) => Promis
     status: () => status,
     acceptPlainText: () => status,
     get: async () => read(),
+    tryRead: async () => ({ secret: read(), unreadable: false }),
     tryGet: async () => read(),
     set: async (_name, value) => write(value),
     delete: async () => undefined,

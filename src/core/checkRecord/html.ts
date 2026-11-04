@@ -8,7 +8,7 @@ import { escapeHtml } from "../exports/printHtml";
 import type { Language } from "../language";
 import type { CheckRecord } from "./index";
 import {
-  checkedBy,
+  checkersOf,
   KIND_LABELS,
   ORIGIN_LABELS,
   personCheck,
@@ -74,16 +74,20 @@ function checkerDetails(
   item: RecordItem | RecordCiteItem,
   { t, language }: RenderContext,
 ): string | null {
-  const by = checkedBy(item, t);
-  if (!by) return null;
-  const at = item.kind === "citation" ? null : item.check?.at;
-  const checker = [
-    escapeHtml(
-      by.place === null ? by.name : t("checkRecord.modelAt", { name: by.name, place: by.place }),
+  const checkers = checkersOf(item, t).map((by) =>
+    detail(
+      t("checkRecord.checkedBy"),
+      [
+        escapeHtml(
+          by.place === null
+            ? by.name
+            : t("checkRecord.modelAt", { name: by.name, place: by.place }),
+        ),
+        ...(by.at ? [escapeHtml(recordTime(by.at, language, t))] : []),
+      ].join(" · "),
     ),
-    ...(at ? [escapeHtml(recordTime(at, language, t))] : []),
-  ];
-  return detail(t("checkRecord.checkedBy"), checker.join(" · "));
+  );
+  return checkers.length > 0 ? checkers.join("") : null;
 }
 
 const present = (values: readonly (string | null)[]): string[] =>

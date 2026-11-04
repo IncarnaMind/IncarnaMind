@@ -15,7 +15,7 @@
  * the first one was.
  */
 import { randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 import {
@@ -40,6 +40,7 @@ import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
+import { fakePrinter } from "../helpers/printer";
 
 const LIVE = [
   {
@@ -154,6 +155,8 @@ interface Seen {
   /** The ids of the Documents, Folders and Tags, and the settings, before the request. */
   before: Library;
   after: Library;
+  /** A folder outside the Output location, empty before the request, that a request may name. */
+  exportTo: string;
 }
 
 interface Library {
@@ -471,6 +474,67 @@ const renamedOnceBack =
     }
   };
 
+/** The window's Export as… entries, which the assistant is never to run (#1421). */
+const EXPORT_AS = [
+  "mind.exportAs.docx",
+  "mind.exportAs.pdf",
+  "mind.exportAs.source-pack",
+  "mind.exportAs.html",
+  "mind.exportAs.share-page",
+  "mind.exportAs.markdown",
+];
+
+/** The Note asked from was saved as a file of this kind, by the core's export, at once. */
+const exportedThisNote =
+  (extension: string): Check =>
+  (seen) => {
+    const done = ran(seen).filter((each) => each.command === "mind.export");
+    expect(done.map((each) => each.items[0]?.name)).toEqual(["Lease review"]);
+    expect(done[0]?.file?.name.endsWith(extension)).toBe(true);
+    expect(windowRan(seen, ...EXPORT_AS)).toBe(false);
+  };
+
+/** The core's export of the Note asked from was called in this format, and no Export as… ran. */
+const exportCalls = (seen: Seen, format: string) => {
+  const calls = seen.answer.toolCalls.filter(
+    (call) => call.tool === "run_command" && call.input.command === "mind.export",
+  );
+  expect(calls.map((call) => call.input.format)).toEqual([format]);
+  expect(windowRan(seen, ...EXPORT_AS)).toBe(false);
+  return calls;
+};
+
+/** As `exportedThisNote`, for a format whose file's extension another format shares. */
+const exportedThisNoteAs =
+  (format: string, extension: string): Check =>
+  (seen) => {
+    exportCalls(seen, format);
+    exportedThisNote(extension)(seen);
+  };
+
+/** A source pack of a Note that cites nothing is refused in plain words, and nothing is saved. */
+const packRefused: Check = (seen) => {
+  const [call] = exportCalls(seen, "source-pack");
+  expect(call?.commandProblem?.message).toBe("No Citations yet, so no cited pages to export.");
+  expect(ran(seen).some((each) => each.command === "mind.export")).toBe(false);
+};
+
+/**
+ * Saved into a folder outside the Output location, a PDF of the Note waits for the User, asked for
+ * that folder: here it is declined, so nothing is saved there or anywhere.
+ */
+const exportAsked: Check = (seen) => {
+  const asks = seen.asked.flatMap((each) =>
+    "ask" in each && each.ask.kind === "export" ? [each.ask] : [],
+  );
+  expect(asks.map((ask) => [ask.mind.name, ask.format, ask.folder])).toEqual([
+    ["Lease review", "pdf", realpathSync(seen.exportTo)],
+  ]);
+  expect(readdirSync(seen.exportTo)).toEqual([]);
+  expect(ran(seen).some((each) => each.command === "mind.export")).toBe(false);
+  expect(windowRan(seen, ...EXPORT_AS)).toBe(false);
+};
+
 const REQUESTS: {
   id: string;
   text: string;
@@ -773,6 +837,29 @@ const REQUESTS: {
     check: noCommand,
   },
   { id: "held-question-zh", text: "这篇笔记里哪句话提到了五年？", check: neitherCheckNorOrganize },
+  // Held out for exporting this note (#1421): written before any run of the change. "{folder}" is a
+  // folder outside the Output location.
+  {
+    id: "export-word-en",
+    text: "Export this note as a Word file",
+    check: exportedThisNote(".docx"),
+  },
+  { id: "export-word-zh", text: "把这篇笔记导出成 Word 文件", check: exportedThisNote(".docx") },
+  { id: "export-pdf-en", text: "Save this note as a PDF", check: exportedThisNote(".pdf") },
+  { id: "export-folder-en", text: "Save this note as a PDF in {folder}", check: exportAsked },
+  { id: "export-folder-zh", text: "把这篇笔记导出成 PDF，存到 {folder}", check: exportAsked },
+  // Held out for the formats only Export as… offered before (#1421): written before any run.
+  {
+    id: "export-share-en",
+    text: "Export this note as a web page I can share",
+    check: exportedThisNoteAs("share-page", ".html"),
+  },
+  {
+    id: "export-share-zh",
+    text: "把这篇笔记导出成可以分享的网页",
+    check: exportedThisNoteAs("share-page", ".html"),
+  },
+  { id: "export-pack-en", text: "Make a PDF of the pages this note cites", check: packRefused },
 ];
 
 async function ask(core: Core, text: string, mindId: string, commands: OfferedCommand[]) {
@@ -830,8 +917,10 @@ const NOTE = [
 /** A Library as each request finds it, its own: what one request changed never reaches the next. */
 async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined = false) {
   const dataDir = await createTempDataFolder();
+  // The app gives the core a printer, so "save this note as a PDF" can be made here too.
   const core = startCore(dataDir, {
     createChatModel: createAiSdkChatModel,
+    printer: fakePrinter().printer,
     ...(live.kind === "ollama" && { ollamaModels: ollamaAsTheAppSees() }),
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
@@ -877,6 +966,7 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined 
   });
   const sources = await createSourceFolder();
   const elsewhere = await createSourceFolder();
+  const exportTo = await createSourceFolder();
   const documents = await addAndProcess(core, [
     ...(await Promise.all(
       DOCUMENTS.map((each) => writeSourceFile(sources, each.name, each.contents)),
@@ -916,7 +1006,7 @@ async function libraryFor(live: (typeof LIVE)[number], choose: Choose, declined 
       db.close();
     }
   }
-  return { core, dataDir, mind, commands, window, asked, questions };
+  return { core, dataDir, mind, commands, window, asked, questions, exportTo };
 }
 
 describe.each(LIVE)("The assistant does what the User can in the app, live: $name", (live) => {
@@ -934,15 +1024,13 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
         record(`${live.name} · ${live.model}: ${passed}/${requests.length} passed\n`),
       );
       for (const request of requests) {
-        const { core, dataDir, mind, commands, window, asked, questions } = await libraryFor(
-          live,
-          request.choose ?? first,
-          request.declined,
-        );
+        const { core, dataDir, mind, commands, window, asked, questions, exportTo } =
+          await libraryFor(live, request.choose ?? first, request.declined);
         const before = await libraryOf(core, mind.id);
-        let line = `- ${request.id} “${request.text}”`;
+        const text = request.text.replace("{folder}", exportTo);
+        let line = `- ${request.id} “${text}”`;
         try {
-          const answer = await ask(core, request.text, mind.id, commands);
+          const answer = await ask(core, text, mind.id, commands);
           const seen: Seen = {
             answer,
             window,
@@ -950,6 +1038,7 @@ describe.each(LIVE)("The assistant does what the User can in the app, live: $nam
             questions,
             before,
             after: await libraryOf(core, mind.id),
+            exportTo,
           };
           const calls = answer.toolCalls
             .filter((call) => call.source === "commands")

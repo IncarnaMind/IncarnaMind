@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +49,16 @@ export async function createTempDataFolder(): Promise<string> {
   const dataDir = await mkdtemp(join(tmpdir(), "incarnamind-test-"));
   onTestFinished(() => rm(dataDir, { recursive: true, force: true }));
   return dataDir;
+}
+
+/**
+ * What a core left in the temporary folder it was given as `paths.tempDir`, but for the one file
+ * the core keeps there all the time: its count of changes waiting (#2309).
+ */
+export async function filesInTemp(folder: string): Promise<string[]> {
+  return (await readdir(folder)).filter(
+    (name) => !/^incarnamind-unsaved-[0-9a-f]{16}\.json$/.test(name),
+  );
 }
 
 export interface MemoryKeychain extends Keychain {

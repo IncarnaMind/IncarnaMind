@@ -1,15 +1,17 @@
 /**
  * Changes to Minds storage refused (#1119), as the User hears of them: how
  * many wait in memory and why, and, for a run that closed without quitting
- * while some waited (a crash, a force-quit), how many were lost. That count is
- * kept in a small file outside the data folder, in the temporary folder, so it
- * can still be written when the data folder's disk is full. When even that
- * fails, the next run says nothing rather than guess.
+ * (a crash, a force-quit), how many were lost. That count is kept in a small
+ * file outside the data folder, in the temporary folder, so it can still be
+ * written when the data folder's disk is full. It is there all the time, 0
+ * while nothing waits (#2309): when a count can't be written the file is
+ * removed, which a full disk allows, so the next run knows it doesn't know,
+ * rather than read an old 0 as "nothing was lost".
  */
 import { createHash } from "node:crypto";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SaveFailureReason, UnsavedChanges } from "./api";
+import type { SaveFailureReason, UnsavedAtEnd, UnsavedChanges } from "./api";
 import { isRecord } from "./errors";
 
 /** SQLite's primary result codes for a write the disk or another program refused. */
@@ -48,7 +50,15 @@ export function createUnsavedChanges({
     `incarnamind-unsaved-${createHash("sha256").update(dataDir).digest("hex").slice(0, 16)}.json`,
   );
   let lost = readLost(marker);
-  forget(marker);
+  const record = (count: number) => {
+    try {
+      writeFileSync(marker, JSON.stringify({ count }));
+    } catch (error) {
+      console.error("unsaved: the count of changes waiting couldn't be written", error);
+      forget(marker);
+    }
+  };
+  record(0);
   const waiting = new Map<string, { count: number; failure: unknown; deleted: boolean }>();
 
   const summary = (): UnsavedChanges | null => {
@@ -73,18 +83,21 @@ export function createUnsavedChanges({
       if (state) waiting.set(mindId, state);
       else waiting.delete(mindId);
       const now = summary();
-      if (now) {
-        try {
-          writeFileSync(marker, JSON.stringify({ count: now.count }));
-        } catch (error) {
-          console.error("unsaved: the count of changes waiting couldn't be written", error);
-          forget(marker);
-        }
-      } else forget(marker);
+      record(now?.count ?? 0);
       changed(now);
     },
 
     summary,
+
+    /** What waits, by Mind, deleted ones left out: what the session's end records (`Core.sessionEnding`). */
+    atEnd(): UnsavedAtEnd {
+      return {
+        count: summary()?.count ?? 0,
+        minds: [...waiting].flatMap(([mindId, each]) =>
+          each.deleted ? [] : [{ mindId, count: each.count }],
+        ),
+      };
+    },
 
     takeLost(): number | null {
       const count = lost;
@@ -94,17 +107,20 @@ export function createUnsavedChanges({
 
     /** The app quits: whatever still waits, the User has been told, so the next run says nothing. */
     quit(): void {
-      forget(marker);
+      record(0);
     },
   };
 }
 
+/** The last run's count: 0 when it lost nothing, null when it couldn't say (or there was none). */
 function readLost(marker: string): number | null {
   try {
     const read: unknown = JSON.parse(readFileSync(marker, "utf8"));
-    return isRecord(read) && typeof read.count === "number" && read.count > 0 ? read.count : null;
+    return isRecord(read) && Number.isSafeInteger(read.count) && Number(read.count) >= 0
+      ? Number(read.count)
+      : null;
   } catch {
-    // No file is the usual case: the last run stored everything, or quit.
+    // No file: the first run here, or the last couldn't write its count.
     return null;
   }
 }

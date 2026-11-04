@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
+import { translate } from "../../shared/i18n";
 import { modelInUse } from "../../shared/mindModel";
 import {
   CHOSEN_PROVIDER_FLOWS,
@@ -120,11 +121,13 @@ function notReadyError(error: ChatNotReadyError): ProviderError {
   const kind: ProviderErrorKind =
     reason === "local-mode" || reason === "consent-declined"
       ? reason
-      : reason === "missing-api-key"
-        ? "auth"
-        : reason === "sign-in-required"
-          ? "not-signed-in"
-          : "unknown";
+      : reason === "api-key-unreadable"
+        ? "api-key-unreadable"
+        : reason === "missing-api-key"
+          ? "auth"
+          : reason === "sign-in-required"
+            ? "not-signed-in"
+            : "unknown";
   return { kind, message: error.message };
 }
 
@@ -639,17 +642,30 @@ export function createChat(options: {
   const watchedPlan = (kind: ChatProviderKind, model: ChatLanguageModel, modelId: string) =>
     kind === "chatgpt" ? chatGpt.limits.watch(model, modelId) : model;
 
+  /**
+   * The key saved for a provider: absent, or present and readable. A stored key
+   * this device can't open is its own state, never "missing".
+   */
+  const apiKeyState = async (
+    providerId: string,
+  ): Promise<{ saved: boolean; unreadable: boolean }> => {
+    const { secret, unreadable } = await secrets.tryRead(keyName(providerId));
+    return { saved: secret !== null, unreadable };
+  };
+
   const toProvider = async (row: ProviderRow, modelId?: string): Promise<ChatProvider> => {
     const kind = row.kind as ChatProviderKind;
-    const hasApiKey =
-      acceptsApiKey(kind, row.catalog_id) && (await secrets.tryGet(keyName(row.id))) !== null;
+    const key = acceptsApiKey(kind, row.catalog_id)
+      ? await apiKeyState(row.id)
+      : { saved: false, unreadable: false };
     return {
       id: row.id,
       kind,
       catalogId: row.catalog_id,
       endpoint: row.endpoint,
       baseUrl: row.base_url,
-      hasApiKey,
+      hasApiKey: key.saved,
+      ...(key.unreadable && { apiKeyUnreadable: true }),
       service: modelId === undefined ? rowService(row) : knownService(row, modelId),
     };
   };
@@ -814,7 +830,12 @@ export function createChat(options: {
       return { ready: false, reason: "local-mode", provider, modelId };
     }
     if (requiresApiKey(provider.kind, provider.catalogId) && !provider.hasApiKey) {
-      return { ready: false, reason: "missing-api-key", provider, modelId };
+      return {
+        ready: false,
+        reason: provider.apiKeyUnreadable ? "api-key-unreadable" : "missing-api-key",
+        provider,
+        modelId,
+      };
     }
     if (await needsSignIn(provider.kind)) {
       return { ready: false, reason: "sign-in-required", provider, modelId };
@@ -1220,7 +1241,19 @@ export function createChat(options: {
       let apiKey = parseApiKey(input.apiKey, server) ?? null;
       if (apiKey === null && acceptsApiKey(server.kind, server.catalogId)) {
         const saved = rowByServer(server);
-        if (saved) apiKey = await secrets.tryGet(keyName(saved.id));
+        if (saved) {
+          const { secret, unreadable } = await secrets.tryRead(keyName(saved.id));
+          if (unreadable) {
+            return {
+              ok: false,
+              error: {
+                kind: "api-key-unreadable",
+                message: translate("en", "providers.test.api-key-unreadable"),
+              },
+            };
+          }
+          apiKey = secret;
+        }
       }
       if (requiresApiKey(server.kind, server.catalogId) && !apiKey) {
         throw new InvalidInputError({
@@ -1390,8 +1423,8 @@ export function createChat(options: {
      * `flow` (automatic tagging passes "tagging"). `thinking: "off"` skips
      * thinking where the model can, for a short request on the chat flow;
      * the chat flow's other requests ask for a summary of the model's
-     * reasoning, with a modest budget for `thinking: "answer"` and a larger
-     * one for `"careful"`.
+     * reasoning, at the effort the catalog gives their kind of call (an
+     * Answer, a careful one, a Task's).
      * Throws `ChatNotReadyError` or `ConsentDeclinedError`; nothing is sent then.
      */
     async prepareModel(

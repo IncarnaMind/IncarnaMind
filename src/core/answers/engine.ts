@@ -72,6 +72,7 @@ import {
   parsePartialJson,
   streamText,
 } from "ai";
+import { FiguresNotRead } from "../../shared/figures";
 import type {
   AnswerPhase,
   CitationSupport,
@@ -467,7 +468,7 @@ export interface AnswerRequest {
   writeThenCite?: boolean;
   /**
    * In the Tool loop, search the Question's own words before the first call, so the model can
-   * answer from those Passages in one call; it searches on when they aren't enough.
+   * answer from those Passages without searching; it searches on when they aren't enough.
    */
   retrieveFirst?: boolean;
   /** False: the model is known to give no structured output, so it isn't tried. */
@@ -1317,7 +1318,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         try {
           if (support === "tools") {
             // An experiment beside the catalog (#1633, ADR-0007's amendment): the loop starts from
-            // the Question's own search and answers in one call unless it needs more. Not while
+            // the Question's own search and answers from it unless it needs more. Not while
             // there is nothing to search yet (web search on, or only unread Documents).
             const presearched =
               request.retrieveFirst && request.documents.documentCount > 0
@@ -1808,6 +1809,10 @@ async function* toolLoop(
   const askedForFixes = new Map<string, boolean>();
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   const endedTurn = new Set<string>();
+  // A text whose figures the reader gave up on ends the Run before the model hears of it: the
+  // check says where they couldn't be read. Told as a failed call, the model took it for no evidence.
+  const unreadable = new AbortController();
+  let notRead: FiguresNotRead | null = null;
   /**
    * A Tool as the engine calls it: one with untrusted results taints the Run
    * once it returns some; one that counts what it found (Find sources) says
@@ -1817,11 +1822,20 @@ async function* toolLoop(
   const tracked = (tool: Tool): Tool => ({
     ...tool,
     async call(input, context) {
-      const result = await tool.call(input, {
-        ...context,
-        counted: (count) => results.set(context.toolCallId, count),
-        readThirdParty,
-      });
+      let result: string;
+      try {
+        result = await tool.call(input, {
+          ...context,
+          counted: (count) => results.set(context.toolCallId, count),
+          readThirdParty,
+        });
+      } catch (error) {
+        if (error instanceof FiguresNotRead) {
+          notRead ??= error;
+          unreadable.abort();
+        }
+        throw error;
+      }
       if (tool.endsTurn?.(result, input)) endedTurn.add(context.toolCallId);
       // A search that found nothing (no Passages, no works) read nothing untrusted.
       const read = results.has(context.toolCallId)
@@ -2056,11 +2070,11 @@ async function* toolLoop(
       return cite !== null && recordsOnly && reply(besideRecords) && owesNothing(besideRecords);
     },
     temperature,
-    signal: AbortSignal.any([signal, rambling.signal]),
+    signal: AbortSignal.any([signal, rambling.signal, unreadable.signal]),
   });
   for await (const event of runs()) {
     if (signal.aborted) return;
-    if (rambling.signal.aborted) continue;
+    if (rambling.signal.aborted || notRead) continue;
     switch (event.type) {
       case "reasoning":
         yield event;
@@ -2217,6 +2231,7 @@ async function* toolLoop(
           try {
             request.documents.cite(records, { structured: true });
           } catch (error) {
+            if (error instanceof FiguresNotRead) throw error;
             console.error(
               `The Citations written as text couldn't be recorded: ${messageOf(error)}`,
             );
@@ -2260,6 +2275,7 @@ async function* toolLoop(
       }
     }
   }
+  if (notRead) throw notRead;
   if (rambling.signal.aborted && !signal.aborted) {
     if (released > 0) yield { type: "text-retracted", length: released };
     yield {
@@ -2379,6 +2395,7 @@ async function* structured(
     // The answer is written: what `cite` would tell the model can't reach it. It places the records instead.
     request.documents.cite(records, { structured: true });
   } catch (error) {
+    if (error instanceof FiguresNotRead) throw error;
     console.error(`The Citations couldn't be recorded: ${messageOf(error)}`);
   }
   const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
@@ -2396,6 +2413,7 @@ async function* structured(
       try {
         request.documents.calculate(calculations, { structured: true });
       } catch (error) {
+        if (error instanceof FiguresNotRead) throw error;
         console.error(`The figures couldn't be worked out: ${messageOf(error)}`);
       }
       if (budget) yield* retryFigures(request, placed, temperature, budget);

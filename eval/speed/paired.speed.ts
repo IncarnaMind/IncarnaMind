@@ -1,8 +1,8 @@
 /**
  * `npm run eval:speed` with INCARNAMIND_EVAL_SPEED_PAIRED (README.md › Paired runs): each item of
- * the sets named, on each model, runs on two arms in one core, today's path and a new one, the
- * order turning item by item. Both are read the same way and compared item by item; the run
- * stops at the new arm's first false Supported that today's didn't give. Writes
+ * the sets named, on each model, runs on two arms, today's path and a new one, each in a core of
+ * its own, the order turning item by item. Both are read the same way and compared item by item;
+ * the run stops at the new arm's first false Supported that today's didn't give. Writes
  * eval/results/speed-paired-<time>/.
  */
 import { mkdir, writeFile } from "node:fs/promises";
@@ -17,17 +17,21 @@ import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { commitOf } from "../lib/commit";
 import { readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
+import type { Library } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
+import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch } from "./arms";
 import { gradeAnswer } from "./judge";
 import {
   type ArmRun,
+  cellsSet,
   checksSet,
   everydaySet,
   gatingSet,
   hardSet,
   type Language,
+  openForArms,
   type PairedGroup,
   type PairedItem,
   runOnArm,
@@ -44,6 +48,7 @@ import {
 } from "./pairedReport";
 import { percentile } from "./report";
 import { env, list, modelNamed, modelsAsked, spentUsd } from "./settings";
+import { writtenSet } from "./written";
 
 const ROOT = resolve(__dirname, "../..");
 const ANSWER_TIMEOUT_MS = 5 * 60_000;
@@ -97,6 +102,11 @@ function judgeOf(models: readonly SaveChatProviderInput[]) {
   return { name: `${named.kind}/${named.modelId}`, model, spent: () => spent };
 }
 
+function recorderOf(library: Library): TimingRecorder {
+  if (!library.timings) throw new Error("The library records no timings.");
+  return library.timings;
+}
+
 function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
   switch (set) {
     case "gating":
@@ -107,6 +117,10 @@ function groupsOf(set: SetId, cacheDir: string): PairedGroup[] {
       return everydaySet(ROOT, cacheDir);
     case "checks":
       return checksSet(ROOT);
+    case "cells":
+      return cellsSet(ROOT, ANSWER_TIMEOUT_MS);
+    case "written":
+      return writtenSet();
   }
 }
 
@@ -166,8 +180,9 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   const stopUsd = Number(env("STOP_USD") ?? "12");
   const margin = Number(env("MARGIN") ?? "0");
   const judge = judgeOf(models);
-  const switcher = armSwitch();
-  const reranker = createWorkerCrossEncoder(config.rerankOnCpu);
+  const switches = [armSwitch(), armSwitch()] as const;
+  switches[0].use(arms[0]);
+  switches[1].use(arms[1]);
   const rows: PairedRow[] = [];
   const loads: number[] = [];
   let spentBefore = 0;
@@ -187,32 +202,46 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   );
   run: for (const group of bySet.flat()) {
     if (!group.items.some((item) => asked.has(item))) continue;
-    log(`Opening ${group.name}`);
-    const opened = await group.open({
+    log(`Opening ${group.name}, once for each arm`);
+    const opened = await openForArms(group, (which) => ({
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
-      reranker,
+      // A reranker of its own: one shared by both cores loads its model again at each arm's turn,
+      // as each core keeps the model files in its own data folder.
+      reranker: createWorkerCrossEncoder(config.rerankOnCpu),
       keep: config.keepData,
       log,
       embeddings: false,
       recordTimings: true,
-      chatModels: switcher.chatModels,
-      answerPaths: switcher.answerPaths,
-    });
-    const { core, timings } = opened.library;
+      chatModels: switches[which].chatModels,
+      answerPaths: switches[which].answerPaths,
+      checkPaths: switches[which].checkPaths,
+    }));
+    const spentInCores = async () =>
+      (await spentUsd(opened[0].library.core)) + (await spentUsd(opened[1].library.core));
     try {
-      if (!timings) throw new Error("The library records no timings.");
-      // Setting the variables is the consent to send the items and their Passages to each model.
-      core.on("consent.requested", (request) => {
-        void core.respondToConsent(
-          request.requestId,
-          request.flow.id === "chat" || request.flow.id === "checks",
-        );
-      });
-      // Items the library can't ask give their place to others of their kind.
-      const items = opened.leftOut
+      const [first, second] = opened.map(({ library }) => library.passageCount);
+      // Two libraries processed differently would make every pair unequal.
+      if (first !== second) {
+        stopped = `Stopped at ${group.name}: the arms' libraries hold ${first} and ${second} Passages.`;
+        break run;
+      }
+      const recorders = [recorderOf(opened[0].library), recorderOf(opened[1].library)] as const;
+      for (const { library } of opened) {
+        const { core } = library;
+        // Setting the variables is the consent to send the items and their Passages to each model.
+        core.on("consent.requested", (request) => {
+          void core.respondToConsent(
+            request.requestId,
+            request.flow.id === "chat" || request.flow.id === "checks",
+          );
+        });
+      }
+      // Items either arm's library can't ask give their place to others of their kind.
+      const leftOut = new Set(opened.flatMap((each) => [...(each.leftOut ?? [])]));
+      const items = opened.some((each) => each.leftOut)
         ? chosen(
-            group.items.filter((item) => !opened.leftOut?.has(item.id)),
+            group.items.filter((item) => !leftOut.has(item.id)),
             languages,
             ids,
             each,
@@ -220,27 +249,33 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
         : group.items.filter((item) => asked.has(item));
       for (const model of models) {
         const name = `${model.kind}/${model.modelId}`;
-        const provider = await core.saveChatProvider(model);
-        const choice = { providerId: provider.id, modelId: model.modelId };
+        const choiceIn = async ({ core }: Library) => ({
+          providerId: (await core.saveChatProvider(model)).id,
+          modelId: model.modelId,
+        });
+        const choices = [
+          await choiceIn(opened[0].library),
+          await choiceIn(opened[1].library),
+        ] as const;
         for (const [index, item] of items.entries()) {
           for (let time = 1; time <= runs; time++) {
-            const spent = spentBefore + (await spentUsd(core)) + judge.spent();
+            const spent = spentBefore + (await spentInCores()) + judge.spent();
             if (spent >= stopUsd) {
               stopped = `Stopped at $${spent.toFixed(2)}, before ${name} · ${item.id}.`;
               break run;
             }
             loads.push(loadavg()[0] ?? 0);
             // The order turns, so neither arm always meets a cache the other warmed.
-            const order = (index + time) % 2 === 0 ? [0, 1] : [1, 0];
+            const order: readonly (0 | 1)[] = (index + time) % 2 === 0 ? [0, 1] : [1, 0];
             const done: ArmRun[] = [];
             for (const which of order) {
-              const arm = arms[which as 0 | 1];
-              switcher.use(arm);
-              await arm.prepare?.(core);
+              const arm = arms[which];
+              const { library } = opened[which];
+              await arm.prepare?.(library.core);
               done[which] = await runOnArm(item, {
-                library: opened.library,
-                recorder: timings,
-                choice,
+                library,
+                recorder: recorders[which],
+                choice: choices[which],
                 model: name,
                 arm: arm.id,
                 grade: (expected, answer) => gradeAnswer(judge.model, expected, answer),
@@ -276,8 +311,11 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
         }
       }
     } finally {
-      spentBefore += await spentUsd(core);
-      await opened.close();
+      try {
+        spentBefore += await spentInCores();
+      } finally {
+        await Promise.all(opened.map((each) => each.close()));
+      }
     }
   }
 
@@ -287,12 +325,26 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
     title,
     rows: rows.filter((row) => `${row.model} · ${row.set}` === title),
   }));
-  const sections = groups.flatMap((group) => [
-    `## ${group.title} (${group.rows.length} items)`,
-    "",
-    pairedSection(group.rows, names, margin),
-    "",
-  ]);
+  const sections = groups.flatMap((group) => {
+    const languages = [...new Set(group.rows.map((row) => row.language))];
+    return [
+      `## ${group.title} (${group.rows.length} items)`,
+      "",
+      pairedSection(group.rows, names, margin),
+      "",
+      ...(languages.length > 1
+        ? languages.flatMap((language) => {
+            const ofLanguage = group.rows.filter((row) => row.language === language);
+            return [
+              `### ${group.title} · ${language} (${ofLanguage.length} items; reported only, the guards hold on both languages together)`,
+              "",
+              pairedSection(ofLanguage, names, margin, false),
+              "",
+            ];
+          })
+        : []),
+    ];
+  });
   const items = groups.flatMap((group) => [
     `### ${group.title}`,
     "",

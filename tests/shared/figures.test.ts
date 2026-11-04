@@ -982,6 +982,7 @@ describe("what an ambiguous figure could be", () => {
       unit: { kind: "currency", code: "CNY" },
       decimals: 2,
       precision: 100,
+      statedIn: "header",
     });
     expect(readings("41.2", { ...ZH, header: "单位：%" }, "scale")?.at(-1)).toEqual({
       value: 0.412,
@@ -990,6 +991,7 @@ describe("what an ambiguous figure could be", () => {
       unit: { kind: "percent" },
       decimals: 1,
       precision: 0.001,
+      statedIn: "header",
     });
     expect(
       readings("1,482.6", { ...EN, header: "(in millions of U.S. dollars)" }, "scale")?.at(-1),
@@ -1000,6 +1002,7 @@ describe("what an ambiguous figure could be", () => {
       unit: { kind: "currency", code: "USD" },
       decimals: 1,
       precision: 100000,
+      statedIn: "header",
     });
   });
 
@@ -1012,6 +1015,7 @@ describe("what an ambiguous figure could be", () => {
       unit: { kind: "currency", code: "USD" },
       decimals: 2,
       precision: 1000000,
+      statedIn: "header",
     });
     expect(
       readings("1.5", { ...EN, header: "Unit: 10 thousand yuan" }, "scale")?.at(-1)?.value,
@@ -1337,7 +1341,7 @@ describe("a currency written next to a scale", () => {
     "I'm the seller's agent.",
     "M. Smith",
     "Room 000",
-    "万科",
+    "万栖",
     "一千",
     "工作单位",
     "Sale price £385,000.00",

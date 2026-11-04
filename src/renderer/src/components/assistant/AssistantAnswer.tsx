@@ -40,6 +40,7 @@ import {
 import { CommandsCard } from "./CommandsCard";
 import { CoverageLine, WrittenFromLine } from "./CoverageLines";
 import { MindChangesCard, NoMindLine, wantedAMind } from "./MindChangesCard";
+import { PythonProblemLine } from "./PythonProblemLine";
 import { SelfCheckLines } from "./SelfCheckLines";
 import { StillReadingLine } from "./StillReadingLine";
 import { UnbackedCommandLines } from "./UnbackedCommandLines";
@@ -167,6 +168,7 @@ export function AssistantAnswer({
       {!streaming && <UnbackedClaimLine answer={answer} onRetry={regenerate} />}
       {!streaming && <UnbackedCommandLines steps={answer.steps} onRetry={regenerate} />}
       {!streaming && <UnrunToolLines steps={answer.steps} onRetry={regenerate} />}
+      {!streaming && <PythonProblemLine calls={answer.toolCalls} onRetry={regenerate} />}
       {!streaming && <UncitedWritesLine answer={answer} onRetry={regenerate} />}
       {!streaming && <UncitedReplyLine answer={answer} onRetry={regenerate} />}
       {!streaming && scopeEmpty && (

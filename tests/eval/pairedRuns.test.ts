@@ -5,9 +5,16 @@
 import { generateText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import { openLibrary } from "../../eval/lib/library";
 import { type Arm, armNamed, armSwitch } from "../../eval/speed/arms";
-import type { ArmRun } from "../../eval/speed/paired";
-import { guards, newFalseSupported, type PairedRow } from "../../eval/speed/pairedReport";
+import { type ArmRun, type GroupOptions, openForArms } from "../../eval/speed/paired";
+import {
+  guards,
+  newFalseSupported,
+  type PairedRow,
+  pairedSection,
+} from "../../eval/speed/pairedReport";
+import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import {
   type AnswerPathsOverride,
   retrievesFirst,
@@ -22,6 +29,7 @@ const RUN: ArmRun = {
   doneMs: 5000,
   modelCalls: 3,
   answerCalls: 3,
+  searches: 1,
   inputTokens: 30_000,
   outputTokens: 900,
   citations: 2,
@@ -98,6 +106,96 @@ describe("the guards", () => {
   });
 });
 
+describe("the arms' cores", () => {
+  test("two arms writing a Note of the same title each see only their own", async () => {
+    const group = {
+      async open(options: GroupOptions) {
+        const library = await openLibrary({ ...options, name: "paired-notes", documents: [] });
+        return { library, close: () => library.close() };
+      },
+    };
+    const opened = await openForArms(group, () => ({
+      embedder: createFakeEmbedder(),
+      keep: false,
+      log: () => undefined,
+      embeddings: false,
+    }));
+    try {
+      for (const { library } of opened) {
+        await library.core.createMind({ title: "Library summary" });
+      }
+      for (const { library } of opened) {
+        const titled = (await library.core.listMinds()).filter(
+          (mind) => mind.title === "Library summary",
+        );
+        expect(titled).toHaveLength(1);
+      }
+      expect(opened[0].library.dataDir).not.toBe(opened[1].library.dataDir);
+    } finally {
+      await Promise.all(opened.map((each) => each.close()));
+    }
+  });
+
+  test("when the second arm's library fails to open, the first is closed", async () => {
+    const closed: string[] = [];
+    let opens = 0;
+    const group = {
+      async open(options: GroupOptions) {
+        opens += 1;
+        if (opens === 2) throw new Error("The second library didn't open.");
+        const library = await openLibrary({ ...options, name: "paired-notes", documents: [] });
+        return {
+          library,
+          async close() {
+            closed.push(library.dataDir);
+            await library.close();
+          },
+        };
+      },
+    };
+
+    await expect(
+      openForArms(group, () => ({
+        embedder: createFakeEmbedder(),
+        keep: false,
+        log: () => undefined,
+        embeddings: false,
+      })),
+    ).rejects.toThrow("The second library didn't open.");
+    expect(closed).toHaveLength(1);
+  });
+});
+
+describe("the report", () => {
+  test("counts the Answers that searched more than once", () => {
+    const section = pairedSection(
+      [row({ searches: 1 }, { searches: 2 }), row({ searches: 1 }, { searches: 1 }, "en-02")],
+      ["loop", "retrieve-first"],
+    );
+    expect(section).toContain("| Searched more than once | 0 of 2 | 1 of 2 | |");
+  });
+
+  test("a language's table judges no guard: the set's own table does", () => {
+    const section = pairedSection(
+      [row({}, { grade: "wrong" })],
+      ["loop", "retrieve-first"],
+      1,
+      false,
+    );
+    expect(section).toContain("| Judged right | 1 | 0 | 1 / 0 | – |");
+    expect(section).not.toContain("**no**");
+  });
+
+  test("leaves the row out where no search was counted", () => {
+    const section = pairedSection(
+      [row({ searches: null }, { searches: null })],
+      ["loop", "retrieve-first"],
+    );
+    expect(section).not.toContain("Searched more than once");
+    expect(section).toContain("| Answered in one call | 0 of 1 | 0 of 1 | |");
+  });
+});
+
 describe("the arm switch", () => {
   test("each request goes as the arm in use has it", async () => {
     const systems: string[] = [];
@@ -143,15 +241,11 @@ describe("the arm switch", () => {
 });
 
 describe("the arms' Answer paths", () => {
-  // An Answer in the question flow, the one the arms' sets ask in, writes first when it retrieves
-  // first or writes then cites (src/core/answers/index.ts).
-  const pathOf = (model: { catalogId: string; modelId: string }, paths: AnswerPathsOverride) => {
-    const searchesFirst = retrievesFirst(model, "question", paths);
-    return {
-      searchesFirst,
-      writesFirst: searchesFirst || writesThenCites(model, "question", paths),
-    };
-  };
+  // In the question flow, the one the arms' sets ask in.
+  const pathOf = (model: { catalogId: string; modelId: string }, paths: AnswerPathsOverride) => ({
+    searchesFirst: retrievesFirst(model, "question", paths),
+    writesFirst: writesThenCites(model, "question", paths),
+  });
 
   test.each([
     [
@@ -160,9 +254,9 @@ describe("the arms' Answer paths", () => {
       { searchesFirst: false, writesFirst: false },
     ],
     [
-      "Claude Haiku 5.5, on both lists",
+      "Claude Haiku 5.5, on the write-then-cite list only",
       "claude-haiku-5-5",
-      { searchesFirst: true, writesFirst: true },
+      { searchesFirst: false, writesFirst: true },
     ],
   ])(
     "%s: each arm decides the path it compares, the citation arms in the loop from its first call; today keeps the lists'",
@@ -179,7 +273,7 @@ describe("the arms' Answer paths", () => {
         "cite-first": { searchesFirst: false, writesFirst: false },
         "write-then-cite": { searchesFirst: false, writesFirst: true },
         loop: { searchesFirst: false, writesFirst: listed.writesFirst },
-        "retrieve-first": { searchesFirst: true, writesFirst: true },
+        "retrieve-first": { searchesFirst: true, writesFirst: listed.writesFirst },
         today: listed,
       });
     },

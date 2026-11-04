@@ -107,6 +107,8 @@ import { augmentFigureFooting } from "../../figureSchedule";
 import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
+import { withoutDateSuffix } from "../../providers/catalog";
+import { type CheckPathsOverride, quickLooksFirst } from "../../providers/catalog/checkPaths";
 import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
@@ -124,6 +126,7 @@ import {
   createClaimCheck,
   recordJudged,
 } from "./claimCheck";
+import { createFastPaths } from "./fastPaths";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import { createPartCheck, partRequest } from "./partCheck";
@@ -223,7 +226,11 @@ export interface ChecksOptions
     modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
+    /** The quick-tasks model for Answers on `answers` (../../providers/chat). */
+    quickTasksModel(answers: ChatModelChoice): ChatModelChoice | null;
   };
+  /** Which written sentences take the fast paths, instead of the list beside the catalog. */
+  checkPaths?: CheckPathsOverride;
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
@@ -240,6 +247,13 @@ export interface ChecksOptions
       live(documentIds: readonly string[]): Document[];
       /** A live Document's Passages, in reading order. */
       passages(documentId: string): WindowedPassage[];
+      /** Whether another Document among these holds half the words of `text` (../../documents/search). */
+      othersHoldTerms(
+        text: string,
+        except: string,
+        documentIds: readonly string[] | undefined,
+        leftOut: readonly string[],
+      ): boolean;
     };
   /** The estimate of a whole read's requests. */
   estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
@@ -1468,10 +1482,46 @@ export function createChecks(options: ChecksOptions) {
     track,
   });
 
+  /**
+   * The quick model that looks first at a write's sentences checked on `prepared` (./fastPaths):
+   * another model than the Answers model, so none once the User has set the quick-tasks model to
+   * it; listed beside the catalog with this Answers model; and on the same provider, so the same
+   * service.
+   */
+  async function quickModelOf(prepared: PreparedChatModel): Promise<PreparedChatModel | null> {
+    const answers = { providerId: prepared.provider.id, modelId: prepared.modelId };
+    const quick = chat.quickTasksModel(answers);
+    const { catalogId } = prepared.provider;
+    const looks =
+      quick !== null &&
+      quick.providerId === answers.providerId &&
+      withoutDateSuffix(quick.modelId) !== withoutDateSuffix(answers.modelId) &&
+      quickLooksFirst(
+        { catalogId, modelId: answers.modelId },
+        { catalogId, modelId: quick.modelId },
+        options.checkPaths,
+      );
+    return looks ? prepareQuietly(quick) : null;
+  }
+
+  const firstLook = createFastPaths({
+    citationSource: (passageId) => options.documents.citationSource(passageId),
+    pageTexts: (documentId, contentHash, from, to) =>
+      options.documents.pageTexts(documentId, contentHash, from, to),
+    othersHoldTerms: (text, documentId, scope) =>
+      options.documents.othersHoldTerms(text, documentId, scope.documentIds ?? undefined, [
+        ...scope.excluded.keys(),
+      ]),
+    walled: (documentId) => options.walledDocument(documentId) !== null,
+    versionNow: (documentId) => options.documents.live([documentId])[0]?.contentHash ?? null,
+  });
+
   const checkWritten = createWrittenCheck({
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }),
+    quickModel: quickModelOf,
+    firstLook,
     claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
     citedNow,
