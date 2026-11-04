@@ -2110,30 +2110,51 @@ const DETAIL_LINKS = new Set([
 ]);
 
 /**
- * Whether the deciding quote states the part's own detail: each of its content words (or, in
- * Chinese, each of its characters) is there. One judgement called "every week" against "every
- * year" the same, and the part read Supported (#2313).
+ * Whether the deciding quote states the part's own detail in its own order: its content words
+ * stand consecutively, and in Chinese a run's characters stand in adjacent pairs. One judgement
+ * called "every week" against "every year" the same, and the part read Supported (#2313).
  */
 export function quoteStatesDetail(claim: string, quote: string): boolean {
+  const normalize = (text: string) =>
+    text
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/\bcan['’]t\b/g, "cannot")
+      .replace(/\bwon['’]t\b/g, "will not")
+      .replace(/\bshan['’]t\b/g, "shall not")
+      .replace(/n['’]t\b/g, " not");
   const words = (text: string) =>
-    text.toLowerCase().match(/\p{Script=Han}+|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu) ?? [];
-  const stated = new Set(words(quote));
-  const text = quote.toLowerCase();
-  const own = claim.toLowerCase();
+    text.match(/\p{Script=Han}+|(?:(?!\p{Script=Han})[\p{L}\p{N}])+/gu) ?? [];
+  const text = normalize(quote);
+  const own = normalize(claim);
   const negations = (each: string) =>
-    [...each.matchAll(/\b(?:not|no|never|without|nor|cannot)\b|n't\b|[不未没无非]/gu)].length;
+    [...each.matchAll(/\b(?:not|no|never|without|nor|cannot)\b|[不未没无非]/gu)].length;
   if (negations(text) > negations(own)) return false;
-  for (const word of words(claim)) {
-    if (/^\p{Script=Han}+$/u.test(word)) {
-      // A Han run stands whole: 每年 isn't stated by 每周, though both share 每 and the quote
-      // has 年 elsewhere in 年起.
+  const content = (word: string) =>
+    !/^\p{Script=Han}+$/u.test(word) &&
+    !/^\d+(?:\.\d+)?[a-z]{1,2}$/u.test(word) &&
+    word.length >= 2 &&
+    !DETAIL_LINKS.has(word);
+  const quoteWords = words(text);
+  const quoteContent = quoteWords.filter(content);
+  const ownContent = words(own).filter(content);
+  const consecutive =
+    ownContent.length === 0 ||
+    quoteContent.some((_, start) =>
+      ownContent.every((word, offset) => quoteContent[start + offset] === word),
+    );
+  if (!consecutive) return false;
+  const pairs = new Set<string>();
+  for (const run of quoteWords.filter((word) => /^\p{Script=Han}+$/u.test(word)))
+    for (let at = 0; at + 1 < run.length; at++) pairs.add(run.slice(at, at + 2));
+  for (const word of words(own)) {
+    if (!/^\p{Script=Han}+$/u.test(word)) continue;
+    if (word.length === 1) {
       if (!text.includes(word)) return false;
       continue;
     }
-    if (/^\d+(?:\.\d+)?[a-z]{1,2}$/u.test(word)) continue;
-    if (word.length < 2 || DETAIL_LINKS.has(word)) continue;
-    // Whole words only: "week" isn't stated by "weekday"; a negation must be there too.
-    if (!stated.has(word)) return false;
+    for (let at = 0; at + 1 < word.length; at++)
+      if (!pairs.has(word.slice(at, at + 2))) return false;
   }
   return true;
 }
