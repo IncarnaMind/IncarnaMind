@@ -17,7 +17,12 @@ import { outputTokens } from "../providers/outputLimits";
 import { givenList, whole } from "./calculations";
 import { calculationsSchema } from "./calculationsSchema";
 import type { AnswerEngineEvent, AnswerRequest } from "./engine";
-import { FIGURE_RETRY_INSTRUCTIONS, type FigureToRetry, figureRetryPrompt } from "./prompt";
+import {
+  FIGURE_RETRY_INSTRUCTIONS,
+  type FigureToRetry,
+  figureRetryPrompt,
+  setAsideRowsMeaning,
+} from "./prompt";
 import { nearestExcerpt, replyJson } from "./quoteRetry";
 import type { WindowBudget } from "./window";
 
@@ -62,7 +67,10 @@ export async function* retryFigures(
       passages: problem.passages.map((passage) => ({ ...passage, text: "" })),
     })),
   );
-  const room = budget.roomBeside([FIGURE_RETRY_INSTRUCTIONS, framing], maxOutputTokens);
+  const meaning = setAsideRowsMeaning(
+    problems.flatMap((problem) => problem.passages.map((passage) => passage.text)).join("\n"),
+  );
+  const room = budget.roomBeside([FIGURE_RETRY_INSTRUCTIONS, framing, meaning], maxOutputTokens);
   const perPassage = Math.min(EXCERPT_TOKENS, Math.floor(room / Math.max(1, passages)) - 1);
   if (perPassage < MIN_EXCERPT_TOKENS) return;
   const asked: FigureToRetry[] = problems.map((problem) => ({

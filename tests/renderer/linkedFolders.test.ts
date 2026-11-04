@@ -3,13 +3,13 @@ import type { LinkedFolder } from "../../src/core/api";
 import {
   fileStatusLabel,
   folderName,
-  formatBytes,
   formatCount,
   formatDuration,
   indexingShare,
   linkedFolderRowState,
   rowStateLabel,
 } from "../../src/renderer/src/linkedFolders";
+import { formatBytes } from "../../src/shared/bytes";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);

@@ -12,7 +12,12 @@
  * a quote of a Word comment, the comment's author too ("§ 2 Costs, comment
  * by Reviewer", #76).
  */
-import type { CitationAttributes, CitationLocation, CitedArea } from "../core/api";
+import {
+  type CitationAttributes,
+  type CitationLocation,
+  type CitedArea,
+  filePropertyNames,
+} from "../core/api";
 import { clockTime, parseClockTime } from "./clock";
 import { type MessageKey, type MessageParams, translate } from "./i18n";
 import { findQuote, type MatchOptions, type TextRange } from "./quoteMatch";
@@ -137,6 +142,13 @@ export function parseLocation(value: unknown): CitationLocation | null {
           : {}),
         ...(isCount(location.figure) ? { figure: location.figure } : {}),
       });
+    }
+    case "properties": {
+      const property = filePropertyNames.find((name) => name === location.property);
+      const { value } = location;
+      return property && typeof value === "string" && value !== ""
+        ? { kind, property, value }
+        : null;
     }
     default:
       return null;
@@ -266,6 +278,8 @@ export function formatLocation(location: CitationLocation, t: Translate, speaker
         ? after("location.section.comment", "location.comment", { author: comment.author })
         : after("location.section.comment.anonymous", "location.comment.anonymous", {});
     }
+    case "properties":
+      return t("location.properties");
   }
 }
 
@@ -309,7 +323,7 @@ export const englishPrintedLocation = (location: CitationLocation): string =>
 
 /** The kinds of Location the card's "Open …" button names: the page, the slide, the section… */
 export const openKind = (location: CitationLocation | null) =>
-  location === null ? "document" : location.kind;
+  location === null || location.kind === "properties" ? "document" : location.kind;
 
 /** A Citation of a Transcript, whose Location is a time: checked against the Transcript's text, not a page. */
 export const isTranscriptLocation = (location: CitationLocation | null) =>

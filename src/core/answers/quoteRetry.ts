@@ -26,7 +26,13 @@ import { jsonSchema, Output, streamText } from "ai";
 import { outputTokens } from "../providers/outputLimits";
 import type { AnswerEngineEvent, AnswerRequest, UnfoundQuote } from "./engine";
 import { markedSentence, wordsOf } from "./markerPlacement";
-import { QUOTE_RETRY_INSTRUCTIONS, type QuoteToRetry, quoteRetryPrompt } from "./prompt";
+import {
+  QUOTE_RETRY_INSTRUCTIONS,
+  type QuoteToRetry,
+  quoteRetryPrompt,
+  setAsideRowsMeaning,
+} from "./prompt";
+import { withLineMark } from "./sheetRows";
 import type { WindowBudget } from "./window";
 
 /** The most records one request asks about: the first ones, by marker. */
@@ -73,10 +79,12 @@ export function nearestExcerpt(
     if (each > (scores[best] as number)) best = index;
   });
   const first = pieces[best] as string;
+  const startOf = (piece: number) => pieces.slice(0, piece).join("").length;
   let used = tokens(first);
   if (used > maxTokens) {
     // One long line: its start, as much as fits.
-    return first.slice(0, Math.max(1, Math.floor((first.length * maxTokens) / used))).trim();
+    const cut = first.slice(0, Math.max(1, Math.floor((first.length * maxTokens) / used))).trim();
+    return withLineMark(text, startOf(best), cut);
   }
   let from = best;
   let to = best + 1;
@@ -96,7 +104,7 @@ export function nearestExcerpt(
       break;
     }
   }
-  return pieces.slice(from, to).join("").trim();
+  return withLineMark(text, startOf(from), pieces.slice(from, to).join("").trim());
 }
 
 /** The new quotes in the model's reply, by marker: only those given as text. */
@@ -191,7 +199,8 @@ export async function* retryQuotes(
   const maxOutputTokens = outputTokens("quote-retry", records.length);
   // What the request holds besides the Passages' text, and the room left for it.
   const framing = quoteRetryPrompt(records.map((record) => ({ ...record, text: "" })));
-  const room = budget.roomBeside([QUOTE_RETRY_INSTRUCTIONS, framing], maxOutputTokens);
+  const meaning = setAsideRowsMeaning(records.map((record) => record.text).join("\n"));
+  const room = budget.roomBeside([QUOTE_RETRY_INSTRUCTIONS, framing, meaning], maxOutputTokens);
   const perRecord = Math.min(EXCERPT_TOKENS, Math.floor(room / records.length) - 1);
   if (perRecord < MIN_EXCERPT_TOKENS) return;
   const asked: QuoteToRetry[] = records.map((record) => ({

@@ -75,6 +75,7 @@ import { markArrived } from "../tags/held";
 import type { StoredTaggingState } from "../tags/tagger";
 import { isPlaceholderDate } from "./creationDate";
 import { createEmbeddingQueue } from "./embedding";
+import { fileCreatedAt, parseFileProperties, storedFileProperties } from "./fileProperties";
 import {
   DOCUMENT_EXTENSIONS,
   hashBytes,
@@ -193,6 +194,8 @@ interface DocumentRow {
   processing_version: number;
   keywords_version: number;
   file_mtime_ms: number | null;
+  file_created_ns: string | null;
+  file_properties: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -248,7 +251,8 @@ const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   source_kind, creation_date, title, own_file, converted_from, your_note_mind_id, your_note_at,
-  counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms, created_at,
+  counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms,
+  file_created_ns, file_properties, created_at,
   updated_at`;
 
 /** What IncarnaMind wrote the file as (#80), from its stored kind; a kind a newer version wrote counts as an export. */
@@ -644,6 +648,8 @@ export function createDocuments(options: DocumentsOptions) {
       creationDate:
         row.creation_date && !isPlaceholderDate(row.creation_date) ? row.creation_date : null,
       modifiedAt: row.file_mtime_ms === null ? null : new Date(row.file_mtime_ms).toISOString(),
+      fileCreatedAt: fileCreatedAt(row.file_created_ns),
+      properties: parseFileProperties(row.file_properties),
       title: row.title,
       web: row.kind === "web" ? webPageInfo(db, row.id) : null,
       reference: referenceOf(db, row.id),
@@ -1289,7 +1295,7 @@ export function createDocuments(options: DocumentsOptions) {
            unread_parts = ?, processing_version = ?, keywords_version = ?, embedding_model = ?,
            embedding_dimensions = CASE WHEN ? THEN embedding_dimensions END,
            content_hash = ?, size = ?, file_status = 'available', creation_date = ?,
-           title = ?, metadata_version = ?, updated_at = ?
+           title = ?, file_properties = ?, metadata_version = ?, updated_at = ?
          WHERE id = ?`,
         [
           status,
@@ -1307,6 +1313,7 @@ export function createDocuments(options: DocumentsOptions) {
           result.size,
           result.creationDate,
           result.title,
+          storedFileProperties(result.properties),
           BigInt(METADATA_VERSION),
           at,
           job.documentId,
@@ -1517,12 +1524,14 @@ export function createDocuments(options: DocumentsOptions) {
         const written = db.transaction(() => {
           const at = now();
           const updated = db.get<{ id: string }>(
-            `UPDATE documents SET creation_date = ?, title = ?, metadata_version = ?, updated_at = ?
+            `UPDATE documents SET creation_date = ?, title = ?, file_properties = ?,
+               metadata_version = ?, updated_at = ?
              WHERE id = ? AND content_hash = ? AND metadata_version < ? AND deleted_at IS NULL
              RETURNING id`,
             [
               result.creationDate,
               result.title,
+              storedFileProperties(result.properties),
               BigInt(METADATA_VERSION),
               at,
               job.documentId,

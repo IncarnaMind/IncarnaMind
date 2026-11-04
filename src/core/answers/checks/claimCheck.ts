@@ -108,6 +108,7 @@ import {
   verdictMarkers,
   withSentenceVerdict,
 } from "./figureChecks";
+import { type FilePropertySearch, withFileProperties } from "./fileProperties";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
@@ -165,6 +166,8 @@ export interface ClaimCheckDependencies {
     getMany?(documentIds: readonly string[]): Document[];
     names?(): readonly import("../../../shared/citations").LiveDocument[];
   };
+  /** The Run's searches may show the Documents' file properties (./fileProperties). */
+  fileProperties?: FilePropertySearch;
 }
 
 /** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
@@ -576,6 +579,7 @@ export function checkRunStart(
   const tools: AnswerTools = {
     documentCount: 1,
     documentLanguages: deps.documents.searchableLanguages(request.scope.documentIds),
+    ...(deps.documents.getMany && { fileProperties: true }),
     searchDocuments: async () => ({ text: "", passageCount: 0 }),
     cite: () => "",
     ...(calculating && { calculate: () => "" }),
@@ -588,6 +592,10 @@ export function checkRunStart(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
+  return withFileProperties(deps, createSentenceCheck);
+}
+
+function createSentenceCheck(deps: ClaimCheckDependencies) {
   const check = async function checkClaim(
     request: ClaimCheckRequest,
   ): Promise<AtomicClaimCheckResult> {
@@ -628,7 +636,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             .filter((each) => !scope.excluded.has(each.id)),
           name,
         ),
-      async search(query, searchSignal, within) {
+      async search(query, searchSignal, within, options) {
         const found = request.window
           ? null
           : await deps.evidence.search(
@@ -637,9 +645,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               searchSignal,
             );
         // A web search's result never settles a citation of a court decision.
-        const passages = (request.window ?? found?.passages ?? []).filter(
+        const matched = (request.window ?? found?.passages ?? []).filter(
           (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
         );
+        const passages =
+          options?.properties && deps.fileProperties
+            ? [...matched, ...deps.fileProperties.add(matched, within, options)]
+            : matched;
         if (!request.window) {
           for (const passage of passages) read.set(passage.documentId, passage.contentHash);
         }
@@ -699,10 +711,17 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         return session.tools.documentCount;
       },
       documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
+      ...(deps.fileProperties && { fileProperties: true }),
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
         searches++;
-        if (!request.window) return session.tools.searchDocuments(query, searchSignal, options);
+        if (!request.window) {
+          const found = session.tools.searchDocuments(query, searchSignal, options);
+          const { fileProperties } = deps;
+          return options?.properties && fileProperties
+            ? found.then((result) => fileProperties.told(result, options))
+            : found;
+        }
         // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
         // search returned the whole window again: its verdict request carried it two or three
         // times (#1554).
@@ -1101,6 +1120,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         },
         // In a window of a whole read every search returns that window: the read is the search.
         ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
+        ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
         ...figuresReplied(
           request,
           figures,
@@ -1147,6 +1167,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       else if (event.type === "finished") finished = true;
     }
     if (!failed) hear(heard);
+    deps.fileProperties?.replied(replyAcrossTurns(reply, setAside));
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {

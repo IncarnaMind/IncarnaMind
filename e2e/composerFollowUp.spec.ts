@@ -33,6 +33,7 @@ const WORDS = {
     spring: "When do spring tides happen?",
     springFind: "spring tides",
     neap: "Why are neap tides weaker?",
+    neapFind: "neap tides",
   },
   "zh-CN": {
     first: "提问，或说“写一篇关于……的笔记”",
@@ -40,6 +41,7 @@ const WORDS = {
     spring: "大潮什么时候出现？",
     springFind: "大潮",
     neap: "小潮为什么比较弱？",
+    neapFind: "小潮",
   },
 } as const;
 
@@ -119,15 +121,16 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(questions(window)).toContainText(words.spring);
     await expect(input(window)).toHaveAttribute("placeholder", words.followUp);
 
-    // After a restart the assistant starts a new chat, and a conversation opened from the past has its messages.
+    // After a restart the conversation it showed comes back (#258); one opened from the past keeps its messages.
     await app.close();
     ({ app, window } = await launchApp(dataDir, { fakeChat: true }));
     await setWindowSize(app, window, 900, 700);
     await window.keyboard.press("ControlOrMeta+j");
     await expect(input(window)).toBeFocused();
-    await expect(window.getByTestId("assistant-empty")).toBeVisible();
-    await expect(input(window)).toHaveAttribute("placeholder", words.first);
-    await openFromPalette(window, words.springFind, words.spring);
+    await expect(window.getByTestId("assistant-empty")).toHaveCount(0);
+    await expect(questions(window)).toContainText(words.spring);
+    await expect(input(window)).toHaveAttribute("placeholder", words.followUp);
+    await openFromPalette(window, words.neapFind, words.neap);
     await expect(input(window)).toHaveAttribute("placeholder", words.followUp);
     await app.close();
   });

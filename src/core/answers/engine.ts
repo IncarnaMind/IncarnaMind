@@ -199,6 +199,8 @@ export interface AnswerSearchOptions {
   parameters?: Partial<SearchToolParameters>;
   /** Only this Document, by its name as the instructions list it. */
   document?: string;
+  /** The Documents' file properties too: a check's search, for a sentence about a file itself (#2458). */
+  properties?: true;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
@@ -256,6 +258,8 @@ export interface AnswerTools {
   unreadDocuments?(): readonly UnreadFile[];
   /** The Documents in the Search scope still being read: the search Tool says so, so a Document isn't taken for missing (#1503). */
   readingDocuments?(): readonly { name: string }[];
+  /** The search Tool can show the Documents' file properties: a check Run's (#2458). */
+  readonly fileProperties?: boolean;
   /** The document-search Tool. */
   searchDocuments(
     query: string,
@@ -318,6 +322,8 @@ export interface AnswerTools {
    * figure's sentence or table cell has none (#1831); each quote is recorded as a Citation.
    */
   citeFigures?(text: string): string;
+  /** `text` with each mark of a row the file sets aside that the model copied into it said in words (#1979). */
+  setAsideInWords?(text: string): string;
 }
 
 /** What a Run still owes, by marker (`AnswerTools.owed`). */
@@ -1449,6 +1455,7 @@ export function documentTools(
 ): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
+  const properties = checking && documents.fileProperties === true;
   return {
     search: {
       ...own(DOCUMENT_TOOLS.search),
@@ -1466,22 +1473,31 @@ export function documentTools(
             description:
               "Search only this Document, named as the instructions list it: to find what each of several Documents says.",
           },
+          ...(properties && {
+            properties: {
+              type: "boolean",
+              description:
+                "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds.",
+            },
+          }),
         },
         required: ["query"],
       },
-      shownInput: ({ query, document }) => ({
+      shownInput: ({ query, document, properties: asked }) => ({
         query: String(query ?? ""),
         ...(typeof document === "string" && document !== "" && { document }),
+        ...(properties && asked === true && { properties: true }),
       }),
       effects: () => [{ action: "read", scope: { kind: "documents" } }],
       // The User didn't write their Documents.
       untrustedResult: true,
-      async call({ query, document }, { toolCallId, signal, readThirdParty }) {
+      async call({ query, document, properties: asked }, { toolCallId, signal, readThirdParty }) {
         let found: SearchResultForModel;
         try {
           found = await documents.searchDocuments(String(query ?? ""), signal, {
             rerank: false,
             ...(typeof document === "string" && document !== "" && { document }),
+            ...(properties && asked === true && { properties: true }),
           });
         } catch (error) {
           // A failed search is the app's problem, so it is logged; the model is told it failed.
@@ -1948,6 +1964,9 @@ async function* toolLoop(
     yield* flagged(mergedFlags(standingFlags, await flagsOf(request.turnChecks ?? [], keptText)));
   }
   async function* endAnswer(): AsyncGenerator<AnswerEngineEvent> {
+    const worded = request.documents.setAsideInWords?.(keptText) ?? keptText;
+    yield* textEdits(keptText, worded);
+    keptText = worded;
     const suffix = request.refusalSuffix?.(keptText) ?? null;
     if (keptText.trim() !== "" || suffix === null) {
       if (!request.documents.wroteIntoMind?.()) {
@@ -2361,7 +2380,8 @@ async function* structured(
   } catch (error) {
     console.error(`The Citations couldn't be recorded: ${messageOf(error)}`);
   }
-  yield* emit(typeof answer === "string" ? takeToolText(answer).text : answer);
+  const worded = (text: string) => request.documents.setAsideInWords?.(text) ?? text;
+  yield* emit(typeof answer === "string" ? worded(takeToolText(answer).text) : answer);
   if (typeof answer === "string") {
     // A small model often gives the records but leaves their markers out.
     const marked = yield* missingMarkerEvents(emitted, records, request.documents);
@@ -2451,7 +2471,8 @@ async function* plain(
     return;
   }
   if (signal.aborted) return;
-  const written = takeToolText(produced).text;
+  const taken = takeToolText(produced).text;
+  const written = request.documents.setAsideInWords?.(taken) ?? taken;
   yield* textEdits(produced, written);
   yield* flagClaims(request, written);
   yield { type: "finished" };
