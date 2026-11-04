@@ -18,6 +18,7 @@ import {
   type MarkedCitation,
 } from "../core/api";
 import { asGenerated } from "./aiText";
+import type { AnalysisValue } from "./analysis";
 import { withAnalysisPictures } from "./analysisPictures";
 import { withAnalysisTableCitations } from "./analysisTables";
 import { citationNode, type NodeJSON, withCitations } from "./blockJson";
@@ -25,6 +26,7 @@ import { calculatedFigureNode, figureShownText } from "./calculatedFigures";
 import { withFigures } from "./figureMarkers";
 import { figureRunId } from "./figureRuns";
 import { withoutFraming } from "./noteBlocks";
+import { printedValue } from "./printedFigures";
 
 /**
  * While it is written, what would still change how it looks is held back, and
@@ -78,14 +80,13 @@ export function withCalculatedFigures(
 }
 
 function holdsFigure(analysis: AnswerAnalysis, figure: CalculatedFigure): boolean {
+  const name = figure.analysis?.result;
+  if (name === undefined) return false;
+  const gives = (result: AnalysisValue | null) =>
+    result?.kind === "figure" && result.name === name && result.value === figure.value;
   return (
-    analysis.end.kind === "done" &&
-    analysis.output.results.some(
-      (result) =>
-        result.kind === "figure" &&
-        result.name === figure.analysis?.result &&
-        result.value === figure.value,
-    )
+    (analysis.end.kind === "done" && analysis.output.results.some(gives)) ||
+    gives(printedValue(analysis, name))
   );
 }
 

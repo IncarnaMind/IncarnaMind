@@ -82,8 +82,9 @@ async function setUp(
   options: {
     level?: "os" | "none";
     codeRuntime?: boolean;
-    /** Leave run_code to the shipped catalog, which offers it to no model yet. */
+    /** Leave run_code to the shipped catalog, which offers it only where it was measured. */
     catalogOnly?: boolean;
+    modelId?: string;
     manifestUrl?: string;
     /** sales.csv's rows below its heading; null: no sales.csv, so no sheet to run_analysis. */
     salesRows?: string[] | null;
@@ -120,7 +121,7 @@ async function setUp(
   const saved = await core.saveChatProvider({
     kind: "anthropic",
     apiKey: "sk-test",
-    modelId: "claude-haiku-5-5",
+    modelId: options.modelId ?? "claude-haiku-5-5",
   });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
   const sources = await createTempDataFolder();
@@ -157,11 +158,21 @@ const bash = (code: string) => (passage: Passages) => ({
 });
 
 describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
-  test("with the shipped catalog alone it is offered to no model yet, even where code runs in the OS sandbox", async () => {
-    const { model, offered } = codingModel([]);
-    await ask(await setUp(model, { catalogOnly: true }), "How many errors are in the log?");
-    expect(offered.at(-1)).toContain("run_analysis");
-    expect(offered.at(-1)).not.toContain("run_code");
+  test("with the shipped catalog alone it is offered to Claude Haiku 5.5, and not to a model it wasn't measured on", async () => {
+    const measured = codingModel([]);
+    await ask(
+      await setUp(measured.model, { catalogOnly: true }),
+      "How many errors are in the log?",
+    );
+    expect(measured.offered.at(-1)).toContain("run_code");
+
+    const unmeasured = codingModel([]);
+    await ask(
+      await setUp(unmeasured.model, { catalogOnly: true, modelId: "claude-opus-5-5" }),
+      "How many errors are in the log?",
+    );
+    expect(unmeasured.offered.at(-1)).toContain("run_analysis");
+    expect(unmeasured.offered.at(-1)).not.toContain("run_code");
   });
 
   test("is offered, with when to use it, only where code runs in the OS sandbox", async () => {

@@ -20,7 +20,7 @@ import { typesText } from "../../undo";
 import { useRename } from "../../useRename";
 import { CiteAsPanel } from "../CiteAsPanel";
 import { DocumentFix } from "../DocumentFix";
-import { DocumentStatusLabel, NotCitedLabel } from "../DocumentsSection";
+import { DocumentStatusLabel, NotCitedLabel, YourNoteLabel } from "../DocumentsSection";
 import { InlineName } from "../InlineName";
 import { LibrarySelectBox } from "../LibrarySelection";
 import { ChevronDownLineIcon, DocumentLineIcon, FolderLineIcon } from "../lineIcons";
@@ -330,6 +330,7 @@ export const LibraryRow = memo(function LibraryRow({
                 </span>
               )}
               <span className="contents">
+                <YourNoteLabel item={doc} />
                 <NotCitedLabel item={doc} />
                 <DocumentStatusLabel item={doc} />
                 {notSorted !== null && (

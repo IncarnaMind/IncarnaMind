@@ -29,6 +29,7 @@ import { useReviewables, useReviewPanes } from "../reviewPane";
 import { allExamples, useAppStore } from "../store";
 import { openDocumentBeside } from "../verify";
 import { LookMenuItems } from "./LookMenu";
+import { MindSourceFoot } from "./MindSourceFoot";
 import { MindCounts } from "./WordCount";
 import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin";
 
@@ -245,7 +246,12 @@ export function PageMenu({
                 </div>
               )
         }
-        foot={<MindCounts editor={editor} doc={doc} switchable={!readOnly} />}
+        foot={
+          <>
+            <MindSourceFoot mindId={mindId} />
+            <MindCounts editor={editor} doc={doc} switchable={!readOnly} />
+          </>
+        }
       />
       {/* Mounted only while open: closed, it would sit in the page beside the sidebar row's. */}
       {moving && (

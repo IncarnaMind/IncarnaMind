@@ -92,6 +92,7 @@ export const Citation = Node.create<CitationOptions>({
         },
       },
       quote: dataAttribute("quote"),
+      yourNoteAt: dataAttribute("yourNoteAt"),
       check: {
         default: "checking",
         parseHTML: (element: HTMLElement) => element.getAttribute("data-check") ?? "checking",
