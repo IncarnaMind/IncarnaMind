@@ -464,6 +464,36 @@ describe.skipIf(process.platform === "win32")(
       expect(await installFolders(inHome, inHome, denied, denied)).toEqual([join(home, "bin")]);
     });
 
+    test("a prefix's linked lib is handed to the sandbox by its real place and its name only when it links to a lib folder of the prefix", async () => {
+      const root = await realpath(await createTempDataFolder());
+      const home = join(root, "home");
+      const prefixWith = async (name: string, lib: (prefix: string) => string) => {
+        const prefix = join(home, name);
+        await mkdir(join(prefix, "bin"), { recursive: true });
+        await mkdir(join(prefix, "lib-3.12"));
+        await mkdir(join(prefix, "share"));
+        await writeFile(join(prefix, "bin", "python3"), "");
+        await symlink(lib(prefix), join(prefix, "lib"));
+        return prefix;
+      };
+      const inside = await prefixWith("inside", (prefix) => join(prefix, "lib-3.12"));
+      const toShare = await prefixWith("to-share", (prefix) => join(prefix, "share"));
+      const handed = (prefix: string) =>
+        installFolders(
+          join(prefix, "bin", "python3"),
+          join(prefix, "bin", "python3"),
+          [home],
+          [home],
+        );
+
+      expect(await handed(inside)).toEqual([
+        join(inside, "bin"),
+        join(inside, "lib-3.12"),
+        join(inside, "lib"),
+      ]);
+      expect(await handed(toShare)).toEqual([join(toShare, "bin")]);
+    });
+
     test("the homes interpreters may be installed in are each account's and the volumes'", () => {
       expect(interpreterRoots({ platform: "darwin", home: "/Users/Ada" })).toEqual([
         "/Users/Ada",
@@ -872,11 +902,15 @@ console.log(JSON.stringify(results));
           : []),
       ];
 
+      // sandbox-runtime gives a link inside a masked folder back on Linux only where it points,
+      // never at its own name, so there a lib that is a link finds nothing through it.
+      const readsInside =
+        process.platform === "linux" ? "started\ndenied\ndenied\n" : "started\nSTDLIB\ndenied\n";
       expect(cases).toEqual(
         cases.map(({ name }) => ({
           name,
           exitCode: 0,
-          stdout: name === "inside" ? "started\nSTDLIB\ndenied\n" : "started\ndenied\ndenied\n",
+          stdout: name === "inside" ? readsInside : "started\ndenied\ndenied\n",
         })),
       );
     });
