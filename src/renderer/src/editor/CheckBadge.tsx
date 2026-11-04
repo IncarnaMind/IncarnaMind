@@ -25,6 +25,7 @@ import { useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import {
+  cardClosed,
   type Planned,
   startCheck,
   startCheckUnpriced,
@@ -432,6 +433,17 @@ function VerifyBadge({
   );
 }
 
+/** Whether the Note has a tab anywhere: false once its tab closed, true while another tab is in front. */
+function noteHasTab(mindId: string): boolean {
+  return (
+    useAppStore
+      .getState()
+      .layout?.groups.some((group) =>
+        group.tabs.some((tab) => tab.item.kind === "mind" && tab.item.mindId === mindId),
+      ) ?? false
+  );
+}
+
 /**
  * The badge and its card. The card opens by itself when `ask` turns on: a
  * question before a paid run, or a problem with a check the User started.
@@ -517,12 +529,21 @@ function BadgeFrame({
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);
-  useEffect(() => () => setCheckCardOpen(place, false), [place]);
-  const close = (refocus: boolean) => {
+  useEffect(
+    () => () => {
+      setCheckCardOpen(place, false);
+      // A tab that only stopped showing keeps its question; its Note closed takes it away.
+      if (!noteHasTab(mindId)) cardClosed(mindId, "note");
+    },
+    [place, mindId],
+  );
+  const close = (how: "escape" | "outside") => {
     // Closed from inside, the card would leave the focus nowhere: it goes back to the badge.
-    if (refocus && document.activeElement?.closest(".check-card")) {
+    if (how === "escape" && document.activeElement?.closest(".check-card")) {
       (anchor?.querySelector("button") ?? anchor)?.focus();
     }
+    // A click into the page keeps the question for the badge to reopen; Esc closes it.
+    cardClosed(mindId, how);
     setCheckCardOpen(place, false);
   };
   // The card is placed from this box's right edge; opening it leaves the badge's box as it was,
@@ -536,7 +557,11 @@ function BadgeFrame({
           open={open}
           running={running}
           stable={badge.running || badge.checked !== null}
-          onToggle={() => setCheckCardOpen(place, !open)}
+          onToggle={() => {
+            // The badge closes the card as its × does: the question closes with it.
+            if (open) cardClosed(mindId, "toggle");
+            setCheckCardOpen(place, !open);
+          }}
           onStop={onStop}
         />
       ) : (
@@ -550,7 +575,7 @@ function BadgeFrame({
           aria-label={t("health.label")}
           data-testid="check-card"
           className="check-card"
-          onDismiss={(how) => close(how === "escape")}
+          onDismiss={(how) => close(how)}
           onKeyDown={stepThroughCard}
         >
           <div
