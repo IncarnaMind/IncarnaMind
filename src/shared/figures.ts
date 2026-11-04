@@ -2259,12 +2259,17 @@ function amountInWords(
 const SIGN_BEFORE =
   /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除)[ \u00a0]*[为了]?$|-$|[△▲▽▼][ \u00a0]*$/i;
 
-/** "minus", "negative" or 负 (not 负责 or 负担) anywhere in an amount's clause: "a negative closing balance of". */
-const NEGATIVE_WORD = /(?<![A-Za-z])(?:minus|negative)(?![A-Za-z])|负(?![责担])/i;
-const CLAUSE_MARK = /[.;,，；。]/g;
+/**
+ * "minus", "negative" or 负 anywhere in an amount's clause: "a negative closing balance of". Not a
+ * "negative pledge", nor 负责, 负担, 负债, 负面 or 自负.
+ */
+const NEGATIVE_WORD =
+  /(?<![A-Za-z])(?:minus|negative(?! pledge))(?![A-Za-z])|(?<!自)负(?![责担债面])/i;
+/** A clause's end; the point or comma inside a number ("98,000", "1.5万") is none. */
+const CLAUSE_MARK = /(?<!\d)[.,]|[.,](?!\d)|[;，；。]/g;
 
-/** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …". */
-const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*[:：]/i;
+/** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …", a table's "Less" cell. */
+const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*(?:[:：]|\t|\|)/i;
 
 /** The Document says amounts in brackets are negative: "Amounts in brackets are negative", "括号内数字为负数". */
 const SAYS_BRACKETS_NEGATIVE =
@@ -2299,10 +2304,18 @@ function restates(
   for (let at = end; at <= bracket; at++)
     if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return null;
   const signed = (from: number) => {
-    const lead = s.slice(line, from);
-    const clause = lead.slice(([...lead.matchAll(CLAUSE_MARK)].at(-1)?.index ?? -1) + 1);
+    // A clause reaches further back than words do; past this the reader can't see where it starts.
+    const reach = Math.max(0, from - 400);
+    const start = reach + s.slice(reach, from).lastIndexOf("\n") + 1;
+    const lead = s.slice(start, from);
+    const marks = [...lead.matchAll(CLAUSE_MARK)];
+    const clause = lead.slice((marks.at(-1)?.index ?? -1) + 1);
+    const unseen = start === reach && reach > 0 && s[reach - 1] !== "\n" && marks.length === 0;
     return (
-      SIGN_BEFORE.test(lead.slice(-24)) || NEGATIVE_WORD.test(clause) || DEDUCTION_LINE.test(lead)
+      unseen ||
+      SIGN_BEFORE.test(lead.slice(-24)) ||
+      NEGATIVE_WORD.test(clause) ||
+      DEDUCTION_LINE.test(lead)
     );
   };
   // A bare "$" is whichever dollar the words name: "Australian Dollars ($98,000)".
