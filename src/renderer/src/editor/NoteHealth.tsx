@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import type { CitationAttributes } from "../../../core/api";
 import { citationState } from "../../../shared/citations";
@@ -321,11 +321,34 @@ export function HealthCard({
   };
 
   const rows = ROWS.filter((part) => countOf(part) > 0);
-  // While a run is on, the note line carries the verdicts that have landed, not the run's
-  // progress: the foot shows that.
-  const landed = (["contradicted", "unsupported", "notFound", "found"] as const)
-    .filter((part) => countOf(part) > 0)
-    .map((part) => label(part, countOf(part)));
+  // While a run is on, the note line carries only the verdicts that landed since it started: the
+  // rows above already name the Mind's whole counts, and an earlier verdict did not just land.
+  const landedParts = ["contradicted", "unsupported", "notFound", "found"] as const;
+  const beforeRun = useRef<readonly (readonly [HealthRowPart, number])[] | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the counts are kept as the run found them, not refreshed.
+  useLayoutEffect(() => {
+    beforeRun.current =
+      running === undefined
+        ? null
+        : (beforeRun.current ?? landedParts.map((part) => [part, health[part].length] as const));
+  }, [running]);
+  const landed =
+    running === undefined || beforeRun.current === null
+      ? []
+      : landedParts
+          .map(
+            (part) =>
+              [
+                part,
+                Math.max(
+                  health[part].length -
+                    (beforeRun.current?.find(([each]) => each === part)?.[1] ?? 0),
+                  0,
+                ),
+              ] as const,
+          )
+          .filter(([, count]) => count > 0)
+          .map(([part, count]) => label(part, count));
   const summary = healthSummary(health, {
     running: running !== undefined,
     problem: problem !== undefined,
@@ -333,11 +356,11 @@ export function HealthCard({
   });
   // The summary's line keeps its place from the moment a run starts here, empty until its
   // result lands, so the card keeps one height as a check's results arrive (#1312, #1941).
-  const summarySpace =
-    summary === null &&
-    problem === undefined &&
-    health.checkable > 0 &&
-    (running !== undefined || ranHere || health.checking.length > 0);
+  // The line the run will fill keeps its place from the card's open, so the body's height at the
+  // press is its height all run: the check's start adds nothing that clips what was shown.
+  const summaryShown =
+    summary?.kind === "all" || (summary?.kind === "left" && summary.summary.supported > 0);
+  const summarySpace = !summaryShown && problem === undefined && health.checkable > 0;
   const close = {
     label: t("checks.close"),
     testId: "checks-problem-close",
@@ -452,7 +475,7 @@ export function HealthCard({
           stays once a run has started here: a run ends a moment before its record reaches the
           Mind, and the line must not go in between. The card's body keeps its opening height, so
           what is above it stays put as the run ends (#1312). */}
-      {(running || checkedAll || ranHere) && (
+      {(running || checkedAll || ranHere || (problem === undefined && health.checkable > 0)) && (
         <div className="check-card-note">
           {running
             ? landed.length > 0 && <MetaLine parts={landed} />

@@ -51,15 +51,15 @@ export const KNOWN: readonly Known[] = [
   { flow: "library-2000", step: "show all 2,000", kind: "input", max: 2900, issue: 1313 },
   { flow: "library-2000", step: "show all 2,000", kind: "long-task", max: 2500, issue: 1313 },
   {
-    // A subpixel rounding as the check's card opens and the badge's words settle; the same step
-    // sums to 0.0017 moving the tab group on main. Bounded at a layout-shift score of 0.005.
+    // The tab group's own shift as the check's card opens: 0.0017 on main (#2519). A card or a
+    // foot that moves is a real jump and is not excused.
     flow: "first-open",
     step: "check the Mind",
     kind: "shift",
-    moved: ["tab-group", "check-card", "check-card-foot"],
+    moved: ["tab-group"],
     max: 0.005,
     sometimes: true,
-    issue: 1741,
+    issue: 2519,
   },
 ];
 

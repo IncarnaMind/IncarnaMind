@@ -322,9 +322,11 @@ test("the card keeps one height as a result lands, its body taking what it needs
     says: "The agreement says the facilities end on 14 February 2029.",
   });
   // The result lands in the same card: the card keeps the height it opened with, so it does not
-  // jump; its body holds what the result needs and scrolls if that is more (#2313).
+  // jump; its body holds what the result needs and scrolls if that is more (#2313). The summary's
+  // line keeps its place as the space it was, so the next press adds no line either.
   const summary = card.locator(".mind-health-summary");
-  await expect(summary).toHaveCount(0);
+  await expect(summary).toHaveCount(1);
+  await expect(summary).toHaveText("");
   await expect(card.getByTestId("health-contradicted")).toContainText("1 claim contradicted");
   const done = await card.boundingBox();
   expect(running).not.toBeNull();

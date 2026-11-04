@@ -225,7 +225,6 @@ export function CheckActions({
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
   const language = useLanguage();
-  const format = (value: number) => new Intl.NumberFormat(language).format(value);
   // The price line the card last showed stays laid out, hidden, once a run or a plan change takes
   // it away, so the foot keeps its height until the card closes.
   const [lastPrice, setLastPrice] = useState<EstimateLine | null>(estimate);
@@ -234,23 +233,25 @@ export function CheckActions({
   }, [estimate, running]);
   const price = estimate ?? lastPrice;
   const priceShown = estimate !== null && !running;
-  // Every line a run can show keeps its room, so the finding step, the checking step and a longer
-  // wording never move the foot. A card that never showed a price line keeps no room at rest.
-  // The plan goes while the run is on; its count stays as the room the progress line keeps, so a
-  // longer count never wraps the foot to a new row mid-run.
-  const [lastReserve, setLastReserve] = useState(0);
-  useEffect(() => {
-    if (!running && planned?.plan.kind === "ready") setLastReserve(planned.plan.sentences);
-  }, [planned, running]);
-  const reserve =
-    planned?.plan.kind === "ready" ? planned.plan.sentences : running ? lastReserve : 0;
+  // Every wording a run can show keeps its room in Check's row, so the finding step and a longer
+  // wording never move the foot; the row's Check button keeps the row's height under the line.
   const runWords = [
-    t("badge.checking", { done: format(reserve), total: format(reserve) }),
     t("verify.finding"),
     t("checks.running.check-against-documents"),
     t("checks.running.check-against-document"),
     t("checks.running.contradiction-watch"),
   ];
+  // The press disables Check and focus falls away: it goes to Stop, so a keyboard User can stop
+  // the run, and back to Check when the run ends.
+  const checkPress = useRef<HTMLButtonElement>(null);
+  const stopPress = useRef<HTMLButtonElement>(null);
+  const wasRunning = useRef(running);
+  useLayoutEffect(() => {
+    if (wasRunning.current === running) return;
+    if (running) stopPress.current?.focus();
+    else checkPress.current?.focus();
+    wasRunning.current = running;
+  }, [running]);
   const correctable = useEditorState({
     editor,
     selector: ({ editor: current }) => correctableCount(current),
@@ -276,58 +277,13 @@ export function CheckActions({
             />
           </div>
         )}
-        {(running || price !== null) && (
-          <div
-            className="check-card-progress"
-            data-testid="card-foot-progress"
-            data-hidden={running ? undefined : ""}
-            aria-hidden={running ? undefined : true}
-          >
-            {runWords.map((words) => (
-              <MetaLine
-                key={words}
-                as="div"
-                data-hidden={running ? "" : undefined}
-                aria-hidden="true"
-                parts={[
-                  words,
-                  <span key="stop" className="check-badge-stop">
-                    {t("checks.stop")}
-                  </span>,
-                ]}
-              />
-            ))}
-            {running && (
-              <MetaLine
-                as="div"
-                parts={[
-                  <RunningText
-                    key="words"
-                    editor={editor}
-                    mindId={mindId}
-                    testId="card-progress"
-                  />,
-                  <button
-                    key="stop"
-                    type="button"
-                    data-testid="card-foot-stop"
-                    className="check-badge-stop"
-                    onClick={() => stopCheck(mindId)}
-                  >
-                    {t("checks.stop")}
-                  </button>,
-                ]}
-              />
-            )}
-          </div>
-        )}
       </div>
       <div className="check-card-actions">
-        {correctable > 0 && (
+        {correctable > 0 && !running && (
           <button
             type="button"
             data-testid="badge-correct-contradictions"
-            disabled={running || editing}
+            disabled={editing}
             className={buttonStyle("primary", "sm")}
             onClick={() => {
               if (correctContradictions(editor, mindId) === 0) return;
@@ -342,20 +298,67 @@ export function CheckActions({
             })}
           </button>
         )}
-        <button
-          type="button"
-          data-testid="badge-check-mind"
-          disabled={running}
-          title={planned === null ? undefined : checkTitle(t, planned)}
-          className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
-          onClick={() =>
-            void (checkPressOf(estimateState) === "ask"
-              ? startCheckUnpriced(mindId)
-              : startCheck(mindId, planned ?? undefined))
-          }
-        >
-          {t("mindCheck.command")}
-        </button>
+        <div className="check-card-press">
+          <button
+            ref={checkPress}
+            type="button"
+            data-testid="badge-check-mind"
+            data-hidden={running ? "" : undefined}
+            aria-hidden={running || undefined}
+            disabled={running}
+            title={planned === null ? undefined : checkTitle(t, planned)}
+            className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
+            onClick={() =>
+              void (checkPressOf(estimateState) === "ask"
+                ? startCheckUnpriced(mindId)
+                : startCheck(mindId, planned ?? undefined))
+            }
+          >
+            {t("mindCheck.command")}
+          </button>
+          {running && (
+            <>
+              <MetaLine
+                as="div"
+                data-testid="card-foot-progress"
+                className="check-card-progress"
+                parts={[
+                  <RunningText
+                    key="words"
+                    editor={editor}
+                    mindId={mindId}
+                    testId="card-progress"
+                  />,
+                  <button
+                    key="stop"
+                    ref={stopPress}
+                    type="button"
+                    data-testid="card-foot-stop"
+                    className="check-badge-stop"
+                    onClick={() => stopCheck(mindId)}
+                  >
+                    {t("checks.stop")}
+                  </button>,
+                ]}
+              />
+              {runWords.map((words) => (
+                <MetaLine
+                  key={words}
+                  as="div"
+                  className="check-card-progress"
+                  data-hidden=""
+                  aria-hidden="true"
+                  parts={[
+                    words,
+                    <span key="stop" className="check-badge-stop">
+                      {t("checks.stop")}
+                    </span>,
+                  ]}
+                />
+              ))}
+            </>
+          )}
+        </div>
       </div>
     </>
   );
@@ -553,8 +556,8 @@ function BadgeFrame({
     cardClosed(mindId, how);
     setCheckCardOpen(place, false);
   };
-  // The card is placed from this box's right edge; opening it leaves the badge's box as it was,
-  // so its anchor never moves (#1312).
+  // The card is placed from this box's right edge, which the badge growing left never moves, so
+  // the run's wider badge leaves the card where it was (#1312, #2313).
   return (
     <div ref={setAnchor} className="check-badge-place">
       {badge ? (

@@ -1864,8 +1864,7 @@
       padding-left: 0;
     }
   }
-  /* The foot's one line: the price before a press, the run's progress after, in one room, so the
-     foot is as tall as the taller of them from the start (#2313). */
+  /* The price line keeps its room while a run hides it, so the foot's price never moves (#2313). */
   .check-card-foot-line {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -1877,22 +1876,24 @@
       visibility: hidden;
     }
   }
-  .check-card-progress {
+  /* The run's words take Check's row; the hidden Check keeps the row's height under them, and
+     every wording a run can show keeps its room in that row (#2313). */
+  .check-card-press {
     display: grid;
-    padding: 2px 8px 4px;
-    font-variant-numeric: tabular-nums;
+    margin-left: auto;
 
     & > * {
       grid-area: 1 / 1;
     }
-    /* The room of every wording a run can show stays laid out under the line showing it. */
     & > [data-hidden] {
       visibility: hidden;
     }
-    & .meta-line {
-      margin: 0;
-      padding-left: 0;
-    }
+  }
+  .check-card-progress {
+    align-self: center;
+    font-variant-numeric: tabular-nums;
+    margin: 0;
+    padding-left: 0;
   }
   /* The foot's Stop is the badge's own, in the line's height. */
   .check-card-progress .check-badge-stop {

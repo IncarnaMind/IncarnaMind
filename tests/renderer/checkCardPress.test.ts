@@ -56,12 +56,7 @@ vi.mock("../../src/renderer/src/correctionFixes", () => ({
 vi.mock("../../src/renderer/src/editWithAi", () => ({ useEdits: () => undefined }));
 vi.mock("../../src/renderer/src/i18n", () => ({
   useLanguage: () => "en",
-  useT: () => (key: string, params?: Record<string, unknown>) =>
-    params === undefined
-      ? key
-      : `${key}(${Object.entries(params)
-          .map(([name, value]) => `${name}=${value}`)
-          .join(",")})`,
+  useT: () => (key: string) => key,
 }));
 vi.mock("../../src/renderer/src/layoutSlice", () => ({
   frontTabOfMind: () => null,
@@ -124,10 +119,6 @@ const planned: Planned = {
   },
 };
 const price: CheckEstimateView["line"] = { parts: ["About $1.40"], title: "About $1.40" };
-const bigPlan: Planned = {
-  ...planned,
-  plan: { kind: "ready", sentences: 1_024, findsClaims: true, inFolder: true, model: null },
-};
 
 /** As the card takes them; the card itself is imported at run time, as a .tsx file. */
 interface PressProps {
@@ -225,22 +216,29 @@ test("the card's press with no price asks instead", async () => {
   expect(pressed.check).not.toHaveBeenCalled();
 });
 
-// protects=#2313: the foot keeps the room of every line a run can show before it starts, in the badge's own words; fails_when=the line is drawn only once the run starts, or only its last wording is kept, so the finding step moves the foot; no_claim=the card's press.
-test("the foot keeps every run wording's room before a run", async () => {
+// protects=#2313: at rest the foot shows the Check alone, with no progress line or Stop to make an empty band; fails_when=the run's line is laid out before a run; no_claim=the card's press.
+test("the foot shows no run line or Stop before a run", async () => {
   await render("price", planned);
-  const progress = container.querySelector('[data-testid="card-foot-progress"]');
-  if (!progress) throw new Error("The foot keeps no line.");
-  expect(progress.getAttribute("data-hidden")).toBe("");
-  expect(progress.textContent).toContain("badge.checking");
-  expect(progress.textContent).toContain("verify.finding");
-  expect(progress.textContent).toContain("checks.running.contradiction-watch");
-  expect(progress.textContent).toContain("checks.stop");
-  // Its Stop is no button until a run starts, so the card's arrow keys never land on it.
+  expect(container.querySelector('[data-testid="card-foot-progress"]')).toBeNull();
   expect(container.querySelector('[data-testid="card-foot-stop"]')).toBeNull();
+  expect(container.querySelector('[data-testid="badge-check-mind"]')).not.toBeNull();
 });
 
-// protects=#2313: while the run is on the price line stays laid out under the progress line, and every wording still keeps its room; fails_when=the price line or a wording's room is removed at the press, so the foot moves mid-run; no_claim=the room kept before the run above.
-test("the price line keeps its room under the running progress line", async () => {
+// protects=#2313: at the press the run's words take Check's own row, and the hidden Check keeps the row's height; fails_when=the run's line is drawn as a new row, or the Check's room goes, so the foot moves; no_claim=the rest above.
+test("the run's line takes Check's own row", async () => {
+  await render("price", planned);
+  pressed.running.value = true;
+  await render("price", null);
+
+  expect(container.querySelector('[data-testid="card-foot-progress"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="card-foot-stop"]')).not.toBeNull();
+  const check = container.querySelector('[data-testid="badge-check-mind"]');
+  expect(check?.getAttribute("data-hidden")).toBe("");
+  expect(check?.getAttribute("disabled")).not.toBeNull();
+});
+
+// protects=#2313: while the run is on the price line stays laid out, hidden, under the run's line; fails_when=the price line is removed at the press, so the foot moves; no_claim=the room kept before the run above.
+test("the price line keeps its room under the run's line", async () => {
   await render("price", planned);
   pressed.running.value = true;
   await render("price", null);
@@ -249,23 +247,9 @@ test("the price line keeps its room under the running progress line", async () =
   if (!price) throw new Error("The price line's room went at the press.");
   expect(price.getAttribute("data-hidden")).toBe("");
   expect(container.querySelector('[data-testid="check-estimate"]')).toBeNull();
-  const progress = container.querySelector('[data-testid="card-foot-progress"]');
-  expect(progress?.getAttribute("data-hidden")).toBeNull();
-  expect(progress?.querySelectorAll("[data-hidden]").length).toBeGreaterThan(0);
-  expect(container.querySelector('[data-testid="card-foot-stop"]')).not.toBeNull();
 });
 
-// protects=#2313: the foot keeps the room the plan's own count needs while the run is on; fails_when=the count goes back to 0 at the press, so a long count can wrap the foot to a new row; no_claim=the room kept before the run above.
-test("the progress line keeps the plan's count while the run is on", async () => {
-  await render("none", bigPlan, null);
-  pressed.running.value = true;
-  await render("none", null, null);
-
-  const progress = container.querySelector('[data-testid="card-foot-progress"]');
-  expect(progress?.textContent).toContain("badge.checking(done=1,024,total=1,024)");
-});
-
-// protects=#2313: after the run ends a card with no new price keeps the last price line laid out, hidden; fails_when=the price line goes at the end of the run, so the card jumps; no_claim=the room kept during the run above.
+// protects=#2313: after the run ends a card with no new price keeps the last price line laid out, hidden, and the Check comes back; fails_when=the price line goes at the end of the run, so the card jumps; no_claim=the room kept during the run above.
 test("the last price line keeps its room after the run ends", async () => {
   await render("price", planned);
   pressed.running.value = true;
@@ -277,6 +261,8 @@ test("the last price line keeps its room after the run ends", async () => {
   if (!price) throw new Error("The card jumped when the run ended.");
   expect(price.getAttribute("data-hidden")).toBe("");
   expect(container.querySelector('[data-testid="check-estimate"]')).toBeNull();
+  const check = container.querySelector('[data-testid="badge-check-mind"]');
+  expect(check?.getAttribute("data-hidden")).toBeNull();
 });
 
 // protects=#2313: a card that never showed a price line keeps no empty line above Check; fails_when=the progress line's room is laid out at rest; no_claim=the price line's card above.
