@@ -147,9 +147,6 @@ export const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
   ["«", "»"],
 ];
 
-/** What separates the parts of a Document's name: "维基百科-大型语言模型", "Report – 2025". */
-const NAME_PARTS = /\s*[-–—_|:：·•]\s*/u;
-
 /**
  * The quote as the model meant it: without location marks, without the
  * ellipses and quotation marks models put around a quote. Its words are left alone.
@@ -2334,12 +2331,11 @@ export function createCitationSession(
         return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
       };
       const translated: string[] = [];
-      // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote:
-      // also each part of a name made of parts, as "维基百科-大型语言模型" names its article's
-      // title "大型语言模型" (#2504).
+      // A cited Document's name or own title in quotation marks, as an Answer gives a title, is a
+      // name, not a quote (#2504). Only those: any other words are checked on the page.
       const names = new Set(
         [...records.values()].flatMap(({ source }) =>
-          [source.documentName, ...source.documentName.split(NAME_PARTS)]
+          [source.documentName, source.documentTitle ?? ""]
             .map(nameKey)
             .filter((key) => key.length >= 2),
         ),

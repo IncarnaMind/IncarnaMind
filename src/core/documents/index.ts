@@ -410,6 +410,8 @@ export interface CitationSource {
   pageTo: number | null;
   documentId: string;
   documentName: string;
+  /** The Document's own title (#213): from its file's properties, else its first heading. */
+  documentTitle?: string | null;
   documentKind: DocumentKind;
   /** The version of the Document the Passage was built from: what a Citation of it quotes. */
   contentHash: string;
@@ -2582,6 +2584,7 @@ export function createDocuments(options: DocumentsOptions) {
         page_to: number | null;
         document_id: string;
         name: string;
+        title: string | null;
         kind: string;
         content_hash: string;
         deleted_at: string | null;
@@ -2590,7 +2593,7 @@ export function createDocuments(options: DocumentsOptions) {
         your_note_at: string | null;
         your_note_version_at: string | null;
       }>(
-        `SELECT p.id, p.text, p.page_from, p.page_to, p.document_id, d.name, d.kind,
+        `SELECT p.id, p.text, p.page_from, p.page_to, p.document_id, d.name, d.title, d.kind,
            coalesce(p.content_hash, d.content_hash) AS content_hash, d.deleted_at, d.not_cited,
            d.your_note_mind_id, d.your_note_at,
            (SELECT dp.version_at FROM document_pages dp
@@ -2609,6 +2612,7 @@ export function createDocuments(options: DocumentsOptions) {
         pageTo: row.page_to,
         documentId: row.document_id,
         documentName: row.name,
+        documentTitle: row.title,
         documentKind: row.kind as DocumentKind,
         contentHash: row.content_hash,
         documentDeleted: row.deleted_at !== null,

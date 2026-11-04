@@ -275,38 +275,44 @@ describe("Changed words in Chinese stay not found", () => {
 const TITLE = {
   en: {
     file: {
-      name: "Wikipedia - Code of Practice for Industry.md",
+      name: "Code of Practice.md",
       contents:
-        "# Delivery of items\n\nThe reply card must give the health professional a way to say no, and the company must respect that answer.\n",
+        "# Code of Practice for Industry\n\nThis code sets the rules for representatives.\n\n## Delivery of items\n\nThe reply card must give the health professional a way to say no, and the company must respect that answer.\n",
     },
     query: "reply card",
     question: "What must the reply card give?",
     quote: "The reply card must give the health professional a way to say no",
     found: "The “Code of Practice for Industry” says the card must offer a way to say no [^1].",
     changed: "The “Code of Practice for Medicine” says the card must offer a way to say no [^1].",
+    titleLike:
+      "The “Rules for Representatives and Companies” say the card must offer a way to say no [^1].",
   },
   zh: {
     file: {
       name: "维基百科-大型语言模型.md",
       contents:
-        "# 多模态\n\n使用标记化方法将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制。\n",
+        "# 大型语言模型\n\n这是一类基于神经网络的语言模型。\n\n## 多模态\n\n使用标记化方法将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制。\n",
     },
     query: "PaLM-E 机器人控制",
     question: "谷歌把哪个模型用于机器人控制？",
     quote: "将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制",
     found: "维基百科“大型语言模型”词条写道，谷歌把 PaLM 微调成了多模态模型[^1]。",
     changed: "维基百科“大型视觉语言模型”词条写道，谷歌把 PaLM 微调成了多模态模型[^1]。",
+    titleLike: "维基百科“多模态语言模型综述”词条写道，谷歌把 PaLM 微调成了多模态模型[^1]。",
   },
 } as const;
 
 describe.each(["en", "zh"] as const)("The Document's title in quotation marks (%s)", (language) => {
   const title = TITLE[language];
 
-  test("a part of the Document's name, as an Answer gives an article's title, is a name: found", async () => {
+  test("the Document's own title, as an Answer gives an article's title, is a name: found", async () => {
     expect(await checkOf(title, title.found)).toEqual(FOUND);
   });
 
-  test("a title with a word changed is checked as a quote: not found", async () => {
-    expect(await checkOf(title, title.changed)).toEqual(NOT_FOUND);
+  test.each([
+    ["the title with a word changed", "changed"],
+    ["a title-like phrase that isn't the Document's", "titleLike"],
+  ] as const)("%s is checked as a quote: not found", async (_, key) => {
+    expect(await checkOf(title, title[key])).toEqual(NOT_FOUND);
   });
 });
