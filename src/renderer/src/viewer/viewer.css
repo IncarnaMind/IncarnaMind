@@ -46,6 +46,12 @@
     @apply flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-rule bg-sheet pr-1.5 pl-2 text-[13px] leading-5 text-ink-secondary;
     scrollbar-width: none;
   }
+  /* Closer together at a narrow viewer, so the fifth control's room is taken from the gaps. */
+  @container viewer (width < 1100px) {
+    .viewer-header {
+      @apply gap-0.5;
+    }
+  }
   .viewer-kind {
     @apply size-4 shrink-0 text-ink-meta;
   }

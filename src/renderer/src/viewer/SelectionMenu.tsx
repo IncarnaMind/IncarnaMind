@@ -488,7 +488,7 @@ export function SelectionMenuBody({
           >
             <PlusLineIcon className="size-4 shrink-0 text-ink-secondary" />
             <span className="flex-1 truncate">{t("annotations.addNote")}</span>
-            <kbd className="editor-menu-shortcut">{shortcutLabel("viewer.selection.note")}</kbd>
+            <kbd className="editor-menu-shortcut">{shortcutLabel("comment.add")}</kbd>
           </button>
         </>
       )}

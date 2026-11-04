@@ -1843,7 +1843,6 @@ export const zhCN = {
   "annotations.export.fromFile": "来自文件",
   "annotations.export.fromFileBy": "来自文件，{author} 所加",
   "command.annotations.highlight": "高亮所选文字",
-  "command.annotations.note": "为所选文字添加批注",
   "command.annotations.list": "显示这个文档的高亮和批注",
   "command.annotations.export": "导出这个文档的高亮和批注",
   "command.annotations.collectFolder": "将这个文件夹的高亮收进新笔记",

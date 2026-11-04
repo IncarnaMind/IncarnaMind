@@ -1929,7 +1929,6 @@ export const en = {
   "annotations.export.fromFile": "From the file",
   "annotations.export.fromFileBy": "From the file, by {author}",
   "command.annotations.highlight": "Highlight the selected text",
-  "command.annotations.note": "Add a comment to the selected text",
   "command.annotations.list": "Show this Document’s highlights and comments",
   "command.annotations.export": "Export this Document’s highlights and comments",
   "command.annotations.collectFolder": "Collect this Folder’s highlights into a note",

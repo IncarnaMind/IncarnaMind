@@ -276,6 +276,21 @@ test("by the keyboard: ⌘K highlights the selection and finds a highlight's wor
   await window.keyboard.press("Escape");
 });
 
+test("the comment's own keys work on words selected in the viewer", async () => {
+  const { window, viewer } = await openMarkdown();
+  const words = "4% is held";
+  await slideSelect(window, paragraph(viewer, words), words);
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+
+  await window.keyboard.press(process.platform === "darwin" ? "Alt+Meta+m" : "Control+Alt+m");
+
+  const popover = window.getByTestId("annotation-note");
+  await expect(popover).toBeVisible();
+  await expect(popover.getByTestId("annotation-note-field")).toBeFocused();
+  await expect(viewer.locator("[data-annotation-id]").first()).toContainText(words);
+  await window.keyboard.press("Escape");
+});
+
 test("in Chinese: the menu, the panel and search are in Chinese", async () => {
   const { window, viewer } = await openMarkdown("zh-CN", CHINESE, "预算.md");
   await slideSelect(window, paragraph(viewer, "应急费按 4% 预留"), "应急费按 4% 预留");
