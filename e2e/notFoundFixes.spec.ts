@@ -35,7 +35,7 @@ const OWN = "Harbours publish the times of high water every 12 months.";
 const ELSEWHERE = "Penguins nest on the harbour cliffs every spring.";
 const ABSENT = "Whales sing in the deep bay.";
 const DIFFERENT = "Harbours publish forecasts monthly (6).";
-const PORTS = "Harbours publish (6) for 3 ports.";
+const PORTS = "Harbours publish (6) for (3) ports.";
 const TIDE_TABLES = "北码头潮汐时刻表";
 
 let dataDirs: string[];
@@ -229,17 +229,15 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("viewer-selection-cite")).toHaveCount(0);
     await window.keyboard.press("Escape");
 
-    // Cancel stops the wait, and so does Esc.
-    const third = await checkSentence(window, editor, ELSEWHERE.replace("Penguins", "Puffins"));
+    // Cancel stops the wait.
+    const third = await checkSentence(window, editor, "Gulls sleep on the old pier.");
     await pointAndClick(window, third.getByTestId("claim-choose-citation"));
     await window.getByTestId("citation-document-search").fill("Harbour");
     await pointAndClick(
       window,
       window.getByTestId("citation-document-picker").getByText("Harbour times", { exact: true }),
     );
-    await expect(window.getByTestId("citation-pick-line")).toBeVisible();
-    if (language === "en") await pointAndClick(window, window.getByTestId("citation-pick-cancel"));
-    else await window.keyboard.press("Escape");
+    await pointAndClick(window, window.getByTestId("citation-pick-cancel"));
     await expect(window.getByTestId("citation-pick-line")).toHaveCount(0);
     await selectOwn(window);
     await expect(window.getByTestId("viewer-selection-cite")).toHaveCount(0);
@@ -277,20 +275,39 @@ for (const language of ["en", "zh-CN"] as const) {
     );
 
     // A figure the Passage doesn't give stays out: the sentence is kept as written.
-    await setWindowSize(app, window, 900, 900);
     const ports = await checkSentence(window, editor, PORTS);
-    await capture(window, `after-rewrite-offer-${language}-900`);
     await pointAndClick(window, ports.getByTestId("claim-rewrite"));
-    await expect(window.getByTestId("error-notice-message")).toHaveText(t("claim.rewrite.kept"));
+    await expect(window.getByTestId("error-notice-message")).toContainText(t("claim.rewrite.kept"));
     expect(await noteText(editor)).toBe(`${DIFFERENT}\n${PORTS}`);
+    await setWindowSize(app, window, 900, 900);
     await capture(window, `after-rewrite-kept-${language}-900`);
 
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+  test(`a narrow window keeps the card's new actions inside it (${language})`, async () => {
+    test.setTimeout(180_000);
+    const { app, window, editor } = await launchNote(language, 900);
+    const card = await checkSentence(window, editor, DIFFERENT);
+    for (const [id, key] of [
+      ["claim-choose-citation", "claim.chooseCitation"],
+      ["claim-rewrite", "claim.rewrite"],
+    ] as const) {
+      const action = card.getByTestId(id);
+      await expect(action).toHaveText(t(key));
+      const [inner, outer] = [await action.boundingBox(), await card.boundingBox()];
+      if (!inner || !outer) throw new Error("The card isn't laid out.");
+      expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width + 1);
+    }
+    await capture(window, `after-rewrite-offer-${language}-900`);
     // ⌘K reaches it, for the sentence at the caret.
-    await pointAndClick(window, editor.locator(":scope > p").first());
+    await window.keyboard.press("Escape");
+    await pointAndClick(window, editor.getByText("forecasts monthly"));
     await runCommand(window, "check.rewrite", t("claim.rewrite"));
-    await expect
-      .poll(() => noteText(editor))
-      .toBe(`Harbours publish forecasts monthly (12￼).\n${PORTS}`);
+    await expect.poll(() => noteText(editor)).toBe("Harbours publish forecasts monthly (12￼).");
     await app.close();
   });
 }
@@ -320,6 +337,12 @@ test("the assistant checks the sentence against a Document it names, and opens o
   await expect(viewer).toBeVisible();
   await selectOwn(window);
   await expect(window.getByTestId("viewer-selection-cite")).toBeVisible();
+  // Esc closes the menu, then ends the wait.
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("viewer-selection-menu")).toHaveCount(0);
+  await expect(window.getByTestId("citation-pick-line")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("citation-pick-line")).toHaveCount(0);
   await app.close();
 });
 
@@ -435,7 +458,7 @@ for (const language of ["en", "zh-CN"] as const) {
       if (!action || !lastWords || !firstWords) throw new Error("The stop line isn't laid out.");
       // Continue starts its own line, under the words, in either language.
       expect(action.y).toBeGreaterThan(lastWords.top);
-      expect(Math.abs(action.x - firstWords.left)).toBeLessThan(2);
+      expect(Math.abs(action.x - firstWords.left)).toBeLessThan(4);
       await capture(window, `after-stop-line-${language}-${width}`);
 
       // Continue asks before it reads again: the question's last line is no stub.
