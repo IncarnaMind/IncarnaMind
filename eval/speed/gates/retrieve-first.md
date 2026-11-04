@@ -39,3 +39,12 @@ The list is for speed, so a model that holds the quality margins is listed only 
 ## Reported, not gated
 
 Per model and set: model calls per Answer, the share that fell back to the loop (searched again, or more than one call of its own), the time to the first words and to the end on both arms, the counts above, the load during the run, and what the run cost.
+
+## How the everyday lines were read (added on 2026-11-04, after the everyday run)
+
+This reading was decided after the run, and it applies only to a set that the changed path never reaches. On Claude Haiku 5.5's everyday run (173 pairs), two "none new" lines failed as written:
+
+- change claimed, none made: 4 → 7 (6 new, 3 gone);
+- other everyday guard failed: 40 → 46 (11 new, 5 gone).
+
+Every everyday request is an assistant turn. An assistant turn never searches first, and a unit test (`tests/core/retrieveFirst.test.ts`, "an assistant turn … word for word") shows that every request it sends the model is byte-identical with the list on and off. So on this set the gate is path identity, and that test decides it. The deltas are noise: items flipped both ways, and the sign tests (6 against 3, 11 against 5) are not significant. Part of the noise was a fault in the runner: both arms shared one core, so the second arm found the first arm's Note of the same title and wrote into it. Each arm now has a core of its own. A set the changed path does reach is never read this way: its lines hold as written above.
