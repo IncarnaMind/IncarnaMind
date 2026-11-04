@@ -1,9 +1,13 @@
 /**
- * The held-out near-copies of the written check's quick first look (#1667, README.md › Paired
- * runs › The written set). Written before any run of it and never used to tune it: no sentence
- * here is an example of the quick model's instructions, which have none. Each item is one
- * sentence the assistant writes with one Citation of `quote`, as a write lands it, in a Library
- * of invented hire terms beside the example's Documents.
+ * The first set of near-copies for the written check's fast paths (#1667, README.md › Paired
+ * runs › The written set), no longer held out. Its first version was written before any run; the
+ * first paid run, of steps A and C together, saw it, and the cases its review asked for (a lead-in,
+ * a later "Notwithstanding…", a deposition, a "This…" and a line telling a checker to say yes)
+ * were added after. Both of C's runs used it, the second after the quick model's instructions had
+ * changed to answer the first run's stop (`en-context-this`). No sentence here is an example in
+ * those instructions, which have none. Each item is one sentence the assistant writes with one
+ * Citation of `quote`, as a write lands it, in a Note of its own and a Library of only its case's
+ * Documents: the invented hire terms, both their editions, or the deposition.
  *
  * A near-copy changes one detail of a sentence the terms state, so a check that only compares
  * words could call it Supported: the parties the other way round, must for may, another period,

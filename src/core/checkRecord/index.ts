@@ -126,8 +126,13 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
           )
         : [t("checkRecord.summary.allDocuments")];
       for (const name of names) searched.add(name);
-      const label = check.model ? modelLabel(check.model, t) : t("checkRecord.notRecorded");
-      models.set(label, (models.get(label) ?? 0) + 1);
+      // A sentence counts once for each model that judged a part of it.
+      const labels = new Set(
+        (check.parts ?? [{ model: check.model }]).map(({ model }) =>
+          model ? modelLabel(model, t) : t("checkRecord.notRecorded"),
+        ),
+      );
+      for (const label of labels) models.set(label, (models.get(label) ?? 0) + 1);
     }
 
     return {

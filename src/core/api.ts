@@ -6601,7 +6601,10 @@ export interface ClaimPartCoverage {
   domainEvidence: CitationAttributes[];
 }
 
-export interface ClaimCheckPart extends ClaimPartPlan {
+/** A part keeps the model and time that judged it: checking another part again changes neither (#1667). */
+export interface ClaimCheckPart
+  extends ClaimPartPlan,
+    Partial<Pick<ClaimCheckBasis, "checkedAt" | "providerId" | "modelId">> {
   verdict: ClaimVerdict | "not-checked" | "checking" | null;
   kept?: true;
   figures?: ClaimPartFigure[];

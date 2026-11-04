@@ -1075,6 +1075,8 @@ export const en = {
   "claim.showCard": "Show the check for this sentence",
   "claim.sentence": "“{sentence}”",
   "claim.checkedWith": "Checked with {model}, {when}",
+  "list.and": "{first} and {last}",
+  "list.separator": ", ",
   "claim.recordCites.label": "Record cites in this sentence",
   "claim.recordCites.partly": "Partly supported",
   "claim.recordCites.choose": "Choose a Document",
@@ -4307,7 +4309,6 @@ export const en = {
     "The sandbox for analyses and scripts can’t start on this computer: install {packages}, then restart IncarnaMind. Until then, analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
   "scripts.settings.problem.sandboxStart":
     "This computer doesn’t let IncarnaMind start a sandbox for analyses and scripts, so analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
-  "scripts.settings.sandboxPackages.and": "{first} and {last}",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 

@@ -1,8 +1,10 @@
 /**
- * The second held-out set of the written check's quick first look (#1667), and its gate. Written
- * and committed before any run of the first look's structural scope, after the first set
+ * The second set of the written check's quick first look (#1667), and its gate. Written and
+ * committed before any run of the first look's structural scope, after the first set
  * (./writtenCases) had been seen: none of its sentences or Documents is here. An invented
  * coworking membership agreement in English and Chinese, its 2027 edition, and an interview.
+ * C's second run has seen it, and its two items on a guest's damage were relabelled after that
+ * run, so a next try needs a set of its own.
  *
  * The gate, fixed before the run:
  * - The first look goes only to a sentence that opens its Note paragraph, after a heading or

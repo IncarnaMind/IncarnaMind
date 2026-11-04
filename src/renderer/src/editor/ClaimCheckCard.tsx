@@ -1403,10 +1403,7 @@ export function ClaimCard({
           onPickerChange={onSourcePickerChange}
         />
       )}
-      <CheckedByLine
-        check={check}
-        verdict={state === "supported" || state === "unsupported" || state === "contradicted"}
-      />
+      <CheckedByLine check={check} shown={state} />
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}

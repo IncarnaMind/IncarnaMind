@@ -506,6 +506,8 @@ interface Checked {
   uncovered: string | null;
   nodes: NodeJSON[] | null;
   by: PreparedChatModel;
+  /** The quick model that read the sentence first and passed it on to its check. */
+  passedOn: PreparedChatModel | null;
 }
 
 /**
@@ -825,15 +827,17 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // asked again, a quick model's later yes would stand.
     const looked = new Map<Sentence, FirstLookResult>();
     // What the Note holds just before the write: its first paragraph follows that.
-    const beforeWrite = options.read(mindId, (note): FirstLook["place"]["after"] => {
-      const top = topLevelBlocks(note);
-      const at = top.findIndex((each) => each.getAttribute(BLOCK_ID_ATTRIBUTE) === input.ids[0]);
-      const previous = at > 0 ? top[at - 1] : undefined;
-      if (at === 0) return { kind: "start" };
-      return previous?.nodeName === "heading"
-        ? { kind: "heading", text: paragraphText(inlineOf(previous)).replaceAll(INLINE_NODE, "") }
-        : { kind: "unknown" };
-    });
+    const beforeWrite =
+      quick &&
+      options.read(mindId, (note): FirstLook["place"]["after"] => {
+        const top = topLevelBlocks(note);
+        const at = top.findIndex((each) => each.getAttribute(BLOCK_ID_ATTRIBUTE) === input.ids[0]);
+        const previous = at > 0 ? top[at - 1] : undefined;
+        if (at === 0) return { kind: "start" };
+        return previous?.nodeName === "heading"
+          ? { kind: "heading", text: paragraphText(inlineOf(previous)).replaceAll(INLINE_NODE, "") }
+          : { kind: "unknown" };
+      });
     const { outcomes, stop } = await runItems(
       sending,
       async (sentence): Promise<Checked> => {
@@ -846,7 +850,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
               figures: read.figures?.length ?? 0,
               inCell: sentence.inCell,
               place:
-                sentence.place.after.kind === "start"
+                sentence.place.after.kind === "start" && beforeWrite
                   ? { ...sentence.place, after: beforeWrite }
                   : sentence.place,
               paragraph: sentence.context,
@@ -859,20 +863,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
               ]),
             })));
         if (quick && first?.result) {
-          return { result: first.result, uncovered: null, nodes: null, by: quick };
-        }
-        // Its reply read the sentence and the Passage: a use of AI, even when it said no.
-        if (quick && first?.asked && !looked.has(sentence)) {
-          options.recordAiUse([
-            {
-              mindId,
-              kind: "sentence-checked",
-              providerId: quick.provider.id,
-              modelId: quick.modelId,
-              characters: 0,
-              occurredAt: options.now().toISOString(),
-            },
-          ]);
+          return { result: first.result, uncovered: null, nodes: null, by: quick, passedOn: null };
         }
         if (first) looked.set(sentence, first);
         const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
@@ -886,7 +877,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         const nodes = uncovered
           ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
           : null;
-        return { result, uncovered, nodes, by: prepared };
+        return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
       },
       { concurrency: claimsAtOnce(prepared), signal },
     );
@@ -977,7 +968,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         );
         return;
       }
-      const { result, uncovered, nodes, by } = outcome.value;
+      const { result, uncovered, nodes, by, passedOn } = outcome.value;
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
         landings.push({
           sentence,
@@ -987,6 +978,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       }
       const at = options.now().toISOString();
       recordJudged(options.recordAiUse, mindId, by, result, at);
+      // A quick model that said no read the sentence too: a use of AI once the sentence is checked.
+      if (passedOn) recordJudged(options.recordAiUse, mindId, passedOn, result, at);
       if (result.verdict === "not-checked") {
         failed(sentence, result.reason, result.detail);
         return;

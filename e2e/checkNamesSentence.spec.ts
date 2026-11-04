@@ -111,6 +111,15 @@ const CHECKED_BY = {
   "zh-CN": (when: string) => `由 Claude Haiku 5.5 核对，${when}`,
 } as const;
 
+/** The window's own clock, so the line is expected as the app writes it on any machine. */
+const clockOf = (window: Page) =>
+  window.evaluate(() => {
+    const { hourCycle, timeZone } = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+    }).resolvedOptions();
+    return { twelveHour: hourCycle === "h11" || hourCycle === "h12", timeZone };
+  });
+
 async function box(locator: Locator) {
   const found = await locator.boundingBox();
   if (!found) throw new Error("The element isn't visible.");
@@ -227,6 +236,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(unseenBox.y).toBe(besideBox.y);
 
     const metaInk = await tokenColor(window, "--color-ink-meta");
+    const clock = await clockOf(window);
     const accent = await tokenColor(window, "--color-accent");
     const sentences = [
       words.supported,
@@ -263,11 +273,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(line).toHaveCSS("font-size", "13px");
       await expect(line).toHaveCSS("color", metaInk);
       const checkedBy = card.getByTestId("claim-checked-by");
-      if (kind === "not-checked" || kind === "needs-recheck")
-        await expect(checkedBy).toHaveCount(0);
+      // A card that needs a re-check keeps its last check's line as it was.
+      if (kind === "not-checked") await expect(checkedBy).toHaveCount(0);
       else {
         await expect(checkedBy).toHaveText(
-          CHECKED_BY[language](formatDateTime(CHECKED_AT, language)),
+          CHECKED_BY[language](formatDateTime(CHECKED_AT, language, clock)),
         );
         await expect(checkedBy).toHaveCSS("font-size", "12px");
         await expect(checkedBy).toHaveCSS("color", metaInk);

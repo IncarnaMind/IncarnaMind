@@ -12,6 +12,7 @@ import {
 } from "../../src/core/answers/checks/fastPaths";
 import type { CitationSource } from "../../src/core/documents";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { checkedWith } from "../../src/shared/claimChecks";
 import { askAssistant } from "../helpers/assistant";
 import { checkGenerate, checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -56,6 +57,8 @@ interface Writing {
   checkPaths?: CheckPathsOverride;
   /** The check's first request is refused for too many requests, once. */
   rateLimitedOnce?: boolean;
+  /** Every request of the check fails. */
+  checkFails?: boolean;
   /** Written into a Note holding these Blocks, after them, rather than into a new one. */
   into?: readonly NodeJSON[];
   /** How long a sentence's check may take; its first look has a tenth of it. */
@@ -82,6 +85,8 @@ async function write(writing: Writing) {
         limited = true;
         return { error: { status: 429, message: "Too many requests." } };
       }
+      if (isCheckRun(call) && writing.checkFails)
+        return { error: { status: 400, message: "The request was refused." } };
       if (isCheckRun(call)) return checkReply(call, plans);
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search)
@@ -215,12 +220,31 @@ describe("the quick model's first look", () => {
       expect(quickCalls).toHaveLength(1);
       expect(checkRuns).toBe(1);
       expect(marks[0]).toMatchObject({ state: "supported", modelId: "claude-sonnet-5-5" });
+      // The card names only the model that decided, never the quick model that passed it on.
+      expect(marks[0] && checkedWith(marks[0])?.models).toEqual([
+        { providerId: expect.any(String), modelId: "claude-sonnet-5-5" },
+      ]);
       expect(sentenceChecks.map((use) => use.modelId).sort()).toEqual([
         "claude-haiku-5-5",
         "claude-sonnet-5-5",
       ]);
     },
   );
+
+  // protects=a quick model that said no is recorded as a use of AI only once its sentence is checked, so the AI use statement never names a model for a sentence the Note shows not checked (#1667); fails_when=its look is recorded when the check then fails; no_claim=none beyond protects.
+  test("a no is not recorded when the sentence's check then fails", async () => {
+    const { marks, quickCalls, sentenceChecks } = await write({
+      content: `## Notes\n\n${PARAPHRASE}[^1]`,
+      quote: DELIVERY,
+      quick: "no",
+      checkPaths: LISTED,
+      checkFails: true,
+    });
+
+    expect(quickCalls).toHaveLength(1);
+    expect(marks[0]).toMatchObject({ state: "not-checked" });
+    expect(sentenceChecks).toEqual([]);
+  });
 
   // protects=a quick model that never replies is given up on after a tenth of the sentence's time, and the sentence then gets its check with all of its time (#1667); fails_when=the first look has no limit of its own, or a hang leaves the sentence not checked; no_claim=none beyond protects.
   test("a first look that never replies goes to the check", async () => {
@@ -331,6 +355,16 @@ describe("the quick model's first look", () => {
     {
       name: "a paragraph after a rule under a heading",
       content: `## Notes\n\n---\n\n${PARAPHRASE}[^1]`,
+      asked: 0,
+    },
+    {
+      name: "a paragraph after a code block under a heading",
+      content: `## Notes\n\n\`\`\`\nreturn --all\n\`\`\`\n\n${PARAPHRASE}[^1]`,
+      asked: 0,
+    },
+    {
+      name: "a paragraph after a table of headers only under a heading",
+      content: `## Notes\n\n| Delivery | Collection |\n| --- | --- |\n\n${PARAPHRASE}[^1]`,
       asked: 0,
     },
     {
