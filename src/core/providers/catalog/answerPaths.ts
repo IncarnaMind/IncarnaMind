@@ -37,7 +37,9 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
 /**
  * Searches the Question before the first call and answers from those Passages, citing as
  * WRITES_THEN_CITES has the model (in one call for a model on both lists), falling back to the
- * Tool loop when it needs more (#1633, an amendment to ADR-0007).
+ * Tool loop when it needs more (#1633, an amendment to ADR-0007). Claude Sonnet 5.5, citing first,
+ * was measured and left out (2026-11-04): 1.4 s sooner on the gating set, but every Citation found
+ * 63 → 59 of 65, mostly quoted words the quote check misreads on both paths (#2504).
  */
 const RETRIEVES_FIRST: readonly Admitted[] = [
   {
