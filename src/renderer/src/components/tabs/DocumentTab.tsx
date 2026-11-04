@@ -5,6 +5,7 @@ import { useViewerHandle, ViewerTabContext } from "../../commands/handles";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { AreaModeContext, AreaOverlay, RegionHighlight } from "../../viewer/areaSelection";
+import { CitationPickLine } from "../../viewer/CitationPickLine";
 import { CitedVersionView } from "../../viewer/CitedVersionView";
 import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
@@ -235,6 +236,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                 <SelectionMenu document={document} section={section} reader={reader} />
               )}
               {document && areaAvailable && <AreaOverlay section={section} document={document} />}
+              {document && <CitationPickLine documentId={document.id} />}
               {document && (
                 <RegionHighlight
                   section={section}

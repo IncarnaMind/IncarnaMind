@@ -21,11 +21,12 @@ import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 import { fixesFree, offersNotFound, restoreCheck } from "./unsupportedFixes";
 
-/** A sentence waiting for its Citation, and the Document it is chosen in. */
+/** A sentence waiting for its Citation, its words, and the Document it is chosen in. */
 export interface CitationPick {
   mindId: string;
   checkId: string;
   documentId: string;
+  sentence: string;
 }
 
 export const useCitationPick = create<{

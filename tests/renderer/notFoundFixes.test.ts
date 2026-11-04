@@ -309,7 +309,7 @@ const CITED: CitedSelection = {
   checkReason: null,
 };
 
-const pick = { mindId: "mind", checkId: "check-rent", documentId: "rent" };
+const pick = { mindId: "mind", checkId: "check-rent", documentId: "rent", sentence: SENTENCE };
 const rent = { id: "rent", name: "Rent" };
 
 test("Rewrite writes nothing once the sentence was given a Citation while the model worked", async () => {

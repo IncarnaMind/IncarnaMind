@@ -45,7 +45,9 @@ export const HELD_OUT_DOCUMENTS: readonly HeldOutDocument[] = [
 
 /**
  * Choose the Citation…: the User's sentence and the words they select as its Citation.
- * `supported`: the words back the whole sentence. Anything else must never be Supported.
+ * `supported`: the words back the whole sentence. `elsewhere`: they don't, but another line of
+ * the Documents does, so a check that finds it there is right to call the sentence Supported, on
+ * that line and not on the words chosen. Anything else must never be Supported.
  */
 export interface ChosenCitationCase {
   id: string;
@@ -54,6 +56,7 @@ export interface ChosenCitationCase {
   document: string;
   words: string;
   supported: boolean;
+  elsewhere?: true;
 }
 
 export const CHOSEN_CITATION_CASES: readonly ChosenCitationCase[] = [
@@ -96,6 +99,7 @@ export const CHOSEN_CITATION_CASES: readonly ChosenCitationCase[] = [
     document: "Office lease.md",
     words: "The lease term starts on 1 March 2026 and runs for five years.",
     supported: false,
+    elsewhere: true,
   },
   {
     id: "leave-backed",
@@ -136,6 +140,7 @@ export const CHOSEN_CITATION_CASES: readonly ChosenCitationCase[] = [
     document: "员工手册.md",
     words: "每位员工每年享有 15 天带薪年假。",
     supported: false,
+    elsewhere: true,
   },
 ];
 

@@ -1136,10 +1136,13 @@ export const en = {
   "claim.checkAgainstThisDocument": "Check the sentence against this Document",
   "claim.chooseCitation": "Choose the Citation…",
   "claim.chooseCitation.keywords": "point to the source cite select words",
+  "claim.chooseCitation.hint": "Select the words that say this",
+  "claim.chooseCitation.cancel": "Cancel",
   "claim.chooseCitationInDocument": "Choose the Citation in this Document",
   "claim.useAsCitation": "Use as Citation",
   "claim.chosenCitation.done": "Added the Citation",
   "claim.rewrite": "Rewrite with what the Documents say",
+  "claim.rewrite.done": "Rewritten from the Documents",
   "claim.rewrite.kept":
     "Couldn’t rewrite this sentence from the Documents, so it stays as you wrote it.",
   "claim.readProgress.starting": "Reading “{scope}”…",

@@ -122,7 +122,7 @@ export async function rewriteWithDocuments(
   };
   offerEditorUndo(
     editor,
-    (t) => t("claim.usedDocumentWording"),
+    (t) => t("claim.rewrite.done"),
     undefined,
     () => restoreCheck(editor, now, earlier),
     recheck,

@@ -258,7 +258,12 @@ export const checkCommands: readonly Command[] = [
       const target = targetOf(ctx, ["document"]);
       const at = withCuttable();
       if (!target || !at) return;
-      chooseCitationIn({ mindId: at.mindId, checkId: at.claim.check.id, documentId: target.id });
+      chooseCitationIn({
+        mindId: at.mindId,
+        checkId: at.claim.check.id,
+        documentId: target.id,
+        sentence: at.claim.sentence.text,
+      });
     },
   },
   {

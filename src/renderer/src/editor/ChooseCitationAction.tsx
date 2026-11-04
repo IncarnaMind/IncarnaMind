@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { checkedCitation } from "../../../shared/claimParts";
 import { useChecks } from "../checks";
 import { chooseCitationIn, requestCitationPicker, useCitationPick } from "../citationPick";
 import { DocumentOrFolderPicker } from "../components/DocumentOrFolderPicker";
@@ -7,9 +8,10 @@ import { useTurnWall } from "../turnWall";
 import type { ShownClaim } from "./claimChecks";
 
 /**
- * Choose the Citation… (#1554) on the card of a sentence the check didn't find: one Document from
- * the shared picker, found by its name, pinyin or initials, opens beside the Note, where the User
- * selects the words to cite. `onChosen`: the card goes, as for Open.
+ * Choose the Citation… (#1554) on the card of a sentence the check didn't find: the Document of the
+ * close Passage its check found, or one from the shared picker, found by its name, pinyin or
+ * initials, opens beside the Note, where the User selects the words to cite. `onChosen`: the card
+ * goes, as for Open.
  */
 export function ChooseCitationAction({
   mindId,
@@ -26,10 +28,22 @@ export function ChooseCitationAction({
   const [picking, setPicking] = useState(false);
   const running = useChecks((state) => state.running[mindId] !== undefined);
   const asked = useCitationPick((state) => state.asked === claim.check.id);
+  const choose = (documentId: string, page?: number) => {
+    chooseCitationIn(
+      { mindId, checkId: claim.check.id, documentId, sentence: claim.sentence.text },
+      page,
+    );
+    onChosen();
+  };
+  // A sentence whose check found a close Passage opens that Passage's Document at its page.
+  const close = checkedCitation(claim.check.evidence ?? undefined);
+  const start = () =>
+    close ? choose(close.documentId, close.pageFrom ?? undefined) : setPicking(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `start` reads the latest check.
   useEffect(() => {
     if (!asked) return;
     requestCitationPicker(null);
-    setPicking(true);
+    start();
   }, [asked]);
   return (
     <>
@@ -39,7 +53,7 @@ export function ChooseCitationAction({
         data-testid="claim-choose-citation"
         className="citation-card-action"
         disabled={running}
-        onClick={() => setPicking(true)}
+        onClick={start}
       >
         {t("claim.chooseCitation")}
       </button>
@@ -57,9 +71,7 @@ export function ChooseCitationAction({
           onChoose={(scope) => {
             setPicking(false);
             const [documentId] = scope.documentIds;
-            if (!documentId) return;
-            chooseCitationIn({ mindId, checkId: claim.check.id, documentId });
-            onChosen();
+            if (documentId) choose(documentId);
           }}
           onClose={() => setPicking(false)}
         />

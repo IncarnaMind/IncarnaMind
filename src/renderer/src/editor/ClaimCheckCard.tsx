@@ -1288,7 +1288,10 @@ export function ClaimCard({
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              !sole && !use && (decision.kind === "none" || decision.kind === "already")
+              !sole &&
+              !use &&
+              !(rewrite && verified === null) &&
+              (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}
@@ -1350,7 +1353,7 @@ export function ClaimCard({
           <button
             type="button"
             data-testid="claim-rewrite"
-            className="citation-card-action"
+            className="citation-card-action citation-card-action--primary"
             onClick={onRewrite}
           >
             {t("claim.rewrite")}

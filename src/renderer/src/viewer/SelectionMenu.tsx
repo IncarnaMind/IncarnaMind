@@ -258,6 +258,20 @@ export function SelectionMenu({
     [held, pick, close, heldNow, document],
   );
 
+  // While a sentence waits for its Citation, Enter takes the words selected, as Use as Citation.
+  useEffect(() => {
+    if (!cite) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Enter" || event.isComposing || event.metaKey || event.ctrlKey) return;
+      const focused = window.document.activeElement;
+      if (typesInField(focused) || focused instanceof HTMLButtonElement) return;
+      event.preventDefault();
+      cite();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cite]);
+
   const actions = useMemo(
     () =>
       held && {
