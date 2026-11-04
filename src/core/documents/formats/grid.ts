@@ -65,6 +65,9 @@ export interface Sheet {
   formulas?: Map<string, string>;
   /** Values its cells saved that their shown text doesn't give, by cell (#2347); see `UnitLabel.saved`. */
   saved?: Map<string, number | string | boolean>;
+  /** Rows the file sets aside, as `UnitLabel.struckRows` and `hiddenRows` (#1979). */
+  struckRows?: Set<number>;
+  hiddenRows?: Set<number>;
 }
 
 export interface Workbook {
@@ -185,6 +188,8 @@ export function gridUnits(
         }
       }
       const repeatHeader = header !== null && headerLine !== null && first > header;
+      const struckRows = block.filter((row) => sheet.struckRows?.has(row));
+      const hiddenRows = block.filter((row) => sheet.hiddenRows?.has(row));
       const label: UnitLabel = {
         ...(named ? { sheet: sheet.name } : {}),
         from: first,
@@ -193,6 +198,8 @@ export function gridUnits(
         column: firstColumn,
         ...(repeatHeader ? { header: true } : {}),
         ...(Object.keys(values).length > 0 ? { values } : {}),
+        ...(struckRows.length > 0 ? { struckRows } : {}),
+        ...(hiddenRows.length > 0 ? { hiddenRows } : {}),
       };
       labels.push({ rows: block, label });
       units.push({

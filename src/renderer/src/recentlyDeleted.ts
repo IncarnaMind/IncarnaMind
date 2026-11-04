@@ -1,12 +1,14 @@
 import { create } from "zustand";
-import type { DeletedItem, RestoreResult } from "../../core/api";
+import type { DeletedItem, LibrarySnapshot, RestoreResult } from "../../core/api";
 import { expiredKey } from "./changes";
 import { core } from "./core";
+import { folderPathLabel } from "./folders";
 import { languageNow, translateNow as t } from "./i18n";
 import type { Words, WordsInLine } from "./lineNames";
 import { formatCount } from "./linkedFolders";
 import { useAppStore } from "./store";
 import { sayWhileSlow, useUndo } from "./undo";
+import { wallLines } from "./walls";
 
 /**
  * Recently deleted (CONTEXT.md) as the Library shows it: what the core lists,
@@ -86,9 +88,47 @@ function restoredMessage(items: readonly DeletedItem[], audio: () => RestoreResu
   };
 }
 
+/** The walled Folder `id` is behind, by the path Move to… shows, reading Recently deleted too. */
+function wallIn(library: LibrarySnapshot | null | undefined, id: string): string | null {
+  if (!library) return null;
+  const folders = [...library.groups, ...library.deletedGroups];
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const seen = new Set<string>();
+  let at: string | null = id;
+  let wall: string | null = null;
+  while (at !== null && !seen.has(at)) {
+    seen.add(at);
+    const folder = byId.get(at);
+    if (!folder) return null;
+    if (folder.keepInside) {
+      wall = folder.id;
+      break;
+    }
+    at = folder.parentId;
+  }
+  // A Folder that keeps its own work inside it is still behind itself at the top level: nothing left.
+  return wall === null || wall === id ? null : folderPathLabel(folders, wall);
+}
+
 /** Puts each back where it was, and says so; Undo deletes them again. */
 export async function restoreItems(items: readonly DeletedItem[]): Promise<void> {
   if (items.length === 0) return;
+  // A Folder restored to the top level, its parent still in Recently deleted, may leave a wall.
+  const wallsBefore = new Map(
+    items.flatMap((item) =>
+      item.kind === "folder"
+        ? [[item.id, wallIn(useAppStore.getState().library, item.id)] as const]
+        : [],
+    ),
+  );
+  const leftWalls = (result: RestoreResult) => [
+    ...new Set(
+      (result.toTopLevel ?? []).flatMap((id) => {
+        const wall = wallsBefore.get(id);
+        return wall ? [wall] : [];
+      }),
+    ),
+  ];
   const count = () => formatCount(items.length, languageNow());
   const slow = (said: Words, work: () => Promise<void>) =>
     items.length > 1 ? sayWhileSlow(said, work) : work();
@@ -103,7 +143,11 @@ export async function restoreItems(items: readonly DeletedItem[]): Promise<void>
     );
   await restore();
   useUndo.getState().push({
-    said: restoredMessage(items, () => audio),
+    said: (t, cut) => {
+      const message = restoredMessage(items, () => audio)(t, cut);
+      const suffix = wallLines(t, null, leftWalls(audio));
+      return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
+    },
     name: (t) => t("undo.name.restore"),
     undo: () =>
       slow(

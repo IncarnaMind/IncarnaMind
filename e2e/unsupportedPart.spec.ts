@@ -168,9 +168,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(rows).toHaveCount(2);
     await expect(rows.first().getByTestId("claim-cited-quote")).toHaveText(`“${QUOTE_ONE}”`);
     await expect(rows.last().getByTestId("claim-cited-quote")).toHaveText(`“${QUOTE_TWO}”`);
-    await expect(card.getByTestId("claim-cited-chip")).toHaveText(["2", "3"]);
-    await expect(rows.first()).toHaveAccessibleName(words.open(2));
-    await expect(rows.last()).toHaveAccessibleName(words.open(3));
+    // Each chip is its Citation's footnote number: Tutorial one is footnote 1, cited again.
+    await expect(card.getByTestId("claim-cited-chip")).toHaveText(["1", "2"]);
+    await expect(rows.first()).toHaveAccessibleName(words.open(1));
+    await expect(rows.last()).toHaveAccessibleName(words.open(2));
     // Both rows are laid out alike: the chip follows its quote on the quote's first line, inside the card.
     for (const row of await rows.all()) {
       expect(await fitsWithin(row, card)).toBe(true);
@@ -186,11 +187,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("claim-search-all")).toHaveCount(0);
     await window.keyboard.press("Escape");
 
-    // One Citation says "Citation", not "Citations".
+    // One Citation says "Citation", not "Citations"; it is Tutorial one's footnote again.
     await openCard(marks.nth(1));
     await expect(card.getByTestId("claim-covers")).toHaveText(words.coversOne);
-    await expect(card.getByTestId("claim-cited-chip")).toHaveText("4");
-    await expect(card.getByTestId("claim-cited")).toHaveAccessibleName(words.open(4));
+    await expect(card.getByTestId("claim-cited-chip")).toHaveText("1");
+    await expect(card.getByTestId("claim-cited")).toHaveAccessibleName(words.open(1));
     await window.keyboard.press("Escape");
 
     // No reason comes back: the card says so, and Check again checks the sentence again.

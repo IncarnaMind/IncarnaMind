@@ -103,6 +103,11 @@ export interface WordImportsOptions {
   mindsChanged(): void;
   now(): string;
   log: Logger;
+  /**
+   * Whether this computer's LibreOffice can convert the file to .docx (#104):
+   * true only for a Word 97–2003 file, and only where one is installed.
+   */
+  canConvert?(path: string): Promise<boolean>;
 }
 
 function parsePath(path: unknown): string {
@@ -367,12 +372,15 @@ export function createWordImports(options: WordImportsOptions) {
       const path = parsePath(input);
       const folderId = parseFolderChoice(folderInput);
       const fileName = basename(path);
+      const legacy = [".doc", ".dot"].includes(extname(path).toLowerCase());
+      const canConvert = legacy && (options.canConvert ? await options.canConvert(path) : false);
       const read = await readWordFile(path);
       checked = "refusal" in read ? null : read;
       if ("refusal" in read) {
         return {
           fileName,
           refusal: read.refusal,
+          canConvert,
           origin: "own",
           authors: [],
           changes: 0,
@@ -384,6 +392,7 @@ export function createWordImports(options: WordImportsOptions) {
       return {
         fileName,
         refusal: null,
+        canConvert: false,
         origin: defaultOrigin(read.review),
         ...read.review,
         earlierDraft: earlierDraft(fileName, path, sha256, folderId),
@@ -464,6 +473,12 @@ export function createWordImports(options: WordImportsOptions) {
           setWordNoteNumbering(blocks.doc, structure.noteNumbering);
         }
       });
+      // Its comments are the Mind's own (#328): their words get the mark as the Blocks arrive.
+      if (structure.comments.length > 0) {
+        content.editComments(mind.id, (comments) => {
+          for (const comment of structure.comments) comments.set(comment.id, comment);
+        });
+      }
       if (structure.lookUnreadable.length > 0) {
         log.warn("word.look.partsUnreadable", { parts: structure.lookUnreadable.join(", ") });
       }

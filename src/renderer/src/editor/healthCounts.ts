@@ -21,12 +21,21 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
-import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
+import {
+  chartCheckText,
+  chartPoints,
+  givesValue,
+  gridOfTable,
+  readChart,
+  type SourceGrid,
+} from "../../../shared/charts";
 import {
   type CheckedSentence,
+  cantBeChecked,
   checkedSentence,
   type KeptMark,
   keptOn,
+  supportedByOwnNotesOnly,
 } from "../../../shared/claimChecks";
 import { readFigures } from "../../../shared/figures";
 import { memoized } from "../../../shared/memo";
@@ -49,7 +58,9 @@ export type HealthPart = (typeof HEALTH_PARTS)[number];
 /**
  * Where each part's sentences or Citations are, top to bottom: its count is
  * how many. `toCheck`: every claim no check covers now, `failed` and
- * `recheck` the parts of that count whose check failed or no longer holds;
+ * `recheck` the parts of that count whose check failed or no longer holds,
+ * `uncheckable` the failed ones a re-run cannot settle and `edited` the
+ * rechecks a change to a sentence that had run made;
  * `checking`: the claims a run is checking right now, not done yet;
  * `kept`: the sentences the User keeps as their own view, which count as
  * handled; `tableCells` are the parts of `toCheck` a table holds (#1194);
@@ -71,16 +82,25 @@ export interface NoteHealth {
   contradicted: number[];
   toCheck: number[];
   failed: number[];
+  /** The failed checks running again cannot settle: a Citation kept inside another Folder. */
+  uncheckable: number[];
   recheck: number[];
+  /** The rechecks a change to their sentence made, which a check of it can settle. */
+  edited: number[];
   checking: number[];
   kept: number[];
   tableCells: number[];
   noCitation: number[];
+  /** The supported claims whose only evidence is one of the User's own notes (#335). */
+  ownNotes: number[];
   checkable: number;
   supported: number;
   checkedAt: string | null;
   unexamined: number[];
 }
+
+/** A check that landed a verdict: an edit of its sentence is a re-check, not an upgrade of one that never ran. */
+const RAN: ReadonlySet<string> = new Set(["supported", "unsupported", "contradicted"]);
 
 /** A digit or a Chinese numeral: a sentence with neither holds no figure, and isn't read for one. */
 const MAY_HOLD_FIGURE = /[\d〇零一二三四五六七八九十百千万亿两]/;
@@ -141,6 +161,22 @@ const inTable = (doc: ProseMirrorNode, pos: number): boolean => {
   return false;
 };
 
+/** Each table's grid, read once while the table stays the same. */
+const grids = new WeakMap<ProseMirrorNode, SourceGrid>();
+
+/** Whether the paragraph at `pos` is in a table's value cell (`givesValue`), as the core reads it. */
+function inValueCell(doc: ProseMirrorNode, pos: number): boolean {
+  const $pos = doc.resolve(pos);
+  for (let depth = $pos.depth - 2; depth > 0; depth--) {
+    const table = $pos.node(depth);
+    if (table.type.name !== "table") continue;
+    const grid = grids.get(table) ?? gridOfTable(table.toJSON());
+    grids.set(table, grid);
+    return givesValue(grid, $pos.index(depth), $pos.index(depth + 1));
+  }
+  return false;
+}
+
 function eachSentence(
   doc: ProseMirrorNode,
   input: SentenceInput,
@@ -187,18 +223,22 @@ function eachSentence(
         : [],
     );
     const table = inTable(doc, pos);
+    const value = table && inValueCell(doc, pos);
     const figures = inline.filter(({ node }) => node.type.name === CALCULATED_FIGURE_NODE);
     for (const span of sentences) {
       const { from, to } = span;
       const claim = input.claims.find((each) => each.from < to && each.to > from) ?? null;
       const words = span.text;
+      const hasFigures =
+        figures.some(({ at }) => at >= span.start && at < span.end) || holdsFigures(words);
       const state = checkedSentence({
         text: words,
-        hasFigures:
-          figures.some(({ at }) => at >= span.start && at < span.end) || holdsFigures(words),
+        hasFigures,
         check: claim?.shown ?? null,
+        // As the core sends it: a value cell's figure is never left out by another sentence's words.
         skipped:
-          skipped.has(sentenceKey(words)) || keptOn(input.omitted ?? [], { from, to, text: words }),
+          (skipped.has(sentenceKey(words)) && !(value && hasFigures)) ||
+          keptOn(input.omitted ?? [], { from, to, text: words }),
         kept: keptOn(kept, { from, to, text: words }),
       });
       visit({
@@ -226,11 +266,14 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     contradicted: [],
     toCheck: [],
     failed: [],
+    uncheckable: [],
     recheck: [],
+    edited: [],
     checking: [],
     kept: [],
     tableCells: [],
     noCitation: [],
+    ownNotes: [],
     checkable: 0,
     supported: 0,
     checkedAt: null,
@@ -250,8 +293,21 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     if (state.kind === "to-check") {
       health.checkable++;
       health.toCheck.push(from);
-      if (state.why === "failed") health.failed.push(from);
-      else if (state.why === "recheck") health.recheck.push(from);
+      if (state.why === "failed") {
+        health.failed.push(from);
+        if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
+      } else if (state.why === "recheck") {
+        health.recheck.push(from);
+        // An edit marks a check that ran and would still hold with its own words; one that never
+        // ran, or whose Document changed since, stays Not checked in the headline (#2313).
+        if (
+          claim?.shown.state === "needs-recheck" &&
+          claim.shown.why === "edited" &&
+          RAN.has(claim.check.state) &&
+          claim.holdsWithItsText === true
+        )
+          health.edited.push(from);
+      }
       if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
       if (table) health.tableCells.push(from);
       return;
@@ -281,6 +337,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     else if (contradicted) health.contradicted.push(from);
     else {
       health.supported++;
+      if (kind !== "chart" && supportedByOwnNotesOnly(claim.check)) health.ownNotes.push(from);
       if (kind !== "chart" && isClaim(text) && citations.length === 0) health.noCitation.push(from);
     }
     if (unsupported || contradicted || missing.length > 0) {
@@ -311,8 +368,8 @@ export interface HealthSummary {
  * rows show, so the two can never disagree (#1941): "everything checked" only
  * when nothing is left — no claim that needs a look, none not checked, no
  * supported claim with no Citation, and no file a narrowed check couldn't read
- * (D266) — otherwise what is left, in D276's words. Null while a check runs or
- * a problem shows: the card says that in its place.
+ * (#1915) — otherwise the supported claims the rows don't count (#2313). Null
+ * while a check runs or a problem shows: the card says that in its place.
  */
 export function healthSummary(
   health: NoteHealth,

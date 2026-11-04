@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
-import { figureReplyText, readFigureReply } from "../../src/core/answers/checks/figureChecks";
+import { readFigureReply } from "../../src/core/answers/checks/figureChecks";
+import { replyAcrossTurns } from "../../src/core/answers/checks/prompt";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import type {
   CalculatedFigure,
@@ -138,22 +139,39 @@ test("the Figures line is the JSON one, not a line of prose that starts the same
 
 test.each([
   { final: "Verdict: unsupported", aside: [reply([item()])] },
-  { final: "The quote states the revenue.", aside: [reply([item()]), "Verdict: unsupported"] },
   { final: "I'm sorry, I can't help with that.", aside: [reply([item()])] },
   {
     final: "The quote states the revenue.",
     aside: [reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")],
   },
 ])("a stale or refused preamble cannot replace $final", ({ final, aside }) => {
-  expect(figureReplyText(final, aside)).toBe(final);
+  expect(replyAcrossTurns(final, aside)).toBe(final);
 });
 
 test("only the last verdict-bearing preamble can supply its own Figures envelope", () => {
   const final = "The quote states the revenue.";
   const latest = reply([item()]);
-  expect(figureReplyText(final, ["Verdict: unsupported", latest])).toBe(`${latest}\n${final}`);
+  expect(replyAcrossTurns(final, ["Verdict: unsupported", latest])).toBe(`${latest}\n\n${final}`);
+  expect(replyAcrossTurns(final, [latest, "Verdict: unsupported"])).toBe(
+    `Verdict: unsupported\n\n${final}`,
+  );
   const superseding = reply([item("unknown")]);
-  expect(figureReplyText(superseding, [latest])).toBe(superseding);
+  expect(replyAcrossTurns(superseding, [latest])).toBe(superseding);
+});
+
+test("a last turn of only its Figures line is read after the verdict set aside beside cite (#2184)", () => {
+  const figuresLine = reply([item()]).split("\n").at(-1) ?? "";
+  expect(figuresLine).toMatch(/^Figures: /);
+  const verdict =
+    "Verdict: supported\nAbsence: no\nThe accounts give revenue of £20.\nCite records:";
+  expect(replyAcrossTurns(figuresLine, [verdict])).toBe(`${verdict}\n\n${figuresLine}`);
+  expect(replyAcrossTurns(figuresLine, [])).toBe(figuresLine);
+  expect(replyAcrossTurns(figuresLine, [verdict, "I'm sorry, I can't help with that."])).toBe(
+    figuresLine,
+  );
+  expect(replyAcrossTurns(figuresLine, ["I'm sorry, I can't help with that.", verdict])).toBe(
+    `${verdict}\n\n${figuresLine}`,
+  );
 });
 
 function target(
@@ -185,6 +203,8 @@ async function checkWith(options: {
   body?: string;
   quotes?: readonly string[];
   units?: UnitText[];
+  /** Its Document has no pages, as a whole TXT or Markdown file cited before Units. */
+  pagesless?: boolean;
   calculations?: readonly unknown[];
   judgement?: string;
   failure?: { status: number; message: string };
@@ -292,6 +312,7 @@ async function checkWith(options: {
       catalog: {
         tools: true,
         calculates: true,
+        checkCalculates: true,
         temperature: true,
         forcedToolChoice: options.forcedToolChoice,
       },
@@ -304,10 +325,11 @@ async function checkWith(options: {
     documentKind: options.units?.some((unit) => unit.kind === "rows") ? "xlsx" : "pdf",
     contentHash: "hash-1",
     text: body,
-    pageFrom: 1,
-    pageTo: 1,
+    pageFrom: options.pagesless ? null : 1,
+    pageTo: options.pagesless ? null : 1,
     documentDeleted: false,
     notCited: false,
+    yourNoteAt: null,
   };
   const engine = createAiSdkAnswerEngine();
   const check = createClaimCheck({
@@ -1521,6 +1543,30 @@ test.each([
   },
 );
 
+// protects=a quote cited with no pages is placed in its Document, not in itself, so a table's cell quoted alone is named by its own row there, and another row's label names another number (#2255); fails_when=a pages-less quote is read as its whole text, so the other row's label goes unseen; no_claim=none beyond protects.
+test.each([
+  { words: "Revenue growth", verdict: "supported" },
+  { words: "Operating margin", verdict: "not-checked" },
+])("a quote cited with no pages is placed in its Document: $words", async ({ words, verdict }) => {
+  const claim = `${words} was 12% in 2025.`;
+  const { result } = await checkWith({
+    figures: [target("f1", "12%", claim)],
+    claim,
+    body: "| Measure | 2025 |\n| --- | --- |\n| Revenue growth | 12% |\n| Operating margin | 9% |",
+    quotes: ["12%"],
+    pagesless: true,
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: "12%", unitQuote: null },
+        measure: { sentence: words, quote: words, match: "same" },
+      },
+    ]),
+  });
+  expect(result.figures?.[0]?.source?.pageFrom).toBeNull();
+  expect(result.figures?.[0]?.result.verdict).toBe(verdict);
+});
+
 test("a quoted heading states the scale and currency the bare digits lack", async () => {
   const body = "Net debt (£m)\n528.9";
   const { result } = await checkWith({
@@ -1562,6 +1608,7 @@ function workbookPassage(units: UnitText[], language: "en" | "zh-CN") {
     pageTo: 1,
     documentDeleted: false,
     notCited: false,
+    yourNoteAt: null,
   };
   const recorded: CalculatedFigure[] = [];
   const [trace, whatIf] = workbookTools({

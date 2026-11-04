@@ -306,8 +306,30 @@ export interface CreateMindInput {
  *   opens these Notes read-only.
  *   Older content is version 46 content as it is: a figure kept before names
  *   no rows.
+ * - 47: a Citation of a scanned page marks the words its reading may have
+ *   misread (`unsure`) and records the User's own look at the page
+ *   (`pageChecked`, #535). An older editor would strip both, so it opens
+ *   these Notes read-only. Older content is version 47 content as it is: a
+ *   Citation written before holds neither.
+ * - 48: an Analysis figure's kept value carries what IncarnaMind made of it
+ *   when the Analysis ran (`check` on a value of the Note's Analysis records,
+ *   #2378): the number its cells come to, or why it couldn't be worked out
+ *   again. An older version would keep the record again without it, so it
+ *   opens these Notes read-only.
+ *   Older content is version 47 content as it is: a figure kept before carries
+ *   no check, and shows as not checked.
+ * - 49: a figure can be a number an Analysis's code printed (#2351), kept as a
+ *   value of its run's record, and that run can be bash (`language: "bash"`).
+ *   An older version's reader refuses a bash run's record and would keep the
+ *   Note again without it, so it opens these Notes read-only. Older content is
+ *   version 49 content as it is.
+ * - 50: comments on text (#328): the `comment` mark on the words a comment is
+ *   on, and its thread (author, time, replies, resolved) in the Mind's
+ *   `comments` map. An older version would strip the mark, so it opens these
+ *   Notes read-only. Older content is version 49 content as it is: a Note
+ *   written before has no comments.
  */
-export const CONTENT_SCHEMA_VERSION = 46;
+export const CONTENT_SCHEMA_VERSION = 50;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -425,6 +447,51 @@ export const MIND_FIGURE_RUNS_FIELD = "figureRuns";
  * marks go and sync with the Note. See src/shared/signOffs.ts.
  */
 export const MIND_SIGN_OFFS_FIELD = "signOffs";
+
+/**
+ * The name of the mark on the words a comment is on (#328): its `id` is the comment's,
+ * which names a record in the Mind's `comments` map. The mark goes with the words through
+ * edits, moves and sync; the record holds the thread.
+ */
+export const COMMENT_MARK = "comment";
+
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that holds its comments (#328), by
+ * comment id: the words they are on carry the `comment` mark with that id. A comment is
+ * stored here, not in the mark, so it stays when its text is deleted, as "Text removed".
+ */
+export const MIND_COMMENTS_FIELD = "comments";
+
+/** Where a comment came from in a Word file (#328): its `w:id`, and its last paragraph's `w14:paraId`. */
+export interface WordCommentMark {
+  /** `w:id`, which its range's `w:commentRangeStart`, `w:commentRangeEnd` and `w:commentReference` share. */
+  id: number;
+  /** Its last paragraph's `w14:paraId`, which `commentsExtended.xml` names; null when the file has none, so replies can't be linked. */
+  paraId: string | null;
+}
+
+/** One message of a comment's thread (#328): the comment itself, or a reply. */
+export interface CommentMessage {
+  id: string;
+  /**
+   * Its author's name as it was written: a Word file's author, "IncarnaMind" for the
+   * assistant, or null for the User, shown as their Settings name (or "Me").
+   */
+  author: string | null;
+  /** When it was written (ISO 8601, UTC). */
+  createdAt: string;
+  text: string;
+  /** Its place in the Word file it was imported from; applied to the export as it goes out. */
+  word?: WordCommentMark;
+}
+
+/** A comment on a Mind's text (#328), as the Mind stores it: its thread, and whether it's resolved. */
+export interface MindComment extends CommentMessage {
+  /** When the User resolved it (ISO 8601, UTC); null while it's open. */
+  resolvedAt: string | null;
+  /** Replies to it, in the order they were written, or imported. */
+  replies: CommentMessage[];
+}
 
 /** What a person checked (#1933): a Citation by its own id, a figure by its id, a comparison cell. */
 export interface SignOffTarget {
@@ -601,7 +668,21 @@ export type ProposalRequest =
     })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
+  | OutsideAgentRequest
   | WordChangeRequest;
+
+/**
+ * Changes an outside agent proposed over MCP on its own (#352, ADR-0026 decision 4a): the
+ * agent's name as the User named its pairing, and the pairing. No model is named: IncarnaMind
+ * can't tell which one the agent used.
+ */
+export interface OutsideAgentRequest {
+  source: "outside-agent";
+  agent: string;
+  pairingId: string;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+}
 
 /** The start of the id of someone's tracked change imported from a Word file (`WordChangeRequest`). */
 export const WORD_CHANGE_ID = "word:";
@@ -885,9 +966,10 @@ export const INCLUDE_IN_CONTEXT_ATTRIBUTE = "includeInContext";
  *   carrying their tracked changes (#104);
  * - "web-page": a saved web page (#261): Passages a search found in one, or a
  *   quote added from one (#101);
- * - "checked-document": the document a check reads to check it (#97, #110).
+ * - "checked-document": the document a check reads to check it (#97, #110);
+ * - "outside-agent": text an outside agent proposed for a Note (#352).
  */
-export type ThirdPartySource = "imported" | "web-page" | "checked-document";
+export type ThirdPartySource = "imported" | "web-page" | "checked-document" | "outside-agent";
 
 /**
  * Third-party text a Run reads itself: a saved web page a search found, the
@@ -1018,6 +1100,13 @@ export interface AnswerAttributes {
   toolCalls: string | null;
 }
 
+/** A figure marker an Answer's text kept that has no figure (#2313): what it wrote before it, if it wrote a number. */
+export interface UncalculatedFigure {
+  marker: number;
+  /** The number the Answer wrote right before the marker, as it wrote it ("6.55"); null when it wrote none. */
+  written: string | null;
+}
+
 /** A Tool the model called while writing an Answer, e.g. a search of the User's Documents. */
 export interface AnswerToolCall {
   /** Unique within its Answer. */
@@ -1106,11 +1195,17 @@ export interface AnswerToolCall {
    * were left out of its text. Absent: none.
    */
   uncalculated?: number;
+  /**
+   * "calculate" only, beside `uncalculated`: each of those markers, with the
+   * number the Answer wrote right before it when it wrote one, so its end can
+   * say which figures they were (#2313). Absent on Answers written before it.
+   */
+  uncalculatedFigures?: UncalculatedFigure[];
   /** A Minds' Tool that changed a Mind or made one, once it ended (#202). Absent otherwise. */
   mindChange?: MindChange;
   /** A Minds' Tool that changed nothing: why, as its card says. Absent otherwise. */
   mindProblem?: MindProblem;
-  /** "run_analysis" only, once it ran: which of the Answer's Analyses, and what its step says. */
+  /** "run_analysis" and "run_code" only, once it ran: which of the Answer's Analyses, and what its step says. */
   analysis?: AnalysisCall;
   /** `list_commands`, once it ended: the Documents or Minds it found (#1110). Absent otherwise. */
   found?: CommandsFound;
@@ -1219,6 +1314,18 @@ export interface CommandDone {
   folder?: { id: string; name: string };
   /** A setting it changed (#1421), with its value before and now, each as the setting names it. */
   setting?: { name: string; from: string; to: string };
+  /** Organize: the Folders it filed the Documents into, most first (#2252). */
+  folders?: readonly { name: string; count: number }[];
+  /** Organize: how many of the Documents it read it couldn't sort (#2252). */
+  unsorted?: number;
+  /** Organize: how many it never reached, left as they were when the run stopped (#2252). */
+  untouched?: number;
+  /** Organize: how many Documents it was asked to sort, which the Folders, unsorted and untouched count (#2252). */
+  considered?: number;
+  /** A Tag merge: what went into what, by name (#2252). */
+  merges?: readonly { from: string; into: string }[];
+  /** A Tag merge: how many Tags the Library held before and after (#2252). */
+  tagCount?: { before: number; after: number };
 }
 
 /** Why a call of `run_command` changed nothing (#1110). */
@@ -1239,6 +1346,8 @@ export interface AnalysisCall {
   end: AnalysisEnd["kind"];
   /** Why it couldn't run, when `end` is "unavailable". */
   reason?: AnalysisUnavailableReason;
+  /** Why `run_code`'s Python couldn't be had, when `reason` is "python"; absent: this copy has none. */
+  python?: EmbeddingModelError["kind"];
   /** Its time limit, when `end` is "timed-out". */
   limitMs?: number;
 }
@@ -1253,6 +1362,7 @@ export interface AnalysisCall {
  * out isn't in the Mind word for word, so none of its text went in (#2180).
  * "misnamed": the rewrite named a paragraph wrongly, so none of its text went in (#2356).
  * "typed-tag": the rewrite left out a <removed> tag the User typed, so none of its text went in (#2356).
+ * "not-placed": the rewrite would hold a Citation, footnote or figure its reply didn't place, so none of its text went in (#2424).
  */
 export type MindProblem =
   | { kind: "waiting"; mindId: string; count: number; mixed: boolean }
@@ -1275,7 +1385,10 @@ export type MindProblem =
         | "unplaced"
         | "misnamed"
         | "typed-tag"
+        | "not-placed"
         | "uncited"
+        /** New text off the length the User asked for (#1385). */
+        | "length"
         // Only in Answers written before #1559.
         | "new-mind";
       mindId: string;
@@ -1297,6 +1410,27 @@ export type WritingPlace = { after: string | null } | { over: string };
 export interface MindWriting {
   mindId: string;
   place: WritingPlace | null;
+  /** A selection too long for the model is edited in parts: which of how many is written now (#2348). */
+  part?: EditPart;
+}
+
+/** A part of a selection edited in parts (#2348): `at` counts from 1, of `of` parts in all. */
+export interface EditPart {
+  at: number;
+  of: number;
+}
+
+/**
+ * A run of an edit too long for one request, on a model billed per token, asking the User to
+ * start it: its parts, and what they would cost (#83, #2348). Answered with `respondToEditAsk`.
+ */
+export interface EditAsk {
+  mindId: string;
+  /** The edit's request, as `cancelEdit` takes it. */
+  requestId: string;
+  parts: number;
+  /** Null when nothing is known of the model's price. */
+  estimate: RunEstimate | null;
 }
 
 /**
@@ -1594,6 +1728,12 @@ export interface WordFileCheck {
   fileName: string;
   /** Why it can't be imported; null when it can. */
   refusal: WordRefusalReason | null;
+  /**
+   * Whether the LibreOffice on this computer could convert it to .docx (#104),
+   * found by IncarnaMind, never bundled or downloaded. False for a file that
+   * isn't one it converts.
+   */
+  canConvert: boolean;
   /** What the import screen starts on: someone else's when the file carries tracked changes or comments. */
   origin: WordOrigin;
   /** Who wrote its tracked changes and comments, in the order they first appear. */
@@ -1607,6 +1747,29 @@ export interface WordFileCheck {
    */
   earlierDraft: { documentId: string; name: string } | null;
 }
+
+/** Why an old Office, WPS or Word 97–2003 file couldn't be converted (#762). */
+export type OfficeConversionProblem =
+  /** No LibreOffice was found on this computer: never bundled or downloaded by IncarnaMind. */
+  | "unavailable"
+  /** IncarnaMind doesn't convert a file of this kind. */
+  | "unsupported"
+  /** LibreOffice failed, or took too long: the original is unchanged. */
+  | "failed";
+
+/** What converting a file to the format IncarnaMind reads did (#762). */
+export type OfficeConversionResult =
+  | {
+      /** The copy was added: a Document of its own, which says which file it came from. */
+      outcome: "added";
+      document: Document;
+    }
+  | { outcome: "problem"; problem: OfficeConversionProblem };
+
+/** A .doc converted to a .docx copy the import screen can read (#104). */
+export type WordConversionResult =
+  | { outcome: "converted"; path: string; name: string }
+  | { outcome: "problem"; problem: OfficeConversionProblem };
 
 export interface ImportWordFileInput {
   /** The .docx's absolute path. */
@@ -1996,6 +2159,13 @@ export type CitationCheckReason =
   | "in-several-places"
   /** Can't check: the cited Units have no text, e.g. scanned pages. */
   | "no-text"
+  /**
+   * Can't check: the area the User selected on a page holds no text, so the Citation points at a
+   * picture (#118).
+   */
+  | "picture"
+  /** Can't check: the quote covers a word the text recognition may have misread (#535). */
+  | "unsure-word"
   /** Can't check from this Note: the Document stays inside a walled Folder. */
   | "kept-inside"
   /** Can't check: the Document was deleted. */
@@ -2009,6 +2179,23 @@ export type CitationCheckReason =
    * its sentences, so their check never ran (#2375).
    */
   | "small-model";
+
+/** Every check reason, for reading one the app didn't write: a value outside these is no reason. */
+export const CITATION_CHECK_REASONS = [
+  "quote-not-on-pages",
+  "quoted-words-not-on-pages",
+  "pages-outside-passage",
+  "too-many-pages",
+  "in-several-places",
+  "no-text",
+  "picture",
+  "unsure-word",
+  "kept-inside",
+  "document-removed",
+  "answer-limit",
+  "monthly-limit",
+  "small-model",
+] as const satisfies readonly CitationCheckReason[];
 
 /**
  * What to re-check a Citation with against its Document's current version
@@ -2066,6 +2253,8 @@ export interface RecheckCitationInput extends CitationToRecheck {
 export interface CitationRecheck {
   check: Exclude<CitationCheck, "checking">;
   checkReason: CitationCheckReason | null;
+  /** The unsure words of a scanned page the quote covers (#535); absent when it covers none. */
+  unsure?: string[];
   /** The version checked: the Document's current `contentHash`; null when it can't be checked. */
   contentHash: string | null;
   /** A Passage of the current version that holds the Units, or null. */
@@ -2073,12 +2262,14 @@ export interface CitationRecheck {
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /** The Document is a snapshot of the User's own note: when it was taken (#335). */
+  yourNoteAt?: string;
   /**
    * Asked with the version the Citation quotes, which is no longer the current one: its check
    * in that version, at the Units it cites (ADR-0017's amendment); null once that version's
    * text is no longer kept.
    */
-  inQuotedVersion?: Pick<CitationRecheck, "check" | "checkReason"> | null;
+  inQuotedVersion?: Pick<CitationRecheck, "check" | "checkReason" | "unsure"> | null;
   /**
    * Asked with the version the Citation quotes, which is no longer the current one, and the
    * quote isn't in the current one as cited: its words as they changed at its place; null
@@ -2121,8 +2312,74 @@ export interface CitedSelection extends CitationRecheck {
   quote: string;
 }
 
+/** A Passage found for a piece of the User's own writing (`findPassages`, #281). */
+export interface FoundPassage {
+  passageId: string;
+  documentId: string;
+  documentName: string;
+  documentKind: DocumentKind;
+  /** The Units it covers; null for a whole TXT or Markdown file stored before Units. */
+  pageFrom: number | null;
+  pageTo: number | null;
+  /** Where it is, for its label ("p. 11", "§ History", "rows 40–44"); null as for `pageFrom`. */
+  location: CitationLocation | null;
+  text: string;
+  /** The sentence `citePassage` would store: the one holding most of the searched words. */
+  quote: string;
+  /** Its Document is the User's own workings: shown to the User, never cited without their say. */
+  notCited: boolean;
+  /**
+   * How relevant the reranker found it, when search reranked it (see
+   * `WindowedPassage.relevance`), or null.
+   */
+  relevance: number | null;
+  /**
+   * The words of the text searched for (as keyword search reads them, without
+   * stopwords) that the Passage holds, each once, in the text's order: how
+   * closely it matches, and what a list of results shows in bold.
+   */
+  matches: string[];
+}
+
+export interface FindPassagesInput {
+  text: string;
+  /**
+   * The Mind whose side of a Folder wall the search stays on; null for none.
+   */
+  mindId: string | null;
+  /**
+   * Where to search, as the composer shows the Mind's Search scope; null for every
+   * Document. A Folder's Documents include its sub-Folders', as a Question's search has them.
+   */
+  scope: SearchScope | null;
+}
+
+export interface CitePassageInput {
+  passageId: string;
+  /** The User's text: the Passage's sentence holding most of its words becomes the quote. */
+  text: string;
+}
+
 /** At most this many `AskedQuote`s go with a Question: each brings the Passages of its pages. */
 export const MOST_ASKED_QUOTES = 10;
+
+/** A sheet range's cells as its chip and its table show them: its header row first, when the sheet has one. */
+export interface AskedTable {
+  header: string[] | null;
+  rows: string[][];
+  /** The rows' names from the sheet's first column, for the chip's preview; not the cells it adds or copies. */
+  rowLabels?: string[];
+}
+
+/** A picture the User picked on a page (`AskedQuote.picture`), kept as a `data:` URL, and its size in pixels. */
+export interface AskedPictureData {
+  src: string;
+  width: number;
+  height: number;
+}
+
+/** What the User picked in a viewer to ask about (#118), with words being the usual one (#101). */
+export type AskedPick = "rows" | "slide" | "area";
 
 /**
  * Words the User selected in a Document to ask about ("Ask about this", #101), as
@@ -2132,10 +2389,23 @@ export interface AskedQuote {
   documentId: string;
   /** As the User saw it when they asked: it stays readable once the Document is deleted. */
   documentName: string;
+  /** The words, as the Document has them; "" for a figure whose area held no text. */
   quote: string;
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /**
+   * What was picked, when it wasn't words (#118): a sheet's cells, a whole slide, or an area of a
+   * page. Absent for words.
+   */
+  pick?: AskedPick;
+  /** A sheet range's cells, header first: the chip's preview, Add to note's table and the copied TSV. */
+  table?: AskedTable;
+  /** An area's picture: shown as the chip's thumbnail, and sent to a model that reads images. */
+  picture?: AskedPictureData;
+  /** The check its Citation was given when the User picked it: found on its Unit, or a picture's can't check. */
+  check?: CitationCheck;
+  checkReason?: CitationCheckReason | null;
 }
 
 /**
@@ -2180,20 +2450,38 @@ export const MAX_CITED_PAGES = 2;
  *   the end of the one it ends in, in ms from the Transcript's start (#136);
  *   `speaker`: who said the cue it starts in, where the Transcript says (#941).
  */
+/**
+ * A region of a cited Unit: a rectangle by its top left corner, as fractions
+ * of the Unit's width and height, so it holds at any zoom or window size
+ * (#118).
+ */
+export interface CitedArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A Location that may hold the region the User selected on its Unit (#118). */
+interface MaybeArea {
+  /** The area the User picked, when the Citation cites a figure rather than words. */
+  area?: CitedArea;
+}
+
 export type CitationLocation =
-  | {
+  | ({
       kind: "page";
       from: number;
       to: number;
       printed?: { from: string; to: string };
       /** The printed line on the first printed page and on the last (#1709). */
       lines?: { from: number; to: number };
-    }
-  | { kind: "slide"; from: number; to: number }
-  | { kind: "rows"; sheet: string | null; from: number; to: number }
-  | { kind: "lines"; from: number; to: number }
-  | { kind: "time"; from: number; to: number; speaker?: string }
-  | {
+    } & MaybeArea)
+  | ({ kind: "slide"; from: number; to: number } & MaybeArea)
+  | ({ kind: "rows"; sheet: string | null; from: number; to: number } & MaybeArea)
+  | ({ kind: "lines"; from: number; to: number } & MaybeArea)
+  | ({ kind: "time"; from: number; to: number; speaker?: string } & MaybeArea)
+  | ({
       kind: "section";
       heading: string | null;
       start?: boolean;
@@ -2202,7 +2490,13 @@ export type CitationLocation =
       paragraphs?: { from: number; to: number };
       /** A web page's picture the quote was read from, numbered in the page from 1. */
       figure?: number;
-    };
+    } & MaybeArea)
+  /**
+   * The file's own properties, not its text (#2458): a check's evidence for a sentence about the
+   * file itself. `value` is the property as the file gives it: an ISO 8601 date, the author, a
+   * count, the size in bytes, or the name.
+   */
+  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea);
 
 /** A stretch of words, and whether the Document has it where the Answer's quoted words were looked for. */
 export interface QuotedPiece {
@@ -2254,8 +2548,24 @@ export interface CitationAttributes {
   location: CitationLocation | null;
   /** The quote the model gave, which it was asked to copy word for word from the Passage. */
   quote: string | null;
+  /**
+   * Set when it quotes a snapshot of a Mind, the User's own note (#335): when that
+   * snapshot was taken, so its card reads "Your note: Field visit, 12 Oct" even
+   * after the snapshot is updated or removed.
+   */
+  yourNoteAt?: string | null;
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
+  /**
+   * The words of a scanned page's text the quote covers that the text recognition wasn't sure of
+   * (#535): with one, the check asks the User to look at the page.
+   */
+  unsure?: string[] | null;
+  /**
+   * The User compared the quote with the page and it matched (Matches the page, #535): the
+   * Citation is found on their word, though a word of it may have been misread.
+   */
+  pageChecked?: boolean | null;
   /** One line on what the evidence says, when a claim check has one ("The agreement says 31 October 2026, p. 7"). */
   verdict?: string | null;
   /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
@@ -2282,8 +2592,12 @@ export interface Citation {
   pageTo: number | null;
   location: CitationLocation | null;
   quote: string;
+  /** Set for a snapshot of a Mind, the User's own note (#335): when it was taken. */
+  yourNoteAt?: string | null;
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
+  /** The unsure words of a scanned page the quote covers (#535). */
+  unsure?: string[];
   quotedWords?: QuotedWords;
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
@@ -2450,8 +2764,28 @@ export interface AnalysisRangeInput {
   rowCount: number;
   /** Only part of the range was read: it has more than an Analysis reads, or its sheet was cut when indexed. */
   cut: boolean;
+  /** Rows it read that the file strikes through or hides, which an earlier version of a row may be (#1979). */
+  setAside?: { struck: number[]; hidden: number[] };
   /** SHA-256 of its headings and rows as read. */
   sha256: string;
+  /** A table of a PDF, Word file or deck (#448), whose rows `citation` covers from its first. */
+  table?: AnalysisTableRows;
+}
+
+/** The rows an Analysis read of a table in a PDF, Word file or deck, each where the Document has it. */
+export interface AnalysisTableRows {
+  /** The table's number in its Document, from 1, in reading order. */
+  number: number;
+  /**
+   * Each row read, in order: its number in the table (the headings are row 1), the Unit (page,
+   * slide or section) it is in, and its text as that Unit holds it, null where its cells aren't
+   * there together.
+   */
+  rows: { row: number; unit: number; quote: string | null }[];
+  /** Its numbers were recognized from a picture of the page (#397): no figure of it is worked out again. */
+  scan?: true;
+  /** How many of its cells had a footnote mark after a figure, which their values leave out. */
+  marks?: number;
 }
 
 /** A number an Analysis read from a quote (#447), as `calculate` reads one. */
@@ -2499,16 +2833,47 @@ export interface AnswerAnalysis {
   };
   /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
   recalculations?: { result: string; check: AnalysisRecalculation }[];
+  /** `run_code` only (ADR-0025): the Documents it copied into ../inputs, by the names the code read them by. */
+  files?: AnalysisFile[];
+  /** `run_code` only: what the code left in out/, within its limits; `left` past them. */
+  outFiles?: { files: AnalysisOutFile[]; left: number };
 }
 
-/** A successful run kept once by a Note, with only the results its figures still use (ADR-0021). */
+/** A Document `run_code` copied for its code, checked against the version the model was given. */
+export interface AnalysisFile {
+  name: string;
+  documentId: string;
+  documentName: string;
+  contentHash: string;
+  bytes: number;
+}
+
+/** A file the code left in out/: kept as its name, size and hash, never opened as anything but data. */
+export interface AnalysisOutFile {
+  name: string;
+  bytes: number;
+  sha256: string;
+  /** The start of a text file, which the model reads; absent for anything else. */
+  text?: string;
+}
+
+/** A figure a Note kept from its Analysis, with what IncarnaMind made of it when the Analysis ran. */
+export type RetainedFigureValue = Extract<AnalysisValue, { kind: "figure" }> & {
+  /** Absent in a Note kept before the check was recorded (#2378). */
+  check?: AnalysisRecalculation;
+};
+
+/**
+ * A run kept once by a Note, with only the values its figures still use (ADR-0021): a finished
+ * run's results, and the numbers any run printed (#2351).
+ */
 export interface RetainedFigureAnalysis
   extends Pick<
     AnswerAnalysis,
     "title" | "language" | "code" | "inputs" | "versions" | "codeSha256" | "ranAt"
   > {
   id: string;
-  values: Extract<AnalysisValue, { kind: "figure" }>[];
+  values: RetainedFigureValue[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -2852,6 +3217,13 @@ export type MotionPreference = (typeof MOTION_PREFERENCES)[number];
  */
 export type SandboxLevel = "none" | "os" | "container" | "remote";
 
+/**
+ * Why the OS sandbox can't start here (Linux, ADR-0025): "missing", the packages it needs that
+ * aren't installed; "start", they are, but the system doesn't let an app start one (Ubuntu's
+ * AppArmor restriction on user namespaces).
+ */
+export type SandboxProblem = { kind: "missing"; packages: string[] } | { kind: "start" };
+
 export interface Settings {
   user: UserSettings;
   device: DeviceSettings;
@@ -2862,6 +3234,11 @@ export interface Settings {
    * a setting. The approval card and Settings say what a script can reach by it.
    */
   scriptSandbox: SandboxLevel;
+  /**
+   * Why the OS sandbox can't start here, when the User can fix it (Linux): Settings says how,
+   * since code then runs neither in it nor on whole files (`run_code`, ADR-0025). Null otherwise.
+   */
+  sandboxProblem: SandboxProblem | null;
   /**
    * What this copy can record for a Meeting, found out when the app starts:
    * not a setting. "both": the microphone and the computer's sound; "microphone":
@@ -2900,6 +3277,8 @@ export type TabItem =
 /** What the viewer knows of the Citation a Document was opened from. */
 export interface TabCitation {
   check: CitationCheck;
+  /** Why it can't be checked, when `check` is "cant-check": a scan's unsure word marks the quote's page (#535). */
+  checkReason?: CitationCheckReason;
   /** The number the Citation shows in its Answer, from 1. */
   number?: number;
   /** Its Location's short label, e.g. "slide 4" or "Revenue, rows 12–14": the mark shows it. */
@@ -2933,6 +3312,8 @@ export interface DocumentPlace {
   quote?: string;
   /** A saved web page's picture the quote was read from, numbered in the page from 1: it is outlined. */
   figure?: number;
+  /** The region a figure's Citation points at (#118): the viewer outlines it on its Unit. */
+  area?: CitedArea;
   /** The Citation this was opened from, if a Citation opened it. */
   citation?: TabCitation;
   /**
@@ -2981,6 +3362,11 @@ export interface WindowLayout {
   focusedGroupId: string;
   /** How many closed tabs ⇧⌘T can reopen, most recent first. */
   reopenable: number;
+  /**
+   * The conversation the assistant shows; null for a New chat. Kept so a quit and reopening, or
+   * a reload of the page, shows it again (#258).
+   */
+  conversationId: string | null;
   /** Where the window's one assistant sits, outside the groups, and its sizes. */
   assistant: AssistantPlace;
 }
@@ -3094,11 +3480,14 @@ export type LayoutChange =
   /** Every group as wide as the others. */
   | { type: "equalize" }
   /** Moves, resizes, folds or unfolds the assistant: what is given changes, the rest stays. */
-  | { type: "assistant"; place: Partial<AssistantPlace> };
+  | { type: "assistant"; place: Partial<AssistantPlace> }
+  /** The conversation the assistant shows; null for a New chat (#258). */
+  | { type: "conversation"; conversationId: string | null };
 
 /**
  * The kinds of Document (ADR-0011): files of PDF, plain text, Markdown, Word
- * (.docx), PowerPoint (.pptx), Excel (.xlsx) and CSV, web pages saved by
+ * (.docx), PowerPoint (.pptx), Excel (.xlsx) and CSV, pictures (read as a
+ * scanned page is, #762), RTF and HTML files (#762), web pages saved by
  * their address (#261), and Transcripts, WebVTT files (#136).
  */
 export type DocumentKind =
@@ -3109,6 +3498,9 @@ export type DocumentKind =
   | "pptx"
   | "xlsx"
   | "csv"
+  | "image"
+  | "rtf"
+  | "html"
   | "web"
   | "transcript";
 
@@ -3149,6 +3541,11 @@ export type DocumentFailureReason =
    * parts that inflate past 1 GB together. The message names the limit.
    */
   | "too-large"
+  /**
+   * A picture whose bytes aren't a kind IncarnaMind reads, or whose size can't
+   * be read: Retry would fail again, so it has no Retry (#762).
+   */
+  | "picture-unreadable"
   /**
    * No longer given: a file that has gone is a "missing" Document (see
    * `DocumentFileStatus`), not a failed one. Kept so older data still reads.
@@ -3262,6 +3659,27 @@ export interface DocumentTag {
  */
 export type DocumentFileStatus = "available" | "missing" | "unavailable";
 
+/** What taking a new snapshot of a Mind changed, and what Undo puts back (#335). */
+export interface MindSourceUpdate {
+  document: Document;
+  /** The snapshot text before this update. */
+  previousText: string;
+  /** When that earlier snapshot was taken, ISO 8601, UTC. */
+  previousSnapshotAt: string;
+  /** The snapshot text this update wrote, which Redo writes again. */
+  snapshotText: string;
+  /** When this snapshot was taken, ISO 8601, UTC. */
+  snapshotAt: string;
+}
+
+/** A Document that is a snapshot of a Mind, the User's own record ("Your note", #335). */
+export interface DocumentYourNote {
+  /** The Mind the snapshot was taken from. */
+  mindId: string;
+  /** When the snapshot was last taken, ISO 8601, UTC: what its Citation is dated. */
+  snapshotAt: string;
+}
+
 export interface Document {
   /** A random UUID generated on this device. */
   id: string;
@@ -3361,6 +3779,19 @@ export interface Document {
    */
   modifiedAt: string | null;
   /**
+   * When the file was created, as the file system says on this computer: copying or downloading
+   * a file changes it. ISO 8601, UTC. Null where the file system gives none, and until a scan has
+   * seen the file.
+   */
+  fileCreatedAt: string | null;
+  /**
+   * What the file records about itself (#2458): its own dates and author, as distinct from what
+   * the Document's text says and from the times this computer keeps. Null until the file has
+   * been read for them, when they couldn't be read, and for a file IncarnaMind keeps itself (a
+   * web page, a Transcript).
+   */
+  properties: FileProperties | null;
+  /**
    * The Document's own title (#213), for when its file name is machine-made
    * (a UUID, "Untitled"): the title in its properties, else its first
    * heading, else its first line. Null if it has none, or until it is read.
@@ -3380,6 +3811,12 @@ export interface Document {
    */
   ownFile: OwnFile | null;
   /**
+   * Set when the Document is a copy IncarnaMind converted from another file
+   * with the User's own LibreOffice (#762): that file's name, with its
+   * extension ("Report.doc"). The original is never changed. Null otherwise.
+   */
+  convertedFrom: string | null;
+  /**
    * The User keeps it as their own workings: a spreadsheet of figures copied from a
    * report, with their own ratios. Answers search and read it to understand a Question but
    * never cite it, and checks never use it as evidence (`setNotCited`).
@@ -3387,6 +3824,12 @@ export interface Document {
   notCited: boolean;
   /** Where its text came from, when Find sources added it (#296); null for any other Document. */
   found: DocumentFoundSource | null;
+  /**
+   * Set when the Document is a snapshot of a Mind, marked "Your note" (#335): the
+   * Mind it was taken from, and when it was last taken. It is a copy, never a live
+   * link, so edits to the Mind don't change what its Citations quote.
+   */
+  yourNote: DocumentYourNote | null;
   /**
    * The Mind this file was last imported as, still there (#720): the User's working copy of
    * it, which is never cited. Null for a file never imported.
@@ -3397,6 +3840,38 @@ export interface Document {
   /** ISO 8601, UTC. */
   updatedAt: string;
 }
+
+/**
+ * A file's own properties as it records them (#2458), each null when it records none or what it
+ * records can't be read: a date software writes when it has none (1 January 1980) counts as none.
+ * Dates are ISO 8601 at the precision and with the offset the file gives.
+ */
+export interface FileProperties {
+  /** An Office file's dcterms:created; a PDF's CreationDate, from its Info dictionary, else its XMP. */
+  created: string | null;
+  /** An Office file's dcterms:modified; a PDF's ModDate, from its Info dictionary, else its XMP. */
+  modified: string | null;
+  /** An Office file's dc:creator; a PDF's Author, from its Info dictionary, else its XMP. */
+  author: string | null;
+  /**
+   * A workbook's sheets as its xl/workbook.xml lists them, the hidden ones among them: a sheet
+   * with nothing in it has no Units, so the Units can't count them. Null for any other kind.
+   */
+  sheets: { count: number; hidden: number } | null;
+}
+
+/** A Document property a check can cite (#2458). */
+export const filePropertyNames = [
+  "created",
+  "modified",
+  "author",
+  "pages",
+  "slides",
+  "sheets",
+  "size",
+  "name",
+] as const;
+export type FilePropertyName = (typeof filePropertyNames)[number];
 
 /** What IncarnaMind writes that checks leave out of their evidence (#80): a Mind's export, or a source pack. */
 export const ownFileKinds = ["export", "source-pack"] as const;
@@ -3426,7 +3901,7 @@ export interface OwnFile {
  *   of it, or a copy of either (the same content fingerprint, at any path).
  *   Never evidence for that check.
  */
-export type EvidenceExclusion = "own-file" | "own-workings" | "checked-document";
+export type EvidenceExclusion = "own-file" | "own-workings" | "own-note" | "checked-document";
 
 /** The document a check verifies (#97, #110): it, its earlier versions and their copies are never its evidence. */
 export interface CheckedDocument {
@@ -3434,11 +3909,18 @@ export interface CheckedDocument {
   documentIds?: string[];
   /** The content fingerprints (SHA-256, hex) of a checked file that isn't a Document, e.g. an imported .docx. */
   contentHashes?: string[];
+  /**
+   * Minds whose own snapshots are never evidence for this check (#335): a
+   * Mind's note can't support itself.
+   */
+  ownNoteMindIds?: string[];
 }
 
 export interface SearchEvidenceOptions {
   /** The check's Search scope. None: every Document. */
   scope?: SearchScope;
+  /** The Mind whose own snapshot is never its evidence (#335). None: no Mind. */
+  mindId?: string;
   checked?: CheckedDocument;
 }
 
@@ -4165,7 +4647,14 @@ export interface ReadCitedPageInput {
 export interface ScannedText {
   documentId: string;
   contentHash: string;
-  pages: { page: number; text: string; label: UnitLabel | null; anchors: Anchor[] }[];
+  pages: {
+    page: number;
+    text: string;
+    label: UnitLabel | null;
+    anchors: Anchor[];
+    /** The words a quote may have misread, as spans into `text` (#535). */
+    unsure: [number, number][];
+  }[];
 }
 
 /**
@@ -4202,6 +4691,12 @@ export interface Tag {
   description: string;
   /** Created on first run as one of the preset Tags, rather than by the User. Editing one keeps it a preset. */
   preset: boolean;
+  /**
+   * The User made it, or changed its name, colour or description; a Tag
+   * automatic tagging made, and a preset no one edited, is not. The sidebar
+   * lists a Tag with no Documents only when it is the User's.
+   */
+  madeByUser: boolean;
   /** Its colour, from a small fixed palette (src/shared/tagColours.ts); the User can change it. */
   colour: TagColour;
   /** ISO 8601, UTC. */
@@ -4391,6 +4886,7 @@ export interface UnsupportedFile {
 export type UnreadReason =
   | "format"
   | "scan"
+  | "picture"
   | "password"
   | "damaged"
   | "too-large"
@@ -4454,7 +4950,7 @@ export interface LinkedFolderPreview {
 
 export interface SkippedFile {
   path: string;
-  /** "unsupported-type": not PDF, TXT or Markdown. "unreadable": missing, a folder, or not readable. */
+  /** "unsupported-type": a kind IncarnaMind doesn't read yet. "unreadable": missing, a folder, or not readable. */
   reason: "unsupported-type" | "unreadable";
 }
 
@@ -4499,6 +4995,21 @@ export interface AddedLinkedFolder extends LinkedFolder {
  */
 export type SearchMode = "hybrid" | "keyword" | "vector";
 
+/**
+ * Where a search on this computer stands among the Folder walls (#1934), judged as the Answer's
+ * turn is: the turn a Question waits on, or the place one already asked recorded. A place whose
+ * Folder isn't known reads nothing.
+ */
+export type PassageSearchPlace =
+  | ({ kind: "turn" } & TurnPlace)
+  | {
+      kind: "asked";
+      /** The Note it was asked from, as the conversation recorded it; null: none (Home). */
+      askedFrom: { mindId: string | null; deleted?: boolean } | null;
+      /** The Folder recorded with it; left out: not recorded, and such a turn reads nothing. */
+      folderAskedIn?: string;
+    };
+
 export interface SearchPassagesOptions {
   /** Defaults to "hybrid". */
   mode?: SearchMode;
@@ -4506,6 +5017,14 @@ export interface SearchPassagesOptions {
   limit?: number;
   /** Only Passages of these Documents (a Search scope). Omitted: every Document. */
   documentIds?: string[];
+  /** The Question's Search scope, as an Answer resolves it (#1934). Omitted: the default Documents. */
+  scope?: SearchScope | null;
+  /**
+   * The Question's place among the Folder walls. With it, the search reads only what its side of
+   * the walls holds, as the Answer of that turn would; omitted, `documentIds` (or every Document).
+   * Not with `documentIds`.
+   */
+  place?: PassageSearchPlace;
 }
 
 export interface PassageSearchResult {
@@ -4557,7 +5076,8 @@ export interface EmbeddingModelError {
  * Where the built-in models download from (#1578): Hugging Face, IncarnaMind's copy on
  * ModelScope, hf-mirror.com, IncarnaMind's copy on Cloudflare R2.
  */
-export type ModelSourceId = "huggingface" | "modelscope" | "hf-mirror" | "r2";
+/** "github": the release a build of the app came from, which `run_code`'s Python downloads from (ADR-0025). */
+export type ModelSourceId = "huggingface" | "modelscope" | "hf-mirror" | "r2" | "github";
 
 /** The source the User picked on a failed download's line; "auto" tries them all in the probe's order. */
 export type ModelSourceChoice = "auto" | "huggingface" | "modelscope";
@@ -5472,8 +5992,11 @@ export interface TaskShown {
 /** A large run to estimate: so many items (a comparison table's cells, verify's sentences…). */
 export interface RunEstimateInput {
   items: number;
-  /** What each item is: about an Answer (the default), or a sentence checked against Documents (#973). */
-  each?: "answer" | "check";
+  /**
+   * What each item is: about an Answer (the default), a sentence checked against Documents
+   * (#973), or a part of an Edit with AI too long for one request (#2348).
+   */
+  each?: "answer" | "check" | "edit";
   /** The web searches it makes (#128), each billed by the model's provider, on top of its items. */
   searches?: number;
   /** The model it would use; the default model when left out. */
@@ -5807,6 +6330,8 @@ export type EditWithAiResult =
       kind: "proposed";
       request: string;
       proposals: number;
+      /** The parts a selection too long for the model was edited in, one after another (#2348). Absent: one. */
+      parts?: number;
       droppedCitations: number;
       outOfDate: number;
       /** Markers the text had for none of the passage's Citations, left out. Absent: none. */
@@ -5817,6 +6342,11 @@ export type EditWithAiResult =
       extraCells?: number;
       /** An edit the User asked for that waits for them instead of applying (#880). */
       held?: true;
+      /**
+       * The edit stopped partway because the User typed in a later part while it ran: what the
+       * earlier parts wrote stays, and the rest was not asked (#2348).
+       */
+      stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
       /**
@@ -5845,6 +6375,13 @@ export type EditWithAiResult =
   | { kind: "has-proposals" }
   /** Nothing was sent: the selected text is more than the model can take at once. */
   | { kind: "too-long" }
+  /**
+   * Nothing was sent: one Block of the selection is more than the model takes at once, and a
+   * Block can't be edited in parts (#2348). `cause`: "cap" is the app's own limit, which no
+   * model changes (12,000 characters, or a reply past an edit's 16,000 tokens); "model" is this
+   * model's window, which a larger one may take.
+   */
+  | { kind: "block-too-long"; cause: "cap" | "model" }
   /** The User stopped it (`cancelEdit`). */
   | { kind: "cancelled" }
   /**
@@ -5867,6 +6404,11 @@ export type EditWithAiResult =
    * their words out (#2356): nothing was written.
    */
   | { kind: "typed-tag" }
+  /**
+   * What the change wrote would hold a Citation, footnote or figure its reply didn't place, or
+   * change one that was there (#2424): nothing was written.
+   */
+  | { kind: "not-placed" }
   /** The model failed, or gave nothing back. */
   | { kind: "failed"; error: ProviderError };
 
@@ -5950,7 +6492,9 @@ export type ClaimCheckFailure =
   | "workbook-circular"
   | "workbook-not-read"
   | "workbook-no-saved-value"
-  | "workbook-unsupported";
+  | "workbook-unsupported"
+  /** A figure's equal number that the quoted table gives in another row's or column's cell. */
+  | "other-cell";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -6362,6 +6906,8 @@ export interface CheckClaimInput {
   cited?: CitedQuote[];
   /** Where to look. None: every Document. */
   scope?: SearchScope | null;
+  /** The Mind being checked, whose own snapshot is never its evidence (#335). */
+  mindId?: string;
   /** The document being checked, which is never its own evidence (#97). */
   checked?: CheckedDocument;
   /** The model to check with; none, or null, the default chat model. */
@@ -6737,7 +7283,9 @@ export interface MindCheckRun {
   skipped: string[];
   /**
    * The sentences the model decided nothing about, even asked twice (#1682), by `sentenceKey`:
-   * not examined, so they stay to check and a later run asks about them again.
+   * not examined, so they stay to check and a later run asks about them again. One with
+   * a figure, a Citation, a record cite or a court decision is never among them: it is checked all
+   * the same (#2447).
    */
   unexamined: string[];
 }
@@ -6934,6 +7482,11 @@ export interface AnswerSteps {
    */
   unbackedClaims?: ClaimedChange[];
   /**
+   * What its reply says it did in the app that none of its calls did, even once the model was
+   * asked again with what they did (#2407). Absent: none.
+   */
+  unbackedCommands?: ClaimedCommand[];
+  /**
    * What its reply says a Tool did that none of its calls did (#1796): a figure calculated or
    * checked, or a search. Absent: none.
    */
@@ -6994,6 +7547,24 @@ export interface AnswerCoverage {
  */
 export const CLAIMED_CHANGES = ["made", "added", "changed", "removed"] as const;
 export type ClaimedChange = (typeof CLAIMED_CHANGES)[number];
+
+/**
+ * What an Answer's reply can say it did in the app (#2407): changed one of what only the User
+ * changes, named so that it never reads as done, or ran any other command or changed any other
+ * setting.
+ */
+export const CLAIMED_COMMANDS = [
+  "privacy",
+  "keys",
+  "spending",
+  "approvals",
+  "permanent",
+  "wall",
+  "signOff",
+  "authorship",
+  "command",
+] as const satisfies readonly (Yours | "command")[];
+export type ClaimedCommand = (typeof CLAIMED_COMMANDS)[number];
 
 /** What an Answer's reply can say a Tool did (#1796): calculated or checked a figure, or searched. */
 export const CLAIMED_TOOLS = ["calculate", "search"] as const;
@@ -8131,6 +8702,15 @@ export const dataFlowIds = [
 export type DataFlowId = (typeof dataFlowIds)[number];
 
 /**
+ * Consent a command's Allow gives for one run only, to one service and flow; it is never stored
+ * (#2252). Nothing else may send: the standing decision and the automatic switch stay as they are.
+ */
+export interface CloudReadPermit {
+  flow: DataFlowId;
+  serviceId: string;
+}
+
+/**
  * The flows choosing the chat model's provider allows (ADR-0022): what runs
  * by itself, as the line above "Use this provider" says. That line is made from
  * this list, so a flow added here needs its words (`chosenFlowLines`). Tagging and
@@ -8321,6 +8901,8 @@ export interface PageSetup {
  * - "transcription-model": downloads the speech-to-text model and Silero VAD,
  *   once, when a Meeting is first transcribed on this computer (#136), and the
  *   two models that tell its speakers apart (#138), when one is first recorded.
+ * - "python-runtime": downloads IncarnaMind's own Python for analyses on whole files, once,
+ *   the first time one runs Python (ADR-0025), from the release this build came from.
  * - "model-source-modelscope", "model-source-hf-mirror", "model-source-copy": where else a
  *   built-in model's files may come from when Hugging Face doesn't give them (#1578):
  *   IncarnaMind's copy on ModelScope (whose front page the probe asks whenever a model
@@ -8347,6 +8929,7 @@ export const networkTrafficIds = [
   "reranking-model",
   "text-recognition-model",
   "transcription-model",
+  "python-runtime",
   "model-source-modelscope",
   "model-source-hf-mirror",
   "model-source-copy",
@@ -8444,6 +9027,8 @@ export const aiUseKinds = [
   "edit-with-ai-accepted",
   /** A comparison table from Compare Documents accepted (#98). */
   "comparison-table-accepted",
+  /** A change an outside agent proposed, accepted (#352): recorded with the agent's name. */
+  "outside-agent-change-accepted",
   /** A sentence of the Mind's checked against the Documents (#906). */
   "sentence-checked",
 ] as const;
@@ -8469,6 +9054,8 @@ export interface AiUseEntry {
   /** The model that wrote it; null when it isn't known. */
   providerId: string | null;
   modelId: string | null;
+  /** The outside agent that wrote it, by its name then (#352); null for IncarnaMind's own AI. */
+  agent: string | null;
   /** How much the AI wrote, in characters. */
   characters: number;
   /** The Blocks it made, by their stable ids; none for a rejected proposal, a suggestion or a check. */
@@ -8482,6 +9069,8 @@ export interface RecordAiUseInput {
   kind: AiUseKind;
   providerId?: string | null;
   modelId?: string | null;
+  /** The outside agent that wrote it (`AiUseEntry.agent`). */
+  agent?: string | null;
   characters: number;
   /**
    * The Blocks the insertion made, already in the Mind (send the Mind's update
@@ -9080,7 +9669,10 @@ export type EffectScope =
   | { kind: "service"; serviceId: string; name: string } // an external service, as consent names it
   | { kind: "host"; host: string } // a web host
   | { kind: "mind"; mindId: string } // one of the User's Minds
-  | { kind: "sandbox" } // the analysis sandbox, with no files and no network (ADR-0023)
+  // Code in a sandbox, with no network: an Analysis in the app's (inputs only, ADR-0023) or run_code
+  // in the OS's (copies of the Documents given and the system's own files, writing only its own
+  // folder, ADR-0025).
+  | { kind: "sandbox" }
   | { kind: "library" } // the Library: its Documents' names, Folders and Tags, Recently deleted
   | { kind: "output" } // the Output location, the folder the User chose for new files
   | { kind: "anywhere" };
@@ -9122,9 +9714,11 @@ export interface ToolApprovalRequest extends ApprovalRequestBase {
 
 /**
  * Why a change inside IncarnaMind waits for the User (#1110): it would take the Answer's changes
- * past `COMMAND_AT_ONCE`, or it deletes, which the assistant never does without asking.
+ * past `COMMAND_AT_ONCE`, it deletes, which the assistant never does without asking; Organize
+ * files what the User asked to have sorted (#2252); or a Tag merge is proposed, every merge in
+ * the one call.
  */
-export type CommandAskReason = "many" | "delete";
+export type CommandAskReason = "many" | "delete" | "organize" | "merge";
 
 /** How many things one Answer's commands may change before the next change asks the User first (#1110). */
 export const COMMAND_AT_ONCE = 20;
@@ -9147,6 +9741,12 @@ export type CommandAsk =
       items: CommandItem[];
       /** The Folder or Tag it would put them in, by name. */
       into: string | null;
+      /** A Tag merge's pairs, by name, when one call merges into more than one Tag (#2252). */
+      merges?: readonly { from: string; into: string }[];
+      /** The cloud service that would read the Documents for the first time, by name (#2252). */
+      service?: string;
+      /** The User said no before, so this Allow sends them this time only (#2252). */
+      declined?: boolean;
       /** How many things the Answer changed without asking before this call. */
       changed: number;
     }
@@ -9270,6 +9870,8 @@ export interface RestoreResult {
    * waited in Recently deleted, and it was deleted then, as any Meeting's audio is (#1253).
    */
   audioExpired: ExpiredAudio[];
+  /** Folders that came back to the top level because the Folder they were in is still deleted. */
+  toTopLevel?: string[];
 }
 
 /** A Note whose Meeting's audio was deleted, its day over, while the Note waited in Recently deleted. */
@@ -9320,6 +9922,14 @@ export interface FolderDeletion {
   conversationIds: string[];
 }
 
+/** A link automatic tagging changed, before and after, so a command can take it back (#2252). */
+export interface TagLinkChange {
+  documentId: string;
+  tagId: string;
+  before: Pick<DocumentTag, "source" | "confidence" | "needsReview"> | null;
+  after: Pick<DocumentTag, "source" | "confidence" | "needsReview"> | null;
+}
+
 /** How a Document carried a Tag before a change, for `revertDocumentTags`. */
 export interface TagLinkState {
   documentId: string;
@@ -9333,11 +9943,33 @@ export interface TagLinkState {
   removedByUser?: boolean;
 }
 
+/** A Tag's name, description and colour: what the User sees of it. */
+export interface TagAsShown {
+  name: string;
+  description: string;
+  colour: TagColour;
+}
+
+/**
+ * Whether a Tag was the User's before an edit or a merge made it so, to put back with its Undo:
+ * only while the Tag still shows what the change left.
+ */
+export interface TagSourceRevert {
+  madeByUser: boolean;
+  /** What the Tag showed when the change finished; a Tag changed since keeps its source. */
+  expected: TagAsShown;
+}
+
 export interface TagMerge {
-  /** The Tag merged into, unchanged. */
+  /** The Tag merged into; it is the User's from the merge on. */
   tag: Tag;
-  /** Restoring it undoes the merge: the merged Tag comes back, and both Tags' links are as they were. */
+  /**
+   * Restoring it undoes the merge: the merged Tag comes back, and both Tags' links are as they
+   * were. `restore`'s `tagSources` puts back whether the Tag merged into was the User's.
+   */
   merged: RestoreRef;
+  /** Whether the Tag merged into was the User's before the merge made it so. */
+  keptMadeByUserBefore: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -9428,6 +10060,14 @@ export interface WordExportPreferences {
   trackChanges: boolean;
   markAiText: MarkAiTextChoice | null;
   commentFailedChecks: boolean;
+  /**
+   * In someone else's file, whether the User's own comments and replies go into the Word
+   * file (#328). Chosen in Export options and kept for the Note named by `myCommentsFile`
+   * only, so another file starts off. Absent: off there, and always on in the User's own Note.
+   */
+  includeMyComments?: boolean;
+  /** The Note `includeMyComments` was chosen for (#328): no other Note's export takes it. */
+  myCommentsFile?: string;
 }
 
 export interface ExportMindOptions {
@@ -9469,6 +10109,11 @@ export interface ExportMindOptions {
    * else's file keeps its own choice instead (`setCheckComments`).
    */
   commentFailedChecks?: boolean;
+  /**
+   * Word only (#328): whether the User's own comments and replies go into the file. The file's
+   * own imported comments always do. Absent: on in the User's own Note, off in someone else's.
+   */
+  includeMyComments?: boolean;
   /**
    * A web page to share only: each Citation's marker opens a card with
    * its quote, the part of its Document around it, and its check. Off, the
@@ -9518,6 +10163,12 @@ export interface MindExportPreview {
   othersFile: boolean;
   /** For someone else's file: whether its Word export gets check comments (`setCheckComments`); false otherwise. */
   othersComments: boolean;
+  /** The User's own comments and replies in the Note (#328): what a Word file includes, or leaves out. */
+  myComments: number;
+  /** Whether the Word file includes them; true for a format that writes no comments. */
+  myCommentsShown: boolean;
+  /** Whether a Word export offers "Include my comments": the file came from someone else (#328). */
+  myCommentsOptional: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -10211,6 +10862,11 @@ export interface AgentPairing {
   folderIds: string[];
   /** The agent it was set up in, e.g. "codex"; null for one set up by hand. */
   client: string | null;
+  /**
+   * It may propose changes to the Notes in its Folders (#352), which wait for the User as
+   * Proposals; never applied by the agent. Off unless the User allows it.
+   */
+  propose: boolean;
   /** When it last called IncarnaMind, ISO 8601, UTC; null if it never has. */
   lastUsedAt: string | null;
   createdAt: string;
@@ -10236,11 +10892,14 @@ export interface ConnectAgentInput {
   folderIds?: string[];
   /** The agent it is set up in, e.g. "codex": lower-case letters, digits and hyphens. */
   client?: string;
+  /** It may propose changes to the Notes in its Folders (`AgentPairing.propose`); off by default. */
+  propose?: boolean;
 }
 
 export interface UpdateAgentInput {
   name?: string;
   folderIds?: string[];
+  propose?: boolean;
 }
 
 /** How an agent starts IncarnaMind's server: the command for its MCP settings. */
@@ -10267,6 +10926,7 @@ export const AGENT_TOOLS = [
   "list_minds",
   "read_mind",
   "ask",
+  "propose_changes",
 ] as const;
 
 /**
@@ -10344,6 +11004,8 @@ export interface SetUpAgentInput {
   folderIds: string[];
   /** The name the User gave it ("Other agent" only); otherwise its own name. */
   name?: string;
+  /** It may propose changes to the Notes in its Folders (`AgentPairing.propose`); off by default. */
+  propose?: boolean;
 }
 
 export interface SetUpAgent {
@@ -10368,6 +11030,9 @@ export type AgentToolName = (typeof AGENT_TOOLS)[number];
  * - "outside-scope": what it asked for is outside its Folders;
  * - "not-found": no such Passage, Document, Mind or Citation;
  * - "chat-not-ready": `ask` needs a chat model that is set up and allowed;
+ * - "read-only": it may read but not propose changes (`AgentPairing.propose`);
+ * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold;
+ * - "waiting": a paragraph it names has changes waiting for the User, or is being written;
  * - "invalid": its arguments make no sense;
  * - "failed": something went wrong in IncarnaMind (the log says what).
  */
@@ -10380,6 +11045,9 @@ export type AgentProblem =
   | "outside-scope"
   | "not-found"
   | "chat-not-ready"
+  | "read-only"
+  | "changed"
+  | "waiting"
   | "invalid"
   | "failed";
 
@@ -10410,6 +11078,12 @@ export interface CoreApi {
   getLibrary(): Promise<LibrarySnapshot>;
   createLibraryGroup(input: LibraryGroupInput): Promise<LibraryGroup>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
+  /**
+   * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
+   * one of its own Folders stays where it is, so the tree keeps its shape. Returns the Folders
+   * that moved; nothing moves when any of them can't.
+   */
+  moveLibraryGroups(moves: { id: string; parentId: string | null }[]): Promise<string[]>;
   /**
    * Its Minds, Documents and conversations go to Not in a Folder. Returns what it held,
    * which restoring it puts back.
@@ -10539,7 +11213,14 @@ export interface CoreApi {
    * `RECENTLY_DELETED_DAYS` ago, or that can't come back now (its name taken, its Linked folder
    * unlinked). Never touches the User's files.
    */
-  restore(refs: RestoreRef[], options?: { reopen?: boolean }): Promise<RestoreResult>;
+  restore(
+    refs: RestoreRef[],
+    options?: {
+      reopen?: boolean;
+      /** Tags to put back whether they were the User's, for the Undo of a merge. */
+      tagSources?: readonly (TagSourceRevert & { tagId: string })[];
+    },
+  ): Promise<RestoreResult>;
   /**
    * Undoes a Restore: each item goes back to Recently deleted as it was before it came back, with
    * the rows its Restore brought back, deleted at the time it was deleted then, so the Folder it
@@ -10578,6 +11259,34 @@ export interface CoreApi {
    */
   duplicateMind(mindId: string): Promise<Mind>;
   /**
+   * Saves a snapshot of a Mind as a Document marked "Your note" (#335), in the
+   * Mind's Folder and named after it: its headings and paragraphs are the
+   * Document's Locations, so a Citation points at the exact passage. A Mind
+   * with a snapshot already updates it, as `updateMindSourceSnapshot` does.
+   */
+  saveMindAsSource(mindId: string): Promise<Document>;
+  /**
+   * Takes a new snapshot of a Mind over its Document's file, so the Document
+   * has a new version and old Citations keep the version they quoted (#79).
+   * Resolves with the Document and what Undo writes back.
+   */
+  updateMindSourceSnapshot(mindId: string): Promise<MindSourceUpdate>;
+  /**
+   * Writes a previous snapshot's text back as the Document's next version:
+   * what Undo of `updateMindSourceSnapshot` does (#335). Only the Document's
+   * own snapshot can be written this way.
+   */
+  restoreMindSourceSnapshot(
+    documentId: string,
+    input: { text: string; snapshotAt: string },
+  ): Promise<Document>;
+  /**
+   * Removes a Mind's snapshot: the Document goes to Recently deleted, where
+   * Undo restores it, and Citations to it say its source was removed (#335).
+   * The Mind is an ordinary Mind again.
+   */
+  removeMindSource(mindId: string): Promise<void>;
+  /**
    * Reads a Word file for the import screen (#104): whether it can be imported, whose
    * document it looks like, and an earlier draft of it imported into the Folder (none, or
    * null: Not in a Folder). Keeps nothing, and changes nothing.
@@ -10599,6 +11308,35 @@ export interface CoreApi {
    * InvalidInputError for one not imported from Word.
    */
   addWordOriginal(mindId: string, path: string): Promise<boolean>;
+  /**
+   * Converts a .doc to a .docx copy in a private temporary folder, with the
+   * LibreOffice on this computer (#104), for the import screen to read: the
+   * original is never changed.
+   */
+  convertWordFile(path: string): Promise<WordConversionResult>;
+  /**
+   * Removes the temporary `.docx` copy `convertWordFile` made, once the import
+   * screen is done with it: it is added to a Mind, or the User cancels. Only a
+   * copy the core made can be removed.
+   */
+  discardWordFile(path: string): Promise<void>;
+  /**
+   * Whether this computer has LibreOffice (#762): found where it is installed,
+   * by its real path, never bundled or downloaded. Cached for the session.
+   */
+  officeConverter(): Promise<{ available: boolean }>;
+  /**
+   * Converts a copy of an old Office or WPS file (.doc, .xls, .ppt, .wps, .et,
+   * .dps and the like) to .docx, .xlsx or .pptx, headless, with the LibreOffice
+   * on this computer, and adds the copy as a Document that says which file it
+   * came from (#762). The original is never changed.
+   */
+  convertWithOffice(path: string): Promise<OfficeConversionResult>;
+  /**
+   * Shows a file an add skipped in the file manager, so the User can convert it
+   * there (#762). Only a file the last add skipped can be shown.
+   */
+  showSkippedFile(path: string): Promise<void>;
   /**
    * The fonts a Mind imported from Word draws its text in, as its Word look names them
    * (#746), for Get info to say which aren't installed; none for any other Mind. Throws
@@ -10992,6 +11730,8 @@ export interface CoreApi {
   readableQuote(input: ScannedQuoteInput): Promise<string | null>;
   /** The built-in text recognition model's download state (#397). */
   getTextRecognitionModel(): Promise<EmbeddingModelStatus>;
+  /** `run_code`'s Python, downloaded the first time code needs it (ADR-0025); null: this copy has none. */
+  getPythonRuntime(): Promise<EmbeddingModelStatus | null>;
   /**
    * Downloads the built-in text recognition model, or tries again after a
    * failure; once it is ready, Documents whose scanned pages couldn't be
@@ -11214,9 +11954,22 @@ export interface CoreApi {
    * order selected, one part for each Unit: checked against the current
    * version's text of those Units only, never found somewhere else, and kept
    * there when it isn't found. With no Unit known, it is cited only where
-   * the Document has the words in one place.
+   * the Document has the words in one place. Given an `area` (#118), the
+   * Citation points at that region of the Unit; with no words in it, the
+   * region is cited as a picture, which can't be checked.
    */
-  citeSelection(input: { documentId: string; parts: SelectedPart[] }): Promise<CitedSelection>;
+  citeSelection(input: {
+    documentId: string;
+    parts: SelectedPart[];
+    area?: CitedArea;
+    /** The Unit the area is on, when its text found no place there: a picture of that page or slide. */
+    unit?: number | null;
+    /**
+     * The Document's words just before and after the area (#118), where the view doesn't know its
+     * Unit: a picture's place is the Unit that holds them, never the Document's first Unit.
+     */
+    around?: { before?: string; after?: string };
+  }): Promise<CitedSelection>;
   /**
    * Searches the Passages of live Documents, best match first: hybrid
    * (keyword and vector) search by default, which is keyword search while
@@ -11225,6 +11978,22 @@ export interface CoreApi {
    * model isn't ready, and InvalidInputError while embeddings are off.
    */
   searchPassages(query: string, options?: SearchPassagesOptions): Promise<PassageSearchResult[]>;
+  /**
+   * The Passages a piece of the User's own writing is about (#281), best first:
+   * the document-search Tool as Answers use it — keyword search, then the
+   * reranker while it is on (ADR-0009) — over a Search scope and on the
+   * Mind's side of a Folder wall. Cite… in a Note shows them, each with the
+   * words it matches.
+   */
+  findPassages(input: FindPassagesInput): Promise<FoundPassage[]>;
+  /**
+   * A Citation of the words of a Passage that best match `text` (#281): its
+   * sentence holding most of the text's words, or the Passage's whole text
+   * when none does, checked at once as `citeSelection` checks a selection.
+   * Null for a Passage that no longer exists, and for one of the User's own
+   * workings, which is never cited without their say.
+   */
+  citePassage(input: CitePassageInput): Promise<Citation | null>;
   /**
    * Searches as a check or a comparison table does (#80): as the search Tool
    * searches for an Answer, reranked as the User chose, but without the
@@ -11547,6 +12316,8 @@ export interface CoreApi {
   regenerateProposal(input: RegenerateProposalInput): Promise<EditWithAiResult>;
   /** Stops an Edit with AI request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelEdit(requestId: string): Promise<void>;
+  /** Says whether an edit waiting on its estimate (`EditAsk`) goes on, or stops (#2348). */
+  respondToEditAsk(input: { requestId: string; accept: boolean }): Promise<void>;
   /**
    * Check against Documents (#96): checks each sentence the
    * selection touches against the Mind's Folder (or every Document), one at a
@@ -11855,9 +12626,11 @@ export interface CoreApi {
   createTag(input: CreateTagInput): Promise<Tag>;
   /**
    * Changes a Tag's name or description and returns the Tag. Documents keep
-   * their Tags; "Re-tag" applies the new definition to the automatic ones.
+   * their Tags; "Re-tag" applies the new definition to the automatic ones. With
+   * `source`, the Undo of an edit, it also puts back whether the Tag was the
+   * User's, if the Tag still shows what the edit left.
    */
-  updateTag(tagId: string, patch: UpdateTagInput): Promise<Tag>;
+  updateTag(tagId: string, patch: UpdateTagInput, source?: TagSourceRevert): Promise<Tag>;
   /** Soft-deletes a Tag, and takes it off every Document. */
   deleteTag(tagId: string): Promise<void>;
   /**
@@ -11887,6 +12660,13 @@ export interface CoreApi {
    * Documents, in the order given; one "documents.tagged" event carries those that changed.
    */
   revertDocumentTags(links: TagLinkState[]): Promise<Document[]>;
+  /**
+   * The Tags the User decided on for each Document, added or removed: automatic tagging leaves
+   * those links alone, live or removed. Returns each Document's Tag ids, in the order given.
+   */
+  listDocumentTagDecisions(
+    documentIds: string[],
+  ): Promise<{ documentId: string; tagIds: string[] }[]>;
   /**
    * Merges a Tag into another: every Document carrying `tagId` carries
    * `intoTagId` instead, and `tagId` is deleted. Who chose each Tag is kept
@@ -12411,6 +13191,8 @@ export interface CoreEvents {
   "mind.update": MindUpdate;
   /** The assistant is writing changes into a Mind as they come (#202), or has stopped. */
   "mind.writing": MindWriting;
+  /** An edit too long for one request, on a model billed per token, waits for the User's go (#2348). */
+  "edits.ask": EditAsk;
   /** Changes storage refused wait in memory, or (null) all of them are stored now (#1119). */
   "minds.unsaved": UnsavedChanges | null;
   /** A Mind's Checkpoints changed: one was saved, kept for good, or thinned out. Read `listCheckpoints` again. */
@@ -12425,6 +13207,7 @@ export interface CoreEvents {
   "embeddingModel.status": EmbeddingModelStatus;
   /** The built-in text recognition model's download state changed (#397). */
   "textRecognitionModel.status": EmbeddingModelStatus;
+  "pythonRuntime.status": EmbeddingModelStatus;
   /**
    * The embedding model search uses changed, or local mode, or a rebuild made
    * progress (a Document finished) or finished, or the provider failed or recovered.
@@ -12619,9 +13402,18 @@ export type CoreApiMethod = keyof CoreApi;
 const methods: Record<CoreApiMethod, true> = {
   createMind: true,
   duplicateMind: true,
+  saveMindAsSource: true,
+  updateMindSourceSnapshot: true,
+  restoreMindSourceSnapshot: true,
+  removeMindSource: true,
   checkWordFile: true,
   importWordFile: true,
   addWordOriginal: true,
+  convertWordFile: true,
+  discardWordFile: true,
+  officeConverter: true,
+  convertWithOffice: true,
+  showSkippedFile: true,
   wordFonts: true,
   listMinds: true,
   renameMind: true,
@@ -12690,6 +13482,7 @@ const methods: Record<CoreApiMethod, true> = {
   readScannedQuote: true,
   readableQuote: true,
   getTextRecognitionModel: true,
+  getPythonRuntime: true,
   downloadTextRecognitionModel: true,
   previewLinkedFolder: true,
   addLinkedFolder: true,
@@ -12719,6 +13512,8 @@ const methods: Record<CoreApiMethod, true> = {
   recheckCitation: true,
   citeSelection: true,
   searchPassages: true,
+  findPassages: true,
+  citePassage: true,
   searchEvidence: true,
   setCountedAsEvidence: true,
   setNotCited: true,
@@ -12786,6 +13581,7 @@ const methods: Record<CoreApiMethod, true> = {
   editWithAi: true,
   regenerateProposal: true,
   cancelEdit: true,
+  respondToEditAsk: true,
   checkSentences: true,
   planDocumentCheck: true,
   cancelCheck: true,
@@ -12853,6 +13649,7 @@ const methods: Record<CoreApiMethod, true> = {
   getLibrary: true,
   createLibraryGroup: true,
   updateLibraryGroup: true,
+  moveLibraryGroups: true,
   deleteLibraryGroup: true,
   addLibraryStarterGroups: true,
   saveLibrarySettings: true,
@@ -12883,6 +13680,7 @@ const methods: Record<CoreApiMethod, true> = {
   addTagToDocuments: true,
   removeTagFromDocuments: true,
   revertDocumentTags: true,
+  listDocumentTagDecisions: true,
   mergeTags: true,
   retagDocuments: true,
   backOnline: true,

@@ -24,6 +24,7 @@ import { checklistItem } from "./checklistItem";
 import { Citation } from "./citationSchema";
 import { ClaimCheck } from "./claimChecks";
 import { lowlight } from "./codeLanguages";
+import { Comment } from "./commentSchema";
 import { ComparisonCell, ComparisonRow, ComparisonTable } from "./comparisonSchema";
 import { ComparisonStructureLock } from "./comparisonStructureLock";
 import { DocumentChip } from "./documentChipSchema";
@@ -220,6 +221,8 @@ export function noteExtensions({
     ProposalAttributes,
     Generated,
     ClaimCheck,
+    // The anchor of a comment on the text (#328), stored only in the Mind.
+    Comment,
     UniqueID.configure({
       attributeName: BLOCK_ID_ATTRIBUTE,
       types: [...BLOCK_TYPES, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE],

@@ -25,9 +25,12 @@ import {
   LockLineIcon,
   TagLineIcon,
 } from "../components/lineIcons";
+import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
 import { type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
+import { takeTypedTrigger } from "./documentPicker";
+import { asOneStep } from "./editorUndo";
 
 const DOCUMENTS_ONLY: readonly ScopeKind[] = ["document"];
 
@@ -73,14 +76,17 @@ function inNote(state: EditorState, pos: number): boolean {
  */
 function addToScope(editor: Editor, range: Range, choice: ScopeChoice): void {
   if (!isQuestion(editor.state, range.from)) {
-    editor
-      .chain()
-      .focus()
-      .insertContentAt(range, [
-        { type: DOCUMENT_CHIP_NODE, attrs: { documentId: choice.id, name: choice.name } },
-        { type: "text", text: " " },
-      ])
-      .run();
+    // One step of the Note's Undo, so ⌘Z takes back the chip and nothing else typed before it.
+    asOneStep(editor, () =>
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(range, [
+          { type: DOCUMENT_CHIP_NODE, attrs: { documentId: choice.id, name: choice.name } },
+          { type: "text", text: " " },
+        ])
+        .run(),
+    );
     return;
   }
   editor
@@ -122,7 +128,9 @@ export const ScopePicker = Extension.create({
         pluginKey: new PluginKey("scopePicker"),
         char: "@",
         // In a Question, or in the text of a Note: in code or an Answer an "@" is just an "@".
-        allow: ({ state, range }) => isQuestion(state, range.from) || inNote(state, range.from),
+        // Never while a Chinese input method is composing, whose "@" is the method's (#281).
+        allow: ({ editor, state, range }) =>
+          !editor.view.composing && (isQuestion(state, range.from) || inNote(state, range.from)),
         // The list reads the Folders, Tags and Documents from the app store itself.
         items: () => [],
         command: ({ editor, range, props: choice }) => addToScope(editor, range, choice),
@@ -141,7 +149,10 @@ export const ScopePicker = Extension.create({
             onKeyDown({ event }) {
               return renderer?.ref?.onKeyDown(event) ?? false;
             },
-            onExit() {
+            onExit(props) {
+              // An "@" a command typed for the User goes with the picker, and the words typed
+              // after it, unless a choice already took them out for its chip.
+              takeTypedTrigger(props.range.to);
               unmount?.();
               renderer?.destroy();
               renderer = null;
@@ -210,8 +221,11 @@ export function ScopeChoiceList({
   const t = useT();
   const folders = useAppStore((state) => state.folders);
   const groups = useAppStore((state) => state.library?.groups);
+  // The Note's Folder may be inside a wall, not only be one.
   const currentWalled =
-    groups?.find((group) => group.id === ownFolderId && group.keepInside)?.id ?? null;
+    groups && ownFolderId !== undefined && ownFolderId !== null
+      ? folderWallOf(groups, ownFolderId)
+      : null;
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const assignments = useAppStore((state) => state.library?.assignments);
@@ -224,7 +238,11 @@ export function ScopeChoiceList({
     if (item.walled !== currentWalled) return true;
     if (item.kind !== "document") return false;
     const filings = (assignments ?? []).filter(
-      (each) => each.documentId === item.id && each.groupId === currentWalled,
+      (each) =>
+        each.documentId === item.id &&
+        each.groupId !== null &&
+        groups !== undefined &&
+        folderWallOf(groups, each.groupId) === currentWalled,
     );
     return !filings.some((each) => each.source === "user");
   };

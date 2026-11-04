@@ -39,6 +39,15 @@ describe("an error from the core", () => {
     expect(detail).not.toContain("Error invoking remote method");
   });
 
+  test("keeps the cause of a wrapped failure for the Details, not the line", () => {
+    const failure = new Error("The area couldn’t be captured. Try it again.", {
+      cause: new Error("The area came out empty."),
+    });
+    expect(errorMessage(failure, english)).toBe("The area couldn’t be captured. Try it again.");
+    const { detail } = describeError(failure);
+    expect(detail).toContain("Caused by: The area came out empty.");
+  });
+
   test("is as readable in Chinese", () => {
     const failure = ipc("core:moveToFolder", "NotFoundError", "这个文件夹已被删除。");
     expect(errorMessage(failure, english)).toBe("这个文件夹已被删除。");

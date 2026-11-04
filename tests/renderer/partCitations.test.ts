@@ -83,7 +83,11 @@ const supported = (start: number, end: number, evidence: CitationAttributes): Cl
   citedCaseFound: false,
 });
 
-function setUp(example: (typeof CASES)[number], citedAtEnd?: CitationAttributes) {
+function setUp(
+  example: (typeof CASES)[number],
+  citedAtEnd?: CitationAttributes,
+  secondEvidence?: CitationAttributes,
+) {
   const document = new DOMParser().parseFromString(
     "<html><head></head><body></body></html>",
     "text/html",
@@ -108,7 +112,7 @@ function setUp(example: (typeof CASES)[number], citedAtEnd?: CitationAttributes)
     fontFamily: "",
   }));
   const { sentence, first, second, quotes } = example;
-  const passages = [source("first", quotes[0]), source("second", quotes[1])];
+  const passages = [source("first", quotes[0]), secondEvidence ?? source("second", quotes[1])];
   const at = sentence.indexOf(second);
   const parts = [
     supported(0, first.length, passages[0] as CitationAttributes),
@@ -191,6 +195,18 @@ for (const example of CASES)
     const { sentence, first, second } = example;
     const end = sentence.slice(sentence.indexOf(second) + second.length);
     const between = sentence.slice(first.length, sentence.indexOf(second));
+
+    // protects=a part a file's property backs offers no Citation for the Note, while the part its text backs still does (#2458); fails_when=Add as Citation is offered for the file's properties.
+    test("a part backed by a file's property offers no Citation of it", () => {
+      const property: CitationAttributes = {
+        ...source("file-properties:results", "Modified: 2026-06-30T09:00:00Z"),
+        pageFrom: null,
+        pageTo: null,
+        location: { kind: "properties", property: "modified", value: "2026-06-30T09:00:00Z" },
+      };
+      const { decisions } = setUp(example, undefined, property);
+      expect(decisions()).toEqual([["add"], []]);
+    });
 
     // protects=a part's Passage goes right after that part's words, the sentence keeps its check and parts, the other part still offers its add, and one Undo takes back that add alone (#2002); fails_when=the Citation lands at the sentence's end or on the whole sentence, the check is dropped, or Undo takes back more or less; no_claim=how the card lays the button out.
     test("Add as Citation on a row cites that part's words, as one Undo", () => {

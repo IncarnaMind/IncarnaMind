@@ -13,23 +13,37 @@
  * helper named (here the installed package's own copy; macOS has no use for
  * it); the contract suite loads it as development does.
  */
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { promisify } from "node:util";
+import { afterAll, afterEach, describe, expect, test } from "vitest";
 import type { ExecRequest } from "../../src/core";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import { createScriptRunner } from "../../src/core/skills/scripts";
 import { createProcessLauncher } from "../../src/main/processes";
-import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
+import {
+  bwrapScript,
+  bwrapSizesTmpfs,
+  loadOsSandbox,
+  MAC_DENIED,
+  readDeniedFolders,
+  withMacDenials,
+} from "../../src/main/sandbox";
 import { createTempDataFolder } from "../helpers/core";
+import { createSweepGuard } from "../helpers/sweepGuard";
 
 const runtime = dirname(
   dirname(createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime")),
 );
+const guard = createSweepGuard();
+// Outside each case's folders, which the cases list and remove.
+const runRecords = guard.records(await mkdtemp(join(tmpdir(), "incarnamind-test-runs-")));
+afterAll(() => rm(runRecords, { recursive: true, force: true }));
 const sandbox = await loadOsSandbox({
   seccompHelper: join(runtime, "vendor", "seccomp", process.arch, "apply-seccomp"),
 });
@@ -89,6 +103,8 @@ async function setUp(
     reportError: (error) => {
       throw error;
     },
+    runRecords,
+    sweep: { stopper: guard.stopper },
   });
   return { executor, home, canary, data, database, skillDir, outside, tempDir };
 }
@@ -178,12 +194,102 @@ let servers: Server[] = [];
 afterEach(() => {
   for (const server of servers) server.close();
   servers = [];
+  // Each pid a run's sweep signalled was a member of one of this file's own runs.
+  expect(guard.refused).toEqual([]);
+});
+
+test("a bubblewrap that can size a tmpfs is told from one that can't, by its help", () => {
+  // As bubblewrap 0.7's help lists it, and 0.6's, which has no --size.
+  const seven = [
+    "    --tmpfs DEST                 Mount new tmpfs on DEST",
+    "    --size BYTES                 Set size of next tmpfs (in bytes)",
+  ].join("\n");
+  const six = [
+    "    --tmpfs DEST                 Mount new tmpfs on DEST",
+    "    --perms OCTAL",
+  ].join("\n");
+  expect([bwrapSizesTmpfs(seven), bwrapSizesTmpfs(six), bwrapSizesTmpfs("")]).toEqual([
+    true,
+    false,
+    false,
+  ]);
+});
+
+test("macOS's denials go after sandbox-runtime's profile, and a profile that lets programs reach the network doesn't run", () => {
+  const wrapped = (profile: string) =>
+    `cd /x && SANDBOX=1 /usr/bin/sandbox-exec -p '${profile}' /bin/bash -c 'true'`;
+  const run = "0f0e0d0c-0b0a-4908-8706-050403020100";
+  const stricter = withMacDenials(wrapped("(version 1)(deny default)"), run);
+  expect(stricter).toContain(MAC_DENIED);
+  expect(stricter).toContain(`(allow mach-lookup (global-name "com.incarnamind.run.${run}"))`);
+  expect(stricter).not.toContain("(deny ipc-posix-shm-write-create)");
+  // A program held to a memory limit can't make shared memory, which no limit counts.
+  expect(withMacDenials(wrapped("(version 1)(deny default)"), run, true)).toContain(
+    "(deny ipc-posix-shm-write-create)",
+  );
+  expect(() =>
+    withMacDenials(
+      wrapped('(version 1)(deny default)(allow network-outbound (remote ip "localhost:*"))'),
+      run,
+    ),
+  ).toThrow("lets programs reach the network");
+  expect(() => withMacDenials("/bin/bash -c true", run)).toThrow(
+    "isn't the one IncarnaMind adds to",
+  );
+});
+
+test("bubblewrap's folders over denied ones and its /dev/shm hold 1 MB, and /dev is read-only once mounted", async () => {
+  const folder = await createTempDataFolder();
+  // A stand-in bubblewrap that prints what it was given, a word a line.
+  const real = join(folder, "bwrap");
+  await writeFile(real, '#!/bin/sh\nfor a do echo "$a"; done\n', { mode: 0o700 });
+  const wrapper = join(folder, "sized");
+  await writeFile(wrapper, bwrapScript(real), { mode: 0o700 });
+  const given = [
+    "--ro-bind",
+    "/",
+    "/",
+    "--tmpfs",
+    "/home",
+    "--dev",
+    "/dev",
+    "--proc",
+    "/proc",
+    "--",
+    "sh",
+    "-c",
+    "--tmpfs",
+  ];
+  const { stdout } = await promisify(execFile)(wrapper, given);
+  expect(stdout.trimEnd().split("\n")).toEqual([
+    "--ro-bind",
+    "/",
+    "/",
+    "--size",
+    "1048576",
+    "--tmpfs",
+    "/home",
+    "--dev",
+    "/dev",
+    "--size",
+    "1048576",
+    "--tmpfs",
+    "/dev/shm",
+    "--proc",
+    "/proc",
+    "--remount-ro",
+    "/dev",
+    "--",
+    "sh",
+    "-c",
+    "--tmpfs",
+  ]);
 });
 
 describe("the folders no program may read", () => {
   const user = { home: "/Users/Ada", dataDir: "/home/Ada/data", uid: 501 };
 
-  test("on macOS: the User's own, the shared temporary folders, and the roots volumes are mounted under", () => {
+  test("on macOS: every account's home, the shared temporary folders, and the roots volumes are mounted under", () => {
     expect(
       readDeniedFolders({ ...user, platform: "darwin", temporaryFolder: "/var/folders/xy/abc/T" }),
     ).toEqual([
@@ -192,6 +298,7 @@ describe("the folders no program may read", () => {
       "/var/folders/xy/abc/T",
       "/tmp",
       "/var/folders/xy/abc",
+      "/Users",
       "/private/tmp",
       "/var/tmp",
       "/private/var/tmp",
@@ -207,6 +314,7 @@ describe("the folders no program may read", () => {
       "/home/Ada/data",
       "/Users/Ada/tmp",
       "/tmp",
+      "/Users",
       "/private/tmp",
       "/var/tmp",
       "/private/var/tmp",
@@ -214,16 +322,18 @@ describe("the folders no program may read", () => {
     ]);
   });
 
-  test("on Linux: the same, and this User's drive and network mounts", () => {
+  test("on Linux: the same, and this User's runtime folder (session bus, systemd, keyring, agents, mounts)", () => {
     expect(readDeniedFolders({ ...user, platform: "linux", temporaryFolder: "/tmp" })).toEqual([
       "/Users/Ada",
       "/home/Ada/data",
       "/tmp",
+      "/home",
+      "/root",
       "/var/tmp",
       "/media",
       "/mnt",
       "/run/media",
-      "/run/user/501/gvfs",
+      "/run/user/501",
     ]);
   });
 
@@ -235,11 +345,13 @@ describe("the folders no program may read", () => {
       "/home/Ada/data",
       "/home/Ada/tmp",
       "/tmp",
+      "/home",
+      "/root",
       "/var/tmp",
       "/media",
       "/mnt",
       "/run/media",
-      "/run/user/501/gvfs",
+      "/run/user/501",
     ]);
   });
 
@@ -248,6 +360,12 @@ describe("the folders no program may read", () => {
       readDeniedFolders({ ...user, platform: "win32", temporaryFolder: "C:\\Users\\Ada\\Temp" }),
     ).toEqual([]);
   });
+});
+
+// The job that runs these on a Mac says it needs the sandbox: a sandbox that can't start there
+// fails it, rather than skipping every test that would show it.
+test.runIf(process.env.INCARNAMIND_TEST_OS_SANDBOX === "required")("the OS sandbox starts", () => {
+  expect(unavailable).toBeUndefined();
 });
 
 describe.skipIf(unavailable !== undefined)(

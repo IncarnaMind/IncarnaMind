@@ -21,10 +21,13 @@ import {
   type StyleRole,
 } from "../docx";
 import {
+  commentsExtendedPart,
   commentsPart,
+  type ExtendedComment,
   footnotesPart,
   noteBookmark,
   W_NAMESPACE,
+  W14_NAMESPACE,
   WordIds,
   XML_DECLARATION,
 } from "../wordml";
@@ -42,6 +45,7 @@ import {
   closeTag,
   endOf,
   type Splice,
+  scopeOf,
   selfClosing,
   startOf,
 } from "./text";
@@ -415,12 +419,98 @@ export class DocumentComments {
     if (comments.length === 0) return;
     if (this.part) {
       const { text, root } = this.part;
-      this.pkg.set(this.name, applySplices(text, [appendInside(text, root, comments.join(""))]));
+      if (selfClosing(root)) {
+        // An empty part says nothing to keep: write it whole, with the namespace the added comments use.
+        this.pkg.set(this.name, commentsPart(comments));
+        return;
+      }
+      // The added ones name their paragraph with `w14:paraId`; an older part may not declare it yet.
+      const declaresW14 = scopeOf(root, new Map()).has("w14");
+      const splices = [appendInside(text, root, comments.join(""))];
+      if (!declaresW14) {
+        const at = startOf(root) + 1 + root.name.length;
+        splices.push({ from: at, to: at, text: ` xmlns:w14="${W14_NAMESPACE}"` });
+      }
+      this.pkg.set(this.name, applySplices(text, splices));
       return;
     }
     this.pkg.add(this.name, commentsPart(comments));
     this.relationships.add(RELATIONSHIP_TYPES.comments, relativeTo(this.document, this.name));
     await this.pkg.addContentType(this.name, CONTENT_TYPES.comments);
+  }
+}
+
+/**
+ * The document's comments-extended part (#328): which comment answers which,
+ * and which are resolved. An entry is rewritten from the Mind's comments, so
+ * a resolve or a reply made here reaches the file; an entry the file had and
+ * the Mind doesn't know is kept.
+ */
+export class DocumentCommentsExtended {
+  private constructor(
+    private readonly pkg: WordPackageWriter,
+    private readonly document: string,
+    private readonly relationships: PartRelationships,
+    private readonly name: string,
+    private readonly part: PartText | null,
+  ) {}
+
+  static async read(
+    pkg: WordPackageWriter,
+    document: string,
+    relationships: PartRelationships,
+  ): Promise<DocumentCommentsExtended> {
+    const known = relationships.ofType(RELATIONSHIP_TYPES.commentsExtended)?.target ?? null;
+    const part = known ? await pkg.part(known) : null;
+    const name =
+      known ??
+      (pkg.has("word/commentsExtended.xml")
+        ? pkg.freeName("word/commentsExtended", "xml")
+        : "word/commentsExtended.xml");
+    return new DocumentCommentsExtended(pkg, document, relationships, name, part);
+  }
+
+  /**
+   * Writes the entries: the Mind's, then any the file had that it doesn't
+   * know. A file whose entries say the same is left exactly as it was, so an
+   * export that changed nothing writes nothing.
+   */
+  async flush(entries: readonly ExtendedComment[]): Promise<void> {
+    if (entries.length === 0 && this.part === null) return;
+    const known = new Set(entries.map((entry) => entry.paraId));
+    const were = new Map<string, ExtendedComment>();
+    const kept: ExtendedComment[] = [];
+    for (const element of this.part ? elements(this.part.root) : []) {
+      if (element.name !== "w15:commentEx") continue;
+      const paraId = element.attrs["w15:paraId"];
+      if (!paraId) continue;
+      const entry = {
+        paraId,
+        parentParaId: element.attrs["w15:paraIdParent"] ?? null,
+        done: element.attrs["w15:done"] === "1",
+      };
+      were.set(paraId, entry);
+      if (!known.has(paraId)) kept.push(entry);
+    }
+    const merged = [...entries, ...kept];
+    const same =
+      merged.length === were.size &&
+      merged.every((entry) => {
+        const before = were.get(entry.paraId);
+        return (
+          before !== undefined &&
+          before.parentParaId === entry.parentParaId &&
+          before.done === entry.done
+        );
+      });
+    if (same) return;
+    this.pkg.set(this.name, commentsExtendedPart(merged));
+    if (this.part !== null) return;
+    this.relationships.add(
+      RELATIONSHIP_TYPES.commentsExtended,
+      relativeTo(this.document, this.name),
+    );
+    await this.pkg.addContentType(this.name, CONTENT_TYPES.commentsExtended);
   }
 }
 

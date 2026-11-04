@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { INLINE_NODE, isClaim, sentenceSpans } from "../../src/shared/sentences";
+import { INLINE_NODE, isClaim, lastSentence, sentenceSpans } from "../../src/shared/sentences";
 
 const sentences = (text: string) => sentenceSpans(text).map(({ from, to }) => text.slice(from, to));
 
@@ -146,5 +146,21 @@ describe("A sentence that makes a claim", () => {
     expect(isClaim("Thanks!")).toBe(false);
     expect(isClaim("销售额增长了。")).toBe(true);
     expect(isClaim("谢谢。")).toBe(false);
+  });
+});
+
+describe("The sentence being written (#281)", () => {
+  test("is the text from its last full stop to the caret, without an inline node's mark", () => {
+    expect(lastSentence(`Spring tides flood. The Moon rises.${INLINE_NODE} `)).toBe(
+      "The Moon rises.",
+    );
+  });
+
+  test("keeps a page reference with its number", () => {
+    expect(lastSentence("See Dr. Smith at p. 4 ")).toBe("See Dr. Smith at p. 4");
+  });
+
+  test("is empty when nothing is written", () => {
+    expect(lastSentence("")).toBe("");
   });
 });

@@ -582,7 +582,7 @@ const card = (check: CitationCheck, more: Partial<CitationCard> = {}): CitationC
   spoken: "Tides, page 2",
   quote: "Spring tides come twice a month",
   changedAfterCited: false,
-  content: { kind: "quote", text: "Spring tides come twice a month", scan: false },
+  content: { kind: "quote", text: "Spring tides come twice a month", from: null },
   ...more,
 });
 
@@ -685,6 +685,7 @@ describe("what a web page to share says of its checks", () => {
         verdict: hostile,
       },
       {
+        language: "en",
         documents: [
           {
             id: "page",
@@ -749,12 +750,14 @@ describe("what a web page to share says of its checks", () => {
     };
 
     const kept = citationCard(attributes, {
+      language: "en",
       documents: [],
       kept: [{ documentId: "tides", contentHash: "first", units: [1] }],
       units: () => [],
       t,
     });
     const changed = citationCard(attributes, {
+      language: "en",
       documents: [{ id: "tides", contentHash: "second", name: "Tides" }],
       kept: [],
       units: () => [],
@@ -765,11 +768,38 @@ describe("what a web page to share says of its checks", () => {
     expect(kept.content).toEqual({
       kind: "quote",
       text: "Spring tides come twice a month",
-      scan: false,
+      from: null,
     });
     expect(changed.changedAfterCited).toBe(true);
     expect(pageOf([changed]).document.querySelector(".card-verdict")?.textContent).toBe(
       "The Document changed after this was cited.",
     );
+  });
+
+  test("a snapshot's card names it Your note, with its title and date", () => {
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate("en", key, params);
+    const quote = "Harbours publish the times of high water every week.";
+    const card = citationCard(
+      {
+        documentId: "note",
+        documentName: "Field visit",
+        contentHash: "n1",
+        pageFrom: 1,
+        pageTo: 1,
+        location: { kind: "section", heading: "Field visit" },
+        quote,
+        check: "found",
+        yourNoteAt: `${new Date().getFullYear()}-10-12T09:00:00.000Z`,
+      },
+      {
+        language: "en",
+        documents: [{ id: "note", contentHash: "n1", name: "Field visit" }],
+        kept: [],
+        units: () => [{ page: 1, kind: "section", text: quote, label: { path: ["Field visit"] } }],
+        t,
+      },
+    );
+    expect(card.source).toMatch(/^Your note: Field visit, 12 Oct$/);
   });
 });

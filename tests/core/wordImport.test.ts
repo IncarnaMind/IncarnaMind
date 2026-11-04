@@ -17,6 +17,7 @@ import {
   type WordRefusalReason,
 } from "../../src/core";
 import { WORD_PACKAGES_FOLDER } from "../../src/core/wordImports";
+import { mindCommentsOf } from "../../src/shared/mindComments";
 import { pendingProposals, proposalRequestOf } from "../../src/shared/proposals";
 import {
   wordFileOf,
@@ -373,7 +374,7 @@ describe("a Word file becomes a Mind", () => {
     }
   });
 
-  test("bookmarks are invisible marks, a section break is kept, a page break is the Note's own, comments are kept read-only, and someone else's tracked changes wait to be accepted or rejected, with their author and date", async () => {
+  test("bookmarks are invisible marks, a section break is kept, a page break is the Note's own, comments are the Mind's own on their words, and someone else's tracked changes wait to be accepted or rejected, with their author and date", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);
     const comment = commented(0, "Marcus Hale", "We can't accept this.", run("vacant possession"));
@@ -404,21 +405,38 @@ describe("a Word file becomes a Mind", () => {
     expect(kinds).toEqual([
       ["bookmark", "", { name: "_Toc1" }],
       ["bookmark", "", null],
-      ["range", "", null],
-      ["range", "", null],
-      ["comment", "", { author: "Marcus Hale", date: "2026-10-02T09:00:00Z" }],
       ["sectionBreak", "", null],
     ]);
     expect(shown.child(2).toJSON().content).toContainEqual({
       type: "pageBreak",
       attrs: { source: "w:br#0" },
     });
-    const commentAtom = atomsOf(client).find((atom) => atom.kind === "comment");
-    expect(commentAtom?.text).toBe("We can't accept this.");
+    // Its comment is the Mind's own (#328), on the words its range covered, with its author and date.
+    const comments = mindCommentsOf(client.doc);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({
+      author: "Marcus Hale",
+      // Word's date, normalized to UTC (#328).
+      createdAt: "2026-10-02T09:00:00.000Z",
+      text: "We can't accept this.",
+      resolvedAt: null,
+    });
+    const marked = (node: JSONContent | undefined): string =>
+      (node?.content ?? [])
+        .flatMap((each) =>
+          each.type === "text" &&
+          (each.marks ?? []).some(
+            (mark) => mark.type === "comment" && mark.attrs?.id === comments[0]?.id,
+          )
+            ? [each.text ?? ""]
+            : [],
+        )
+        .join("");
+    expect(marked(shown.child(1).toJSON())).toBe("vacant possession");
 
-    // The bookmark, the comment's range and its mark are invisible marks (U+FFFC here).
+    // The bookmark and the comment's words are where they were; the range and mark are the comment now.
     expect(shownWithChanges(client)[1]).toBe(
-      "\uFFFCGives up \uFFFCvacant possession\uFFFC\uFFFC{+ in full+}[- substantially-].",
+      "\uFFFCGives up vacant possession{+ in full+}[- substantially-].",
     );
     const changes = pendingProposals(client.blocks).map((change) =>
       proposalRequestOf(client.doc, change.request),
@@ -668,6 +686,7 @@ describe("whose document it is", () => {
     expect(await core.checkWordFile(clean)).toEqual({
       fileName: "Mine.docx",
       refusal: null,
+      canConvert: false,
       origin: "own",
       authors: [],
       changes: 0,

@@ -2,10 +2,12 @@
 import { figureContextOf, readFigures } from "../../shared/figures";
 import { PDF_BLANK_FIELD, PDF_UNREAD_FIELD } from "../../shared/pdfFormText";
 import { CJK, nameKey } from "../../shared/text";
-import type { CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
+import type { AskedTable, CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
+import { asData, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
+import { SET_ASIDE_MARK, UNPLACED_MARK } from "./sheetRows";
 
 const CJK_CHARACTERS = new RegExp(`[${CJK}]`, "gu");
 const LATIN_WORDS = /\p{Script=Latin}{2,}/gu;
@@ -115,8 +117,8 @@ export function webInstructions(offered: boolean): string {
 export function workbookInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, which works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
-    "- Never work a what-if out yourself, with calculate or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. When either says a formula can't be worked out, say so in the Answer.",
+    "A figure in an Excel workbook is worked out by the workbook's own formulas, which its Passages never show: a Passage marked formulas=\"…\" names the rows whose values its formulas worked out. Before the Answer says how such a figure is worked out, names the cells or assumptions it is worked out from, or compares their effect on it, call trace_formulas for that figure: the rows' labels and values only suggest the formulas, and a guess from them would read as fact. When the Question supposes a different value for one of the workbook's inputs, call what_if, not run_analysis: what_if works the figure out again through every formula between them. Write the marker each gives in the Answer where its figure's number goes.",
+    "- Never work a what-if out yourself, with calculate, with run_analysis or in words, from the values a Passage shows, and never say how a figure is worked out, or that a sheet doesn't show its formulas, without trace_formulas. A number an Analysis works out in Python is the Analysis's own calculation, never the workbook's recalculation. When either says a formula can't be worked out, say so in the Answer.",
   ].join("\n");
 }
 
@@ -133,12 +135,27 @@ export const unplacedWorkbookFiguresNote = (
 export function analysisInstructions(offered: boolean): string {
   if (!offered) return "";
   return [
-    "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over every row. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
+    "A search shows only some rows of a sheet or CSV file. For any total, count, average, share, change or join over its rows, call run_analysis: it runs your Python with pandas over the rows, up to 20,000 of each range. Never answer such a question from the rows you were shown, or say you saw only part of the sheet.",
     '- Read data only from inputs["name"]: a Passage of a sheet reads all of it (one input per sheet; a range only for part), or a number quoted from a Passage. A number a calculation uses must be an input, cited, never written in the code.',
+    '- A table in a PDF, Word file or deck is an input too, {"name": "costs", "passage": "P5"}: all its rows, over every page, each cited where the Document has it. Use it to add up, count or compare a table\'s rows; for a figure from two or three numbers a Passage shows, calculate is enough. A table\'s rows can hold its totals, subtotals and the lines it carries over a page: leave those out of a sum of its entries, and compare the sum with the total it prints.',
     '- Call step(label, df) after each change to the rows. Give each sum, mean, min, max or count of an input\'s column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and each other figure or table the Answer uses with result(name, value, label, unit): a number or a table, never text. A figure a model or a test works out also names the input\'s rows it used, as of=: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, unit % takes a fraction: 0.081 shows 8.1%. Each run starts clean, with no clock: take a date as an input.',
     "- For statistics, models and forecasts, import scipy, statsmodels or sklearn. Draw a simple series with chart(); plot with matplotlib.pyplot what chart() can't draw, such as points coloured by group, a fitted line or a distribution.",
     "- In the Answer, put each [=table n], [=chart n] and [=picture n] on a line of its own where it goes, and don't write the table yourself.",
     "- When it stops with an error, fix the code and run it again.",
+  ].join("\n");
+}
+
+/**
+ * When to run code in the OS sandbox (`run_code`, ADR-0025) rather than an Analysis in Pyodide:
+ * whole files, more rows than an Analysis reads, logs, a workbook's own file, a shell.
+ */
+export function codeInstructions(offered: boolean, analysisOffered: boolean): string {
+  if (!offered) return "";
+  return [
+    `run_code runs Python or bash on copies of whole files on this computer. Use it for what ${analysisOffered ? "run_analysis can't do" : "a search can't answer"}: a sheet or CSV of more than 20,000 rows, a log or other text file, a workbook's own file (its formulas, with openpyxl), several files at once, or shell tools.${analysisOffered ? " For anything else over a sheet, use run_analysis: it needs nothing downloaded. When run_analysis says a range was cut, run it again with run_code." : ""}`,
+    "- In Python, read a sheet with read_table(file, sheet). Give each sum, mean, min, max or count of a column with figure(name, df[column], how, label, unit), which IncarnaMind works out again from the cells, and every other figure or table with result(name, value, label, unit). Write each figure's marker, never a number the code printed.",
+    "- bash is for looking around (what a file holds, which lines match). No number it prints may be given in the Answer: give each number the Answer uses with Python's result() or figure(), and write its marker.",
+    `- When it says Python didn't run, ${analysisOffered ? "do the analysis with run_analysis" : "say so"}.`,
   ].join("\n");
 }
 
@@ -149,10 +166,11 @@ export function commandInstructions(offered: boolean): string {
     "- First find what to act on with list_commands, by the words of the request, then run a command on exactly what it found, by id, one call per command. Never act on something it didn't find, and never guess an id. If nothing matches, say so and change nothing; never say a thing isn't there before list_commands looked: it also finds what is in Recently deleted. A command that acts on the window in front needs nothing found: list_commands with kind \"window\" gives its id. Checking the Note in front against the Documents, in any words, is the window's Check, mind.check: run it, never check the Note in your reply. It isn't for spelling.",
     "- Renaming by date: use the dates list_commands gives, as YYYY-MM-DD before the name, unless the User says otherwise.",
     "- The request names one thing and list_commands finds several with that name: ask which, saying where each is, and change nothing. In Recently deleted, run deleted.restore on all of them instead: it asks the User which.",
-    "- Putting together what the User has on a subject, by what it says rather than by its name, means the Documents themselves, in a Folder: Organize's, never a Note written about them unless a note is asked for. Run documents.organize with a Folder named from the request. It reads each one and suggests; nothing moves until the User accepts in To review.",
+    "- Putting together what the User has on a subject, by what it says rather than by its name, means the Documents themselves, in a Folder: Organize's, never a Note written about them unless a note is asked for. Run documents.organize, with a Folder named from the request when it names one. It reads each one and files it in the Folder that fits: the User allows it once, and Undo puts them back.",
+    "- Cutting down or tidying the Tags means merging them, never deleting one: run tag.merge once, with ids and tag for the one Tag kept, or with merges (each ids and tag) when more than one Tag stays. Its card lists every merge and the User allows them once, so never ask which Tags first: that card is the confirmation. In your reply name each Tag and the Tag it went into, and say the merged Tags are in Recently deleted where the User can restore them; one Undo brings them back.",
     "- A request for several things: make all of its calls in one step, once list_commands has found what they act on, and do every part of it, also after one that is the User's alone. Set done only on the call that does its last part.",
     "- A Question about the Documents isn't a command: answer it. Writing into a Note is the Notes' Tools' work.",
-    "- Say only what the calls returned, in a sentence or two: what changed, and what didn't and why. A command that failed or that the User didn't allow didn't happen: never say it did. The User can undo the changes with Undo.",
+    "- Say only what the calls returned, in a sentence or two: what changed, and what didn't and why, but not what is the User's alone, which IncarnaMind says after your reply. A command that failed or that the User didn't allow didn't happen: never say it did. The User can undo the changes with Undo.",
   ].join("\n");
 }
 
@@ -204,24 +222,51 @@ export const THIS_DOCUMENT_RULE = [
 
 const inAttribute = (text: string) => listedName(text).replace(/"/g, "'");
 
-const selected = (quote: { documentName: string; quote: string }, place: string | null) =>
-  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.quote}\n</selected>`;
+/** A sheet range as the model reads it: its header row, then its rows, tab-separated as the sheet has them. */
+const tableText = (table: AskedTable): string =>
+  [...(table.header ? [table.header] : []), ...table.rows]
+    .map((cells) => cells.join("\t"))
+    .join("\n");
+
+const selected = (
+  quote: { documentName: string; quote: string; table?: AskedTable },
+  place: string | null,
+) =>
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.table ? tableText(quote.table) : quote.quote}\n</selected>`;
+
+/** A selected block's entry: the words (or a range's cells), and the picture of an area (#118) when there is one. */
+export interface SelectedBlockQuote {
+  documentName: string;
+  quote: string;
+  place: string | null;
+  shown: string;
+  table?: AskedTable;
+  /** An area of a page's picture: attached to the message, or withheld from a model that can't read it. */
+  pictureState?: "sent" | "withheld";
+}
 
 /**
  * Words the User selected in their Documents to ask about (#101), each followed by the Passages
- * it is in as the model reads them (`shown`), to cite it from.
+ * it is in as the model reads them (`shown`), to cite it from. A sheet range (#118) comes with its
+ * header row; an area of a page (`picture`) has its picture attached to the message.
  */
-export function selectedTextBlock(
-  quotes: readonly { documentName: string; quote: string; place: string | null; shown: string }[],
-): string {
-  const each = quotes.map((quote) => `${selected(quote, quote.place)}\n\n${quote.shown}`);
+export function selectedTextBlock(quotes: readonly SelectedBlockQuote[]): string {
+  const each = quotes.map((quote) => {
+    const picture =
+      quote.pictureState === "sent"
+        ? "\nThe picture at this place is attached to this message."
+        : quote.pictureState === "withheld"
+          ? "\nThe picture at this place is not attached to this message: this model can’t read pictures."
+          : "";
+    return `${selected(quote, quote.place)}${picture}\n\n${quote.shown}`;
+  });
   return `<selected-text>\nThe User selected these words in their Documents to ask about them, in <selected>: "this", "it", "这段", "这句" and the like in the Question mean them. Answer about them, and cite them before anything else, from the Passage that follows them, at the location their <selected> gives.\n\n${each.join("\n\n")}\n</selected-text>`;
 }
 
 /** An earlier Question as its conversation's context reads it: the words it asked about, then its text. */
 export function askedAbout(question: {
   text: string;
-  quotes: readonly { documentName: string; quote: string }[];
+  quotes: readonly { documentName: string; quote: string; table?: AskedTable }[];
 }): string {
   return [...question.quotes.map((quote) => selected(quote, null)), question.text].join("\n\n");
 }
@@ -260,6 +305,7 @@ export function withPassageNotes(
     notCitedNote(passages),
     bracketedAmountsNote(passages),
     formulaRowsNote(passages),
+    setAsideRowsNote(passages),
     unreadDocumentsNote(unread),
     stillReadingNote(reading),
   ]
@@ -271,18 +317,32 @@ const NO_MIND_TOOLS =
   "You can't change the User's Notes or make new ones in this chat. When the User asks you to write into a Note or to change one, write the text in your reply, and never say or promise that you wrote, added, changed or made anything in a Note: the User can put your reply into a Note themselves.";
 
 /**
- * The rule each turn in the assistant follows (#1559), in the agreed words, with the Chinese
- * words for each kind of request beside the English: the model reads both, as the User may
- * write either, or a mix.
+ * The kinds of turn in the assistant's rule (#1559), in the agreed words, with the Chinese words
+ * for each kind of request beside the English: the model reads both, as the User may write
+ * either, or a mix.
  */
 const TURN_RULE = [
-  "You work beside the User's page (a Note). Each turn, decide:",
   "- A piece of writing to keep: they ask you to write, draft, summarise, prepare or put together something (写、起草、整理、总结、准备一份), such as a summary, report, memo, notes, plan or letter (总结、报告、备忘录、笔记、计划、信). Write it into a Note with the write command: into the empty Note in front if there is one, otherwise into a new Note. Start the piece with a title line (a Heading 1; 以一行标题开头), which names the Note. Never put the piece itself in your reply.",
   "- A change to their text: shorten, expand, fix, rewrite, translate, add or remove a part (缩短、扩写、修正、改写、翻译、增加或删去一部分). Make it in place with the edit command. Don't repeat the new text in your reply.",
   "- A question, an explanation, an opinion or ideas (提问、解释、征求意见或想法): answer in your reply and change nothing.",
   "- Unsure: if the request names something to produce, write it into a Note (it can be undone); otherwise answer.",
   "After a write or an edit, reply in one short sentence saying what you did and where. Never say you wrote or changed anything unless the command ran.",
-].join("\n");
+];
+
+/**
+ * With the commands' Tools, what they do is a kind of turn of its own, decided first (#2252):
+ * each other kind has a way to do a command's work in words, a Note or the reply, which the model
+ * otherwise took, and a refusal in words shows the User no way to where they do it.
+ */
+const COMMAND_TURN =
+  "- Something done to the User's Documents, Notes or Folders themselves, or in the app: check whether the Note is right, file or sort Documents into Folders, open, rename, delete, change a setting (核对、归档、打开、改名、删除、设置). A request about the User's files themselves, all those on a subject too, rather than for a piece of writing, is this kind, and the place they go is a Folder, never a Note. Run the app's command for it (below), also when it is the User's alone, never a Note or a reply that does it instead.";
+
+const turnRule = (commands: boolean) =>
+  [
+    "You work beside the User's page (a Note). Each turn, decide:",
+    ...(commands ? [COMMAND_TURN] : []),
+    ...TURN_RULE,
+  ].join("\n");
 
 /**
  * The Minds' Tools, when offered (#202), on every turn in the assistant: the
@@ -290,15 +350,20 @@ const TURN_RULE = [
  * Mind or makes one (#1559). IncarnaMind, not the reply, shows the new text.
  * `inAssistant`: the Answer is the assistant's, so a model that can't call
  * the Tools is told it can't write; `lastAnswer`: the conversation has an
- * Answer before, which can go into a Mind as it is.
+ * Answer before, which can go into a Mind as it is; `commands`: the
+ * commands' Tools are offered too, so the rule lists a command as a kind.
  */
 export function mindInstructions(
   offered: boolean,
-  { inAssistant = false, lastAnswer = false }: { inAssistant?: boolean; lastAnswer?: boolean } = {},
+  {
+    inAssistant = false,
+    lastAnswer = false,
+    commands = false,
+  }: { inAssistant?: boolean; lastAnswer?: boolean; commands?: boolean } = {},
 ): string {
   if (!offered) return inAssistant ? NO_MIND_TOOLS : "";
   return [
-    TURN_RULE,
+    turnRule(commands),
     "",
     "The write command is create_mind for a new Note, or add_to_mind for the empty Note in front and to add a part to the User's text; the edit command is edit_mind. read_mind reads a Note the User names. A change applies at once, with Undo, unless it would take out most of the User's own text: then it waits for them. Each call's result says which.",
     `- A line "${YOUR_MINDS} …" before the Question names their Notes, the most recently changed first. A name the User gives that one of their Notes has is that Note, also when they don't call it a Note ("the trip plan", "会议记录"): to write from it, read it with read_mind first; give its name in mind to add a part to it with add_to_mind (where it goes in after), or to change its text with edit_mind. A Note marked "from an earlier Answer" can be read and named as a source too; a new piece never goes into it unless the User explicitly names it for a change. Only a name that no Note has can be a Document's. A name that is neither on the line nor a Document's may still be a Note's, as read_mind finds any Note by its name; when none has it, say so in one sentence that names it, and change nothing. A piece of writing the User asks for goes into the empty Note in front or a new Note, even when a Note on the line has the same or a similar title. Change or add to a Note on the line only when the User names it.`,
@@ -346,6 +411,20 @@ export function meetingInstructions(listening: boolean): string {
 }
 
 /**
+ * What a live call's recap may use, in the Question's message beside the Question so the model
+ * reads it where it answers, not only in the system prompt (#1319): the call is the live transcript,
+ * and an earlier reply is for follow-ups about it, not part of the call.
+ */
+export const CALL_SCOPE_NOTE = [
+  "<call>",
+  "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
+  "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
+  "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
+  "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
+  "</call>",
+].join("\n");
+
+/**
  * Connectors that are on but can't be used until the User signs in to them
  * again: their Tools aren't offered, and the Answer says so if it needed them.
  */
@@ -382,6 +461,13 @@ const CITED_SAYS_ONLY_ITS_QUOTE =
  */
 const FIGURES_AS_STATED =
   '- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: "salary is 54,000" stays "54,000 (currency not stated)" / "54,000（未注明币种）", never "£54,000"; "2 percentage points" never becomes "2%".';
+
+/**
+ * A scan's unsure words are marked in its Passages (#535): a figure from one
+ * is never stated as fact. `cite`: the Answer cites with markers.
+ */
+const scannedWords = (cite: boolean) =>
+  `- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact${cite ? ", nor use one in a calculation" : ""}; say the scan is unclear${cite ? " and cite it" : ""}.`;
 
 /**
  * A premise the Passages don't support, and Passages that disagree (#548):
@@ -478,6 +564,29 @@ export function formulaRowsNote(passages: string): string {
   return "In a Passage marked formulas=\"…\", the rows it names hold values the workbook's own formulas worked out, and no Passage shows those formulas. Before saying how such a figure is worked out, which cells or assumptions it comes from, or how much each one counts, call trace_formulas for the figure; for the figure with one of the workbook's inputs at another value, call what_if.";
 }
 
+/**
+ * A reminder after a sheet's Passages that mark rows the file strikes through or hides (#1979):
+ * shown such rows as ordinary ones, Claude Haiku 5.5 took them for current ones, guessing from
+ * their order. Empty when no Passage marks any.
+ */
+export function setAsideRowsNote(passages: string): string {
+  const meaning = setAsideRowsMeaning(passages);
+  if (meaning === "") return "";
+  return `${meaning} Whenever you give a figure from a set-aside row, say in your own words that the file strikes it through or hides it: the mark itself is never written in the Answer, nor in a quote.`;
+}
+
+/**
+ * What the marks of rows the file sets aside mean, for any request that shows a sheet's Passages
+ * to a model: an Answer's, a check's, a retry's. Empty when they show none.
+ */
+export function setAsideRowsMeaning(passages: string): string {
+  if (!SET_ASIDE_MARK.test(passages)) return "";
+  const meaning =
+    'A line of a sheet that starts with a mark such as "[row 4, struck through]" or "[row 4, hidden]" is a row the file strikes through or hides: the file has set it aside, as people do with an earlier or removed row. Where a set-aside row and an unmarked one give one item different figures, the unmarked one is the sheet\'s current figure, and the set-aside one is never given as current.';
+  if (!passages.includes(UNPLACED_MARK)) return meaning;
+  return `${meaning} A Passage that starts with "${UNPLACED_MARK} …]" holds such rows without saying which of its lines they are: where its rows give one item different figures, none of them is known to be current.`;
+}
+
 const ROW_CONTEXT = "Revision worksheets need every item row and its revision, no bare values";
 
 const RECORD = `the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. "Revenue, rows 12–14"). ${ROW_CONTEXT}`;
@@ -488,14 +597,14 @@ const RECORD = `the Passage's id, where the quote is, and a short quote copied e
  * number it works out, simple ones included.
  */
 const CALCULATE = [
-  'Never work out a number yourself, not even a simple one: for any number the Answer gives that isn\'t written in a Passage (a difference, sum, average, ratio, share, growth rate, CAGR, change in percentage points, conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number\'s place, with no number or unit beside it: "grew [=1] in 2025", not "grew 20.4% [=1]".',
-  '- Name each input\'s number as it is written in its quote, labelled with what it is and its period; give a table heading\'s unit line ("单位：万元", "in millions") as unitQuote. Inputs come in base units with that scale applied: give scale ("亿", "billion") to show another, never convert in the formula.',
-  "- A number copied as it is from a Passage is cited with [^n]; calculate is only for numbers you work out.",
-  "- If calculate refuses a figure, fix what its reply says and call it again; never write that you couldn't calculate a number whose inputs you cited.",
+  'Never work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number\'s place, with no number or unit beside it: "grew [=1] in 2025", not "grew 20.4% [=1]".',
+  '- Name each input\'s number as it is written in its quote, labelled with what it is and its period; give the line that states its scale ("单位：万元", "All amounts in £\'000") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale ("亿", "billion") to show another, never convert in the formula.',
+  "- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.",
+  "- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.",
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
-const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元"), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
+const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元") or in another Passage whose line says it holds for the whole Document ("All amounts in £'000", under a parent heading or on an earlier page), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
 
 /**
  * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use
@@ -604,6 +713,7 @@ type WholeReason = Exclude<UnreadReason, "parts">;
 /** Why a Document couldn't be read, as the note tells the model. */
 const UNREAD_WORDS: Record<WholeReason, (pages: readonly number[]) => string> = {
   scan: () => "a scan with no text",
+  picture: () => "a picture with no text",
   pages: (pages) => {
     if (pages.length === 0) return "some page content couldn't be read";
     const shown = pages.slice(0, 10).join(", ") + (pages.length > 10 ? ", …" : "");
@@ -722,6 +832,7 @@ export function documentInstructions(
     fileDatesNote(passages),
     notCitedNote(passages),
     bracketedAmountsNote(passages),
+    setAsideRowsNote(passages),
   ].filter(Boolean);
   const added = addedLine(listed.total, library.total, scoped);
   const rest = library.total > listed.total ? [libraryNote(library.total, scoped)] : [];
@@ -739,6 +850,7 @@ export function documentInstructions(
         notCovered(true, true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
+        scannedWords(true),
         readingRules(true),
         ...(calculate ? ["", CALCULATE] : []),
       ].join("\n");
@@ -765,6 +877,7 @@ export function documentInstructions(
         notCovered(true),
         CITED_SAYS_ONLY_ITS_QUOTE,
         FIGURES_AS_STATED,
+        scannedWords(true),
         readingRules(true),
       ].join("\n");
     case "none":
@@ -775,11 +888,17 @@ export function documentInstructions(
         "",
         "Passages found in the User's Documents for this Question:",
         passages,
-        ...[dated, fileDatesNote(passages), bracketedAmountsNote(passages)].filter(Boolean),
+        ...[
+          dated,
+          fileDatesNote(passages),
+          bracketedAmountsNote(passages),
+          setAsideRowsNote(passages),
+        ].filter(Boolean),
         "",
         "Use them where they help. Don't write citation markers or a list of sources.",
         notCovered(false),
         FIGURES_AS_STATED,
+        scannedWords(false),
         readingRules(false),
         NO_CALCULATE,
       ].join("\n");
@@ -851,18 +970,24 @@ export interface FigureToRetry {
 
 /** The request to fix figures: each one as given, why it couldn't be worked out, and its Passages. */
 export function figureRetryPrompt(figures: readonly FigureToRetry[]): string {
-  return figures
-    .map((figure) =>
-      [
-        `[=${figure.marker}] as you gave it: ${figure.given}`,
-        `Why it couldn't be worked out: ${figure.problems.join(" ")}`,
-        ...figure.passages.map(
-          (passage) => `<passage id="${attribute(passage.id)}">\n${passage.text}\n</passage>`,
-        ),
-      ].join("\n"),
-    )
-    .join("\n\n");
+  return withMeaning(
+    figures
+      .map((figure) =>
+        [
+          asData(`[=${figure.marker}] as you gave it: ${figure.given}`, ["passage"]),
+          `Why it couldn't be worked out: ${figure.problems.join(" ")}`,
+          ...figure.passages.map((passage) =>
+            tagged("passage", passage.text, ` id="${attribute(passage.id)}"`),
+          ),
+        ].join("\n"),
+      )
+      .join("\n\n"),
+  );
 }
+
+/** A request that shows Passages, with what their set-aside rows' marks mean after it. */
+const withMeaning = (request: string): string =>
+  [request, setAsideRowsMeaning(request)].filter((part) => part !== "").join("\n\n");
 
 /** A record whose quote wasn't found, as the request for exact quotes shows it. */
 export interface QuoteToRetry {
@@ -879,17 +1004,22 @@ export interface QuoteToRetry {
 
 /** The request for exact quotes: each record's marker, sentence, quote and Passage text. */
 export function quoteRetryPrompt(records: readonly QuoteToRetry[]): string {
-  return records
-    .map((record) =>
-      [
-        `[^${record.marker}] is on this sentence of the Answer: ${record.sentence}`,
-        `Its quote, not found word for word: ${record.quote ? `"${record.quote}"` : "(none)"}`,
-        `<passage id="${attribute(record.passage)}">`,
-        record.text,
-        "</passage>",
-      ].join("\n"),
-    )
-    .join("\n\n");
+  return withMeaning(
+    records
+      .map((record) =>
+        [
+          asData(`[^${record.marker}] is on this sentence of the Answer: ${record.sentence}`, [
+            "passage",
+          ]),
+          asData(
+            `Its quote, not found word for word: ${record.quote ? `"${record.quote}"` : "(none)"}`,
+            ["passage"],
+          ),
+          tagged("passage", record.text, ` id="${attribute(record.passage)}"`),
+        ].join("\n"),
+      )
+      .join("\n\n"),
+  );
 }
 
 /**
@@ -909,14 +1039,14 @@ export function citeRetryPrompt(
   answer: string,
   passages: readonly { id: string; text: string }[],
 ): string {
+  const shown = passages.map((passage) =>
+    tagged("passage", passage.text, ` id="${attribute(passage.id)}"`, ["answer"]),
+  );
   return [
-    "<answer>",
-    answer,
-    "</answer>",
+    tagged("answer", answer, "", ["passage"]),
     "",
-    ...passages.map((passage) =>
-      [`<passage id="${attribute(passage.id)}">`, passage.text, "</passage>"].join("\n"),
-    ),
+    ...shown,
+    ...[setAsideRowsMeaning(shown.join("\n"))].filter((note) => note !== ""),
   ].join("\n");
 }
 
@@ -924,11 +1054,9 @@ export function citeRetryPrompt(
 export function searchQueryPrompt(earlier: string, question: string): string {
   return [
     "The notebook text above the Question:",
-    "<notebook>",
-    earlier,
-    "</notebook>",
+    tagged("notebook", earlier),
     "",
-    `The Question: ${question}`,
+    asData(`The Question: ${question}`, ["notebook"]),
   ].join("\n");
 }
 

@@ -39,18 +39,65 @@ describe("a figure() figure worked out again from the cells", () => {
     ["min", 40],
     ["max", 150.5],
     ["count", 4],
-  ] as const)("its %s skips the cells that aren't numbers, as pandas does", (how, value) => {
+  ] as const)("its %s over rows of numbers and blanks is worked out again", (how, value) => {
     expect(
       recalculate(
         value,
         of(
           [
-            [2, 6],
+            [2, 4],
+            [6, 6],
             [8, 8],
           ],
           how,
         ),
         [SALES],
+      ),
+    ).toEqual({ kind: "same", value });
+  });
+
+  test.each([
+    ["sum", 390.5],
+    ["count", 4],
+  ] as const)(
+    "its %s over rows holding a cell that isn't a number isn't, and names the cell (#2444)",
+    (how, value) => {
+      expect(
+        recalculate(
+          value,
+          of(
+            [
+              [2, 6],
+              [8, 8],
+            ],
+            how,
+          ),
+          [SALES],
+        ),
+      ).toEqual({
+        kind: "unchecked",
+        reason: '1 cell of Revenue in the rows it names isn\'t a number: row 5 "n/a"',
+      });
+    },
+  );
+
+  test.each([
+    ["min", 1],
+    ["max", 199_999],
+    ["sum", 19_999_900_000],
+  ] as const)("its %s over 199,999 rows is worked out again", (how, value) => {
+    const many: AnalysisInput = {
+      kind: "table",
+      name: "orders",
+      columns: ["Amount"],
+      firstRow: 2,
+      rows: Array.from({ length: 199_999 }, (_, at) => [at + 1]),
+    };
+    expect(
+      recalculate(
+        value,
+        { input: "orders", columns: ["Amount"], rows: [[2, 200_000]], count: 199_999, how },
+        [many],
       ),
     ).toEqual({ kind: "same", value });
   });

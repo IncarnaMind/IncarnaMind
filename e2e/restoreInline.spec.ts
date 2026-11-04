@@ -12,16 +12,17 @@ import {
   setLanguage,
   setWindowSize,
   useLocalChatModel,
+  reviewedWords as wordsOf,
 } from "./app";
 
 /*
- * Review changes puts a Restore original after the new words of each group of
+ * Review changes puts one Restore original after the new words of each group of
  * changes, never over the text, and the applied line sits with the paragraph
- * it changed (#1018). A group is a section rewritten as a whole, a paragraph
- * rewritten whole, or one word-level change (#1177, as #1028 draws them). The
- * scripted model's "shorten" drops "very" and "really" (非常 and 真的): two
- * changes in one paragraph. Set INCARNAMIND_SCREENSHOTS to a folder to also
- * save screenshots.
+ * it changed (#1018). A group is a section rewritten as a whole, a paragraph,
+ * or a Block added or removed (#1358). The scripted model's "shorten" drops
+ * "very" and "really" (非常 and 真的): two changes in one paragraph, with one
+ * Restore original, which puts both back in one step, by click or with ⌘⌫ at
+ * the cursor. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -30,8 +31,8 @@ const screenshot = async (window: Page, name: string) => {
 };
 
 const SIZES = [
-  { width: 1440, height: 900 },
-  { width: 1100, height: 760 },
+  { width: 1600, height: 900 },
+  { width: 900, height: 900 },
 ] as const;
 
 interface Case {
@@ -39,9 +40,8 @@ interface Case {
   lines: readonly [string, string];
   ask: string;
   shortened: string;
-  veryBack: string;
-  reallyBack: string;
   restore: string;
+  review: string;
 }
 
 const CASES: readonly Case[] = [
@@ -53,18 +53,16 @@ const CASES: readonly Case[] = [
     ],
     ask: "shorten it",
     shortened: "The tides here are strong and regular.",
-    veryBack: "The tides here are very strong and regular.",
-    reallyBack: "The tides here are strong and really regular.",
     restore: "Restore original",
+    review: "1 paragraph changed by Edit with AI",
   },
   {
     language: "zh-CN",
     lines: ["潮水每天涨落两次。", "潮水非常强，而且真的很有规律。"],
     ask: "缩短",
     shortened: "潮水强，而且很有规律。",
-    veryBack: "潮水非常强，而且很有规律。",
-    reallyBack: "潮水强，而且真的很有规律。",
     restore: "恢复原文",
+    review: "用 AI 编辑修改的 1 个段落",
   },
 ];
 
@@ -75,18 +73,6 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
-
-const wordsOf = (paragraph: Locator) =>
-  paragraph.evaluate((node) => {
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    let words = "";
-    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
-      if (!each.parentElement?.closest(".applied-old, [contenteditable='false']")) {
-        words += each.textContent ?? "";
-      }
-    }
-    return words;
-  });
 
 const controlsOverText = (editor: Locator) =>
   editor.evaluate((node) => {
@@ -135,8 +121,8 @@ const gapsAround = async (line: Locator, above: Locator, below: Locator) => {
   };
 };
 
-for (const { language, lines, ask, shortened, veryBack, reallyBack, restore } of CASES) {
-  test(`Review changes ends each change with its own Restore original, after its words and in reading order; the applied line sits with the paragraph it changed (${language})`, async () => {
+for (const { language, lines, ask, shortened, restore, review } of CASES) {
+  test(`Review changes ends each paragraph with one Restore original, after its words and in reading order; the applied line sits with the paragraph it changed (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -173,8 +159,9 @@ for (const { language, lines, ask, shortened, veryBack, reallyBack, restore } of
       await pointAndClick(window, line.getByTestId("applied-review"));
       const restores = note.getByTestId("change-restore");
       const removed = note.locator("del.applied-old");
-      await expect(restores).toHaveText([restore, restore]);
+      await expect(restores).toHaveText([restore]);
       await expect(removed).toHaveCount(2);
+      await expect(line.getByTestId("applied-count")).toHaveText(review);
       const reviewing = await gapsAround(line, first, note);
       expect(reviewing.below).toBeGreaterThanOrEqual(0);
       expect(reviewing.below).toBeLessThan(reviewing.above);
@@ -194,55 +181,54 @@ for (const { language, lines, ask, shortened, veryBack, reallyBack, restore } of
 
       await expect(window.getByTestId("applied-change-bar")).toHaveCount(0);
       expect(await controlsOverText(editor)).toBe(0);
-      const [struckFirst, struckLast, restoreFirst, restoreLast] = await Promise.all([
+      const [struckFirst, struckLast, restoreBox] = await Promise.all([
         removed.first().boundingBox(),
         removed.last().boundingBox(),
-        restores.first().boundingBox(),
-        restores.last().boundingBox(),
+        restores.boundingBox(),
       ]);
       const editorBox = await editor.boundingBox();
-      if (!struckFirst || !struckLast || !restoreFirst || !restoreLast || !editorBox) {
+      if (!struckFirst || !struckLast || !restoreBox || !editorBox) {
         throw new Error("A change isn't drawn.");
       }
-      expect(readsBefore(struckFirst, restoreFirst)).toBe(true);
-      expect(readsBefore(restoreFirst, struckLast)).toBe(true);
-      expect(readsBefore(struckLast, restoreLast)).toBe(true);
-      for (const box of [restoreFirst, restoreLast]) {
-        expect(box.x + box.width).toBeLessThanOrEqual(editorBox.x + editorBox.width + 1);
-      }
+      // One Restore after the paragraph's last new words, never over the text.
+      expect(readsBefore(struckFirst, restoreBox)).toBe(true);
+      expect(readsBefore(struckLast, restoreBox)).toBe(true);
+      expect(restoreBox.x + restoreBox.width).toBeLessThanOrEqual(
+        editorBox.x + editorBox.width + 1,
+      );
       await motionSettled(window);
       await screenshot(window, `restore-inline-${language}-${width}`);
 
-      await editor.focus();
-      const reached: Box[] = [];
-      for (let presses = 0; presses < 8 && reached.length < 2; presses++) {
-        await window.keyboard.press("Tab");
-        const box = await window.evaluate(() => {
-          const active = document.activeElement;
-          if (!(active instanceof HTMLElement) || active.dataset.testid !== "change-restore") {
-            return null;
-          }
-          const { x, y, width, height } = active.getBoundingClientRect();
-          return { x, y, width, height };
-        });
-        if (box) reached.push(box);
+      // One Restore puts both of the paragraph's changes back in one step: by its key at the wide
+      // window, by ⌘⌫ at the cursor at the narrow one.
+      if (width === SIZES[0].width) {
+        await editor.focus();
+        const reached: Box[] = [];
+        for (let presses = 0; presses < 8 && reached.length < 1; presses++) {
+          await window.keyboard.press("Tab");
+          const box = await window.evaluate(() => {
+            const active = document.activeElement;
+            if (!(active instanceof HTMLElement) || active.dataset.testid !== "change-restore") {
+              return null;
+            }
+            const { x, y, width, height } = active.getBoundingClientRect();
+            return { x, y, width, height };
+          });
+          if (box) reached.push(box);
+        }
+        expect(reached).toHaveLength(1);
+        await window.keyboard.press("Enter");
+      } else {
+        await pointAndClick(window, removed.first());
+        await window.keyboard.press("ControlOrMeta+Backspace");
       }
-      expect(reached).toHaveLength(2);
-      const [early, late] = reached;
-      expect(early && late && readsBefore(early, late)).toBe(true);
-
-      await window.keyboard.press("Enter");
-      await expect.poll(() => wordsOf(note)).toBe(reallyBack);
-      await expect(removed).toHaveCount(1);
-      await expect(restores).toHaveCount(1);
+      await expect.poll(() => wordsOf(note)).toBe(lines[1]);
+      await expect(removed).toHaveCount(0);
+      await expect(restores).toHaveCount(0);
+      await expect(line).toHaveCount(0);
       await expect(window.getByTestId("undo-message")).toBeVisible();
-      await window.keyboard.press("ControlOrMeta+z");
-      await expect.poll(() => wordsOf(note)).toBe(shortened);
 
-      // The Restore taken back shows its change again.
-      await expect(restores).toHaveCount(2);
-      await pointAndClick(window, restores.first());
-      await expect.poll(() => wordsOf(note)).toBe(veryBack);
+      // Undo puts the edit's words back.
       await window.keyboard.press("ControlOrMeta+z");
       await expect.poll(() => wordsOf(note)).toBe(shortened);
     }
@@ -361,7 +347,7 @@ interface SectionCase {
   lines: readonly string[];
   ask: string;
   rewrote: string;
-  position: string;
+  restoreTitle: string;
   restore: string;
 }
 
@@ -376,7 +362,7 @@ const SECTIONS: readonly SectionCase[] = [
     ],
     ask: "rewrite the section",
     rewrote: "Key strengths",
-    position: "Change 1 of 1",
+    restoreTitle: "Restore 4 changes",
     restore: "Restore original",
   },
   {
@@ -389,12 +375,12 @@ const SECTIONS: readonly SectionCase[] = [
     ],
     ask: "重写这一节",
     rewrote: "核心优势",
-    position: "第 1 处修订，共 1 处",
+    restoreTitle: "恢复这 4 处修改",
     restore: "恢复原文",
   },
 ];
 
-for (const { language, heading, lines, ask, rewrote, position, restore } of SECTIONS) {
+for (const { language, heading, lines, ask, rewrote, restoreTitle, restore } of SECTIONS) {
   test(`a section rewritten as a whole shows one Restore original after its last new words, which restores the whole section with one Undo, and never overlaps the text (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
@@ -431,7 +417,7 @@ for (const { language, heading, lines, ask, rewrote, position, restore } of SECT
       const restores = editor.getByTestId("change-restore");
       await expect(restores).toHaveCount(1);
       await expect(restores).toHaveText(restore);
-      await expect(restores).toHaveAttribute("title", new RegExp(`^${position} · `));
+      await expect(restores).toHaveAttribute("title", new RegExp(`^${restoreTitle} · `));
       await expect(restores).toHaveCSS("font-size", "12px");
       await expect(restores).toHaveCSS("color", "rgb(101, 107, 116)");
       expect(await controlsOverText(editor)).toBe(0);
@@ -473,7 +459,7 @@ interface MixedCase {
   lines: readonly [string, string];
   ask: string;
   anew: string;
-  position: (index: number) => string;
+  restoreTitle: (index: number) => string;
 }
 
 const MIXED: readonly MixedCase[] = [
@@ -481,26 +467,26 @@ const MIXED: readonly MixedCase[] = [
     language: "en",
     lines: [
       "The harbour office",
-      "Tides rise twice a day along this coast, and in the long summer months the harbour office posts the times each week, while the harbour office also lists the ferries.",
+      "Tides rise twice a day along this coast, and in the long summer months the harbour office posts the times each week, the harbour office answers the phone at dawn, the harbour office keeps the tide tables, the harbour office cleans the quay on Fridays, while the harbour office also lists the ferries.",
     ],
     ask: "replace harbour office with port authority",
     anew: "The port authority",
-    position: (index) => `Change ${index} of 3`,
+    restoreTitle: (index) => (index === 1 ? "Restore original" : "Restore 5 changes"),
   },
   {
     language: "zh-CN",
     lines: [
       "海港办公室",
-      "潮水每天涨落两次，夏季海港办公室每周公布潮汐时间，海港办公室还会公布渡轮时刻。",
+      "潮水每天涨落两次，夏季海港办公室每周公布潮汐时间，海港办公室清晨接听电话，海港办公室保管潮汐表，海港办公室负责码头清洁，海港办公室还会公布渡轮时刻。",
     ],
     ask: "把海港办公室换成港务局",
     anew: "港务局",
-    position: (index) => `第 ${index} 处修订，共 3 处`,
+    restoreTitle: (index) => (index === 1 ? "恢复原文" : "恢复这 5 处修改"),
   },
 ];
 
-for (const { language, lines, ask, anew, position } of MIXED) {
-  test(`a paragraph rewritten whole shows one Restore original, and each word-level change keeps its own, clear of the text (${language})`, async () => {
+for (const { language, lines, ask, anew, restoreTitle } of MIXED) {
+  test(`a paragraph rewritten whole shows one Restore original, and a paragraph with several changes one more, clear of the text (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -531,12 +517,14 @@ for (const { language, lines, ask, anew, position } of MIXED) {
       const restores = editor.getByTestId("change-restore");
       await expect(editor.getByTestId("change-was-line")).toHaveCount(1);
       await expect(whole.getByTestId("change-restore")).toHaveCount(1);
-      await expect(words.getByTestId("change-restore")).toHaveCount(2);
-      await expect(restores).toHaveCount(3);
-      for (const index of [1, 2, 3]) {
+      await expect(words.getByTestId("change-restore")).toHaveCount(1);
+      // Five word changes in the paragraph, one Restore original for them all.
+      await expect(words.locator("del.applied-old")).toHaveCount(5);
+      await expect(restores).toHaveCount(2);
+      for (const index of [1, 2]) {
         await expect(restores.nth(index - 1)).toHaveAttribute(
           "title",
-          new RegExp(`^${position(index)} · `),
+          new RegExp(`^${restoreTitle(index)} · `),
         );
       }
       expect(await controlsOverText(editor)).toBe(0);
@@ -545,15 +533,17 @@ for (const { language, lines, ask, anew, position } of MIXED) {
 
       await pointAndClick(window, restores.first());
       await expect.poll(() => wordsOf(whole)).toBe(lines[0]);
-      await expect(restores).toHaveCount(2);
+      await expect(restores).toHaveCount(1);
       expect(await wordsOf(words)).toBe(written);
       await window.keyboard.press("ControlOrMeta+z");
       await expect.poll(() => wordsOf(whole)).toBe(anew);
-      await expect(restores).toHaveCount(3);
-
-      await pointAndClick(window, restores.last());
       await expect(restores).toHaveCount(2);
-      await expect(words.locator("del.applied-old")).toHaveCount(1);
+
+      // The paragraph's several changes go back together, in one step.
+      await pointAndClick(window, restores.last());
+      await expect(restores).toHaveCount(1);
+      await expect(words.locator("del.applied-old")).toHaveCount(0);
+      expect(await wordsOf(words)).toBe(lines[1]);
       expect(await wordsOf(whole)).toBe(anew);
     }
     await app.close();

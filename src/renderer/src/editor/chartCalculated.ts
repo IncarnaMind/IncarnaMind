@@ -1,3 +1,4 @@
+import type { Language } from "../../../core/language";
 import type { ChartInputs } from "../../../shared/charts";
 import { citationSource, type LiveDocument, withShownName } from "../../../shared/citations";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
@@ -13,6 +14,7 @@ export function calculatedFrom(
   inputs: ChartInputs,
   documents: readonly LiveDocument[] | null,
   t: Say,
+  language: Language,
   count: number | null = null,
 ): string {
   const plural = (n: number) => (n === 1 ? "one" : "other");
@@ -25,7 +27,7 @@ export function calculatedFrom(
     count: inputs.count,
   });
   const first = inputs.places[0]?.citation;
-  const document = first ? citationSource(withShownName(first, documents), t).name : "";
+  const document = first ? citationSource(withShownName(first, documents), t, language).name : "";
   if (inputs.documents > 1) {
     return count === null
       ? t("chart.point.calculatedDocuments", { inputs: said, documents: inputs.documents })

@@ -36,11 +36,14 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   contradicted: [],
   toCheck: [],
   failed: [],
+  uncheckable: [],
   recheck: [],
+  edited: [],
   checking: [],
   kept: [],
   tableCells: [],
   noCitation: [],
+  ownNotes: [],
   checkable: 0,
   supported: 0,
   checkedAt: null,
@@ -128,6 +131,8 @@ describe("A note's state (D266)", () => {
       unread: 3,
       unreadMatters: false,
       checkable: 2,
+      cantCheck: 0,
+      needsCheck: 0,
     });
   });
 
@@ -173,7 +178,7 @@ describe("A note's state (D266)", () => {
     const unchecked = noteStateOf(health({ checkable: 1, toCheck: [0] }), 2) ?? fail();
     expect(unchecked).toMatchObject({ kind: "not-checked", unread: 2, unreadMatters: false });
     expect(words(unchecked)).toBe("2 files couldn’t be read");
-    expect(parts(unchecked)).toEqual(["Not checked"]);
+    expect(parts(unchecked)).toEqual(["Claims not checked"]);
   });
 
   test("says the words of each state in English and Chinese, the times from dates.ts", () => {
@@ -190,8 +195,8 @@ describe("A note's state (D266)", () => {
     const two =
       noteStateOf(health({ checkable: 2, unsupported: [0, 6], lookClaims: [0, 6] })) ?? fail();
     const done = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3) ?? fail();
-    expect(en(fresh)).toBe("Not checked");
-    expect(zh(fresh)).toBe("未核对");
+    expect(en(fresh)).toBe("Claims not checked");
+    expect(zh(fresh)).toBe("说法未核对");
     expect(en(one)).toBe("1 needs a look");
     expect(zh(one)).toBe("需要留意 1 处");
     expect(en(two)).toBe("2 need a look");
@@ -314,6 +319,223 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     expect(readHealth.checking).toHaveLength(1);
     expect(state).toMatchObject({ kind: "not-checked", mark: "notChecked" });
     doc.destroy();
+  });
+
+  // protects=#2313: a Note whose only sentence left is one a re-run cannot settle — its Citation is kept inside another Folder — reads Checked and names it, in English and Chinese; fails_when=the whole Note reads Not checked, the line leaves the sentence out, or a retryable failure turns it green; no_claim=the card's row that moves to it.
+  test("is Checked with a sentence a re-run cannot settle named, in English and Chinese", () => {
+    const sentences = [
+      paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
+      paragraph([
+        checked("Harbours publish the times of high water every week.", "not-checked", {
+          reason: "kept-inside",
+          detail: "Other Folder",
+        }),
+      ]),
+    ];
+    for (const [language, said] of [
+      ["en", "Checked"],
+      ["zh-CN", "已核对"],
+    ] as const) {
+      const doc = source(sentences);
+      const { health: readHealth, state } = read(doc);
+      expect(readHealth.uncheckable).toHaveLength(1);
+      expect(state).toMatchObject({ kind: "checked", cantCheck: 1, needsCheck: 0 });
+      const when = formatDateTime(CHECKED_AT, language);
+      const parts = noteStateParts(
+        state ?? fail(),
+        (key, params) => translate(language, key, params),
+        language,
+      );
+      expect(parts).toEqual([
+        `${said} ${when}`,
+        language === "en" ? "1 sentence can’t be checked" : "1 句无法核对",
+      ]);
+      doc.destroy();
+    }
+    // A retryable failure — a provider error, a rate limit, a cap — could be settled next time, and
+    // an edit does not upgrade one: Not checked.
+    for (const reason of ["failed", "rate-limit", "cost-cap", "no-evidence"] as const) {
+      const held = source([
+        paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
+        paragraph([
+          checked("Harbours publish the times of high water every week.", "not-checked", {
+            reason,
+          }),
+        ]),
+      ]);
+      expect(read(held).health.uncheckable).toHaveLength(0);
+      expect(read(held).state).toMatchObject({ kind: "not-checked" });
+      held.destroy();
+    }
+    // A file a narrow check couldn't read could hold the evidence: the unread reading wins.
+    const narrow = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          scope: { folderId: "tides", widened: false },
+        }),
+      ]),
+      paragraph([
+        checked("Harbours publish the times of high water every week.", "not-checked", {
+          reason: "kept-inside",
+          detail: "Other Folder",
+          scope: { folderId: "tides", widened: false },
+        }),
+      ]),
+    ]);
+    recordCheckUnread(narrow, "r1", [unreadFile("Locked.pdf")], new Set(["r1"]));
+    expect(
+      readNoteState({
+        cellFigures: [],
+        doc: narrow,
+        documents: [],
+        keptCitationTexts: [],
+        folderId: "tides",
+      }).state,
+    ).toMatchObject({
+      kind: "needs-look",
+      tone: "warning",
+      unreadMatters: true,
+      cantCheck: 0,
+    });
+    narrow.destroy();
+  });
+
+  // protects=#2313: through the editor's own mark (every attribute set, an unread Document list as []), a quoted result holds after a Folder move and an Unsupported re-checks; fails_when=the empty list reads as a whole-Folder check, or an Unsupported is kept in a Folder never read.
+  test("a quoted result holds after a Folder move through the editor's mark, and an Unsupported re-checks", () => {
+    const quote = {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Tides.md",
+      contentHash: "h1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Spring tides happen at new moon and at full moon.",
+      check: "found" as const,
+      checkReason: null,
+    };
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          evidence: quote,
+          versions: [{ documentId: "d1", contentHash: "h1" }],
+          scope: { folderId: "folder-a", widened: false },
+        }),
+      ]),
+      paragraph([
+        checked("Penguins nest on the cliffs above the harbour.", "unsupported", {
+          unsupported: { reason: null, covered: null, uncovered: null, found: true },
+          scope: { folderId: "folder-a", widened: false },
+        }),
+      ]),
+    ]);
+    const { health: readHealth, state } = readNoteState({
+      cellFigures: [],
+      doc,
+      documents: [{ id: "d1", contentHash: "h1" }],
+      keptCitationTexts: [],
+      folderId: "folder-b",
+    });
+    expect(readHealth.supported).toBe(1);
+    expect(readHealth.toCheck).toHaveLength(1);
+    expect(state).toMatchObject({ kind: "not-checked" });
+    doc.destroy();
+  });
+
+  // protects=#2313: an edit of a sentence whose Document changed since does not become the green's caveat; fails_when=an edited-and-superseded check counts as one a re-run would settle, so the Note reads Checked.
+  test("an edit beside a Document's new version keeps the Note Not checked", () => {
+    const quote = {
+      passageId: "p1",
+      documentId: "d1",
+      documentName: "Tides.md",
+      contentHash: "old",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Spring tides happen at new moon and at full moon.",
+      check: "found" as const,
+      checkReason: null,
+    };
+    const doc = source([
+      paragraph([
+        checked("Spring tides happen at new and full moon.", "supported", {
+          evidence: quote,
+          versions: [{ documentId: "d1", contentHash: "old" }],
+          scope: { folderId: "folder-a", widened: false },
+        }),
+      ]),
+      paragraph([
+        checked("Harbours publish the times of high water every week.", "supported", {
+          evidence: quote,
+          text: "Harbours publish the times of high water every year.",
+          versions: [{ documentId: "d1", contentHash: "old" }],
+          scope: { folderId: "folder-a", widened: false },
+        }),
+      ]),
+    ]);
+    const { health: readHealth, state } = readNoteState({
+      cellFigures: [],
+      doc,
+      documents: [{ id: "d1", contentHash: "new" }],
+      keptCitationTexts: [],
+      folderId: "folder-a",
+    });
+    expect(readHealth.edited).toHaveLength(0);
+    expect(state).toMatchObject({ kind: "not-checked" });
+    doc.destroy();
+  });
+
+  // protects=#2313: a sentence a change made need a check leaves the Note Checked, naming it, while a sentence whose check never ran stays Not checked after an edit; fails_when=the pill turns the whole Note back while other claims keep their checks, or an edit upgrades one that never ran; no_claim=the run that checks it.
+  test("is Checked while a changed sentence needs a check, naming it, in English and Chinese", () => {
+    const sentences = [
+      paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
+      paragraph([
+        checked("Harbours publish the times of high water every week.", "supported", {
+          text: "Harbours publish the times of high water every year.",
+        }),
+      ]),
+    ];
+    for (const [language, said] of [
+      ["en", "Checked"],
+      ["zh-CN", "已核对"],
+    ] as const) {
+      const doc = source(sentences);
+      const { health: readHealth, state } = read(doc);
+      expect(readHealth.recheck).toHaveLength(1);
+      expect(state).toMatchObject({ kind: "checked", cantCheck: 0, needsCheck: 1 });
+      const when = formatDateTime(CHECKED_AT, language);
+      const parts = noteStateParts(
+        state ?? fail(),
+        (key, params) => translate(language, key, params),
+        language,
+      );
+      expect(parts).toEqual([
+        `${said} ${when}`,
+        language === "en" ? "1 sentence needs a check" : "1 句待核对",
+      ]);
+      doc.destroy();
+    }
+    // A claim no check ever read keeps the Note Not checked, as before.
+    const fresh = source([
+      paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
+      paragraph([{ type: "text", text: "Harbours publish the times of high water every week." }]),
+    ]);
+    expect(read(fresh).state).toMatchObject({ kind: "not-checked" });
+    fresh.destroy();
+    // Nor does an edit upgrade a check that never ran: it still reads Not checked.
+    for (const reason of ["cost-cap", "rate-limit", "stopped", "too-many", "failed"] as const) {
+      const neverRan = source([
+        paragraph([checked("Spring tides happen at new and full moon.", "supported")]),
+        paragraph([
+          checked("Harbours publish the times of high water every week.", "not-checked", {
+            reason,
+            text: "Harbours publish the times of high water every year.",
+          }),
+        ]),
+      ]);
+      expect(read(neverRan).state).toMatchObject({ kind: "not-checked" });
+      neverRan.destroy();
+    }
   });
 
   test("stays amber when the note's Folder was searched and a file in it couldn't be read (D261)", () => {

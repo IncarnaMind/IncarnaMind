@@ -1,4 +1,11 @@
-import { type KeyboardEvent, type MouseEvent, type ReactNode, useEffect, useRef } from "react";
+import {
+  Fragment,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+} from "react";
 import type { CommandId } from "../../../shared/commands";
 import { showPlace } from "../commands/here";
 import { menuKeysLabel } from "../commands/keymap";
@@ -163,6 +170,7 @@ export function ObjectMenu({
   testId,
   align,
   without,
+  controls,
   more,
   aside,
   foot,
@@ -179,6 +187,11 @@ export function ObjectMenu({
   align?: "start" | "end";
   /** The kind's commands this menu offers its own way, in `more`. */
   without?: readonly CommandId[];
+  /**
+   * A command's place taken by a control drawn here instead of its item, such as a Tag's eight
+   * colours. The command stays in the menu's order and in ⌘K; `close` closes the menu.
+   */
+  controls?: Readonly<Partial<Record<CommandId, (close: () => void) => ReactNode>>>;
   /** Items after the kind's own and before its Delete, which stays last, a rule before them; `close` closes the menu. */
   more?: (close: () => void) => ReactNode;
   /** Beside the menu while it is open, outside it: the submenus of items in `more`. */
@@ -236,10 +249,11 @@ export function ObjectMenu({
   const dangerAt = dangerStart(entries);
   const itemOf = (entry: MenuEntry, index: number) => {
     if (entry === "rule") {
-      // biome-ignore lint/suspicious/noArrayIndexKey: rules have no identity but their place.
       return <div key={`rule-${index}`} className={menuRuleClass} />;
     }
     const { command, enabled } = entry;
+    const control = controls?.[command.id];
+    if (control) return <Fragment key={command.id}>{control(menu.close)}</Fragment>;
     const checked = command.checked?.(ctx);
     const keys = menuKeysLabel(command);
     const reason = enabled === true ? undefined : t(enabled.reason);

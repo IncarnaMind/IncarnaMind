@@ -19,7 +19,7 @@ The cases are in `cases.ts`; `repeat.ts` checks any Mind's sentences in any core
 
 ## The sets
 
-An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), an annual report and a supply agreement in each language for the periods sets, and twelve Minds:
+An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs, invented for this evaluation), an annual report and a supply agreement in each language for the periods sets, and twelve Minds, with five more for sentences a Document states word for word (`verbatimCases.ts`):
 
 | Set | Sentences |
 |---|---|
@@ -29,6 +29,14 @@ An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs,
 | `en-paraphrases`, `zh-paraphrases` | A clause's duty or permission in other words, each expected Supported: "shall" for "must", "can" for "may", "is entitled to" for "may" and as the agreement says it; 需, 应, 应当, 必须 for 须, 可以 for 可, 不得泄露 for 须保密 |
 | `en-near-misses`, `zh-near-misses` | Near misses, each expected not Contradicted: a figure or a detail of another person or role than the agreement's (the Director of People, 人力资源总监, Managers, 经理), and "Staff" (员工) with a detail the agreement doesn't give (named days, a condition, bank transfer); and a holiday figure for 2024, the year before the holiday clause starts, expected "I didn’t find this" |
 | `en-periods`, `zh-periods` | An annual report for 2025 with the figures for 2024 beside it, and a supply agreement that runs from 2025 to 2027, in their own Library: a 2024 figure, a fourth-quarter figure and a 2026 delivery, each expected Supported; a wrong 2024 figure and a wrong 2026 price, expected Contradicted; and a 2023 figure, which neither states, expected "I didn’t find this" |
+| `en-walk` | The 2026-11-01 walk's Note, one paragraph of four sentences, in a Library around the repository's `Field Report.docx` and a two-page brief that repeats its Results sentence: that sentence word for word, expected Supported, beside a budget the newer notes state, a wrong churn figure and a booking no Document states |
+| `en-verbatim`, `zh-verbatim` | Held-out sentences a .docx states word for word, one paragraph each Note, expected Supported: one with two figures that a short PDF repeats, one with no figure, and one with a year (English) or a unit (Chinese) |
+| `en-verbatim-decoys`, `zh-verbatim-decoys` | The same sentences with one detail changed (a figure, a place, the parts swapped, another species), and a wrong cost: never Supported |
+| `en-licence-conflicts`, `zh-licence-conflicts` | Held-out conflicts of a studio licence (`verdictCases.ts`), written before any change to the check (the "should", "guests", "notice-days" and "room" conflicts just after the first change to its instructions, before any run of it): a yearly fee stated per month, the payer and the reporting line the other way round, another figure for a year the dated clause covers, a duty for a permission ("has to", 有义务, "should", 应该) and a permission for a duty ("is free to", 获准), and the same parties and force with another figure or place; each expected Contradicted |
+| `en-licence-near-misses`, `zh-licence-near-misses` | A figure of someone the licence gives none for (the Studio Manager, other licensees) and the year before the clause starts: never Contradicted, never Supported |
+| `en-licence-faithful`, `zh-licence-faithful` | The fee from the other side ("receives"), the report in the passive, the force in other words, and the clause's own figure for a year it covers: each Supported |
+| `en-limits`, `zh-limits` | #1908's own Document and sentences, checked as a Note is: leverage inside the covenant and cover from a cost in brackets, Supported; a breach, a missed floor, a wrong cover and a wrong ratio, Contradicted |
+| `en-limits-held-out`, `zh-limits-held-out` | The same kinds on other figures (half-year results with interest payable in brackets) |
 
 ## Running it
 
@@ -43,7 +51,9 @@ npm run eval:repeats
 
 - `INCARNAMIND_EVAL_REPEATS`: checks of each Mind (10).
 - `INCARNAMIND_EVAL_REPEATS_SETS`: only these sets, by id (`en,zh`).
+- `INCARNAMIND_EVAL_REPEATS_KEYS`: only these sentences, by key or by set and key (`period,zh-conflicts:payer`); each set's Mind then holds only those.
 - `INCARNAMIND_EVAL_REPEATS_BUDGET`: stops after the check that takes the spend past this many dollars, at the app's own count (5).
+- `INCARNAMIND_EVAL_RESULTS`: the folder the reports go into, in place of `eval/results`. `report.json` keeps every request's reply and tokens, and each Library's settled requests by model (input, cache reads and writes, output, cost).
 
 ## Check against a Document, read whole
 
@@ -93,6 +103,73 @@ Check this Mind asks the model once which of a Mind's sentences make claims, and
 - `INCARNAMIND_EVAL_SCOPE_CASES` picks cases by id, `INCARNAMIND_EVAL_SCOPE_BUDGET` stops the run past that many dollars (1), and `INCARNAMIND_EVAL_REPEATS` is the checks a case (10). Ten checks of one case cost $0.02 to $0.05 on Claude Haiku 5.5 and $0.30 to $0.60 on Claude Sonnet 5.5, a Mind in no Folder the most.
 
 ## Results
+
+### 2026-11-02: whose detail a contradiction is about, the sentence's own roles, and a cover's working (#1766, #1708, #1765, #1908, #2184)
+
+Held-out sets first (`verdictCases.ts`, committed before any run of a change; eight conflicts a moment after the first change to the instructions): a studio licence in each language, #1908's own Cedar results checked as a Note is, and half-year results with interest payable in brackets. The changes:
+
+- A contradiction's strict judgement writes of whom each side states the detail, and a quote that states it only of someone the sentence neither names nor includes is "neither". Comparing the detail alone, it called "Managers are entitled to 30 days…" a conflict with the Employee's 27 in every check.
+- The reply's `Roles` line copies the words of each side and gains a third word, `other`, for a party the Passage's side doesn't name. A sentence the line gives to someone else is never Contradicted or Supported, its figures included.
+- A Supported reply whose `Roles` line gives other words than the sentence's as its own (the Passage's direction, "none" for "should") is asked once for the sentence's words, and is Not checked if it still doesn't give them, or gives none (no Roles line, or nothing on either side). A line that names nothing on either side ("none / none") is held back the same way where the reply's own Scope line names the sentence's party or term; a figure's or a cell's sentence, whose Scope line says "none", passes. A Roles, Scope or Time line written beside `cite` stands when the last turn leaves it out.
+- A Coverage line that names no member and says the membership isn't known is read.
+- A cover worked out from a cost marked as printed in brackets shows `ABS(…)` and the positive figure it was compared with.
+
+`npm run eval:repeats`, Claude Haiku 5.5 on the direct Anthropic API, thinking as the app sets it. `main` is 4c2d1e1a5 with the held-out cases, 5 checks of every set. On the head: 20 checks of the bar sentences, each language's in a Mind of those sentences alone, and 3 checks of every set as it stands. The 20-check run and the 3-check run of the conflict, near-miss, paraphrase and control sets ran at e420f53b8; ac4b5a6de after it changes only how a reply is read (a Roles line that names nothing on either side holds nothing back, "other" counts only as the closing word, a one-sided line, figures of a sentence about someone else), so the periods, limits, held-out faithful and `en`/`zh` sets, where a "none / none" line had held figure sentences back, ran again at ac4b5a6de, as did Sonnet 5.5. No reply of the other sets' runs had a shape those changes read differently, but for the "none / none" lines of Supported replies whose sentence ended Contradicted or Not checked. Counts are Supported, Contradicted, partly, differs, absent, Unsupported, Not checked.
+
+| Sentence | `main` | head |
+|---|---|---|
+| The 13 figure sentences of #2184 but "should" | 59 C of 60 (the Chinese payer 4, 1 N) | 240 C of 240 |
+| Up to 5 unused days should be carried over… | S2 C3 | S1 C15 U4 |
+| 人力资源总监向乙方汇报。 | S2 C1 P2 | C8 P12 |
+| In 2026 … 25 days / 2026年…15天 | C5 / C4 N1 | C20 / C19 N1 |
+| 员工每年有15天带薪年休假。 | C5 | C19 D1 |
+| Employees… / 职工… | P5 / P4 D1 | P20 / P11 D7 N2 |
+| shall, can, entitled, 需, 应, 应当, 可以, 不得 for may or must (Supported) | 0 of 40 | 0 of 160 |
+| The ten paraphrases with other duty and permission words | S50 | S196 N4 |
+| Managers' holiday / home; the Director of People's holiday / home (Contradicted) | 5, 3, 0, 0 of 5 | 8, 4, 3, 0 of 20 |
+| 经理, 人力资源总监 holiday and home (Contradicted) | 3, 1, 0, 1 of 5 | 1, 3, 0, 4 of 20 |
+
+Every set, 3 checks on the head against 5 on `main`:
+
+| | `main` | head |
+|---|---|---|
+| Conflicts Contradicted, `en-conflicts` / `zh-conflicts` | 146 of 160 / 121 of 155 | 86 of 96 / 75 of 93 |
+| Held-out conflicts Contradicted, the first six, EN / ZH | 28 of 30 / 13 of 30 | 18 of 18 / 12 of 18 |
+| Added later, the same parties and force with another figure or place, EN / ZH | 13 of 15 / 15 of 15 | 9 of 9 / 9 of 9 |
+| Supported, a sentence the Documents don't state, every set | 8 | 0 |
+| Near misses Contradicted, `en-near-misses` / `zh-near-misses` | 8 of 35 / 5 of 40 | 1 of 21 / 1 of 24 |
+| Held-out near misses Contradicted, EN / ZH | 7 of 15 / 9 of 15 (+1 Supported) | 1 of 9 / 2 of 9 |
+| Held-out faithful sentences Supported, EN / ZH | 25 of 25 / 21 of 25 | 14 of 15 / 8 of 15 (6 never named a claim) |
+
+- The held-out "should" sentences ("should store", 应该将…存放) were never named a claim by the claims request, on `main` or the head (#737), so no check measured them.
+- **Lost on the way:** the Chinese Cedar cover from (41.2) was Supported 5 of 5 on `main` and is "I didn't find this" in 3 of 3: shown −4.55 by `calculate`, the model called the cover not stated. "can" for "must" and 可以 for 须 are partly supported more often than Contradicted (C 5 and 9 of 20, against 3 and 5 of 5), and so are the Chinese social insurance reversals (P 3 of 3 each; the first confirmation's one word calls them "same", as on `main` in 2 of 5). None of these is Supported.
+- **Still open:** near misses about another person stay Contradicted in up to 8 of 20 checks in a Mind of those sentences alone, where the reply's `Roles` line says "differs" and the strict judgement "conflict"; the English Cedar cover from (41.2) stays Contradicted (the model doesn't mark the cost) and the leverage sentence Not checked; "should" is Supported once in 20.
+- **Claude Sonnet 5.5, 2 checks a sentence:** the 2026 sentences, "per month", 年工资, the reversed reporting line and the wrong holiday Contradicted 2 of 2 each before and after; the near misses about another person "I didn't find this" or Unsupported 2 of 2 each, the held-out ones included; the Chinese Cedar sentences Supported 2 of 2; "should" Supported 2 of 2 before and after (its Roles line copies both sides and calls should and may the same); the English cover Contradicted and the leverage Not checked, 2 of 2.
+- **Cost:** the ask for the sentence's own words was made in about one check in seven that reached a Supported reply (76 of 523), one more step of the check's own Run, mostly cache reads. All runs of this work: $5.86 at the app's own count.
+- **2026-11-03, after the review:** on today's `main` and on the head alike the Chinese Cedar cover from (41.2) is mostly "I didn't find this" (a Note of that sentence alone, 20 checks: S3 U5 A11 N1 on `main`, S3 U3 A14 on the head; the whole `zh-limits` Note, 5 checks: S1 A4 and S3 A1 U1), so the Roles text is not what lost it; the held-out cover is S13 C5 U1 N1 and S15 C5. With the Scope rule, 3 checks of `en`, `zh`, the periods and the limits: the rule held a reply back in 3 of 108 checks (two then Supported, one Not checked for a missing record), and no set gave a false Supported. On the head, 10 checks each: "should" for "may" C8 N2, 应当 for 可 P9 U1, the payer reversed C10 and C9 N1; 2 checks of the near-miss Notes: none Contradicted in the two whole Notes, the held-out ones 2 of 6 and 1 of 6, none Supported. Claude Haiku 5.5 on a direct Anthropic key, $0.49; all runs of this work $6.36.
+
+### 2026-11-01: a sentence a Document states word for word is Supported against All Documents (#2184)
+
+In the walk of 2026-11-01, "Raising the barrier crest by 40 centimetres halves the expected annual damage in the northern estuary.", which the Field Report states word for word, came back "The model's reply couldn't be read", then Unsupported against All Documents. The search handed the model the verbatim Passage in all 165 checks against All Documents logged before the change (150 here, 15 replays of the walk's Check again); the sentence was lost in reading the reply. Claude Haiku 5.5 wrote a sentence's verdict lines in the turn that calls `cite` and its Figures line alone after it, and a sentence with figures was read from its last turn only, so it had no verdict. And for a sentence it wrote a quote into its reply instead of calling `cite`; asked for that marker's record, it gave the record alone, which the check didn't read, so the sentence was Not checked. Now a last turn with no verdict is read after the last turn set aside with one, in the asks about the Figures line as in the result and in a sentence without figures alike; a Supported verdict is read so only when nothing after it takes it back (a refusal, a verdict in words the reader can't take, prose beside the last turn's own Figures line). And a record given alone is read for the one marker its reply names, its quote still checked.
+
+`npm run eval:repeats`, 20 checks of `en-walk`, `en-verbatim`, `zh-verbatim` and their decoys, Claude Haiku 5.5 on the direct Anthropic API, thinking as the app sets it. Before is `main` at 19033fbf7 with the held-out cases (b13105241), after is 1d2c4ebed. The commits after it read a record given alone only for the one marker its reply names, and a Supported verdict across turns only when nothing after it takes it back; every record given alone in these runs answered its one marker, and every last turn without a verdict in their logs passes that rule or followed a verdict that isn't Supported, so no count below changes. Counts are Supported, Contradicted, Unsupported, Not checked.
+
+| Sentence | Before | After |
+|---|---|---|
+| Raising the barrier crest by 40 centimetres halves the expected annual damage in the northern estuary. | 18, 0, 0, 2 | 20, 0, 0, 0 |
+| Breaching the sea wall at two points raised the count of wintering redshank at Elden Flats from 140 to 410 birds. | 18, 0, 0, 2 | 20, 0, 0, 0 |
+| Cordgrass now covers most of the lower marsh, while the upper marsh is still bare mud. | 19, 0, 1, 0 | 20, 0, 0, 0 |
+| Avocets nested on the new islands for the first time in 2026. | 20, 0, 0, 0 | 20, 0, 0, 0 |
+| 新渠道通水后，灌区内水稻亩产由420公斤提高到510公斤。 | 16, 0, 0, 4 | 20, 0, 0, 0 |
+| 下游村庄的饮用水已改由新建水厂统一供应。 | 19, 0, 0, 1 | 20, 0, 0, 0 |
+| 泵站改造后，每年节约用电约35万千瓦时。 | 20, 0, 0, 0 | 20, 0, 0, 0 |
+
+- **Verbatim sentences Supported:** 130 of 140 before, 140 of 140 after; Unsupported 1 before, 0 after. All 8 Not checked "couldn't be read" before were the verdict beside `cite` with the Figures line after it; after, the 13 checks of that shape were Supported.
+- **Decoys** (the same sentences with a figure, a place, the parts or the species changed, and a wrong cost): Supported in 0 of 160 checks before and after.
+- **The one Unsupported before** was a Coverage line the model wrote for a part with no quantifier ("the upper marsh is still bare mud", `complete: false`), which turns Supported into Unsupported; it didn't recur in the 40 checks after, and is not changed here.
+- **Cost after:** $0.41 at the app's own count, 1,667 requests: 513,222 uncached input tokens, 10,472,441 cache reads, 679,262 cache writes and 333,080 output tokens.
+- **Claude Sonnet 5.5, after, 20 checks of `en-verbatim` and `zh-verbatim`:** Supported in 20 of 20 for the two-figure sentence in each language and for all three Chinese sentences, 16 of 20 for "Cordgrass now covers…" and 17 of 20 for "Avocets nested…"; no Unsupported. The 7 Not checked are replies with no verdict to read: after its search the model called `cite` with no text and then wrote only "Evidence: [1]" and "Calculation: none". $1.46 at the app's own count, 422 requests: 65,868 uncached input tokens, 3,315,531 cache reads, 138,491 cache writes and 64,790 output tokens.
+- **The other sets after the change, 5 checks each** (`en`, `zh`, their controls, the periods and the near-miss sets): no false Supported in 235 checks. Only one check of them had its verdict written beside `cite` and its Figures line after, the 2023 figure in Chinese, and it ended "I didn't find this", as expected. Every other check there gave its verdict in its last turn, which this change reads as before; one kind of Not checked among them is a remainder that isn't a copy of the sentence's words ("In 2026 Fenwick Timber delivers cubic metres of oak…", the figure taken out of the middle), 2 of the 5 checks of that sentence in English. $0.22 at the app's own count, 918 requests: 250,335 uncached input tokens, 5,452,625 cache reads, 448,990 cache writes and 173,804 output tokens.
 
 ### 2026-10-30: a sentence with a figure keeps a contradiction whose quote the model never recorded (#2184)
 

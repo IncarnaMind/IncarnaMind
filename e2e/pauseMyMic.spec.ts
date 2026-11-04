@@ -39,9 +39,10 @@ async function shot(page: Page | Locator, name: string): Promise<void> {
 }
 
 const mac = process.platform === "darwin";
-const MIC_KEYS = "Ctrl+Alt+M";
+// Not Ctrl+Alt+M, which the window binds to Comment (#328): a global key the window takes cannot be shown.
+const MIC_KEYS = "Ctrl+Alt+U";
 const PANEL_KEYS = "Ctrl+Alt+H";
-const MIC_LABEL = mac ? "⌃⌥M" : "Ctrl+Alt+M";
+const MIC_LABEL = mac ? "⌃⌥U" : "Ctrl+Alt+U";
 const CHECKLIST_KEYS = mac ? "Cmd+Shift+9" : "Ctrl+Shift+9";
 const CHECKLIST_LABEL = mac ? "⇧⌘9" : "Ctrl+Shift+9";
 
@@ -178,7 +179,7 @@ test("Pause my mic: the bar's button, ⌘K and the shortcut pause and resume the
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
-  await setMeetingKeys(window);
+  await setMeetingKeys(window, { mic: MIC_KEYS });
   const bar = await recordingMeeting(window);
   const mic = bar.getByTestId("meeting-mic");
 
@@ -330,7 +331,7 @@ test("Pause my mic in Chinese: the tooltips, the line, ⌘K and the mark in Chin
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1100, 800);
   await dismissChatSetup(window);
-  await setMeetingKeys(window);
+  await setMeetingKeys(window, { mic: MIC_KEYS });
   const bar = await recordingMeeting(window);
   const mic = bar.getByTestId("meeting-mic");
   await window.mouse.move(1, 1);
@@ -393,7 +394,7 @@ test("Pause my mic in the floating panel: the header's button and the line under
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
-  await setMeetingKeys(window);
+  await setMeetingKeys(window, { mic: MIC_KEYS });
   const bar = await recordingMeeting(window);
   const panel = await panelOf(app);
   const mic = panel.getByTestId("panel-mic");
@@ -450,7 +451,7 @@ test("the recording bar never wraps: from 1,600 px down to 900 px, in English an
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1600, 900);
   await dismissChatSetup(window);
-  await setMeetingKeys(window);
+  await setMeetingKeys(window, { mic: MIC_KEYS });
   const bar = await recordingMeeting(window);
   const toggle = bar.getByTestId("meeting-transcript-toggle");
   const more = bar.getByTestId("meeting-more");
@@ -517,7 +518,7 @@ test("the meeting's keys work with IncarnaMind in front: with the notes focused 
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
-  await setMeetingKeys(window);
+  await setMeetingKeys(window, { mic: MIC_KEYS });
   const bar = await recordingMeeting(window);
   const mic = bar.getByTestId("meeting-mic");
   const notes = window.getByTestId("mind-editor");

@@ -55,7 +55,19 @@ describe("Word", () => {
       { path: [], beforeHeading: true },
       { path: ["1 Introduction"] },
       { path: ["1 Introduction", "1.1 Scope"] },
-      { path: ["2 Results"] },
+      {
+        path: ["2 Results"],
+        tables: [
+          {
+            headings: ["Estuary", "Sites", "Median rise (mm/yr)", "Risk"],
+            rows: [
+              ["Northern", "5", "4.1", "High"],
+              ["Central", "4", "3.2", "Medium"],
+              ["Southern", "3", "2.7", "Low"],
+            ],
+          },
+        ],
+      },
       { path: ["2 Results", "2.1 Sensitivity"] },
       { path: ["3 Discussion"] },
       { path: ["3 Discussion", "3.1 Limitations"] },

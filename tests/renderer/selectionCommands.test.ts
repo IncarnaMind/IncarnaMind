@@ -58,16 +58,20 @@ const documentOf = (id: string): Document => ({
   unreadParts: null,
   unreadPartsUnknown: false,
   readHiddenSheets: false,
+  convertedFrom: null,
   folderId: null,
   tags: [],
   tagging: "off",
   taggingError: null,
   creationDate: null,
   modifiedAt: null,
+  fileCreatedAt: null,
+  properties: null,
   title: null,
   web: null,
   reference: null,
   ownFile: null,
+  yourNote: null,
   notCited: false,
   found: null,
   importedAs: null,
@@ -188,10 +192,10 @@ describe("a selection of Documents", () => {
 describe("a selection of Minds", () => {
   const ctx = selectionOf([mind("m"), mind("n")], "sidebar");
 
-  test("is offered Move to and New Folder with these, and not what opens, exports or deletes one", () => {
+  test("is offered Use as a source, Move to and New Folder with these, and not what opens, exports or deletes one", () => {
     const here = { "mind.moveTo": () => undefined, "mind.rename": () => undefined };
     const ids = idsIn(buildMenu("mind", { ...ctx, here }));
-    expect(ids).toEqual(["mind.moveTo", "folder.newWith"]);
+    expect(ids).toEqual(["mind.useAsSource", "mind.moveTo", "folder.newWith"]);
   });
 });
 

@@ -1,3 +1,4 @@
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { Fragment, type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import {
@@ -6,6 +7,8 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
   type ProviderErrorKind,
+  QUESTION_BLOCK,
+  type SearchScope,
   type SignInRouteProblem,
   SKILL_SCRIPT_LIMITS,
   type SkillScriptApprovalRequest,
@@ -14,15 +17,18 @@ import {
 } from "../../../core/api";
 import { isSignInRoute, isSignInRouteProblem } from "../../../core/providers/signInRoutes";
 import { asksAfterThirdParty } from "../../../shared/approvalRules";
+import { searchScopeOf } from "../../../shared/searchScope";
 import { toolCallsOf } from "../../../shared/toolCalls";
+import { type AnswerFigures, figuresOf, uncalculatedWords } from "../answerFigures";
 import { AnswerWriting } from "../answerPhase";
-import { isCalculated, RUN_SCRIPT, SEARCH } from "../answerSteps";
+import { RUN_SCRIPT, SEARCH } from "../answerSteps";
 import { documentReadText } from "../answerStepWords";
 import { useAnswers } from "../answers";
 import { useApprovals, waitingFor } from "../approvals";
 import { signInAgain } from "../chatGptSignIn";
 import { AskCall } from "../components/assistant/AskCall";
 import { CommandCall } from "../components/assistant/CommandCall";
+import { FoundPassages } from "../components/assistant/FoundPassages";
 import { MindCall } from "../components/assistant/MindCall";
 import { DetailsLine } from "../components/DetailsLine";
 import { useIsExampleAnswer } from "../components/GettingStarted";
@@ -47,8 +53,10 @@ import {
   useKeyRefusals,
   useKeySavedSince,
 } from "../keyRefusals";
+import { useFoundPassages, useQuestionPlace } from "../localPassages";
 import { requestModelMenu, retryModel } from "../modelMenu";
 import { useModelNames, useServiceName } from "../modelNames";
+import { useOnline } from "../online";
 import { useStoppedByPlanLimit } from "../planLimits";
 import { ANSWER_PROBLEMS, failedAnswerLine, retry } from "../problems";
 import { useRouteOffered } from "../routeSignIn";
@@ -68,6 +76,19 @@ const text = (value: unknown) => (typeof value === "string" ? value : null);
 
 const isErrorKind = (value: unknown): value is ProviderErrorKind =>
   typeof value === "string" && Object.hasOwn(ANSWER_PROBLEMS, value);
+
+/** The Question block an Answer answers, as the Note's document holds it now. */
+function questionBlockIn(doc: ProseMirrorNode, id: string): ProseMirrorNode | null {
+  let found: ProseMirrorNode | null = null;
+  doc.descendants((node) => {
+    if (node.type.name === QUESTION_BLOCK && node.attrs[BLOCK_ID_ATTRIBUTE] === id) {
+      found = node;
+      return false;
+    }
+    return found === null;
+  });
+  return found;
+}
 
 /** Items of the meta line, with a dot between each two. */
 function Dotted({ items }: { items: ReactNode[] }) {
@@ -117,6 +138,18 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
   )
     ? modelId
     : null;
+  // The Question above it, for what an offline failure can show of the Documents (#763).
+  const askedQuestion = useMemo(() => {
+    if (status !== "failed" || questionId === null) return null;
+    const block = questionBlockIn(editor.state.doc, questionId);
+    return block === null
+      ? null
+      : {
+          text: block.textContent,
+          scope: searchScopeOf(block.attrs),
+          askedFrom: mindId === null ? null : { mindId },
+        };
+  }, [status, editor.state.doc, questionId, mindId]);
 
   // One the User edited comes back as changes over their version: nothing to confirm.
   const writeAgain = async () => {
@@ -160,7 +193,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
       />,
     );
   }
-  const { calculated, uncalculated } = figuresOf(toolCalls);
+  const figures = figuresOf(toolCalls);
 
   return (
     <NodeViewWrapper
@@ -186,11 +219,11 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
         data-generated-marks={node.attrs.generatedMarks === true ? "" : undefined}
       />
 
-      {!streaming && uncalculated > 0 && <UncalculatedLine count={uncalculated} />}
+      {!streaming && figures.uncalculated > 0 && <UncalculatedLine figures={figures} />}
 
       {searchesOpen && (
         <div contentEditable={false} className="answer-searches-open">
-          <SearchList searches={searches} calculated={calculated} />
+          <SearchList searches={searches} calculated={figures.calculated} />
         </div>
       )}
 
@@ -205,6 +238,7 @@ export function AnswerView({ node, editor, getPos }: ReactNodeViewProps) {
           }
           details={text(node.attrs.errorMessage)}
           onRetry={questionId ? () => writeAgain() : undefined}
+          question={askedQuestion}
           onOpenSettings={openSettings}
         />
       )}
@@ -314,6 +348,7 @@ export function AnswerError({
   onRetryWith,
   modelNow = null,
   chooseHere = false,
+  question = null,
   onOpenSettings,
 }: {
   kind: ProviderErrorKind;
@@ -335,6 +370,13 @@ export function AnswerError({
   modelNow?: ChatModelChoice | null;
   /** The composer's model menu is here: "Choose another model" opens it, not Settings. */
   chooseHere?: boolean;
+  /** What was asked, where its Question is known: offline, a local search shows what the Documents say (#763). */
+  question?: {
+    text: string;
+    scope: SearchScope | null;
+    askedFrom?: { mindId: string | null; deleted?: boolean } | null;
+    folderAskedIn?: string;
+  } | null;
   onOpenSettings(page: SettingsPage): void;
 }) {
   const t = useT();
@@ -377,6 +419,35 @@ export function AnswerError({
       : undefined;
   const offered = useRouteOffered(isSignInRoute(provider) ? provider : null);
   const billingUrl = billingUrlOfProvider(providerInUse);
+  const online = useOnline();
+  // A model on this computer can't be away because the computer is: its own problem is said instead.
+  const offline = kind === "network" && !online && providerInUse?.service != null;
+  const place = useQuestionPlace(question ?? { askedFrom: null });
+  const found = useFoundPassages(
+    offline && question ? question.text : null,
+    question?.scope ?? null,
+    place,
+  );
+  if (offline) {
+    return (
+      <div contentEditable={false} data-testid="answer-error" data-error-kind={kind}>
+        <ProblemLine
+          action={
+            onRetry
+              ? { label: t("answer.error.retry"), testId: "answer-error-action", onClick: onRetry }
+              : undefined
+          }
+        >
+          {t("answer.offline.line")}
+        </ProblemLine>
+        {question && (
+          <div className="mt-1">
+            <FoundPassages passages={found.passages} failed={found.failed} emptyNote />
+          </div>
+        )}
+      </div>
+    );
+  }
   const shown = failedAnswerLine(kind, provider, signInRoute, offered, {
     ...(billingUrl && { billingUrl }),
     ...(providerInUse && { local: providerInUse.service === null }),
@@ -1203,23 +1274,13 @@ export function SkillRow({ name, use, reads }: SkillUse) {
   );
 }
 
-/** How many calculated figures an Answer shows, and how many it couldn't, from its one `calculate` call. */
-export function figuresOf(calls: readonly AnswerToolCall[]): {
-  calculated: number;
-  uncalculated: number;
-} {
-  const call = calls.find(isCalculated);
-  return { calculated: call?.resultCount ?? 0, uncalculated: call?.uncalculated ?? 0 };
-}
-
-/** Under an Answer whose figures some couldn't be calculated: their numbers are missing from its text. */
-export function UncalculatedLine({ count }: { count: number }) {
+/** Under an Answer whose figures some couldn't be calculated: which they were, and why their numbers are missing from its text (#2313). */
+export function UncalculatedLine({ figures }: { figures: AnswerFigures }) {
   const t = useT();
+  const language = useLanguage();
   return (
     <p contentEditable={false} data-testid="answer-uncalculated" className="answer-info">
-      {count === 1
-        ? t("answer.figures.uncalculated.one")
-        : t("answer.figures.uncalculated", { count })}
+      {uncalculatedWords(figures, t, language)}
     </p>
   );
 }

@@ -30,6 +30,7 @@ import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
 import { chartCommands } from "./charts";
 import { checkCommands } from "./checks";
+import { commentCommands } from "./comments";
 import { comparisonCommands } from "./comparisons";
 import { deletedCommands } from "./deleted";
 import { editCommands } from "./edit";
@@ -77,6 +78,7 @@ import { reviewCommands } from "./review";
 import { sortCommands } from "./sort";
 import { suggestionCommands } from "./suggestions";
 import "./objectMenus";
+import { mindSourceCommands } from "./mindSources";
 import { type Command, type CommandContext, commands, fromMenu } from "./registry";
 import { selectionCommands } from "./selection";
 import { settingsPageCommands } from "./settings";
@@ -213,7 +215,9 @@ const appCommands: readonly Command[] = [
   ...sortCommands,
   ...fileCommands,
   ...evidenceCommands,
+  ...mindSourceCommands,
   ...comparisonCommands,
+  ...commentCommands,
   ...researchCommands,
   ...analysisCommands,
   ...exportCommands,
@@ -287,8 +291,9 @@ const appCommands: readonly Command[] = [
     when: () => citedVersionInUse(useAppStore.getState().layout) !== null,
     run: () => citedVersionInUse(useAppStore.getState().layout)?.openCurrent(),
   },
-  // A Citation that needs re-check (#99), while its card shows or from its menu: the note's ⌘Z takes each back.
-  ...(["update", "keepOld"] as const).map(
+  // A Citation that needs re-check (#99), or a scan's unsure word to look at (#535), while its
+  // card shows or from its menu: the note's ⌘Z takes each back.
+  ...(["update", "keepOld", "pageChecked"] as const).map(
     (choice): Command => ({
       id: `citation.${choice}`,
       label: `citation.${choice}`,
@@ -374,7 +379,7 @@ const appCommands: readonly Command[] = [
     },
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return checkFromAssistant(mindId);
+      if (mindId) return checkFromAssistant(mindId, false, ctx.assistant === true);
     },
   },
   {
@@ -386,7 +391,7 @@ const appCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return checkFromAssistant(mindId, true);
+      if (mindId) return checkFromAssistant(mindId, true, ctx.assistant === true);
     },
   },
   {

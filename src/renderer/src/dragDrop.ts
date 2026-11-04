@@ -1,4 +1,4 @@
-import { type DragEvent, useEffect, useState } from "react";
+import { type DragEvent, useEffect } from "react";
 import { create } from "zustand";
 import type { Words } from "./lineNames";
 import { exit, exitToward } from "./motion";
@@ -52,7 +52,18 @@ type DropResult = Undoable | null | undefined;
 
 export interface DropTarget<Place = unknown> {
   accepts(dragged: Dragged, at: Point): DropEffect<Place> | null;
+  /**
+   * Why it takes none of what is dragged, beside the pointer, for a drop it would otherwise
+   * seem to take: a Folder into itself, for instance. Null while it is over no such drop.
+   */
+  refuses?(dragged: Dragged, at: Point): Words | null;
   drop(dropped: Dropped, effect: DropEffect<Place>): DropResult | Promise<DropResult>;
+}
+
+/** Why the target under the pointer takes none of the drop. */
+export interface Refusal {
+  key: string;
+  said: Words;
 }
 
 export interface ObjectDrag {
@@ -63,13 +74,20 @@ export interface ObjectDrag {
 
 interface DragState {
   over: { key: string; effect: DropEffect } | null;
-  /** The pointer, while over a target that says what its drop would do. */
+  /** The pointer, while over a target that says what its drop would do, or why it won't. */
   at: Point | null;
   /** What this window drags, set once the drag is under way. */
   source: ObjectDrag | null;
+  /** Why the target under the pointer takes none of what is dragged. */
+  refusal: Refusal | null;
 }
 
-export const useDragState = create<DragState>()(() => ({ over: null, at: null, source: null }));
+export const useDragState = create<DragState>()(() => ({
+  over: null,
+  at: null,
+  source: null,
+  refusal: null,
+}));
 
 // A drag's data can only be read on the drop, so what is dragged is kept here for the targets it passes over.
 let dragging: ObjectDrag | null = null;
@@ -84,7 +102,7 @@ const stopHolding = () => {
 
 function clear(): void {
   stopHolding();
-  useDragState.setState({ over: null, at: null });
+  useDragState.setState({ over: null, at: null, refusal: null });
 }
 
 function endDrag(): void {
@@ -102,6 +120,10 @@ function listenForEnd(): void {
   window.addEventListener("dragover", takeAnywhere);
   window.addEventListener("drop", dropAnywhere);
   window.addEventListener("dragend", endDrag);
+  // A drag from another app that is cancelled, or leaves the window, gets no dragend here.
+  window.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget === null) endDrag();
+  });
 }
 
 const afterFrame = (run: () => void) =>
@@ -258,13 +280,42 @@ export function runDrop(target: DropTarget, refs: readonly ObjectRef[]): Promise
 
 const samePlace = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+let cancelWatch: (() => void) | null = null;
+
+/**
+ * A drag the browser cancels (Esc, or let go over another app) sends this page
+ * no dragleave, dragend or drop: the first pointer move after it is the sign.
+ * Armed while a target is over, and gone once it fires.
+ */
+function watchForCancel(): void {
+  if (cancelWatch || typeof window === "undefined") return;
+  cancelWatch = () => {
+    cancelWatch = null;
+    endDrag();
+  };
+  window.addEventListener("pointermove", cancelWatch, { capture: true, once: true });
+}
+
 function show(key: string, effect: DropEffect, point: Point): void {
+  watchForCancel();
   const state = useDragState.getState();
   const changed = state.over?.key !== key || !samePlace(state.over.effect.place, effect.place);
   const at = effect.said ? point : null;
-  if (!changed && at === null && state.at === null) return;
+  if (!changed && at === null && state.at === null && state.refusal === null) return;
   if (changed) stopHolding();
-  useDragState.setState({ ...(changed && { over: { key, effect } }), at });
+  useDragState.setState({ ...(changed && { over: { key, effect } }), at, refusal: null });
+}
+
+/** Why the target under the pointer takes none of what is dragged, in place of what its drop would do. */
+function sayWhy(key: string, said: Words, point: Point): void {
+  watchForCancel();
+  const state = useDragState.getState();
+  if (state.refusal?.key === key && state.refusal.said === said) {
+    if (state.at?.x !== point.x || state.at?.y !== point.y) useDragState.setState({ at: point });
+    return;
+  }
+  stopHolding();
+  useDragState.setState({ over: null, refusal: { key, said }, at: point });
 }
 
 function letGo(at: Point, into?: Element): void {
@@ -328,18 +379,27 @@ export function dropProps<Place>(
     return dragged ? target.accepts(dragged, pointOf(event)) : null;
   };
   const leave = () => {
-    if (useDragState.getState().over?.key === key) clear();
+    const state = useDragState.getState();
+    if (state.over?.key === key || state.refusal?.key === key) clear();
   };
   const over = (event: DragEvent) => {
     listenForEnd();
-    const effect = effectOf(event);
-    if (!effect) {
+    const dragged = event.defaultPrevented ? null : draggedIn(event.dataTransfer);
+    if (!dragged) {
       leave();
+      return;
+    }
+    const point = pointOf(event);
+    const effect = target.accepts(dragged, point);
+    if (!effect) {
+      const why = target.refuses?.(dragged, point);
+      if (why) sayWhy(key, why, point);
+      else leave();
       return;
     }
     event.preventDefault();
     event.dataTransfer.dropEffect = DROP_EFFECTS[effect.kind];
-    show(key, effect, pointOf(event));
+    show(key, effect, point);
     if (open && holding?.key !== key) {
       holding = { key, timer: setTimeout(open, OPENS_AFTER_MS) };
     }
@@ -388,33 +448,22 @@ export function useDropTarget<Place = undefined>(
 }
 
 /**
- * Makes a whole area, such as the window, a target: lit while what it takes
- * is dragged anywhere over it, and taking only what no target inside took.
- * Counting enters and leaves keeps it steady as the pointer crosses the
- * elements inside.
+ * Makes a whole area, such as the window, take what no target inside took:
+ * accepting the drag there stops Electron opening the file, and the drop runs
+ * the area's own. The caller says when it is over, from the drag's own point.
  */
 export function useDropArea(target: DropTarget) {
-  const [depth, setDepth] = useState(0);
-  const [entered, setEntered] = useState<{ effect: DropEffect; dragged: Dragged } | null>(null);
   const effectOf = (event: DragEvent) => {
+    if (!event.dataTransfer) return null;
     const dragged = draggedIn(event.dataTransfer);
     return dragged ? target.accepts(dragged, pointOf(event)) : null;
   };
   return {
-    over: depth > 0 ? (entered?.effect ?? null) : null,
-    dragged: entered?.dragged ?? null,
     props: {
       onDragEnter(event: DragEvent) {
-        const dragged = draggedIn(event.dataTransfer);
-        const effect = dragged ? target.accepts(dragged, pointOf(event)) : null;
-        if (!dragged || !effect) return;
+        const dragged = event.dataTransfer ? draggedIn(event.dataTransfer) : null;
+        if (!dragged || !target.accepts(dragged, pointOf(event))) return;
         event.preventDefault();
-        setEntered({ effect, dragged });
-        setDepth((current) => current + 1);
-      },
-      onDragLeave(event: DragEvent) {
-        if (!effectOf(event)) return;
-        setDepth((current) => Math.max(0, current - 1));
       },
       onDragOver(event: DragEvent) {
         const next = effectOf(event);
@@ -429,7 +478,6 @@ export function useDropArea(target: DropTarget) {
         if (!next) return;
         const taken = event.defaultPrevented;
         event.preventDefault();
-        setDepth(0);
         if (taken) return;
         const dropped = droppedIn(event.dataTransfer);
         if (dropped) void finish(target.drop(dropped, next));

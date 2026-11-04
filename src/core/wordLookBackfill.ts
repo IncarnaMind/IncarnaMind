@@ -18,6 +18,7 @@ import {
   SUBSCRIPT_MARK,
   SUPERSCRIPT_MARK,
   TEXT_COLOR_MARK,
+  WORD_ATOM_NODE,
   WORD_BLOCK_NODE,
   WORD_LOOK_ATTRIBUTE,
   WORD_RUN_MARK,
@@ -90,6 +91,21 @@ function grouped(content: readonly NodeJSON[]): (NodeJSON[] | NodeJSON)[] {
   return groups;
 }
 
+/**
+ * What a version before comments were the Mind's own (#328) kept for them, inside a paragraph:
+ * an atom for the comment and its range's halves. The re-read has none of them (comments are
+ * marks now), so they stay out of the comparison and such a Mind isn't taken as edited.
+ */
+const isCommentAtom = (element: Y.XmlElement): boolean => {
+  if (element.nodeName !== WORD_ATOM_NODE) return false;
+  const kind = element.getAttribute("kind");
+  if (kind === "comment") return true;
+  return (
+    kind === "range" &&
+    /w:commentRange(?:Start|End)#/.test(String(element.getAttribute("source") ?? ""))
+  );
+};
+
 const plainText = (text: Y.XmlText): string =>
   (text.toDelta() as { insert: unknown }[])
     .map((run) => (typeof run.insert === "string" ? run.insert : ""))
@@ -102,7 +118,9 @@ function changesFor(element: Y.XmlElement, node: NodeJSON): LookChange[] | null 
     const value = givenValue(node, name);
     if (value !== null) changes.push({ kind: "attribute", element, name, value });
   }
-  const children = element.toArray();
+  const children = element
+    .toArray()
+    .filter((child) => !(child instanceof Y.XmlElement && isCommentAtom(child)));
   const groups = grouped(node.content ?? []);
   if (children.length !== groups.length) return null;
   for (const [index, group] of groups.entries()) {

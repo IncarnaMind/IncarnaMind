@@ -21,6 +21,7 @@ import type {
 } from "../api";
 import { ChatNotReadyError, ConsentDeclinedError, InvalidInputError, isRecord } from "../errors";
 import { parseMindId } from "../minds";
+import { tagged } from "../promptData";
 import type { PreparedChatModel } from "../providers/chat";
 import { outputTokens } from "../providers/outputLimits";
 import { classifyProviderError } from "../providers/providerErrors";
@@ -47,7 +48,7 @@ export const DRAFT_INSTRUCTIONS = [
   "Each step is one short instruction that starts with a verb and could be followed on a different Note. If the work cited their Documents, one step says to cite each finding. Don't copy names, numbers or quotes from the notes unless the task is about them. No preamble, no Markdown headings, no code fence.",
 ].join("\n");
 
-const prompt = (mind: string) => ["<mind>", mind, "</mind>"].join("\n");
+const prompt = (mind: string) => tagged("mind", mind);
 
 /** The label's text on its line, without the Markdown a model may put round it. */
 function labelled(reply: string, label: string): string | null {

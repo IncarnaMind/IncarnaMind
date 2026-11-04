@@ -9,9 +9,10 @@ import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from 
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../../core/api";
+import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
+import type { CitationLive } from "../../../shared/citations";
 import { figureRunsFor } from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { setMindScope } from "../../../shared/mindScope";
@@ -28,6 +29,7 @@ import {
 } from "../citationFormatting";
 import { noteHandle, readMindHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
+import { commentIdsOf, commentOnSelection } from "../comments";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { useComposer } from "../composer";
 import { core } from "../core";
@@ -42,7 +44,9 @@ import { ChartView } from "../editor/ChartView";
 import { CheckBadge } from "../editor/CheckBadge";
 import { CitationStylePrompt } from "../editor/CitationStylePrompt";
 import { CitationView } from "../editor/CitationView";
+import { CiteSearch } from "../editor/CiteSearch";
 import { CodeBlockView } from "../editor/CodeBlockView";
+import { AskedComment, CommentLayer, CommentsButton, DraftComment } from "../editor/CommentLayer";
 import { comparisonCellView } from "../editor/ComparisonCellView";
 import { ComparisonRowView } from "../editor/ComparisonRowView";
 import { ComparisonTableView } from "../editor/ComparisonTableView";
@@ -50,8 +54,10 @@ import { checklistLabel } from "../editor/checklistLabel";
 import { useCardPlace } from "../editor/checkPlace";
 import { CitationClusters } from "../editor/citationClusters";
 import { CitationNumbers, redrawFootnotes, setCitationForm } from "../editor/citationNumbers";
+import { type CitePlace, offerCite } from "../editor/citeRequest";
 import { ClaimChecks, figurePlacesOf, setClaimContext } from "../editor/claimChecks";
 import { useClickBelowNote } from "../editor/clickBelowNote";
+import { commentDecorations } from "../editor/commentSchema";
 import { CopyCitations } from "../editor/copyCitations";
 import { DocumentChipView } from "../editor/DocumentChipView";
 import { useDefaultStyleNotice } from "../editor/defaultStyleNotice";
@@ -64,6 +70,7 @@ import {
   isTitleLine,
 } from "../editor/EndHint";
 import { selectionForEdit } from "../editor/editSelection";
+import { explainSelection } from "../editor/explainSelection";
 import { FindBar } from "../editor/FindBar";
 import { FootnoteArea } from "../editor/FootnoteArea";
 import { FootnotePopover } from "../editor/FootnotePopover";
@@ -107,7 +114,12 @@ import { type SelectionAction, SelectionMenu } from "../editor/SelectionMenu";
 import { SlashMenu } from "../editor/SlashMenu";
 import { ShiftClickSelection } from "../editor/shiftClickSelection";
 import { useSignOffs } from "../editor/signOffActions";
-import { compareSlashItem, noteSlashItems, skillSlashItems } from "../editor/slashItems";
+import {
+  citeWhileWritingItems,
+  compareSlashItem,
+  noteSlashItems,
+  skillSlashItems,
+} from "../editor/slashItems";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
 import { TableOfContentsView } from "../editor/TableOfContentsView";
@@ -115,6 +127,7 @@ import { TableKeys } from "../editor/tableCommands";
 import { reviewItemsIn } from "../editor/theirChanges";
 import { TitleLine } from "../editor/titleLine";
 import { SmartTypography } from "../editor/typography";
+import { UncheckedFigures } from "../editor/uncheckedFigures";
 import type { EditWithAiField } from "../editor/useEditField";
 import { useMenuEditLine } from "../editor/useMenuEditLine";
 import { useVerification } from "../editor/VerifyLine";
@@ -136,7 +149,7 @@ import { type OpenedCopy, openMindCopy } from "../mindCopies";
 import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
 import { useMindTools } from "../mindTools";
-import { onMindWriting, writingPlaceOf } from "../mindWriting";
+import { onMindWriting, writingPartOf, writingPlaceOf } from "../mindWriting";
 import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
@@ -379,11 +392,13 @@ function MindEditorView({
         : t("editor.footnote.label", { number });
   /** The position of the formula whose LaTeX is being edited. */
   const [editingMath, setEditingMath] = useState<number | null>(null);
+  const [cite, setCite] = useState<CitePlace | null>(null);
   /** A Mind still filling in from a Word file can't be edited until it has (#104). */
   const importing = useWordFile(doc).progress !== null;
   /** The Mind's citation style, followed as it changes (#289). */
   const styleChoice = useMindStyleChoice(doc);
   const formRef = useRef<CitationForm>(citationForm(styleChoice.chosen ?? "numbered", undefined));
+  const liveRef = useRef<CitationLive>({ documents: null });
 
   const editor = useEditor(
     {
@@ -415,12 +430,20 @@ function MindEditorView({
           tableOfContentsView: ReactNodeViewRenderer(TableOfContentsView),
           pictureView,
         }),
-        // Footnotes are numbered as the Mind's citation style counts its Citations (#289).
-        CitationNumbers.configure({ form: () => formRef.current }),
+        // Footnotes are numbered as the Mind's citation style counts its Citations (#289), their
+        // checks settled as the live Documents have them (#2292).
+        CitationNumbers.configure({
+          form: () => formRef.current,
+          live: () => liveRef.current,
+        }),
         // Pictures pasted or dropped into the Note, and the picture chosen with "/" (#1937).
         Pictures,
         CitationClusters,
         ClaimChecks,
+        // The quiet underline of each live comment, and where a click on it finds the card (#328).
+        commentDecorations(() => commentIdsOf(doc)),
+        // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
+        UncheckedFigures,
         CopyCitations.configure({
           figureRuns: (selected) => (doc ? figureRunsFor(doc, selected) : []),
         }),
@@ -470,7 +493,13 @@ function MindEditorView({
             const compare = compareSlashItem(
               (afterBlockId) => void startCompareDocuments(mindId, afterBlockId),
             );
-            return place === "question" ? skills : [...noteSlashItems, compare, ...skills];
+            const writing = citeWhileWritingItems(
+              translateNow("editor.slash.citeHint"),
+              (current, range) => setCite({ editor: current, from: range.from, to: range.to }),
+            );
+            return place === "question"
+              ? skills
+              : [...writing, ...noteSlashItems, compare, ...skills];
           },
         }),
         ScopePicker,
@@ -492,7 +521,7 @@ function MindEditorView({
           translate: translateNow,
           undoKeys: () => shortcutLabel("edit.undo"),
         }),
-        WritingPlace.configure({ label: () => translateNow("mind.writing") }),
+        WritingPlace,
         Suggestions.configure({
           request: (request) => askForSuggestion(mindId, doc, request),
           cancel: (requestId) =>
@@ -519,6 +548,7 @@ function MindEditorView({
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
+  const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
   const folderId = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
   );
@@ -574,6 +604,12 @@ function MindEditorView({
   useEffect(() => {
     if (!editor.isDestroyed) setCitationForm(editor.view, form);
   }, [editor, form]);
+  // A Citation's check, and so its footnote's place in the numbering, follows the live Documents
+  // and the text kept of those unlinked (#2292).
+  useEffect(() => {
+    liveRef.current = { documents, kept: keptCitationTexts };
+    if (!editor.isDestroyed) redrawFootnotes(editor.view);
+  }, [editor, documents, keptCitationTexts]);
 
   useEffect(
     () => (readOnly ? undefined : registerMindEditor(mindId, editor)),
@@ -632,9 +668,8 @@ function MindEditorView({
   const hasDocuments = useAppStore((state) => state.documents.length > 0);
   const aiActions = useMemo((): SelectionAction[] => {
     const available = (current: typeof editor) => selectionForEdit(current.state) !== null;
-    const run =
-      (action: "improve" | "shorten" | "explain", from?: "menu") => (current: typeof editor) =>
-        void requestEdit(current, mindId, doc, action, undefined, undefined, from);
+    const run = (action: "improve" | "shorten", from?: "menu") => (current: typeof editor) =>
+      void requestEdit(current, mindId, doc, action, undefined, undefined, from);
     return [
       {
         id: "improve",
@@ -663,7 +698,14 @@ function MindEditorView({
         })),
         run: () => undefined,
       },
-      { id: "explain", label: "editor.ai.explain", icon: "?", available, run: run("explain") },
+      {
+        id: "explain",
+        label: "editor.ai.explain",
+        icon: "?",
+        available,
+        // Answered in the assistant, with the selection as a chip: the Note is left as it is (#2348).
+        run: (current) => void explainSelection(current, mindId, doc),
+      },
       {
         id: "check-anyway",
         label: "claim.checkAnyway",
@@ -767,9 +809,13 @@ function MindEditorView({
   useEffect(() => {
     const placeNow = (place: ReturnType<typeof writingPlaceOf>) =>
       useEdits.getState().pending[mindId]?.menu ? null : place;
-    setWritingPlace(editor, placeNow(writingPlaceOf(mindId)));
-    return onMindWriting(({ mindId: changed, place }) => {
-      if (changed === mindId) setWritingPlace(editor, placeNow(place));
+    const label = (part: EditPart | null | undefined) =>
+      part
+        ? translateNow("edit.pending.part", { at: part.at, of: part.of })
+        : translateNow("mind.writing");
+    setWritingPlace(editor, placeNow(writingPlaceOf(mindId)), label(writingPartOf(mindId)));
+    return onMindWriting(({ mindId: changed, place, part }) => {
+      if (changed === mindId) setWritingPlace(editor, placeNow(place), label(part));
     });
   }, [editor, mindId]);
 
@@ -867,6 +913,15 @@ function MindEditorView({
   );
   const reviewing = !readOnly && slots.reviewShown !== "closed";
   useEffect(() => followMindStyle(mindId, doc), [mindId, doc]);
+  // ⌘K reaches Cite… as the "/" menu does.
+  useEffect(() => (readOnly ? undefined : offerCite(editor, setCite)), [editor, readOnly]);
+  // Another Mind's document is another editor: a Cite… open in the one before is gone.
+  const citeDoc = useRef(doc);
+  useEffect(() => {
+    if (citeDoc.current === doc) return;
+    citeDoc.current = doc;
+    setCite(null);
+  }, [doc]);
 
   return (
     <MindIdContext.Provider value={mindId}>
@@ -885,6 +940,7 @@ function MindEditorView({
               {reviewing && slots.reviewShown !== "beside" && (
                 <ReviewFold editor={editor} mindId={mindId} />
               )}
+              <CommentsButton editor={editor} mindId={mindId} doc={doc} />
               <PageMenu
                 editor={editor}
                 doc={doc}
@@ -932,6 +988,8 @@ function MindEditorView({
           </OpinionMenu>
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
+          <CommentLayer editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
+          <DraftComment editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
           {!readOnly && <TableMenu editor={editor} />}
           {!readOnly && <ListMenu editor={editor} />}
           <FootnoteArea editor={editor} citationView={citationView} />
@@ -956,7 +1014,32 @@ function MindEditorView({
           !readOnly &&
           createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
         {!readOnly && <BlockHandle editor={editor} />}
-        {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
+        {!readOnly && (
+          <SelectionMenu
+            editor={editor}
+            ai={aiActions}
+            edit={editField}
+            comment={{
+              run: (current) => commentOnSelection(current, mindId, doc),
+            }}
+          />
+        )}
+        {!readOnly && cite && (
+          <CiteSearch
+            key={`${cite.from}:${cite.to}`}
+            place={cite}
+            mindId={mindId}
+            doc={doc}
+            onDone={() => setCite(null)}
+          />
+        )}
+        <AskedComment
+          editor={editor}
+          mindId={mindId}
+          doc={doc}
+          fallback={slots.menu}
+          readOnly={readOnly}
+        />
         {!readOnly && <LinkBubble editor={editor} />}
         {findShown && (
           <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />

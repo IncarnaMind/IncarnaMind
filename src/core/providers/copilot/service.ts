@@ -17,3 +17,13 @@ export function copilotWay(
 ): { id: CopilotProfileId; experimental: boolean } | null {
   return profiles.find((profile) => !profile.experimental) ?? profiles[0] ?? null;
 }
+
+/** Whether the Copilot row carries the Experimental tag: the way the account signed in with, else the way offered. */
+export function copilotTagged(status: CopilotStatus): boolean {
+  const { account } = status;
+  const signedWith =
+    account.state === "signed-in"
+      ? status.profiles.find((profile) => profile.id === account.profile)
+      : undefined;
+  return (signedWith ?? copilotWay(status.profiles))?.experimental === true;
+}

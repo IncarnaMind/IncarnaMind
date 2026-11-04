@@ -109,6 +109,7 @@ beforeEach(async () => {
     id: "a",
     name: "Client A",
     description: "",
+    parentId: null,
     countsOwnFiles: false,
     keepInside: true,
     createdAt: at,

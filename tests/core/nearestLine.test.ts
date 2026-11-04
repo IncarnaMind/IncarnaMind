@@ -51,6 +51,40 @@ describe("the line of a Passage nearest a sentence (#770)", () => {
   });
 });
 
+describe("a sheet's rows the file sets aside (#1979)", () => {
+  const sheet = [
+    "Item\tSubtotal (kg)",
+    "[row 3, struck through] TOTAL load\t0.4",
+    "[Load, rows 4–5] [row 4, hidden] TOTAL load\t0.35",
+    "TOTAL load\t0.25",
+  ].join("\n");
+
+  test("are never the line a sentence is judged against, nor is a current row as near as one of them", () => {
+    // The sentence may be about the earlier version: the current row isn't what the Document says of it.
+    for (const sentence of ["The earlier TOTAL load was 0.4 kg.", "The TOTAL load is 0.35 kg."])
+      expect(nearestLine(sentence, [{ id: "P1", text: sheet }])).toBeNull();
+    expect(nearestLine("The TOTAL load is 0.25 kg.", [{ id: "P1", text: sheet }])).toMatchObject({
+      id: "P1",
+      text: "TOTAL load\t0.25",
+    });
+    expect(
+      nearestLine("The TOTAL load is 0.4 kg.", [
+        { id: "P1", text: sheet.replace("[row 3, struck through] ", "") },
+      ]),
+    ).toMatchObject({ id: "P1", text: "TOTAL load\t0.4" });
+  });
+
+  test("nor any line of a Passage whose set-aside rows couldn't be marked line by line", () => {
+    const unplaced = `[rows the file sets aside, not marked line by line: row 2 struck through]\nTOTAL load\t0.4\nTOTAL load\t0.25`;
+    expect(nearestLine("The TOTAL load is 0.4 kg.", [{ id: "P1", text: unplaced }])).toBeNull();
+    expect(
+      nearestLine("The TOTAL load is 0.4 kg.", [
+        { id: "P1", text: unplaced.split("\n").slice(1).join("\n") },
+      ]),
+    ).toMatchObject({ id: "P1", text: "TOTAL load\t0.4" });
+  });
+});
+
 describe("the figures a sentence states, in a text", () => {
   test("match across separators and percent forms, and differ when one isn't there", () => {
     const sheet = "Item,2024,2025\nRevenue,1231.0,1482.6\nOperating margin,0.18,0.21";

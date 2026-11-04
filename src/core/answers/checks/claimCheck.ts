@@ -62,7 +62,7 @@ import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import { isRecord } from "../../errors";
 import type { Language } from "../../language";
-import { calculates, givesStructuredOutput } from "../../providers/capabilities";
+import { checkCalculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import { OUTPUT_LIMITS, outputTokens } from "../../providers/outputLimits";
 import { classifyProviderError } from "../../providers/providerErrors";
@@ -74,6 +74,7 @@ import {
   createCalculationSession,
   documentFigureContext,
   givenList,
+  toldFigure,
   whole,
 } from "../calculations";
 import {
@@ -94,12 +95,12 @@ import {
 } from "../engine";
 import type { TurnCheck, TurnFinding } from "../turnChecks";
 import { checkAbsence, fitsWholeRead, type Presence } from "./absence";
-import { agreesWith, statedFigure } from "./calculated";
+import { agreesWith, comparedFigure, statedFigure } from "./calculated";
 import { needsCalculation } from "./calculationGate";
 import {
+  aboutSomeoneElse,
   checkFigureReply,
   figureJudgment,
-  figureReplyText,
   givesItsOwnNumber,
   readFigureReply,
   readFigureSource,
@@ -107,9 +108,11 @@ import {
   verdictMarkers,
   withSentenceVerdict,
 } from "./figureChecks";
+import { type FilePropertySearch, withFileProperties } from "./fileProperties";
 import { figuresMatch, nearestLine } from "./nearest";
 import {
   type AbsenceAnswer,
+  CHECK_TAGS,
   CONFIRM_INSTRUCTIONS,
   COVERED_EVIDENCE_INSTRUCTIONS,
   checkInstructions,
@@ -118,6 +121,8 @@ import {
   EVIDENCE_INSTRUCTIONS,
   evidencePrompt,
   NEAREST_INSTRUCTIONS,
+  namesNothing,
+  ownWords,
   PRESENCE_INSTRUCTIONS,
   partInstructions,
   presencePrompt,
@@ -129,6 +134,7 @@ import {
   readPresence,
   readsAsRefusal,
   readVerdict,
+  replyAcrossTurns,
   STRICT_INSTRUCTIONS,
   STRICT_PRESENCE_INSTRUCTIONS,
 } from "./prompt";
@@ -160,6 +166,8 @@ export interface ClaimCheckDependencies {
     getMany?(documentIds: readonly string[]): Document[];
     names?(): readonly import("../../../shared/citations").LiveDocument[];
   };
+  /** The Run's searches may show the Documents' file properties (./fileProperties). */
+  fileProperties?: FilePropertySearch;
 }
 
 /** A Citation the sentence has, as its check reads it: `passageId` when it quotes the Document as it is now. */
@@ -333,7 +341,8 @@ function figuresReplied(
   return [
     {
       name: "figures-line",
-      check(text) {
+      check(last, setAside = []) {
+        const text = replyAcrossTurns(last, setAside);
         if (!asked(text)) return null;
         const read = readFigureReply(text, figures, request.claim);
         if (!read) return ask(text, { claims: [], note: FIGURES_LINE });
@@ -345,7 +354,8 @@ function figuresReplied(
     },
     {
       name: "figures-sources",
-      check(text) {
+      check(last, setAside = []) {
+        const text = replyAcrossTurns(last, setAside);
         const read = asked(text) ? readFigureReply(text, figures, request.claim) : null;
         if (!read) return null;
         const problems = read.items.flatMap((item) => {
@@ -408,6 +418,10 @@ function figuresReplied(
  * "自 2026 年 11 月起" (#2311).
  */
 export const NO_DATE = (): null => null;
+
+/** Passages as every check shows them, and so counts them: with its prompt's tags defused (#2423). */
+export const checkSession = (documents: Parameters<typeof createCitationSession>[0]) =>
+  createCitationSession(documents, { onRecord: () => undefined, defuses: CHECK_TAGS });
 
 function citedSources(
   cited: readonly CheckedCitation[],
@@ -517,7 +531,7 @@ const asPassage = (source: CitationSource): WindowedPassage => ({
 });
 
 const calculatesIn = (model: Pick<PreparedChatModel, "support" | "capabilities">): boolean =>
-  model.support === "tools" && calculates(model.capabilities);
+  model.support === "tools" && checkCalculates(model.capabilities);
 
 /** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
 export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
@@ -555,19 +569,17 @@ export function checkRunStart(
   const start = runStart(request, deps.language(), calculating);
   const cited = citedSources(request.cited ?? [], request.scope, deps.documents);
   const { documents } = deps;
-  const session = createCitationSession(
-    {
-      citationSource: (passageId) => documents.citationSource(passageId),
-      pageTexts: (documentId, contentHash, from, to) =>
-        documents.pageTexts(documentId, contentHash, from, to),
-      documentDate: NO_DATE,
-    },
-    { onRecord: () => undefined },
-  );
+  const session = checkSession({
+    citationSource: (passageId) => documents.citationSource(passageId),
+    pageTexts: (documentId, contentHash, from, to) =>
+      documents.pageTexts(documentId, contentHash, from, to),
+    documentDate: NO_DATE,
+  });
   const mode = model.support ?? "tools";
   const tools: AnswerTools = {
     documentCount: 1,
     documentLanguages: deps.documents.searchableLanguages(request.scope.documentIds),
+    ...(deps.documents.getMany && { fileProperties: true }),
     searchDocuments: async () => ({ text: "", passageCount: 0 }),
     cite: () => "",
     ...(calculating && { calculate: () => "" }),
@@ -580,6 +592,10 @@ export function checkRunStart(
 }
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
+  return withFileProperties(deps, createSentenceCheck);
+}
+
+function createSentenceCheck(deps: ClaimCheckDependencies) {
   const check = async function checkClaim(
     request: ClaimCheckRequest,
   ): Promise<AtomicClaimCheckResult> {
@@ -620,7 +636,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             .filter((each) => !scope.excluded.has(each.id)),
           name,
         ),
-      async search(query, searchSignal, within) {
+      async search(query, searchSignal, within, options) {
         const found = request.window
           ? null
           : await deps.evidence.search(
@@ -629,9 +645,13 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
               searchSignal,
             );
         // A web search's result never settles a citation of a court decision.
-        const passages = (request.window ?? found?.passages ?? []).filter(
+        const matched = (request.window ?? found?.passages ?? []).filter(
           (passage) => decisions.length === 0 || !deps.documents.savedBySearch(passage.documentId),
         );
+        const passages =
+          options?.properties && deps.fileProperties
+            ? [...matched, ...deps.fileProperties.add(matched, within, options)]
+            : matched;
         if (!request.window) {
           for (const passage of passages) read.set(passage.documentId, passage.contentHash);
         }
@@ -661,7 +681,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
     // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
     // host's own date for each, never shown to the model as the Document's words.
     const newestFirst = (documentId: string) => deps.documents.documentDate(documentId);
-    const session = createCitationSession(scoped, { onRecord: () => undefined });
+    const session = checkSession(scoped);
     // The words a Citation quotes don't say where they stand: a sheet row's year is in its
     // sheet's name and heading row, which the check reads only in the Passage itself (#1459).
     const citedPassages = citedSources(request.cited ?? [], scope, deps.documents);
@@ -691,10 +711,17 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         return session.tools.documentCount;
       },
       documentLanguages: deps.documents.searchableLanguages(scope.documentIds),
+      ...(deps.fileProperties && { fileProperties: true }),
       // Only the model's searches count: looking up a cited court decision shows it nothing.
       searchDocuments: (query, searchSignal, options) => {
         searches++;
-        if (!request.window) return session.tools.searchDocuments(query, searchSignal, options);
+        if (!request.window) {
+          const found = session.tools.searchDocuments(query, searchSignal, options);
+          const { fileProperties } = deps;
+          return options?.properties && fileProperties
+            ? found.then((result) => fileProperties.told(result, options))
+            : found;
+        }
         // Claude Haiku 5.5 searched a window two or three times, at once or in turn, and each
         // search returned the whole window again: its verdict request carried it two or three
         // times (#1554).
@@ -784,7 +811,21 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             }
           }
           if (pending.size > 0) calculationFailures++;
-          return result;
+          // The model is told the figure it will be judged on: a cost it marked as printed in
+          // brackets is taken at its size, as the card shows it (#1908).
+          let toldAtSize = result;
+          for (const [marker, number] of stated) {
+            const figure = figures.figure(marker);
+            const citation = figure?.inputs[0]?.citation;
+            const own =
+              citation && statedFigure(request.claim, number.number, figureContext(citation));
+            const compared = figure && own ? comparedFigure(own, figure, number.costs) : null;
+            if (figure && compared && compared !== figure)
+              toldAtSize = toldAtSize.replace(toldFigure(marker, figure), () =>
+                toldFigure(marker, compared),
+              );
+          }
+          return toldAtSize;
         },
       }),
     };
@@ -874,7 +915,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ([documentId, contentHash]): CheckedVersion => ({ documentId, contentHash }),
       ),
       excluded: [...excluded.values()].filter(
-        (each) => each.reason === "own-file" || each.reason === "checked-document",
+        (each) =>
+          each.reason === "own-file" ||
+          each.reason === "own-note" ||
+          each.reason === "checked-document",
       ),
       ...(request.window && { readPassages: [...readPassages] }),
     });
@@ -1021,6 +1065,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       request.findParts(text);
     };
     let setAside: readonly string[] = [];
+    // Set by any reply that compared other words than the sentence's, whether or not the ask was
+    // still free: a later reply that gives none is held back as one that gives other words.
+    let askedForOwnWords = false;
     let askedAbout: string | null = null;
     let askedFigures: string | null = null;
     let failed: ProviderError | null = null;
@@ -1073,6 +1120,7 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         },
         // In a window of a whole read every search returns that window: the read is the search.
         ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
+        ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
         ...figuresReplied(
           request,
           figures,
@@ -1097,6 +1145,16 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
                 }
               : null,
         },
+        {
+          name: "roles-own-words",
+          check: (text, aside) => {
+            const read = replyAcrossTurns(text, aside ?? []);
+            const verdict = readVerdict(read);
+            if (!verdict || !comparesOtherWords(verdict, request.claim, false)) return null;
+            askedForOwnWords = true;
+            return { claims: [], writeOnly: true, note: ROLES_OWN_WORDS };
+          },
+        },
       ],
       signal,
     })) {
@@ -1109,11 +1167,12 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       else if (event.type === "finished") finished = true;
     }
     if (!failed) hear(heard);
+    deps.fileProperties?.replied(replyAcrossTurns(reply, setAside));
     if (signal.aborted) return notChecked("stopped");
     if (failed) return failedCheck(failed);
     if (request.figures?.length) {
       if (!finished || reply.trim() === "") return notChecked("empty");
-      const written = figureReplyText(reply, setAside);
+      const written = replyAcrossTurns(reply, setAside);
       // Asked about its Figures line, a model that can't do what it was asked may write prose
       // in place of its reply ("I can't rewrite that Figures entry…"): the reply asked about stands.
       // One that writes only its Figures line again leaves its verdict on the sentence standing.
@@ -1196,9 +1255,10 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         readFigureReply(text, request.figures, request.claim) === null
           ? (askedFigures ?? text)
           : text;
-      const result = await checkFigureReply({
+      const checkedFigures = await checkFigureReply({
         requested: request.figures,
         claim: request.claim,
+        ...(request.context !== undefined && { paragraph: request.context }),
         reply: figuresText,
         calculations: figures,
         citation: (marker) => session.finalCitation(marker),
@@ -1209,6 +1269,21 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
           unstatedUnit(citations, figure, bound)?.why ?? null,
         units: (citation) =>
           deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
+        around: (citation) => {
+          const text = checkedTextOf(citation, scoped.pageTexts);
+          // With no pages cited, the cited text is the quote alone, which places it nowhere.
+          return citation.pageFrom === null ? [text.document()] : [text.cited(), text.document()];
+        },
+        otherMeasure: (amount, measure, claimed) => ({
+          reason: translate(deps.language(), "claim.unsupported.otherMeasure", {
+            amount,
+            measure,
+            claimed,
+          }),
+          covered: null,
+          uncovered: null,
+          found: true,
+        }),
         signal,
         remainder: (remainder) =>
           judged(
@@ -1217,6 +1292,9 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
             remainder.citation === null ? null : session.finalCitation(remainder.citation),
           ),
       });
+      // The reply's own Roles line gives the sentence to someone its Passage doesn't name: each
+      // number bound to that Passage is someone else's, and neither backs nor contradicts it.
+      const result = said?.roles === "other" ? aboutSomeoneElse(checkedFigures) : checkedFigures;
       // The sentence's contradiction is judged on the quote its own words cite, not a figure's.
       // A sentence whose words cite no quote of their own rests on its figures' quotes, so a
       // Supported verdict never turns a result its figures settled into Not checked.
@@ -1241,6 +1319,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
       const sentence = async (verdict: ReadVerdict): Promise<ClaimJudgment> => {
         if (declined && verdict.verdict === "supported") return unchecked("refused");
+        if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
+          return unchecked("malformed");
         const evidence =
           cited ??
           (verdict.verdict === "contradicted"
@@ -1390,9 +1470,14 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         ]),
       ),
     );
-    const worked = checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null;
-    // A figure that disagrees contradicts the sentence. One that agrees settles only that
-    // number: the model's verdict still stands on the rest of the sentence.
+    // A sentence the reply's Roles line gives to someone its Passages don't name is no sentence of
+    // theirs: no figure worked out from their numbers backs or contradicts it (#1766).
+    const elsewhere = readVerdict(replyAcrossTurns(reply, setAside))?.roles === "other";
+    const worked = elsewhere
+      ? null
+      : (checked.find(({ calculation }) => !calculation.agrees) ?? checked[0] ?? null);
+    // A figure that disagrees contradicts the sentence. One that agrees settles only that number:
+    // the model's verdict still stands on the rest of the sentence.
     if (worked && !worked.calculation.agrees) {
       return {
         verdict: "contradicted",
@@ -1405,19 +1490,23 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
       };
     }
     if (!finished || reply.trim() === "") return notChecked("empty");
-    // Claude Haiku 5.5 may write the verdict lines in the turn that calls `cite` after its search,
-    // with no marker, and only the sentence after it: the Answer sets that turn aside as a
-    // preamble (#1673). Only the last such turn with a verdict counts, so another one's preamble
-    // never becomes what the Document says, and a refusal after it is the reply's last word.
     const refused = readsAsRefusal(reply);
-    const withVerdict = refused
-      ? undefined
-      : setAside.findLast((text) => readVerdict(text) !== null);
-    let verdict =
-      readVerdict(reply) ??
-      (withVerdict === undefined ? null : readVerdict(`${withVerdict}\n\n${reply}`));
+    let verdict = readVerdict(replyAcrossTurns(reply, setAside));
     if (!verdict) return notChecked(refused ? "refused" : "malformed");
     if (!looked()) return notChecked("unread");
+    // Whatever its verdict line says: a contradiction's judgements compared only the figures
+    // ("Managers… 30 days" against the Employee's 27), and an absence's whole read would find
+    // nothing of them either (#1766).
+    if (elsewhere)
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: { reason: verdict.says, covered: null, uncovered: null, found: true },
+        calculation: null,
+        ...citedCase(null),
+        ...facts(),
+      };
     session.check();
     if (verdict.evidence === null || verdict.coverage === null) return notChecked("malformed");
     const namedMarkers = [
@@ -1479,6 +1568,8 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
         verdict = { ...verdict, verdict: "unsupported", says: null };
       }
     }
+    if (comparesOtherWords(verdict, request.claim, askedForOwnWords))
+      return notChecked("malformed");
     const absence = await absenceFor(verdict.absence ?? null, verdict.verdict);
     if (absence) return absence;
     if (await requiresCalculation(verdict))
@@ -1722,6 +1813,29 @@ export function createClaimCheck(deps: ClaimCheckDependencies) {
   };
 }
 
+/**
+ * A Supported reply whose Roles line gives other words than the sentence's as its own compared
+ * something else: Claude Haiku 5.5 wrote the Passage's direction ("向人力资源总监汇报" for
+ * "人力资源总监向乙方汇报"), "none" for "should be carried over", then called the two the same
+ * (#1766). It can't be read as support.
+ */
+const ROLES_OWN_WORDS =
+  "Your Roles line's first side isn't the sentence's own words. Copy from the sentence, word for word and in its own order, the words that say who does it, for or to whom, and whether it must or may happen, or, when it names no one, the words for what happens; then \" / \" and the Passage's words; then same, differs or other. Then give your whole reply again.";
+
+/**
+ * `asked`: a reply of this check has already given other words than the sentence's. A Roles line
+ * naming nothing on either side is held back only where the reply's own Scope line names the
+ * sentence's party or term: a figure's or a cell's sentence often names neither ("Scope: none,
+ * same" for 杠杆率仍应在3.25倍的契约上限之内), but one that names the Tenant has its words to copy.
+ */
+function comparesOtherWords(verdict: ReadVerdict, claim: string, asked: boolean): boolean {
+  if (verdict.verdict !== "supported") return false;
+  const sides = verdict.rolesSides;
+  if (sides === undefined) return asked;
+  if (namesNothing(sides)) return asked || verdict.scopeNames === true;
+  return !ownWords(sides[0] ?? "", claim);
+}
+
 interface StatedNumber {
   number: string;
   relation?: LimitRelation;
@@ -1759,12 +1873,18 @@ function calculated(
       )
     )
       continue;
-    const agrees = agreesWith(number, figure, { relation, costs });
-    if (agrees === null) continue;
+    const compared = comparedFigure(number, figure, costs);
+    const agrees = compared && agreesWith(number, compared, { relation });
+    if (!compared || agrees === null) continue;
     const worked = {
       number,
       evidence: first,
-      calculation: { figure, stated: number.chars, agrees, ...(relation && { relation }) },
+      calculation: {
+        figure: compared,
+        stated: number.chars,
+        agrees,
+        ...(relation && { relation }),
+      },
     };
     checked.push(worked);
   }
@@ -1821,10 +1941,24 @@ async function askForEvidence(
     return { failed: classifyProviderError(error) };
   }
   const records: CitationRecordInput[] = [];
-  if (markers.length === 0) {
-    const record = readEvidence(reply);
-    if (!record) return null;
-    records.push({ marker: EVIDENCE_MARKER, ...record });
+  // Asked for the one marker its reply names, Claude Haiku 5.5 gave the record alone, as an ask for
+  // no marker takes it, for a quote it had written into its reply instead of calling cite (#2184).
+  // Beside other markers, a record alone may be another one's copied.
+  const named = new Set([
+    ...(verdict.evidence ?? []),
+    ...(verdict.coverage?.members.flatMap((member) => member.evidence) ?? []),
+    ...(verdict.coverage?.domainEvidence ?? []),
+  ]);
+  const [asked] = markers;
+  const only =
+    markers.length === 1 && asked !== undefined && named.size === 1 && named.has(asked)
+      ? asked
+      : undefined;
+  const alone = markers.length === 0 || only !== undefined ? readEvidence(reply) : null;
+  if (alone) {
+    records.push({ marker: only ?? EVIDENCE_MARKER, ...alone });
+  } else if (markers.length === 0) {
+    return null;
   } else {
     let parsed: unknown;
     try {
