@@ -696,8 +696,11 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
 
       await client.settled();
       const told = lastResult(model);
-      // A reply by names that doesn't name a paragraph never spoke of it: it isn't told as left out (#2356).
-      expect(told.includes(`“${notes[1]}”`)).toBe(!stays);
+      // A reply by names that doesn't name a paragraph is told it stays as it was, never that it was left out (#2356).
+      expect(told.includes(`What the rewrite didn't name stays as it was: “${notes[1]}”`)).toBe(
+        stays,
+      );
+      expect(told.includes(`(taken out or reworded): “${notes[1]}”`)).toBe(!stays);
       expect(told).not.toContain("they are still in the text");
       expect(told.includes("no longer in the text as they were")).toBe(!stays);
       expect(shownWithChanges(client).join(" ").includes(`- ${notes[1]}`)).toBe(!stays);
@@ -1770,7 +1773,7 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     zh: note(ZH_VISIT),
   };
 
-  // protects=taking sentences out of a paragraph of the User's, however much of it they are, takes out only those words and applies at once like any small edit, the rest staying the User's own; the model is told exactly the sentences that went; first, middle and last, two at once, one holding a quote, in a list item and a table cell; English and Chinese; fails_when=the paragraph is written anew whole, so the edit waits for the User ("this rewrites most of your text") and every sentence is told as gone, or a kept sentence is told as left out or gone; no_claim=how a real model words its reply.
+  // protects=taking sentences out of a paragraph of the User's, however much of it they are, takes out only those words and applies at once like any small edit, the rest staying the User's own; the model is told exactly the sentences that went, and of a paragraph a reply by names didn't name only that it stays as it was; first, middle and last, two at once, one holding a quote, in a list item and a table cell; English and Chinese; fails_when=the paragraph is written anew whole, so the edit waits for the User ("this rewrites most of your text") and every sentence is told as gone, or a kept sentence is told as left out or gone; no_claim=how a real model words its reply.
   test.each([
     {
       case: "zh, the first sentence, holding a quote",
@@ -1865,13 +1868,19 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     expect(told).not.toContain("waits there for them");
     expect(told).not.toContain("still in the text");
     for (const sentence of each.gone) expect(told).toContain(`“${sentence}”`);
-    for (const sentence of kept) expect(told).not.toContain(`“${sentence}”`);
+    const around = each.blocks.includes(visit.en) ? EN_VISIT : ZH_VISIT;
+    for (const sentence of kept.filter((each) => each !== around))
+      expect(told).not.toContain(`“${sentence}”`);
+    // The paragraph a reply by names didn't name is told as it was, never as left out (#2356).
+    expect(told.includes(`What the rewrite didn't name stays as it was: “${around}”`)).toBe(
+      each.reply.startsWith("¶"),
+    );
     for (const line of shownWithChanges(client)) expect(line).not.toMatch(/^[-+] |\{\+/);
     await resolveChanges(client, "accept");
     expect(shownWithChanges(client)).toEqual(each.after);
   });
 
-  // protects=a reply that rewrites one paragraph of a Note by name, or only quotes what goes, is told the change made and nothing about the paragraphs and sentences it never spoke of, so its reply can't call the result contradictory ("Make my note shorter."); English and Chinese; fails_when=sentences the reply didn't write are told as left out but still there beside the ones that went; no_claim=how a real model words its reply.
+  // protects=a reply that rewrites one paragraph of a Note by name, or only quotes what goes, is told the change made, and of a paragraph a reply by names didn't name only that it stays as it was, never that it was left out, so its reply can't call the result contradictory ("Make my note shorter."); English and Chinese; fails_when=sentences the reply didn't write are told as left out but still there beside the ones that went; no_claim=how a real model words its reply.
   test.each([
     {
       asked: "Make my note shorter.",
@@ -1912,7 +1921,10 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     const told = lastResult(model);
     expect(told).toContain(APPLIES);
     expect(told).not.toContain("still in the text");
-    expect(told).not.toContain(`“${lines[1]}”`);
+    expect(told.includes(`What the rewrite didn't name stays as it was: “${lines[1]}”`)).toBe(
+      reply.startsWith("¶"),
+    );
+    expect(told).not.toContain(`(taken out or reworded): “${lines[1]}”`);
     expect(told).toContain("no longer in the text as they were");
   });
 

@@ -704,10 +704,11 @@ const quotesSaid = (quotes: readonly string[]) =>
 
 /**
  * What a rewrite took out, as the model is told so it reports what happened and not what it
- * meant to do: the sentences of the old text the new one doesn't hold, and those of the parts it
- * left out (`leftOut`) that stay. Null when none went or stayed.
+ * meant to do: the sentences of the old text the new one doesn't hold, those of the parts it
+ * left out (`leftOut`) that stay, and those of the paragraphs a reply by names didn't name
+ * (`unnamed`). Null when none went or stayed.
  */
-function takenOut(before: string, after: string, leftOut = ""): string | null {
+function takenOut(before: string, after: string, leftOut = "", unnamed = ""): string | null {
   const sentencesOf = (text: string) =>
     text
       .split(/\n+/)
@@ -736,6 +737,8 @@ function takenOut(before: string, after: string, leftOut = ""): string | null {
   // so its own "removed" is not repeated. Only those the edit itself counts as left out: one a
   // reply by names didn't name, or one it quoted words from, it never spoke of (#2356).
   const stayed = [...new Set(sentencesOf(leftOut))].filter((sentence) => now.has(sentence));
+  // Said without "left out", which a reply by names reported as contradicting the change (#2356).
+  const unchanged = [...new Set(sentencesOf(unnamed))].filter((sentence) => now.has(sentence));
   const told = [
     ...(gone.length > 0
       ? [
@@ -745,6 +748,11 @@ function takenOut(before: string, after: string, leftOut = ""): string | null {
     ...(stayed.length > 0
       ? [
           `The rewrite left these sentences out, but they are still in the text, as it didn't mark them as taken out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
+        ]
+      : []),
+    ...(unchanged.length > 0
+      ? [
+          `What the rewrite didn't name stays as it was: ${quoted(unchanged)}. If the User asked for any of it to go, say it is still there.`,
         ]
       : []),
   ];
@@ -2416,6 +2424,7 @@ export function mindTools(options: MindToolsOptions): {
             around.before,
             around.after,
             minds.read(mind.id, (note) => leftOutText(note, result.leftOut ?? [], result.request)),
+            minds.read(mind.id, (note) => leftOutText(note, result.unnamed ?? [], result.request)),
           )
         : null;
       const span = around ?? length;

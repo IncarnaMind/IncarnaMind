@@ -6349,6 +6349,8 @@ export type EditWithAiResult =
       stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
+      /** The paragraphs of the selection a reply by names didn't name, as they were (#2356). Absent: none. */
+      unnamed?: LeftOutPart[];
       /**
        * The Mind's Yjs state vector once the Proposals were written. This reply can reach a
        * window before the last `"mind.update"` that wrote them, so a window waits until its

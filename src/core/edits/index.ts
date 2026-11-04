@@ -677,6 +677,7 @@ export function createEdits(options: EditsOptions) {
     // How many, before the first part streams: a cloud model's estimate shows first (#83).
     options.writing(mindId, null, { at: 1, of: total });
     const leftOut: LeftOutPart[] = [];
+    const unnamed: LeftOutPart[] = [];
     const notes: Notes = { unmatchedMarkers: 0, unlinkedSources: 0, extraCells: 0 };
     let droppedCitations = 0;
     let held = false;
@@ -731,6 +732,7 @@ export function createEdits(options: EditsOptions) {
           held ||= result.held === true;
           droppedCitations += result.droppedCitations;
           leftOut.push(...(result.leftOut ?? []));
+          unnamed.push(...(result.unnamed ?? []));
           addNotes(notes, {
             unmatchedMarkers: result.unmatchedMarkers ?? 0,
             unlinkedSources: result.unlinkedSources ?? 0,
@@ -774,6 +776,7 @@ export function createEdits(options: EditsOptions) {
       ...someNotes(notes),
       ...(held && { held: true as const }),
       ...(leftOut.length > 0 && { leftOut }),
+      ...(unnamed.length > 0 && { unnamed }),
       ...(changed && { stopped: "changed" as const }),
       stateVector: content.stateVector(mindId),
     };
@@ -864,6 +867,7 @@ export function createEdits(options: EditsOptions) {
       const count = requestId === undefined ? now.count : landed ? proposed : 0;
       if (count === 0) return { kind: "changed" };
       const leftOut = stream?.leftOut() ?? [];
+      const unnamed = stream?.unnamed() ?? [];
       return {
         kind: "proposed",
         request,
@@ -873,6 +877,7 @@ export function createEdits(options: EditsOptions) {
         ...(stream && someNotes(stream.written().notes)),
         ...(held && { held: true as const }),
         ...(leftOut.length > 0 && { leftOut }),
+        ...(unnamed.length > 0 && { unnamed }),
         stateVector: content.stateVector(mindId),
       };
     };
