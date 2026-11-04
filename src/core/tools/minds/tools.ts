@@ -37,19 +37,17 @@ import {
   type AnalysisTableMatch,
   analysisTableFor,
   analysisTablesOf,
+  boundTableFor,
+  countBoundTables,
+  keptAnalysisTables,
 } from "../../../shared/analysisTables";
 import { askedFor, translationRequested, waitsForUser } from "../../../shared/askedChanges";
 import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
-import {
-  type ChartData,
-  chartFromTable,
-  gridOfTable,
-  readChart,
-  sameChartData,
-} from "../../../shared/charts";
+import { type ChartData, gridOfTable, readChart, redrawnData } from "../../../shared/charts";
 import { closeTitles } from "../../../shared/closeTitles";
 import { formatShortDate } from "../../../shared/dates";
 import { FIGURE_MARKER, type PlacedFigure } from "../../../shared/figureMarkers";
+import { figureRunsFor } from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { holdsNothing } from "../../../shared/madeMind";
 import { looksLikeTable } from "../../../shared/markdownTables";
@@ -296,6 +294,8 @@ export interface MindToolsOptions {
     searchTalk: number;
     /** The Analysis tables among its Blocks, so a chart of one draws the Analysis's own values (#2378). */
     analysisTables: readonly AnalysisTableMatch[];
+    /** The charts its content places with a marker ("[=chart 1]"), each its Analysis's kind and title. */
+    chartsPlaced?: readonly ChartAsked[];
   };
   /** A call changed a Mind: its card says so, as soon as it does, also while it writes. */
   changed(toolCallId: string, change: MindChange): void;
@@ -1572,12 +1572,18 @@ export function mindTools(options: MindToolsOptions): {
 
   type Content = ReturnType<MindToolsOptions["blocksOf"]>;
 
+  /** The last Answer's Analyses, whose tables its blocks, and a later write, may hold. */
+  const lastRuns = () => {
+    const last = options.lastAnswer?.answer;
+    return (last?.analyses ?? []).map((analysis) => ({ answerId: last?.id ?? "", analysis }));
+  };
+
   const answerContent = (blocks: NodeJSON[]): Content => {
     const citations = blocks.flatMap(citationNodesIn);
     const notFound = citations.filter((node) => node.attrs?.check === "not-found").length;
     return {
       blocks,
-      cited: citations.length,
+      cited: citations.length + countBoundTables(blocks),
       notFound,
       unrecorded: 0,
       firstUnrecorded: -1,
@@ -1586,7 +1592,7 @@ export function mindTools(options: MindToolsOptions): {
       unlinkedSources: 0,
       extraCells: 0,
       searchTalk: 0,
-      analysisTables: analysisTablesOf(options.lastAnswer?.answer.analyses ?? []),
+      analysisTables: analysisTablesOf(lastRuns()),
     };
   };
 
@@ -1661,7 +1667,7 @@ export function mindTools(options: MindToolsOptions): {
     given: string | NonNullable<MindToolsOptions["lastAnswer"]>,
     made: boolean,
     retry: boolean,
-    chart: ChartAsked | null = null,
+    chartGiven: ChartAsked | null = null,
   ): (Written & { change: MindChange; charted: string | null }) | null => {
     const stream = streams.get(toolCallId);
     streams.delete(toolCallId);
@@ -1670,7 +1676,10 @@ export function mindTools(options: MindToolsOptions): {
     const markdown = typeof given === "string" ? alone.markdown : null;
     const content =
       typeof given === "string" ? options.blocksOf(alone.markdown) : answerContent(given.blocks);
-    const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, ...notes } = content;
+    const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, chartsPlaced, ...notes } =
+      content;
+    // A chart's marker asks for its chart, beneath its table, as `chart` does (#2378).
+    const chart = chartGiven ?? chartsPlaced?.[0] ?? null;
     let writer = stream?.writer ?? null;
     const unmade = blocks.some(unmadeTable);
     const again = made ? "call create_mind again" : "call add_to_mind again";
@@ -1796,7 +1805,13 @@ export function mindTools(options: MindToolsOptions): {
       const picked =
         tables.find((each) => selected.has(idOf(each))) ??
         (tables.length === 1 ? tables[0] : undefined);
-      return { picked: picked ? { id: idOf(picked), node: nodeOf(picked) } : null, tables };
+      const node = picked ? nodeOf(picked) : null;
+      // A table the Note holds as an Analysis's own is read from the run the Note keeps of it.
+      const kept = node && note.doc ? keptAnalysisTables(figureRunsFor(note.doc, [node])) : [];
+      return {
+        picked: picked && node ? { id: idOf(picked), node, kept: boundTableFor(node, kept) } : null,
+        tables,
+      };
     });
     if (!table.picked) {
       const several = table.tables.length > 1;
@@ -1805,14 +1820,13 @@ export function mindTools(options: MindToolsOptions): {
         `No chart was drawn: “${mind.name}” has ${several ? "more than one table, and the User's cursor is in none" : "no table"}. Say so, and ask them to put the cursor in the table to chart.`,
       );
     }
-    const analyses = options.lastAnswer?.answer.analyses ?? [];
     const drawn = chartOfTable(
       table.picked.node,
       table.picked.id,
       asked,
       options.language,
       null,
-      analysisTableFor(table.picked.node, analysisTablesOf(analyses)),
+      table.picked.kept ?? analysisTableFor(table.picked.node, analysisTablesOf(lastRuns())),
     );
     if ("problem" in drawn) {
       throw new Refusal({ kind: "no-chart", mindId: mind.id, problem: drawn.problem }, drawn.why);
@@ -1839,19 +1853,10 @@ export function mindTools(options: MindToolsOptions): {
           continue;
         }
         const table = blocks.find((each) => idOf(each) === source.blockId);
-        const fresh =
-          table &&
-          chartFromTable(gridOfTable(nodeOf(table)), {
-            blockId: source.blockId,
-            title: chart.title,
-            language: options.language,
-          });
-        if (fresh && !sameChartData(fresh.data, chart.data)) {
-          (element as unknown as Y.XmlElement<{ data: ChartData }>).setAttribute(
-            "data",
-            fresh.data,
-          );
-        }
+        // As an Update draws it: an Analysis's values and inputs stay with cells that still read them.
+        const data = table && redrawnData(gridOfTable(nodeOf(table)), chart, options.language);
+        if (data)
+          (element as unknown as Y.XmlElement<{ data: ChartData }>).setAttribute("data", data);
       }
     });
 

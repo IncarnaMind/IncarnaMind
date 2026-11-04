@@ -17,6 +17,7 @@ import {
   type UnreadFile,
 } from "../../core/api";
 import type { Language } from "../../core/language";
+import { liveVersions, tableNeedsLook, tableShownIn } from "../../shared/analysisTables";
 import { allOrigins } from "../../shared/blockOrigins";
 import { citationState, type LiveDocument } from "../../shared/citations";
 import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
@@ -290,6 +291,8 @@ export function readNoteState({
     skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
     omitted: opinionSentenceRanges(root, doc),
     citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
+    tableNeedsLook: (table) =>
+      tableNeedsLook(tableShownIn(doc, table.toJSON(), "en", liveVersions(documents))),
   });
   const requests = new Set(
     claims.map((claim) => claim.check.request).filter((request) => request !== ""),

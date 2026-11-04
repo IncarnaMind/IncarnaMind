@@ -1,13 +1,17 @@
 import { describe, expect, test } from "vitest";
 import { withAnalysisResults } from "../../src/core/analysis/markers";
 import { markdownToBlocks } from "../../src/core/answers/markdown";
-import type { AnswerAnalysis, Citation } from "../../src/core/api";
+import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
+  type AnswerAnalysis,
+  type Citation,
+} from "../../src/core/api";
 import { type AnalysisTable, noAnalysisOutput } from "../../src/shared/analysis";
 import {
   analysisTableFor,
   analysisTablesOf,
-  countCitations,
-  withAnalysisTableCitations,
+  withAnalysisTables,
 } from "../../src/shared/analysisTables";
 import { citationNode, type NodeJSON } from "../../src/shared/blockJson";
 
@@ -81,93 +85,115 @@ const analysis = (
   markers: { figures: [], tables: [{ result: "by_region", marker: 1 }], charts: [] },
 });
 
-const headingCitations = (block: NodeJSON): number =>
-  countCitations((block.content?.[0]?.content ?? []).slice(1));
+const runs = (...analyses: AnswerAnalysis[]) =>
+  analyses.map((each) => ({ answerId: "answer-1", analysis: each }));
 
-describe("an Analysis's table with its Citations (#2378)", () => {
-  test("a table the Analysis gave has each numeric column citing the rows it read", () => {
-    const rows = [
-      ["North", 270.5],
-      ["South", 80],
+/** The binding a Block names, the table's or its caption marker's. */
+const bindingOf = (block: NodeJSON | undefined) =>
+  (block?.attrs?.[ANALYSIS_TABLE_ATTRIBUTE] ?? null) as { id: string; table: unknown } | null;
+
+/** The tables of `blocks`, each with the caption line before it, as `withAnalysisTables` gives them. */
+const captioned = (blocks: readonly NodeJSON[]) =>
+  blocks.flatMap((block, at) => {
+    if (block.type !== "table") return [];
+    const before = blocks[at - 1]?.type === "paragraph" ? blocks[at - 1] : undefined;
+    const marker = before?.content?.find((node) => node.type === ANALYSIS_TABLE_NODE);
+    return [
+      {
+        table: bindingOf(block),
+        caption: before?.content?.filter((node) => node.type === "text").map((node) => node.text),
+        marker: bindingOf(marker),
+      },
     ];
-    const [cited] = withAnalysisTableCitations(
-      [tableBlock(rows)],
-      [
-        analysis([
-          {
-            kind: "table",
-            name: "by_region",
-            label: "Revenue by region",
-            unit: null,
-            table: table(rows),
-          },
-        ]),
-      ],
-    );
-    if (!cited) throw new Error("No table.");
-    expect(headingCitations(cited)).toBe(1);
-    const heading = cited.content?.[0]?.content?.[1]?.content?.[0]?.content ?? [];
-    expect(heading.at(-1)).toEqual(
-      expect.objectContaining({
-        type: "citation",
-        attrs: expect.objectContaining({ location: citation.location }),
-      }),
-    );
   });
 
-  test("a chart's own table cites too, and a table unlike any the Analysis gave keeps none", () => {
-    const rows = [
-      ["North", 270.5],
-      ["South", 80],
-    ];
-    const charted = withAnalysisTableCitations(
-      [tableBlock(rows), tableBlock([["Hand", 1]])],
-      [
-        analysis(
-          [],
-          [{ kind: "bar", title: "Revenue", x: "Region", y: ["Revenue"], table: table(rows) }],
-        ),
-      ],
+const byRegion = (rows: (string | number)[][]) => ({
+  kind: "table" as const,
+  name: "by_region",
+  label: "Revenue by region",
+  unit: null,
+  table: table(rows),
+});
+
+const rows = [
+  ["North", 270.5],
+  ["South", 80],
+];
+
+describe("an Analysis's table is one calculated object (#2378)", () => {
+  test("a table the Analysis gave is bound to its run, under a caption ending with its marker", () => {
+    const made = analysis([byRegion(rows)]);
+    const blocks = withAnalysisTables([tableBlock(rows)], runs(made));
+    const [shown] = captioned(blocks);
+    expect(blocks).toHaveLength(2);
+    expect(shown?.caption).toEqual(["Revenue by region"]);
+    expect(shown?.table).toMatchObject({ table: { result: "by_region" } });
+    expect(shown?.marker).toEqual(shown?.table);
+    // Its cells stay text, and no heading carries a Citation of its own any more.
+    expect(JSON.stringify(blocks[1])).not.toContain('"citation"');
+  });
+
+  test("a chart's own table is bound to that chart, and a table unlike any the Analysis gave is left as it is", () => {
+    const made = analysis(
+      [],
+      [{ kind: "bar", title: "Revenue", x: "Region", y: ["Revenue"], table: table(rows) }],
     );
-    expect(charted[0] && headingCitations(charted[0])).toBe(1);
-    expect(charted[1] && headingCitations(charted[1])).toBe(0);
+    const other = tableBlock([["Hand", 1]]);
+    const blocks = withAnalysisTables([tableBlock(rows), other], runs(made));
+    expect(captioned(blocks).map((each) => [each.caption, each.table?.table])).toEqual([
+      [["Revenue"], { chart: 0 }],
+      [undefined, undefined],
+    ]);
+    expect(blocks.at(-1)).toEqual(other);
   });
 
   test("a table matches as it reads in Chinese too", () => {
-    const rows = [
+    const zh = [
       ["North", 2590.7],
       ["South", 80],
     ];
-    const made = analysis([
-      {
-        kind: "table",
-        name: "by_region",
-        label: "Revenue by region",
-        unit: null,
-        table: table(rows),
-      },
-    ]);
+    const made = analysis([byRegion(zh)]);
     const text = withAnalysisResults("各地区收入：\n\n[=table 1]", [made], "zh-CN");
-    const blocks = markdownToBlocks(text);
-    const cited = withAnalysisTableCitations(blocks, [made]);
-    const tableBlock = cited.find((block) => block.type === "table");
-    if (!tableBlock) throw new Error("No table.");
-    expect(headingCitations(tableBlock)).toBe(1);
+    const blocks = withAnalysisTables(markdownToBlocks(text), runs(made));
+    expect(captioned(blocks).map((each) => each.table?.table)).toEqual([{ result: "by_region" }]);
+  });
+
+  test("a table already bound keeps its one caption", () => {
+    const made = analysis([byRegion(rows)]);
+    const once = withAnalysisTables([tableBlock(rows)], runs(made));
+    expect(withAnalysisTables(once, runs(made))).toEqual(once);
+  });
+});
+
+describe("each table goes in once (#2378)", () => {
+  const made = analysis(
+    [byRegion(rows)],
+    [{ kind: "bar", title: "Revenue", x: "Region", y: ["Revenue"], table: table(rows) }],
+  );
+  made.markers.charts = [1];
+
+  test.each(["en", "zh-CN"] as const)(
+    "%s: a table marker written twice, and a chart marker whose table is there, give one table",
+    (language) => {
+      const text = withAnalysisResults(
+        "## Totals\n\n[=table 1]\n\n## Chart\n\n[=chart 1]\n\n## Again\n\n[=table 1]",
+        [made],
+        language,
+      );
+      const tables = markdownToBlocks(text).filter((block) => block.type === "table");
+      expect(tables).toHaveLength(1);
+      expect(text).not.toContain("**Revenue**");
+    },
+  );
+
+  test("a chart marker alone still writes its table", () => {
+    const text = withAnalysisResults("[=chart 1]", [made], "en");
+    expect(markdownToBlocks(text).filter((block) => block.type === "table")).toHaveLength(1);
   });
 });
 
 describe("a table two Analyses could have given (#2378)", () => {
-  const rows = [
-    ["North", 270.5],
-    ["South", 80],
-  ];
-  const result = {
-    kind: "table" as const,
-    name: "by_region",
-    label: "Revenue by region",
-    unit: null,
-    table: table(rows),
-  };
+  const result = byRegion(rows);
   const secondInput: AnswerAnalysis["inputs"][number] = {
     kind: "range",
     name: "other sales",
@@ -180,122 +206,40 @@ describe("a table two Analyses could have given (#2378)", () => {
     sha256: "d".repeat(64),
   };
 
-  test("is cited to neither when the Analyses read different Documents", () => {
+  test("is bound to neither when the Analyses read different Documents", () => {
     const first = analysis([result]);
-    const second: AnswerAnalysis = {
-      ...analysis([result]),
-      number: 2,
-      inputs: [secondInput],
-    };
-    expect(withAnalysisTableCitations([tableBlock(rows)], [first, second])[0]).toEqual(
-      tableBlock(rows),
+    const second: AnswerAnalysis = { ...analysis([result]), number: 2, inputs: [secondInput] };
+    expect(withAnalysisTables([tableBlock(rows)], runs(first, second))).toEqual([tableBlock(rows)]);
+  });
+
+  test("is bound when one Analysis gives it twice with the same values and inputs", () => {
+    const made = analysis(
+      [result],
+      [{ kind: "bar", title: "Revenue", x: "Region", y: ["Revenue"], table: table(rows) }],
     );
+    const blocks = withAnalysisTables([tableBlock(rows)], runs(made));
+    expect(captioned(blocks).map((each) => each.table?.table)).toEqual([{ result: "by_region" }]);
   });
 
-  test("is cited when one Analysis gives it twice with the same values and inputs", () => {
-    const [cited] = withAnalysisTableCitations(
-      [tableBlock(rows)],
-      [
-        analysis(
-          [result],
-          [{ kind: "bar", title: "Revenue", x: "Region", y: ["Revenue"], table: table(rows) }],
-        ),
-      ],
-    );
-    expect(cited && headingCitations(cited)).toBe(1);
-  });
-
-  test("matches no table whose own headings cite another version of the same place", () => {
-    const rows = [
-      ["North", 270.5],
-      ["South", 80],
-    ];
-    const shown = tableBlock(rows);
-    const cell = shown.content?.[0]?.content?.[0];
-    if (!cell) throw new Error("No heading cell.");
-    cell.content = [...(cell.content ?? []), citationNode({ ...citation, contentHash: "h2" })];
-    expect(
-      analysisTableFor(
-        shown,
-        analysisTablesOf([
-          analysis([
-            {
-              kind: "table",
-              name: "by_region",
-              label: "Revenue by region",
-              unit: null,
-              table: table(rows),
-            },
-          ]),
-        ]),
-      ),
-    ).toBeNull();
-  });
-
-  test("matches no table whose own headings cite another place of the same Document", () => {
-    const rows = [
-      ["North", 270.5],
-      ["South", 80],
-    ];
-    const shown = tableBlock(rows);
-    const cell = shown.content?.[0]?.content?.[0];
-    if (!cell) throw new Error("No heading cell.");
-    cell.content = [
-      ...(cell.content ?? []),
-      citationNode({
+  test.each([
+    ["another version of the same place", { ...citation, contentHash: "h2" }],
+    [
+      "another place of the same Document",
+      {
         ...citation,
-        location: { kind: "rows", sheet: "Orders November", from: 1, to: 25 },
-      }),
-    ];
-    expect(
-      analysisTableFor(
-        shown,
-        analysisTablesOf([
-          analysis([
-            {
-              kind: "table",
-              name: "by_region",
-              label: "Revenue by region",
-              unit: null,
-              table: table(rows),
-            },
-          ]),
-        ]),
-      ),
-    ).toBeNull();
-  });
-
-  test("matches no table whose own headings cite another Document", () => {
-    const rows = [
-      ["North", 270.5],
-      ["South", 80],
-    ];
+        location: { kind: "rows" as const, sheet: "Orders November", from: 1, to: 25 },
+      },
+    ],
+    ["another Document", { ...citation, documentId: "d9", documentName: "Orders October" }],
+  ])("matches no table whose own headings cite %s", (_, cited) => {
     const shown = tableBlock(rows);
     const cell = shown.content?.[0]?.content?.[0];
     if (!cell) throw new Error("No heading cell.");
-    cell.content = [
-      ...(cell.content ?? []),
-      citationNode({ ...citation, documentId: "d9", documentName: "Orders October" }),
-    ];
-    expect(
-      analysisTableFor(
-        shown,
-        analysisTablesOf([
-          analysis([
-            {
-              kind: "table",
-              name: "by_region",
-              label: "Revenue by region",
-              unit: null,
-              table: table(rows),
-            },
-          ]),
-        ]),
-      ),
-    ).toBeNull();
+    cell.content = [...(cell.content ?? []), citationNode(cited)];
+    expect(analysisTableFor(shown, analysisTablesOf(runs(analysis([result]))))).toBeNull();
   });
 
-  test("is cited to neither when they agree on the inputs and the display but not the values", () => {
+  test("is bound to neither when they agree on the inputs and the display but not the values", () => {
     const shown = tableBlock([
       ["North", "8,325.44"],
       ["South", "80"],
@@ -318,14 +262,12 @@ describe("a table two Analyses could have given (#2378)", () => {
         ]),
       },
     ]);
-    expect(analysisTableFor(shown, analysisTablesOf([one, two]))).toBeNull();
+    expect(analysisTableFor(shown, analysisTablesOf(runs(one, two)))).toBeNull();
   });
 
   test("matches no Analysis that read nothing cited", () => {
     const readNothing: AnswerAnalysis = { ...analysis([result]), inputs: [] };
-    expect(analysisTableFor(tableBlock(rows), analysisTablesOf([readNothing]))).toBeNull();
-    expect(withAnalysisTableCitations([tableBlock(rows)], [readNothing])[0]).toEqual(
-      tableBlock(rows),
-    );
+    expect(analysisTableFor(tableBlock(rows), analysisTablesOf(runs(readNothing)))).toBeNull();
+    expect(withAnalysisTables([tableBlock(rows)], runs(readNothing))).toEqual([tableBlock(rows)]);
   });
 });

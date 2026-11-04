@@ -13,6 +13,8 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   CALCULATED_FIGURE_NODE,
   CHART_NODE,
   CITATION_NODE,
@@ -24,6 +26,7 @@ import {
 import {
   chartCheckText,
   chartPoints,
+  fromAnalysisOnly,
   givesValue,
   gridOfTable,
   readChart,
@@ -37,6 +40,7 @@ import {
   keptOn,
   supportedByOwnNotesOnly,
 } from "../../../shared/claimChecks";
+import { readTableBinding } from "../../../shared/figureRuns";
 import { readFigures } from "../../../shared/figures";
 import { memoized } from "../../../shared/memo";
 import { sentenceKey } from "../../../shared/mindCheck";
@@ -134,6 +138,8 @@ export interface SentenceInput {
 
 export interface NoteHealthInput extends SentenceInput {
   citationCheck: (attributes: CitationAttributes) => CitationCheck;
+  /** Whether an Analysis's own table needs a look (#2378): it counts once, as one figure. */
+  tableNeedsLook?: (table: ProseMirrorNode) => boolean;
 }
 
 /** One sentence a check reads, where it is and how it counts. */
@@ -177,18 +183,33 @@ function inValueCell(doc: ProseMirrorNode, pos: number): boolean {
   return false;
 }
 
+const holdsTableMarker = (paragraph: ProseMirrorNode): boolean => {
+  let holds = false;
+  paragraph.forEach((child) => {
+    if (child.type.name === ANALYSIS_TABLE_NODE) holds = true;
+  });
+  return holds;
+};
+
 function eachSentence(
   doc: ProseMirrorNode,
   input: SentenceInput,
   visit: (place: SentencePlace) => void,
+  visitTable?: (table: ProseMirrorNode, pos: number) => void,
 ): void {
   const skipped = input.skipped ?? new Set<string>();
   const kept = input.kept ?? [];
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
+    // An Analysis's own table and its caption are its run's, never sentences to check (#2378).
+    if (node.type.name === "table" && readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE])) {
+      visitTable?.(node, pos);
+      return false;
+    }
+    if (node.type.name === "paragraph" && holdsTableMarker(node)) return false;
     if (node.type.name === CHART_NODE) {
       const chart = readChart(node.attrs);
-      if (chartPoints(chart).length === 0) return false;
+      if (chartPoints(chart).length === 0 || fromAnalysisOnly(chart)) return false;
       const text = chartCheckText(chart);
       const from = pos;
       const to = pos + node.nodeSize;
@@ -280,71 +301,80 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     unexamined: [],
   };
   const unexamined = input.unexamined ?? new Set<string>();
-  eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state, kind }) => {
-    const missing: number[] = [];
-    for (const citation of citations) {
-      const check = input.citationCheck(citation.attributes);
-      if (check === "found") health.found.push(citation.pos);
-      else if (check === "not-found") {
-        health.notFound.push(citation.pos);
-        missing.push(citation.pos);
+  eachSentence(
+    doc,
+    input,
+    ({ from, text, claim, citations, inTable: table, state, kind }) => {
+      const missing: number[] = [];
+      for (const citation of citations) {
+        const check = input.citationCheck(citation.attributes);
+        if (check === "found") health.found.push(citation.pos);
+        else if (check === "not-found") {
+          health.notFound.push(citation.pos);
+          missing.push(citation.pos);
+        }
       }
-    }
-    if (state.kind === "to-check") {
-      health.checkable++;
-      health.toCheck.push(from);
-      if (state.why === "failed") {
-        health.failed.push(from);
-        if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
-      } else if (state.why === "recheck") {
-        health.recheck.push(from);
-        // An edit marks a check that ran and would still hold with its own words; one that never
-        // ran, or whose Document changed since, stays Not checked in the headline (#2313).
-        if (
-          claim?.shown.state === "needs-recheck" &&
-          claim.shown.why === "edited" &&
-          RAN.has(claim.check.state) &&
-          claim.holdsWithItsText === true
-        )
-          health.edited.push(from);
+      if (state.kind === "to-check") {
+        health.checkable++;
+        health.toCheck.push(from);
+        if (state.why === "failed") {
+          health.failed.push(from);
+          if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
+        } else if (state.why === "recheck") {
+          health.recheck.push(from);
+          // An edit marks a check that ran and would still hold with its own words; one that never
+          // ran, or whose Document changed since, stays Not checked in the headline (#2313).
+          if (
+            claim?.shown.state === "needs-recheck" &&
+            claim.shown.why === "edited" &&
+            RAN.has(claim.check.state) &&
+            claim.holdsWithItsText === true
+          )
+            health.edited.push(from);
+        }
+        if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
+        if (table) health.tableCells.push(from);
+        return;
       }
-      if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
-      if (table) health.tableCells.push(from);
-      return;
-    }
-    if (state.kind === "kept") {
-      health.kept.push(from);
-      return;
-    }
-    if (state.kind === "checking") {
+      if (state.kind === "kept") {
+        health.kept.push(from);
+        return;
+      }
+      if (state.kind === "checking") {
+        health.checkable++;
+        health.checking.push(from);
+        return;
+      }
+      if (state.kind !== "covered" || !claim) return;
       health.checkable++;
-      health.checking.push(from);
-      return;
-    }
-    if (state.kind !== "covered" || !claim) return;
-    health.checkable++;
-    const checkedAt = claim.check.checkedAt;
-    if (
-      checkedAt !== "" &&
-      !Number.isNaN(Date.parse(checkedAt)) &&
-      (health.checkedAt === null || Date.parse(checkedAt) > Date.parse(health.checkedAt))
-    ) {
-      health.checkedAt = checkedAt;
-    }
-    const unsupported = markOf(claim) === "unsupported";
-    const contradicted = claim.shown.state === "contradicted";
-    if (unsupported) health.unsupported.push(from);
-    else if (contradicted) health.contradicted.push(from);
-    else {
-      health.supported++;
-      if (kind !== "chart" && supportedByOwnNotesOnly(claim.check)) health.ownNotes.push(from);
-      if (kind !== "chart" && isClaim(text) && citations.length === 0) health.noCitation.push(from);
-    }
-    if (unsupported || contradicted || missing.length > 0) {
-      health.lookClaims.push(from);
-      health.lookNotFound.push(...missing);
-    }
-  });
+      const checkedAt = claim.check.checkedAt;
+      if (
+        checkedAt !== "" &&
+        !Number.isNaN(Date.parse(checkedAt)) &&
+        (health.checkedAt === null || Date.parse(checkedAt) > Date.parse(health.checkedAt))
+      ) {
+        health.checkedAt = checkedAt;
+      }
+      const unsupported = markOf(claim) === "unsupported";
+      const contradicted = claim.shown.state === "contradicted";
+      if (unsupported) health.unsupported.push(from);
+      else if (contradicted) health.contradicted.push(from);
+      else {
+        health.supported++;
+        if (kind !== "chart" && supportedByOwnNotesOnly(claim.check)) health.ownNotes.push(from);
+        if (kind !== "chart" && isClaim(text) && citations.length === 0)
+          health.noCitation.push(from);
+      }
+      if (unsupported || contradicted || missing.length > 0) {
+        health.lookClaims.push(from);
+        health.lookNotFound.push(...missing);
+      }
+    },
+    (table, pos) => {
+      if (input.tableNeedsLook?.(table)) health.lookClaims.push(pos);
+    },
+  );
+  health.lookClaims.sort((a, b) => a - b);
   return health;
 }
 

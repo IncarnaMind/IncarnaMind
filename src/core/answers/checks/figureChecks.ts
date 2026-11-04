@@ -307,6 +307,33 @@ export function figureJudgment(
   };
 }
 
+/**
+ * An Analysis's figure in a sentence, judged by its run as the Note keeps it (#2378), never by the
+ * Documents' text, which never holds it: Supported when IncarnaMind worked it out again to the same
+ * number, while the Documents it read are as they were; Not checked otherwise.
+ */
+function analysisJudgment(target: CheckFigure, facts: Facts): ClaimJudgment {
+  const record = target.analysisRecord;
+  const read = (record?.citations ?? []).map(({ documentId, contentHash }) => ({
+    documentId,
+    contentHash,
+  }));
+  const known = { ...facts, versions: [...facts.versions, ...read] };
+  const [evidence] = record?.citations ?? [];
+  if (!record?.recalculated || !evidence)
+    return { verdict: "not-checked", reason: "analysis", detail: null, ...known };
+  return {
+    verdict: "supported",
+    evidence,
+    says: null,
+    unsupported: null,
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    ...known,
+  };
+}
+
 export interface FigureCheckOptions {
   requested: readonly CheckFigure[];
   claim: string;
@@ -515,6 +542,10 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
   const rows: FigureCheckResult[] = [];
   for (const original of requested) {
     let target = original;
+    if (target.calculated?.figure.analysis) {
+      rows.push({ ...finding(target), result: analysisJudgment(target, options.facts()) });
+      continue;
+    }
     const item = items.get(target.id);
     if (!item) {
       rows.push({ ...finding(target), result: unavailable("malformed") });
@@ -828,6 +859,9 @@ export async function withSentenceVerdict(
 ): Promise<ClaimCheckResult> {
   const { figures, remainder } = result;
   if (!figures || result.verdict === "contradicted") return result;
+  // The verdict on the whole sentence weighed an Analysis's figure against the Documents, which
+  // never hold it: only the remainder the reply gave speaks for its other words (#2378).
+  if (figures.some((figure) => figure.calculated?.figure.analysis)) return result;
   const judged = await sentence();
   if (
     judged.verdict === "supported" ||

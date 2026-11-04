@@ -848,7 +848,15 @@ test("the schedule includes compact used Analysis closure once and isolates a co
       codeSha256: "code",
       ranAt: "2026-10-27T00:00:00.000Z",
       values: [
-        { kind: "figure", name: "total", label: "Revenue", unit: null, value },
+        // Worked out again when it ran: only the core's own record shows it checked (#2378).
+        {
+          kind: "figure",
+          name: "total",
+          label: "Revenue",
+          unit: null,
+          value,
+          check: { kind: "same", value },
+        },
         { kind: "figure", name: "unused", label: "Unused", unit: null, value: 999 },
       ],
     })),
@@ -876,7 +884,10 @@ test("the schedule includes compact used Analysis closure once and isolates a co
   });
   doc.getMap("figureRuns").delete(JSON.stringify(["run-b"]));
   const before = Y.encodeStateAsUpdate(doc);
-  const partial = project(blocks);
+  const partial = figureSchedule({
+    ...scheduleInput(blocks),
+    versions: new Map([["accounts", "v1"]]),
+  });
   expect(partial.analyses.map((run) => run.id)).toEqual(["run-a"]);
   expect(partial.rows.map((row) => row.shown.state)).toEqual(["supported", "not-checked"]);
   expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
@@ -1082,7 +1093,7 @@ test("a kept Analysis figure shows the core's own recalculation, and needs a re-
   expect(shownWith(new Map())).toEqual({ state: "needs-recheck", why: "document-removed" });
 });
 
-test("a claim check that left the figure unread keeps the Figures tab from calling it supported", async () => {
+test("no claim check of the sentence stands for the core's own record in the Figures tab (#2378)", async () => {
   const blocks = await checkedAnalysisFigure();
   const element = blocks.get(0);
   const occurrence = figuresInMind(blocks)[0];
@@ -1097,7 +1108,7 @@ test("a claim check that left the figure unread keeps the Figures tab from calli
     ...scheduleInput(blocks),
     versions: new Map([["accounts", "v1"]]),
   }).rows[0];
-  expect(row?.shown).toEqual({ state: "not-checked", reason: "unread" });
+  expect(row?.shown).toEqual({ state: "supported" });
 });
 
 test("a whole-sentence check with no figure child is no evidence against the core's own check", async () => {

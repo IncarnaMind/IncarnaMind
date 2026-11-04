@@ -33,6 +33,7 @@ import { commentIdsOf, commentOnSelection } from "../comments";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { useComposer } from "../composer";
 import { core } from "../core";
+import { AnalysisTableView } from "../editor/AnalysisTableView";
 import { AnswerView } from "../editor/AnswerView";
 import { holdsAiText } from "../editor/aiText";
 import { AppliedEditLine } from "../editor/appliedEditLine";
@@ -415,6 +416,10 @@ function MindEditorView({
           citationView,
           calculatedFigureView: ReactNodeViewRenderer(
             (props) => <CalculatedFigureView {...props} doc={doc} />,
+            { as: "span" },
+          ),
+          analysisTableView: ReactNodeViewRenderer(
+            (props) => <AnalysisTableView {...props} doc={doc} />,
             { as: "span" },
           ),
           footnoteView: footnoteView(() => footnoteLabel.current),

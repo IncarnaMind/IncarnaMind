@@ -36,6 +36,7 @@ import * as Y from "yjs";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { beginFigureCheck } from "../../../shared/figureChecks";
+import { readTableBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextPiece,
   type InlineTextProjection,
@@ -46,6 +47,8 @@ import {
 import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
@@ -198,6 +201,10 @@ function projectedContent(content: readonly NodeJSON[]) {
   return { pieces, projection: projectInlineText(pieces) };
 }
 
+/** An Analysis's own table: its cells are its run's, never claims a check reads (#2378). */
+const boundTable = (node: NodeJSON) =>
+  node.type === "table" && readTableBinding(node.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) !== null;
+
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
 function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
@@ -208,7 +215,7 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
     inHeader: boolean,
   ) => {
     nodes.forEach((node, index) => {
-      if (UNCHECKED.has(node.type)) return;
+      if (UNCHECKED.has(node.type) || boundTable(node)) return;
       const here = [...path, index];
       const content = node.content ?? [];
       if (node.type !== "paragraph") {
@@ -220,8 +227,9 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
         );
         return;
       }
-      // A header cell names its column or row; it states nothing a check could support (#2378).
-      if (inHeader) return;
+      // A header cell names its column or row, and a caption its table: they state nothing a check
+      // could support (#2378).
+      if (inHeader || content.some((inline) => inline.type === ANALYSIS_TABLE_NODE)) return;
       const rawContext = paragraphText(content);
       const layout = inlineLayout(content);
       const { pieces, projection: whole } = projectedContent(content);

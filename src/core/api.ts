@@ -49,14 +49,19 @@ export type {
  * the renderer import it.
  */
 import type {
+  AnalysisColumnCheck,
   AnalysisEnd,
   AnalysisLanguage,
   AnalysisOutput,
   AnalysisRecalculation,
+  AnalysisTable,
+  AnalysisTableCheck,
+  AnalysisTableKey,
   AnalysisUnavailableReason,
   AnalysisValue,
   AnalysisVersions,
 } from "../shared/analysis";
+import type { AnalysisTableColumn } from "../shared/analysisTables";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
 import type { ClaimCheckShown } from "../shared/claimChecks";
@@ -1559,6 +1564,22 @@ export const CITATION_NODE = "citation";
 export const CALCULATED_FIGURE_NODE = "calculatedFigure";
 
 /**
+ * A table an Analysis gave is one calculated object (#2378): its table Block holds
+ * `ANALYSIS_TABLE_ATTRIBUTE`, the run and which of its tables it is, and its cells stay text. The
+ * caption line above it ends with `ANALYSIS_TABLE_NODE`, an inline marker that holds the same
+ * binding and takes the next number in the one series with Citations, figures and footnotes.
+ */
+export const ANALYSIS_TABLE_NODE = "analysisTable";
+export const ANALYSIS_TABLE_ATTRIBUTE = "analysisTable";
+
+/** Which Analysis run a table Block, or its caption's marker, is, as the Note's `figureRuns` keep it. */
+export interface AnalysisTableBinding {
+  /** The run's id in the Note's `MIND_FIGURE_RUNS_FIELD`. */
+  id: string;
+  table: AnalysisTableKey;
+}
+
+/**
  * The node type of a footnote the User writes: an inline node at its marker,
  * holding the footnote's text (text with marks, line breaks and Citations, but
  * no footnote of its own), with a UUID in `BLOCK_ID_ATTRIBUTE` that names it
@@ -2833,6 +2854,8 @@ export interface AnswerAnalysis {
   };
   /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
   recalculations?: { result: string; check: AnalysisRecalculation }[];
+  /** What IncarnaMind made of each column of numbers of each table it gave (#2378). */
+  tableChecks?: AnalysisTableCheck[];
   /** `run_code` only (ADR-0025): the Documents it copied into ../inputs, by the names the code read them by. */
   files?: AnalysisFile[];
   /** `run_code` only: what the code left in out/, within its limits; `left` past them. */
@@ -2874,6 +2897,17 @@ export interface RetainedFigureAnalysis
   > {
   id: string;
   values: RetainedFigureValue[];
+  /** Its tables a Note holds, each one calculated object (#2378); absent when it holds none. */
+  tables?: RetainedAnalysisTable[];
+}
+
+/** A table a Note kept from its Analysis: what the run gave, and what IncarnaMind made of its columns. */
+export interface RetainedAnalysisTable {
+  key: AnalysisTableKey;
+  /** What the Analysis called it: its caption's first words. */
+  label: string;
+  table: AnalysisTable;
+  columns: AnalysisColumnCheck[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -6494,7 +6528,9 @@ export type ClaimCheckFailure =
   | "workbook-no-saved-value"
   | "workbook-unsupported"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
-  | "other-cell";
+  | "other-cell"
+  /** An Analysis's figure that IncarnaMind didn't work out again: its code's, from the saved run (#2378). */
+  | "analysis";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -6770,6 +6806,11 @@ export interface CheckFigure {
   calculated: CalculatedFigureAttributes | null;
   context?: string;
   label?: string;
+  /**
+   * An Analysis's figure, as the Note keeps its run (#2378): whether IncarnaMind worked it out
+   * again to the same number, and what the Analysis read. A check decides it from this alone.
+   */
+  analysisRecord?: { recalculated: boolean; citations: Citation[] };
 }
 
 export interface FigureFinding extends CheckFigure {
@@ -6797,10 +6838,16 @@ export type FigureScheduleReason =
   | "not-found"
   | "quote-not-found"
   | "needs-recheck"
-  | "doesnt-add-up";
+  | "doesnt-add-up"
+  | "differs-from-analysis";
 
 export interface FigureScheduleRow extends FigureFinding {
   number: number;
+  /**
+   * An Analysis's own table (#2378), one row however many cells it has: its caption and each column
+   * of numbers, which open under the row. Its `reading` is its caption's, which holds no figure.
+   */
+  analysisTable?: { title: string; columns: AnalysisTableColumn[] };
   sentence: TextStretch | null;
   shown: ClaimCheckShown;
   reason: FigureScheduleReason | null;

@@ -7,6 +7,7 @@ import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table
 import UniqueID from "@tiptap/extension-unique-id";
 import StarterKit from "@tiptap/starter-kit";
 import {
+  ANALYSIS_TABLE_NODE,
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
@@ -18,6 +19,8 @@ import {
 } from "../../../core/api";
 import { translate } from "../../../shared/i18n";
 import { Generated } from "./aiText";
+import { AnalysisTableGuard } from "./analysisTableCommands";
+import { AnalysisTableBinding, AnalysisTableMarker } from "./analysisTableSchema";
 import { CalculatedFigure, FigureTableRoles } from "./calculatedFigureSchema";
 import { Chart } from "./chartSchema";
 import { checklistItem } from "./checklistItem";
@@ -88,6 +91,8 @@ export interface NoteSchemaOptions {
   citationView?: NodeViewRenderer;
   /** Draws calculated figures and their numbered markers. */
   calculatedFigureView?: NodeViewRenderer;
+  /** Draws the marker on an Analysis table's caption line, which opens the table's card (#2378). */
+  analysisTableView?: NodeViewRenderer;
   /** Draws the markers of the User's footnotes, e.g. as numbers that open their text. */
   footnoteView?: NodeViewRenderer;
   /** Draws Document chips, e.g. as names that open the Document. */
@@ -140,6 +145,7 @@ export function noteExtensions({
   answerView,
   citationView,
   calculatedFigureView,
+  analysisTableView,
   footnoteView,
   documentChipView,
   chartView,
@@ -193,6 +199,9 @@ export function noteExtensions({
     Citation.configure({ view: citationView ?? null }),
     CalculatedFigure.configure({ view: calculatedFigureView ?? null }),
     FigureTableRoles,
+    AnalysisTableBinding,
+    AnalysisTableMarker.configure({ view: analysisTableView ?? null }),
+    AnalysisTableGuard,
     Footnote.configure({ view: footnoteView ?? null }),
     DocumentChip.configure({ view: documentChipView ?? null }),
     Chart.configure({ view: chartView ?? null }),
@@ -225,7 +234,7 @@ export function noteExtensions({
     Comment,
     UniqueID.configure({
       attributeName: BLOCK_ID_ATTRIBUTE,
-      types: [...BLOCK_TYPES, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE],
+      types: [...BLOCK_TYPES, FOOTNOTE_NODE, CALCULATED_FIGURE_NODE, ANALYSIS_TABLE_NODE],
     }),
   ];
 }

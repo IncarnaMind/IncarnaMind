@@ -6,6 +6,7 @@
  * HTML, whole.
  */
 import * as Y from "yjs";
+import { analysisTableNote } from "../../shared/analysisTables";
 import { layoutChart } from "../../shared/chartLayout";
 import { chartSvg } from "../../shared/chartSvg";
 import { seriesName } from "../../shared/charts";
@@ -250,6 +251,7 @@ export function createExports(deps: ExportsDependencies) {
       trimBeforeCitation,
       trimBeforeFootnote: true,
       comparisonText: (key, params) => translate(language, key, params),
+      tableNote: (run) => analysisTableNote(run, language),
       documentRemoved: (documentId) => !live.has(documentId),
       // A file leaves a hidden column out; the app says how many, the file says nothing.
       leaveOutHiddenColumns: true,

@@ -33,7 +33,7 @@ const actionOf = (id: TableActionId) =>
 const GROUPS: readonly (readonly (TableActionId | "chart")[])[] = [
   ["rowAbove", "rowBelow", "columnLeft", "columnRight"],
   ["headerRow", "totalRow", "totalColumn"],
-  ["chart"],
+  ["chart", "convertToText"],
   ["deleteRow", "deleteColumn", "deleteTable"],
 ];
 
@@ -175,6 +175,8 @@ export function TableMenu({ editor }: { editor: Editor }) {
                     </button>
                   );
                 }
+                // Only an Analysis's own table has a calculation to convert to text (#2378).
+                if (id === "convertToText" && !spot.analysis) return null;
                 const action = actionOf(id);
                 const why = whyNot(id);
                 if (id === "headerRow" || id === "totalRow" || id === "totalColumn") {

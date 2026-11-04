@@ -11,6 +11,7 @@ import {
 import type { CommandId, Keys } from "../../../shared/commands";
 import { labelRole } from "../../../shared/figureFooting";
 import type { MessageKey } from "../../../shared/i18n";
+import { convertAnalysisTable, inAnalysisTable } from "./analysisTableCommands";
 import { setTableRoles } from "./figureTableRoles";
 import { asOwnUndoStep } from "./selectionCommands";
 
@@ -24,7 +25,8 @@ export type TableActionId =
   | "totalColumn"
   | "deleteRow"
   | "deleteColumn"
-  | "deleteTable";
+  | "deleteTable"
+  | "convertToText";
 
 export interface TableAction {
   id: TableActionId;
@@ -82,6 +84,12 @@ export const TABLE_ACTIONS: readonly TableAction[] = [
     command: "table.totalColumn",
     label: "figures.totalColumn",
     run: (editor) => toggleTotal(editor, "column"),
+  },
+  {
+    id: "convertToText",
+    command: "table.convertToText",
+    label: "figures.inline.convert",
+    run: (editor) => convertAnalysisTable(editor),
   },
   {
     id: "deleteRow",
@@ -169,6 +177,8 @@ export interface TableSpot {
   /** A table keeps at least one row and one column. */
   canDeleteRows: boolean;
   canDeleteColumns: boolean;
+  /** It is an Analysis's own table (#2378), which Convert to text makes a typed one. */
+  analysis: boolean;
 }
 
 export function tableSpot(state: EditorState): TableSpot | null {
@@ -187,6 +197,7 @@ export function tableSpot(state: EditorState): TableSpot | null {
     totalColumn: isTotal(state, $cell.pos, "column"),
     canDeleteRows: rect.bottom - rect.top < rect.map.height,
     canDeleteColumns: rect.right - rect.left < rect.map.width,
+    analysis: inAnalysisTable(state),
   };
 }
 
@@ -201,7 +212,8 @@ export const sameSpot = (a: TableSpot | null, b: TableSpot | null) =>
     a.totalRow === b.totalRow &&
     a.totalColumn === b.totalColumn &&
     a.canDeleteRows === b.canDeleteRows &&
-    a.canDeleteColumns === b.canDeleteColumns);
+    a.canDeleteColumns === b.canDeleteColumns &&
+    a.analysis === b.analysis);
 
 export function unavailable(id: TableActionId, spot: TableSpot): MessageKey | null {
   if (id === "deleteRow" && !spot.canDeleteRows) return "editor.table.lastRow";

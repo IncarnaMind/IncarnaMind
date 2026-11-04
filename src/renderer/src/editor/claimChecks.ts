@@ -563,6 +563,8 @@ export function figureShownIn(
       // Keep or a run of its own; its verdict alone is no figure's evidence (#1932, #2378).
       if (!span.check.figures?.length) {
         if (span.check.kept) return claimCheckShown(span.check, now);
+        // An Analysis's figure is its run's: no check of the sentence's words stands for it (#2378).
+        if (result !== null) continue;
         const legacy = claimCheckShown({ ...span.check, figures: undefined }, now);
         if (
           legacy.state === "needs-recheck" ||
@@ -575,7 +577,6 @@ export function figureShownIn(
     }
     if (span.check.kept) return claimCheckShown(span.check, now);
     const shown = analysisFigureShown(figureCheckShown(child, now), {
-      checked: true,
       run,
       result,
       versions: now.versions,
@@ -587,7 +588,7 @@ export function figureShownIn(
   }
   return analysisFigureShown(
     { state: "not-checked", reason: "unread" },
-    { checked: false, run, result, versions: context.versions },
+    { run, result, versions: context.versions },
   );
 }
 

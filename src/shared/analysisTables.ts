@@ -1,21 +1,44 @@
 /**
- * An Analysis's own result table in an Answer or a Note (#2378): its numbers are
- * the Analysis's, not text typed again, and each numeric column says where it
- * was read from — the Analysis's inputs, cited to the rows it read.
+ * An Analysis's own result table in an Answer or a Note (#2378): one calculated object. Its cells
+ * stay text, as the Analysis gave them; its table Block names the run and which of its tables it
+ * is, and a caption line above it, the Analysis's name for it, ends with one marker in the one
+ * number series, whose footnote names the rows and files the Analysis read.
  *
- * The table is found again by what it holds: the exact headings and cells the
- * Analysis gave, formatted as the interface writes them.
+ * A table the Answer writes from a marker is found again by what it holds: the exact headings
+ * and cells the Analysis gave, formatted as the interface writes them.
  */
-import type { AnswerAnalysis, AnswerAnalysisInput, Citation } from "../core/api";
-import type { AnalysisCell, AnalysisTable } from "./analysis";
-import type { NodeJSON } from "./blockJson";
-import { citationNode } from "./blockJson";
-import { figureCellText, rawColumn } from "./figures";
 
-type AnalysisTableInput = Pick<AnswerAnalysis, "number" | "output" | "inputs">;
+import type * as Y from "yjs";
+import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
+  type AnalysisTableBinding,
+  type AnswerAnalysis,
+  type AnswerAnalysisInput,
+  type Citation,
+  type RetainedFigureAnalysis,
+} from "../core/api";
+import type { Language } from "../core/language";
+import {
+  type AnalysisCell,
+  type AnalysisColumnCheck,
+  type AnalysisTable,
+  type AnalysisTableKey,
+  sameTableKey,
+} from "./analysis";
+import type { NodeJSON } from "./blockJson";
+import { figureRunId, figureRunsFor, readTableBinding, sameBinding } from "./figureRuns";
+import { figureCellText, figureText, rawColumn } from "./figures";
+import { translate } from "./i18n";
+
+/** An Analysis, and the Answer it ran in, whose tables a Note can hold. */
+export interface AnalysisTableRun {
+  answerId: string;
+  analysis: AnswerAnalysis;
+}
 
 /** Each Citation an Analysis read its data from, once: its ranges and the numbers quoted from a Passage. */
-function analysisInputCitations(inputs: readonly AnswerAnalysisInput[]): Citation[] {
+export function analysisInputCitations(inputs: readonly AnswerAnalysisInput[]): Citation[] {
   const citations = new Map<string, Citation>();
   for (const input of inputs) {
     const citation = input.kind === "range" ? input.citation : input.input.citation;
@@ -56,10 +79,7 @@ const numericColumns = (table: AnalysisTable): number[] =>
     table.rows.some((row) => typeof row[at] === "number") ? [at] : [],
   );
 
-const holdsCitation = (node: NodeJSON): boolean =>
-  node.type === "citation" || (node.content ?? []).some(holdsCitation);
-
-/** Where a table's heading row says it read: an Analysis table's own headings name its inputs. */
+/** Where a table's heading row says it read, when a Citation there names a place. */
 function citedPlaces(block: NodeJSON): Set<string> {
   const places = new Set<string>();
   const visit = (node: NodeJSON) => {
@@ -81,59 +101,92 @@ function citedPlaces(block: NodeJSON): Set<string> {
   return places;
 }
 
-/** How many Citations `blocks` hold: what a Note written with them cites. */
-export function countCitations(blocks: readonly NodeJSON[]): number {
-  return blocks.reduce(
-    (count, block) =>
-      count + ((block.type === "citation" ? 1 : 0) + countCitations(block.content ?? [])),
-    0,
-  );
-}
-
-function citeCell(cell: NodeJSON, citations: readonly Citation[]): NodeJSON {
-  if (holdsCitation(cell)) return cell;
-  const content = cell.content ?? [];
-  const last = content.at(-1);
-  const marked = citations.map((citation) => citationNode(citation));
-  if (last?.type !== "paragraph") {
-    return { ...cell, content: [...content, { type: "paragraph", content: marked }] };
-  }
-  return {
-    ...cell,
-    content: [...content.slice(0, -1), { ...last, content: [...(last.content ?? []), ...marked] }],
-  };
-}
-
 /** A table an Analysis gave, as a Block reads it back: its grids, its numbers and where they came from. */
 export interface AnalysisTableMatch {
+  binding: AnalysisTableBinding;
+  /** What the Analysis called the table: its caption's words. */
+  label: string;
+  /** The table as the run gave it. */
+  table: AnalysisTable;
   /** The table's grid as it reads in each language the interface writes: its headings, then its rows. */
   grids: string[][][];
   /** Its columns that hold numbers. */
   numeric: number[];
   /** Each Citation the Analysis read its data from, once. */
   citations: Citation[];
+  /** What IncarnaMind made of each column of numbers when the Analysis ran. */
+  columns: AnalysisColumnCheck[];
   /** What the Analysis gave at a data row (0 the first below the headings) and a column; null: no number. */
   value(row: number, column: number): number | null;
 }
 
+/** A table an Analysis gave, read from what a Note keeps of its run. */
+export function analysisTableMatch(
+  binding: AnalysisTableBinding,
+  label: string,
+  table: AnalysisTable,
+  citations: Citation[],
+  columns: AnalysisColumnCheck[],
+): AnalysisTableMatch {
+  return {
+    binding,
+    label,
+    table,
+    grids: LANGUAGES.map((language) => analysisGrid(table, language)),
+    numeric: numericColumns(table),
+    citations,
+    columns,
+    value: (row, column) => {
+      const given = table.rows[row]?.[column];
+      return typeof given === "number" && Number.isFinite(given) ? given : null;
+    },
+  };
+}
+
 /** Every result table and chart an Analysis gave, as a Note reads them back. */
-export function analysisTablesOf(analyses: readonly AnalysisTableInput[]): AnalysisTableMatch[] {
-  return analyses.flatMap((analysis) => {
+export function analysisTablesOf(runs: readonly AnalysisTableRun[]): AnalysisTableMatch[] {
+  return runs.flatMap(({ answerId, analysis }) => {
+    if (analysis.end.kind !== "done") return [];
+    const id = figureRunId(answerId, analysis);
+    const citations = analysisInputCitations(analysis.inputs);
+    const columnsOf = (key: AnalysisTableKey) =>
+      analysis.tableChecks?.find((each) => sameTableKey(each.table, key))?.columns ?? [];
     const made: AnalysisTableMatch[] = [];
-    const add = (table: AnalysisTable) =>
-      made.push({
-        grids: LANGUAGES.map((language) => analysisGrid(table, language)),
-        numeric: numericColumns(table),
-        citations: analysisInputCitations(analysis.inputs),
-        value: (row, column) => {
-          const given = table.rows[row]?.[column];
-          return typeof given === "number" && Number.isFinite(given) ? given : null;
-        },
-      });
-    for (const result of analysis.output.results) if (result.kind === "table") add(result.table);
-    for (const chart of analysis.output.charts) add(chart.table);
+    const add = (key: AnalysisTableKey, label: string, table: AnalysisTable) => {
+      made.push(analysisTableMatch({ id, table: key }, label, table, citations, columnsOf(key)));
+    };
+    for (const result of analysis.output.results)
+      if (result.kind === "table") add({ result: result.name }, result.label, result.table);
+    for (const [index, chart] of analysis.output.charts.entries())
+      add({ chart: index }, chart.title, chart.table);
     return made;
   });
+}
+
+/** The tables a Note keeps of its Analyses' runs, as a Note reads them back. */
+export function keptAnalysisTables(runs: readonly RetainedFigureAnalysis[]): AnalysisTableMatch[] {
+  return runs.flatMap((run) => {
+    const citations = analysisInputCitations(run.inputs);
+    return (run.tables ?? []).map((table) =>
+      analysisTableMatch(
+        { id: run.id, table: table.key },
+        table.label,
+        table.table,
+        citations,
+        table.columns,
+      ),
+    );
+  });
+}
+
+/** The Analysis table `block` is bound to, by what it names; null for a table that names none. */
+export function boundTableFor(
+  block: NodeJSON,
+  tables: readonly AnalysisTableMatch[],
+): AnalysisTableMatch | null {
+  if (block.type !== "table") return null;
+  const binding = readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]);
+  return binding ? (tables.find((table) => sameBinding(table.binding, binding)) ?? null) : null;
 }
 
 /** The Analysis table `block` is, matched by what it holds, as the Answer or Note writes it; null: another table. */
@@ -142,37 +195,41 @@ export function analysisTableFor(
   tables: readonly AnalysisTableMatch[],
 ): AnalysisTableMatch | null {
   if (block.type !== "table") return null;
+  const bound = readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]);
+  if (bound) return boundTableFor(block, tables);
   const grid = gridOf(block);
   const cited = citedPlaces(block);
-  const matches = tables.filter((table) => {
-    if (table.citations.length === 0) return false;
-    // A table whose headings cite other Documents or other places came from another Analysis,
-    // though it reads the same: Orders' November sheet and its October sheet give one table (#2378).
-    if (
-      cited.size > 0 &&
-      table.citations.some((citation) => {
-        const name = citation.documentId || citation.documentName || "";
-        if (name === "") return false;
-        return !cited.has(
-          JSON.stringify([
-            name,
-            citation.location ?? null,
-            citation.contentHash ?? null,
-            citation.passageId ?? null,
-          ]),
-        );
-      })
-    )
-      return false;
-    return table.grids.some(
-      (cells) =>
-        cells.length === grid.length &&
-        grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
-    );
-  });
+  const matches = tables.filter(
+    (table) =>
+      table.citations.length > 0 &&
+      // A table whose headings cite other Documents or other places came from another Analysis,
+      // though it reads the same: Orders' November sheet and its October sheet give one table.
+      !(
+        cited.size > 0 &&
+        table.citations.some((citation) => {
+          const name = citation.documentId || citation.documentName || "";
+          return (
+            name !== "" &&
+            !cited.has(
+              JSON.stringify([
+                name,
+                citation.location ?? null,
+                citation.contentHash ?? null,
+                citation.passageId ?? null,
+              ]),
+            )
+          );
+        })
+      ) &&
+      table.grids.some(
+        (cells) =>
+          cells.length === grid.length &&
+          grid.every((row, at) => row.join("\u0000") === (cells[at] ?? []).join("\u0000")),
+      ),
+  );
   const [first] = matches;
   if (!first) return null;
-  // Two Analyses that read the same rows can give the same table: cited to either alone would name
+  // Two Analyses that read the same rows can give the same table: bound to either alone would name
   // the wrong one, so it counts only while they agree on every value and where it came from (#2378).
   const agrees = matches.every(
     (table) =>
@@ -184,28 +241,233 @@ export function analysisTableFor(
   return agrees ? first : null;
 }
 
+/** A caption line: the Analysis's name for its table, ending with the table's marker. */
+export function captionOf(match: Pick<AnalysisTableMatch, "binding" | "label">): NodeJSON {
+  return {
+    type: "paragraph",
+    content: [
+      ...(match.label.trim() ? [{ type: "text", text: match.label.trim() }] : []),
+      { type: ANALYSIS_TABLE_NODE, attrs: { [ANALYSIS_TABLE_ATTRIBUTE]: match.binding } },
+    ],
+  };
+}
+
+/** How many tables `blocks` hold that are an Analysis's own: what a Note written with them cites. */
+export const countBoundTables = (blocks: readonly NodeJSON[]): number =>
+  blocks.reduce(
+    (count, block) =>
+      count +
+      (block.type === "table" && readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE])
+        ? 1
+        : 0) +
+      countBoundTables(block.content ?? []),
+    0,
+  );
+
+/** How many Citations `blocks` hold: what a Note written with them cites. */
+export function countCitations(blocks: readonly NodeJSON[]): number {
+  return blocks.reduce(
+    (count, block) =>
+      count + ((block.type === "citation" ? 1 : 0) + countCitations(block.content ?? [])),
+    0,
+  );
+}
+
 /**
- * `blocks` with each Analysis result table's numeric headings citing the
- * Analysis's inputs; a table that isn't one keeps no Citations.
+ * `blocks` with each table that is an Analysis's own bound to its run, under its caption line;
+ * a table that isn't one is left as it is. A table already bound keeps its caption.
  */
-export function withAnalysisTableCitations(
+export function withAnalysisTables(
   blocks: readonly NodeJSON[],
-  analyses: readonly AnalysisTableInput[] | undefined,
+  runs: readonly AnalysisTableRun[],
 ): NodeJSON[] {
-  if (!analyses || analyses.length === 0) return [...blocks];
-  const tables = analysisTablesOf(analyses);
+  if (runs.length === 0) return [...blocks];
+  const tables = analysisTablesOf(runs);
   if (tables.length === 0) return [...blocks];
-  return blocks.map((block) => {
+  return blocks.flatMap((block) => {
+    if (readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE])) return [block];
     const found = analysisTableFor(block, tables);
-    if (!found) return block;
-    const headingRow = block.content?.[0];
-    if (!headingRow) return block;
-    const cells = (headingRow.content ?? []).map((cell, at) =>
-      found.numeric.includes(at) ? citeCell(cell, found.citations) : cell,
-    );
-    return {
+    if (!found) return [block];
+    const bound = {
       ...block,
-      content: [{ ...headingRow, content: cells }, ...(block.content ?? []).slice(1)],
+      attrs: { ...block.attrs, [ANALYSIS_TABLE_ATTRIBUTE]: found.binding },
     };
+    return [captionOf(found), bound];
   });
+}
+
+/** A cell of an Analysis's table whose text in the Note isn't what the Analysis gave. */
+export interface DifferingCell {
+  /** Its row's label in the Note. */
+  label: string;
+  /** As the Note writes it. */
+  note: string;
+  /** As the Analysis gave it, in the interface's language; null for a row the Analysis gave none of. */
+  analysis: string | null;
+}
+
+/** One column of numbers of an Analysis's table, as its card lists it. */
+export interface AnalysisTableColumn {
+  column: number;
+  /** Its heading as the Note writes it. */
+  heading: string;
+  /** The one rule IncarnaMind worked it out again with; null: not recalculated. */
+  rule: AnalysisColumnCheck["rule"];
+  rows: number;
+  differs: DifferingCell[];
+}
+
+/**
+ * What an Analysis's table shows (#2378), worked out from the Note's table and the run the Note
+ * keeps, never from the Documents' text: recalculated when IncarnaMind reproduced every column and
+ * the Note still reads them, calculated by the Analysis when a column wasn't reproduced, differs
+ * when a cell's text isn't the run's, and needs a re-check once a Document it read changed.
+ */
+export type AnalysisTableState =
+  | { kind: "recalculated" }
+  | { kind: "calculated" }
+  | { kind: "differs" }
+  | { kind: "needs-recheck"; why: "new-version" | "document-removed" }
+  | { kind: "unavailable" };
+
+export interface AnalysisTableShown {
+  state: AnalysisTableState;
+  columns: AnalysisTableColumn[];
+}
+
+const cellKey = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/**
+ * How `block`, a table bound to `kept`, shows: each Note row is paired with the run's row of the
+ * same label, so a row deleted moves no value to its neighbour; a row the run gave none of differs.
+ * `versions`: each live Document's version now; null while they aren't known.
+ */
+export function analysisTableShown(
+  block: NodeJSON,
+  kept: AnalysisTableMatch | null,
+  language: string,
+  versions: ReadonlyMap<string, string> | null,
+): AnalysisTableShown {
+  if (!kept) return { state: { kind: "unavailable" }, columns: [] };
+  const grid = gridOf(block);
+  const [headings = [], ...rows] = grid;
+  const given = kept.table;
+  const raw = given.columns.map(rawColumn);
+  const written = (value: AnalysisCell, column: number) =>
+    LANGUAGES.map((each) => cellKey(figureCellText(each, value, raw[column] ?? false)));
+  const runRow = new Map<string, number>();
+  given.rows.forEach((row, at) => {
+    for (const label of written(row[0] ?? null, 0)) if (!runRow.has(label)) runRow.set(label, at);
+  });
+  const columns: AnalysisTableColumn[] = kept.numeric
+    .filter((column) => column > 0)
+    .map((column) => {
+      const check = kept.columns.find((each) => each.column === column);
+      const differs: DifferingCell[] = [];
+      for (const row of rows) {
+        const label = row[0] ?? "";
+        const note = cellKey(row[column] ?? "");
+        const at = runRow.get(cellKey(label));
+        const value = at === undefined ? undefined : given.rows[at]?.[column];
+        if (value !== undefined && written(value, column).includes(note)) continue;
+        if (value === undefined && note === "") continue;
+        differs.push({
+          label,
+          note,
+          analysis:
+            value === undefined ? null : figureCellText(language, value, raw[column] ?? false),
+        });
+      }
+      return {
+        column,
+        heading: headings[column] ?? given.columns[column] ?? "",
+        rule: check?.rule ?? null,
+        rows: check?.rows ?? 0,
+        differs,
+      };
+    });
+  const differs = columns.some((column) => column.differs.length > 0);
+  if (differs) return { state: { kind: "differs" }, columns };
+  for (const citation of kept.citations) {
+    const current = versions?.get(citation.documentId);
+    if (versions && current === undefined)
+      return { state: { kind: "needs-recheck", why: "document-removed" }, columns };
+    if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
+      return { state: { kind: "needs-recheck", why: "new-version" }, columns };
+  }
+  const recalculated = columns.length > 0 && columns.every((column) => column.rule !== null);
+  return { state: { kind: recalculated ? "recalculated" : "calculated" }, columns };
+}
+
+/** A column's line on the table's card and under its Figure schedule row, in the figure card's words. */
+export function columnLine(column: AnalysisTableColumn, language: Language): string {
+  const heading = column.heading;
+  if (!column.rule) return translate(language, "figures.table.notRecalculated", { heading });
+  const plural = column.rows === 1 ? "one" : "other";
+  return translate(language, `figures.table.recalculated.${column.rule.how}.${plural}`, {
+    heading,
+    count: figureText(language, column.rows),
+  });
+}
+
+/** A cell whose text in the Note isn't the Analysis's, under its column. */
+export function differingLine(cell: DifferingCell, language: Language): string {
+  return cell.analysis === null
+    ? translate(language, "figures.table.notInAnalysis", { label: cell.label, note: cell.note })
+    : translate(language, "figures.table.differs", {
+        label: cell.label,
+        note: cell.note,
+        analysis: cell.analysis,
+      });
+}
+
+/** How a Note's table `table` shows, read with the run the Note `doc` keeps of it (#2378). */
+export function tableShownIn(
+  doc: Y.Doc,
+  table: NodeJSON,
+  language: string,
+  versions: ReadonlyMap<string, string> | null,
+): AnalysisTableShown {
+  let kept: AnalysisTableMatch | null = null;
+  try {
+    kept = boundTableFor(table, keptAnalysisTables(figureRunsFor(doc, [table])));
+  } catch (error) {
+    console.error("Reading an Analysis table's run failed:", error);
+  }
+  return analysisTableShown(table, kept, language, versions);
+}
+
+/** Whether a table's state needs a look: a cell differs, or a Document it read changed. */
+export const tableNeedsLook = (shown: AnalysisTableShown): boolean =>
+  shown.state.kind === "differs" || shown.state.kind === "needs-recheck";
+
+/** Each live Document's version, by id, as an Analysis table's state reads them; null while unknown. */
+export const liveVersions = (
+  documents: readonly { id: string; contentHash: string }[] | null,
+): ReadonlyMap<string, string> | null =>
+  documents === null ? null : new Map(documents.map((each) => [each.id, each.contentHash]));
+
+/**
+ * An Analysis table's footnote in Word, PDF and Markdown (#2378): the Analysis, and the rows of
+ * each file it read, "from 40 rows of Orders.csv and 4 rows of Regions.csv".
+ */
+export function analysisTableNote(
+  run: Pick<RetainedFigureAnalysis, "title" | "inputs">,
+  language: Language,
+): string {
+  const ranges = run.inputs.flatMap((input) =>
+    input.kind === "range" ? [{ rows: input.rows, file: input.citation.documentName }] : [],
+  );
+  const named = ranges.map(({ rows, file }) =>
+    translate(language, rows === 1 ? "export.table.source.one" : "export.table.source.other", {
+      count: figureText(language, rows),
+      file,
+    }),
+  );
+  const last = named.at(-1) ?? "";
+  const sources =
+    named.length < 2
+      ? last
+      : `${named.slice(0, -1).join(translate(language, "export.table.comma"))}${translate(language, "export.table.and")}${last}`;
+  return translate(language, "export.table.analysis", { title: run.title, sources });
 }

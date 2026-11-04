@@ -180,6 +180,11 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
   };
   const open = (line: ScheduleLine) => {
     if (line.id === line.parent.id) {
+      // An Analysis's table opens to its columns whatever it shows: it is never checked as text (#2378).
+      if (line.parent.analysisTable) {
+        toggle(line.parent.id);
+        return;
+      }
       if (line.parent.shown.state === "not-checked") {
         useNotices.getState().confirm("figures.notCheckedNotice");
         return;

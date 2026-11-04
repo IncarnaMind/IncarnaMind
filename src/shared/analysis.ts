@@ -129,6 +129,36 @@ export type AnalysisRecalculation =
   | { kind: "differs"; value: number }
   | { kind: "unchecked"; reason: string };
 
+/** Which of an Analysis's tables: a result's, by its name, or the table a chart draws, by its place. */
+export type AnalysisTableKey = { result: string } | { chart: number };
+
+/**
+ * The one way a column of an Analysis's table is worked out again (#2378): `how` of the input's
+ * `value` column over the input rows whose `key` column holds the row's label. A count counts the
+ * rows themselves, so its `value` is its `key`.
+ */
+export interface AnalysisColumnRule {
+  input: string;
+  key: string;
+  value: string;
+  how: FigureHow;
+}
+
+/** What IncarnaMind made of one column of an Analysis's table when the Analysis ran. */
+export interface AnalysisColumnCheck {
+  /** Its place among the table's columns, from 0. */
+  column: number;
+  /** The one rule that reproduces every cell of it; null when none does, or more than one does. */
+  rule: AnalysisColumnRule | null;
+  /** How many of the input's rows the rule worked the column out from; 0 without one. */
+  rows: number;
+}
+
+export interface AnalysisTableCheck {
+  table: AnalysisTableKey;
+  columns: AnalysisColumnCheck[];
+}
+
 /** A plot matplotlib drew, as a PNG (#2346). */
 export interface AnalysisPicture {
   /** Its title, or its first chart's; "" when it has none. */
@@ -414,6 +444,51 @@ export function readFigureRows(raw: unknown): AnalysisFigureRows | null {
   }
   if (rows.length === 0 || raw.count !== count) return null;
   return { input, columns: raw.columns.map(label), rows, count, how };
+}
+
+export function readAnalysisTableKey(raw: unknown): AnalysisTableKey | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.result === "string" && raw.result !== "" && raw.chart === undefined)
+    return { result: raw.result };
+  return typeof raw.chart === "number" &&
+    Number.isSafeInteger(raw.chart) &&
+    raw.chart >= 0 &&
+    raw.result === undefined
+    ? { chart: raw.chart }
+    : null;
+}
+
+export const sameTableKey = (a: AnalysisTableKey, b: AnalysisTableKey): boolean =>
+  "result" in a ? "result" in b && a.result === b.result : "chart" in b && a.chart === b.chart;
+
+/** A table as a run gives it, cut to the limits; null for anything else. */
+export const readAnalysisTable = (raw: unknown): AnalysisTable | null =>
+  table(raw, ANALYSIS_LIMITS.rows);
+
+function readColumnRule(raw: unknown): AnalysisColumnRule | null | undefined {
+  if (raw === null) return null;
+  if (!isRecord(raw)) return undefined;
+  const how = FIGURE_HOW.find((each) => each === raw.how);
+  const [input, key, value] = [label(raw.input), label(raw.key), label(raw.value)];
+  return how && input && key && value ? { input, key, value, how } : undefined;
+}
+
+/** A table's column checks as a Note keeps them; null for anything that isn't one. */
+export function readTableCheck(raw: unknown): AnalysisTableCheck | null {
+  if (!isRecord(raw) || !Array.isArray(raw.columns)) return null;
+  const key = readAnalysisTableKey(raw.table);
+  if (!key || raw.columns.length > ANALYSIS_LIMITS.columns) return null;
+  const columns: AnalysisColumnCheck[] = [];
+  for (const each of raw.columns) {
+    if (!isRecord(each)) return null;
+    const rule = readColumnRule(each.rule);
+    const { column, rows } = each;
+    if (rule === undefined || typeof column !== "number" || !Number.isSafeInteger(column))
+      return null;
+    if (typeof rows !== "number" || !Number.isSafeInteger(rows) || rows < 0) return null;
+    columns.push({ column, rule, rows });
+  }
+  return { table: key, columns };
 }
 
 function value(item: unknown): AnalysisValue | null {

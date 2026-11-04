@@ -6,16 +6,15 @@ import {
   type ChartAttributes,
   type ChartData,
   type ChartKind,
-  type ChartValue,
   canSwitch,
   chartFromFigures,
   chartFromTable,
   drawnSeries,
   gridOfTable,
   readChart,
+  redrawnData,
   type SourceGrid,
   type SourceLine,
-  sameChartData,
   sourceLineOf,
   switchedChart,
 } from "../../../shared/charts";
@@ -164,69 +163,7 @@ export function tableUpdate(
 ): ChartData | null {
   const chart = readChart(attributes);
   const table = chartTable(doc, chart);
-  if (!table) return null;
-  const fresh = chartFromTable(tableGrid(table), {
-    blockId: chart.source.kind === "table" ? chart.source.blockId : null,
-    title: chart.title,
-    language,
-    switched: chart.source.kind === "table" && chart.source.switched === true,
-  });
-  if (!fresh) return null;
-  const data = keepingStoredValues(fresh.data, chart.data);
-  return sameChartData(data, chart.data) ? null : data;
-}
-
-/**
- * The drawn values a chart's table still shows as they were: the assistant draws a chart from an
- * Analysis's own values, which the table's text only rounds, so a cell whose words are unchanged
- * keeps the Analysis's number and inputs (#2378). Its own Citation, unit and scale are read again;
- * a cell is known by its row's label, the series' name and its words, and each stored value is
- * used once, so a deleted row, a repeated label or a copied row moves no value to its neighbour.
- */
-function keepingStoredValues(fresh: ChartData, stored: ChartData): ChartData {
-  const key = (label: string, series: string) => JSON.stringify([label, series]);
-  const before = new Map<string, ChartValue[]>();
-  for (const row of [...stored.rows, ...stored.cutRows]) {
-    row.values.forEach((value, series) => {
-      if (!value?.fromAnalysis) return;
-      const name = key(row.label, stored.series[series] ?? "");
-      before.set(name, [...(before.get(name) ?? []), value]);
-    });
-  }
-  const used = new Map<string, Set<number>>();
-  const kept = (rows: ChartData["rows"]) =>
-    rows.map((row) => ({
-      ...row,
-      values: row.values.map((value, series) => {
-        if (!value) return value;
-        const name = key(row.label, fresh.series[series] ?? "");
-        const taken = used.get(name) ?? new Set<number>();
-        used.set(name, taken);
-        const candidates = before.get(name) ?? [];
-        // The words pick the row's own value among repeated labels; a changed row keeps its display.
-        let old: ChartValue | undefined;
-        for (let at = 0; at < candidates.length; at += 1) {
-          const candidate = candidates[at];
-          if (!candidate || taken.has(at) || candidate.shown !== value.shown) continue;
-          taken.add(at);
-          old = candidate;
-          break;
-        }
-        if (!old) return value;
-        return {
-          ...value,
-          value: old.value,
-          ...(old.inputs && { inputs: old.inputs }),
-          ...(old.figure && { figure: old.figure }),
-          fromAnalysis: true as const,
-        };
-      }),
-    }));
-  return {
-    ...fresh,
-    rows: kept(fresh.rows),
-    cutRows: kept(fresh.cutRows),
-  };
+  return table ? redrawnData(tableGrid(table), chart, language) : null;
 }
 
 /**

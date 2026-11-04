@@ -435,7 +435,7 @@ test.each(["en", "zh-CN"] as const)(
       figure: analysis,
       shown: analysisFigureShown(
         { state: "supported" },
-        { checked: true, run: null, result: "total", versions: null },
+        { run: null, result: "total", versions: null },
       ),
       replayed: false,
       // The Note from an earlier build: it names an Analysis the record was already lost for.
@@ -543,22 +543,15 @@ function checkedFigureInText(
   );
 }
 
-test("a claim check that left the figure unread keeps the figure in the text from showing checked", () => {
+test("no claim check of the sentence keeps the figure in the text from its own record (#2378)", () => {
   expect(checkedFigureInText({ state: "not-checked", reason: "unread" })).toEqual({
-    state: "not-checked",
-    reason: "unread",
+    state: "supported",
   });
-});
-
-test("a whole-sentence check with no figure child is no evidence against the core's own check", () => {
+  expect(checkedFigureInText({ state: "unsupported" })).toEqual({ state: "supported" });
   expect(checkedFigureInText(null)).toEqual({ state: "supported" });
-});
-
-test("a whole-sentence check that no longer holds shows on the figure in the text", () => {
-  // The check was made on other words: its result must show, not the core's own check (#2378).
+  // The check was made on other words: the figure is still its run's.
   expect(checkedFigureInText(null, "Total revenue 300 kg, as checked.")).toEqual({
-    state: "needs-recheck",
-    why: "edited",
+    state: "supported",
   });
 });
 
@@ -626,15 +619,14 @@ async function tracedCard(
   check: NonNullable<RetainedFigureAnalysis["values"][number]["check"]> | undefined,
   shown: ClaimCheckShown = { state: "not-checked", reason: "unread" },
   {
-    checked = false,
     versions = new Map([["source", "v2"]]),
-  }: { checked?: boolean; versions?: ReadonlyMap<string, string> | null } = {},
+  }: { versions?: ReadonlyMap<string, string> | null } = {},
 ) {
   const run = tracedRecords(check);
   const sources = calculatedSources(attrs(summed), tracedDoc(check));
   await card({
     figure: summed,
-    shown: analysisFigureShown(shown, { checked, run, result: "summed", versions }),
+    shown: analysisFigureShown(shown, { run, result: "summed", versions }),
     replayed: false,
     sources,
     problem: false,
@@ -681,26 +673,19 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
-test("a check the Note's own Check gave the figure stays what its card says", async () => {
-  await tracedCard(
-    { kind: "same", value: 300 },
+test("no claim check of the sentence stands for the core's own record of the figure (#2378)", async () => {
+  for (const claim of [
     { state: "needs-recheck", why: "edited" },
-    {
-      checked: true,
-    },
-  );
-  expect(container.textContent).toContain(translate("en", "claim.state.needs-recheck"));
-  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
-});
-
-test("a claim check that ran and left the figure unread never shows it checked", async () => {
-  await tracedCard(
-    { kind: "same", value: 300 },
     { state: "not-checked", reason: "unread" },
-    { checked: true },
-  );
-  expect(container.textContent).toContain(translate("en", "claim.state.not-checked"));
-  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
+    { state: "unsupported" },
+  ] as const) {
+    await tracedCard({ kind: "same", value: 300 }, claim);
+    const stateLine = container.querySelector(".calculated-figure-state");
+    expect(stateLine?.getAttribute("data-state")).toBe("supported");
+    expect(stateLine?.textContent).toContain(translate("en", "claim.state.supported"));
+    await act(() => root?.unmount());
+    root = null;
+  }
 });
 
 test("a figure needs a re-check once a Document its Analysis read changed", async () => {

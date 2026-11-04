@@ -1,10 +1,17 @@
 import * as Y from "yjs";
+import {
+  type AnalysisTableShown,
+  analysisTableShown,
+  boundTableFor,
+  keptAnalysisTables,
+} from "../shared/analysisTables";
 import type { NodeJSON } from "../shared/blockJson";
 import { MAX_INPUTS_PER_FIGURE } from "../shared/calculatedFigures";
 import { gridOfTable, readChart, type SourceGrid, valueCitations } from "../shared/charts";
 import {
   analysisFigureShown,
   type ClaimCheckNow,
+  type ClaimCheckShown,
   claimCheckShown,
   figureCheckShown,
   keepRecordCites,
@@ -13,7 +20,7 @@ import {
 import { resultFromParts } from "../shared/claimParts";
 import { aggregateFigureResults, figureProblem, readFigureFinding } from "../shared/figureChecks";
 import { type FootingEntry, figureFooting } from "../shared/figureFooting";
-import { calculatedFiguresIn, figureRunsFor } from "../shared/figureRuns";
+import { calculatedFiguresIn, figureRunsFor, readTableBinding } from "../shared/figureRuns";
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
 import { perBlock } from "../shared/memo";
@@ -47,8 +54,14 @@ import type {
   FigureSourceFooting,
   RetainedFigureAnalysis,
 } from "./api";
-import { CALCULATED_FIGURE_NODE, CITATION_NODE } from "./api";
+import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
+  CALCULATED_FIGURE_NODE,
+  CITATION_NODE,
+} from "./api";
 import { type Cell, headerRow } from "./documents/formats/grid";
+import type { Language } from "./language";
 import { plainText } from "./mindText";
 import { layout as partsOf } from "./proposals/write";
 
@@ -69,6 +82,8 @@ export interface FigureScheduleInput extends Omit<ClaimCheckNow, "text"> {
   blocks: Y.XmlFragment;
   /** The User, whose own check marks are theirs (#1933); null before they make one. */
   personId?: string | null;
+  /** The interface's language, which an Analysis table's numbers are written in. */
+  language?: Language;
 }
 
 /** A result worked out again from its parts or figures, with the sentence's record cites (#1709). */
@@ -662,6 +677,112 @@ function progressOf(
   };
 }
 
+/** How an Analysis table's state shows among a schedule's figures (#2378). */
+function tableStateShown(shown: AnalysisTableShown): {
+  shown: ClaimCheckShown;
+  reason: FigureScheduleRow["reason"];
+} {
+  const { state } = shown;
+  switch (state.kind) {
+    case "recalculated":
+      return { shown: { state: "supported" }, reason: null };
+    case "differs":
+      return { shown: { state: "unsupported" }, reason: "differs-from-analysis" };
+    case "needs-recheck":
+      return { shown: { state: "needs-recheck", why: state.why }, reason: "needs-recheck" };
+    case "calculated":
+      return { shown: { state: "not-checked", reason: "analysis" }, reason: null };
+    case "unavailable":
+      return { shown: { state: "not-checked", reason: "unread" }, reason: null };
+  }
+}
+
+/** The caption line above a table that ends with its marker, and the marker's offset in it. */
+function captionOf(table: Y.XmlElement): { element: Y.XmlElement; at: number } | null {
+  const before = table.prevSibling;
+  if (!(before instanceof Y.XmlElement) || before.nodeName !== "paragraph") return null;
+  const marker = partsOf(before).find(
+    ({ node }) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE,
+  );
+  return marker ? { element: before, at: marker.start } : null;
+}
+
+/**
+ * Each table that is an Analysis's own, one row however many cells it has (#2378): its state is
+ * worked out from the run the Note keeps, never its cells' text against the Documents.
+ */
+function analysisTableRows(
+  blocks: Y.XmlFragment,
+  input: FigureScheduleInput,
+  places: ReturnType<typeof placesIn>["places"],
+): { row: Omit<FigureScheduleRow, "number">; analyses: RetainedFigureAnalysis[] }[] {
+  const doc = blocks.doc;
+  if (!doc) return [];
+  return blocks.toArray().flatMap((table) => {
+    if (!(table instanceof Y.XmlElement) || table.nodeName !== "table") return [];
+    const binding = readTableBinding(table.getAttribute(ANALYSIS_TABLE_ATTRIBUTE));
+    const tableId = table.getAttribute("id");
+    if (!binding || typeof tableId !== "string") return [];
+    const node = nodeOf(table);
+    let analyses: RetainedFigureAnalysis[] = [];
+    try {
+      analyses = figureRunsFor(doc, [node]);
+    } catch (error) {
+      console.error(`Mind ${input.mindId}: reading Analysis table ${tableId}'s run failed`, error);
+    }
+    const kept = boundTableFor(node, keptAnalysisTables(analyses));
+    const shown = analysisTableShown(node, kept, input.language ?? "en", input.versions);
+    const caption = captionOf(table);
+    const captionId = caption?.element.getAttribute("id");
+    const title = caption ? plainText(caption.element).trim() : (kept?.label ?? "");
+    const at =
+      caption && typeof captionId === "string"
+        ? { blockId: captionId, offset: caption.at }
+        : { blockId: tableId, offset: 0 };
+    const place = places.get(at.blockId);
+    const reading: Figure = {
+      value: 0,
+      scale: 1,
+      scaleWord: null,
+      unit: { kind: "plain" },
+      decimals: 0,
+      start: 0,
+      end: title.length,
+      chars: title,
+      currency: null,
+      approximate: false,
+      rangeTo: null,
+      footnote: null,
+      ambiguous: [],
+    };
+    return [
+      {
+        analyses,
+        row: {
+          id: JSON.stringify(["analysis-table", tableId]),
+          locator: { kind: "text", from: at, to: { ...at, offset: at.offset + 1 } },
+          reading,
+          calculated: null,
+          sourceInput: null,
+          roundedFrom: null,
+          difference: null,
+          footing: [],
+          analysisTable: { title, columns: shown.columns },
+          sentence: null,
+          ...tableStateShown(shown),
+          sourceValue: null,
+          sourceShown: null,
+          checkedAt: null,
+          model: null,
+          cited: true,
+          signOff: null,
+          place: { heading: place?.heading ?? null, paragraph: place?.paragraph ?? 0 },
+        },
+      },
+    ];
+  });
+}
+
 export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
   const { blocks } = input;
   const occurrences = figuresInMind(blocks);
@@ -729,15 +850,12 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     let shown: FigureScheduleRow["shown"] = { state: "not-checked", reason: "unread" };
     // A claim check covers the figure through its own child, through a Keep of the sentence, or
     // through a whole-sentence check's re-check or run — never through its verdict alone (#2378).
-    let claimShown = false;
     if (state?.owner?.check.kept) {
       shown = claimCheckShown(state.owner.check, state.now);
-      claimShown = true;
     } else if (state?.child) {
       shown = !sameIdentity(occurrence, state.child)
         ? { state: "needs-recheck", why: "edited" }
         : figureCheckShown({ ...state.child, ...finding, context: state.child.context }, state.now);
-      claimShown = true;
     } else if (state?.owner) {
       const parent = state.owner.check;
       const legacy = claimCheckShown(
@@ -748,13 +866,10 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
         legacy.state === "needs-recheck" ||
         legacy.state === "kept" ||
         legacy.state === "checking"
-      ) {
+      )
         shown = legacy;
-        claimShown = true;
-      }
     }
     shown = analysisFigureShown(shown, {
-      checked: claimShown,
       run:
         retained.analyses.find((analysis) => analysis.id === occurrence.calculated?.analysisId) ??
         null,
@@ -854,6 +969,17 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
           }),
       },
     };
+  });
+  const tables = analysisTableRows(blocks, input, layout.places);
+  for (const { row, analyses } of tables) {
+    const at = rows.findIndex((each) => each.place.paragraph > row.place.paragraph);
+    rows.splice(at < 0 ? rows.length : at, 0, { ...row, number: 0 });
+    for (const analysis of analyses)
+      if (!retained.analyses.some((each) => each.id === analysis.id))
+        retained.analyses.push(analysis);
+  }
+  rows.forEach((row, index) => {
+    row.number = index + 1;
   });
   const latest = rows
     .filter((row) => row.checkedAt)

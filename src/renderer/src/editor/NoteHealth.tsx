@@ -4,6 +4,7 @@ import { useEditorState } from "@tiptap/react";
 import { useEffect, useId, useState } from "react";
 import type * as Y from "yjs";
 import type { CitationAttributes } from "../../../core/api";
+import { liveVersions, tableNeedsLook, tableShownIn } from "../../../shared/analysisTables";
 import { citationState } from "../../../shared/citations";
 import {
   acceptAndCheck,
@@ -191,6 +192,8 @@ export function useHealth(
           unexamined,
           omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
+          tableNeedsLook: (table) =>
+            tableNeedsLook(tableShownIn(doc, table.toJSON(), "en", liveVersions(documents))),
         }),
       );
     };

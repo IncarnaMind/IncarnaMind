@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { analysisInputCitations } from "../../../shared/analysisTables";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import { citedCases } from "../../../shared/caseCitations";
 import {
@@ -10,6 +11,7 @@ import {
   readChart,
   type SourceGrid,
 } from "../../../shared/charts";
+import { figureRunsFor, readTableBinding } from "../../../shared/figureRuns";
 import {
   type FigureContext,
   type FigureFacts,
@@ -19,6 +21,7 @@ import {
 import { perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   type CellFigurePlace,
   CHART_NODE,
@@ -30,7 +33,13 @@ import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
-import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf } from "./sentences";
+import {
+  isTableCaption,
+  type SelectedSentence,
+  sentenceSpansIn,
+  textOf,
+  wordsOf,
+} from "./sentences";
 
 export interface FigureOccurrence extends CheckFigure {
   sentence: TextStretch | null;
@@ -202,10 +211,12 @@ function inSentence(
     const reading = readings[0];
     if (readings.length !== 1 || !reading) continue;
     const { context, stretch } = around(start, start + 1);
+    const analysisRecord = calculated.figure.analysis ? recordOf(node) : undefined;
     found.push({
       ...common,
       sentence: stretch,
       context,
+      ...(analysisRecord && { analysisRecord }),
       id: calculated.id,
       locator: {
         kind: "text",
@@ -217,6 +228,24 @@ function inSentence(
     });
   }
   return found.sort((a, b) => a.reading.start - b.reading.start);
+}
+
+/** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
+function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
+  const doc = node.doc;
+  const figure = readCalculatedFigureAttributes(node.getAttributes());
+  if (!doc || !figure?.figure.analysis) return { recalculated: false, citations: [] };
+  try {
+    const [run] = figureRunsFor(doc, [nodeOf(node)]);
+    const value = run?.values.find((each) => each.name === figure.figure.analysis?.result);
+    return {
+      recalculated: value?.check?.kind === "same",
+      citations: run ? analysisInputCitations(run.inputs) : [],
+    };
+  } catch (error) {
+    console.error("Reading an Analysis figure's record for its check failed:", error);
+    return { recalculated: false, citations: [] };
+  }
 }
 
 export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[] {
@@ -260,7 +289,8 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
     },
   ]);
   return chartCells(chart).flatMap(({ row, series, value }): FigureOccurrence[] => {
-    if (!plotted.has(`${row}:${series}`)) return [];
+    // An Analysis's own value is its table's, which counts once, as the run's (#2378).
+    if (!plotted.has(`${row}:${series}`) || value.fromAnalysis) return [];
     const readings = readFigures(value.shown, {
       ...document,
       dates: true,
@@ -340,6 +370,9 @@ function figuresOfBlock(
     block.nodeName === "table" && before instanceof Y.XmlElement && before.nodeName !== "table"
       ? `${noteKey}\u0000${plainText(before)}`
       : noteKey;
+  // An Analysis's own table counts once, as its run's, never cell by cell (#2378).
+  if (block.nodeName === "table" && readTableBinding(block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)))
+    return [];
   const read = readFiguresOf(block);
   if (read.readWith === key) return read.figures;
   const grids = new Map<Y.XmlElement, SourceGrid>();
@@ -347,7 +380,7 @@ function figuresOfBlock(
   for (const { element, busy } of textBlocksOf(block, { charts: true })) {
     if (busy) continue;
     if (element.nodeName === CHART_NODE) found.push(...inChart(element));
-    else if (element.nodeName === "paragraph") {
+    else if (element.nodeName === "paragraph" && !isTableCaption(element)) {
       const blockId = element.getAttribute("id");
       if (typeof blockId !== "string") continue;
       const text = textOf(element);

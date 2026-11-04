@@ -2688,6 +2688,7 @@ export function createCore(adapters: CoreAdapters): Core {
         folderId: mind.folderId,
         scope,
         personId: settings.get().user.personId,
+        language: settings.get().language,
       });
     });
   }

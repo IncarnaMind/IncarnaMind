@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import { isInTable } from "@tiptap/pm/tables";
+import { inAnalysisTable } from "../editor/analysisTableCommands";
 import { noteHolding } from "../editor/noteKeymap";
 import {
   menuKeyApplies,
@@ -27,7 +28,11 @@ export const tableCommands: readonly Command[] = [
       appliesTo: ["block"],
       // The note's own undo (⌘Z) takes it back.
       reversible: true,
-      when: (ctx) => tableNote(ctx) !== null,
+      when: (ctx) => {
+        const editor = tableNote(ctx);
+        // Only an Analysis's own table has a calculation to convert to text (#2378).
+        return editor !== null && (action.id !== "convertToText" || inAnalysisTable(editor.state));
+      },
       enabled(ctx) {
         const editor = tableNote(ctx);
         const spot = editor && tableSpot(editor.state);

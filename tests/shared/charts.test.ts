@@ -1214,7 +1214,16 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     citations: Citation[],
     value: (row: number, column: number) => number | null,
     grid: string[][] = [],
-  ): AnalysisTableMatch => ({ grids: [grid], numeric: [], citations, value });
+  ): AnalysisTableMatch => ({
+    binding: { id: "run", table: { result: "totals" } },
+    label: "",
+    table: { columns: [], rows: [], rowCount: 0, columnCount: 0 },
+    columns: [],
+    grids: [grid],
+    numeric: [],
+    citations,
+    value,
+  });
 
   const table = (rows: string[][]): NodeJSON => ({
     type: "table",

@@ -668,15 +668,14 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
 }
 
 /**
- * How an Analysis figure shows (#2378): a claim check's own state when one covers it — one that
- * passed it over did not check it — else what the core worked out when the Analysis ran, while the
- * Documents it read are as they were. A check that differs or couldn't be made stays as it shows.
+ * How an Analysis figure shows (#2378): what the core worked out when the Analysis ran, while the
+ * Documents it read are as they were, and Not checked otherwise. A claim check reads the
+ * Documents' text, which never holds a figure an Analysis worked out, so its verdict never stands
+ * for the figure, either way; only the User's own Keep of the sentence does.
  */
 export function analysisFigureShown(
   shown: ClaimCheckShown,
   figure: {
-    /** Whether a claim check covers the figure, whatever it found: a check that left it unread saw it. */
-    checked: boolean;
     /** The record the Note keeps of the figure's Analysis; null when it kept none. */
     run: RetainedFigureAnalysis | null;
     result: string | null;
@@ -684,14 +683,12 @@ export function analysisFigureShown(
     versions: ReadonlyMap<string, string> | null;
   },
 ): ClaimCheckShown {
+  if (figure.result === null || shown.state === "kept") return shown;
   const value = figure.run?.values.find((each) => each.name === figure.result);
   // A figure that names an Analysis whose record the Note no longer keeps reads as its value and
-  // Not checked: neither a sentence's check nor a recalculation can stand for a record that is
-  // gone, and an earlier build could take one away (#2378).
-  if (figure.result !== null && !value)
-    return shown.state === "kept" ? shown : { state: "not-checked", reason: "unread" };
-  if (figure.checked) return shown;
-  if (value?.check?.kind !== "same") return shown;
+  // Not checked: a recalculation can't stand for a record that is gone, and an earlier build could
+  // take one away (#2378).
+  if (value?.check?.kind !== "same") return { state: "not-checked", reason: "unread" };
   for (const input of figure.run?.inputs ?? []) {
     const citation = input.kind === "figure" ? input.input.citation : input.citation;
     const current = figure.versions?.get(citation.documentId);
