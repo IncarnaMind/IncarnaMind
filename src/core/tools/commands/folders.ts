@@ -2,7 +2,7 @@
  * Folders and Tags themselves, as their menus make, rename and delete them (#1421): each a change
  * inside IncarnaMind that Undo takes back; a delete goes to Recently deleted and asks first.
  */
-import type { CommandItem, LibraryGroup, Tag } from "../../api";
+import type { CommandItem, LibraryGroup, Tag, TagMerge } from "../../api";
 import { RECENTLY_DELETED_DAYS } from "../../api";
 import { InvalidInputError, NotFoundError } from "../../errors";
 import {
@@ -216,6 +216,127 @@ export const FOLDER_CHECKERS = {
         said: `Renamed the Tag “${tag.name}” to “${renamed.name}”, on every Document that has it.`,
       };
     });
+  },
+
+  "tag.merge": async (input, { core }) => {
+    const tags = await core.listTags();
+    // The model has both a Tag's id and its name, and mixes them up: either names the Tag here.
+    const tagNamed = (value: string) =>
+      tags.find((each) => each.id === value) ?? tags.find((each) => same(each.name, value));
+    const groups = (
+      input.merges.length > 0 ? input.merges : [{ ids: input.ids, tag: input.tag }]
+    ).map((group) => {
+      const into = tagNamed(needs(group.tag, "error.commands.noTag"));
+      if (!into) throw new NotFoundError({ key: "error.tag.notFound" });
+      return { ids: group.ids, into, sources: [] as Tag[] };
+    });
+    for (const group of groups) {
+      if (group.ids.length === 0) throw new InvalidInputError({ key: "error.commands.noIds" });
+      const mine = new Set<string>();
+      group.sources = group.ids.flatMap((value) => {
+        const tag = tagNamed(value);
+        if (!tag) throw new NotFoundError({ key: "error.tag.notFound" });
+        if (tag.id === group.into.id || mine.has(tag.id)) return [];
+        mine.add(tag.id);
+        return [tag];
+      });
+    }
+    // A Tag merges into one Tag, and a Tag kept is never merged away: a request that names one
+    // twice is the model's mistake, and the User is asked again rather than shown another merge.
+    const owner = new Map<string, number>();
+    groups.forEach((group, at) => {
+      for (const id of [group.into.id, ...group.sources.map((tag) => tag.id)]) {
+        const seen = owner.get(id);
+        if (seen !== undefined && seen !== at) {
+          throw new InvalidInputError({ key: "error.tag.mergeTwice" });
+        }
+        owner.set(id, at);
+      }
+    });
+    const sources = groups.flatMap((group) => group.sources);
+    if (sources.length === 0) throw new InvalidInputError({ key: "error.tag.mergeIntoItself" });
+    const pairs = groups.flatMap((group) =>
+      group.sources.map((tag) => ({ from: tag.name, into: group.into.name })),
+    );
+    const [only] = groups;
+    return {
+      ...inApp(
+        "tag.merge",
+        sources.map((tag) => tagItem(tag)),
+        groups.length === 1 ? (only?.into.name ?? null) : null,
+        async () => {
+          const merges: { merged: TagMerge; into: Tag }[] = [];
+          const undoMerges = async () => {
+            for (const merge of [...merges].reverse()) {
+              await core.restore([merge.merged.merged], {
+                tagSources: [
+                  {
+                    tagId: merge.into.id,
+                    madeByUser: merge.merged.keptMadeByUserBefore,
+                    expected: {
+                      name: merge.merged.tag.name,
+                      description: merge.merged.tag.description,
+                      colour: merge.merged.tag.colour,
+                    },
+                  },
+                ],
+              });
+            }
+          };
+          const mergeGroups = async () => {
+            for (const group of groups) {
+              for (const tag of group.sources) {
+                merges.push({
+                  merged: await core.mergeTags(tag.id, group.into.id),
+                  into: group.into,
+                });
+              }
+            }
+          };
+          try {
+            await mergeGroups();
+          } catch (error) {
+            await undoMerges();
+            throw error;
+          }
+          const said = `${
+            groups.length === 1
+              ? `Merged ${plural(sources.length, "Tag")} (${pairs.map((pair) => `“${pair.from}”`).join(", ")}) into “${only?.into.name ?? ""}”, which their Documents carry now.`
+              : `Merged ${plural(sources.length, "Tag")} into ${plural(groups.length, "Tag")}: ${pairs.map((pair) => `“${pair.from}” into “${pair.into}”`).join(", ")}.`
+          } The User allowed it, so it is done, and the merged Tags are in Recently deleted, where the User can restore them. Name each Tag and the Tag it went into in your reply, not a list under it.`;
+          return {
+            done: {
+              items: sources.map((tag) => tagItem(tag)),
+              ...(groups.length === 1 && only
+                ? {
+                    into: {
+                      kind: "tag" as const,
+                      id: only.into.id,
+                      name: only.into.name,
+                      made: false,
+                    },
+                  }
+                : {}),
+              merges: pairs,
+              tagCount: { before: tags.length, after: tags.length - sources.length },
+            },
+            step: {
+              undo: async () => {
+                await undoMerges();
+                return null;
+              },
+              redo: async () => {
+                merges.length = 0;
+                await mergeGroups();
+              },
+            },
+            said,
+          };
+        },
+        "merge",
+      ),
+      merges: pairs,
+    };
   },
 
   "tag.delete": async (input, { core }) => {

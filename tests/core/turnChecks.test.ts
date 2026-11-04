@@ -99,7 +99,7 @@ async function answer(
   model: ReturnType<typeof scriptedModel>,
   checks: TurnCheck[],
   maxSteps = 10,
-  refusalSuffix?: () => string | null,
+  appSuffix?: () => string | null,
 ) {
   const events: AnswerEngineEvent[] = [];
   for await (const event of createAiSdkAnswerEngine({ maxSteps }).generate({
@@ -111,7 +111,7 @@ async function answer(
     tools: [],
     support: "tools",
     turnChecks: checks,
-    ...(refusalSuffix && { refusalSuffix }),
+    ...(appSuffix && { appSuffix }),
     signal: new AbortController().signal,
   })) {
     events.push(event);

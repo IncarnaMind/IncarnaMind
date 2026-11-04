@@ -14,6 +14,7 @@ import {
   type ChatProviderKind,
   type ChatReadiness,
   type CitationSupport,
+  type CloudReadPermit,
   type ConnectionTestResult,
   type DataFlowId,
   type ExternalService,
@@ -1397,11 +1398,26 @@ export function createChat(options: {
       choice?: ChatModelChoice,
       flow: DataFlowId = "chat",
       thinking?: Exclude<ChatModelSpec["thinking"], undefined>,
+      permit?: CloudReadPermit,
     ): Promise<PreparedChatModel> {
       const readiness = await readinessFor(choice ?? settings.get().user.chatModel, flow);
-      if (!readiness.ready) throw new ChatNotReadyError(readiness);
-      const { provider, modelId } = readiness;
-      if (provider.service) {
+      const permitted = (service: ExternalService | null | undefined) =>
+        service !== null &&
+        service !== undefined &&
+        permit?.flow === flow &&
+        permit.serviceId === service.id;
+      let provider: ChatProvider;
+      let modelId: string;
+      if (readiness.ready) {
+        provider = readiness.provider;
+        modelId = readiness.modelId;
+      } else if (readiness.reason === "consent-declined" && permitted(readiness.provider.service)) {
+        provider = readiness.provider;
+        modelId = readiness.modelId;
+      } else {
+        throw new ChatNotReadyError(readiness);
+      }
+      if (provider.service && !permitted(provider.service)) {
         try {
           await consent.ensure(flow, provider.service);
         } catch (error) {
@@ -1463,6 +1479,7 @@ export function createChat(options: {
         ),
         flow,
         provider.service,
+        permit,
       );
       const support = startingSupport(capabilities);
       const prepared = {
