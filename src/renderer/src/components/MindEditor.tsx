@@ -28,7 +28,7 @@ import {
   useMindTextLanguage,
 } from "../citationFormatting";
 import { noteHandle, readMindHandle } from "../commands/handles";
-import { keysHere, shortcutLabel } from "../commands/keymap";
+import { shortcutLabel } from "../commands/keymap";
 import { commentIdsOf, commentOnSelection } from "../comments";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { useComposer } from "../composer";
@@ -997,7 +997,6 @@ function MindEditorView({
             ai={aiActions}
             edit={editField}
             comment={{
-              keys: keysHere({ mac: "Cmd+Alt+M", other: "Ctrl+Alt+M" }),
               run: (current) => commentOnSelection(current, mindId, doc),
             }}
           />
