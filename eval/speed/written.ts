@@ -25,6 +25,7 @@ import { SETS as CHECK_SETS, writeDocuments } from "../repeats/cases";
 import { marksOf, outcomeOf } from "../repeats/repeat";
 import type { GroupOptions, Measured, PairedGroup, PairedItem } from "./paired";
 import { WRITTEN_DOCUMENTS, WRITTEN_ITEMS, type WrittenItem } from "./writtenCases";
+import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
 
 /** The 40-check set's Minds, as eval/repeats names them. */
 const FORTY = [
@@ -269,38 +270,45 @@ const planOf = (each: WrittenItem): Plan & { neverAsked: boolean } => ({
 
 export function writtenSet(root: string): PairedGroup[] {
   const examples = join(root, "resources", "examples");
-  const heldOut = (["en", "zh-CN"] as const).flatMap((language) =>
-    (["terms", "editions", "deposition"] as const).map((libraryName): PairedGroup => {
-      const writer = scriptedWriter();
-      const items = WRITTEN_ITEMS.filter(
-        (each) => each.language === language && each.library === libraryName,
-      );
-      return {
-        name: `written-${language}-${libraryName}`,
-        items: items.map((each) =>
-          item(each.id, each.kind, language, planOf(each), each.expected === "stated", writer),
-        ),
-        open: (base) =>
-          openWith(
-            base,
-            `paired-written-${language}-${libraryName}`,
-            language,
-            writer,
-            async (folder) => {
-              const written: EvalDocument[] = [];
-              for (const document of WRITTEN_DOCUMENTS) {
-                if (document.language !== language || !document.libraries.includes(libraryName))
-                  continue;
-                const path = join(folder, document.file);
-                await writeFile(path, buildPdf(document.pages));
-                written.push({ key: document.file, path });
-              }
-              return written;
-            },
-            examples,
+  const heldOut = (
+    [
+      ["written", WRITTEN_ITEMS, WRITTEN_DOCUMENTS],
+      ["written2", HELD_OUT_ITEMS, HELD_OUT_DOCUMENTS],
+    ] as const
+  ).flatMap(([setName, setItems, setDocuments]) =>
+    (["en", "zh-CN"] as const).flatMap((language) =>
+      (["terms", "editions", "deposition"] as const).map((libraryName): PairedGroup => {
+        const writer = scriptedWriter();
+        const items = setItems.filter(
+          (each) => each.language === language && each.library === libraryName,
+        );
+        return {
+          name: `${setName}-${language}-${libraryName}`,
+          items: items.map((each) =>
+            item(each.id, each.kind, language, planOf(each), each.expected === "stated", writer),
           ),
-      };
-    }),
+          open: (base) =>
+            openWith(
+              base,
+              `paired-${setName}-${language}-${libraryName}`,
+              language,
+              writer,
+              async (folder) => {
+                const written: EvalDocument[] = [];
+                for (const document of setDocuments) {
+                  if (document.language !== language || !document.libraries.includes(libraryName))
+                    continue;
+                  const path = join(folder, document.file);
+                  await writeFile(path, buildPdf(document.pages));
+                  written.push({ key: document.file, path });
+                }
+                return written;
+              },
+              examples,
+            ),
+        };
+      }),
+    ),
   );
   const forty = CHECK_SETS.filter((set) => FORTY.includes(set.id)).map((set): PairedGroup => {
     const writer = scriptedWriter();
