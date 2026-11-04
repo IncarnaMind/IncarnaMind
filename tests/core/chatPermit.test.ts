@@ -50,6 +50,7 @@ describe("A run permit at model preparation", () => {
       } as unknown as SettingsStore;
       const secrets = {
         get: async () => "sk-test",
+        tryRead: async () => ({ secret: "sk-test", unreadable: false }),
         tryGet: async () => "sk-test",
         set: async () => undefined,
       } as unknown as Secrets;

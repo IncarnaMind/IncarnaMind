@@ -38,7 +38,7 @@ import { useNotices } from "../../src/renderer/src/notices";
 import type { Translate } from "../../src/renderer/src/objects";
 import { nextToRedo, useUndo } from "../../src/renderer/src/undo";
 import { offersFixes } from "../../src/renderer/src/unsupportedFixes";
-import { claimCheckShown } from "../../src/shared/claimChecks";
+import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { checkWithParts } from "../../src/shared/claimParts";
 import { readFigures } from "../../src/shared/figures";
 import { translate } from "../../src/shared/i18n";
@@ -614,6 +614,36 @@ describe("Correct a contradiction from the Documents", () => {
 
     expect(textOf(editor)).toBe(`比率是 百分之三十八点六${INLINE_NODE}。`);
     expect(claim(editor, "one").shown.state).toBe("supported");
+  });
+
+  // protects=a one-click correction asks no model, so the check keeps the model and time its card's line names, and adds no time of its own (#1667); fails_when=the corrected check takes the correction's time or another model; no_claim=the line's wording, which its own test reads.
+  test.each([
+    ["a part", check("one", "The rate is 36.8%.")],
+    [
+      "the whole sentence",
+      {
+        ...basis("one", "The rate is 36.8%."),
+        state: "contradicted" as const,
+        evidence: evidence(),
+        correction: { from: "36.8%", choices: [{ wording: "38.6%", evidence: evidence() }] },
+        says: "The Document says 38.6%, not 36.8%.",
+      },
+    ],
+  ])("a correction of %s keeps the check's model and time", (_, attrs) => {
+    const { editor } = editorWith([
+      { type: "paragraph", content: [marked("The rate is 36.8%.", attrs)] },
+    ]);
+    const before = checkedWith(claim(editor, "one").check);
+    expect(before).toEqual({
+      models: [{ providerId: "anthropic", modelId: "claude-haiku-5-5" }],
+      checkedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(applyCorrection(editor, "mind", claim(editor, "one"))).toBe(true);
+
+    const corrected = claim(editor, "one");
+    expect(corrected.shown.state).toBe("supported");
+    expect(checkedWith(corrected.check)).toEqual(before);
   });
 
   test("corrects a check of the whole sentence, as the background watch writes it", () => {

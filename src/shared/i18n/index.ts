@@ -60,3 +60,12 @@ export function translate(language: Language, key: MessageKey, params?: MessageP
   }
   return text;
 }
+
+/** Names in a run, as a sentence lists them: "A and B", "A, B and C"; "A 和 B", "A、B 和 C". */
+export function andList(language: Language, names: readonly string[]): string {
+  if (names.length < 2) return names.join("");
+  return translate(language, "list.and", {
+    first: names.slice(0, -1).join(translate(language, "list.separator")),
+    last: names.at(-1) ?? "",
+  });
+}

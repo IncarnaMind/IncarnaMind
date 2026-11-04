@@ -215,7 +215,7 @@ export function commandTools(options: CommandToolsOptions): {
 
   const listTool: Tool = {
     name: COMMAND_TOOLS.list,
-    description: `Finds the User's Documents, Notes, Folders or Tags, or what is in Recently deleted (kind "deleted"), for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening things, beside the Note too, Settings at a page, recording, checking the Note in front, exporting and the rest of what ⌘K offers.`,
+    description: `Finds the User's Documents, Notes, Folders or Tags, or what is in Recently deleted (kind "deleted"), for a command, and the commands that apply to them. It matches exactly: a name that holds the words given, a Tag, a Folder (all that are given), never by meaning. Act only on what it found, by id, with ${COMMAND_TOOLS.run}. With kind "window", it lists the commands that act on the window in front instead: opening things, beside the Note too, Settings at a page, recording, checking the Note in front and the rest of what ⌘K offers.`,
     inputSchema: {
       type: "object",
       properties: {

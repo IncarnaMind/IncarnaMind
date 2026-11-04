@@ -357,6 +357,7 @@ describe("Sign in with Claude", () => {
         status: () => ({ protection: "os", plainTextAccepted: false, canSave: true }),
         acceptPlainText: () => ({ protection: "os", plainTextAccepted: false, canSave: true }),
         get: async () => null,
+        tryRead: async () => ({ secret: null, unreadable: false }),
         tryGet: async () => null,
         set: async () => {},
         delete: async () => {},
