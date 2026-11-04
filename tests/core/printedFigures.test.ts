@@ -16,7 +16,7 @@ import { createLocalExecutor } from "../../src/core/execution";
 import { createProcessLauncher } from "../../src/main/processes";
 import { programMeter } from "../../src/main/programMeter";
 import { createCodeHost } from "../../src/main/runCode/host";
-import { noAnalysisOutput } from "../../src/shared/analysis";
+import { type AnalysisOutput, noAnalysisOutput } from "../../src/shared/analysis";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import {
@@ -463,7 +463,7 @@ const pyodide: Call = (passage) => ({
   },
 });
 
-const printing = (printed: string, results: FakeAnswer["output"] = {}): FakeAnswer => ({
+const printing = (printed: string, results: Partial<AnalysisOutput> = {}): FakeAnswer => ({
   output: { ...noAnalysisOutput(), printed, ...results },
 });
 
