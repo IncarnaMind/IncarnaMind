@@ -2253,23 +2253,31 @@ function amountInWords(
 }
 
 /**
- * A word right before an amount that may give it a sign the reader doesn't read as one ("minus",
- * "less", "a deficit of", "亏损", "减少"), or a minus written on it: "-sixty-four thousand".
+ * Words right before an amount that may give it a sign the reader doesn't read as one: "less", "a
+ * deficit of", "decreased by", "亏损", "减少", "扣除"; or a minus or a △ written on it.
  */
 const SIGN_BEFORE =
-  /(?:(?<![A-Za-z])(?:minus|negative|less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失)[)）:：]?[ \u00a0]*[为了]?$|-$/i;
+  /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除)[ \u00a0]*[为了]?$|-$|[△▲▽▼][ \u00a0]*$/i;
+
+/** "minus", "negative" or 负 (not 负责 or 负担) anywhere in an amount's clause: "a negative closing balance of". */
+const NEGATIVE_WORD = /(?<![A-Za-z])(?:minus|negative)(?![A-Za-z])|负(?![责担])/i;
+const CLAUSE_MARK = /[.;,，；。]/g;
+
+/** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …". */
+const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*[:：]/i;
 
 /** The Document says amounts in brackets are negative: "Amounts in brackets are negative", "括号内数字为负数". */
 const SAYS_BRACKETS_NEGATIVE =
-  /(?<![A-Za-z])(?:brackets?|parenthes[ie]s)(?![A-Za-z])[^.\n]{0,60}(?<![A-Za-z])negative(?![A-Za-z])|(?<![A-Za-z])negative(?![A-Za-z])[^.\n]{0,60}(?<![A-Za-z])(?:brackets?|parenthes[ie]s)(?![A-Za-z])|括号[^。\n]{0,20}负|负数[^。\n]{0,20}括号/i;
+  /(?<![A-Za-z])(?:brackets?|parenthes[ie]s)(?![A-Za-z])[^.\n]{0,60}(?<![A-Za-z])negative(?![A-Za-z])|(?<![A-Za-z])negative(?![A-Za-z])[^.\n]{0,60}(?<![A-Za-z])(?:brackets?|parenthes[ie]s)(?![A-Za-z])|括号[^。\n]{0,20}(?:负数|为负(?![责担]))|负数[^。\n]{0,20}括号/i;
 
 /**
  * Whether a figure in brackets gives again the amount written right before it, in figures:
  * "人民币九万八千元（¥98,000）", "USD 1.2 million ($1,200,000)", "Seventy-Five Thousand Dollars
- * ($75,000.00)". Only an amount in words or with a scale word is given again so: two cells of a
- * statement line write one form twice, as an elimination's "3,600 (3,600)" does, and a tab or a
- * line between them parts two cells. Where the words may give the amount a sign, or the Document
- * says brackets are negative, the bracket is read as before.
+ * ($75,000.00)"; and the one currency the two agree on, which settles a bare "$" or "¥" in the
+ * bracket. Null when it doesn't. Only an amount in words or with a scale word is given again so:
+ * two cells of a statement line write one form twice, as an elimination's "3,600 (3,600)" does,
+ * and a tab or a line between them parts two cells. Where the words may give the amount a sign, or
+ * the Document says brackets are negative, the bracket is read as before.
  */
 function restates(
   prepared: Prepared,
@@ -2278,42 +2286,57 @@ function restates(
   bracket: number,
   inner: Draft,
   settled: Settled,
-): boolean {
+): { currency: string | null } | null {
   const { s } = prepared;
-  if (settled.negativeBrackets) return false;
+  if (settled.negativeBrackets) return null;
   const value = readingOf({ ...inner, negative: false }).value;
-  const line = s.lastIndexOf("\n", bracket - 1) + 1;
+  // No further back than one amount's words reach, so a long line costs no more.
+  const near = Math.max(0, bracket - 160);
+  const line = near + s.slice(near, bracket).lastIndexOf("\n") + 1;
   // "人民币九万八千元整（¥98,000.00）": 整 closes an amount in words.
   const gap = /整?[ \u00a0]*$/.exec(s.slice(Math.max(floor, line), bracket))?.[0].length ?? 0;
   const end = bracket - gap;
   for (let at = end; at <= bracket; at++)
-    if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return false;
-  const signed = (from: number) => SIGN_BEFORE.test(s.slice(Math.max(line, from - 24), from));
+    if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return null;
+  const signed = (from: number) => {
+    const lead = s.slice(line, from);
+    const clause = lead.slice(([...lead.matchAll(CLAUSE_MARK)].at(-1)?.index ?? -1) + 1);
+    return (
+      SIGN_BEFORE.test(lead.slice(-24)) || NEGATIVE_WORD.test(clause) || DEDUCTION_LINE.test(lead)
+    );
+  };
   // A bare "$" is whichever dollar the words name: "Australian Dollars ($98,000)".
   const sign = inner.currencyAt ? s.slice(inner.currencyAt.from, inner.currencyAt.to) : "";
   const codes = [...inner.currencies, ...(SIGN_CURRENCIES[sign] ?? [])];
+  const agreed = (named: readonly string[]) => {
+    const both = named.filter((code) => codes.includes(code));
+    return { currency: both.length === 1 ? (both[0] ?? null) : null };
+  };
   if (before && before.to === end) {
-    if (!before.core.chinese && before.scaleWord === null) return false;
+    if (!before.core.chinese && before.scaleWord === null) return null;
+    if (before.signUnsure) return null;
     const unitsAgree =
       before.unit.kind === "plain" ||
       inner.unit.kind === "plain" ||
       (before.unit.kind === "currency" && inner.unit.kind === "currency"
         ? before.currencies.some((code) => codes.includes(code))
         : JSON.stringify(before.unit) === JSON.stringify(inner.unit));
-    return unitsAgree && readingOf(before).value === value && !signed(before.from);
+    return unitsAgree && readingOf(before).value === value && !signed(before.from)
+      ? agreed(before.currencies)
+      : null;
   }
-  // Back to the line's or the cell's start, not to the last figure ("and 50/100" may have been
-  // read as a date), and no further than one amount's words reach.
-  const from = Math.max(line, s.lastIndexOf("\t", end - 1) + 1, end - 160);
+  // Back to the line's or the cell's start, not to the last figure: "and 50/100" may have been
+  // read as a date.
+  const from = line + s.slice(line, end).lastIndexOf("\t") + 1;
   const words = amountInWords(s.slice(from, end), settled);
-  return (
-    words !== null &&
+  return words !== null &&
     words.value === value &&
     (words.codes.length === 0 ||
       inner.currencies.length === 0 ||
       words.codes.some((code) => codes.includes(code))) &&
     !signed(from + words.start)
-  );
+    ? agreed(words.codes)
+    : null;
 }
 
 /** Reads the words around a number into a figure; null when it isn't one (a year, a reference, a word). */
@@ -2598,8 +2621,14 @@ function readAround(
     // Brackets that give the amount before them again are neither a minus nor a question, and
     // make no figure of a "thirty (30) days" that has none.
     const aside = restates(prepared, before, floor, bracket, draft, settled);
+    // "Australian Dollars ($98,000)": the bracket's "$" is the dollar its words name.
+    const restate = () => {
+      if (!aside?.currency) return;
+      draft.currencies = [aside.currency];
+      draft.unit = { kind: "currency", code: aside.currency };
+    };
     const negate = () => {
-      if (aside) return;
+      if (aside) return restate();
       draft.negative = true;
       if (outer) {
         draft.currencies = outer.codes;
@@ -2622,7 +2651,7 @@ function readAround(
       right = close + 1;
     };
     const question = () => {
-      if (aside) return;
+      if (aside) return restate();
       draft.signUnsure = true;
       enclose();
     };
