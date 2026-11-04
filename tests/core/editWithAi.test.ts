@@ -7170,3 +7170,93 @@ describe("A selection too long for the model is edited in parts (#2348)", () => 
     expect(shownWithChanges(client)).toEqual([body(0), body(1), body(2)]);
   });
 });
+
+describe("Held-out shapes for how an edit reads and when it waits (#2356), written before any run", () => {
+  // protects=only old words replaced or taken out count toward a paragraph written anew, 40% or more reading whole: a word changed with a phrase added, or words only added, read word by word, two words of four replaced read whole, and a short sentence cut from three reads word by word; none waits; English and Chinese; fails_when=added words count against the old ones, so a small change with an addition reads whole, or a paragraph mostly replaced interleaves; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "en, a word changed and a phrase added",
+      before: "Ferries run every hour.",
+      after: "Ferries run every two hours on weekdays, and less often at weekends.",
+      whole: false,
+    },
+    {
+      case: "zh, words only added",
+      before: "渡轮每小时一班。",
+      after: "渡轮工作日每两小时一班，周末班次更少。",
+      whole: false,
+    },
+    {
+      case: "en, two words of four replaced",
+      before: "Gates open at noon.",
+      after: "Doors open at dawn.",
+      whole: true,
+    },
+    {
+      case: "zh, two words of three replaced",
+      before: "大门中午开放。",
+      after: "侧门清晨开放。",
+      whole: true,
+    },
+    {
+      case: "en, one short sentence of three cut",
+      before: "Bring water. Bring a hat. Leave dogs at home.",
+      after: "Bring water. Leave dogs at home.",
+      whole: false,
+    },
+    {
+      case: "zh, one short sentence of three cut",
+      before: "带水。带帽子。狗留在家里。",
+      after: "带水。狗留在家里。",
+      whole: false,
+    },
+  ])("held out: $case", async (each) => {
+    const blocks = plain([each.before]);
+    const { core, mind, client } = await noteOf(blocks, () => each.after);
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, String(blocks[0]?.attrs?.id), "improve"),
+    );
+
+    expect(result).toMatchObject({ kind: "proposed" });
+    expect(result).not.toHaveProperty("held");
+    const [line] = shownWithChanges(client);
+    if (each.whole) expect(line).toBe(`[-${each.before}-]{+${each.after}+}`);
+    else {
+      expect(line).not.toBe(`[-${each.before}-]{+${each.after}+}`);
+      expect(line?.slice(0, 2)).toBe(each.before.slice(0, 2));
+    }
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([each.after]);
+  });
+
+  // protects=an edit over a whole Note that keeps one paragraph as it was and cuts a longer one to its first sentence takes out more than half of the selection, so it waits, though most of its new text is found there (#880, #2356); English and Chinese; fails_when=new text found in the selection lets it apply at once; no_claim=how often a model cuts.
+  test.each([
+    {
+      case: "en",
+      kept: "Fees are per night and are paid at the desk on arrival, in cash or by card.",
+      cut: "The trail starts behind the station. It climbs for two hours through pine woods. A hut at the top sells tea and soup. The path down is steep and loose after rain. Most walkers are back by four.",
+      first: "The trail starts behind the station.",
+    },
+    {
+      case: "zh",
+      kept: "住宿按晚收费，入住时在前台用现金或银行卡支付。",
+      cut: "步道从车站后面开始。沿着松林往上要走两个小时。山顶的小屋卖茶和汤。下山的路很陡，雨后路面松散。山路两旁有很多野花。大多数人四点前回来。",
+      first: "步道从车站后面开始。",
+    },
+  ])(
+    "held out: a kept paragraph and a long one cut to its first sentence wait ($case)",
+    async (each) => {
+      const { core, mind, client } = await noteOf(
+        plain([each.kept, each.cut]),
+        () => `¶1 ${each.kept}\n\n¶2 ${each.first}`,
+      );
+
+      const result = await core.editWithAi(wholeMind(client, mind.id, "Tidy it up"));
+
+      expect(result).toMatchObject({ kind: "proposed", held: true });
+      await resolveChanges(client, "reject");
+      expect(shownWithChanges(client)).toEqual([each.kept, each.cut]);
+    },
+  );
+});

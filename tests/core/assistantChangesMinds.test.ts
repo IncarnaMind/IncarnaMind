@@ -2366,3 +2366,91 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     },
   );
 });
+
+describe("Held-out shapes for when an edit waits (#2356), written before any run", {
+  timeout: 30_000,
+}, () => {
+  const editing = (asked: string, reply: string) =>
+    scriptedModel((call: ModelCall): ScriptedReply => {
+      if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+        : { text: "Done." };
+    });
+  const APPLIES = "It applies in the Note at once";
+  const WAITS = "waits there for them";
+  const TRIP = {
+    en: [
+      "Lunch is at one. The coach back to town leaves the car park at half past five.",
+      "Bring a packed lunch, a warm coat and sturdy shoes for the hill path.",
+    ],
+    zh: [
+      "午饭一点开始。回城的大巴五点半从停车场准时出发。",
+      "请带上午饭、厚外套和适合走山路的鞋子。",
+    ],
+  };
+  const BOATHOUSE = {
+    en: [
+      "Our volunteers repainted the old boathouse during the long weekend.",
+      "Tea and cake are served in the clubhouse.",
+    ],
+    zh: ["志愿者们在长周末把旧船屋重新粉刷了一遍。", "活动结束后在会所提供茶点。"],
+  };
+
+  // protects=whether an edit waits is the share of the User's words it takes out and doesn't write back, the same in English and Chinese: a sentence cut from a paragraph beside another applies at once, the same cut as the Note's only paragraph waits, and a rewrite in other words of most of the Note waits though another paragraph stays; fails_when=the words a paragraph written anew keeps, or its spaces, count as taken out, or a rewrite in other words applies at once; no_claim=how a real model words its reply.
+  test.each([
+    {
+      case: "en, a sentence cut, beside a paragraph",
+      lines: TRIP.en,
+      reply: "¶1 Lunch is at one.",
+      waits: false,
+    },
+    {
+      case: "zh, a sentence cut, beside a paragraph",
+      lines: TRIP.zh,
+      reply: "¶1 午饭一点开始。",
+      waits: false,
+    },
+    {
+      case: "en, the same cut as the Note's only paragraph",
+      lines: TRIP.en.slice(0, 1),
+      reply: "¶1 Lunch is at one.",
+      waits: true,
+    },
+    {
+      case: "zh, the same cut as the Note's only paragraph",
+      lines: TRIP.zh.slice(0, 1),
+      reply: "¶1 午饭一点开始。",
+      waits: true,
+    },
+    {
+      case: "en, most of the Note in other words",
+      lines: BOATHOUSE.en,
+      reply: "¶1 Several helpers refreshed that ancient shed across three holidays.",
+      waits: true,
+    },
+    {
+      case: "zh, most of the Note in other words",
+      lines: BOATHOUSE.zh,
+      reply: "¶1 几位帮手利用三天假期翻新那座老棚子。",
+      waits: true,
+    },
+  ])("held out: $case", async (each) => {
+    const asked = "Tidy my note.";
+    const model = editing(asked, each.reply);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+
+    expect(lastResult(model)).toContain(each.waits ? WAITS : APPLIES);
+    expect(lastResult(model)).not.toContain(each.waits ? APPLIES : WAITS);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([each.reply.slice(3), ...each.lines.slice(1)]);
+  });
+});
