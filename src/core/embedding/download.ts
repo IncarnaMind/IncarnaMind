@@ -74,6 +74,31 @@ export function isModelDownloaded(directory: string, files: readonly ModelFile[]
   }
 }
 
+/** Progress events are at most this often, apart from state changes. */
+const PROGRESS_INTERVAL_MS = 250;
+
+/**
+ * Calls `report` at most once every 250 ms, and once more when an interval ends with progress
+ * it held back: a download that stalls after a burst still shows how far it came.
+ */
+export function progressReporter(report: () => void): () => void {
+  let last = 0;
+  let holding = false;
+  const send = () => {
+    holding = false;
+    last = Date.now();
+    report();
+  };
+  return () => {
+    const wait = last + PROGRESS_INTERVAL_MS - Date.now();
+    if (wait <= 0) send();
+    else if (!holding) {
+      holding = true;
+      setTimeout(send, wait);
+    }
+  };
+}
+
 export interface DownloadOptions {
   /** The model's folder in the data folder. */
   directory: string;

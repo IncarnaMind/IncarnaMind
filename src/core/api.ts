@@ -1150,7 +1150,7 @@ export interface AnswerToolCall {
   mindChange?: MindChange;
   /** A Minds' Tool that changed nothing: why, as its card says. Absent otherwise. */
   mindProblem?: MindProblem;
-  /** "run_analysis" only, once it ran: which of the Answer's Analyses, and what its step says. */
+  /** "run_analysis" and "run_code" only, once it ran: which of the Answer's Analyses, and what its step says. */
   analysis?: AnalysisCall;
   /** `list_commands`, once it ended: the Documents or Minds it found (#1110). Absent otherwise. */
   found?: CommandsFound;
@@ -1279,6 +1279,8 @@ export interface AnalysisCall {
   end: AnalysisEnd["kind"];
   /** Why it couldn't run, when `end` is "unavailable". */
   reason?: AnalysisUnavailableReason;
+  /** Why `run_code`'s Python couldn't be had, when `reason` is "python"; absent: this copy has none. */
+  python?: EmbeddingModelError["kind"];
   /** Its time limit, when `end` is "timed-out". */
   limitMs?: number;
 }
@@ -2090,6 +2092,11 @@ export type CitationCheckReason =
   | "in-several-places"
   /** Can't check: the cited Units have no text, e.g. scanned pages. */
   | "no-text"
+  /**
+   * Can't check: the area the User selected on a page holds no text, so the Citation points at a
+   * picture (#118).
+   */
+  | "picture"
   /** Can't check: the quote covers a word the text recognition may have misread (#535). */
   | "unsure-word"
   /** Can't check from this Note: the Document stays inside a walled Folder. */
@@ -2105,6 +2112,23 @@ export type CitationCheckReason =
    * its sentences, so their check never ran (#2375).
    */
   | "small-model";
+
+/** Every check reason, for reading one the app didn't write: a value outside these is no reason. */
+export const CITATION_CHECK_REASONS = [
+  "quote-not-on-pages",
+  "quoted-words-not-on-pages",
+  "pages-outside-passage",
+  "too-many-pages",
+  "in-several-places",
+  "no-text",
+  "picture",
+  "unsure-word",
+  "kept-inside",
+  "document-removed",
+  "answer-limit",
+  "monthly-limit",
+  "small-model",
+] as const satisfies readonly CitationCheckReason[];
 
 /**
  * What to re-check a Citation with against its Document's current version
@@ -2222,6 +2246,24 @@ export interface CitedSelection extends CitationRecheck {
 /** At most this many `AskedQuote`s go with a Question: each brings the Passages of its pages. */
 export const MOST_ASKED_QUOTES = 10;
 
+/** A sheet range's cells as its chip and its table show them: its header row first, when the sheet has one. */
+export interface AskedTable {
+  header: string[] | null;
+  rows: string[][];
+  /** The rows' names from the sheet's first column, for the chip's preview; not the cells it adds or copies. */
+  rowLabels?: string[];
+}
+
+/** A picture the User picked on a page (`AskedQuote.picture`), kept as a `data:` URL, and its size in pixels. */
+export interface AskedPictureData {
+  src: string;
+  width: number;
+  height: number;
+}
+
+/** What the User picked in a viewer to ask about (#118), with words being the usual one (#101). */
+export type AskedPick = "rows" | "slide" | "area";
+
 /**
  * Words the User selected in a Document to ask about ("Ask about this", #101), as
  * `citeSelection` found them, kept with the Question.
@@ -2230,10 +2272,23 @@ export interface AskedQuote {
   documentId: string;
   /** As the User saw it when they asked: it stays readable once the Document is deleted. */
   documentName: string;
+  /** The words, as the Document has them; "" for a figure whose area held no text. */
   quote: string;
   pageFrom: number | null;
   pageTo: number | null;
   location: CitationLocation | null;
+  /**
+   * What was picked, when it wasn't words (#118): a sheet's cells, a whole slide, or an area of a
+   * page. Absent for words.
+   */
+  pick?: AskedPick;
+  /** A sheet range's cells, header first: the chip's preview, Add to note's table and the copied TSV. */
+  table?: AskedTable;
+  /** An area's picture: shown as the chip's thumbnail, and sent to a model that reads images. */
+  picture?: AskedPictureData;
+  /** The check its Citation was given when the User picked it: found on its Unit, or a picture's can't check. */
+  check?: CitationCheck;
+  checkReason?: CitationCheckReason | null;
 }
 
 /**
@@ -2278,20 +2333,38 @@ export const MAX_CITED_PAGES = 2;
  *   the end of the one it ends in, in ms from the Transcript's start (#136);
  *   `speaker`: who said the cue it starts in, where the Transcript says (#941).
  */
+/**
+ * A region of a cited Unit: a rectangle by its top left corner, as fractions
+ * of the Unit's width and height, so it holds at any zoom or window size
+ * (#118).
+ */
+export interface CitedArea {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A Location that may hold the region the User selected on its Unit (#118). */
+interface MaybeArea {
+  /** The area the User picked, when the Citation cites a figure rather than words. */
+  area?: CitedArea;
+}
+
 export type CitationLocation =
-  | {
+  | ({
       kind: "page";
       from: number;
       to: number;
       printed?: { from: string; to: string };
       /** The printed line on the first printed page and on the last (#1709). */
       lines?: { from: number; to: number };
-    }
-  | { kind: "slide"; from: number; to: number }
-  | { kind: "rows"; sheet: string | null; from: number; to: number }
-  | { kind: "lines"; from: number; to: number }
-  | { kind: "time"; from: number; to: number; speaker?: string }
-  | {
+    } & MaybeArea)
+  | ({ kind: "slide"; from: number; to: number } & MaybeArea)
+  | ({ kind: "rows"; sheet: string | null; from: number; to: number } & MaybeArea)
+  | ({ kind: "lines"; from: number; to: number } & MaybeArea)
+  | ({ kind: "time"; from: number; to: number; speaker?: string } & MaybeArea)
+  | ({
       kind: "section";
       heading: string | null;
       start?: boolean;
@@ -2300,7 +2373,13 @@ export type CitationLocation =
       paragraphs?: { from: number; to: number };
       /** A web page's picture the quote was read from, numbered in the page from 1. */
       figure?: number;
-    };
+    } & MaybeArea)
+  /**
+   * The file's own properties, not its text (#2458): a check's evidence for a sentence about the
+   * file itself. `value` is the property as the file gives it: an ISO 8601 date, the author, a
+   * count, the size in bytes, or the name.
+   */
+  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea);
 
 /** A stretch of words, and whether the Document has it where the Answer's quoted words were looked for. */
 export interface QuotedPiece {
@@ -2560,6 +2639,8 @@ export interface AnalysisRangeInput {
   rowCount: number;
   /** Only part of the range was read: it has more than an Analysis reads, or its sheet was cut when indexed. */
   cut: boolean;
+  /** Rows it read that the file strikes through or hides, which an earlier version of a row may be (#1979). */
+  setAside?: { struck: number[]; hidden: number[] };
   /** SHA-256 of its headings and rows as read. */
   sha256: string;
   /** A table of a PDF, Word file or deck (#448), whose rows `citation` covers from its first. */
@@ -2627,6 +2708,28 @@ export interface AnswerAnalysis {
   };
   /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
   recalculations?: { result: string; check: AnalysisRecalculation }[];
+  /** `run_code` only (ADR-0025): the Documents it copied into ../inputs, by the names the code read them by. */
+  files?: AnalysisFile[];
+  /** `run_code` only: what the code left in out/, within its limits; `left` past them. */
+  outFiles?: { files: AnalysisOutFile[]; left: number };
+}
+
+/** A Document `run_code` copied for its code, checked against the version the model was given. */
+export interface AnalysisFile {
+  name: string;
+  documentId: string;
+  documentName: string;
+  contentHash: string;
+  bytes: number;
+}
+
+/** A file the code left in out/: kept as its name, size and hash, never opened as anything but data. */
+export interface AnalysisOutFile {
+  name: string;
+  bytes: number;
+  sha256: string;
+  /** The start of a text file, which the model reads; absent for anything else. */
+  text?: string;
 }
 
 /** A figure a Note kept from its Analysis, with what IncarnaMind made of it when the Analysis ran. */
@@ -2986,6 +3089,13 @@ export type MotionPreference = (typeof MOTION_PREFERENCES)[number];
  */
 export type SandboxLevel = "none" | "os" | "container" | "remote";
 
+/**
+ * Why the OS sandbox can't start here (Linux, ADR-0025): "missing", the packages it needs that
+ * aren't installed; "start", they are, but the system doesn't let an app start one (Ubuntu's
+ * AppArmor restriction on user namespaces).
+ */
+export type SandboxProblem = { kind: "missing"; packages: string[] } | { kind: "start" };
+
 export interface Settings {
   user: UserSettings;
   device: DeviceSettings;
@@ -2996,6 +3106,11 @@ export interface Settings {
    * a setting. The approval card and Settings say what a script can reach by it.
    */
   scriptSandbox: SandboxLevel;
+  /**
+   * Why the OS sandbox can't start here, when the User can fix it (Linux): Settings says how,
+   * since code then runs neither in it nor on whole files (`run_code`, ADR-0025). Null otherwise.
+   */
+  sandboxProblem: SandboxProblem | null;
   /**
    * What this copy can record for a Meeting, found out when the app starts:
    * not a setting. "both": the microphone and the computer's sound; "microphone":
@@ -3069,6 +3184,8 @@ export interface DocumentPlace {
   quote?: string;
   /** A saved web page's picture the quote was read from, numbered in the page from 1: it is outlined. */
   figure?: number;
+  /** The region a figure's Citation points at (#118): the viewer outlines it on its Unit. */
+  area?: CitedArea;
   /** The Citation this was opened from, if a Citation opened it. */
   citation?: TabCitation;
   /**
@@ -3117,6 +3234,11 @@ export interface WindowLayout {
   focusedGroupId: string;
   /** How many closed tabs ⇧⌘T can reopen, most recent first. */
   reopenable: number;
+  /**
+   * The conversation the assistant shows; null for a New chat. Kept so a quit and reopening, or
+   * a reload of the page, shows it again (#258).
+   */
+  conversationId: string | null;
   /** Where the window's one assistant sits, outside the groups, and its sizes. */
   assistant: AssistantPlace;
 }
@@ -3230,7 +3352,9 @@ export type LayoutChange =
   /** Every group as wide as the others. */
   | { type: "equalize" }
   /** Moves, resizes, folds or unfolds the assistant: what is given changes, the rest stays. */
-  | { type: "assistant"; place: Partial<AssistantPlace> };
+  | { type: "assistant"; place: Partial<AssistantPlace> }
+  /** The conversation the assistant shows; null for a New chat (#258). */
+  | { type: "conversation"; conversationId: string | null };
 
 /**
  * The kinds of Document (ADR-0011): files of PDF, plain text, Markdown, Word
@@ -3506,6 +3630,19 @@ export interface Document {
    */
   modifiedAt: string | null;
   /**
+   * When the file was created, as the file system says on this computer: copying or downloading
+   * a file changes it. ISO 8601, UTC. Null where the file system gives none, and until a scan has
+   * seen the file.
+   */
+  fileCreatedAt: string | null;
+  /**
+   * What the file records about itself (#2458): its own dates and author, as distinct from what
+   * the Document's text says and from the times this computer keeps. Null until the file has
+   * been read for them, when they couldn't be read, and for a file IncarnaMind keeps itself (a
+   * web page, a Transcript).
+   */
+  properties: FileProperties | null;
+  /**
    * The Document's own title (#213), for when its file name is machine-made
    * (a UUID, "Untitled"): the title in its properties, else its first
    * heading, else its first line. Null if it has none, or until it is read.
@@ -3548,6 +3685,38 @@ export interface Document {
   /** ISO 8601, UTC. */
   updatedAt: string;
 }
+
+/**
+ * A file's own properties as it records them (#2458), each null when it records none or what it
+ * records can't be read: a date software writes when it has none (1 January 1980) counts as none.
+ * Dates are ISO 8601 at the precision and with the offset the file gives.
+ */
+export interface FileProperties {
+  /** An Office file's dcterms:created; a PDF's CreationDate, from its Info dictionary, else its XMP. */
+  created: string | null;
+  /** An Office file's dcterms:modified; a PDF's ModDate, from its Info dictionary, else its XMP. */
+  modified: string | null;
+  /** An Office file's dc:creator; a PDF's Author, from its Info dictionary, else its XMP. */
+  author: string | null;
+  /**
+   * A workbook's sheets as its xl/workbook.xml lists them, the hidden ones among them: a sheet
+   * with nothing in it has no Units, so the Units can't count them. Null for any other kind.
+   */
+  sheets: { count: number; hidden: number } | null;
+}
+
+/** A Document property a check can cite (#2458). */
+export const filePropertyNames = [
+  "created",
+  "modified",
+  "author",
+  "pages",
+  "slides",
+  "sheets",
+  "size",
+  "name",
+] as const;
+export type FilePropertyName = (typeof filePropertyNames)[number];
 
 /** What IncarnaMind writes that checks leave out of their evidence (#80): a Mind's export, or a source pack. */
 export const ownFileKinds = ["export", "source-pack"] as const;
@@ -4745,7 +4914,8 @@ export interface EmbeddingModelError {
  * Where the built-in models download from (#1578): Hugging Face, IncarnaMind's copy on
  * ModelScope, hf-mirror.com, IncarnaMind's copy on Cloudflare R2.
  */
-export type ModelSourceId = "huggingface" | "modelscope" | "hf-mirror" | "r2";
+/** "github": the release a build of the app came from, which `run_code`'s Python downloads from (ADR-0025). */
+export type ModelSourceId = "huggingface" | "modelscope" | "hf-mirror" | "r2" | "github";
 
 /** The source the User picked on a failed download's line; "auto" tries them all in the probe's order. */
 export type ModelSourceChoice = "auto" | "huggingface" | "modelscope";
@@ -6160,7 +6330,9 @@ export type ClaimCheckFailure =
   | "workbook-circular"
   | "workbook-not-read"
   | "workbook-no-saved-value"
-  | "workbook-unsupported";
+  | "workbook-unsupported"
+  /** A figure's equal number that the quoted table gives in another row's or column's cell. */
+  | "other-cell";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
@@ -8556,6 +8728,8 @@ export interface PageSetup {
  * - "transcription-model": downloads the speech-to-text model and Silero VAD,
  *   once, when a Meeting is first transcribed on this computer (#136), and the
  *   two models that tell its speakers apart (#138), when one is first recorded.
+ * - "python-runtime": downloads IncarnaMind's own Python for analyses on whole files, once,
+ *   the first time one runs Python (ADR-0025), from the release this build came from.
  * - "model-source-modelscope", "model-source-hf-mirror", "model-source-copy": where else a
  *   built-in model's files may come from when Hugging Face doesn't give them (#1578):
  *   IncarnaMind's copy on ModelScope (whose front page the probe asks whenever a model
@@ -8582,6 +8756,7 @@ export const networkTrafficIds = [
   "reranking-model",
   "text-recognition-model",
   "transcription-model",
+  "python-runtime",
   "model-source-modelscope",
   "model-source-hf-mirror",
   "model-source-copy",
@@ -9321,7 +9496,10 @@ export type EffectScope =
   | { kind: "service"; serviceId: string; name: string } // an external service, as consent names it
   | { kind: "host"; host: string } // a web host
   | { kind: "mind"; mindId: string } // one of the User's Minds
-  | { kind: "sandbox" } // the analysis sandbox, with no files and no network (ADR-0023)
+  // Code in a sandbox, with no network: an Analysis in the app's (inputs only, ADR-0023) or run_code
+  // in the OS's (copies of the Documents given and the system's own files, writing only its own
+  // folder, ADR-0025).
+  | { kind: "sandbox" }
   | { kind: "library" } // the Library: its Documents' names, Folders and Tags, Recently deleted
   | { kind: "output" } // the Output location, the folder the User chose for new files
   | { kind: "anywhere" };
@@ -11316,6 +11494,8 @@ export interface CoreApi {
   readableQuote(input: ScannedQuoteInput): Promise<string | null>;
   /** The built-in text recognition model's download state (#397). */
   getTextRecognitionModel(): Promise<EmbeddingModelStatus>;
+  /** `run_code`'s Python, downloaded the first time code needs it (ADR-0025); null: this copy has none. */
+  getPythonRuntime(): Promise<EmbeddingModelStatus | null>;
   /**
    * Downloads the built-in text recognition model, or tries again after a
    * failure; once it is ready, Documents whose scanned pages couldn't be
@@ -11538,9 +11718,22 @@ export interface CoreApi {
    * order selected, one part for each Unit: checked against the current
    * version's text of those Units only, never found somewhere else, and kept
    * there when it isn't found. With no Unit known, it is cited only where
-   * the Document has the words in one place.
+   * the Document has the words in one place. Given an `area` (#118), the
+   * Citation points at that region of the Unit; with no words in it, the
+   * region is cited as a picture, which can't be checked.
    */
-  citeSelection(input: { documentId: string; parts: SelectedPart[] }): Promise<CitedSelection>;
+  citeSelection(input: {
+    documentId: string;
+    parts: SelectedPart[];
+    area?: CitedArea;
+    /** The Unit the area is on, when its text found no place there: a picture of that page or slide. */
+    unit?: number | null;
+    /**
+     * The Document's words just before and after the area (#118), where the view doesn't know its
+     * Unit: a picture's place is the Unit that holds them, never the Document's first Unit.
+     */
+    around?: { before?: string; after?: string };
+  }): Promise<CitedSelection>;
   /**
    * Searches the Passages of live Documents, best match first: hybrid
    * (keyword and vector) search by default, which is keyword search while
@@ -12755,6 +12948,7 @@ export interface CoreEvents {
   "embeddingModel.status": EmbeddingModelStatus;
   /** The built-in text recognition model's download state changed (#397). */
   "textRecognitionModel.status": EmbeddingModelStatus;
+  "pythonRuntime.status": EmbeddingModelStatus;
   /**
    * The embedding model search uses changed, or local mode, or a rebuild made
    * progress (a Document finished) or finished, or the provider failed or recovered.
@@ -13025,6 +13219,7 @@ const methods: Record<CoreApiMethod, true> = {
   readScannedQuote: true,
   readableQuote: true,
   getTextRecognitionModel: true,
+  getPythonRuntime: true,
   downloadTextRecognitionModel: true,
   previewLinkedFolder: true,
   addLinkedFolder: true,

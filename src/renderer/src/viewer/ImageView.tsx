@@ -361,6 +361,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
             <section
               ref={section}
               data-page-number={1}
+              data-area-unit={1}
               aria-label={t("viewer.page.label", { number: 1 })}
               className="viewer-page relative shrink-0"
               style={{ width, height }}

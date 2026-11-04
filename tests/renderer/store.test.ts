@@ -51,6 +51,12 @@ function emit<E extends CoreEventName>(event: E, payload: CoreEvents[E]) {
   for (const listener of listeners.get(event) ?? []) listener(payload);
 }
 
+/** The preload's file side: where a dropped file is, and what the system's open dialog gives. */
+const filesBridge = {
+  pathForFile: (file: File) => `/picked/${file.name}`,
+  pickDocuments: vi.fn(async () => [] as string[]),
+};
+
 const method = (name: string) => {
   // Reading it through the bridge makes it if it isn't there yet.
   (bridge as unknown as Record<string, unknown>)[name];
@@ -139,7 +145,7 @@ beforeAll(async () => {
   vi.useFakeTimers();
   (globalThis as unknown as { window: unknown }).window = {
     incarnamind: bridge,
-    incarnamindFiles: {},
+    incarnamindFiles: filesBridge,
   };
   ({ useAppStore } = await import("../../src/renderer/src/store"));
   ({ translateNow: words } = await import("../../src/renderer/src/i18n"));
@@ -159,6 +165,7 @@ beforeEach(() => {
   // A quiet spell, so each test starts with nothing waiting.
   vi.advanceTimersByTime(1000);
   for (const each of methods.values()) each.mockReset();
+  filesBridge.pickDocuments.mockReset();
   method("restore").mockResolvedValue({ audioLost: [], audioExpired: [] });
   useAppStore.setState({
     documents: [doc("a"), doc("b"), doc("c")],
@@ -999,6 +1006,28 @@ describe("changes the User can take back", () => {
   });
 });
 
+describe("files added into a Folder (#212)", () => {
+  const addedNothing = { documents: [], skipped: [], added: [] };
+
+  // protects=a Finder drop on a Folder and Add Documents here… file the new Documents in it, while a drop on the window files none (#212); fails_when=the core is given no groupId, or the window's own add is given one; no_claim=how the core files them.
+  test("a drop on a Folder and the Folder's own add give the core its groupId; the window's add gives none", async () => {
+    method("addDocuments").mockResolvedValue(addedNothing);
+    const budget = new File(["budget"], "Budget.txt");
+
+    await useAppStore.getState().addDropped([budget], [], "f");
+    expect(method("addDocuments").mock.calls).toEqual([[["/picked/Budget.txt"], { groupId: "f" }]]);
+
+    method("addDocuments").mockClear();
+    await useAppStore.getState().addDropped([budget], []);
+    expect(method("addDocuments").mock.calls).toEqual([[["/picked/Budget.txt"], undefined]]);
+
+    method("addDocuments").mockClear();
+    filesBridge.pickDocuments.mockResolvedValue(["/picked/Picked.txt"]);
+    await useAppStore.getState().pickDocumentsIntoFolder("f");
+    expect(method("addDocuments").mock.calls).toEqual([[["/picked/Picked.txt"], { groupId: "f" }]]);
+  });
+});
+
 describe("making a Mind", () => {
   const made = {
     id: "n",
@@ -1070,6 +1099,7 @@ describe("making a Mind", () => {
           ],
           focusedGroupId: "group",
           reopenable: 0,
+          conversationId: null,
           assistant: DEFAULT_ASSISTANT,
         } satisfies WindowLayout,
       });

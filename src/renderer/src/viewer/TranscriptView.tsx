@@ -387,6 +387,7 @@ function TranscriptContent({
               <ol
                 ref={list}
                 data-testid="transcript-lines"
+                data-area-unit=""
                 data-hours={(transcript.cues.at(-1)?.startMs ?? 0) >= 3_600_000 ? "" : undefined}
                 className="transcript-lines"
               >

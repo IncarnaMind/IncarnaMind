@@ -6,6 +6,8 @@
  * something different about it; this finds the line to show and to judge.
  */
 
+import { SET_ASIDE_LINE, UNPLACED_MARK } from "../sheetRows";
+
 /** Words that say what a sentence is about: four letters or more, and numbers; Chinese by pairs. */
 const wordsOf = (text: string): Set<string> => {
   const words = new Set(text.toLowerCase().match(/[\p{L}\p{N}]{4,}|\d+(?:[.,]\d+)?/gu) ?? []);
@@ -59,12 +61,19 @@ export function nearestLine(
   const wanted = wordsOf(sentence);
   if (wanted.size === 0) return null;
   let best: NearestLine | null = null;
+  let setAside = 0;
   for (const passage of passages) {
+    // Its lines don't say which rows the file sets aside, so none can be what the Document says now.
+    if (passage.text.startsWith(UNPLACED_MARK)) continue;
     for (const raw of passage.text.split("\n")) {
       const text = raw.replace(UNIT_MARK, "").trim();
       if (text === "") continue;
       let shared = 0;
       for (const word of wordsOf(text)) if (wanted.has(word)) shared++;
+      if (SET_ASIDE_LINE.test(raw)) {
+        setAside = Math.max(setAside, shared);
+        continue;
+      }
       if (
         shared >= MIN_SHARED &&
         shared / wanted.size >= MIN_SHARE &&
@@ -74,5 +83,7 @@ export function nearestLine(
       }
     }
   }
-  return best;
+  // A row the file sets aside as near as the nearest current one: the sentence may be about either
+  // version, and neither is the one value the Document gives for it (#1979).
+  return best && best.shared > setAside ? best : null;
 }

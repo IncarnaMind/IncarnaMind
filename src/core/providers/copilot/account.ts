@@ -294,7 +294,37 @@ export function createCopilotAccount(options: {
     }
   };
 
-  const status = async (): Promise<CopilotStatus> => {
+  /**
+   * A profile with no token exchange sends the GitHub token itself, so GitHub's word that the
+   * account has no Copilot plan first comes with the model list: asked here, it is said where
+   * the User signs in, and nothing is kept, as for a refused token exchange. Any other failure
+   * leaves the sign-in standing; the sign-in's own status doesn't ask again, and the list is
+   * asked again when it is next needed.
+   */
+  const listAtSignIn = async (
+    profile: CopilotProfile,
+    githubToken: string,
+    signal: AbortSignal,
+  ): Promise<CopilotModel[]> => {
+    try {
+      return await listCopilotModels({
+        baseUrl: profile.apiBaseUrl,
+        credentials: { access: async () => ({ accessToken: githubToken }) },
+        headers: profile.requestHeaders ?? {},
+        signal: AbortSignal.any([signal, AbortSignal.timeout(MODEL_LIST_TIMEOUT_MS)]),
+        ...fetcher,
+      });
+    } catch (error) {
+      if (error instanceof SignInRouteError && error.problem === "no-plan") {
+        throw new ExchangeFailure("no-plan", error.message);
+      }
+      if (!signal.aborted) console.error("The Copilot plan's model list couldn't be read.", error);
+      return [];
+    }
+  };
+
+  /** `listAsked`: the list was just asked for, so this status takes what is kept and doesn't wait again. */
+  const statusOf = async (listAsked: boolean): Promise<CopilotStatus> => {
     // Read before awaiting the keychain, so the status describes the moment it was asked for.
     const signingIn = account.signingIn();
     const waiting = deviceCode;
@@ -307,9 +337,11 @@ export function createCopilotAccount(options: {
       signingIn,
       deviceCode: signingIn && waiting ? waiting : null,
       profiles: profileIds.map((id) => ({ id, experimental: profiles[id]?.experimental === true })),
-      models: usable ? await models() : [],
+      models: usable ? (listAsked ? (listed?.models ?? []) : await models()) : [],
     };
   };
+
+  const status = () => statusOf(false);
 
   return {
     status,
@@ -368,10 +400,15 @@ export function createCopilotAccount(options: {
             ...fetcher,
           });
           if (signal.aborted) throw new OAuthFlowError("cancelled", "The sign-in was cancelled.");
+          const first = profile.tokenExchange
+            ? []
+            : await listAtSignIn(profile, github.accessToken, signal);
+          if (signal.aborted) throw new OAuthFlowError("cancelled", "The sign-in was cancelled.");
           listed = null;
           await account.commit({ tokens: kept(tokens), ended: null, profile: id, login, plan });
+          listed = first.length > 0 ? { at: now(), models: first } : null;
         });
-        return { ok: true, status: await status() };
+        return { ok: true, status: await statusOf(!profile.tokenExchange) };
       } catch (error) {
         return { ok: false, error: signInError(error) };
       } finally {

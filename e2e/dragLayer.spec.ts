@@ -370,9 +370,11 @@ test("files dropped on the window still reach the add, through the layer, with i
     await card.evaluate((element) => {
       const transfer = new DataTransfer();
       transfer.items.add(new File(["x"], "Notes.txt", { type: "text/plain" }));
+      const box = element.getBoundingClientRect();
+      const at = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
       for (const type of ["dragenter", "dragover"]) {
         element.dispatchEvent(
-          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }),
+          new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer, ...at }),
         );
       }
       (globalThis as { heldDrop?: DataTransfer }).heldDrop = transfer;

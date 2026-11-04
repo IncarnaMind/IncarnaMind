@@ -42,6 +42,17 @@ import { saveMindCopy } from "./unsavedChanges";
 /** What "Import references" offers; the core reads the format from what is in the file. */
 const REFERENCE_EXTENSIONS = ["json", "bib", "bibtex", "ris", "txt"];
 
+/** Whether a value is a rectangle of the page, in CSS pixels (#118). */
+function isRectangle(
+  value: unknown,
+): value is { x: number; y: number; width: number; height: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const { x, y, width, height } = value as Record<string, unknown>;
+  const finite = (each: unknown): each is number =>
+    typeof each === "number" && Number.isFinite(each);
+  return finite(x) && finite(y) && finite(width) && finite(height) && width > 0 && height > 0;
+}
+
 export interface FileActionsOptions {
   /** The data folder, which "Open data folder" shows. */
   dataDir: string;
@@ -75,6 +86,23 @@ export function serveFileActions(
   handle(FILES_CHANNELS.decodePicture, async (event, bytes: unknown) => {
     refuseUnknown(event);
     return bytes instanceof Uint8Array ? decodePictureToPng(bytes) : null;
+  });
+
+  // The area the User selected in a Document's viewer, as a picture (#118).
+  handle(FILES_CHANNELS.captureArea, async (event, rect: unknown) => {
+    refuseUnknown(event);
+    if (!isRectangle(rect)) throw new Error("A picture of an area needs its rectangle.");
+    const picture = await event.sender.capturePage(
+      {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      },
+      { stayHidden: true },
+    );
+    if (picture.isEmpty()) throw new Error("The area came out empty.");
+    return picture.toPNG();
   });
 
   handle(FILES_CHANNELS.openSavedFile, async (event, path: unknown) => {

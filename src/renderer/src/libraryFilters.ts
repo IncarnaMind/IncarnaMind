@@ -7,6 +7,7 @@
  */
 
 import type { Document, DocumentKind, Tag } from "../../core/api";
+import { fileYear } from "../../shared/fileProperties";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
@@ -128,9 +129,12 @@ export function filterLibrary<T>(
 /** The year option of Documents with no creation date. */
 export const NO_DATE = "no-date";
 
-/** A Document's year, from its creation date (its first four characters), or `NO_DATE`. */
-export function documentYear({ creationDate }: Pick<Document, "creationDate">): string {
-  const year = creationDate?.slice(0, 4) ?? "";
+/** A Document's year, the year of its creation date as its info panel shows it, or `NO_DATE`. */
+export function documentYear(
+  { creationDate }: Pick<Document, "creationDate">,
+  zone: { timeZone?: string } = {},
+): string {
+  const year = creationDate ? fileYear(creationDate, zone) : "";
   return /^\d{4}$/.test(year) ? year : NO_DATE;
 }
 

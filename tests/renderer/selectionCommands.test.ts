@@ -65,6 +65,8 @@ const documentOf = (id: string): Document => ({
   taggingError: null,
   creationDate: null,
   modifiedAt: null,
+  fileCreatedAt: null,
+  properties: null,
   title: null,
   web: null,
   reference: null,

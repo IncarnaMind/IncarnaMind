@@ -55,6 +55,8 @@ const doc = (id: string, name: string, status: DocumentStatus = "ready"): Docume
   taggingError: null,
   creationDate: null,
   modifiedAt: null,
+  fileCreatedAt: null,
+  properties: null,
   web: null,
   reference: null,
   ownFile: null,

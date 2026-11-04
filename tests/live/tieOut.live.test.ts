@@ -14,12 +14,14 @@
  *   table cell (#2447), and every figure that came out other than expected.
  * - INCARNAMIND_LIVE_TRACE: a file to keep each check's last request and what the model
  *   wrote back, to read why a figure came out as it did.
+ * - INCARNAMIND_LIVE_MEASURES: a file to keep each figure's measure, as the check read it, to
+ *   replay the replies through other code (`measureLog.ts`).
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { FigureScheduleRow } from "../../src/core/api";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -29,6 +31,10 @@ import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { xlsxOf } from "../helpers/office";
 import { checksOn, sortedCells, sortRecorder } from "../helpers/sortCalls";
+
+vi.mock(import("../../src/core/answers/checks/figureMeasures"), async (original) =>
+  (await import("./measureLog")).keptMeasures(await original()),
+);
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
@@ -568,10 +574,21 @@ for (const language of LANGUAGES) {
         await client.settled();
         const schedule = await core.getFigureSchedule(mind.id);
         const { counts, misses } = score(schedule.rows, truth);
-        const cost = queryDatabase<{ cost: number }>(
+        // The tokens beside the cost, so a reader can price each run again.
+        const usage = queryDatabase<{
+          cost: number;
+          requests: number;
+          input: number;
+          cached: number;
+          written: number;
+          output: number;
+        }>(
           dataDir,
-          "SELECT coalesce(sum(cost), 0) AS cost FROM model_requests WHERE deleted_at IS NULL AND status = 'settled'",
-        )[0]?.cost;
+          `SELECT coalesce(sum(cost), 0) AS cost, count(*) AS requests,
+             coalesce(sum(input_tokens), 0) AS input, coalesce(sum(cached_input_tokens), 0) AS cached,
+             coalesce(sum(cache_write_tokens), 0) AS written, coalesce(sum(output_tokens), 0) AS output
+           FROM model_requests WHERE deleted_at IS NULL AND status = 'settled'`,
+        )[0];
         const report = {
           language,
           model: MODEL,
@@ -579,7 +596,8 @@ for (const language of LANGUAGES) {
           result: result.kind,
           figures: schedule.rows.length,
           seconds,
-          cost,
+          cost: usage?.cost,
+          usage,
           sorting: {
             requests: sorts.calls.length,
             ...sortedCells(

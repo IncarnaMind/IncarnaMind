@@ -34,7 +34,7 @@ import {
  * footnotes, and the Saved line says what the file was written with — "Saved “Tides.docx” in
  * Exports · 2 footnotes · AI text marked · Not checked · Change" — with Change to change either
  * choice and export again, and Undo to put the choice back. The file is named after the note:
- * its title, or the Question that made it. Set INCARNAMIND_SCREENSHOTS to a folder to also save
+ * its title, or its first line. Set INCARNAMIND_SCREENSHOTS to a folder to also save
  * screenshots.
  */
 

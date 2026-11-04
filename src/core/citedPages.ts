@@ -61,7 +61,7 @@ export type CitedPlace = Pick<
 >;
 
 /** What a Location's picture shows: a sheet's cited rows, or else all of its Units. */
-function areaOf(location: CitationLocation): PageArea {
+function areaOf(location: Exclude<CitationLocation, { kind: "properties" }>): PageArea {
   return location.kind === "rows"
     ? { kind: "rows", sheet: location.sheet, from: location.from, to: location.to }
     : { kind: location.kind };
@@ -86,6 +86,8 @@ function placeOf(citation: CitationFields): Place | null {
   if (typeof documentId !== "string" || documentId === "" || !isUnit(pageFrom)) return null;
   const to = isUnit(pageTo) ? pageTo : pageFrom;
   const location = parseLocation(citation.location);
+  // A file's properties are on no page of it (#2458).
+  if (location?.kind === "properties") return null;
   return {
     documentId,
     contentHash: typeof contentHash === "string" && contentHash !== "" ? contentHash : null,
