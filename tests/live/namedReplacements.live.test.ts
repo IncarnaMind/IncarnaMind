@@ -7,7 +7,9 @@
  * were kept out of the Note, and are held out from that. The choir and camping Notes were written
  * before any run of them, for the last measurement of #2356 and #2333: one paragraph of several
  * rewritten, two at once, a new line that replaces none, a request that invites a line on what
- * changed, and one item of a list changed.
+ * changed, and one item of a list changed. The 宿舍费用 and 团建预算 Notes, lines on one pattern
+ * where a new line on that pattern is like one of them, were written before any run of them, after
+ * a reply without names wrote such a line over another in Chinese.
  * Once the changes are accepted, the Note is checked: every line the request didn't name is there
  * word for word (none lost or written over), and the request is done as asked. Each reply is
  * also read for its shape: lines that name no paragraph (stray), only some of the Note's
@@ -487,7 +489,59 @@ const CAMPING_ZH: Note = {
   ],
 };
 
-const NOTES = [EN, ZH, GARDEN, READING, CHOIR, CHORUS, CAMPING, CAMPING_ZH];
+const DORM: Note = {
+  name: "宿舍费用",
+  language: "Chinese",
+  blocks: [
+    ["heading", "费用"],
+    ["paragraph", "住宿费每学期1500元。"],
+    ["paragraph", "空调费每学期200元。"],
+    ["paragraph", "网络费每学期100元。"],
+    ["paragraph", "押金入住时交300元。"],
+  ],
+  list: [],
+  cases: [
+    { kind: "add", ask: "在空调费下面加一条：热水费每学期80元。", says: ["热水"], added: 1 },
+    { kind: "add", ask: "再加一项洗衣费，每学期60元。", says: ["洗衣"], added: 1 },
+    {
+      kind: "change",
+      ask: "网络费涨到每学期120元了。",
+      target: "网络费每学期100元。",
+      says: ["120"],
+    },
+    {
+      kind: "add",
+      ask: "加两条：电费每学期90元，保险费每学期50元。",
+      says: ["电费", "保险"],
+      added: 2,
+    },
+  ],
+};
+
+const OUTING: Note = {
+  name: "团建预算",
+  language: "Chinese",
+  blocks: [
+    ["heading", "预算"],
+    ["bullet", "场地租金三千元。"],
+    ["bullet", "餐饮费用两千五百元。"],
+    ["bullet", "交通费用一千二百元。"],
+    ["paragraph", "超出部分由部门承担。"],
+  ],
+  list: ["场地租金三千元。", "餐饮费用两千五百元。", "交通费用一千二百元。"],
+  cases: [
+    { kind: "add", ask: "在交通后面补一条：保险费用三百元。", says: ["保险"], added: 1 },
+    {
+      kind: "change",
+      ask: "餐饮改成两千八百元。",
+      target: "餐饮费用两千五百元。",
+      says: ["两千八|2800"],
+    },
+    { kind: "add", ask: "加一项摄影费用八百元。", says: ["摄影"], added: 1 },
+  ],
+};
+
+const NOTES = [EN, ZH, GARDEN, READING, CHOIR, CHORUS, CAMPING, CAMPING_ZH, DORM, OUTING];
 
 /** A Note's Blocks as Mind content: a list's items in one list, a table's rows in one table, its first row the heading row. */
 function contentOf(blocks: readonly Block[]): JSONContent[] {
