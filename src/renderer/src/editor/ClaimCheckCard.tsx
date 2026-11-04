@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -777,6 +778,17 @@ export function ClaimCard({
     return read !== undefined && read.checkId === check.id;
   });
   const asking = useChecks((store) => store.documentAsk[check.id]?.plan.kind === "ready");
+  // Opened while its own sentence is still being checked, the card keeps the height it opened
+  // with, so verdicts landing in its rows do not make it jump; content that needs more room
+  // scrolls, and the next open fits the result (#2313). A card opened on a settled result sizes
+  // to it as its parts load, even while the Note's other sentences are still checked.
+  const [heldHeight, setHeldHeight] = useState<number | null>(null);
+  const holdHeight = state === "checking" && !reading && !asking && Boolean(mindId);
+  useLayoutEffect(() => {
+    if (!holdHeight || heldHeight !== null) return;
+    const element = rootRef.current;
+    if (element) setHeldHeight(element.offsetHeight);
+  }, [holdHeight, heldHeight, rootRef]);
   // Closing the card drops its question: opened again, it sizes the read afresh.
   useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
 
@@ -838,6 +850,7 @@ export function ClaimCard({
     <div
       ref={rootRef}
       className={`citation-card citation-card--${TONE[mark]} claim-card`}
+      style={heldHeight !== null ? { height: heldHeight, overflowY: "auto" } : undefined}
       contentEditable={false}
       {...objectMenu.rowProps}
     >

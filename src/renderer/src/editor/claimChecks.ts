@@ -30,6 +30,7 @@ import {
   figureCheckShown,
   type KeptMark,
   readClaimCheck,
+  showsPartRows,
 } from "../../../shared/claimChecks";
 import { type InlineTextPiece, inlineRange, projectInlineText } from "../../../shared/inlineText";
 import { sameScope } from "../../../shared/searchScope";
@@ -331,17 +332,7 @@ export interface ClaimContext {
 }
 
 export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes["parts"] {
-  return check.parts &&
-    (check.parts.length > 1 ||
-      check.parts.some(
-        (part) =>
-          part.kind === "opinion" ||
-          part.coverage ||
-          part.evidence.length > 1 ||
-          part.unsupported?.kind,
-      ))
-    ? check.parts
-    : undefined;
+  return showsPartRows(check) ? check.parts : undefined;
 }
 
 /** `ClaimContext.figurePlaces` from where the core reads figures in table cells. */

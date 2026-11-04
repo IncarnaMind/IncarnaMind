@@ -8,7 +8,7 @@ import { mindEditor, whenMindEditor } from "../../editor/openEditors";
 import { opinionSentenceRanges } from "../../editor/opinionLocations";
 import { editorDoc } from "../../editor/proposalReview";
 import { useLanguage, useT } from "../../i18n";
-import { startCheck } from "../../mindCheck";
+import { startCheckAsking } from "../../mindCheck";
 import { type SelfCheck, selfCheckLines, selfChecksOf } from "../../selfChecks";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
@@ -100,7 +100,7 @@ function SelfCheckGroup({ check }: { check: SelfCheck }) {
     blocksKey === ""
       ? null
       : () => {
-          void startCheck(check.mindId).catch(useAppStore.getState().reportError);
+          void startCheckAsking(check.mindId).catch(useAppStore.getState().reportError);
         };
   return (
     <div>

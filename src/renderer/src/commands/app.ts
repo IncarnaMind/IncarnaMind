@@ -381,7 +381,7 @@ const appCommands: readonly Command[] = [
     },
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return checkFromAssistant(mindId);
+      if (mindId) return checkFromAssistant(mindId, false, ctx.assistant === true);
     },
   },
   {
@@ -393,7 +393,7 @@ const appCommands: readonly Command[] = [
     when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
     run: (ctx) => {
       const mindId = mindShown(ctx);
-      if (mindId) return checkFromAssistant(mindId, true);
+      if (mindId) return checkFromAssistant(mindId, true, ctx.assistant === true);
     },
   },
   {

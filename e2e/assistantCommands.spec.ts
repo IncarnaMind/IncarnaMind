@@ -8,7 +8,6 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
-  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -404,12 +403,11 @@ test("open a Document beside this one splits to the right and says so in one lin
   await expect(window.getByTestId("tab-group").first()).toContainText("Deal notes");
   await screenshot(window, "commands-open-beside-en");
   const checked = await askInAssistant(window, "Check this Note");
-  // A claim the model must name is a question before a run billed per token: the reply waits for it, and says Done only after the Check runs.
-  const ask = (await checkCard(window)).getByTestId("mind-check-ask");
-  await expect(ask).toBeVisible();
-  await expect(checked.getByTestId("command-changes-title")).toHaveText("Running “Check”…");
-  await pointAndClick(window, ask.getByTestId("mind-check-check"));
-  await expect(checked.getByTestId("command-changes-title")).toHaveText("Done: Check");
+  // The one Check runs from its one press, and the reply says Done once it has (#2313).
+  await expect(checked.getByTestId("command-changes-title")).toHaveText("Done: Check", {
+    timeout: 60_000,
+  });
+  await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
   await app.close();
 });
 
@@ -446,12 +444,11 @@ test("Check this Note runs the check as ⌘K does, and the reply says Done", asy
   await setUp(app, window);
 
   const answer = await askInAssistant(window, "Check this Note");
-  // The Check asks before it runs: the reply must not say Done until the User answers.
-  const ask = (await checkCard(window)).getByTestId("mind-check-ask");
-  await expect(ask).toBeVisible();
-  await expect(answer.getByTestId("command-changes-title")).toHaveText("Running “Check”…");
-  await pointAndClick(window, ask.getByTestId("mind-check-check"));
-  await expect(answer.getByTestId("command-changes-title")).toHaveText("Done: Check");
+  // The one Check runs from its one press: the reply says Done once it has (#2313).
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("Done: Check", {
+    timeout: 60_000,
+  });
+  await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
   await expect(answer.getByTestId("command-changes-undo")).toHaveCount(0);
   await app.close();
 });

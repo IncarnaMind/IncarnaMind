@@ -436,6 +436,7 @@ describe("comments in Word, in and out (#328)", () => {
     const comments = files.get("word/comments.xml")?.toString("utf8") ?? "";
     checkWellFormed(document);
     if (comments) checkWellFormed(comments);
+    expect(document).toContain("Draft.");
     expect(document).not.toMatch(/<w:commentRange(?:Start|End) /);
     expect(document).not.toContain("<w:commentReference");
     expect(comments).not.toContain("<w:comment ");

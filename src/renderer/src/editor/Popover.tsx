@@ -159,7 +159,9 @@ export function Popover({
     // button that opened it. Captured, and marked handled, before the
     // Document viewer's own Esc sees it; inside, `onKeyDown` handles it.
     const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || inLater(event.target)) return;
+      // A Chinese input method's Esc takes back its composition, not what is open here.
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      if (inLater(event.target)) return;
       // Esc in a dialog on top closes that dialog, the innermost thing open, not this popover behind it.
       const dialog = event.target instanceof Element ? event.target.closest("dialog[open]") : null;
       if (dialog && !dialog.contains(element)) return;
@@ -188,7 +190,7 @@ export function Popover({
       {...props}
       onKeyDown={(event) => {
         onKeyDown?.(event);
-        if (event.key === "Escape" && !event.defaultPrevented) {
+        if (event.key === "Escape" && !event.nativeEvent.isComposing && !event.defaultPrevented) {
           // Handled here, so Esc doesn't also close the Document viewer.
           event.preventDefault();
           dismissByEscape.current(anchor);

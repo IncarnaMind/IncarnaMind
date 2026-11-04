@@ -2241,13 +2241,17 @@ export async function pointAndClick(
  * A Mind's check badge card (#909): open already, as a question opens it,
  * or opened as a person opens it: from the badge, or from ⌘K while no badge shows.
  */
-export async function checkCard(window: Page, scope: Page | Locator = window): Promise<Locator> {
+export async function checkCard(
+  window: Page,
+  scope: Page | Locator = window,
+  { stopTimeout = 10_000 }: { stopTimeout?: number } = {},
+): Promise<Locator> {
   const card = window.getByTestId("check-card");
   if (!(await card.isVisible())) {
     const badge = scope.getByTestId("check-badge-open").first();
     if (await badge.isVisible()) {
       // "Checking 2 of 2 · Stop" shrinks to the counts as a check ends: aim once it has.
-      await expect(scope.getByTestId("badge-stop")).toHaveCount(0);
+      await expect(scope.getByTestId("badge-stop")).toHaveCount(0, { timeout: stopTimeout });
       await motionSettled(window);
       // The counts are worked out a moment after a change, and the badge can narrow under the pointer: aim again.
       await expect(async () => {
