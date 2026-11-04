@@ -56,7 +56,10 @@ const REFUSED: Partial<Record<CitationCheckReason, MessageKey>> = {
   "no-text": "viewer.selection.refused.noText",
 };
 
-async function citedSelection({ document, parts }: ViewerSelection): Promise<CitedSelection> {
+export async function citedSelection({
+  document,
+  parts,
+}: ViewerSelection): Promise<CitedSelection> {
   const cited = await core.citeSelection({ documentId: document.id, parts });
   // Words a scan's reading may have misread are still where the User selected them: their Citation
   // asks for a look at the page, and goes in the note as it is (#535). Any other refused Citation
@@ -306,7 +309,7 @@ export interface RangeSelection {
 }
 
 /** The range's Citation, checked against its rows: found where the User selected them. */
-async function citeRange(selection: RangeSelection): Promise<CitedSelection> {
+export async function citeRange(selection: RangeSelection): Promise<CitedSelection> {
   if (selection.parts.length === 0) {
     throw new Error(translateNow("viewer.selection.emptyRange"));
   }

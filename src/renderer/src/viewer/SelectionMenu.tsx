@@ -10,10 +10,11 @@ import {
   useState,
 } from "react";
 import type { AskedQuote, Document } from "../../../core/api";
+import { type CitationPick, citeChosenWords, usePickIn } from "../citationPick";
 import { useViewerHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
-import { ChatLineIcon, CopyLineIcon, PlusLineIcon } from "../components/lineIcons";
+import { ChatLineIcon, CopyLineIcon, LinkLineIcon, PlusLineIcon } from "../components/lineIcons";
 import { holdsQuote, useComposer } from "../composer";
 import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";
@@ -25,6 +26,8 @@ import {
   addsWithoutAsking,
   askAboutRange,
   askAboutSelection,
+  citedSelection,
+  citeRange,
   copyRange,
   copySelectionWithCitation,
   type RangeSelection,
@@ -242,9 +245,23 @@ export function SelectionMenu({
     [held, settingUp, close, heldNow],
   );
 
+  const pick = usePickIn(document.id);
+  const cite = useMemo(
+    () =>
+      held && pick
+        ? () => {
+            close();
+            const now = heldNow() ?? held;
+            void citeChosenWords(pick, document, () => citedSelection(now.selection));
+          }
+        : null,
+    [held, pick, close, heldNow, document],
+  );
+
   const actions = useMemo(
     () =>
       held && {
+        ...(cite && { cite }),
         ...(ask && { ask }),
         addToNote: () => {
           const now = heldNow() ?? held;
@@ -263,7 +280,7 @@ export function SelectionMenu({
           void copySelectionWithCitation((heldNow() ?? held).selection);
         },
       },
-    [held, ask, close, heldNow],
+    [held, cite, ask, close, heldNow],
   );
   // Only while there is a selection, filed under this viewer's tab: another tab may hold one.
   useViewerHandle("selection", actions ?? null);
@@ -309,6 +326,8 @@ export function SelectionMenu({
 
 /** What a viewer selection's menu offers, shared by words and by a range of cells (#101, #118). */
 export interface SelectionMenuActions {
+  /** Use as Citation, while a sentence waits for its Citation in this Document (#1554). */
+  cite?: () => void;
   /** Not offered while a Question waits for a model (#1789). */
   ask?: () => void;
   addToNote(): void;
@@ -361,6 +380,7 @@ export function SelectionMenuBody({
           {size}
         </p>
       )}
+      {actions.cite && <UseAsCitationItem onClick={actions.cite} />}
       {actions.ask && (
         <button
           ref={firstAsk}
@@ -404,6 +424,39 @@ export function SelectionMenuBody({
   );
 }
 
+/** Use as Citation (#1554): the item that gives the waiting sentence these words as its Citation. */
+function UseAsCitationItem({ onClick }: { onClick(): void }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      data-testid="viewer-selection-cite"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onClick}
+      className="editor-menu-item"
+    >
+      <LinkLineIcon className="size-4 shrink-0 text-ink-secondary" />
+      <span className="flex-1 truncate">{t("claim.useAsCitation")}</span>
+    </button>
+  );
+}
+
+/** Use as Citation for a range of cells, while a sentence waits for its Citation in their sheet. */
+export const citeRangeAction = (
+  selection: RangeSelection,
+  pick: CitationPick | null,
+  then?: () => void,
+): Pick<SelectionMenuActions, "cite"> =>
+  pick
+    ? {
+        cite: () => {
+          then?.();
+          void citeChosenWords(pick, selection.document, () => citeRange(selection));
+        },
+      }
+    : {};
+
 /**
  * The menu for a range of cells selected in a sheet (#118): the same three
  * actions as words, with the range's size first. It closes on Esc or a press
@@ -435,8 +488,10 @@ export function SheetSelectionMenu({
   }, []);
   const [picking, setPicking] = useState(false);
   const { document } = selection;
+  const pick = usePickIn(document.id);
   const actions = useMemo<SelectionMenuActions>(
     () => ({
+      ...citeRangeAction(selection, pick, onClose),
       ...(askable && {
         ask: () => {
           onClose();
@@ -454,7 +509,7 @@ export function SheetSelectionMenu({
         void copyRange(selection);
       },
     }),
-    [selection, askable, onClose],
+    [selection, pick, askable, onClose],
   );
   return (
     <>

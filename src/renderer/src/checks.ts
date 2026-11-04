@@ -98,6 +98,8 @@ interface ChecksState {
    * than in the card, which draws the question in a view of its own.
    */
   documentAsk: Readonly<Record<string, { within: SearchScope; plan: DocumentCheckPlan }>>;
+  /** By Mind: the sentence check whose rewrite with what the Documents say the model works on (#1554). */
+  rewriting: Readonly<Record<string, string>>;
 }
 
 export const useChecks = create<ChecksState>()(() => ({
@@ -110,6 +112,7 @@ export const useChecks = create<ChecksState>()(() => ({
   pickDocument: {},
   documentProgress: {},
   documentAsk: {},
+  rewriting: {},
 }));
 
 function setFor<K extends keyof ChecksState>(
@@ -144,6 +147,9 @@ export const setOpenClaim = (place: string, id: string | null) => setFor("openCl
 export const setClaimFocus = (place: string, id: string | null) => setFor("focusClaim", place, id);
 
 export const requestDocumentPicker = (id: string) => setFor("pickDocument", id, true);
+
+export const setRewriting = (mindId: string, checkId: string | null) =>
+  setFor("rewriting", mindId, checkId);
 
 /** Asks the claim's card to read `within` again: it sizes the read and asks before reading. */
 export const requestDocumentRead = (id: string, within: SearchScope) =>

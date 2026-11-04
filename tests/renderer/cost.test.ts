@@ -18,9 +18,11 @@ const t =
     translate(language, key, params);
 
 describe("Cost in words", () => {
-  test("amounts show cents, and a small one its first figures rather than nothing", () => {
+  test("amounts show cents, and one under a cent a cent rather than nothing or more figures", () => {
     expect(formatMoney({ amount: 3.2, currency: "USD" }, "en")).toBe("$3.20");
-    expect(formatMoney({ amount: 0.0013, currency: "USD" }, "en")).toBe("$0.0013");
+    expect(formatMoney({ amount: 0.0013, currency: "USD" }, "en")).toBe("$0.01");
+    expect(formatMoney({ amount: 0.0048, currency: "USD" }, "en")).toBe("$0.01");
+    expect(formatMoney({ amount: 0.0148, currency: "USD" }, "en")).toBe("$0.01");
     expect(formatMoney({ amount: 0, currency: "USD" }, "en")).toBe("$0");
     expect(formatMoney({ amount: 1.4, currency: "CNY" }, "zh-CN")).toBe("¥1.40");
   });
@@ -30,8 +32,8 @@ describe("Cost in words", () => {
     (language) => {
       expect(formatMoney({ amount: 1.4, currency: "USD" }, language)).toBe("$1.40");
       expect(formatMoney({ amount: 1.4, currency: "CNY" }, language)).toBe("¥1.40");
-      expect(formatMoney({ amount: 0.0013, currency: "USD" }, language)).toBe("$0.0013");
-      expect(formatMoney({ amount: 0.0013, currency: "CNY" }, language)).toBe("¥0.0013");
+      expect(formatMoney({ amount: 0.0013, currency: "USD" }, language)).toBe("$0.01");
+      expect(formatMoney({ amount: 0.0013, currency: "CNY" }, language)).toBe("¥0.01");
     },
   );
 

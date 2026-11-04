@@ -59,6 +59,7 @@ import { groupsMerged } from "../layoutSlice";
 import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
 import { openCited } from "../openCited";
+import { offersRewrite, rewriteWithDocuments } from "../rewriteFix";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
@@ -79,6 +80,7 @@ import {
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ChangedCitations } from "./ChangedSourceNotice";
+import { ChooseCitationAction } from "./ChooseCitationAction";
 import { ClaimOutline } from "./ClaimOutline";
 import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
 import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
@@ -160,7 +162,8 @@ export function ClaimMark({
   const running = useChecks((store) => store.running[mindId] !== undefined);
   // Its old verdict stands until the read's comes, but the mark says what its card says.
   const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
-  const mark = reading ? "checking" : markOf(claim);
+  const rewriting = useChecks((store) => store.rewriting[mindId] === claim.check.id);
+  const mark = reading || rewriting ? "checking" : markOf(claim);
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.check);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
@@ -371,6 +374,11 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
+              rewrite={!running && !editing && offersRewrite(editor, claim)}
+              onRewrite={() => {
+                void rewriteWithDocuments(editor, mindId, doc, claim);
+                done();
+              }}
               corrections={corrections}
               editor={editor}
               decision={decision}
@@ -601,6 +609,8 @@ export function ClaimCard({
   fixes,
   notFound,
   keep,
+  rewrite,
+  onRewrite,
   corrections,
   editor,
   decision,
@@ -637,6 +647,9 @@ export function ClaimCard({
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
+  /** Rewrite with what the Documents say: a close Passage gives another value (#1554). */
+  rewrite: boolean;
+  onRewrite(): void;
   /** Each contradicted part's correction from the Documents, as `correctionsFor` finds them. */
   corrections: readonly PartCorrection[];
   editor: Editor;
@@ -1129,6 +1142,7 @@ export function ClaimCard({
         <div className="citation-card-note">
           <MetaLine
             data-testid="claim-read-stopped"
+            className="claim-stop-line"
             parts={[
               stopLine,
               <LineAction
@@ -1328,6 +1342,19 @@ export function ClaimCard({
             claim={claim}
             offer={notFound}
           />
+        )}
+        {notFound && verified === null && mindId && (
+          <ChooseCitationAction mindId={mindId} claim={claim} onChosen={onOpen} />
+        )}
+        {rewrite && verified === null && (
+          <button
+            type="button"
+            data-testid="claim-rewrite"
+            className="citation-card-action"
+            onClick={onRewrite}
+          >
+            {t("claim.rewrite")}
+          </button>
         )}
         {notFound && verified === null && (
           <button

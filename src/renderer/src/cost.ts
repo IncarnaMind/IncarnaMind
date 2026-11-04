@@ -7,19 +7,18 @@ import { budgetStopOf } from "../../shared/readBudget";
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 /**
- * An amount in its currency: cents, and a small amount to its first figures
- * rather than "$0.00", so one short Answer still shows ("$0.0013"). Each
+ * An amount in its currency, in cents: an amount under a cent shows as one cent rather than
+ * "$0.00", so one short Answer still shows, and never to more figures than cents (#1554). Each
  * currency has its one symbol in every language: "$", never "US$", and "¥".
  */
 export function formatMoney({ amount, currency }: Money, language: Language): string {
-  const small = amount > 0 && amount < 0.01;
   return new Intl.NumberFormat(language, {
     style: "currency",
     currency,
     currencyDisplay: "narrowSymbol",
     minimumFractionDigits: amount === 0 ? 0 : 2,
-    maximumFractionDigits: small ? 4 : 2,
-  }).format(amount);
+    maximumFractionDigits: 2,
+  }).format(amount > 0 && amount < 0.01 ? 0.01 : amount);
 }
 
 /**

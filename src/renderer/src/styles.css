@@ -1936,8 +1936,12 @@
   .check-card-ask-title {
     font-weight: 600;
     color: var(--color-ink);
-    /* A Chinese question would otherwise leave one character alone on its last line. */
-    text-wrap: pretty;
+    /* A Chinese question would otherwise leave "句子？" alone on its last line, at 900 and 1,440 px alike (#1554). */
+    text-wrap: balance;
+  }
+  /* Continue goes under the stop line's words in every language: English wrapped it there, Chinese kept it inline (#1554). */
+  .claim-stop-line > .meta-part:last-child {
+    flex-basis: 100%;
   }
   .check-card-ask-actions {
     display: flex;

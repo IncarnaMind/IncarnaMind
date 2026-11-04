@@ -21,7 +21,7 @@ export interface DocumentOrFolderPickerLabels {
 
 /**
  * One Document or Folder, found by its English or Chinese name, to use as a Search scope: only
- * those on the Note's side of a Folder wall.
+ * those on the Note's side of a Folder wall. `documentsOnly`: one Document, never a Folder.
  */
 export function DocumentOrFolderPicker({
   anchor,
@@ -29,6 +29,7 @@ export function DocumentOrFolderPicker({
   labels,
   onChoose,
   onClose,
+  documentsOnly = false,
   testId = "document-or-folder",
 }: {
   /** What it opens beside; it takes the focus back once closed. Null: closed. */
@@ -38,6 +39,7 @@ export function DocumentOrFolderPicker({
   labels: DocumentOrFolderPickerLabels;
   onChoose(scope: SearchScope): void;
   onClose(): void;
+  documentsOnly?: boolean;
   testId?: string;
 }) {
   const t = useT();
@@ -88,10 +90,14 @@ export function DocumentOrFolderPicker({
     };
     const choices = documentOrFolderChoices(library, query);
     return [
-      {
-        title: t("scope.picker.folders"),
-        options: choices.filter((choice) => choice.kind === "folder").map(optionOf),
-      },
+      ...(documentsOnly
+        ? []
+        : [
+            {
+              title: t("scope.picker.folders"),
+              options: choices.filter((choice) => choice.kind === "folder").map(optionOf),
+            },
+          ]),
       {
         title: t("scope.picker.documents"),
         options: choices.filter((choice) => choice.kind === "document").map(optionOf),

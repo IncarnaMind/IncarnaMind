@@ -4,17 +4,20 @@ import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
   checkSentences,
   requestDocumentPicker,
+  requestDocumentRead,
   setCheckCardOpen,
   setClaimFocus,
   setOpenClaim,
   useChecks,
 } from "../checks";
+import { chooseCitationIn, requestCitationPicker } from "../citationPick";
 import { applyCorrection, correctionAt } from "../correctionFixes";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
 import { startMindCheck } from "../mindCheck";
+import { rewriteAt, rewriteWithDocuments } from "../rewriteFix";
 import {
   applyDocumentWording,
   applyFigure,
@@ -34,7 +37,7 @@ import {
   unsupportedAt,
 } from "../unsupportedFixes";
 import { noteHandle } from "./handles";
-import type { Command } from "./registry";
+import type { Command, CommandContext } from "./registry";
 
 /** The Mind last written in, while it has text selected to check and no check of it runs. */
 function withSentences() {
@@ -105,6 +108,17 @@ const withKeepable = () => withNothingBacking() ?? withContradicted();
 function withCuttable() {
   const at = withNotFound();
   return at && verificationOf(at.doc) === null ? at : null;
+}
+
+const withRewrite = () => {
+  const at = withClaim(rewriteAt);
+  return at && verificationOf(at.doc) === null ? at : null;
+};
+
+/** The one Document or Folder the command was given: the assistant's find, or what ⌘K has in focus. */
+function targetOf(ctx: CommandContext, kinds: readonly ("document" | "folder")[]) {
+  const [one, ...more] = ctx.selection.length > 0 ? ctx.selection : ctx.focus ? [ctx.focus] : [];
+  return one && more.length === 0 && kinds.some((kind) => kind === one.kind) ? one : null;
 }
 
 function withOpinion() {
@@ -194,6 +208,69 @@ export const checkCommands: readonly Command[] = [
       if (!at) return;
       showClaimCard(at);
       requestDocumentPicker(at.claim.check.id);
+    },
+  },
+  {
+    // "Check this sentence against the lease", from the assistant too (#1554): the card asks
+    // before it reads, as for a pick.
+    id: "check.againstThisDocument",
+    label: "claim.checkAgainstThisDocument",
+    group: "main",
+    appliesTo: ["document", "folder"],
+    reversible: true,
+    when: (ctx) => targetOf(ctx, ["document", "folder"]) !== null && withCuttable() !== null,
+    run(ctx) {
+      const target = targetOf(ctx, ["document", "folder"]);
+      const at = withCuttable();
+      if (!target || !at) return;
+      showClaimCard(at);
+      requestDocumentRead(at.claim.check.id, {
+        folderIds: target.kind === "folder" ? [target.id] : [],
+        tagIds: [],
+        documentIds: target.kind === "document" ? [target.id] : [],
+      });
+    },
+  },
+  {
+    id: "check.chooseCitation",
+    label: "claim.chooseCitation",
+    keywords: ["claim.chooseCitation.keywords"],
+    group: "main",
+    // It opens a picker; the Citation the User then chooses is one step of Undo.
+    reversible: true,
+    when: () => withCuttable() !== null,
+    run() {
+      const at = withCuttable();
+      if (!at) return;
+      showClaimCard(at);
+      requestCitationPicker(at.claim.check.id);
+    },
+  },
+  {
+    // "The source is the lease": the lease opens beside the Note for the User to select the words.
+    id: "check.chooseCitationInDocument",
+    label: "claim.chooseCitationInDocument",
+    group: "main",
+    appliesTo: ["document"],
+    reversible: true,
+    when: (ctx) => targetOf(ctx, ["document"]) !== null && withCuttable() !== null,
+    run(ctx) {
+      const target = targetOf(ctx, ["document"]);
+      const at = withCuttable();
+      if (!target || !at) return;
+      chooseCitationIn({ mindId: at.mindId, checkId: at.claim.check.id, documentId: target.id });
+    },
+  },
+  {
+    id: "check.rewrite",
+    label: "claim.rewrite",
+    group: "main",
+    // Applied as one step of the Note's Undo, which brings back the check it had.
+    reversible: true,
+    when: () => withRewrite() !== null,
+    run() {
+      const at = withRewrite();
+      if (at) void rewriteWithDocuments(at.editor, at.mindId, at.doc, at.claim);
     },
   },
   {

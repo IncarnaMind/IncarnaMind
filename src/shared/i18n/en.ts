@@ -1133,6 +1133,15 @@ export const en = {
   "claim.readSome.notFound.one": "I read {pages} of 1 page in “{scope}” and didn’t find this.",
   "claim.checkAgainstDocument": "Check against a Document…",
   "claim.checkAgainstDocument.keywords": "check against document whole read chosen",
+  "claim.checkAgainstThisDocument": "Check the sentence against this Document",
+  "claim.chooseCitation": "Choose the Citation…",
+  "claim.chooseCitation.keywords": "point to the source cite select words",
+  "claim.chooseCitationInDocument": "Choose the Citation in this Document",
+  "claim.useAsCitation": "Use as Citation",
+  "claim.chosenCitation.done": "Added the Citation",
+  "claim.rewrite": "Rewrite with what the Documents say",
+  "claim.rewrite.kept":
+    "Couldn’t rewrite this sentence from the Documents, so it stays as you wrote it.",
   "claim.readProgress.starting": "Reading “{scope}”…",
   "claim.readProgress": "Reading “{scope}” · {pages} of {of} pages",
   "claim.readProgress.one": "Reading “{scope}” · {pages} of 1 page",
@@ -1874,6 +1883,8 @@ export const en = {
     "Couldn’t cite these words: a Citation covers two pages at most.",
   "viewer.selection.refused.noText":
     "Couldn’t cite these words: the Document has no text there to check them against.",
+  "viewer.selection.refused.unsure":
+    "Couldn’t cite these words: the scan may have misread them. Check them on the page, or select other words.",
   "command.viewer.range.ask": "Ask about these cells",
   "command.viewer.range.addToNote": "Add these cells to note",
   "command.viewer.range.copy": "Copy these cells with their citation",

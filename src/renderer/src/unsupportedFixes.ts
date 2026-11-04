@@ -195,8 +195,12 @@ export const contradictedAt = (editor: Editor): ShownClaim | null =>
 /** The sentence whose check worked out a figure it disagrees with, for ⌘K; null for none. */
 export const figureAt = (editor: Editor): ShownClaim | null => claimAt(editor, offersUseFigure);
 
-export const fixesFree = (mindId: string): boolean =>
-  !useEdits.getState().pending[mindId] && !useChecks.getState().running[mindId];
+export const fixesFree = (mindId: string): boolean => {
+  const checks = useChecks.getState();
+  return (
+    !useEdits.getState().pending[mindId] && !checks.running[mindId] && !checks.rewriting[mindId]
+  );
+};
 
 /** Takes the part the Citations don't support out of the sentence, keeping them on the rest. */
 export function cutUnsupported(
@@ -299,11 +303,15 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
 }
 
 /**
- * Puts back the check a Use took the sentence's mark from, once Undo has
- * brought its number back: every check over the sentence goes, as the
- * re-check's may run past where the earlier one ended.
+ * Puts back the check a Use or a Rewrite took the sentence's mark from, once Undo has brought its
+ * words back: every check over the sentence goes, as the re-check's may run past where the
+ * earlier one ended.
  */
-function restoreCheck(editor: Editor, claim: ShownClaim, earlier: ClaimCheckAttributes): void {
+export function restoreCheck(
+  editor: Editor,
+  claim: ShownClaim,
+  earlier: ClaimCheckAttributes,
+): void {
   if (editor.isDestroyed) return;
   const type = editor.state.schema.marks[CLAIM_CHECK_MARK];
   if (!type) return;
