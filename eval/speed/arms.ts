@@ -7,7 +7,12 @@
  */
 import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
-import type { AnswerPathsOverride, ChatModelFactory, Core } from "../../src/core";
+import type {
+  AnswerPathsOverride,
+  ChatModelFactory,
+  CheckPathsOverride,
+  Core,
+} from "../../src/core";
 
 export interface Arm {
   id: string;
@@ -19,6 +24,8 @@ export interface Arm {
   request?(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions;
   /** Answer paths every model takes or doesn't while the arm runs; unset: the lists'. */
   paths?: { writesThenCites?: boolean; retrievesFirst?: boolean };
+  /** The written check's fast paths every model takes or doesn't (#1667); unset: the list's. */
+  checks?: { copies?: boolean; quickFirstLook?: boolean };
 }
 
 // An arm that compares one Answer path keeps every other as the Tool loop has it from its first
@@ -39,6 +46,17 @@ export const ARMS: readonly Arm[] = [
     id: "loop",
     label: "the Tool loop from its first call, whatever the lists say",
     paths: { retrievesFirst: false },
+  },
+  {
+    id: "no-fast-checks",
+    label: "every written sentence checked by the check's Run, as before #1667",
+    checks: { copies: false, quickFirstLook: false },
+  },
+  {
+    id: "fast-checks",
+    label:
+      "a written sentence its Citation states word for word Supported with no model, and the quick-tasks model's plain yes first (#1667)",
+    checks: { copies: true, quickFirstLook: true },
   },
   {
     id: "retrieve-first",
@@ -69,12 +87,17 @@ export function armSwitch() {
     writesThenCites: () => current?.paths?.writesThenCites,
     retrievesFirst: () => current?.paths?.retrievesFirst,
   };
+  const checkPaths: CheckPathsOverride = {
+    copies: () => current?.checks?.copies,
+    quickFirstLook: () => current?.checks?.quickFirstLook,
+  };
   return {
     chatModels:
       (inner: ChatModelFactory): ChatModelFactory =>
       (spec) =>
         wrapLanguageModel({ model: inner(spec), middleware }),
     answerPaths,
+    checkPaths,
     use(arm: Arm): void {
       current = arm;
     },

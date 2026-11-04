@@ -31,7 +31,7 @@ import { verdictOf } from "../repeats/score";
 import { SIGNS } from "./flows";
 import type { Expectation, Grade } from "./judge";
 
-export const SET_IDS = ["gating", "hard", "everyday", "checks"] as const;
+export const SET_IDS = ["gating", "hard", "everyday", "checks", "written"] as const;
 export type SetId = (typeof SET_IDS)[number];
 export type Language = "en" | "zh-CN";
 

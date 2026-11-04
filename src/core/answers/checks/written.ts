@@ -734,7 +734,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     return checked.verdict === "supported" ? nodes : null;
   }
 
-  /** One sentence's check, given up on once it takes longer than the time limit. */
+  /**
+   * One sentence's check, given up on once it takes longer than the time limit: `timedOut`, when
+   * the sentence's time began before, with its quick model's first look.
+   */
   async function checkWithin(
     sentence: Sentence,
     read: ReturnType<typeof checkText> & { place?: RecordCitePlace },
@@ -743,13 +746,14 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     prepared: PreparedChatModel,
     limit: Slots,
     signal: AbortSignal,
+    timedOut: AbortSignal = AbortSignal.timeout(options.claimTimeLimitMs),
   ): Promise<ClaimCheckResult> {
-    const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
     const ended = AbortSignal.any([signal, timedOut]);
     // A reply that never comes, even once aborted, is given up on all the same.
-    const givenUp = new Promise<null>((resolve) =>
-      ended.addEventListener("abort", () => resolve(null), { once: true }),
-    );
+    const givenUp = new Promise<null>((resolve) => {
+      if (ended.aborted) resolve(null);
+      else ended.addEventListener("abort", () => resolve(null), { once: true });
+    });
     const replied = await Promise.race([
       options.claimCheck({
         ...read,
@@ -809,6 +813,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       sending,
       async (sentence): Promise<Checked> => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
+        const timedOut = AbortSignal.timeout(options.claimTimeLimitMs);
         const first =
           fast &&
           (await options.firstLook({
@@ -820,10 +825,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
             citations: sentence.citations,
             scope: scope.scope,
             ...fast,
-            signal,
+            signal: AbortSignal.any([signal, timedOut]),
           }));
         if (first) return { result: first.result, uncovered: null, nodes: null, by: first.model };
-        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
+        const result = await checkWithin(
+          sentence,
+          read,
+          mindId,
+          scope,
+          prepared,
+          limit,
+          signal,
+          timedOut,
+        );
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
         // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.

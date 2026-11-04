@@ -6,17 +6,16 @@
  * - C: the provider's quick-tasks model, shown the sentence, its paragraph, the quote and its
  *   Passage, answers a plain yes.
  *
- * Neither runs for a sentence another Document or period could contradict: one with a figure, a
- * record cite or a court decision, one in a table's cell, one whose Citation's Document has
+ * Neither runs for a sentence another Document or period could contradict: one with a figure (a
+ * court decision's citation has its numbers) or a record cite, one in a table's cell, one whose Citation's Document has
  * changed or is behind a wall, or one whose words another Document in the check's scope also
  * holds (an amendment, another edition), which today's check searches for. Everything else, and
  * anything but a plain yes, goes to today's check on the User's model.
  */
 import { generateText } from "ai";
-import { citedCases } from "../../../shared/caseCitations";
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { SCALES, TENS, UNITS } from "../../../shared/numberWords";
-import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
+import { sentenceSpans } from "../../../shared/sentences";
 import { normaliseText } from "../../../shared/text";
 import type { UnitText } from "../../../shared/units";
 import type { Citation, CitationAttributes, ClaimCheckResult } from "../../api";
@@ -121,13 +120,7 @@ export function locationText(
 
 /** Whether a sentence may take a fast path at all, read from its own words. */
 export function mayTakeFastPath(claim: string, figures: number): boolean {
-  return (
-    figures === 0 &&
-    !claim.includes(INLINE_NODE) &&
-    !holdsFigure(claim) &&
-    citedCases(claim).length === 0 &&
-    recordCiteSpans(claim).length === 0
-  );
+  return figures === 0 && !holdsFigure(claim) && recordCiteSpans(claim).length === 0;
 }
 
 export const QUICK_CHECK_INSTRUCTIONS = `You compare one sentence a writer wrote with the quote it cites from a Document. Reply with one word: yes or no.
@@ -174,18 +167,27 @@ export async function quickYes(
   asked: QuickCheck,
   signal: AbortSignal,
 ): Promise<boolean> {
+  // A reply that never comes, even once aborted, is given up on all the same.
+  const givenUp = new Promise<never>((_, reject) => {
+    const stop = () => reject(new Error("The quick model's first look was stopped."));
+    if (signal.aborted) stop();
+    else signal.addEventListener("abort", stop, { once: true });
+  });
   try {
-    const { text } = await inStep("written-quick-check", () =>
-      generateText({
-        model: prepared.model,
-        instructions: QUICK_CHECK_INSTRUCTIONS,
-        prompt: quickCheckPrompt(asked),
-        temperature: answerTemperature(prepared.capabilities.facts.temperature),
-        maxOutputTokens: outputTokens("quick-check"),
-        maxRetries: 1,
-        abortSignal: signal,
-      }),
-    );
+    const { text } = await Promise.race([
+      inStep("written-quick-check", () =>
+        generateText({
+          model: prepared.model,
+          instructions: QUICK_CHECK_INSTRUCTIONS,
+          prompt: quickCheckPrompt(asked),
+          temperature: answerTemperature(prepared.capabilities.facts.temperature),
+          maxOutputTokens: outputTokens("quick-check"),
+          maxRetries: 1,
+          abortSignal: signal,
+        }),
+      ),
+      givenUp,
+    ]);
     return /^yes[.!]?$/iu.test(text.trim());
   } catch (error) {
     if (!signal.aborted) {
