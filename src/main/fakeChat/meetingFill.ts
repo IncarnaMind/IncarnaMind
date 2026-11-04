@@ -36,15 +36,40 @@ export function fillReply(prompt: Prompt, tools: readonly string[]): Reply | nul
   const markers = [...asked.matchAll(/^(L\d+): /gm)].map((match) => match[1] as string);
   const lines = markers.map((marker) => `### ${marker}\n${said}${cite}.`);
   const headings = [...asked.matchAll(/^(H\d+) \(heading\): (.+)$/gm)];
-  const sections = [
-    { marker: "SUMMARY", title: /^(?:Summary|摘要)$/i },
-    { marker: "DECISIONS", title: /^(?:Decisions|决定)$/i },
-    { marker: "ACTIONS", title: /^(?:Action items|待办|待办事项)$/i },
-  ].flatMap(({ marker, title }) => {
+  const chinese = /\p{Script=Han}/u.test(said);
+  const definitions = [
+    {
+      marker: "SUMMARY",
+      title: /^(?:Summary|摘要)$/i,
+      reference: chinese ? "通话围绕上面的主题展开" : "The call discussed the topic recorded above",
+    },
+    {
+      marker: "DECISIONS",
+      title: /^(?:Decisions|决定)$/i,
+      reference: chinese ? "已定事项见上面的说明" : "The agreed detail is recorded above",
+    },
+    {
+      marker: "ACTIONS",
+      title: /^(?:Action items|待办|待办事项)$/i,
+      reference: chinese ? "后续分工见上面的说明" : "The follow-through is recorded above",
+    },
+  ];
+  const routes = headings.map(
+    (line) =>
+      `${line[1]}=${definitions.find(({ title }) => title.test(line[2] ?? ""))?.marker ?? "NONE"}`,
+  );
+  const sections = definitions.flatMap(({ marker, title, reference }) => {
     if (!new RegExp(`^### ${marker}:`, "m").test(asked)) return [];
     const heading = headings.find((line) => title.test(line[2] ?? ""));
     const where = `${marker}${heading ? ` ${heading[1]}` : ""}`;
-    return [`### ${where}\n${marker === "SUMMARY" ? "" : "- "}${said}${cite}.`];
+    const text = markers.length > 0 ? reference : said;
+    return [`### ${where}\n${marker === "SUMMARY" ? "" : "- "}${text}${cite}.`];
   });
-  return { text: [...lines, ...sections].join("\n\n") };
+  return {
+    text: [
+      ...(routes.length > 0 ? [`HEADINGS: ${routes.join(" ")}`] : []),
+      ...lines,
+      ...sections,
+    ].join("\n\n"),
+  };
 }

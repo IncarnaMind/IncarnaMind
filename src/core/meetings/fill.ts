@@ -15,6 +15,7 @@ import { estimateTokens } from "../answers/context";
 import {
   BLOCK_ID_ATTRIBUTE,
   type ChatModelChoice,
+  CITATION_NODE,
   type Citation,
   COMPARISON_TABLE_NODE,
   FOOTNOTE_NODE,
@@ -33,7 +34,6 @@ import {
   FILL_SECTIONS,
   type FillLine,
   type FillSection,
-  headingOf,
   lineMarker,
   notesContext,
   partsOf,
@@ -42,6 +42,7 @@ import {
   sectionsContext,
   textOf,
 } from "./fillPrompt";
+import { headingRoutes } from "./headingRoutes";
 import {
   asItIs,
   type MemoCue,
@@ -215,6 +216,15 @@ const withIds = (nodes: readonly NodeJSON[]): NodeJSON[] =>
   nodes.map((node) => ({ ...node, attrs: { ...node.attrs, [BLOCK_ID_ATTRIBUTE]: randomUUID() } }));
 
 const idOf = (node: NodeJSON) => String(node.attrs?.[BLOCK_ID_ATTRIBUTE]);
+
+const failedCitations = (nodes: readonly NodeJSON[]): number =>
+  nodes.reduce(
+    (count, node) =>
+      count +
+      (node.type === CITATION_NODE && node.attrs?.check !== "found" ? 1 : 0) +
+      failedCitations(node.content ?? []),
+    0,
+  );
 
 /** Puts `nodes` under `element`: at the end of a heading's part, else right after it. */
 function placeUnder(
@@ -447,12 +457,52 @@ export function createMeetingFill(options: MeetingFillOptions) {
     );
     const context = mode === "notes" ? notesContext(lines, question) : sectionsContext(question);
     const gathered = new Map<string, NodeJSON[]>();
+    const destinations = new Map<FillSection, string>();
+    const invalidHeadings = () => {
+      log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
+      return new FillProblemError({
+        kind: "model",
+        message: words("meetings.fill.problem.headings"),
+      });
+    };
     for (const part of parts) {
       const answer = await ask(context, part, transcriptId, route, signal);
-      for (const [marker, blocks] of partsOf(answer.blocks)) {
-        if (!sectionOf(marker) && !lines.some((line) => !line.heading && line.marker === marker))
+      const failed = failedCitations(answer.blocks);
+      if (failed > 0) {
+        log.warn("meeting.fillCitationFailed", { meetingId: meeting.id, citations: failed });
+        throw new FillProblemError({
+          kind: "model",
+          message: words("meetings.fill.problem.citations"),
+        });
+      }
+      const pieces = partsOf(answer.blocks);
+      const routed = headingRoutes(answer.markdown, [...pieces.keys()], lines);
+      if (routed === null) throw invalidHeadings();
+      for (const [section, heading] of routed) {
+        if (
+          (destinations.has(section) && destinations.get(section) !== heading) ||
+          [...destinations].some(([other, target]) => other !== section && target === heading)
+        )
+          throw invalidHeadings();
+        destinations.set(section, heading);
+      }
+      for (const [marker, blocks] of pieces) {
+        if (!sectionOf(marker) && !lines.some((line) => !line.heading && line.marker === marker)) {
+          log.warn("meeting.fillUnknownPart", {
+            meetingId: meeting.id,
+            blocks: claimsIn(blocks).length,
+          });
           continue;
+        }
         const cited = citedOnly(blocks, "found");
+        const uncited = claimsIn(blocks).length - claimsIn(cited).length;
+        if (uncited > 0) {
+          log.warn("meeting.fillUncited", { meetingId: meeting.id, blocks: uncited });
+          throw new FillProblemError({
+            kind: "model",
+            message: words("meetings.fill.problem.uncited"),
+          });
+        }
         if (cited.length > 0) gathered.set(marker, [...(gathered.get(marker) ?? []), ...cited]);
       }
     }
@@ -466,11 +516,19 @@ export function createMeetingFill(options: MeetingFillOptions) {
       const section = sectionOf(marker);
       if (section) {
         written.set(section, [...(written.get(section) ?? []), ...blocks]);
-        const heading = lines.find((line) => line.heading && line.marker === headingOf(marker));
+        const heading = lines.find(
+          (line) => line.heading && line.marker === destinations.get(section),
+        );
         if (heading) headings.set(section, heading);
       } else lineParts.push(...blocks);
     }
     const sections = mode === "notes" ? withoutRepeats(lineParts, written) : written;
+    if (sections === null) {
+      throw new FillProblemError({
+        kind: "model",
+        message: words("meetings.fill.problem.repeated"),
+      });
+    }
     const claims = sections.get("claims");
     if (claims) {
       const unsupported = await notSupported(claims, meeting.mindId, transcriptId, route);

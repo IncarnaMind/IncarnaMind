@@ -275,6 +275,53 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
+  test.each([false, true])(
+    `a Transcript cue label with speaker selects its stored time with brackets=%s, ${language}`,
+    async (brackets) => {
+      const label = `0:11 ${second}`;
+      const model = citingModel({
+        query: "Review",
+        records: (passages) => {
+          expect(passages[0]?.text).toContain(`[${label}] ${estimate}`);
+          return [
+            {
+              marker: 1,
+              passage: passages[0]?.id,
+              location: brackets ? `[${label}]` : label,
+              quote: estimate,
+            },
+            {
+              marker: 2,
+              passage: passages[0]?.id,
+              location: brackets ? `[0:07 ${second}]` : `0:07 ${second}`,
+              quote: repeated,
+            },
+          ];
+        },
+        answer: `${answer} ${answer.replace("[^1]", "[^2]")}`,
+      });
+      const { citations } = await ask(model);
+      expect(citations).toHaveLength(2);
+      expect(citations).toMatchObject([
+        {
+          quote: estimate,
+          check: "found",
+          pageFrom: 1,
+          pageTo: 1,
+          location: { kind: "time", from: 11_750, to: 13_000, speaker: second },
+        },
+        {
+          quote: repeated,
+          check: "found",
+          pageFrom: 1,
+          pageTo: 1,
+          location: { kind: "time", from: 7000, to: 10_000, speaker: second },
+        },
+      ]);
+      expect(citeFeedback(model)).not.toContain("Fix these");
+    },
+  );
+
   test.each([undefined, "0:00–0:10"])(
     `repeated Transcript quotes never silently choose the first cue with %s, ${language}`,
     async (location) => {
@@ -313,7 +360,20 @@ for (const language of ["en", "zh-CN"] as const) {
     },
   );
 
-  test.each(["0:07", "0:03", "9:59", "0:99", "later", "p. 1"])(
+  test.each([
+    "0:07",
+    "0:03",
+    "9:59",
+    "0:99",
+    "later",
+    "p. 1",
+    `[0:07 ${first}]`,
+    `0:03 ${first}`,
+    `[9:59 ${first}]`,
+    `0:99 ${first}`,
+    `0:04 ${second}`,
+    first,
+  ])(
     `a Transcript quote cannot be found elsewhere when its selected time is %s, ${language}`,
     async (location) => {
       const { citations } = await ask(
@@ -326,6 +386,88 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(citations).toHaveLength(1);
       expect(citations[0]?.check).toBe("not-found");
       expect(citations[0]?.location).not.toMatchObject({ from: 4000, speaker: first });
+    },
+  );
+
+  test.each(["0:07", `0:07 ${first}`, `0:04 ${second}`])(
+    `Transcript feedback explains the requested time/speaker for %s, ${language}`,
+    async (location) => {
+      const model = citingModel({
+        query: "Review",
+        records: (passages) => [{ marker: 1, passage: passages[0]?.id, location, quote: boat }],
+        answer,
+      });
+      const { citations } = await ask(model);
+      expect(citations).toHaveLength(1);
+      expect(citations[0]?.check).toBe("not-found");
+      const feedback = citeFeedback(model);
+      expect(feedback).toContain(`not found at the requested time/speaker "${location}"`);
+      expect(feedback).toContain("copy the exact cue timestamp");
+      expect(feedback).toContain('"0:11" or "0:11 Dana"');
+      expect(feedback).toContain("do not omit or broaden the requested time/speaker");
+      expect(feedback).not.toContain("isn't word for word");
+    },
+  );
+
+  test.each(["later", second])(
+    `Transcript feedback explains timestamp format for %s, ${language}`,
+    async (location) => {
+      const model = citingModel({
+        query: "Review",
+        records: (passages) => [{ marker: 1, passage: passages[0]?.id, location, quote: boat }],
+        answer,
+      });
+      const { citations } = await ask(model);
+      expect(citations).toHaveLength(1);
+      expect(citations[0]?.check).toBe("not-found");
+      const feedback = citeFeedback(model);
+      expect(feedback).toContain("a speaker name alone is not a timestamp");
+      expect(feedback).toContain("copy the exact cue timestamp");
+      expect(feedback).toContain('"0:11" or "0:11 Dana"');
+      expect(feedback).not.toContain("0:00");
+      expect(feedback).not.toContain("isn't word for word");
+    },
+  );
+
+  test(`non-time Transcript quote feedback keeps its existing wording, ${language}`, async () => {
+    const model = citingModel({
+      query: "Review",
+      records: (passages) => [{ marker: 1, passage: passages[0]?.id, quote: absent }],
+      answer,
+    });
+    const { citations } = await ask(model);
+    expect(citations).toHaveLength(1);
+    expect(citations[0]?.check).toBe("not-found");
+    expect(citeFeedback(model)).toBe(
+      "Recorded [^1]. Fix these with another cite call:\n- [^1]: the quote isn't word for word at 0:00 in P1; copy it exactly, and check where it is.",
+    );
+  });
+
+  test.each([
+    {
+      location: undefined,
+      expected:
+        "Recorded [^1]. Fix these with another cite call:\n- [^1]: the quote isn't word for word at § Review in P1; copy it exactly, and check where it is.",
+    },
+    {
+      location: "§ Missing",
+      expected:
+        "Recorded [^1]. Fix these with another cite call:\n- [^1]: give a location inside P1 (§ Review), naming one place, or two in a row.",
+    },
+  ])(
+    `non-Transcript feedback keeps its existing wording with $location, ${language}`,
+    async ({ location, expected }) => {
+      const model = citingModel({
+        query: "Review",
+        records: (passages) => [{ marker: 1, passage: passages[0]?.id, location, quote: absent }],
+        answer,
+      });
+      const { core, client, mind } = await setUpWithDocuments(model, [
+        { name: "Review.md", contents: `# Review\n\n${boat}\n` },
+      ]);
+      await core.updateSettings({ user: { language } });
+      await askAndFinish(core, client, mind.id, "Review");
+      expect(citeFeedback(model)).toBe(expected);
     },
   );
 

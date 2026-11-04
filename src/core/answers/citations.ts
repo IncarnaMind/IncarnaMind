@@ -1928,13 +1928,23 @@ export function createCitationSession(
   ): string | null {
     const { handle } = record;
     const where = passageUnits.length > 0 ? passageLocation(passageUnits) : null;
+    const cueAdvice =
+      source.documentKind === "transcript"
+        ? `copy the exact cue timestamp from ${handle} (for example "0:11" or "0:11 Dana") and its word-for-word quote; do not omit or broaden the requested time/speaker to match words elsewhere.`
+        : null;
     if (pageRangeProblem(record.range, source, record.unresolved)) {
+      if (cueAdvice) {
+        return `give a cue timestamp in ${handle}; a speaker name alone is not a timestamp; ${cueAdvice}`;
+      }
       return where
         ? `give a location inside ${handle} (${where}), naming one place, or two in a row.`
         : `cite one page, or two consecutive pages, within ${handle}'s pages (${pagesLabel(source)}).`;
     }
     if (!record.quote) return `the quote is empty; copy a short quote from ${handle}.`;
     if (check(record).check !== "not-found") return null;
+    if (cueAdvice && record.time) {
+      return `the quote was not found at the requested time/speaker "${record.given.location}" in ${handle}; ${cueAdvice}`;
+    }
     if (
       writtenInCjk(record.quote) !== writtenInCjk(passageUnits.map((unit) => unit.text).join("\n"))
     ) {

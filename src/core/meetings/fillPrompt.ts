@@ -62,6 +62,8 @@ const NOTES_SECTION_ASKS: Readonly<Record<FillSection, string>> = {
   ...SECTION_ASKS,
   decisions:
     "every final choice actually agreed in the call; for a choice already filled out under a User line, briefly name what was settled and refer to that line above without repeating its figures, dates or terms; write any remaining choice in full; not an agenda item, question, hypothetical, rejected option or a superseded choice",
+  actions:
+    "every commitment actually made, with its actual owner and deadline if said; when an ordinary line already records a commitment in full, name its task topic and refer to the detail above with its Citation instead of repeating the owner, deadline or full commitment; otherwise write the whole commitment here; first-person commitments belong to the speaker of that Transcript line, not automatically Me",
   questions:
     "questions explicitly raised in the call and still unanswered, a bullet each: never infer an open issue from an unstated detail, what was decided or what someone will do",
   summary:
@@ -110,13 +112,19 @@ export function notesContext(lines: readonly FillLine[], question: string): Ques
     callIntro,
     "The User took the notes below during the call, a line each. Fill them in from the transcript:",
     "- The User's lines are the skeleton. Read the whole transcript to find where the call ended before writing. Fill every relevant ordinary line in place with what was agreed about it, including its final figures, dates and terms, not just an earlier proposal or background. Never repeat or reword the User's own line.",
-    "- Only a line marked (heading) can cover a template section. Match its purpose, not its exact wording, to the overview, agreed choices, commitments, unresolved matters or claims to check. If it serves one of those purposes, append its heading marker to that section's marker (### ACTIONS H1, for example) and write the section there once, not under both markers. Only a heading that serves none of those purposes just groups the lines below it; write nothing for that heading. An ordinary paragraph never covers a section, even if its words are a section's name.",
+    "- Only a line marked (heading) can cover a template section. Match its purpose, not its exact wording, to SUMMARY, DECISIONS, ACTIONS, QUESTIONS or CLAIMS. An ordinary paragraph never covers a section, even if its words are a section's name.",
+    ...(lines.some((line) => line.heading)
+      ? [
+          "- Begin the reply with one control line assigning EVERY H heading: HEADINGS: H1=ACTIONS H2=NONE is an example of the format, not a mapping to copy. Use only the H addresses actually listed below and choose their actual section by meaning. NONE means the Note's title or a heading that only groups its following lines, not a template section. Each section can use at most one heading and each heading at most one section. These assignments are machine routing, never prose. Do not assign a general topic heading to an unrelated section.",
+        ]
+      : []),
     "First fill each ordinary line in the order of the notes, starting its part with its marker alone as a heading (### L3, for example). Write one to three short sentences with its agreed answer and relevant details. Leave out a line only when the call said nothing about it. When a structural heading already hosts a section, put that section's facts there and only the other related details under its ordinary lines.",
-    "Then write these sections in this order. Each starts with its section marker as a heading, followed by the existing H marker when that section belongs under the User's heading. One heading may host only its matching section, never another section too. Keep these machine markers in English, in SECTION H order, even when the notes are in another language:",
+    "Then write these sections in this order. Each starts with its section marker as a heading. The HEADINGS control line sets its existing place; you may also append that same H marker (### ACTIONS H1). Keep machine markers in English even when the notes are in another language:",
     ...WRITTEN_ORDER.filter((section) => section !== "claims").map(
       (section) => `### ${SECTION_MARKERS[section]}: ${NOTES_SECTION_ASKS[section]}.`,
     ),
     "- Write each complete fact once. If an ordinary line already holds a decision, action or unresolved matter in full, keep its section with a brief cited reference to what is recorded above, not a second account of the same fact. Never suppress DECISIONS because the ordinary lines hold its choices. Sharing a date, figure, name or topic does not make two different facts duplicates.",
+    "- In a reference, name the subject and say the detail is above in natural words. Never write L1, H1 or any other machine address in the Note's prose. A reference must not repeat the complete fact, figures, dates, owner or deadline.",
     "- ACTIONS lists every commitment, with all owners explicitly named and its deadline if said, unless it only needs the brief reference above. Do not invent an owner or deadline, or turn a reported future event into a promise by the speaker reporting it.",
     "- Always write SUMMARY, or fill the User's Summary heading, with a short overview of the call, not a second list of decisions and actions. Cite the transcript line stating the call's purpose at the end of that overview sentence; an uncited overview cannot be included. A filled-out agenda line is not a substitute for SUMMARY.",
     "- Leave out DECISIONS only when the call made no decision; leave out ACTIONS or QUESTIONS only when the call contains none. Never turn an undecided proposal into a decision just to fill a section.",
@@ -153,7 +161,9 @@ export const textOf = (node: NodeJSON): string =>
 function markerOf(node: NodeJSON): string | null {
   if (node.type !== "heading") return null;
   const text = textOf(node)
-    .replace(/[*_`#:]/g, "")
+    .replace(/[*_`#]/g, "")
+    .replace(/[()[\]{}:：·|/–—-]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
   if (/^[LH]\d+$/i.test(text)) return text.toUpperCase();
   const upper = text.toUpperCase();
@@ -172,7 +182,8 @@ export const headingOf = (marker: string): string | null => / (H\d+)$/.exec(mark
 
 /**
  * The reply's Blocks by the marker heading each comes under, in order; Blocks before the first
- * marker (a preamble) are left out, and so are the marker headings.
+ * marker (a preamble) are left out, and so are the marker headings. An unrecognized heading ends
+ * a part without opening one.
  */
 export function partsOf(blocks: readonly NodeJSON[]): Map<string, NodeJSON[]> {
   const parts = new Map<string, NodeJSON[]>();
@@ -184,7 +195,8 @@ export function partsOf(blocks: readonly NodeJSON[]): Map<string, NodeJSON[]> {
       parts.set(marker, current);
       continue;
     }
-    current?.push(block);
+    if (block.type === "heading") current = null;
+    else current?.push(block);
   }
   for (const [marker, part] of parts) if (part.length === 0) parts.delete(marker);
   return parts;

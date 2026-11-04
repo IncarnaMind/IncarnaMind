@@ -11,7 +11,7 @@
  * INCARNAMIND_LIVE_OLLAMA_MODEL for a Local-mode check with an 8,192-token window.
  */
 import { appendFile, readFile } from "node:fs/promises";
-import type { JSONContent } from "@tiptap/core";
+import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
@@ -23,6 +23,7 @@ import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import type { Language } from "../../src/core/language";
 import { catalogModel } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
+import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
@@ -43,6 +44,7 @@ interface Fact {
    * matched by what is done together with its date or person, not by a mention of its topic.
    */
   pattern: RegExp | RegExp[];
+  subject?: RegExp | RegExp[];
   /** The turns that say it, counted from 0: a Citation of any of them is right. */
   said: number[];
   underLine?: string;
@@ -89,24 +91,28 @@ const CALLS: Call[] = [
         name: "open on 19 April",
         kind: "decision",
         pattern: [/April/i, /19|nineteenth/i],
+        subject: /open(?:ing)?/i,
         said: [3],
       },
       {
         name: "invitation draft by Wednesday",
         kind: "action",
         pattern: [/invitation/i, /Wednesday/i, /Nia/i],
+        subject: /invitation/i,
         said: [4],
       },
       {
         name: "book the lighting inspector",
         kind: "action",
         pattern: [/book/i, /inspect/i, /Ellis/i, /tomorrow/i],
+        subject: /light(?:ing)?|inspect/i,
         said: [5],
       },
       {
         name: "Jo delivers the labels on Friday",
         kind: "action",
         pattern: [/label/i, /Friday/i, /\bJo\b/i],
+        subject: /label/i,
         said: [6],
       },
     ],
@@ -134,16 +140,30 @@ const CALLS: Call[] = [
         name: "四月十九日开幕",
         kind: "decision",
         pattern: [/4\s*月\s*19|四月十九|十九日/, /开幕/],
+        subject: /开幕/,
         said: [3],
       },
-      { name: "周三发邀请函初稿", kind: "action", pattern: [/邀请/, /周三/, /小倪/], said: [4] },
+      {
+        name: "周三发邀请函初稿",
+        kind: "action",
+        pattern: [/邀请/, /周三/, /小倪/],
+        subject: /邀请/,
+        said: [4],
+      },
       {
         name: "预约灯光验收人员",
         kind: "action",
         pattern: [/预约/, /验收/, /老易/, /明天/],
+        subject: /灯光|验收/,
         said: [5],
       },
-      { name: "小乔周五送展签", kind: "action", pattern: [/展签/, /周五/, /小乔/], said: [6] },
+      {
+        name: "小乔周五送展签",
+        kind: "action",
+        pattern: [/展签/, /周五/, /小乔/],
+        subject: /展签/,
+        said: [6],
+      },
     ],
     notDecided: [/(?:定|选)(?:在)?(?:四月四日|4\s*月\s*4\s*日)开幕/],
   },
@@ -169,24 +189,28 @@ const CALLS: Call[] = [
         name: "library room for £90",
         kind: "decision",
         pattern: [/library/i, /90|ninety/i],
+        subject: /library|venue/i,
         said: [1, 2],
       },
       {
         name: "Ravi sends the sign-up form on Monday",
         kind: "action",
         pattern: [/form/i, /Monday/i, /Ravi/i],
+        subject: /form/i,
         said: [4],
       },
       {
         name: "collect spare tools on Tuesday",
         kind: "action",
         pattern: [/tools/i, /Tuesday/i, /Them|other side|other party/i],
+        subject: /tools/i,
         said: [5],
       },
       {
         name: "Mina prints safety sheets on Thursday",
         kind: "action",
         pattern: [/safety/i, /Thursday/i, /Mina/i],
+        subject: /safety/i,
         said: [6],
       },
     ],
@@ -210,10 +234,34 @@ const CALLS: Call[] = [
       them("要不要准备午饭，还没有定。"),
     ],
     facts: [
-      { name: "图书馆教室九百元", kind: "decision", pattern: [/图书馆/, /900|九百/], said: [1, 2] },
-      { name: "小罗周一发报名表", kind: "action", pattern: [/报名/, /周一/, /小罗/], said: [4] },
-      { name: "周二取备用工具", kind: "action", pattern: [/工具/, /周二/, /对方/], said: [5] },
-      { name: "小米周四印安全说明", kind: "action", pattern: [/安全/, /周四/, /小米/], said: [6] },
+      {
+        name: "图书馆教室九百元",
+        kind: "decision",
+        pattern: [/图书馆/, /900|九百/],
+        subject: /图书馆|场地/,
+        said: [1, 2],
+      },
+      {
+        name: "小罗周一发报名表",
+        kind: "action",
+        pattern: [/报名/, /周一/, /小罗/],
+        subject: /报名/,
+        said: [4],
+      },
+      {
+        name: "周二取备用工具",
+        kind: "action",
+        pattern: [/工具/, /周二/, /对方/],
+        subject: /工具/,
+        said: [5],
+      },
+      {
+        name: "小米周四印安全说明",
+        kind: "action",
+        pattern: [/安全/, /周四/, /小米/],
+        subject: /安全/,
+        said: [6],
+      },
     ],
     notDecided: [/学校教室/, /准备午饭/],
   },
@@ -922,6 +970,7 @@ const FINAL_CALLS: Call[] = [
         name: "launch on 22 May",
         kind: "decision",
         pattern: [/May/i, /22|twenty-second/i],
+        subject: /launch|release|go[- ]?live/i,
         said: [1],
         underLine: "launch date",
       },
@@ -929,6 +978,7 @@ const FINAL_CALLS: Call[] = [
         name: "UK fee £7 per booking",
         kind: "decision",
         pattern: [/£\s*7\b|GBP\s*7\b|\b(?:seven|7)\s*(?:pounds?|GBP)\b/i, /booking/i],
+        subject: [/\bUK\b|United Kingdom/i, /fee|charge/i],
         said: [2],
         underLine: "UK fee",
       },
@@ -936,18 +986,21 @@ const FINAL_CALLS: Call[] = [
         name: "Lena emails notice by Thursday",
         kind: "action",
         pattern: [/Lena/i, /notice/i, /Thursday/i],
+        subject: /notice/i,
         said: [3],
       },
       {
         name: "Me updates fee page tomorrow",
         kind: "action",
         pattern: [/\b(?:Me|I)\b/i, /fee/i, /page/i, /tomorrow/i],
+        subject: [/fee/i, /page/i],
         said: [4],
       },
       {
         name: "Owen tests checkout on Friday",
         kind: "action",
         pattern: [/Owen/i, /checkout/i, /Friday/i],
+        subject: /checkout/i,
         said: [5],
       },
     ],
@@ -971,6 +1024,7 @@ const FINAL_CALLS: Call[] = [
         name: "五月二十二日上线",
         kind: "decision",
         pattern: /五月二十二|5\s*月\s*22/,
+        subject: /上线|发布/,
         said: [1],
         underLine: "上线日期",
       },
@@ -978,20 +1032,29 @@ const FINAL_CALLS: Call[] = [
         name: "英国每单七英镑",
         kind: "decision",
         pattern: [/七\s*英镑|7\s*英镑|£\s*7/, /订单|每单/],
+        subject: [/英国/, /费用|收费|每单|每笔|订单/],
         said: [2],
         underLine: "英国费用",
       },
-      { name: "小林周四发通知", kind: "action", pattern: [/小林/, /通知/, /周四/], said: [3] },
+      {
+        name: "小林周四发通知",
+        kind: "action",
+        pattern: [/小林/, /通知/, /周四/],
+        subject: /通知/,
+        said: [3],
+      },
       {
         name: "我明天更新费用页面",
         kind: "action",
         pattern: [/我/, /明天/, /费用/, /页面/],
+        subject: [/费用/, /页面/],
         said: [4],
       },
       {
         name: "小欧周五测试结账",
         kind: "action",
         pattern: [/小欧/, /周五/, /测试/, /结账/],
+        subject: /结账/,
         said: [5],
       },
     ],
@@ -1028,16 +1091,30 @@ const FINAL_CALLS: Call[] = [
             name: "raise the crest by 40 cm",
             kind: "decision",
             pattern: [/crest/i, /\b40\b|forty/i],
+            subject: /crest/i,
             said: [3],
           },
           {
             name: "revised budget by Friday",
             kind: "action",
             pattern: [/budget/i, /Friday/i],
+            subject: /budget/i,
             said: [4],
           },
-          { name: "survey boat booked", kind: "action", pattern: /survey boat/i, said: [5] },
-          { name: "engineers' cost estimate", kind: "action", pattern: /estimate/i, said: [6] },
+          {
+            name: "survey boat booked",
+            kind: "action",
+            pattern: /survey boat/i,
+            subject: /survey boat/i,
+            said: [5],
+          },
+          {
+            name: "engineers' cost estimate",
+            kind: "action",
+            pattern: /estimate/i,
+            subject: /estimate/i,
+            said: [6],
+          },
         ],
       },
       {
@@ -1058,10 +1135,28 @@ const FINAL_CALLS: Call[] = [
           me("好，谢谢大家。"),
         ],
         facts: [
-          { name: "堤顶加高四十厘米", kind: "decision", pattern: [/加高/, /40|四十/], said: [3] },
-          { name: "周五前发预算", kind: "action", pattern: [/预算/, /周五/], said: [4] },
-          { name: "订勘测船", kind: "action", pattern: /勘测船|测量船/, said: [5] },
-          { name: "成本估算", kind: "action", pattern: /估算/, said: [6] },
+          {
+            name: "堤顶加高四十厘米",
+            kind: "decision",
+            pattern: [/加高/, /40|四十/],
+            subject: /堤顶|加高/,
+            said: [3],
+          },
+          {
+            name: "周五前发预算",
+            kind: "action",
+            pattern: [/预算/, /周五/],
+            subject: /预算/,
+            said: [4],
+          },
+          {
+            name: "订勘测船",
+            kind: "action",
+            pattern: /勘测船|测量船/,
+            subject: /勘测船|测量船/,
+            said: [5],
+          },
+          { name: "成本估算", kind: "action", pattern: /估算/, subject: /估算/, said: [6] },
         ],
       },
     ] satisfies Call[]
@@ -1098,18 +1193,21 @@ const FINAL_CALLS: Call[] = [
         name: "launch on 17 March",
         kind: "decision",
         pattern: [/\b17(?:th)?\b|seventeenth/i, /launch|release|go live/i],
+        subject: /launch|release|go[- ]?live/i,
         said: [4, 5],
       },
       {
         name: "tell marketing today",
         kind: "action",
         pattern: [/marketing/i, /today/i],
+        subject: /marketing/i,
         said: [6],
       },
       {
         name: "payment review on Monday",
         kind: "action",
         pattern: [/review/i, /Monday/i],
+        subject: /review/i,
         said: [7],
       },
     ],
@@ -1136,10 +1234,23 @@ const FINAL_CALLS: Call[] = [
         name: "三月十七日上线",
         kind: "decision",
         pattern: [/17\s*日|十七日|3\s*月\s*17/, /上线|发布/],
+        subject: /上线|发布/,
         said: [4, 5],
       },
-      { name: "今天告诉市场部", kind: "action", pattern: [/市场部/, /今天/], said: [6] },
-      { name: "周一提交支付审核", kind: "action", pattern: [/审核/, /周一/], said: [7] },
+      {
+        name: "今天告诉市场部",
+        kind: "action",
+        pattern: [/市场部/, /今天/],
+        subject: /市场部/,
+        said: [6],
+      },
+      {
+        name: "周一提交支付审核",
+        kind: "action",
+        pattern: [/审核/, /周一/],
+        subject: /审核/,
+        said: [7],
+      },
     ],
     notDecided: [/3\s*月\s*3\s*日|三月三日/],
   },
@@ -1170,12 +1281,14 @@ const FINAL_CALLS: Call[] = [
         name: "forward the Nimbus quote",
         kind: "action",
         pattern: [/Nimbus/i, /forward/i],
+        subject: /Nimbus/i,
         said: [8],
       },
       {
         name: "call Leeds about references",
         kind: "action",
         pattern: [/Leeds/i, /reference/i, /call|contact|ask|check with/i],
+        subject: [/Leeds/i, /reference/i],
         said: [9],
       },
     ],
@@ -1200,8 +1313,20 @@ const FINAL_CALLS: Call[] = [
       them("我去问问杭州分公司对清风的评价。"),
     ],
     facts: [
-      { name: "转发云朵的报价", kind: "action", pattern: [/云朵/, /转发/], said: [8] },
-      { name: "问杭州分公司", kind: "action", pattern: [/杭州/, /问|联系|咨询/], said: [9] },
+      {
+        name: "转发云朵的报价",
+        kind: "action",
+        pattern: [/云朵/, /转发/],
+        subject: /云朵/,
+        said: [8],
+      },
+      {
+        name: "问杭州分公司",
+        kind: "action",
+        pattern: [/杭州/, /问|联系|咨询/],
+        subject: /杭州/,
+        said: [9],
+      },
     ],
     notDecided: [/清风|洁亮|试用/],
   },
@@ -1227,10 +1352,23 @@ const FINAL_CALLS: Call[] = [
         name: "hire students for Saturdays",
         kind: "decision",
         pattern: [/student/i, /Saturday/i, /hire|employ|recruit|take on/i],
+        subject: /student/i,
         said: [4],
       },
-      { name: "Hannah runs the till", kind: "action", pattern: [/Hannah/i, /till/i], said: [6] },
-      { name: "rota by Friday", kind: "action", pattern: [/rota/i, /Friday/i], said: [7] },
+      {
+        name: "Hannah runs the till",
+        kind: "action",
+        pattern: [/Hannah/i, /till/i],
+        subject: /till/i,
+        said: [6],
+      },
+      {
+        name: "rota by Friday",
+        kind: "action",
+        pattern: [/rota/i, /Friday/i],
+        subject: /rota/i,
+        said: [7],
+      },
     ],
   },
   {
@@ -1251,9 +1389,27 @@ const FINAL_CALLS: Call[] = [
       them("我周五前把排班表做出来。"),
     ],
     facts: [
-      { name: "周六请学生", kind: "decision", pattern: [/学生/, /周六/, /请|雇|聘|招/], said: [4] },
-      { name: "汉娜工作日收银", kind: "action", pattern: [/汉娜/, /收银/], said: [6] },
-      { name: "周五前做排班表", kind: "action", pattern: [/排班/, /周五/], said: [7] },
+      {
+        name: "周六请学生",
+        kind: "decision",
+        pattern: [/学生/, /周六/, /请|雇|聘|招/],
+        subject: /学生/,
+        said: [4],
+      },
+      {
+        name: "汉娜工作日收银",
+        kind: "action",
+        pattern: [/汉娜/, /收银/],
+        subject: /收银/,
+        said: [6],
+      },
+      {
+        name: "周五前做排班表",
+        kind: "action",
+        pattern: [/排班/, /周五/],
+        subject: /排班/,
+        said: [7],
+      },
     ],
   },
   ...CALLS.filter((call) => call.id.endsWith("workshop")).map((call) => {
@@ -1266,6 +1422,155 @@ const FINAL_CALLS: Call[] = [
     };
   }),
 ];
+
+interface ReservedFactInput {
+  name: string;
+  kind: "decision" | "action";
+  pattern: string | string[];
+  said: number[];
+  underLine?: string;
+  subject?: string | string[];
+}
+
+interface ReservedCallInput {
+  id: string;
+  language: "en" | "zh-CN";
+  requireSections: true;
+  openQuestions: boolean;
+  notes: {
+    type: "paragraph" | "heading";
+    attrs?: { level: 2 };
+    content: { type: "text"; text: string }[];
+  }[];
+  turns: Call["turns"];
+  facts: ReservedFactInput[];
+  sectionHeadings?: Call["sectionHeadings"];
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const isArray = (value: unknown): value is unknown[] => Array.isArray(value);
+const onlyKeys = (value: Record<string, unknown>, keys: string[]) =>
+  Object.keys(value).every((key) => keys.includes(key));
+const isRegexSource = (value: unknown): value is string | string[] =>
+  (typeof value === "string" && value.length > 0) ||
+  (isArray(value) &&
+    value.length > 0 &&
+    value.every((each) => typeof each === "string" && each.length > 0));
+
+function isReservedFact(value: unknown): value is ReservedFactInput {
+  return (
+    isRecord(value) &&
+    onlyKeys(value, ["name", "kind", "pattern", "said", "underLine", "subject"]) &&
+    typeof value.name === "string" &&
+    (value.kind === "decision" || value.kind === "action") &&
+    isRegexSource(value.pattern) &&
+    isArray(value.said) &&
+    value.said.length > 0 &&
+    value.said.every(
+      (index) => typeof index === "number" && Number.isInteger(index) && index >= 0,
+    ) &&
+    (value.underLine === undefined || typeof value.underLine === "string") &&
+    (value.subject === undefined || isRegexSource(value.subject))
+  );
+}
+
+function isReservedCall(value: unknown): value is ReservedCallInput {
+  if (
+    !isRecord(value) ||
+    !onlyKeys(value, [
+      "id",
+      "language",
+      "requireSections",
+      "openQuestions",
+      "notes",
+      "turns",
+      "facts",
+      "sectionHeadings",
+    ]) ||
+    typeof value.id !== "string" ||
+    (value.language !== "en" && value.language !== "zh-CN") ||
+    !value.id.startsWith(value.language === "en" ? "reserved-en-" : "reserved-zh-") ||
+    value.requireSections !== true ||
+    typeof value.openQuestions !== "boolean"
+  )
+    return false;
+  const { notes, turns, facts, sectionHeadings } = value;
+  return (
+    isArray(notes) &&
+    notes.every(
+      (node) =>
+        isRecord(node) &&
+        onlyKeys(node, ["type", "attrs", "content"]) &&
+        (node.type === "paragraph" || node.type === "heading") &&
+        (node.attrs === undefined ||
+          (isRecord(node.attrs) && onlyKeys(node.attrs, ["level"]) && node.attrs.level === 2)) &&
+        isArray(node.content) &&
+        node.content.every(
+          (text) =>
+            isRecord(text) &&
+            onlyKeys(text, ["type", "text"]) &&
+            text.type === "text" &&
+            typeof text.text === "string",
+        ),
+    ) &&
+    isArray(turns) &&
+    turns.every(
+      (turn) =>
+        isRecord(turn) &&
+        onlyKeys(turn, ["side", "text"]) &&
+        (turn.side === "me" || turn.side === "them") &&
+        typeof turn.text === "string",
+    ) &&
+    isArray(facts) &&
+    facts.every(isReservedFact) &&
+    facts.every((fact) => fact.said.every((index) => index < turns.length)) &&
+    (sectionHeadings === undefined ||
+      (isRecord(sectionHeadings) &&
+        onlyKeys(sectionHeadings, ["summary", "decisions", "actions"]) &&
+        Object.values(sectionHeadings).every((text) => typeof text === "string")))
+  );
+}
+
+function reservedRegex(source: string | string[]): RegExp | RegExp[] {
+  try {
+    return Array.isArray(source)
+      ? source.map((each) => new RegExp(each, "i"))
+      : new RegExp(source, "i");
+  } catch {
+    throw new Error("Invalid regex source in reserved meeting fixture.");
+  }
+}
+
+async function loadReservedCalls(
+  picked: readonly string[] | undefined,
+  read: () => Promise<string> = () =>
+    readFile(
+      new URL("fill-reserved.json", new URL("../fixtures/meetings/", import.meta.url)),
+      "utf8",
+    ),
+): Promise<Call[]> {
+  const selected = picked?.filter((id) => id.startsWith("reserved-")) ?? [];
+  if (selected.length === 0) return [];
+  const input: unknown = JSON.parse(await read());
+  if (!isArray(input) || !input.every(isReservedCall)) {
+    throw new Error("Invalid reserved meeting fixture.");
+  }
+  const ids = new Set(input.map((call) => call.id));
+  if (ids.size !== input.length || selected.some((id) => !ids.has(id))) {
+    throw new Error("Reserved meeting fixture has duplicate or missing selected ids.");
+  }
+  return input
+    .filter((call) => selected.includes(call.id))
+    .map((call) => ({
+      ...call,
+      facts: call.facts.map(({ pattern, subject, ...fact }) => ({
+        ...fact,
+        pattern: reservedRegex(pattern),
+        ...(subject !== undefined && { subject: reservedRegex(subject) }),
+      })),
+    }));
+}
 
 interface Usage {
   /** Each request's reply: its text, how much it reasoned, and the Tools it called. */
@@ -1395,6 +1700,34 @@ function unitsOf(doc: ProseMirrorNode): Unit[] {
 const says = (fact: Fact, text: string) =>
   (Array.isArray(fact.pattern) ? fact.pattern : [fact.pattern]).every((each) => each.test(text));
 
+const namesSubject = (fact: Fact, text: string) => {
+  const subject = fact.subject ?? fact.pattern;
+  return (Array.isArray(subject) ? subject : [subject]).every((each) => each.test(text));
+};
+
+const machineAddresses = (text: string) =>
+  [...text.matchAll(/(?<![A-Za-z0-9_])[LH]\d+(?![A-Za-z0-9_])/gi)].length;
+
+function machineAddressLeaks(doc: ProseMirrorNode): number {
+  let count = 0;
+  doc.descendants((node) => {
+    if (!node.isTextblock) return true;
+    let text = "";
+    node.descendants((inside) => {
+      if (inside.isText) {
+        text += inside.marks.some((mark) => mark.type.name === GENERATED_MARK)
+          ? (inside.text ?? "")
+          : " ";
+      }
+      return true;
+    });
+    count += machineAddresses(text);
+    return false;
+  });
+  return count;
+}
+
+// Component-match minima miss partial/anaphoric repeats; an independent raw audit is still required.
 const occurrences = (fact: Fact, text: string) =>
   Math.min(
     ...(Array.isArray(fact.pattern) ? fact.pattern : [fact.pattern]).map(
@@ -1422,11 +1755,140 @@ test("meeting scores count repeated facts inside one paragraph, not just matchin
   expect(occurrences(fact, "The crest is damaged.")).toBe(0);
 });
 
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores disclose the occurrence-min blind spot for anaphoric repeats (%s)",
+  (language) => {
+    const fact: Fact = {
+      name: "crest raise",
+      kind: "decision",
+      pattern: language === "en" ? [/crest/i, /40|forty/i] : [/堤顶/, /40|四十/],
+      subject: language === "en" ? /crest/i : /堤顶/,
+      said: [0],
+    };
+    const repeated =
+      language === "en"
+        ? "Raise the crest by 40 cm. We agree to raise it by 40 cm."
+        : "堤顶加高四十厘米。同意将其加高四十厘米。";
+    expect(occurrences(fact, repeated)).toBe(1);
+    const reference = language === "en" ? "Crest raise — details above." : "堤顶加高，详见上文。";
+    expect(namesSubject(fact, reference)).toBe(true);
+    expect(occurrences(fact, reference)).toBe(0);
+  },
+);
+
+test("meeting scores give every section-gated development fact an explicit subject", () => {
+  for (const call of [...CALLS, ...FINAL_CALLS].filter((call) => call.requireSections)) {
+    for (const fact of call.facts) {
+      expect(fact.subject, `${call.id}: ${fact.name}`).toBeDefined();
+    }
+  }
+});
+
+test("meeting scores fall back to full patterns for older facts without subjects", () => {
+  const fact: Fact = {
+    name: "older fact",
+    kind: "decision",
+    pattern: [/launch/i, /May/i],
+    said: [0],
+  };
+  expect(namesSubject(fact, "Launch in May")).toBe(true);
+  expect(namesSubject(fact, "Launch — see above")).toBe(false);
+});
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores count machine addresses in prose, not ordinary words (%s)",
+  (language) => {
+    const leaked =
+      language === "en"
+        ? "Launch: see L1 and H2. Fee: [L12], (H34), L1+, l3/h4."
+        : "上线见L1和H2。费用：[L12]、（H34）、L1+、l3/h4。";
+    expect(machineAddresses(leaked)).toBe(7);
+    expect(
+      machineAddresses(
+        language === "en"
+          ? "Launch details above. XL1, H2O, LH2, L12plan, x_H2, 40 cm."
+          : "上线详情见上文。XL1、H2O、LH2、L12plan、x_H2、四十厘米。",
+      ),
+    ).toBe(0);
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores count addresses only in generated rendered text, including headings and lists (%s)",
+  (language) => {
+    const generated = (text: string, bold = false): JSONContent => ({
+      type: "text",
+      text,
+      marks: [{ type: GENERATED_MARK }, ...(bold ? [{ type: "bold" }] : [])],
+    });
+    const doc = getSchema(noteExtensions()).nodeFromJSON({
+      type: "doc",
+      content: [
+        note("L99 H99"),
+        heading(2, "H88"),
+        {
+          type: "heading",
+          attrs: { level: 2 },
+          content: [generated(language === "en" ? "See H2" : "见H2")],
+        },
+        {
+          type: "paragraph",
+          content: [
+            generated(language === "en" ? "See L" : "见L"),
+            generated("12", true),
+            { type: CITATION_NODE, attrs: { quote: "L77 H77", check: "found" } },
+          ],
+        },
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [{ type: "paragraph", content: [generated("H3")] }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(machineAddressLeaks(doc)).toBe(3);
+  },
+);
+
+test("meeting scores' development calls contain no spoken machine addresses", () => {
+  for (const call of [...CALLS, ...FINAL_CALLS]) {
+    expect(machineAddresses(call.turns.map((turn) => turn.text).join("\n")), call.id).toBe(0);
+  }
+});
+
 const plain = (text: string) =>
   text
     .replace(/\[[^\]]*\]/g, "")
     .toLowerCase()
     .replace(/[\p{P}\p{S}\s]+/gu, "");
+
+function hasGeneratedOverview(summary: readonly Unit[], replies: readonly string[]): boolean {
+  const overviewText = (text: string) => {
+    const normalized = plain(text.replace(/\[\^\d+\]/g, ""));
+    return /[\p{L}\p{N}]/u.test(normalized) ? normalized : null;
+  };
+  const overviews = replies.flatMap((reply) =>
+    reply.split(/^### /m).flatMap((part) => {
+      const [marker, ...lines] = part.split("\n");
+      if (!/^(?:SUMMARY(?: H\d+)?|H\d+ SUMMARY)$/i.test(marker?.trim() ?? "")) return [];
+      const first = lines.find((line) => line.trim() !== "");
+      const text = first === undefined ? null : overviewText(first);
+      return text === null ? [] : [text];
+    }),
+  );
+  return summary.some((unit) => {
+    const text = overviewText(unit.text);
+    return (
+      text !== null &&
+      overviews.includes(text) &&
+      unit.citations.some((citation) => citation.check === "found")
+    );
+  });
+}
 
 const SPEAKERS = { me: ["me", "我"], them: ["them", "对方"] } as const;
 
@@ -1461,6 +1923,322 @@ function citesRightly(unit: Unit, fact: Fact, call: Call, cues: readonly Cue[]):
     });
   });
 }
+
+function actionSectionCounts(
+  units: readonly Unit[],
+  title: string,
+  call: Call,
+  cues: readonly Cue[],
+): { actionsSection: number; actionsInSection: number } {
+  const actions = units.filter((unit) => unit.ai && unit.section === title);
+  return {
+    actionsSection: actions.length,
+    actionsInSection: call.facts.filter(
+      (fact) =>
+        fact.kind === "action" &&
+        actions.some(
+          (unit) =>
+            plain(unit.text) !== "" &&
+            (fact.subject === undefined || namesSubject(fact, unit.text)) &&
+            citesRightly(unit, fact, call, cues),
+        ),
+    ).length,
+  };
+}
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores require every action's cited task reference even when full facts are in place (%s)",
+  (language) => {
+    const call: Call = {
+      id: "actions-section-scorer-only",
+      language,
+      requireSections: true,
+      notes: [],
+      turns:
+        language === "en"
+          ? [
+              me("Arun will send the budget on Friday."),
+              them("I will book the survey boat on Monday."),
+              me("Cora will get the cost estimate on Tuesday."),
+            ]
+          : [me("阿伦周五发预算。"), them("我周一订勘测船。"), me("小柯周二拿到成本估算。")],
+      facts: [
+        {
+          name: "budget",
+          kind: "action",
+          pattern: language === "en" ? [/budget/i, /Arun/i, /Friday/i] : [/预算/, /阿伦/, /周五/],
+          subject: /budget|预算/i,
+          said: [0],
+        },
+        {
+          name: "survey boat",
+          kind: "action",
+          pattern:
+            language === "en" ? [/survey boat/i, /\bI\b/, /Monday/i] : [/勘测船/, /我/, /周一/],
+          subject: language === "en" ? [/survey/i, /boat/i] : /勘测船/,
+          said: [1],
+        },
+        {
+          name: "cost estimate",
+          kind: "action",
+          pattern:
+            language === "en" ? [/estimate/i, /Cora/i, /Tuesday/i] : [/估算/, /小柯/, /周二/],
+          subject: /estimate|估算/i,
+          said: [2],
+        },
+      ],
+    };
+    const title = language === "en" ? "Next steps" : "下一步";
+    const texts =
+      language === "en"
+        ? ["Budget — details above.", "Survey boat — see above.", "Cost estimate — details above."]
+        : ["预算，详见上文。", "勘测船，见上文。", "成本估算，详见上文。"];
+    const cues: Cue[] = call.turns.map((turn, index) => ({
+      startMs: index * 1_000,
+      endMs: (index + 1) * 1_000,
+      text: turn.text,
+      speaker: turn.side === "me" ? "Me" : "Them",
+    }));
+    const inPlace: Unit[] = cues.map((cue) => ({
+      text: cue.text,
+      ai: true,
+      section: null,
+      afterLine: "typed task",
+      citations: [
+        {
+          quote: cue.text,
+          from: cue.startMs,
+          to: cue.endMs,
+          speaker: cue.speaker ?? null,
+          check: "found",
+        },
+      ],
+    }));
+    const references = inPlace.map((unit, index) => ({
+      ...unit,
+      text: texts[index] ?? "",
+      section: title,
+      afterLine: null,
+    }));
+    for (const [index, fact] of call.facts.entries()) {
+      const full = inPlace[index];
+      const reference = references[index];
+      if (!full || !reference) throw new Error("The synthetic action's units are missing.");
+      expect(says(fact, full.text)).toBe(true);
+      expect(citesRightly(full, fact, call, cues)).toBe(true);
+      expect(namesSubject(fact, reference.text)).toBe(true);
+      expect(says(fact, reference.text)).toBe(false);
+      expect(occurrences(fact, reference.text)).toBe(0);
+    }
+    const counts = (extra: Unit[]) =>
+      actionSectionCounts([...inPlace, ...extra], title, call, cues);
+    expect(counts([])).toEqual({ actionsSection: 0, actionsInSection: 0 });
+    expect(counts(references.slice(0, 1))).toEqual({ actionsSection: 1, actionsInSection: 1 });
+    expect(
+      counts(references.map((unit) => ({ ...unit, citations: inPlace[0]?.citations ?? [] }))),
+    ).toEqual({ actionsSection: 3, actionsInSection: 1 });
+    expect(counts(references)).toEqual({ actionsSection: 3, actionsInSection: 3 });
+    expect(
+      counts(references.map((unit, index) => ({ ...unit, text: texts[(index + 1) % 3] ?? "" }))),
+    ).toEqual({ actionsSection: 3, actionsInSection: 0 });
+    expect(counts(references.map((unit) => ({ ...unit, ai: false })))).toEqual({
+      actionsSection: 0,
+      actionsInSection: 0,
+    });
+    expect(counts(references.map((unit) => ({ ...unit, section: "other section" })))).toEqual({
+      actionsSection: 0,
+      actionsInSection: 0,
+    });
+    const noActions = { ...call, facts: [] };
+    expect(actionSectionCounts([], title, noActions, cues)).toEqual({
+      actionsSection: 0,
+      actionsInSection: 0,
+    });
+    expect(actionSectionCounts(references, title, noActions, cues)).toEqual({
+      actionsSection: 3,
+      actionsInSection: 0,
+    });
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores allow nonempty cited action references without optional subjects, pending raw-topic audit (%s)",
+  (language) => {
+    const fact: Fact = {
+      name: "budget",
+      kind: "action",
+      pattern: language === "en" ? [/budget/i, /Arun/i, /Friday/i] : [/预算/, /阿伦/, /周五/],
+      said: [0],
+    };
+    const text = language === "en" ? "Arun will send the budget on Friday." : "阿伦周五发预算。";
+    const call: Call = {
+      id: "optional-action-subject-scorer-only",
+      language,
+      requireSections: true,
+      notes: [],
+      turns: [me(text)],
+      facts: [fact],
+    };
+    const cues: Cue[] = [{ startMs: 0, endMs: 1_000, text, speaker: "Me" }];
+    const title = language === "en" ? "Actions" : "待办";
+    const unit: Unit = {
+      text: language === "en" ? "Budget — details above." : "预算，详见上文。",
+      ai: true,
+      section: title,
+      afterLine: null,
+      citations: [{ quote: text, from: 0, to: 1_000, speaker: "Me", check: "found" }],
+    };
+    const covered = (candidate: Unit) =>
+      actionSectionCounts([candidate], title, call, cues).actionsInSection;
+    expect(namesSubject(fact, unit.text)).toBe(false);
+    expect(covered(unit)).toBe(1);
+    expect(occurrences(fact, unit.text)).toBe(0);
+    for (const text of ["", " ", "—。!", "[^1]"]) {
+      expect(covered({ ...unit, text })).toBe(0);
+    }
+    expect(covered({ ...unit, citations: [] })).toBe(0);
+    for (const invalid of [
+      { check: "not-found" },
+      { from: 2_000 },
+      { to: 2_000 },
+      { speaker: "Them" },
+      { quote: "unrelated quote" },
+    ]) {
+      expect(
+        covered({
+          ...unit,
+          citations: unit.citations.map((citation) => ({ ...citation, ...invalid })),
+        }),
+      ).toBe(0);
+    }
+    expect(
+      covered({
+        ...unit,
+        text: language === "en" ? "Unrelated task — see above." : "别的任务，见上文。",
+      }),
+    ).toBe(1);
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores require nonempty actual raw overview text with a found citation (%s)",
+  (language) => {
+    const text =
+      language === "en"
+        ? "The call settled staffing and the next steps."
+        : "会议敲定了人手安排和后续工作。";
+    const unit: Unit = {
+      text,
+      ai: true,
+      section: language === "en" ? "Summary" : "摘要",
+      afterLine: null,
+      citations: [{ quote: text, from: 0, to: 1_000, speaker: "Me", check: "found" }],
+    };
+    for (const marker of ["SUMMARY", "SUMMARY H2", "H2 SUMMARY"]) {
+      expect(hasGeneratedOverview([unit], [`### ${marker}\n\n${text} [^1]\n`])).toBe(true);
+    }
+    for (const empty of ["", "[^1]", "[^1] [^2]", "—。! [^1]", "\u200b [^1]"]) {
+      const reply = `### SUMMARY\n${empty}\n`;
+      expect(hasGeneratedOverview([{ ...unit, text: empty }], [reply])).toBe(false);
+      expect(hasGeneratedOverview([{ ...unit, text: "" }], [reply])).toBe(false);
+      expect(hasGeneratedOverview([unit], [reply])).toBe(false);
+    }
+    const reply = `### SUMMARY\n${text} [^1]\n`;
+    expect(hasGeneratedOverview([{ ...unit, text: "" }], [reply])).toBe(false);
+    expect(hasGeneratedOverview([{ ...unit, citations: [] }], [reply])).toBe(false);
+    expect(
+      hasGeneratedOverview(
+        [
+          {
+            ...unit,
+            citations: unit.citations.map((citation) => ({ ...citation, check: "not-found" })),
+          },
+        ],
+        [reply],
+      ),
+    ).toBe(false);
+    const detail = language === "en" ? "Budget details are above." : "预算详情见上文。";
+    expect(hasGeneratedOverview([{ ...unit, text: detail }], [reply])).toBe(false);
+    expect(
+      hasGeneratedOverview([{ ...unit, text: detail }], [`### SUMMARY\n[^1]\n${detail} [^2]\n`]),
+    ).toBe(false);
+    expect(hasGeneratedOverview([unit], [`### ACTIONS\n${text} [^1]\n`])).toBe(false);
+  },
+);
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores require a decision topic as well as its saved cue (%s)",
+  (language) => {
+    const call = FINAL_CALLS.find(
+      (each) => each.id === `in-place-${language === "en" ? "en" : "zh"}-ticket-launch`,
+    );
+    if (!call) throw new Error("The ticket-launch call is missing.");
+    const references =
+      language === "en"
+        ? ["Launch date — details above.", "UK fee — see the agreed detail above."]
+        : ["上线日期，详见上文。", "英国费用，见上文已定内容。"];
+    const cues: Cue[] = call.turns.map((turn, index) => ({
+      startMs: index * 1_000,
+      endMs: (index + 1) * 1_000,
+      text: turn.text,
+      speaker: turn.side === "me" ? "Me" : "Them",
+    }));
+    for (const [index, fact] of call.facts.filter((fact) => fact.kind === "decision").entries()) {
+      const cue = cues[fact.said[0] ?? -1];
+      const reference = references[index];
+      if (!cue || !reference) throw new Error("The decision scorer's cue or topic is missing.");
+      const unit: Unit = {
+        text: reference,
+        ai: true,
+        section: "Decisions",
+        afterLine: null,
+        citations: [
+          {
+            quote: cue.text,
+            from: cue.startMs,
+            to: cue.endMs,
+            speaker: cue.speaker ?? null,
+            check: "found",
+          },
+        ],
+      };
+      const accepted = (candidate: Unit) =>
+        namesSubject(fact, candidate.text) && citesRightly(candidate, fact, call, cues);
+      expect(accepted(unit)).toBe(true);
+      expect(says(fact, reference)).toBe(false);
+      expect(occurrences(fact, reference)).toBe(0);
+      for (const text of [
+        "",
+        " ",
+        language === "en" ? "See above." : "见上文。",
+        language === "en" ? "As agreed, details above." : "已商定，详情见上文。",
+        references[1 - index] ?? "",
+      ]) {
+        const decoy = { ...unit, text };
+        expect(citesRightly(decoy, fact, call, cues)).toBe(true);
+        expect(accepted(decoy), text).toBe(false);
+      }
+      expect(namesSubject(fact, reference)).toBe(true);
+      expect(accepted({ ...unit, citations: [] })).toBe(false);
+      const wrongCue = cues[0];
+      if (!wrongCue) throw new Error("The wrong-cue decoy is missing.");
+      expect(
+        accepted({
+          ...unit,
+          citations: [
+            {
+              quote: wrongCue.text,
+              from: wrongCue.startMs,
+              to: wrongCue.endMs,
+              speaker: wrongCue.speaker ?? null,
+              check: "found",
+            },
+          ],
+        }),
+      ).toBe(false);
+    }
+  },
+);
 
 test.each(["en", "zh-CN"] as const)(
   "meeting scores reject the right words at the wrong cue (%s)",
@@ -1545,6 +2323,205 @@ test.each(["en", "zh-CN"] as const)(
     expect(says(fact, language === "en" ? "£8 per booking" : "每单八英镑")).toBe(false);
   },
 );
+
+function reservedSample(language: "en" | "zh-CN"): ReservedCallInput {
+  return {
+    id: language === "en" ? "reserved-en-scorer-only" : "reserved-zh-scorer-only",
+    language,
+    requireSections: true,
+    openQuestions: false,
+    notes: [
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Summary" }] },
+      { type: "paragraph", content: [{ type: "text", text: "  staffing 人手\nunchanged  " }] },
+    ],
+    turns: [
+      me("Hire students on Saturday. 周六请学生。"),
+      them("I will send the rota. 我发排班表。"),
+    ],
+    facts: [
+      {
+        name: "student staffing",
+        kind: "decision",
+        pattern: ["STUDENT|学生", "Saturday|周六"],
+        subject: language === "en" ? "STUDENT" : ["学生"],
+        said: [0],
+        underLine: "  staffing 人手\nunchanged  ",
+      },
+      { name: "rota", kind: "action", pattern: "ROTA|排班", said: [1] },
+    ],
+    sectionHeadings: { summary: "Summary", decisions: "Settled", actions: "Next steps" },
+  };
+}
+
+test("meeting scores never read reserved fixtures without an explicit reserved selection", async () => {
+  const read = vi.fn(async () => {
+    throw new Error("No fixture should be read.");
+  });
+  for (const picked of [undefined, [], ["sections-en-museum"], ["final-zh-launch", ""]]) {
+    expect(await loadReservedCalls(picked, read)).toEqual([]);
+  }
+  expect(read).not.toHaveBeenCalled();
+});
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores load only selected synthetic reserved calls without changing their raw input (%s)",
+  async (language) => {
+    const sample = reservedSample(language);
+    const raw = [sample, reservedSample(language === "en" ? "zh-CN" : "en")];
+    const before = structuredClone(raw);
+    const read = vi.fn(async () => JSON.stringify(raw));
+    const calls = await loadReservedCalls(["sections-en-museum", sample.id], read);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(raw).toEqual(before);
+    expect(calls).toHaveLength(1);
+    const call = calls[0];
+    const fact = call?.facts[0];
+    const action = call?.facts[1];
+    if (!call || !fact || !action) throw new Error("The synthetic loader result is missing.");
+    expect(call.id).toBe(sample.id);
+    expect(call.language).toBe(language);
+    expect(call.notes).toEqual(sample.notes);
+    expect(call.turns).toEqual(sample.turns);
+    expect(call.sectionHeadings).toEqual(sample.sectionHeadings);
+    expect(call.requireSections).toBe(true);
+    expect(call.openQuestions).toBe(false);
+    expect(call.microphoneOnly).toBeUndefined();
+    expect(fact.said).toEqual([0]);
+    expect(fact.underLine).toBe(sample.facts[0]?.underLine);
+    expect(says(fact, "students on saturday 学生周六")).toBe(true);
+    expect(namesSubject(fact, language === "en" ? "Students — see above" : "学生，见上文")).toBe(
+      true,
+    );
+    expect(says(action, "rota 排班表")).toBe(true);
+    for (const pattern of [fact.pattern, fact.subject, action.pattern].flat()) {
+      if (!pattern) throw new Error("The synthetic regex is missing.");
+      expect(pattern.flags).toBe("i");
+    }
+  },
+);
+
+test.each<{ name: string; invalid: (sample: ReservedCallInput) => unknown }>([
+  { name: "non-array root", invalid: () => ({}) },
+  { name: "non-object call", invalid: () => [null] },
+  { name: "non-string id", invalid: (sample) => [{ ...sample, id: 1 }] },
+  { name: "non-reserved id", invalid: (sample) => [{ ...sample, id: "sections-en-sample" }] },
+  { name: "mismatched language prefix", invalid: (sample) => [{ ...sample, language: "zh-CN" }] },
+  { name: "unsupported language", invalid: (sample) => [{ ...sample, language: "fr" }] },
+  { name: "ungated call", invalid: (sample) => [{ ...sample, requireSections: false }] },
+  { name: "missing openQuestions", invalid: (sample) => [{ ...sample, openQuestions: undefined }] },
+  { name: "non-boolean openQuestions", invalid: (sample) => [{ ...sample, openQuestions: "no" }] },
+  { name: "unexpected microphoneOnly", invalid: (sample) => [{ ...sample, microphoneOnly: true }] },
+  { name: "non-array notes", invalid: (sample) => [{ ...sample, notes: {} }] },
+  {
+    name: "unsupported note type",
+    invalid: (sample) => [{ ...sample, notes: [{ type: "image" }] }],
+  },
+  {
+    name: "wrong heading level",
+    invalid: (sample) => [{ ...sample, notes: [{ ...sample.notes[0], attrs: { level: 3 } }] }],
+  },
+  {
+    name: "non-text content",
+    invalid: (sample) => [
+      { ...sample, notes: [{ type: "paragraph", content: [{ type: "citation" }] }] },
+    ],
+  },
+  {
+    name: "non-string note text",
+    invalid: (sample) => [
+      { ...sample, notes: [{ type: "paragraph", content: [{ type: "text", text: 1 }] }] },
+    ],
+  },
+  { name: "non-array turns", invalid: (sample) => [{ ...sample, turns: {} }] },
+  {
+    name: "unsupported turn side",
+    invalid: (sample) => [{ ...sample, turns: [{ side: "other", text: "x" }] }],
+  },
+  {
+    name: "non-string turn text",
+    invalid: (sample) => [{ ...sample, turns: [{ side: "me", text: 1 }] }],
+  },
+  { name: "non-array facts", invalid: (sample) => [{ ...sample, facts: {} }] },
+  {
+    name: "non-string fact name",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], name: 1 }] }],
+  },
+  {
+    name: "unsupported fact kind",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], kind: "figure" }] }],
+  },
+  {
+    name: "non-string regex",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], pattern: 1 }] }],
+  },
+  {
+    name: "empty regex array",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], pattern: [] }] }],
+  },
+  {
+    name: "empty regex source",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], pattern: "" }] }],
+  },
+  {
+    name: "mixed regex array",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], pattern: ["x", 1] }] }],
+  },
+  {
+    name: "invalid regex source",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], pattern: "[" }] }],
+  },
+  {
+    name: "invalid subject type",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], subject: [1] }] }],
+  },
+  {
+    name: "invalid subject regex",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], subject: ["["] }] }],
+  },
+  {
+    name: "non-string underLine",
+    invalid: (sample) => [{ ...sample, facts: [{ ...sample.facts[0], underLine: 1 }] }],
+  },
+  ...[
+    { name: "non-array cue indices", said: "0" },
+    { name: "missing cue indices", said: [] },
+    { name: "non-integer cue index", said: [0.5] },
+    { name: "negative cue index", said: [-1] },
+    { name: "non-number cue index", said: ["0"] },
+    { name: "out-of-range cue index", said: [2] },
+  ].map(({ name, said }) => ({
+    name,
+    invalid: (sample: ReservedCallInput) => [{ ...sample, facts: [{ ...sample.facts[0], said }] }],
+  })),
+  {
+    name: "non-object section headings",
+    invalid: (sample) => [{ ...sample, sectionHeadings: [] }],
+  },
+  {
+    name: "non-string section heading",
+    invalid: (sample) => [{ ...sample, sectionHeadings: { summary: 1 } }],
+  },
+  {
+    name: "unknown section",
+    invalid: (sample) => [{ ...sample, sectionHeadings: { other: "x" } }],
+  },
+])("meeting scores reject invalid synthetic reserved fixture: $name", async ({ invalid }) => {
+  const sample = reservedSample("en");
+  await expect(
+    loadReservedCalls([sample.id], async () => JSON.stringify(invalid(sample))),
+  ).rejects.toThrow();
+});
+
+test("meeting scores reject duplicate or absent selected reserved ids and malformed JSON", async () => {
+  const sample = reservedSample("en");
+  await expect(
+    loadReservedCalls([sample.id], async () => JSON.stringify([sample, sample])),
+  ).rejects.toThrow("duplicate or missing");
+  await expect(
+    loadReservedCalls(["reserved-en-absent"], async () => JSON.stringify([sample])),
+  ).rejects.toThrow("duplicate or missing");
+  await expect(loadReservedCalls([sample.id], async () => "[")).rejects.toThrow();
+});
 
 async function settled(core: Core, meeting: Meeting): Promise<MeetingFill> {
   return vi.waitFor(
@@ -1694,7 +2671,8 @@ const UNTYPED = CALLS.filter((call) => call.id.startsWith("walk-")).map((call) =
   notes: [],
 }));
 
-const chosen = [...CALLS, ...FINAL_CALLS, ...UNTYPED].filter(
+const reserved = KEY || LOCAL_MODEL ? await loadReservedCalls(PICKED) : [];
+const chosen = [...CALLS, ...FINAL_CALLS, ...UNTYPED, ...reserved].filter(
   (call) => !PICKED || PICKED.includes(call.id),
 );
 
@@ -1712,18 +2690,9 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
         call.sectionHeadings?.[section] ??
         translate(call.language, `meetings.fill.section.${section}`);
       const summary = units.filter((each) => each.ai && each.section === title("summary"));
-      const overviews = usage.replies.flatMap((reply) =>
-        reply.text.split(/^### /m).flatMap((part) => {
-          const [marker, ...lines] = part.split("\n");
-          if (!/^(?:SUMMARY(?: H\d+)?|H\d+ SUMMARY)$/i.test(marker?.trim() ?? "")) return [];
-          const first = lines.find((line) => line.trim() !== "");
-          return first ? [plain(first.replace(/\[\^\d+\]/g, ""))] : [];
-        }),
-      );
-      const overview = summary.some(
-        (unit) =>
-          overviews.includes(plain(unit.text)) &&
-          unit.citations.some((citation) => citation.check === "found"),
+      const overview = hasGeneratedOverview(
+        summary,
+        usage.replies.map((reply) => reply.text),
       );
       const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
       const questions = units.filter(
@@ -1742,11 +2711,15 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
         summary: summary.length,
         overview,
         decisionsSection: decisions.length,
+        ...actionSectionCounts(units, title("actions"), call, cues),
+        machineAddresses: machineAddressLeaks(doc),
         undone,
         decisionsInSection: call.facts.filter(
           (fact) =>
             fact.kind === "decision" &&
-            decisions.some((unit) => citesRightly(unit, fact, call, cues)),
+            decisions.some(
+              (unit) => namesSubject(fact, unit.text) && citesRightly(unit, fact, call, cues),
+            ),
         ).length,
         inPlace: scored.filter((each) => each.fact.underLine && each.inPlace).length,
         questions: questions.length,
@@ -1766,7 +2739,8 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
             `Once and cited rightly: ${once} of ${call.facts.length}. AI parts without a Citation: ${uncited}. Fill: ${fill.state}${fill.problem ? ` (${fill.problem.message})` : ""}.`,
             `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
             `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
-            `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-placement-v3", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
+            `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-v4", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
+            "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including action references without declared subjects.",
             `Transcript cues: ${JSON.stringify(cues)}`,
             "",
             "| Kind | Fact | Times in the note | Cited rightly | In the claims list | In place |",
@@ -1803,6 +2777,7 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
         "Agreed facts fill out their typed lines in place",
       ).toEqual([]);
       if (call.requireSections) {
+        expect(counts.machineAddresses, "No machine L/H addresses in generated prose").toBe(0);
         expect(undone).toBe(true);
         expect(summary.length, "Summary is present").toBeGreaterThan(0);
         expect(
@@ -1814,6 +2789,13 @@ describe.skipIf(!KEY && !LOCAL_MODEL)(
           expected > 0,
         );
         expect(counts.decisionsInSection).toBe(expected);
+        const expectedActions = call.facts.filter((fact) => fact.kind === "action").length;
+        expect(counts.actionsSection > 0, "Actions only when the call has commitments").toBe(
+          expectedActions > 0,
+        );
+        expect(counts.actionsInSection, "Every action has a cited task reference in Actions").toBe(
+          expectedActions,
+        );
         expect(counts.invented).toBe(0);
         if (call.openQuestions !== undefined)
           expect(

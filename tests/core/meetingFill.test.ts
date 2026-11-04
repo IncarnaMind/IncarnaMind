@@ -16,6 +16,7 @@ import type {
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
+import { createFakeChatModel } from "../../src/main/fakeChat";
 import { setMindModel } from "../../src/shared/mindModel";
 import { pendingProposals } from "../../src/shared/proposals";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -327,27 +328,29 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=an addition the model wrote without a Citation is dropped, never written uncited, while its cited ones go in; fails_when=an uncited sentence lands in the notes; no_claim=none beyond protects.
-  test("an addition without a Citation is dropped", async () => {
+  test("an uncited addition stops the fill rather than silently publishing only its siblings", async () => {
     const model = fillingModel(
       "### L1\nThe enterprise price is 45 dollars a seat [^1].\n\n### L2\nDana sends the contract by Friday.\n\n### L3\n- The rollout starts in the second quarter [^1].\n- Everyone agreed.",
       { 1: MY_LINES[0] as string },
     );
     const { core, meeting, client } = await recorded(model, NOTES);
-    const before = shown(client);
-    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
-    await vi.waitFor(() => expect(shown(client).length).toBeGreaterThan(before.length));
-    const added = shown(client).filter((line) => line.includes("«"));
-    expect(added).toEqual([
-      "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
-      "«The rollout starts in the second quarter »\uFFFC«.»",
-    ]);
+    const before = exactly(client);
+    const fill = await settledFill(core, meeting);
+    expect(fill).toMatchObject({ state: "failed", problem: { kind: "model" } });
+    expect(fill.problem?.message).toContain("Citation");
+    expect(exactly(client)).toEqual(before);
     core.close();
   });
 
-  test.each([false, true])(
-    "a Citation at the wrong Transcript time cannot make a valid addition (valid sibling: %s)",
-    async (withValid) => {
+  test.each(
+    (["en", "zh-CN"] as const).flatMap((language) =>
+      [false, true].flatMap((withValid) =>
+        ["L1", "L99"].map((target) => ({ language, withValid, target })),
+      ),
+    ),
+  )(
+    "a failed Transcript Citation stops the fill without silently losing a fact ($language, $target, valid sibling: $withValid)",
+    async ({ language, withValid, target }) => {
       const feedback: string[] = [];
       const model = scriptedModel((call) => {
         if (!isFill(call)) return { text: "OK" };
@@ -356,7 +359,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
           feedback.push(cited.text);
           return {
             text: [
-              "### L1\nThe enterprise price is 45 dollars a seat [^1].",
+              `### ${target}\nThe enterprise price is 45 dollars a seat [^1].`,
               ...(withValid ? ["### L2\nThe rollout starts in the second quarter [^2]."] : []),
             ].join("\n\n"),
           };
@@ -391,27 +394,26 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
           ],
         };
       });
-      const { core, meeting, client } = await recorded(model, [note("price"), note("rollout")]);
+      const { core, meeting, client } = await recorded(
+        model,
+        [note("price"), note("rollout")],
+        async (core) => {
+          await core.updateSettings({ user: { language } });
+        },
+      );
+      const before = exactly(client);
       const fill = await settledFill(core, meeting);
       expect(feedback).toEqual(
         expect.arrayContaining([
           expect.stringContaining("Recorded [^1]"),
-          expect.stringContaining("isn't word for word"),
+          expect.stringContaining("Fix these"),
         ]),
       );
-      if (withValid) {
-        expect(fill).toMatchObject({ state: "filled", problem: null });
-        await vi.waitFor(() =>
-          expect(shown(client)).toEqual([
-            "price",
-            "rollout",
-            "«The rollout starts in the second quarter »\uFFFC«.»",
-          ]),
-        );
-      } else {
-        expect(fill).toMatchObject({ state: "failed", problem: { kind: "model" } });
-        expect(shown(client)).toEqual(["price", "rollout"]);
-      }
+      expect(fill).toMatchObject({ state: "failed", problem: { kind: "model" } });
+      expect(fill.problem?.message).toContain(language === "en" ? "Citation" : "引用");
+      expect(exactly(client)).toEqual(before);
+      const { checkpoints } = await core.listCheckpoints(meeting.mindId);
+      expect(checkpoints.filter((each) => each.reason === "enhance")).toEqual([]);
       core.close();
     },
   );
@@ -617,7 +619,7 @@ const CALLS = [
     },
     // What a model may write again in a section, and what it may say beside it from the same line.
     again: {
-      L1: "Enterprise price: 45 dollars a seat ",
+      L1: "The enterprise price is 45 dollars a seat ",
       L2: "Send the contract by Friday — Dana ",
       beside: "The price holds for two years ",
       kept: false,
@@ -710,13 +712,24 @@ for (const call of CALLS) {
             lines.has("L1") && `### L1\n${written.L1}[^1]${stop}`,
             lines.has("L2") && `### L2\n${written.L2}[^2]${stop}`,
             `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}${again(call.again.L1, 1)}${again(call.again.beside, 1)}`,
-            `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}${again(call.again.L2, 2)}`,
+            `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}${again(written.L2, 2)}`,
             `### QUESTIONS\n- ${written.QUESTIONS}[^5]${stop}`,
             `### SUMMARY\n${written.SUMMARY}[^4]${stop}`,
           ]
             .filter((part) => part !== false)
             .join("\n\n");
-        return atHeading ? text.replace(/^### ACTIONS$/gm, `### ACTIONS ${atHeading}`) : text;
+        const routed = atHeading
+          ? text.replace(/^### ACTIONS$/gm, `### ACTIONS ${atHeading}`)
+          : text;
+        const groups = [...prompt.matchAll(/^(H\d+) \(heading\): /gm)]
+          .map((match) => match[1])
+          .filter(
+            (marker): marker is string =>
+              marker !== undefined && !new RegExp(`\\b${marker}\\b`).test(routed),
+          );
+        return groups.length > 0
+          ? `HEADINGS: ${groups.map((marker) => `${marker}=NONE`).join(" ")}\n\n${routed}`
+          : routed;
       },
       citations,
       plans,
@@ -850,6 +863,59 @@ for (const call of CALLS) {
       ]);
       core.close();
     });
+
+    test("same-reply heading routes place a section whose marker omits the destination", async () => {
+      const { core, meeting, client } = await recorded(
+        fillingModel(`HEADINGS: H1=ACTIONS\n\n### ACTIONS\n- ${written.ACTIONS}[^5]${stop}`, {
+          5: quotes[5],
+        }),
+        [heading(2, call.actionsHeading), note(call.typed[0])],
+        async (core) => {
+          await core.updateSettings({ user: { language: call.language } });
+        },
+        undefined,
+        { lines: { mine: call.mine, theirs: call.theirs } },
+      );
+      const before = exactly(client);
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+      await vi.waitFor(() =>
+        expect(shown(client)).toEqual([call.actionsHeading, call.typed[0], ai(written.ACTIONS)]),
+      );
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      core.close();
+    });
+
+    test.each(["missing", "shared", "conflicting"] as const)(
+      "an invalid %s heading route cannot silently append a duplicate or combine sections",
+      async (kind) => {
+        const reply =
+          kind === "missing"
+            ? `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}`
+            : kind === "shared"
+              ? `### SUMMARY H1\n${written.SUMMARY}[^4]${stop}\n\n### ACTIONS H1\n- ${written.ACTIONS}[^5]${stop}`
+              : `### ACTIONS H1\n- ${written.ACTIONS}[^5]${stop}\n\n### ACTIONS H2\n- ${written.L2}[^2]${stop}`;
+        const { core, meeting, client } = await recorded(
+          fillingModel(reply, { 2: quotes[2], 4: quotes[4], 5: quotes[5] }),
+          [
+            heading(2, call.actionsHeading),
+            ...(kind === "conflicting" ? [heading(2, call.ownHeading)] : []),
+            note(call.typed[0]),
+          ],
+          async (core) => {
+            await core.updateSettings({ user: { language: call.language } });
+          },
+          undefined,
+          { lines: { mine: call.mine, theirs: call.theirs } },
+        );
+        const before = exactly(client);
+        const fill = await settledFill(core, meeting);
+        expect(fill).toMatchObject({ state: "failed", problem: { kind: "model" } });
+        expect(fill.problem?.message).toContain(call.language === "en" ? "heading" : "标题");
+        expect(exactly(client)).toEqual(before);
+        core.close();
+      },
+    );
 
     test(`a paragraph named "${call.actionsHeading}" does not cover the section`, async () => {
       const { core, meeting, client } = await recordedWith([
@@ -1038,6 +1104,7 @@ for (const call of CALLS) {
           {
             reply: () =>
               [
+                "HEADINGS: H1=NONE",
                 `### ${target}\n${written.L1}[^1]${stop}`,
                 `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}\n- ${written.L1}[^1]${stop}`,
               ].join("\n\n"),
@@ -1142,6 +1209,84 @@ for (const call of CALLS) {
       core.close();
     });
 
+    test.each(["opposite owners", "case-sensitive paths"])(
+      "a shared Citation cannot erase distinct actions with %s",
+      async (kind) => {
+        const first =
+          kind === "case-sensitive paths"
+            ? call.language === "en"
+              ? "Send Plan.md on Friday"
+              : "周五发送 Plan.md"
+            : call.language === "en"
+              ? "Alex briefs Bo on Friday"
+              : "Alex 周五向 Bo 说明情况";
+        const second =
+          kind === "case-sensitive paths"
+            ? call.language === "en"
+              ? "Send plan.md on Friday"
+              : "周五发送 plan.md"
+            : call.language === "en"
+              ? "Bo briefs Alex on Friday"
+              : "Bo 周五向 Alex 说明情况";
+        const speech = `${first}${stop} ${second}${stop}`;
+        const { core, meeting, client } = await recorded(
+          fillingModel(
+            `### L1\n${first}[^1]${stop}\n\n### ACTIONS H1\n- ${second}[^1]${stop}\n- ${written.L2}[^2]${stop}`,
+            { 1: speech, 2: quotes[2] },
+          ),
+          [note(call.typed[0]), heading(2, call.actionsHeading)],
+          async (core) => {
+            await core.updateSettings({ user: { language: call.language } });
+          },
+          undefined,
+          { lines: { mine: [speech, call.mine[1], call.mine[2]], theirs: call.theirs } },
+        );
+        const before = exactly(client);
+        expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+        await vi.waitFor(() =>
+          expect(shown(client)).toEqual([
+            call.typed[0],
+            ai(first),
+            call.actionsHeading,
+            ai(second),
+            ai(written.L2),
+          ]),
+        );
+        await core.undoMeetingFill(meeting.id);
+        await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+        core.close();
+      },
+    );
+
+    test.each([false, true])(
+      "an uncited overview cannot disappear behind valid additions (existing Summary heading: %s)",
+      async (withHeading) => {
+        const overview =
+          call.language === "en"
+            ? "An overview of the conversation and its follow-through"
+            : "这次交流的概况和后续安排";
+        const { core, meeting, client } = await recordedWith(
+          [...(withHeading ? [heading(2, titles[0])] : []), note(call.typed[0])],
+          undefined,
+          {
+            reply: () =>
+              [
+                `### SUMMARY${withHeading ? " H1" : ""}\n${overview}${stop}`,
+                `### L1\n${written.L1}[^1]${stop}`,
+                `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}`,
+              ].join("\n\n"),
+            citations: { 1: quotes[1], 5: quotes[5] },
+          },
+        );
+        const before = exactly(client);
+        const fill = await settledFill(core, meeting);
+        expect(fill).toMatchObject({ state: "failed", problem: { kind: "model" } });
+        expect(fill.problem?.message).toContain(call.language === "en" ? "Citation" : "引用");
+        expect(exactly(client)).toEqual(before);
+        core.close();
+      },
+    );
+
     // protects=a Decisions bullet with a date the filled-out lines don't say stays, so the date is in the note and not only in a bullet that says it; fails_when=the bullet goes because most of its words are above; no_claim=a bullet that says only what is above, which the test below covers.
     test("a Decisions bullet with a date the filled-out lines don't say stays", async () => {
       const { core, meeting, client } = await recordedWith([note(call.typed[0])], undefined, {
@@ -1159,28 +1304,78 @@ for (const call of CALLS) {
       core.close();
     });
 
-    // protects=a heading the User typed for Action items is never left empty when the model also writes the same action in Decisions: the action stays under the User's heading; fails_when=the heading stays empty; no_claim=a section the model leaves out, which no fill can fill.
-    test(`a typed "${call.actionsHeading}" heading is never left empty when the same action is in Decisions`, async () => {
-      const { core, meeting, client } = await recordedWith(
-        [note(call.typed[0]), heading(2, call.actionsHeading), note(call.typed[1])],
+    test.each([false, true])(
+      "a section containing only repeated facts cannot succeed (combined paragraph: %s)",
+      async (combined) => {
+        const { core, meeting, client } = await recordedWith(
+          [note(call.typed[0]), heading(2, call.actionsHeading), note(call.typed[1])],
+          undefined,
+          {
+            reply: () =>
+              [
+                ...(combined
+                  ? [`### L1\n${written.L1}[^1]${stop} ${written.L2}[^2]${stop}`]
+                  : [`### L1\n${written.L1}[^1]${stop}`, `### L2\n${written.L2}[^2]${stop}`]),
+                `### ACTIONS\n- ${written.L2}[^2]${stop}`,
+              ].join("\n\n"),
+          },
+        );
+        const before = exactly(client);
+        const fill = await settledFill(core, meeting);
+        expect(fill).toMatchObject({ state: "failed", mode: "notes", problem: { kind: "model" } });
+        expect(fill.problem?.message).toContain(call.language === "en" ? "repeated" : "重复");
+        expect(exactly(client)).toEqual(before);
+        core.close();
+      },
+    );
+
+    test("a cited task-topic reference keeps its section and the complete commitment only once", async () => {
+      const reference =
+        call.language === "en"
+          ? "The contract delivery details are recorded above"
+          : "合同的发送安排见上面的说明";
+      const { core, meeting, client } = await recordedWith(typedLines(), undefined, {
+        reply: () =>
+          [
+            `### L1\n${written.L1}[^1]${stop}`,
+            `### L2\n${written.L2}[^2]${stop}`,
+            `### ACTIONS\n- ${reference}[^2]${stop}`,
+            `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}`,
+            `### SUMMARY\n${written.SUMMARY}[^4]${stop}`,
+          ].join("\n\n"),
+        citations: { 1: quotes[1], 2: quotes[2], 3: quotes[3], 4: quotes[4] },
+      });
+      const before = exactly(client);
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+      await vi.waitFor(() => expect(shown(client)).toContain(ai(reference)));
+      expect(shown(client).filter((line) => line === ai(written.L2))).toHaveLength(1);
+      expect(shown(client)).toContain(`«${titles[2]}»`);
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+      core.close();
+    });
+
+    test("the built smoke model follows the same section and heading contract", async () => {
+      const { core, meeting, client } = await recorded(
+        scriptedModel(() => ({ text: "unused" })),
+        [...typedLines(), heading(2, call.actionsHeading)],
+        async (core) => {
+          await core.updateSettings({ user: { language: call.language } });
+        },
         undefined,
         {
-          reply: () =>
-            [
-              `### L1\n${written.L1}[^1]${stop}`,
-              `### L2\n${written.L2}[^2]${stop}`,
-              `### DECISIONS\n- ${call.sameAction}[^4]${stop}`,
-              `### ACTIONS\n- ${call.sameAction}[^4]${stop}`,
-            ].join("\n\n"),
+          lines: { mine: call.mine, theirs: call.theirs },
+          createChatModel: createFakeChatModel,
         },
       );
-      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
-      await vi.waitFor(() => expect(shown(client)).toContain(ai(call.sameAction)));
-      const lines = shown(client);
-      const under = lines.indexOf(call.typed[1]);
-      expect(lines[under + 1]).toContain(written.L2);
-      expect(lines[under + 2]).toBe(ai(call.sameAction));
-      expect(lines.filter((line) => line === call.actionsHeading)).toHaveLength(1);
+      const before = exactly(client);
+      expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+      await vi.waitFor(() => expect(shown(client)).toContain(`«${titles[0]}»`));
+      expect(shown(client)).toContain(`«${titles[1]}»`);
+      expect(shown(client).filter((line) => line === call.actionsHeading)).toHaveLength(1);
+      expect(shown(client)).not.toContain(`«${titles[2]}»`);
+      await core.undoMeetingFill(meeting.id);
+      await vi.waitFor(() => expect(exactly(client)).toEqual(before));
       core.close();
     });
 

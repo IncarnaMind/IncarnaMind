@@ -5918,8 +5918,13 @@ export const zhCN = {
   "meetings.fill.failed": "未能补全笔记：{reason}",
   "meetings.fill.tryAgain": "重试",
   "meetings.fill.problem.noTranscript": "转写稿里没有内容。",
-  "meetings.fill.problem.model": "模型没有回答。",
+  "meetings.fill.problem.model": "模型未能补全笔记。",
   "meetings.fill.problem.empty": "模型没有找到可补充的内容。",
+  "meetings.fill.problem.citations": "未能在转写稿中找到引用，未添加任何内容。请检查转写稿或重试。",
+  "meetings.fill.problem.uncited": "部分笔记没有引用，未添加任何内容。请重试。",
+  "meetings.fill.problem.headings": "模型未能匹配笔记标题，未添加任何内容。请重试。",
+  "meetings.fill.problem.repeated":
+    "模型重复了已有内容，未能补全各部分笔记。未添加任何内容，请重试。",
   "meetings.fill.problem.stopped": "补全完成前 IncarnaMind 已关闭。",
   "meetings.fill.problem.localMode":
     "已开启“所有内容都留在这台电脑上”，而这篇笔记用的模型不在这台电脑上。",

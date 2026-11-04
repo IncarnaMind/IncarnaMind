@@ -6259,8 +6259,16 @@ export const en = {
   "meetings.fill.failed": "The note wasn’t filled in: {reason}",
   "meetings.fill.tryAgain": "Try again",
   "meetings.fill.problem.noTranscript": "the transcript has no lines.",
-  "meetings.fill.problem.model": "the model didn’t answer.",
+  "meetings.fill.problem.model": "the model couldn’t fill in the notes.",
   "meetings.fill.problem.empty": "the model found nothing to add.",
+  "meetings.fill.problem.citations":
+    "A Citation could not be found in the Transcript. Nothing was added. Check the Transcript or try again.",
+  "meetings.fill.problem.uncited":
+    "Part of the notes had no Citation. Nothing was added. Try again.",
+  "meetings.fill.problem.headings":
+    "The model could not match the note headings. Nothing was added. Try again.",
+  "meetings.fill.problem.repeated":
+    "The model repeated the notes instead of completing their sections. Nothing was added. Try again.",
   "meetings.fill.problem.stopped": "IncarnaMind closed before they were done.",
   "meetings.fill.problem.localMode":
     "“Keep everything on this computer” is on, and this note’s model isn’t on this computer.",
