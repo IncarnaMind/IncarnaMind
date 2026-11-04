@@ -10,6 +10,14 @@
 
 import { generateText } from "ai";
 import { readFigures } from "../../../shared/figures";
+import {
+  differing,
+  FIGURES,
+  figuresIn,
+  isFigure,
+  measuredAsQuoted,
+  namedAsQuoted,
+} from "../../../shared/rewriteWords";
 import type { Citation, ClaimCorrection, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
 import { outputTokens } from "../../providers/outputLimits";
@@ -42,102 +50,6 @@ export function figuresAllQuoted(sentence: string, quote: string): boolean {
     readFigures(sentence, documentFigureContext([{ text: sentence }])).every((figure) =>
       quoted.some((each) => sameNumber(each, figure)),
     )
-  );
-}
-
-/** A word of the old or new words: a number, a Chinese character, a Latin word, or one other character. */
-const TOKENS = /\p{Nd}+(?:[.,]\p{Nd}+)*|\p{Script=Han}|[^\s\p{Nd}\p{Script=Han}\p{P}\p{S}]+|\S/gu;
-const tokensOf = (text: string): string[] => text.normalize("NFKC").match(TOKENS) ?? [];
-
-/** The old and new words' tokens that differ, once those they share at each end are set aside. */
-function differing(from: string, to: string): [string[], string[]] {
-  const old = tokensOf(from);
-  const next = tokensOf(to);
-  let start = 0;
-  while (start < old.length && start < next.length && old[start] === next[start]) start++;
-  let end = 0;
-  while (
-    end < old.length - start &&
-    end < next.length - start &&
-    old[old.length - 1 - end] === next[next.length - 1 - end]
-  )
-    end++;
-  return [old.slice(start, old.length - end), next.slice(start, next.length - end)];
-}
-
-/** What a figure is written with: its numbers, Chinese numerals and dates, a sign of currency or percent. */
-const FIGURE_PART =
-  /^(?:\p{Nd}+(?:[.,]\p{Nd}+)*|[〇零一二两三四五六七八九十百千万亿年月日号$€£¥%‰\-–/:.,])$/u;
-const NUMERAL = /\p{Nd}|[〇零一二两三四五六七八九十百千万亿]/u;
-
-const isFigure = (tokens: readonly string[]): boolean =>
-  tokens.some((token) => NUMERAL.test(token)) && tokens.every((token) => FIGURE_PART.test(token));
-
-const CONNECTORS = new Set(["of", "and", "the", "de", "du", "van", "von", "der", "la", "le"]);
-/** The words in capitals a company's name may end in; any other is a word, such as UNLESS. */
-const COMPANY_SUFFIXES = new Set([
-  "LLC",
-  "LLP",
-  "LP",
-  "PLC",
-  "LTD",
-  "INC",
-  "AG",
-  "SA",
-  "NV",
-  "BV",
-  "GMBH",
-  "KG",
-  "PTE",
-  "PTY",
-  "CO",
-]);
-const CAPITALISED = /^\p{Lu}[\p{L}\p{M}]*$/u;
-const capitalised = (word: string): boolean =>
-  CAPITALISED.test(word) &&
-  (word.length === 1 || word !== word.toUpperCase() || COMPANY_SUFFIXES.has(word));
-
-/** A name of at most 8 capitalised words: "Westmarch Commercial Property Investments Limited". */
-function isName(words: string): boolean {
-  const tokens = tokensOf(words);
-  const first = tokens[0];
-  const last = tokens.findLast((token) => token !== ".");
-  const named = tokens.filter(capitalised).length;
-  return (
-    first !== undefined &&
-    last !== undefined &&
-    capitalised(first) &&
-    capitalised(last) &&
-    named <= 8 &&
-    tokens.every((token) => capitalised(token) || CONNECTORS.has(token) || /^[.&'’-]$/u.test(token))
-  );
-}
-
-/**
- * Surnames that rarely begin another word in an agreement, so two or three characters starting
- * with one are a person's name. A name with any other surname, a compound surname, four or more
- * characters, or a character of the words below is refused: 王芳但须经董事会批准, 董事, 经理, 王总,
- * 王芳等.
- */
-const SURNAMES = new Set([
-  ..."王李张刘陈杨赵黄吴孙胡郭林罗郑梁谢韩冯邓曹彭肖袁潘蒋蔡魏吕沈姚卢崔谭汪廖邹熊邱薛侯郝龚邵",
-]);
-const NEVER_IN_NAMES = new Set([
-  ..."不未非无但须应可得经如若除及和或与的之由向对在于将已会事长理员人方部司公期内外前后上下等总",
-]);
-/** What follows a surname to address someone, in place of their given name: 王先生, 王女士. */
-const TITLES = new Set(["先生", "女士", "小姐", "老师", "律师"]);
-
-function isChineseName(words: string): boolean {
-  const characters = [...words.normalize("NFKC")];
-  const [surname] = characters;
-  return (
-    surname !== undefined &&
-    characters.length >= 2 &&
-    characters.length <= 3 &&
-    SURNAMES.has(surname) &&
-    !TITLES.has(characters.slice(1).join("")) &&
-    characters.every((each) => /^\p{Script=Han}$/u.test(each) && !NEVER_IN_NAMES.has(each))
   );
 }
 
@@ -179,120 +91,11 @@ const ratesIn = (text: string): Set<Rate> =>
     }),
   );
 
-/** One figure: a number with its scale (1.5亿 is one), or a run of Chinese numerals. */
-const FIGURES =
-  /\p{Nd}+(?:[.,]\p{Nd}+)*\s*[万亿千百]?|[〇零一二两三四五六七八九十百千万亿]{2,}|[〇零二两三四五六七八九十百千万亿]/gu;
-
-/** How many figures a quote gives, its list number left out. */
-const figuresIn = (quote: string): number =>
-  quote
-    .normalize("NFKC")
-    .replace(/^\s*\p{Nd}+[.)]\s+/u, "")
-    .match(FIGURES)?.length ?? 0;
-
-/** Where a clause ends: "," ";" or ":" before a space, a sentence's stop, or their Chinese forms. */
-const CLAUSE_MARKS = /[,;:](?=\s)|\.(?=\s|$)|[，；：。！？!?]/gu;
-
-/** The words of `text`'s clause before `at`, and after `end`. */
-function clauseAround(text: string, at: number, end: number): { before: string; after: string } {
-  let start = 0;
-  let stop = text.length;
-  for (const mark of text.matchAll(CLAUSE_MARKS)) {
-    const place = mark.index ?? 0;
-    if (place < at) start = place + mark[0].length;
-    else if (place >= end) {
-      stop = place;
-      break;
-    }
-  }
-  return { before: text.slice(start, at), after: text.slice(end, stop) };
-}
-
-const sameWords = (one: string, other: string): boolean =>
-  tokensOf(one).join(" ") === tokensOf(other).join(" ");
-
-/** Words that say nothing of what a figure is of, so a sentence may put them otherwise than its quote. */
-const FUNCTION_WORDS = new Set(
-  "a an the of is are was were be been by with to for in on at as and or its this that".split(" "),
-);
-const FUNCTION_CHARACTERS = new Set([..."的为是与和"]);
-
-/** A word without the "s" of "pays" or "costs", so "pay" in the quote is the same word. */
-const stem = (word: string): string =>
-  word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
-
-/** The words of `text` that say what a figure is of: Latin words and Chinese characters. */
-function contentWords(text: string): Set<string> {
-  return new Set(
-    tokensOf(text).flatMap((token) => {
-      if (/^\p{Script=Han}$/u.test(token)) return FUNCTION_CHARACTERS.has(token) ? [] : [token];
-      const word = token.toLowerCase();
-      return /^\p{L}{2,}$/u.test(word) && !FUNCTION_WORDS.has(word) ? [stem(word)] : [];
-    }),
-  );
-}
-
-/** Whether every word of `mine` that says what a figure is of is one `quoted` has too. */
-function wordsWithin(mine: string, quoted: string): boolean {
-  const theirs = contentWords(quoted);
-  return [...contentWords(mine)].every((word) => theirs.has(word));
-}
-
-/** Which way a figure goes, or what it is: a rise or a fall, a loss or a profit. */
-const DIRECTIONS: readonly [string, RegExp][] = [
-  [
-    "up",
-    /\b(?:rose|rise[ns]?|rising|increas\w*|grew|grow\w*|gain\w*|up)\b|增长|上升|增加|提高|上涨/iu,
-  ],
-  ["down", /\b(?:fell|fall\w*|decreas\w*|declin\w*|drop\w*|down)\b|下降|减少|降低|下跌|下滑/iu],
-  ["loss", /\bloss\w*|亏损/iu],
-  ["profit", /\bprofit\w*|盈利|利润/iu],
-];
-const directionsIn = (text: string): string[] =>
-  DIRECTIONS.flatMap(([direction, words]) => (words.test(text) ? [direction] : []));
-
-/** The characters a Chinese sentence says a time or a rate with: 年租金, 按月, 每晚. */
-const TIME_CHARACTERS = /[年月周日天晚]/gu;
-
-/** What comes just before a Chinese name: 负责人为李明, 由李明, 王芳和李明. */
-const BEFORE_A_NAME = /(?:^|[为是由与和及给向、，：:])\s*$/u;
-/** The word before an English name; one in capitals after "The" (the Deposit) is a defined term. */
-const BEFORE_AN_ENGLISH_NAME = /\b(?:is|by|to|from|with|of|and|named|between)\s+$/iu;
-
-/**
- * Whether the figure `length` long at `at` in `text` is of what the quote's figure at `quotedAt`
- * is of, `outside` being the rest of the sentence: the quote gives that one figure, so it can't be
- * another thing's; every word before it in its clause is one the quote has before its figure (a
- * bound, a negation, the thing measured); the words after it are the quote's (its unit); and its
- * way and time words are the quote's.
- */
-function measuredAsQuoted(
-  text: string,
-  at: number,
-  length: number,
-  outside: string,
-  quote: string,
-  quotedAt: number,
-): boolean {
-  const mine = clauseAround(text, at, at + length);
-  const quoted = clauseAround(quote, quotedAt, quotedAt + length);
-  const quotedDirections = directionsIn(quote);
-  const quotedTimes = new Set(quote.match(TIME_CHARACTERS));
-  return (
-    figuresIn(quote) === 1 &&
-    wordsWithin(mine.before, quoted.before) &&
-    sameWords(mine.after, quoted.after) &&
-    directionsIn(text).every((direction) => quotedDirections.includes(direction)) &&
-    (outside.match(TIME_CHARACTERS) ?? []).every((each) => quotedTimes.has(each))
-  );
-}
-
 /**
  * Whether the change writes only the value that differs, at `at` in `sentence`: a figure for a
- * figure, of what the quote's figure is of (`measuredAsQuoted`); or a name for a name, after a word
- * that leads to one, with the words before and after it in its clause as the quote has them, which
- * doesn't name the old one. Anything more, such as a condition, a negation or another thing's name,
- * keeps the sentence.
+ * figure from a quote that gives that one figure, so it can't be another thing's, of what the
+ * quote's figure is of (`measuredAsQuoted`); or a name for a name (`namedAsQuoted`). Anything
+ * more, such as a condition, a negation or another thing's name, keeps the sentence.
  */
 function changesOnlyTheValue(
   sentence: string,
@@ -307,20 +110,11 @@ function changesOnlyTheValue(
   const rewritten = sentence.slice(0, at) + to + sentence.slice(at + from.length);
   const outside = sentence.slice(0, at) + sentence.slice(at + from.length);
   if (isFigure(old) && isFigure(next)) {
-    return measuredAsQuoted(rewritten, at, to.length, outside, quote, quotedAt);
+    return (
+      figuresIn(quote) === 1 && measuredAsQuoted(rewritten, at, to.length, outside, quote, quotedAt)
+    );
   }
-  const before = sentence.slice(0, at);
-  const named =
-    (isName(from) && isName(to) && BEFORE_AN_ENGLISH_NAME.test(before)) ||
-    (isChineseName(from) && isChineseName(to) && BEFORE_A_NAME.test(before));
-  const mine = clauseAround(rewritten, at, at + to.length);
-  const quoted = clauseAround(quote, quotedAt, quotedAt + to.length);
-  return (
-    named &&
-    !quote.includes(from) &&
-    sameWords(mine.before, quoted.before) &&
-    sameWords(mine.after, quoted.after)
-  );
+  return namedAsQuoted(sentence, at, from, to, quote, quotedAt);
 }
 
 /**

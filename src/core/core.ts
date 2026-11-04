@@ -5388,11 +5388,14 @@ export function createCore(adapters: CoreAdapters): Core {
           : null;
       const around = parseAround(input.around);
       const documentId = parseDocumentId(input.documentId);
-      if (
-        input.mindId !== undefined &&
-        walledDocument(documentId) !== walledFolder(parseMindId(input.mindId))
-      ) {
-        throw new InvalidInputError({ key: "error.folder.wall" });
+      if (input.mindId !== undefined) {
+        // One in Recently deleted is behind no wall `walledDocument` sees, so none may be cited.
+        if (documents.getMany([documentId]).length === 0) {
+          throw new NotFoundError({ key: "error.document.gone" });
+        }
+        if (walledDocument(documentId) !== walledFolder(parseMindId(input.mindId))) {
+          throw new InvalidInputError({ key: "error.folder.wall" });
+        }
       }
       return citeSelection(documents, {
         documentId,

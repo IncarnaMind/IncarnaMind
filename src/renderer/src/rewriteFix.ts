@@ -11,6 +11,7 @@ import type * as Y from "yjs";
 import type { RewriteFromDocumentsResult } from "../../core/api";
 import { showsPartRows } from "../../shared/claimChecks";
 import { checkedCitation } from "../../shared/claimParts";
+import { mayRewrite } from "../../shared/rewriteWords";
 import { verificationOf } from "../../shared/verification";
 import { checkAgain, setCheckProblem, setRewriting, useChecks } from "./checks";
 import { core } from "./core";
@@ -26,17 +27,20 @@ import { fixesFree, restoreCheck } from "./unsupportedFixes";
 
 /**
  * Whether a sentence's card offers the rewrite: unsupported as it reads now, with no Citation,
- * beside a found Passage its check shows as saying something different, in a Note that verifies
- * no one else's file, whose words it keeps.
+ * beside a found Passage its check shows as saying something different, whose line could give it
+ * a figure or a name by the rules the core holds a rewrite to, in a Note that verifies no one
+ * else's file, whose words it keeps.
  */
 export function offersRewrite(editor: Editor, doc: Y.Doc, claim: ShownClaim): boolean {
   const { check } = claim;
+  const passage = checkedCitation(check.evidence ?? undefined);
   return (
     editor.isEditable &&
     verificationOf(doc) === null &&
     claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
-    checkedCitation(check.evidence ?? undefined) !== null &&
+    passage !== null &&
+    mayRewrite(check.text, passage.quote) &&
     !check.citedCaseUnchecked &&
     !showsPartRows(check) &&
     citationsOf(editor.state, claim).length === 0
