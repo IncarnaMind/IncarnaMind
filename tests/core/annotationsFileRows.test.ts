@@ -316,6 +316,67 @@ test("a file's own note follows the file until the User edits it", async () => {
   db.close();
 });
 
+test("identical words that did not pair do not add missing rows on each version", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1), highlight(quote, 2), highlight(quote, 3)]);
+  // Three words, two marks: no count match, so the new read makes its own rows.
+  read("version-b", [highlight(quote, 1), highlight(quote, 3)]);
+  const twice = store.list(document.id);
+  expect(twice).toHaveLength(5);
+  // Read again: the live rows of the last read pair, and the missing ones stay as they were.
+  read("version-c", [highlight(quote, 1), highlight(quote, 3)]);
+  expect(store.list(document.id)).toHaveLength(5);
+  db.close();
+});
+
+test("two notes on one page keep their own comments when one is dropped", async () => {
+  const { document, store, read, db } = await harness();
+  const note = (said: string): FileAnnotation => ({
+    page: 1,
+    kind: "note",
+    quote: "",
+    note: said,
+    colour: "yellow",
+    author: "Priya Raman",
+  });
+  read("version-a", [note("First"), note("Second")]);
+  const first = store.list(document.id).find((row) => row.note === "First");
+  if (!first) throw new Error("The first note wasn't read.");
+  store.update(first.id, { note: "Mine" });
+
+  read("version-b", [note("Second")]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === first.id)).toMatchObject({
+    note: "Mine",
+    missing: true,
+  });
+  expect(rows.find((row) => row.id !== first.id)).toMatchObject({ note: "Second", missing: false });
+  db.close();
+});
+
+test("a file's colour follows the file until the User recolours", async () => {
+  const { document, store, read, db } = await harness();
+  const coloured = (colour: "yellow" | "pink"): FileAnnotation => ({
+    page: 1,
+    kind: "highlight",
+    quote: "The first line of the note.",
+    note: null,
+    colour,
+    author: "Priya Raman",
+  });
+  read("version-a", [coloured("yellow")]);
+  read("version-b", [coloured("pink")]);
+  expect(store.list(document.id)[0]).toMatchObject({ colour: "pink" });
+
+  const [row] = store.list(document.id);
+  if (!row) throw new Error("The highlight wasn't read.");
+  store.update(row.id, { colour: "green" });
+  read("version-c", [coloured("pink")]);
+  expect(store.list(document.id)[0]).toMatchObject({ colour: "green" });
+  db.close();
+});
+
 test("a deleted file highlight stays deleted when a new version still has its words", async () => {
   const { document, store, read, db } = await harness();
   const row = highlight("The first line of the note.");
