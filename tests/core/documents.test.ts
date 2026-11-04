@@ -91,6 +91,8 @@ describe("Documents", { timeout: 30_000 }, () => {
     const path = await writeSourceFile(sources, "Reading notes.md", ENGLISH_NOTES);
 
     const { documents, skipped } = await core.addDocuments([path]);
+    // Where the file system keeps when the file was made; not every one does.
+    const born = (await stat(path)).birthtimeMs;
 
     expect(skipped).toEqual([]);
     expect(documents).toEqual([
@@ -119,6 +121,8 @@ describe("Documents", { timeout: 30_000 }, () => {
         // Read while it's processed.
         creationDate: null,
         modifiedAt: new Date((await stat(path)).mtimeMs).toISOString(),
+        fileCreatedAt: born > 0 ? new Date(born).toISOString() : null,
+        properties: null,
         title: null,
         web: null,
         reference: null,

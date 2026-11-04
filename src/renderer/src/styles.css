@@ -5784,6 +5784,15 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  /* A file's property says its date or count in full, so its row wraps (#2458). */
+  .claim-property {
+    display: block;
+    width: 100%;
+    text-align: start;
+    white-space: normal;
+    overflow: visible;
+    border-radius: 4px;
+  }
   .claim-part-menu {
     position: absolute;
     top: 8px;
