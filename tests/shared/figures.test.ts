@@ -1641,9 +1641,32 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("百分之十五", 0.15, { unit: "%" }), f("15%", 0.15, { unit: "%" })],
     ],
     [
-      "净亏损人民币三万五千元（¥35,000）",
+      "乙方负责支付人民币六万四千元（¥64,000）",
       ZH,
-      [f("人民币三万五千元", 35000, { unit: "CNY" }), f("¥35,000", 35000, { unit: "CNY" })],
+      [f("人民币六万四千元", 64000, { unit: "CNY" }), f("¥64,000", 64000, { unit: "CNY" })],
+    ],
+    [
+      "The loss was sixty-four thousand dollars ($64,000)",
+      EN,
+      [f("$64,000", 64000, { unit: "USD" })],
+    ],
+    [
+      "本期收入人民币六万四千元（¥64,000）",
+      ZH,
+      [f("人民币六万四千元", 64000, { unit: "CNY" }), f("¥64,000", 64000, { unit: "CNY" })],
+    ],
+    [
+      "尾款为人民币六万四千元整（¥64,000.00）。",
+      ZH,
+      [f("人民币六万四千元", 64000, { unit: "CNY" }), f("¥64,000.00", 64000, { unit: "CNY" })],
+    ],
+    [
+      "人民币6.4万元整（¥64,000）",
+      ZH,
+      [
+        f("人民币6.4万元", 64000, { unit: "CNY", scale: "万" }),
+        f("¥64,000", 64000, { unit: "CNY" }),
+      ],
     ],
     [
       "The Tenant shall pay Seventy-Five Thousand Dollars ($75,000.00) each quarter.",
@@ -1666,6 +1689,52 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("$12,500.50", 12500.5, { unit: "USD" })],
     ],
     ["SIXTY-TWO THOUSAND ONE HUNDRED TEN (62,110)", EN, [f("62,110", 62110)]],
+    [
+      "The balance is sixty-four thousand dollars ($64,000.00).",
+      EN,
+      [f("$64,000.00", 64000, { unit: "USD" })],
+    ],
+    [
+      "The position was Forty-One Thousand Dollars ($41,000.00) at year end.",
+      EN,
+      [f("$41,000.00", 41000, { unit: "USD" })],
+    ],
+    [
+      "The fair value was $3.4 million ($3,400,000).",
+      EN,
+      [
+        f("$3.4 million", 3400000, { unit: "USD", scale: "million" }),
+        f("$3,400,000", 3400000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "3.4 million (3,400,000)",
+      EN,
+      [f("3.4 million", 3400000, { scale: "million" }), f("3,400,000", 3400000)],
+    ],
+    [
+      "not less than sixty-four thousand dollars ($64,000)",
+      EN,
+      [f("$64,000", 64000, { unit: "USD" })],
+    ],
+    ["Total three thousand seven hundred ($3,700.00)", EN, [f("$3,700.00", 3700, { unit: "USD" })]],
+    [
+      "a hundred and sixty thousand dollars ($160,000)",
+      EN,
+      [f("$160,000", 160000, { unit: "USD" })],
+    ],
+    ["a thousand dollars ($1,000)", EN, [f("$1,000", 1000, { unit: "USD" })]],
+    [
+      "Eight Thousand Two Hundred Dollars and 25/100 ($8,200.25)",
+      EN,
+      [f("$8,200.25", 8200.25, { unit: "USD" })],
+    ],
+    ["Seven Thousand, Three Hundred Dollars ($7,300)", EN, [f("$7,300", 7300, { unit: "USD" })]],
+    [
+      "Sixty-Four Thousand Australian Dollars ($64,000)",
+      EN,
+      [f("$64,000", 64000, { unit: "USD" })],
+    ],
     ["Sixty Thousand Dollars (60,000)", EN, [f("60,000", 60000)]],
     ["the sum of Forty-Two Thousand ($42,000)", EN, [f("$42,000", 42000, { unit: "USD" })]],
     [
@@ -1730,6 +1799,11 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("人民币七万五千元", 75000, { unit: "CNY" }), f("（US$75,000）", -75000, { unit: "USD" })],
     ],
     ["Seventy-Five Thousand Pounds ($75,000)", EN, [f("($75,000)", -75000, { unit: "USD" })]],
+    [
+      "人民币六万四千元整（¥46,000.00）",
+      ZH,
+      [f("人民币六万四千元", 64000, { unit: "CNY" }), f("（¥46,000.00）", -46000, { unit: "CNY" })],
+    ],
   ];
   test.each(disagreeing)(
     "%s writes two amounts, and the bracket is not the words' amount",
@@ -1767,6 +1841,147 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("人民币7.5万元", 75000, { unit: "CNY", scale: "万" }), f("（75,000）", -75000)],
     ],
     ["负1,234", ZH, [f("负1,234", -1234)]],
+    [
+      "利润为负 三万五千元（¥35,000）",
+      ZH,
+      [f("负 三万五千元", -35000, { unit: "CNY" }), f("（¥35,000）", -35000, { unit: "CNY" })],
+    ],
+    [
+      "净亏损人民币三万五千元（¥35,000）",
+      ZH,
+      [f("人民币三万五千元", 35000, { unit: "CNY" }), f("（¥35,000）", -35000, { unit: "CNY" })],
+    ],
+    [
+      "本期亏损人民币六万四千元（¥64,000）",
+      ZH,
+      [f("人民币六万四千元", 64000, { unit: "CNY" }), f("（¥64,000）", -64000, { unit: "CNY" })],
+    ],
+    [
+      "收入减少人民币6.4万元（¥64,000）",
+      ZH,
+      [
+        f("人民币6.4万元", 64000, { unit: "CNY", scale: "万" }),
+        f("（¥64,000）", -64000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "本期亏损为人民币六万四千元（¥64,000）",
+      ZH,
+      [f("人民币六万四千元", 64000, { unit: "CNY" }), f("（¥64,000）", -64000, { unit: "CNY" })],
+    ],
+    [
+      "收入减少了人民币6.4万元（¥64,000）",
+      ZH,
+      [
+        f("人民币6.4万元", 64000, { unit: "CNY", scale: "万" }),
+        f("（¥64,000）", -64000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "本年赤字人民币六万四千元（¥64,000）",
+      ZH,
+      [f("人民币六万四千元", 64000, { unit: "CNY" }), f("（¥64,000）", -64000, { unit: "CNY" })],
+    ],
+    [
+      "利润下降人民币6.4万元（¥64,000）",
+      ZH,
+      [
+        f("人民币6.4万元", 64000, { unit: "CNY", scale: "万" }),
+        f("（¥64,000）", -64000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "本期损失人民币六万四千元（¥64,000）",
+      ZH,
+      [f("人民币六万四千元", 64000, { unit: "CNY" }), f("（¥64,000）", -64000, { unit: "CNY" })],
+    ],
+    [
+      "The balance is minus sixty-four thousand dollars ($64,000.00).",
+      EN,
+      [f("($64,000.00)", -64000, { unit: "USD" })],
+    ],
+    [
+      "a loss of sixty-four thousand dollars ($64,000)",
+      EN,
+      [f("($64,000)", -64000, { unit: "USD" })],
+    ],
+    [
+      "Revenue decreased by sixty-four thousand dollars ($64,000)",
+      EN,
+      [f("($64,000)", -64000, { unit: "USD" })],
+    ],
+    [
+      "The position was negative Forty-One Thousand Dollars ($41,000.00) at year end.",
+      EN,
+      [f("($41,000.00)", -41000, { unit: "USD" })],
+    ],
+    [
+      "The fair value was negative $3.4 million ($3,400,000).",
+      EN,
+      [
+        f("$3.4 million", 3400000, { unit: "USD", scale: "million" }),
+        f("($3,400,000)", -3400000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "minus 3.4 million (3,400,000)",
+      EN,
+      [f("3.4 million", 3400000, { scale: "million" }), f("(3,400,000)", -3400000)],
+    ],
+    [
+      "(negative) sixty-four thousand dollars ($64,000)",
+      EN,
+      [f("($64,000)", -64000, { unit: "USD" })],
+    ],
+    ["−sixty-four thousand dollars ($64,000)", EN, [f("($64,000)", -64000, { unit: "USD" })]],
+    ["less sixty-four thousand dollars ($64,000)", EN, [f("($64,000)", -64000, { unit: "USD" })]],
+    [
+      "a deficit of sixty-four thousand dollars ($64,000)",
+      EN,
+      [f("($64,000)", -64000, { unit: "USD" })],
+    ],
+    [
+      "Total three thousand\tseven hundred ($3,700.00)",
+      EN,
+      [f("($3,700.00)", -3700, { unit: "USD" })],
+    ],
+    [
+      "Total three thousand | seven hundred ($3,700.00)",
+      EN,
+      [f("($3,700.00)", -3700, { unit: "USD" })],
+    ],
+    [
+      "Figures in brackets are negative amounts.\nNet cash £2.7m (£2,700,000)",
+      EN,
+      [
+        f("£2.7m", 2700000, { unit: "GBP", scale: "m" }),
+        f("(£2,700,000)", -2700000, { unit: "GBP" }),
+      ],
+    ],
+    [
+      "括号内数字为负数。\n本期净额人民币2.7万元（¥27,000）",
+      ZH,
+      [
+        f("人民币2.7万元", 27000, { unit: "CNY", scale: "万" }),
+        f("（¥27,000）", -27000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "Negative amounts are shown in parentheses.\nNet cash £2.7m (£2,700,000)",
+      EN,
+      [
+        f("£2.7m", 2700000, { unit: "GBP", scale: "m" }),
+        f("(£2,700,000)", -2700000, { unit: "GBP" }),
+      ],
+    ],
+    [
+      "负数以括号表示。\n本期净额人民币2.7万元（¥27,000）",
+      ZH,
+      [
+        f("人民币2.7万元", 27000, { unit: "CNY", scale: "万" }),
+        f("（¥27,000）", -27000, { unit: "CNY" }),
+      ],
+    ],
     [
       "利润为负三万五千元（¥35,000）",
       ZH,
@@ -1815,4 +2030,17 @@ describe("a bracket right after an amount (#2341)", () => {
       expect(readFigures(text, context).map(shape)).toEqual(figures);
     },
   );
+
+  test("a note elsewhere in the Document that brackets are negative keeps the minus", () => {
+    const line = "Net cash £2.7m (£2,700,000)";
+    const note = "Amounts in brackets are negative.";
+    expect(readFigures(line, figureContextOf(`${note}\n${line}`, "en")).map(shape)).toEqual([
+      f("£2.7m", 2700000, { unit: "GBP", scale: "m" }),
+      f("(£2,700,000)", -2700000, { unit: "GBP" }),
+    ]);
+    expect(readFigures(line, figureContextOf(line, "en")).map(shape)).toEqual([
+      f("£2.7m", 2700000, { unit: "GBP", scale: "m" }),
+      f("£2,700,000", 2700000, { unit: "GBP" }),
+    ]);
+  });
 });

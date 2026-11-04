@@ -2080,6 +2080,124 @@ test.each([
   },
 );
 
+// protects=#2341; fails_when=a sign the words give the amount ("minus", "亏损") or a cell break
+// before the bracket is passed over, so the bracket loses its minus and backs a sentence that drops
+// the sign; or a Document that says brackets are negative has its bracket read as a plain amount.
+test.each([
+  {
+    name: "a sign in words before the amount",
+    claim: "The balance is -$64,000.",
+    figure: "-$64,000",
+    language: "en",
+    body: "The balance is minus sixty-four thousand dollars ($64,000.00).",
+    number: "$64,000.00",
+    supported: true,
+  },
+  {
+    name: "the same sentence without its sign",
+    claim: "The balance is $64,000.",
+    figure: "$64,000",
+    language: "en",
+    body: "The balance is minus sixty-four thousand dollars ($64,000.00).",
+    number: "$64,000.00",
+    supported: false,
+  },
+  {
+    name: "the same amount with no sign",
+    claim: "The balance is $64,000.",
+    figure: "$64,000",
+    language: "en",
+    body: "The balance is sixty-four thousand dollars ($64,000.00).",
+    number: "$64,000.00",
+    supported: true,
+  },
+  {
+    name: "a loss given in Chinese words",
+    claim: "本期为¥64,000。",
+    figure: "¥64,000",
+    language: "zh-CN",
+    body: "本期亏损人民币六万四千元（¥64,000）。",
+    number: "64,000",
+    supported: false,
+  },
+  {
+    name: "words cut by a tab",
+    claim: "The total is $3,700.",
+    figure: "$3,700",
+    language: "en",
+    body: "Total three thousand\tseven hundred ($3,700.00)",
+    number: "$3,700.00",
+    supported: false,
+  },
+  {
+    name: "the same words with no tab",
+    claim: "The total is $3,700.",
+    figure: "$3,700",
+    language: "en",
+    body: "Total three thousand seven hundred dollars ($3,700.00)",
+    number: "$3,700.00",
+    supported: true,
+  },
+  {
+    name: "整 after Chinese numerals",
+    claim: "尾款为¥64,000。",
+    figure: "¥64,000",
+    language: "zh-CN",
+    body: "尾款为人民币六万四千元整（¥64,000.00）。",
+    number: "64,000.00",
+    supported: true,
+  },
+  {
+    name: "a Document that says brackets are negative",
+    claim: "Net cash was £2,700,000.",
+    figure: "£2,700,000",
+    language: "en",
+    body: "Amounts in brackets are negative.\nNet cash was £2.7m (£2,700,000).",
+    number: "£2,700,000",
+    supported: false,
+  },
+  {
+    name: "a note on another line that brackets are negative",
+    claim: "Net cash was £2,700,000.",
+    figure: "£2,700,000",
+    language: "en",
+    body: "Amounts in brackets are negative.\nNet cash was £2.7m (£2,700,000).",
+    quotes: ["Net cash was £2.7m (£2,700,000)."],
+    number: "£2,700,000",
+    supported: false,
+  },
+  {
+    name: "English words with an article",
+    claim: "The deposit is $160,000.",
+    figure: "$160,000",
+    language: "en",
+    body: "The Tenant shall pay a hundred and sixty thousand dollars ($160,000.00) on signing.",
+    number: "$160,000.00",
+    supported: true,
+  },
+] as const)("$name: Supported is $supported (#2341)", async (each) => {
+  const { result } = await checkWith({
+    claim: each.claim,
+    figures: [target("f1", each.figure, each.claim, each.language)],
+    body: each.body,
+    quotes: "quotes" in each ? each.quotes : undefined,
+    text: reply([
+      {
+        ...item(),
+        source: { citation: 1, number: each.number, reading: null, unitQuote: null },
+      },
+    ]),
+  });
+
+  if (each.supported) {
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.verdict).toBe("supported");
+  } else {
+    expect(result.figures?.[0]?.result.verdict).not.toBe("supported");
+    expect(result.verdict).not.toBe("supported");
+  }
+});
+
 // The figure the Check reads its number from is backed only when every formula behind it was
 // worked out here and gave the value Excel saved (#2347).
 describe.each(["en", "zh-CN"] as const)(
