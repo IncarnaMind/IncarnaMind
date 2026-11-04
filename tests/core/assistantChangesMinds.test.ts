@@ -1961,14 +1961,15 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
         "Parking is 100 a month. The space is in the north garage.",
         "Water is 30 a month.",
       ],
-      reply: "Rent is 1,250 a month.\n\n<removed>The space is in the north garage.</removed>",
+      reply:
+        "Rent is 1,250 a month, due on the first.\n\n<removed>The space is in the north garage.</removed>",
       gone: "The space is in the north garage.",
       rest: "Parking is 100 a month.",
     },
     {
       asked: "房租改成1250元，删掉车位那句。",
       lines: ["房租每月1200元。", "停车每月100元。车位在北区车库。", "水费每月30元。"],
-      reply: "房租每月1250元。\n\n<removed>车位在北区车库。</removed>",
+      reply: "房租每月1250元，月初交。\n\n<removed>车位在北区车库。</removed>",
       gone: "车位在北区车库。",
       rest: "停车每月100元。",
     },

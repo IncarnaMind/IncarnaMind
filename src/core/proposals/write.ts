@@ -2111,10 +2111,27 @@ const TELLING_WORDS = 4;
 const HALF_ITS_OWN = 0.5;
 
 /**
- * A word with a digit or a Chinese numeral, an amount, a date or a time: it says how much, not
- * what a line is about. A pair of Chinese characters with a numeral in it is one ("月三", "十元").
+ * A word with a digit or a Chinese numeral, or a number written out: an amount, a date, a time
+ * or a number that names a line ("Room 102"). It says how much or which, not what a line is
+ * about. A pair of Chinese characters with a numeral in it is one ("月三", "十元").
  */
-const AMOUNT = /[\d零〇一二三四五六七八九十百千万亿两]/u;
+const isAmount = (word: string) =>
+  /[\d零〇一二三四五六七八九十百千万亿两]/u.test(word) ||
+  /^(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)(?:-[a-z]+)?$/.test(
+    word,
+  );
+
+/**
+ * Whether a new paragraph says the same words as `segment` but other numbers: "Room 103 is
+ * booked." for "Room 102 is booked.", "2026 revenue…" for "2025 revenue…". Whether it rewrites
+ * that line or is a new one beside it can't be told, so a reply without names adds it (#2356).
+ */
+function onlyNumbersDiffer(segment: Segment, paragraph: NewParagraph): boolean {
+  const old = wordsOf(segment.tokens);
+  const now = wordsOf(paragraph.tokens);
+  const rest = (words: readonly string[]) => words.filter((word) => !isAmount(word)).join("\n");
+  return old.join("\n") !== now.join("\n") && rest(old) === rest(now);
+}
 
 /** A paragraph's words and signs as compared with a quote: no spaces, any case, each character where it is in its Block. */
 function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
@@ -2427,9 +2444,9 @@ export function createRewriteStream(
     const known = nearness.get(paragraph);
     if (known) return known;
     const words = wordsOf(paragraph.tokens);
-    const telling = new Set(words.filter((word) => !AMOUNT.test(word)));
+    const telling = new Set(words.filter((word) => !isAmount(word)));
     const ownSaid = segments.map((segment) => {
-      const own = [...(ownWords.get(segment) ?? [])].filter((word) => !AMOUNT.test(word));
+      const own = [...(ownWords.get(segment) ?? [])].filter((word) => !isAmount(word));
       return { said: own.filter((word) => telling.has(word)).length, of: own.length };
     });
     const found = {
@@ -2468,6 +2485,7 @@ export function createRewriteStream(
       ownWords: saysOwn = true,
     }: { standIn?: boolean; least?: number; ownWords?: boolean } = {},
   ) => {
+    if (saysOwn && onlyNumbersDiffer(segment, paragraph)) return false;
     const { alike, own, ownShare, ofOwn, cover, words } = nearnessOf(paragraph);
     const index = indexOf.get(segment) ?? -1;
     const mine = alike[index] ?? 0;
@@ -2600,6 +2618,11 @@ export function createRewriteStream(
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
     if (!segment || droppedTypedTag) return;
+    // By its place too, a new line that differs from this one only in its numbers is added.
+    if (keeps && onlyNumbersDiffer(segment, paragraph)) {
+      addNew(paragraph);
+      return;
+    }
     if (dropsTypedTag(segment, paragraph)) {
       droppedTypedTag = true;
       return;
@@ -2700,10 +2723,11 @@ export function createRewriteStream(
     // of another kind takes a paragraph's place by its place only in a text that rewrites every
     // paragraph: a heading or a table between two kept ones is new text.
     const takesPlace = (segment: Segment, paragraph: NewParagraph) =>
-      (byTheirPlace &&
+      !onlyNumbersDiffer(segment, paragraph) &&
+      ((byTheirPlace &&
         paragraph.kind === segment.kind &&
         between.indexOf(segment) === held.indexOf(paragraph)) ||
-      (!paragraph.table && readsAs(segment, paragraph, { standIn: true }));
+        (!paragraph.table && readsAs(segment, paragraph, { standIn: true })));
     const byPlace = !keeps || rewritesAll;
     const standsIn = replacedIn(between, held, paired, byPlace ? null : takesPlace);
     const rewritten = new Set([
@@ -2918,7 +2942,8 @@ export function createRewriteStream(
         (paragraph) =>
           (paragraph.kind === null || paragraph.kind === segment.kind) &&
           placeLikeness(segment, paragraph) >= MOVED_LIKENESS &&
-          covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL,
+          covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL &&
+          !onlyNumbersDiffer(segment, paragraph),
       );
       if (again < 0) continue;
       const [movedTo] = said.splice(again, 1);

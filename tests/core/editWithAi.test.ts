@@ -4224,7 +4224,7 @@ describe("An edit never loses the User's words (#2333)", () => {
     English: {
       lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
       added: "Internet is 40 a month.",
-      changed: "Parking is 120 a month.",
+      changed: "Parking is 120 a month, in the north garage.",
       translated: [
         "Le loyer est de 1 200 par mois.",
         "Le parking coûte 100 par mois.",
@@ -4234,7 +4234,7 @@ describe("An edit never loses the User's words (#2333)", () => {
     Chinese: {
       lines: ["房租每月1200元。", "停车每月100元。", "物业每月30元。"],
       added: "网络每月40元。",
-      changed: "停车每月120元。",
+      changed: "停车每月120元，车位在北区。",
       translated: [
         "Rent is 1,200 yuan a month.",
         "Parking is 100 yuan a month.",
@@ -5984,9 +5984,9 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       after: ["Rent is 1,250 a month.", "Water is 30 a month."],
     },
     {
-      reply: "Rent is 1,250 a month.\n\n¶2 Water is 30 a month.",
+      reply: "Rent is 1,250 a month, due on the first.\n\n¶2 Water is 30 a month.",
       result: { kind: "proposed" },
-      after: ["Rent is 1,250 a month.", "Water is 30 a month."],
+      after: ["Rent is 1,250 a month, due on the first.", "Water is 30 a month."],
     },
     {
       reply: "修改如下：\n\n¶1 房租每月1250元。",
