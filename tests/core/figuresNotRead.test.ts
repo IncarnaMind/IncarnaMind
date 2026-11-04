@@ -2,7 +2,7 @@
  * A text the figure reader gives up on is never read as one that holds no figures (#2510): the
  * sentence is not checked, and its card says in plain words where the figures couldn't be read.
  * No text makes the reader give up since it reads in one pass, so these tests make it give up on
- * any text that holds the word GARBLED, as it did on a garbled table before.
+ * any text that holds the word GARBLED, or starts with SCRAMBLED, as it did on a garbled table.
  */
 import { expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
@@ -17,14 +17,14 @@ import type { PreparedChatModel } from "../../src/core/providers/chat";
 import { reasonText } from "../../src/renderer/src/cost";
 import { readFigures } from "../../src/shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
-import { scriptedModel } from "../helpers/models";
+import { type ModelCall, scriptedModel } from "../helpers/models";
 
 vi.mock(import("../../src/shared/figures"), async (importOriginal) => {
   const reader = await importOriginal();
   return {
     ...reader,
     readFigures: (text, context) => {
-      if (text.includes("GARBLED"))
+      if (text.includes("GARBLED") || text.startsWith("SCRAMBLED"))
         throw new reader.FiguresNotRead(text, new RangeError("Maximum call stack size exceeded"));
       return reader.readFigures(text, context);
     },
@@ -71,8 +71,13 @@ const FIGURES_REPLY = `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringif
   remainder: null,
 })}`;
 
-async function check(claim: string, body: string) {
+async function check(
+  claim: string,
+  body: string,
+  options: { quote?: string; calculation?: unknown; calls?: ModelCall[] } = {},
+) {
   const model = scriptedModel((call) => {
+    options.calls?.push(call);
     if (!call.results.some((result) => result.tool === "search_documents"))
       return { calls: [{ tool: "search_documents", input: { query: "revenue" } }] };
     if (!call.results.some((result) => result.tool === "cite"))
@@ -80,10 +85,16 @@ async function check(claim: string, body: string) {
         calls: [
           {
             tool: "cite",
-            input: { citations: [{ marker: 1, passage: "P1", location: "p. 14", quote: body }] },
+            input: {
+              citations: [
+                { marker: 1, passage: "P1", location: "p. 14", quote: options.quote ?? body },
+              ],
+            },
           },
         ],
       };
+    if (options.calculation && !call.results.some((result) => result.tool === "calculate"))
+      return { calls: [{ tool: "calculate", input: { figures: [options.calculation] } }] };
     return { text: FIGURES_REPLY };
   });
   const prepared: PreparedChatModel = {
@@ -181,4 +192,39 @@ test("a Note's other paragraphs are still read when the reader gives up on one",
   expect(
     figuresInMind(blocks).map((figure) => [figure.reading.chars, figure.reading.value]),
   ).toEqual([["£20", 20]]);
+});
+
+test("a quote the reader gives up on in a calculation stops the check, unseen by the model", async () => {
+  const calls: ModelCall[] = [];
+  const result = await check(
+    "Revenue in 2024 was £20.",
+    "Revenue in 2024 was £20.\nSCRAMBLED 1,2.3,4.5,1,2.3,4.5,",
+    {
+      quote: "Revenue in 2024 was £20.",
+      calls,
+      calculation: {
+        marker: 1,
+        label: "Revenue 2024",
+        formula: "rev",
+        stated: "£20",
+        relation: "equals",
+        inputs: [
+          {
+            name: "rev",
+            label: "Revenue 2024",
+            passage: "P1",
+            location: "p. 14",
+            quote: "SCRAMBLED 1,2.3,4.5,",
+            number: "1,2",
+          },
+        ],
+      },
+    },
+  );
+  expect(calls.at(-1)?.results.map((each) => each.tool)).toEqual(["search_documents", "cite"]);
+  expect(calls.flatMap((call) => call.results).some((each) => each.tool === "calculate")).toBe(
+    false,
+  );
+  expect(says("en", result)).toBe("The figures in “Annual report”, p. 14, couldn’t be read.");
+  expect(says("zh-CN", result)).toBe("无法读取“Annual report”第 14 页中的数字。");
 });

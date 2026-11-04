@@ -1847,10 +1847,16 @@ function figuresNotRead(
   const loose = (text: string) => text.replace(/\s+/g, " ").trim();
   const unread = loose(error.text);
   const holds = (text: string) => unread !== "" && loose(text).includes(unread);
-  const source =
-    passageIds
-      .map((id) => deps.documents.citationSource(id))
-      .find((each) => each !== null && holds(each.text)) ?? null;
+  // The text read may be a quote of a Passage, or a search's result that holds several: the place
+  // is the Passage whose own figures can't be read.
+  const near = passageIds
+    .map((id) => deps.documents.citationSource(id))
+    .filter(
+      (each): each is CitationSource =>
+        each !== null &&
+        (holds(each.text) || (loose(each.text) !== "" && unread.includes(loose(each.text)))),
+    );
+  const source = near.find((each) => !figuresReadIn(each.text)) ?? near[0] ?? null;
   const sentence = [request.claim, request.originalClaim, request.recordClaim].some(
     (text) => text !== undefined && (holds(text) || unread.includes(loose(text))),
   );
@@ -1876,6 +1882,16 @@ function figuresNotRead(
         excluded: [],
       };
   return request.figures?.length ? uncheckedFigureResults(request.figures, result) : result;
+}
+
+function figuresReadIn(text: string): boolean {
+  try {
+    readFigures(text);
+    return true;
+  } catch (error) {
+    if (error instanceof FiguresNotRead) return false;
+    throw error;
+  }
 }
 
 function unreadPlaceOf(deps: ClaimCheckDependencies, source: CitationSource): UnreadFigures {

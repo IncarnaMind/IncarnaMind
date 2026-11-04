@@ -85,3 +85,22 @@ test("100 KB of dates passes over each date once", () => {
     ["01", 1],
   ]);
 });
+
+test.each(["年", "个月", "天", "季度"])(
+  "100 KB of digits before %s is one date, tried once from the run's first digit",
+  (word) => {
+    expect(read(`${"1".repeat(100_000)}${word}`)).toEqual([]);
+  },
+);
+
+test("100 KB of digits before 年 is one year when dates are asked for", () => {
+  const figures = read(`${"1".repeat(100_000)}年`, { dates: true });
+  expect(figures.map((figure) => [figure.start, figure.end])).toEqual([[0, 100_000]]);
+});
+
+test("256 KB of dates and ranges looks for each range's date once", () => {
+  const figures = read("2024-01-01 1-2% ".repeat(16_000));
+  expect(figures).toHaveLength(16_000);
+  expect(figures[0]).toMatchObject({ chars: "1-2%", value: 0.01, rangeTo: 0.02, start: 11 });
+  expect(figures.at(-1)).toMatchObject({ chars: "1-2%", rangeTo: 0.02, start: 255_995 });
+});

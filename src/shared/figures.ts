@@ -205,9 +205,7 @@ interface Prepared {
   spaced: ReadonlySet<number>;
   /** Characters of `s` that follow a tab in the original text, which the normaliser removes beside a Chinese character. */
   tabbed: ReadonlySet<number>;
-  /** Where each line break of `s` is, in order. */
   breaks: readonly number[];
-  /** What the reader found of each line it read, by where the line ends. */
   lines: Map<number, Line>;
 }
 
@@ -277,7 +275,6 @@ function prepare(text: string, midLine = false): Prepared {
   return { s, from, to, lineStarts, spaced, tabbed, breaks, lines: new Map() };
 }
 
-/** How many of the sorted `positions` come before `at`. */
 function countBefore(positions: readonly number[], at: number): number {
   let low = 0;
   let high = positions.length;
@@ -995,7 +992,6 @@ const MONEY_FOR_PEOPLE =
  */
 interface Line {
   start: number;
-  /** A tab or a "|" divides it into cells. */
   delimited?: boolean;
   /** Whether only amounts follow each place of the line to its end, from the line's start. */
   amountsOnly?: Uint8Array;
@@ -1007,7 +1003,6 @@ interface Line {
   prose: Map<number, boolean>;
 }
 
-/** The line that ends at `end`, a line break or the text's end. */
 function lineEnding(prepared: Prepared, end: number): Line {
   const known = prepared.lines.get(end);
   if (known) return known;
@@ -1016,7 +1011,6 @@ function lineEnding(prepared: Prepared, end: number): Line {
   return line;
 }
 
-/** Where `pattern` first matches between `from` and `to`, or `to`. */
 function firstIn(s: string, pattern: RegExp, from: number, to: number): number {
   steps += to - from;
   const found = pattern.exec(s.slice(from, to));
@@ -1155,25 +1149,29 @@ const CNN = `(?<![${CN_NUMERAL_CHARS}])[${CN_NUMERAL_CHARS}]+`;
 const MONTH =
   "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?";
 
+const NUMBER = "(?<!\\d)\\d+(?:\\.\\d+)?";
+const YEARS = new RegExp(
+  `(?:(?:${NUMBER}|${CNN}) ?[-~至到] ?)?(?:${NUMBER}|${CNN})年(?:度|代|底|初|末|中)?`,
+  "g",
+);
+const PERIODS = new RegExp(
+  `(?:(?:${NUMBER}|${CNN}) ?[-~至到] ?)?(?:${NUMBER}|${CNN}) ?(?:个月|个季度|季度|个?星期|周|天|小时|分钟|秒钟?|个工作日|工作日)`,
+  "g",
+);
+
 /** When something happened, not how much: not figures unless asked for. */
 const DATES: readonly RegExp[] = [
   /(?<![\d.])\d{4} ?[-/.] ?\d{1,2} ?[-/.] ?\d{1,2}(?![\d])/g,
   /(?<![\d.,])\d{1,2}[-/.]\d{1,2}[-/.](?:\d{4}|\d{2})(?![\d.])/g,
   /(?<![\d.,])(?:19|20)\d{2} ?[-/~至到] ?(?:(?:19|20)\d{2}|\d{1,2})(?![\d.,%])/g,
   /(?<![\d.,])\d{1,4}\/\d{1,4}(?![\d.,])/g,
-  new RegExp(
-    `(?:(?:\\d+(?:\\.\\d+)?|${CNN}) ?[-~至到] ?)?(?:\\d+(?:\\.\\d+)?|${CNN})年(?:度|代|底|初|末|中)?`,
-    "g",
-  ),
+  YEARS,
   new RegExp(
     `(?:\\d{1,2}|${CNN}) ?(?:[-~至到] ?(?:\\d{1,2}|${CNN}) ?)?月(?:份)?(?:(?:\\d{1,2}|${CNN})[日号])?`,
     "g",
   ),
   new RegExp(`(?:\\d{1,2}|${CNN})[日号](?![元圆])`, "g"),
-  new RegExp(
-    `(?:(?:\\d+(?:\\.\\d+)?|${CNN}) ?[-~至到] ?)?(?:\\d+(?:\\.\\d+)?|${CNN}) ?(?:个月|个季度|季度|个?星期|周|天|小时|分钟|秒钟?|个工作日|工作日)`,
-    "g",
-  ),
+  PERIODS,
   /(?:\d|[一二三四]) ?(?:[-~至到] ?(?:\d|[一二三四]) ?)?季度/g,
   // "7点30分", "11点至12点半", "凌晨5点"; "17点目标" (17 goals) has no time word.
   /(?<![\d.,])\d{1,2}[点时](?:\d{1,2}分|半|整|钟|前|后|之前|以后|左右|至|到|-)/g,
@@ -1197,13 +1195,52 @@ interface Span {
   to: number;
 }
 
+const FROM_RUN_STARTS = new Map(
+  [YEARS, PERIODS].map((pattern) => [pattern, new RegExp(pattern.source, "y")]),
+);
+
 /** Where dates and periods are, in positions of the prepared text. */
 function datesIn(s: string): Span[] {
   const spans: Span[] = [];
   for (const pattern of DATES) {
-    for (const match of s.matchAll(pattern)) {
-      spans.push({ from: match.index, to: match.index + match[0].length });
+    const sticky = FROM_RUN_STARTS.get(pattern);
+    if (sticky) spans.push(...fromRunStarts(s, sticky));
+    else
+      for (const match of s.matchAll(pattern))
+        spans.push({ from: match.index, to: match.index + match[0].length });
+  }
+  return spans;
+}
+
+const runKind = (char: string | undefined) =>
+  isDigit(char)
+    ? "digit"
+    : char !== undefined && CN_NUMERAL_CHARS.includes(char)
+      ? "numeral"
+      : null;
+
+/**
+ * Where a pattern that opens with a number matches, tried from the first character of each run of
+ * digits or of Chinese numerals: tried from each character, a long run was read again from each,
+ * so 64 KB of digits before a 年 took 10 seconds (#2510).
+ */
+function fromRunStarts(s: string, sticky: RegExp): Span[] {
+  const spans: Span[] = [];
+  for (let at = 0; at < s.length; ) {
+    const kind = runKind(s[at]);
+    if (kind === null) {
+      at++;
+      continue;
     }
+    let end = at + 1;
+    while (runKind(s[end]) === kind) end++;
+    steps += end - at;
+    sticky.lastIndex = at;
+    const match = sticky.exec(s);
+    if (match) {
+      spans.push({ from: at, to: at + match[0].length });
+      at += match[0].length;
+    } else at = end;
   }
   return spans;
 }
@@ -1952,7 +1989,6 @@ function readGroups(s: string, lexeme: Lexeme, settled: Settled): Core[] {
   const threes = runsFrom(groups.length, (index) => groups[index]?.length === 3);
   const twos = runsFrom(groups.length, (index) => groups[index]?.length === 2);
   steps += groups.length;
-  /** How many separators from `from` on are the same as the first. */
   const same = (from: number) => (repeats[from] as number) + 1;
   /** `grouped` over the `last` + 1 groups from `from`, with `separator` between them. */
   const groupedFrom = (from: number, last: number, separator: string) => {
@@ -2708,6 +2744,24 @@ const CHANGE_BEFORE =
   /(?:(?<![A-Za-z])(?:from|by|rose|risen|rises|rising|increased|increases|grew|grown|grows|fell|fallen|falls|decreased|declined|dropped|climbed|jumped|cut|reduced|raised|improved|widened|narrowed|went|moved|changed|up|down) |从|由)$/i;
 
 /** The other end of a range after `left` ("2–3%", "1.2亿至1.5亿", "$1.2–1.5bn"), merged into it; null if none. */
+// Asked of each range: looking through every span each time took time that grew with ranges × dates.
+const reaches = new WeakMap<readonly Span[], { starts: number[]; reach: number[] }>();
+
+/** Whether one of `blocked`, sorted by where each starts, holds `at`. */
+function covers(blocked: readonly Span[], at: number): boolean {
+  let known = reaches.get(blocked);
+  if (!known) {
+    const reach: number[] = [];
+    for (const span of blocked) reach.push(Math.max(reach.at(-1) ?? 0, span.to));
+    known = { starts: blocked.map((span) => span.from), reach };
+    reaches.set(blocked, known);
+    steps += blocked.length;
+  }
+  steps++;
+  const before = countBefore(known.starts, at + 1);
+  return before > 0 && (known.reach[before - 1] as number) > at;
+}
+
 function rangeAfter(
   prepared: Prepared,
   left: Draft,
@@ -2728,7 +2782,7 @@ function rangeAfter(
   let at = start;
   while (at < s.length && at - start < 4 && !isDigit(s[at]) && !isCnDigit(s[at]) && s[at] !== "十")
     at++;
-  if (blocked.some((span) => span.from <= at && at < span.to)) return null;
+  if (covers(blocked, at)) return null;
   const found = coreAt(s, at, settled)?.[0];
   if (!found) return null;
   const right = readAround(prepared, found, start, settled);
