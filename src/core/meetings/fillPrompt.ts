@@ -61,9 +61,9 @@ export const lineMarker = (index: number) => `L${index + 1}`;
 const NOTES_SECTION_ASKS: Readonly<Record<FillSection, string>> = {
   ...SECTION_ASKS,
   decisions:
-    "every final choice actually agreed in the call, a bullet each with its agreed figures, dates and terms; not an agenda item, question, hypothetical, rejected option or a superseded choice",
+    "every final choice actually agreed in the call; for a choice already filled out under a User line, briefly name what was settled and refer to that line above without repeating its figures, dates or terms; write any remaining choice in full; not an agenda item, question, hypothetical, rejected option or a superseded choice",
   questions:
-    "what the call left unanswered, a bullet each: never what was decided or what someone will do",
+    "questions explicitly raised in the call and still unanswered, a bullet each: never infer an open issue from an unstated detail, what was decided or what someone will do",
   summary:
     "one short overview sentence on what the call was about; then, only if needed, bullets for figures, dates or terms that belong neither to another section nor to any ordinary line; never repeat facts already allocated elsewhere, and no commentary about the notes or missing information",
 };
@@ -109,17 +109,17 @@ export function notesContext(lines: readonly FillLine[], question: string): Ques
   const framing = [
     callIntro,
     "The User took the notes below during the call, a line each. Fill them in from the transcript:",
-    "- Read the notes and transcript before allocating facts. Final agreed choices go in DECISIONS, commitments in ACTIONS, unresolved matters in QUESTIONS. Include each choice's agreed figures, dates and terms there, not as background somewhere else. An agenda or topic is not a completed decision and does not cover a section.",
+    "- The User's lines are the skeleton. Read the whole transcript to find where the call ended before writing. Fill every relevant ordinary line in place with what was agreed about it, including its final figures, dates and terms, not just an earlier proposal or background. Never repeat or reword the User's own line.",
     "- Only a line marked (heading) can cover a template section. Match its purpose, not its exact wording, to the overview, agreed choices, commitments, unresolved matters or claims to check. If it serves one of those purposes, append its heading marker to that section's marker (### ACTIONS H1, for example) and write the section there once, not under both markers. Only a heading that serves none of those purposes just groups the lines below it; write nothing for that heading. An ordinary paragraph never covers a section, even if its words are a section's name.",
-    "First write these sections in this order, before filling ordinary lines. Each starts with its section marker as a heading, followed by the existing H marker when that section belongs under the User's heading. One heading may host only its matching section, never another section too. Keep these machine markers in English, in SECTION H order, even when the notes are in another language:",
+    "First fill each ordinary line in the order of the notes, starting its part with its marker alone as a heading (### L3, for example). Write one to three short sentences with its agreed answer and relevant details. Leave out a line only when the call said nothing about it. When a structural heading already hosts a section, put that section's facts there and only the other related details under its ordinary lines.",
+    "Then write these sections in this order. Each starts with its section marker as a heading, followed by the existing H marker when that section belongs under the User's heading. One heading may host only its matching section, never another section too. Keep these machine markers in English, in SECTION H order, even when the notes are in another language:",
     ...WRITTEN_ORDER.filter((section) => section !== "claims").map(
       (section) => `### ${SECTION_MARKERS[section]}: ${NOTES_SECTION_ASKS[section]}.`,
     ),
-    "- Each complete fact goes in the notes once, in its allocated place. Sharing a date, figure, name or topic does not make two different facts duplicates. Do not suppress DECISIONS because an ordinary line mentions their topic: put the agreed choices in DECISIONS and the other details under the line.",
-    "- Every action goes in ACTIONS, once, with all owners explicitly named and its deadline if said; do not invent an owner or deadline.",
+    "- Write each complete fact once. If an ordinary line already holds a decision, action or unresolved matter in full, keep its section with a brief cited reference to what is recorded above, not a second account of the same fact. Never suppress DECISIONS because the ordinary lines hold its choices. Sharing a date, figure, name or topic does not make two different facts duplicates.",
+    "- ACTIONS lists every commitment, with all owners explicitly named and its deadline if said, unless it only needs the brief reference above. Do not invent an owner or deadline, or turn a reported future event into a promise by the speaker reporting it.",
     "- Always write SUMMARY, or fill the User's Summary heading, with a short overview of the call, not a second list of decisions and actions. Cite the transcript line stating the call's purpose at the end of that overview sentence; an uncited overview cannot be included. A filled-out agenda line is not a substitute for SUMMARY.",
     "- Leave out DECISIONS only when the call made no decision; leave out ACTIONS or QUESTIONS only when the call contains none. Never turn an undecided proposal into a decision just to fill a section.",
-    "Then fill each ordinary line in the order of the notes, starting its part with its marker alone as a heading (### L3, for example). Add only the related background and details NOT already written in the sections. A figure, date, term, decision or action already there must not appear again under an ordinary line, even as a quotation or an earlier offer. Leave out a line with no remaining details. Never repeat or reword the User's own line.",
     `Finally write ### CLAIMS: ${NOTES_SECTION_ASKS.claims}. CLAIMS alone lists the facts again, to be checked. If a User heading covers it, append that heading's H marker as for the other sections.`,
     ...rules,
     "- Each Citation quote must be contiguous words from one transcript line, without its time or speaker label. When the words occur more than once, set the cite record's location to the timestamp of the occurrence you mean.",
@@ -160,7 +160,7 @@ function markerOf(node: NodeJSON): string | null {
   const reversed = /^(H\d+) ([A-Z]+)$/.exec(upper);
   const marker = reversed && sectionOf(reversed[2] ?? "") ? `${reversed[2]} ${reversed[1]}` : upper;
   if (sectionOf(marker)) return marker;
-  return /^(H\d+)\s/.exec(upper)?.[1] ?? null;
+  return /^([LH]\d+)\s/.exec(upper)?.[1] ?? null;
 }
 
 /** The section a section marker names. */

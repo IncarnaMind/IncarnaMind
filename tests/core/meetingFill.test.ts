@@ -603,6 +603,7 @@ const CALLS = [
     mine: MY_LINES,
     theirs: THEIR_LINES,
     typed: ["price", "contract"],
+    launchLine: "launch date",
     actionsHeading: "Action items",
     titles: ["Summary", "Decisions", "Action items", "Open questions"],
     stop: ".",
@@ -639,6 +640,7 @@ const CALLS = [
     mine: ["我们同意企业版每个席位 45 美元", "Dana 周五前把合同发过来", "第二季度开始上线"],
     theirs: ["今年的预算已经批了", "安全审查还没做"],
     typed: ["价格", "合同"],
+    launchLine: "上线日期",
     actionsHeading: "待办",
     titles: ["摘要", "决定", "待办事项", "待定问题"],
     stop: "。",
@@ -705,12 +707,12 @@ for (const call of CALLS) {
         const text =
           reply?.(prompt) ??
           [
+            lines.has("L1") && `### L1\n${written.L1}[^1]${stop}`,
+            lines.has("L2") && `### L2\n${written.L2}[^2]${stop}`,
             `### DECISIONS\n- ${written.DECISIONS}[^3]${stop}${again(call.again.L1, 1)}${again(call.again.beside, 1)}`,
             `### ACTIONS\n- ${written.ACTIONS}[^5]${stop}${again(call.again.L2, 2)}`,
             `### QUESTIONS\n- ${written.QUESTIONS}[^5]${stop}`,
             `### SUMMARY\n${written.SUMMARY}[^4]${stop}`,
-            lines.has("L1") && `### L1\n${written.L1}[^1]${stop}`,
-            lines.has("L2") && `### L2\n${written.L2}[^2]${stop}`,
           ]
             .filter((part) => part !== false)
             .join("\n\n");
@@ -772,17 +774,56 @@ for (const call of CALLS) {
         ...sectionsBelow,
       ]);
       expect(asked.at(-1)).toContain("### CLAIMS:");
-      expect(asked.at(-1)).toContain("Final agreed choices go in DECISIONS");
       expect(asked.at(-1)).toContain("Always write SUMMARY");
       const prompt = asked.at(-1) ?? "";
-      const residual = prompt.indexOf("Then fill each ordinary line");
-      expect(residual).toBeGreaterThan(prompt.indexOf("### SUMMARY:"));
-      expect(prompt.indexOf("Finally write ### CLAIMS:")).toBeGreaterThan(residual);
+      expect(prompt).toContain(`L1: ${call.typed[0]}`);
+      expect(prompt).toContain("including its final figures, dates and terms");
+      expect(prompt).toContain("without repeating its figures, dates or terms");
+      expect(prompt).toContain("write any remaining choice in full");
+      const linePart = prompt.search(/### L\d+/);
+      expect(linePart).toBeGreaterThanOrEqual(0);
+      expect(prompt.indexOf("### DECISIONS:")).toBeGreaterThan(linePart);
+      expect(prompt.indexOf("### SUMMARY:")).toBeGreaterThan(linePart);
+      expect(prompt.indexOf("### CLAIMS:")).toBeGreaterThan(prompt.indexOf("### SUMMARY:"));
       // The lines and the sections, with the thinking before them, get twice an Answer's room.
       expect(limits.length).toBeGreaterThan(0);
       expect(new Set(limits)).toEqual(new Set([16_000]));
       core.close();
     });
+
+    test.each(["L1", "L99"] as const)(
+      "a labeled %s marker routes to its original line or forms a discarded boundary",
+      async (marker) => {
+        const { core, meeting, client } = await recordedWith(
+          [note(call.launchLine), note(call.typed[0])],
+          undefined,
+          {
+            reply: () =>
+              [
+                `### SUMMARY\n${written.SUMMARY}[^4]${stop}`,
+                `### ${marker}: ${call.launchLine}\n${written.DECISIONS}[^3]${stop}`,
+              ].join("\n\n"),
+            citations: { 3: quotes[3], 4: quotes[4] },
+          },
+        );
+        const before = exactly(client);
+        expect(await settledFill(core, meeting)).toMatchObject({ state: "filled", mode: "notes" });
+        await vi.waitFor(() =>
+          expect(shown(client)).toEqual([
+            call.launchLine,
+            ...(marker === "L1" ? [ai(written.DECISIONS)] : []),
+            call.typed[0],
+            `«${titles[0]}»`,
+            ai(written.SUMMARY),
+          ]),
+        );
+        expect(asked.at(-1)).toContain(`L1: ${call.launchLine}`);
+        await core.undoMeetingFill(meeting.id);
+        await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+        expect(await fillOf(core, meeting.id)).toMatchObject({ state: "undone" });
+        core.close();
+      },
+    );
 
     // protects=a heading the User typed for a section ("Action items", "待办") is that section's place: its items go under it, after the User's own lines there, and the section isn't written again below; fails_when=the action items are missing under the heading, or a second Action items heading follows; no_claim=a real model's choice of heading.
     test(`a typed "${call.actionsHeading}" heading is filled in place, not repeated below`, async () => {
