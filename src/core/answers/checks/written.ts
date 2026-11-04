@@ -25,6 +25,11 @@
  * it was written: one the User changed meanwhile keeps their words, marked to
  * be checked again.
  *
+ * Before its check, a sentence with one Citation may be found Supported by a fast
+ * path (./fastPaths, #1667): its Citation's own sentence word for word, with no
+ * model, or a plain yes from the provider's quick-tasks model, the same service.
+ * Anything else goes on to its check.
+ *
  * One check per sentence, and one edit per sentence it cuts, on the Answer's
  * model prepared for the checks flow: each request checks that flow's consent
  * as it is sent, so turning it off stops the rest at once (#1206), as the cost
@@ -34,6 +39,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
+import { citationAttributesOf } from "../../../shared/citations";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { beginFigureCheck } from "../../../shared/figureChecks";
 import {
@@ -43,12 +49,13 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
-import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
+import { comparableSentence, INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
+  type CitationAttributes,
   type CitedQuote,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
@@ -70,6 +77,7 @@ import {
   recordJudged,
   runFailureOf,
 } from "./claimCheck";
+import type { FastVerdict, FirstLook } from "./fastPaths";
 import { recordOpinions } from "./opinions";
 import { claimsAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
@@ -107,6 +115,15 @@ export interface WrittenCheckOptions {
     passage: { text: string; context: string; quotes: readonly string[] },
     signal: AbortSignal,
   ): Promise<string | null>;
+  /**
+   * The fast paths a write's sentences may take under the checks' model (./fastPaths): the copy
+   * test, and the quick model that may look first; null when none may.
+   */
+  fastPaths(prepared: PreparedChatModel): Promise<{
+    copy: boolean;
+    quick: PreparedChatModel | null;
+  } | null>;
+  firstLook(look: FirstLook): Promise<FastVerdict | null>;
   /** How long one check may take, as contradiction watch gives one claim: a reply may never come. */
   claimTimeLimitMs: number;
   now(): Date;
@@ -161,6 +178,8 @@ interface Sentence {
   rawContext: string;
   projection: InlineTextProjection;
   cited: CitedQuote[];
+  /** Its Citations as they are written, for the fast paths (./fastPaths). */
+  citations: Partial<CitationAttributes>[];
   /** In a table's cell, whose words are a figure, not a clause a cut could take out. */
   inCell: boolean;
 }
@@ -234,10 +253,14 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
         const projection = mapped && sliceInlineText(whole, mapped.start, mapped.end);
         if (!projection) continue;
         const text = projection.text;
-        const cited = layout.flatMap(({ node: inline, start }) => {
-          if (inline.type !== CITATION_NODE || start < span.from || start >= span.to) return [];
-          return citedQuoteOf(inline.attrs ?? {}) ?? [];
-        });
+        const inSpan = layout.filter(
+          ({ node: inline, start }) =>
+            inline.type === CITATION_NODE && start >= span.from && start < span.to,
+        );
+        const cited = inSpan.flatMap(({ node: inline }) => citedQuoteOf(inline.attrs ?? {}) ?? []);
+        const citations = inSpan.map(({ node: inline }) =>
+          citationAttributesOf(inline.attrs ?? {}),
+        );
         if (cited.length === 0 && !isClaim(text)) continue;
         found.push({
           path: here,
@@ -249,6 +272,7 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
           rawContext,
           projection,
           cited,
+          citations,
           inCell,
         });
       }
@@ -462,6 +486,21 @@ function cutNodes(
   }
   nodes.push(...wordsWithMarks(cut.slice(last), letters));
   return used.size === 0 || !isClaim(cut.replace(MARKER, "")) ? null : nodes;
+}
+
+/** A sentence's check: `by`, the model whose verdict it is; null for the copy test, which uses none. */
+interface Checked {
+  result: ClaimCheckResult;
+  uncovered: string | null;
+  nodes: NodeJSON[] | null;
+  by: PreparedChatModel | null;
+}
+
+/** The sentences before it in its paragraph, as a check reads them. */
+function sentencesBefore(sentence: Sentence): string[] {
+  return sentenceSpans(sentence.rawContext)
+    .filter((span) => span.to <= sentence.from)
+    .map((span) => comparableSentence(sentence.rawContext.slice(span.from, span.to)));
 }
 
 type Landing =
@@ -765,10 +804,25 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const limit = slots(claimsAtOnce(prepared));
+    const fast = await options.fastPaths(prepared);
     const { outcomes, stop } = await runItems(
       sending,
-      async (sentence) => {
+      async (sentence): Promise<Checked> => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
+        const first =
+          fast &&
+          (await options.firstLook({
+            claim: read.claim,
+            figures: read.figures?.length ?? 0,
+            inCell: sentence.inCell,
+            before: sentencesBefore(sentence),
+            paragraph: sentence.context,
+            citations: sentence.citations,
+            scope: scope.scope,
+            ...fast,
+            signal,
+          }));
+        if (first) return { result: first.result, uncovered: null, nodes: null, by: first.model };
         const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
         const failure = runFailureOf(result);
         if (failure) throw new RunItemError(failure);
@@ -780,7 +834,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         const nodes = uncovered
           ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
           : null;
-        return { result, uncovered, nodes };
+        return { result, uncovered, nodes, by: prepared };
       },
       { concurrency: claimsAtOnce(prepared), signal },
     );
@@ -801,15 +855,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       contradicted: 0,
     };
     const landings: Landing[] = [];
-    const markOf = (sentence: Sentence): ClaimCheckAttributes => ({
+    const markOf = (
+      sentence: Sentence,
+      by: PreparedChatModel | null = prepared,
+    ): ClaimCheckAttributes => ({
       id: randomUUID(),
       request,
       action: "check-against-documents",
       state: "checking",
       reason: null,
       detail: null,
-      providerId: prepared.provider.id,
-      modelId: prepared.modelId,
+      providerId: by?.provider.id ?? null,
+      modelId: by?.modelId ?? null,
+      ...(by === null && { wordForWord: true }),
       text: reads.get(sentence)?.claim ?? sentence.text,
       evidence: null,
       says: null,
@@ -822,11 +880,17 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       excluded: [],
       checkedAt: startedAt,
     });
-    const begun = (sentence: Sentence): ClaimCheckAttributes => {
+    const begun = (sentence: Sentence, by: PreparedChatModel | null): ClaimCheckAttributes => {
       const figures = reads.get(sentence)?.figures;
       return figures?.length
-        ? beginFigureCheck(null, markOf(sentence), figures, null, reads.get(sentence)?.projection)
-        : markOf(sentence);
+        ? beginFigureCheck(
+            null,
+            markOf(sentence, by),
+            figures,
+            null,
+            reads.get(sentence)?.projection,
+          )
+        : markOf(sentence, by);
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
       done.failed++;
@@ -862,7 +926,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         );
         return;
       }
-      const { result, uncovered, nodes } = outcome.value;
+      const { result, uncovered, nodes, by } = outcome.value;
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
         landings.push({
           sentence,
@@ -871,14 +935,22 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       const at = options.now().toISOString();
-      recordJudged(options.recordAiUse, mindId, prepared, result, at);
+      // The copy test uses no model, so it is no use of AI.
+      if (by) recordJudged(options.recordAiUse, mindId, by, result, at);
       if (result.verdict === "not-checked") {
         failed(sentence, result.reason, result.detail);
         return;
       }
       done.checked++;
       const mark = (note: Y.XmlFragment) =>
-        options.withResult(begun(sentence), result, at, note, mindId, reads.get(sentence)?.claim);
+        options.withResult(
+          begun(sentence, by),
+          result,
+          at,
+          note,
+          mindId,
+          reads.get(sentence)?.claim,
+        );
       if (result.verdict === "supported") {
         landings.push({ sentence, nodes: null, mark });
         return;

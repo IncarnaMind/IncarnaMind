@@ -37,6 +37,7 @@ import type { PictureLimits } from "./documents/web/pictures";
 import type { ModelCopies } from "./embedding/modelSources";
 import type { ModelFactsLayer } from "./providers/capabilities";
 import type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
+import type { CheckPathsOverride } from "./providers/catalog/checkPaths";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
 import type { CopilotProfile } from "./providers/copilot/config";
@@ -1180,6 +1181,11 @@ export interface CoreAdapters {
    * (../providers/catalog/answerPaths). Only tests and the evaluation pass one.
    */
   answerPaths?: AnswerPathsOverride;
+  /**
+   * Which written sentences take the check's fast paths, instead of the list beside the catalog
+   * (../providers/catalog/checkPaths). Only tests and the evaluation pass one.
+   */
+  checkPaths?: CheckPathsOverride;
   /**
    * Tunes and watches the search Tool for Answers' searches (reranking depth,
    * Passages handed, a callback with each search's timings). Only the

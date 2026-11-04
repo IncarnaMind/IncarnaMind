@@ -200,6 +200,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     detail: text(value.detail),
     providerId: text(value.providerId),
     modelId: text(value.modelId),
+    ...(value.wordForWord === true && state === "supported" && { wordForWord: true }),
     text: text(value.text) ?? "",
     evidence: isRecord(value.evidence) ? (value.evidence as unknown as CitationAttributes) : null,
     ...(state === "contradicted" && correction && { correction }),

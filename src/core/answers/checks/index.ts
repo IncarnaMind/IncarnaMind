@@ -107,6 +107,11 @@ import { augmentFigureFooting } from "../../figureSchedule";
 import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
 import { parseMindId } from "../../minds";
+import {
+  type CheckPathsOverride,
+  checksCopies,
+  quickLooksFirst,
+} from "../../providers/catalog/checkPaths";
 import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
@@ -124,6 +129,7 @@ import {
   createClaimCheck,
   recordJudged,
 } from "./claimCheck";
+import { createFastPaths } from "./fastPaths";
 import { createMindCheck, type MindCheckOptions } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import { createPartCheck, partRequest } from "./partCheck";
@@ -223,7 +229,13 @@ export interface ChecksOptions
     modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
+    /** The quick-tasks model for Answers on `answers` (../../providers/chat). */
+    quickTasksModel(answers: ChatModelChoice): ChatModelChoice | null;
   };
+  /** The quick-tasks model the User chose themselves; null: the catalog's. */
+  ownQuickTasksModel(): ChatModelChoice | null;
+  /** Which written sentences take the fast paths, instead of the list beside the catalog. */
+  checkPaths?: CheckPathsOverride;
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
@@ -240,6 +252,13 @@ export interface ChecksOptions
       live(documentIds: readonly string[]): Document[];
       /** A live Document's Passages, in reading order. */
       passages(documentId: string): WindowedPassage[];
+      /** Whether another Document among these holds half the words of `text` (../../documents/search). */
+      othersHoldTerms(
+        text: string,
+        except: string,
+        documentIds: readonly string[] | undefined,
+        leftOut: readonly string[],
+      ): boolean;
     };
   /** The estimate of a whole read's requests. */
   estimateRead(model: ChatModelChoice | null, read: EstimatedRead): RunEstimate | null;
@@ -1468,10 +1487,50 @@ export function createChecks(options: ChecksOptions) {
     track,
   });
 
+  /**
+   * The fast paths of a write checked on `prepared` (./fastPaths): none once the User has set the
+   * quick-tasks model to the Answers model; the quick model's first look only where it is listed
+   * beside the catalog with this Answers model, on the same provider, so the same service.
+   */
+  async function fastPathsOf(prepared: PreparedChatModel) {
+    const answers = { providerId: prepared.provider.id, modelId: prepared.modelId };
+    const own = options.ownQuickTasksModel();
+    if (own?.providerId === answers.providerId && own.modelId === answers.modelId) return null;
+    const quick = chat.quickTasksModel(answers);
+    const { catalogId } = prepared.provider;
+    const looks =
+      quick !== null &&
+      quick.providerId === answers.providerId &&
+      quick.modelId !== answers.modelId &&
+      quickLooksFirst(
+        { catalogId, modelId: answers.modelId },
+        { catalogId, modelId: quick.modelId },
+        options.checkPaths,
+      );
+    return {
+      copy: checksCopies(options.checkPaths),
+      quick: looks ? await prepareQuietly(quick) : null,
+    };
+  }
+
+  const firstLook = createFastPaths({
+    citationSource: (passageId) => options.documents.citationSource(passageId),
+    pageTexts: (documentId, contentHash, from, to) =>
+      options.documents.pageTexts(documentId, contentHash, from, to),
+    othersHoldTerms: (text, documentId, scope) =>
+      options.documents.othersHoldTerms(text, documentId, scope.documentIds ?? undefined, [
+        ...scope.excluded.keys(),
+      ]),
+    walled: (documentId) => options.walledDocument(documentId) !== null,
+    versionNow: (documentId) => options.documents.live([documentId])[0]?.contentHash ?? null,
+  });
+
   const checkWritten = createWrittenCheck({
     ...options,
     prepare: (answer) =>
       prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }),
+    fastPaths: fastPathsOf,
+    firstLook,
     claimCheck,
     scopeOf: (mindId) => scopeOf(mindId, false),
     citedNow,
