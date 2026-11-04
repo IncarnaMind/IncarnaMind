@@ -26,6 +26,11 @@ interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   /** Something else it keeps clear of, placed again as that changes size: a page's check badge. */
   follows?: () => Element | null | undefined;
   /**
+   * Whether it keeps following its anchor as the page scrolls (default). A menu chosen from and
+   * left is placed once: chasing a selection that a redraw re-read only moves it under the pointer.
+   */
+  still?: boolean;
+  /**
    * Called on Esc, wherever the focus is, or on a press outside both the
    * popover and `anchor`.
    */
@@ -61,6 +66,7 @@ export function Popover({
   placement = "bottom-start",
   middleware,
   follows,
+  still = false,
   onDismiss,
   initialFocus,
   returnFocus = false,
@@ -123,7 +129,7 @@ export function Popover({
         entered.current = true;
       });
     };
-    const stopFollowing = autoUpdate(anchor, element, place);
+    const stopFollowing = still ? (place(), () => {}) : autoUpdate(anchor, element, place);
     const followed = following.current?.();
     const resized = followed ? new ResizeObserver(place) : null;
     if (followed) resized?.observe(followed);
