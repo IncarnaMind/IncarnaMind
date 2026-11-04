@@ -222,7 +222,9 @@ test("by the keyboard: ⌘K highlights the selection and finds a highlight's wor
 
   // The selection, then ⌘K's own command: no mouse touches the menu.
   await slideSelect(window, paragraph(viewer, words), words);
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
   await window.keyboard.press("Escape");
+  await expect(window.getByTestId("viewer-selection-menu")).toHaveCount(0);
   await slideSelect(window, paragraph(viewer, words), words);
   await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
   await runCommand(window, "viewer.selection.highlight", "Highlight the selected text");
