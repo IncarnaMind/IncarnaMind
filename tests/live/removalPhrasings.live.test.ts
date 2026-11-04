@@ -395,6 +395,18 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
           }),
       });
       core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+      // The assistant may ask which part is meant (`ask_user`): answered as a User would, with the
+      // option it recommends, or the run would wait for an answer that never comes (#2322).
+      let questions = 0;
+      core.on("question.asked", (asked) => {
+        questions++;
+        const [recommended] = asked.question.options;
+        void core.answerUserQuestion(asked.requestId, {
+          skipped: false,
+          chosen: recommended ? [recommended.label] : [],
+          wrote: null,
+        });
+      });
       await core.saveChatProvider({
         kind: live.kind,
         ...(live.apiKey && { apiKey: live.apiKey }),
@@ -530,7 +542,7 @@ describe.each(LIVE)("Removal in the User's own words, live: $name", (live) => {
         }
       }
       report.push(
-        `  all: exact ${exactTotal}/${total}; text other than the passage in the Note ${strays}/${total}; a miss whose ${assistant ? "reply" : "why"} says it removed ${claimed}/${total}${assistant ? "" : `; a quote of a paragraph nobody asked to go ${unasked}/${total}; ${namedSaid(said)}`}`,
+        `  all: exact ${exactTotal}/${total}; text other than the passage in the Note ${strays}/${total}; a miss whose ${assistant ? "reply" : "why"} says it removed ${claimed}/${total}${assistant ? "" : `; a quote of a paragraph nobody asked to go ${unasked}/${total}; ${namedSaid(said)}`}; questions asked and answered ${questions}`,
         ...spentBy(dataDir),
         ...misses,
       );
