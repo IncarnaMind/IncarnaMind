@@ -47,7 +47,8 @@ import { importWordBytes } from "../helpers/wordMinds";
 
 const TIDES = {
   name: "Tides.md",
-  contents: "# Tides\n\nSpring tides come at new and full moon.\n",
+  contents:
+    "# Tides\n\nSpring tides come at new and full moon. Spring tides come at the full moon.\n",
 };
 const OFFICE = {
   name: "Harbour office.md",
@@ -68,7 +69,7 @@ const PLANS: Record<string, Plan> = {
   [MOON]: { verdict: "supported", quote: MOON },
   [STOPLESS]: {
     verdict: "contradicted",
-    quote: MOON,
+    quote: FULL,
     says: "Roles: Spring tides come at the full moon / Spring tides come at the full moon, same. The quote gives it another way.",
     judgement: "same",
   },
@@ -783,7 +784,7 @@ describe("Check this note", () => {
       pageFrom: 1,
       pageTo: 1,
       location: null,
-      quote: MOON,
+      quote: FULL,
       check: "found" as const,
       checkReason: null,
     };

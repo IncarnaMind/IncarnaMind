@@ -67,15 +67,15 @@ const CASES: readonly HeldOut[] = [
     negative: false,
   },
   {
-    name: "en every year, Document every week",
+    name: "en every day, Document weekdays",
     language: "en",
-    document: "The harbour office publishes the times of high water every week.",
-    sentence: "The harbour office publishes the times of high water every year.",
+    document: "The ferry timetable is published every weekday.",
+    sentence: "The ferry timetable is published every day.",
     parts: [
-      { kind: "fact", text: "The harbour office publishes the times of high water" },
-      { kind: "fact", text: "every year" },
+      { kind: "fact", text: "The ferry timetable is published" },
+      { kind: "fact", text: "every day" },
     ],
-    probe: "every year",
+    probe: "every day",
     negative: true,
   },
   {
@@ -91,15 +91,15 @@ const CASES: readonly HeldOut[] = [
     negative: true,
   },
   {
-    name: "en reversed parties",
+    name: "en reversed parties, insurer",
     language: "en",
-    document: "Under the lease, the Landlord pays the Tenant's repair costs.",
-    sentence: "Under the lease, the Tenant pays the Landlord's repair costs.",
+    document: "Under the policy, the insurer reimburses the policyholder's legal costs.",
+    sentence: "Under the policy, the policyholder reimburses the insurer's legal costs.",
     parts: [
-      { kind: "fact", text: "Under the lease" },
-      { kind: "fact", text: "the Tenant pays the Landlord's repair costs" },
+      { kind: "fact", text: "Under the policy" },
+      { kind: "fact", text: "the policyholder reimburses the insurer's legal costs" },
     ],
-    probe: "the Tenant pays the Landlord's repair costs",
+    probe: "the policyholder reimburses the insurer's legal costs",
     negative: true,
   },
   {
@@ -115,15 +115,15 @@ const CASES: readonly HeldOut[] = [
     negative: true,
   },
   {
-    name: "en Q2, Document Q3",
+    name: "en March, Document May",
     language: "en",
-    document: "Gross margin fell in Q3, mostly in online.",
-    sentence: "Gross margin fell in Q2, mostly in online.",
+    document: "The warehouse opened in May.",
+    sentence: "The warehouse opened in March.",
     parts: [
-      { kind: "fact", text: "Gross margin fell" },
-      { kind: "fact", text: "in Q2, mostly in online" },
+      { kind: "fact", text: "The warehouse opened" },
+      { kind: "fact", text: "in March" },
     ],
-    probe: "in Q2, mostly in online",
+    probe: "in March",
     negative: true,
   },
   {
@@ -151,15 +151,15 @@ const CASES: readonly HeldOut[] = [
     negative: false,
   },
   {
-    name: "zh every year, Document every week",
+    name: "zh every day, Document every week",
     language: "zh-CN",
-    document: "港口办公室每周公布一次高潮时间。",
-    sentence: "港口办公室每年公布一次高潮时间。",
+    document: "园丁每周修剪一次树篱。",
+    sentence: "园丁每天修剪一次树篱。",
     parts: [
-      { kind: "fact", text: "港口办公室" },
-      { kind: "fact", text: "每年公布一次高潮时间" },
+      { kind: "fact", text: "园丁" },
+      { kind: "fact", text: "每天修剪一次树篱" },
     ],
-    probe: "每年公布一次高潮时间",
+    probe: "每天修剪一次树篱",
     negative: true,
   },
   {
@@ -175,15 +175,15 @@ const CASES: readonly HeldOut[] = [
     negative: true,
   },
   {
-    name: "zh reversed parties",
+    name: "zh reversed parties, report",
     language: "zh-CN",
-    document: "根据租赁协议，承租方承担出租方的维修费用。",
-    sentence: "根据租赁协议，出租方承担承租方的维修费用。",
+    document: "根据合同，业主向承包商提交月度报告。",
+    sentence: "根据合同，承包商向业主提交月度报告。",
     parts: [
-      { kind: "fact", text: "根据租赁协议" },
-      { kind: "fact", text: "出租方承担承租方的维修费用" },
+      { kind: "fact", text: "根据合同" },
+      { kind: "fact", text: "承包商向业主提交月度报告" },
     ],
-    probe: "出租方承担承租方的维修费用",
+    probe: "承包商向业主提交月度报告",
     negative: true,
   },
   {
@@ -342,10 +342,18 @@ function judged(
   const path =
     verdict === "supported"
       ? replyVerdict === "contradicted"
-        ? "states"
+        ? "re-ask agreed"
         : "supported reply"
-      : refusal();
-  return { verdict, replyVerdict, comparisons, path };
+      : verdict === "not-checked"
+        ? "not checked (the re-ask still disagreed)"
+        : verdict === "unsupported" && comparisons.length === 0
+          ? "judge found it unsupported (no comparison)"
+          : refusal();
+  const wrong =
+    (span?.check.parts ?? []).find(
+      (each) => span && span.sentence.text.slice(each.span.start, each.span.end) !== probe,
+    )?.verdict ?? null;
+  return { verdict, replyVerdict, comparisons, path, wrong };
 }
 
 describe("held-out parts on the judge", () => {
@@ -416,12 +424,17 @@ describe("held-out parts on the judge", () => {
       const flat = results.flatMap((caseResult) =>
         caseResult.samples.map((sample) => ({ ...caseResult, ...sample })),
       );
+      const wrongs = results
+        .filter((each) => !each.negative)
+        .flatMap((each) => each.samples.map((sample) => sample.wrong));
       const report = {
         model: MODEL,
         samples: SAMPLES,
         cases: results,
-        falseSupported: flat.filter((one) => one.negative && one.verdict === "supported").length,
-        decoySamples: flat.filter((one) => one.negative).length,
+        falseSupported:
+          flat.filter((one) => one.negative && one.verdict === "supported").length +
+          wrongs.filter((verdict) => verdict === "supported").length,
+        decoySamples: flat.filter((one) => one.negative).length + wrongs.length,
         trueSupported: flat.filter((one) => !one.negative && one.verdict === "supported").length,
         positiveSamples: flat.filter((one) => !one.negative).length,
         spent,
@@ -434,7 +447,7 @@ describe("held-out parts on the judge", () => {
           `${each.negative ? "NEG" : "POS"} ${each.name}: ${each.samples
             .map(
               (one) =>
-                `${one.verdict}/${one.replyVerdict ?? "-"}/${one.comparisons.join(",") || "-"}=${one.path}`,
+                `${one.verdict}/${one.replyVerdict ?? "-"}/${one.comparisons.join(",") || "-"}=${one.path} wrong=${one.wrong ?? "-"}`,
             )
             .join(" | ")}\n`,
         );

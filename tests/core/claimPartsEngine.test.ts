@@ -24,6 +24,8 @@ type Outcome = {
   repair?: Outcome["calculation"];
   /** An empty calculate list sent beside the cite, as Claude Haiku 5.5 sends one. */
   emptyCalculate?: boolean;
+  /** The fields-only second reply of a check that disagreed with itself. */
+  again?: string;
 };
 
 /** Requests whose Run was still going when they were made: one made after it stopped never leaves the computer. */
@@ -136,6 +138,14 @@ async function check(
           judgements.push(call.system);
           const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
           return { text: outcomes[target]?.judgement ?? "neither" };
+        }
+        if (call.system.startsWith("Your last check of this sentence")) {
+          const target = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(call.prompt)?.[1] ?? "";
+          return {
+            text:
+              outcomes[target]?.again ??
+              `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${target} / ${target}, same\nThe Documents establish this.\nEvidence: [1]`,
+          };
         }
         if (call.system.startsWith("You checked a sentence")) {
           recoveries.push(call);
@@ -387,6 +397,26 @@ describe("literal sentence parts", () => {
       ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
 
       expect(judged((await run(other)).result.parts ?? [])).not.toBe("supported");
+      // The quote states the part, and the reply's Roles line gives no side to compare: the
+      // fields-only second look is what keeps it from being read as support.
+      expect(judged((await run(other, claim)).result.parts ?? [])).not.toBe("supported");
+      const noSides = await check(
+        claim,
+        [
+          { kind: "fact", text: first },
+          { kind: "fact", text: part },
+        ],
+        {
+          [first]: { quotes: [claim] },
+          [part]: {
+            quotes: [claim],
+            reply:
+              "Verdict: contradicted\nRoles: same\nThe Document gives it the other way.\nEvidence: [1]",
+            judgement: "same",
+          },
+        },
+      );
+      expect(judged(noSides.result.parts ?? [])).not.toBe("supported");
       // Paired: with its own words as the Roles line's first side, and the quote stating it, the
       // part is Supported.
       expect(judged((await run(own, claim)).result.parts ?? [])).toBe("supported");
@@ -814,6 +844,215 @@ describe("literal sentence parts", () => {
   });
 
   test.each([
+    {
+      name: "en 3.9 against 4.2",
+      claim: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      part: "Customer churn fell to 3.9 per cent",
+      other: "after the onboarding redesign",
+      quote: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+    },
+    {
+      name: "en 6 months against 9",
+      claim: "The term is 6 months, and the rent is due monthly.",
+      part: "The term is 6 months",
+      other: "the rent is due monthly",
+      quote: "The term is 9 months, and the rent is due monthly.",
+    },
+    {
+      name: "en 5% against 7%",
+      claim: "The rate is 5%, and the fee is fixed.",
+      part: "The rate is 5%",
+      other: "the fee is fixed",
+      quote: "The rate is 7%, and the fee is fixed.",
+    },
+    {
+      name: "en 2.5% against 3.5%",
+      claim: "The rate is 2.5%, and the fee is fixed.",
+      part: "The rate is 2.5%",
+      other: "the fee is fixed",
+      quote: "The rate is 3.5%, and the fee is fixed.",
+    },
+    {
+      name: "en 2 points against 5",
+      claim: "Sales fell 2 points, and costs rose.",
+      part: "Sales fell 2 points",
+      other: "costs rose",
+      quote: "Sales fell 5 points, and costs rose.",
+    },
+    {
+      name: "en 8% against 9%",
+      claim: "Revenue grew 8%, and costs fell.",
+      part: "Revenue grew 8%",
+      other: "costs fell",
+      quote: "Revenue grew 9%, and costs fell.",
+    },
+    {
+      name: "zh 3.9% against 4.2%",
+      claim: "客户流失率降至3.9%，时点在引导流程重新设计之后。",
+      part: "客户流失率降至3.9%",
+      other: "时点在引导流程重新设计之后",
+      quote: "客户流失率降至4.2%，时点在引导流程重新设计之后。",
+      language: "zh-CN" as const,
+    },
+    {
+      name: "zh 6个月 against 9个月",
+      claim: "租期为6个月，租金按月支付。",
+      part: "租期为6个月",
+      other: "租金按月支付",
+      quote: "租期为9个月，租金按月支付。",
+      language: "zh-CN" as const,
+    },
+  ])(
+    "a part's whole figure is compared, single digits and decimals alike ($name, #2313)",
+    async ({ claim, part, other, quote, language }) => {
+      const run = (said: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: part },
+            { kind: "fact", text: other },
+          ],
+          {
+            [part]: {
+              quotes: [said],
+              reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
+              judgement: "same",
+            },
+            [other]: { quotes: [said] },
+          },
+          language ?? "en",
+        );
+      const judged = (
+        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
+      expect(judged((await run(claim)).result.parts ?? [])).toBe("supported");
+    },
+  );
+
+  test.each([
+    {
+      name: "zh swapped parties elsewhere in the quote",
+      claim: "乙方向甲方支付货款，并在月底结算。",
+      part: "乙方向甲方支付货款",
+      other: "并在月底结算",
+      quote: "甲方向乙方支付货款，乙方向甲方交付货物。",
+    },
+    {
+      name: "zh a moved negation",
+      claim: "甲方支付违约金，乙方交付货物。",
+      part: "甲方支付违约金",
+      other: "乙方交付货物",
+      quote: "乙方支付违约金，甲方免责。",
+    },
+  ])(
+    "a Chinese part's own run stands whole, not by characters elsewhere ($name, #2313)",
+    async ({ claim, part, other, quote }) => {
+      const run = (said: string) =>
+        check(
+          claim,
+          [
+            { kind: "fact", text: part },
+            { kind: "fact", text: other },
+          ],
+          {
+            [part]: {
+              quotes: [said],
+              reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives it another way.\nEvidence: [1]`,
+              judgement: "same",
+            },
+            [other]: { quotes: [said] },
+          },
+          "zh-CN",
+        );
+      const judged = (
+        parts: readonly { span: { start: number; end: number }; verdict: string | null }[],
+      ) => parts.find((each) => claim.slice(each.span.start, each.span.end) === part)?.verdict;
+
+      expect(judged((await run(quote)).result.parts ?? [])).not.toBe("supported");
+      expect(judged((await run(claim)).result.parts ?? [])).toBe("supported");
+    },
+  );
+
+  test("the walk's part is Supported when the re-asked judge agrees, and Not checked when it still disagrees with itself (#2313)", async () => {
+    const claim = "Customer churn fell to 3.9 per cent after the onboarding redesign.";
+    const part = "after the onboarding redesign";
+    const quote = "Customer churn fell to 4.2 per cent after the onboarding redesign.";
+    const run = (again: string) =>
+      check(
+        claim,
+        [
+          { kind: "fact", text: "Customer churn fell to 3.9 per cent" },
+          { kind: "fact", text: part },
+        ],
+        {
+          [part]: {
+            quotes: [quote],
+            reply: `Verdict: contradicted\nRoles: ${part} / ${part}, same\nThe Document gives 4.2 per cent.\nEvidence: [1]`,
+            judgement: "same",
+            again,
+          },
+          "Customer churn fell to 3.9 per cent": { quotes: [quote] },
+        },
+      );
+    const judged = (result: Awaited<ReturnType<typeof check>>["result"]) =>
+      result.parts?.find((each) => claim.slice(each.span.start, each.span.end) === part);
+
+    const agreed = judged(
+      (
+        await run(
+          `Verdict: supported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document states it.\nEvidence: [1]`,
+        )
+      ).result,
+    );
+    expect(agreed?.verdict).toBe("supported");
+
+    const still = judged(
+      (
+        await run(
+          `Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Document gives 4.2 per cent.\nEvidence: [1]`,
+        )
+      ).result,
+    );
+    expect(still?.verdict).toBe("not-checked");
+    expect(still?.reason).toBe("malformed");
+
+    const explained = judged(
+      (
+        await run(
+          `Verdict: contradicted\nScope: none, same\nTopic: found\nRoles: ${part} / the redesign, differs\nThe Document gives it another way.\nEvidence: [1]`,
+        )
+      ).result,
+    );
+    expect(explained?.verdict).toBe("unsupported");
+  });
+
+  test("an unsupported reply whose own fields say the claim is stated is asked once more (#2313)", async () => {
+    const claim = "Customer churn fell to 3.9 per cent after the onboarding redesign.";
+    const part = "after the onboarding redesign";
+    const quote = "Customer churn fell to 4.2 per cent after the onboarding redesign.";
+    const result = await check(
+      claim,
+      [
+        { kind: "fact", text: "Customer churn fell to 3.9 per cent" },
+        { kind: "fact", text: part },
+      ],
+      {
+        [part]: {
+          quotes: [quote],
+          reply: `Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: ${part} / ${part}, same\nThe Documents do not say it.\nEvidence: [1]`,
+        },
+        "Customer churn fell to 3.9 per cent": { quotes: [quote] },
+      },
+    );
+    const judged = result.result.parts?.find(
+      (each) => claim.slice(each.span.start, each.span.end) === part,
+    );
+    expect(judged?.verdict).toBe("supported");
+  });
+
+  test.each([
     { name: "no Roles line", fields: "" },
     { name: "Roles: same", fields: "Roles: same\n" },
     { name: "none / none", fields: "Roles: none / none, same\n" },
@@ -846,6 +1085,17 @@ describe("literal sentence parts", () => {
           (
             await run(
               `Verdict: contradicted\n${fields}The Document gives it the other way.\nEvidence: [1]`,
+            )
+          ).result.parts ?? [],
+        ),
+      ).not.toBe("supported");
+      // The quote states the part; the reply's Roles line gives no side to compare.
+      expect(
+        judged(
+          (
+            await run(
+              "Verdict: contradicted\nRoles: same\nThe Document gives it the other way.\nEvidence: [1]",
+              claim,
             )
           ).result.parts ?? [],
         ),
