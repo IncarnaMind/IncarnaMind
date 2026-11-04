@@ -2025,7 +2025,7 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     expect(shownWithChanges(client)).toEqual([each.now, each.lines[1]]);
   });
 
-  // protects=through the assistant too, a new line of a reply without names on the pattern of the Note's lines is added, and every line of the User's stays (#2356, part 4 of #2333); Chinese and the English mirror; fails_when=the water line is written over; no_claim=how often a model leaves its names out.
+  // protects=through the assistant too, a new line of a reply without names on the pattern of the Note's lines is added, and every line of the User's stays, also when it has the same amount as one of them (#2356, part 4 of #2333); Chinese and English; fails_when=the water line is written over; no_claim=how often a model leaves its names out.
   test.each([
     {
       asked: "在停车后面加一行网费，每月40元。",
@@ -2044,6 +2044,18 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
       reply: "Parking is 100 a month.\n\nInternet is 40 a month.",
       added: "Internet is 40 a month.",
+    },
+    {
+      asked: "Add internet after parking, 30 a month.",
+      lines: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."],
+      reply: "Parking is 100 a month.\n\nInternet is 30 a month.",
+      added: "Internet is 30 a month.",
+    },
+    {
+      asked: "在停车后面加一行网费，每月30元。",
+      lines: ["房租每月1200元。", "停车每月100元。", "水费每月30元。"],
+      reply: "停车每月100元。\n\n网费每月30元。",
+      added: "网费每月30元。",
     },
   ])(
     "a new line on the pattern of the others is added through the assistant: $reply",

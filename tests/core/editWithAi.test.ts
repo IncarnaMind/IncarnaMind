@@ -5130,6 +5130,56 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     );
   });
 
+  // protects=a new line of a reply without names with the same amount as one of the User's lines takes no line's place either: "Internet is 30 a month." beside "Water is 30 a month." shares the amount, not what the line is about, so it is added and the water line stays; after the line before it, after the first line, and alone; English and Chinese (#2356, part 4 of #2333); fails_when=the water line is written over; no_claim=how often a model leaves its names out.
+  test.each([
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 30 a month.",
+      reply: "Parking is 100 a month.\n\nInternet is 30 a month.",
+      added: "Internet is 30 a month.",
+    },
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 30 a month.",
+      reply: "Rent is 1,200 a month.\n\nInternet is 30 a month.",
+      added: "Internet is 30 a month.",
+    },
+    {
+      lines: COSTS.en,
+      asked: "Add internet after parking, 30 a month.",
+      reply: "Internet is 30 a month.",
+      added: null,
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月30元。",
+      reply: "停车每月100元。\n\n网费每月30元。",
+      added: "网费每月30元。",
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月30元。",
+      reply: "房租每月1200元。\n\n网费每月30元。",
+      added: "网费每月30元。",
+    },
+    {
+      lines: COSTS.zh,
+      asked: "在停车后面加一行网费，每月30元。",
+      reply: "网费每月30元。",
+      added: null,
+    },
+  ])("a new line with the same amount as another takes no line's place: $reply", async (each) => {
+    const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
+
+    await core.editWithAi(wholeMind(client, mind.id, each.asked));
+
+    const after = await acceptThenUndo(client, before);
+
+    expect(after).toEqual(
+      each.added === null ? each.lines : expect.arrayContaining([...each.lines, each.added]),
+    );
+  });
+
   // protects=a line of a reply without names that says the words only one paragraph has still takes that paragraph's place, a short summary of it too, so the rule above adds no copy beside a rewrite; Chinese and English; fails_when=the old line stays beside the new one; no_claim=none beyond protects.
   test.each([
     {
@@ -5155,6 +5205,18 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       asked: "Parking is 120 now.",
       reply: "Parking is 120 a month.",
       now: ["Rent is 1,200 a month.", "Parking is 120 a month.", "Water is 30 a month."],
+    },
+    {
+      lines: COSTS.zh,
+      asked: "水费改成每季度90元。",
+      reply: "停车每月100元。\n\n水费每季度90元。",
+      now: ["房租每月1200元。", "停车每月100元。", "水费每季度90元。"],
+    },
+    {
+      lines: COSTS.en,
+      asked: "Water is 90 a quarter now.",
+      reply: "Parking is 100 a month.\n\nWater is 90 a quarter.",
+      now: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 90 a quarter."],
     },
   ])("a line that says what only its paragraph has takes its place: $reply", async (each) => {
     const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
