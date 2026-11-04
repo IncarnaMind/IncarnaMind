@@ -142,5 +142,19 @@ test.each([
       },
     };
     expect(pythonProblem(t, [noPythonOfItsOwn])).toBeNull();
+    // A later run_code call that got Python, once its download resumed, takes the line away; bash doesn't.
+    const gotIt: AnswerToolCall = {
+      ...runCode("python", "done"),
+      id: "later",
+      analysis: { number: 3, title: "Probe", documents: ["sales.csv"], end: "done" },
+    };
+    const bash: AnswerToolCall = {
+      ...gotIt,
+      id: "bash",
+      input: { title: "Probe", language: "bash" },
+    };
+    expect(pythonProblem(t, [unavailable, gotIt])).toBeNull();
+    expect(pythonProblem(t, [unavailable, bash, fellBack])).toBe(said);
+    expect(pythonProblem(t, [gotIt, unavailable])).toBe(said);
   },
 );

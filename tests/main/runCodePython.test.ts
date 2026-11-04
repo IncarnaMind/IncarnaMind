@@ -319,9 +319,26 @@ describe.skipIf(process.platform === "win32")("run_code's own Python", () => {
     expect(served()).toBe(1);
     const preparing = statuses.filter((status) => status.state === "downloading");
     expect(preparing.length).toBeGreaterThan(0);
-    expect(preparing.map((status) => status.downloadedBytes)).toEqual(
-      preparing.map(() => manifest.size),
-    );
+    expect(manifest.size).toBe(261);
+    expect(preparing.map((status) => status.downloadedBytes)).toEqual(preparing.map(() => 261));
+    expect(statuses.at(-1)).toMatchObject({ state: "ready" });
+  });
+
+  test("an archive of the right size but other bytes is downloaded again, and shown downloading from 0", async () => {
+    const { manifest, served } = await release();
+    const { dataDir, statuses, make } = await runtimeFor(manifest);
+    const download = join(pythonRuntimeFolder(dataDir, manifest.sha256), "download");
+    await mkdir(download, { recursive: true });
+    await writeFile(join(download, manifest.file), Buffer.alloc(manifest.size));
+
+    expect((await make().ensure(new AbortController().signal)).ok).toBe(true);
+    expect(served()).toBe(1);
+    const shown = statuses
+      .filter((status) => status.state === "downloading")
+      .map((status) => status.downloadedBytes);
+    expect(manifest.size).toBe(241);
+    expect(shown[0]).toBe(241);
+    expect(shown.indexOf(0)).toBeGreaterThan(0);
     expect(statuses.at(-1)).toMatchObject({ state: "ready" });
   });
 
