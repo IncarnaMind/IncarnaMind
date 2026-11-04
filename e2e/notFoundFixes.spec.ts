@@ -55,6 +55,18 @@ const FILES = [
   { name: "Seabirds.txt", contents: ELSEWHERE },
 ];
 
+/**
+ * A sentence of what a line gives another figure for, which a rewrite may write. It shares two
+ * longer words with the line, after the figure: enough to be the line's close Passage, too few for
+ * the scripted check to call it contradicted; and a duration is no figure checked on its own.
+ */
+const DRY = "The bay is dry for 2 months of summer.";
+const DRY_FILES = [
+  ...FILES,
+  { name: "Bay.txt", contents: "Bay\n\nThe bay is dry for 3 months of summer.\n" },
+];
+const DRY_REWRITTEN = "The bay is dry for 3 months of summer￼.";
+
 /** The app in `language`, the Documents added, and a new Note: its scope `scope` when given. */
 async function launchNote(
   language: "en" | "zh-CN",
@@ -380,10 +392,10 @@ for (const language of ["en", "zh-CN"] as const) {
       language,
       1440,
       undefined,
-      FILES,
+      DRY_FILES,
       "fake-model-slow-check",
     );
-    const card = await checkSentence(window, editor, DIFFERENT);
+    const card = await checkSentence(window, editor, DRY);
     await expect(card.getByTestId("claim-differs")).toBeVisible();
     const rewrite = card.getByTestId("claim-rewrite");
     await expect(rewrite).toHaveText(t("claim.rewrite"));
@@ -396,9 +408,9 @@ for (const language of ["en", "zh-CN"] as const) {
         "data-check",
         "checking",
       );
-      expect(await noteText(editor)).toBe(DIFFERENT);
+      expect(await noteText(editor)).toBe(DRY);
       await holdModel(app, false);
-      await expect.poll(() => noteText(editor)).toBe("Harbours forecast tides for 12 months￼.");
+      await expect.poll(() => noteText(editor)).toBe(DRY_REWRITTEN);
       // Checked again on its Citation: the scripted model judges no cited sentence it doesn't
       // list, so the verdict a real model gives is in the live test.
       await expect(window.getByTestId("claim-mark").last()).toHaveAttribute(
@@ -412,7 +424,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("undo-message")).toHaveText(t("claim.rewrite.done"));
     await capture(window, `after-rewrite-supported-${language}-1440`);
     await pointAndClick(window, window.getByTestId("undo-action"));
-    await expect.poll(() => noteText(editor)).toBe(DIFFERENT);
+    await expect.poll(() => noteText(editor)).toBe(DRY);
     await expect(window.getByTestId("claim-mark").last()).toHaveAttribute(
       "data-check",
       "unsupported",
@@ -422,7 +434,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const ports = await checkSentence(window, editor, PORTS);
     await pointAndClick(window, ports.getByTestId("claim-rewrite"));
     await expect(window.getByTestId("error-notice-message")).toContainText(t("claim.rewrite.kept"));
-    expect(await noteText(editor)).toBe(`${DIFFERENT}\n${PORTS}`);
+    expect(await noteText(editor)).toBe(`${DRY}\n${PORTS}`);
     await setWindowSize(app, window, 900, 900);
     await capture(window, `after-rewrite-kept-${language}-900`);
 
@@ -434,8 +446,8 @@ for (const language of ["en", "zh-CN"] as const) {
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   test(`a narrow window keeps the card's new actions inside it (${language})`, async () => {
     test.setTimeout(180_000);
-    const { app, window, editor } = await launchNote(language, 900);
-    const card = await checkSentence(window, editor, DIFFERENT);
+    const { app, window, editor } = await launchNote(language, 900, undefined, DRY_FILES);
+    const card = await checkSentence(window, editor, DRY);
     for (const [id, key] of [
       ["claim-choose-citation", "claim.chooseCitation"],
       ["claim-rewrite", "claim.rewrite"],
@@ -449,9 +461,119 @@ for (const language of ["en", "zh-CN"] as const) {
     await capture(window, `after-rewrite-offer-${language}-900`);
     // ⌘K reaches it, for the sentence at the caret.
     await window.keyboard.press("Escape");
-    await pointAndClick(window, editor.getByText("forecast tides"));
+    await pointAndClick(window, editor.getByText("dry for"));
     await runCommand(window, "check.rewrite", t("claim.rewrite"));
-    await expect.poll(() => noteText(editor)).toBe("Harbours forecast tides for 12 months￼.");
+    await expect.poll(() => noteText(editor)).toBe(DRY_REWRITTEN);
+    await app.close();
+  });
+}
+
+const LOW_WATER = "Harbours publish the times of low water every 12 months.";
+
+/**
+ * Two sentences whose checks found the line `OWN` and called them unsupported, as a real model may
+ * where the scripted one never does: one that gives the line's figure of what the line gives it
+ * for, and one of something else with the same figure. The scripted rewrite finds nothing to
+ * change in either.
+ */
+async function writeChecksOnTheLine(window: Page, editor: Locator): Promise<void> {
+  const evidence = await window.evaluate(async (quote) => {
+    const core = (
+      globalThis as unknown as {
+        incarnamind: {
+          listDocuments(): Promise<{ id: string; name: string }[]>;
+          citeSelection(input: {
+            documentId: string;
+            parts: { unit: null; text: string }[];
+          }): Promise<Record<string, unknown>>;
+        };
+      }
+    ).incarnamind;
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour times");
+    if (!document) throw new Error("The harbour times weren't added.");
+    const cited = await core.citeSelection({
+      documentId: document.id,
+      parts: [{ unit: null, text: quote }],
+    });
+    return { ...cited, documentId: document.id, documentName: document.name };
+  }, OWN);
+  const paragraph = (id: string, text: string) => ({
+    type: "paragraph",
+    content: [
+      {
+        type: "text",
+        text,
+        marks: [
+          claimMark(id, "unsupported", text, {
+            evidence,
+            reason: null,
+            detail: null,
+            says: null,
+            unsupported: null,
+            calculation: null,
+            citedCaseUnchecked: false,
+            citedCaseFound: false,
+          }),
+        ],
+      },
+    ],
+  });
+  await editor.evaluate(
+    (dom, content) => {
+      (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
+    },
+    [paragraph("check-same", OWN), paragraph("check-low", LOW_WATER)],
+  );
+  await motionSettled(window);
+}
+
+/**
+ * Opens the card of the sentence with `words` from the keyboard, once the caret is in it: the
+ * editor takes the click's caret a moment after the page shows it.
+ */
+async function openCardAt(window: Page, editor: Locator, words: string): Promise<void> {
+  await pointAndClick(window, editor.getByText(words));
+  await expect
+    .poll(() =>
+      editor.evaluate(
+        (dom, held) =>
+          (
+            dom as unknown as { editor: Editor }
+          ).editor.state.selection.$head.parent.textContent.includes(held),
+        words,
+      ),
+    )
+    .toBe(true);
+  await window.keyboard.press("ControlOrMeta+Shift+K");
+}
+
+for (const [language, same, none] of [
+  [
+    "en",
+    "Nothing to change: the Documents give the same value.",
+    "Couldn’t rewrite this sentence from the Documents, so it stays as you wrote it.",
+  ],
+  ["zh-CN", "无需改动：文档中的数值与这句话相同。", "无法按文档改写这句话，已保留原句。"],
+] as const) {
+  test(`Rewrite says the Documents give the same value only when they do, as no failure, and Choose the Citation… stays (${language})`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, editor } = await launchNote(language);
+    await writeChecksOnTheLine(window, editor);
+    const card = window.getByTestId("claim-card");
+    for (const [words, said] of [
+      ["high water", same],
+      ["low water", none],
+    ] as const) {
+      await openCardAt(window, editor, words);
+      await expect(card.getByTestId("claim-sentence")).toContainText(words);
+      await pointAndClick(window, card.getByTestId("claim-rewrite"));
+      await expect(window.getByTestId("copied-line")).toHaveText(said);
+      await expect(window.getByTestId("error-notice-message")).toHaveCount(0);
+      expect(await noteText(editor)).toBe(`${OWN}\n${LOW_WATER}`);
+      await openCardAt(window, editor, words);
+      await expect(card.getByTestId("claim-choose-citation")).toBeVisible();
+      await window.keyboard.press("Escape");
+    }
     await app.close();
   });
 }
@@ -488,6 +610,22 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+test("closing the Note's tab ends the wait: the Document offers no Use as Citation", async () => {
+  test.setTimeout(240_000);
+  const { app, window, editor } = await launchNote("en", 1440, "Seabirds");
+  const card = await checkSentence(window, editor, OWN);
+  await chooseIn(window, card, "Harbour times");
+  const line = window.getByTestId("citation-pick-line");
+  await expect(line).toBeVisible();
+  await pointAndClick(window, window.getByTestId("mind-tab").getByTestId("tab-close"));
+  await expect(window.getByTestId("mind-tab")).toHaveCount(0);
+  await expect(line).toHaveCount(0);
+  await selectOwn(window);
+  await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+  await expect(window.getByTestId("viewer-selection-cite")).toHaveCount(0);
+  await app.close();
+});
+
 test("closing the Document's tab ends the wait: opened again, it offers no Use as Citation", async () => {
   test.setTimeout(240_000);
   const { app, window, editor } = await launchNote("en", 1440, "Seabirds");
@@ -516,26 +654,52 @@ test("closing the Document's tab ends the wait: opened again, it offers no Use a
   await app.close();
 });
 
-test("in a sheet the line asks for cells, and Enter, Enter cites the cells selected", async () => {
-  test.setTimeout(240_000);
-  const { app, window, editor } = await launchNote("en", 1440, "Seabirds", [
-    ...FILES,
-    { name: "Ports.csv", contents: "Port,Ships\nNorth,12\nSouth,8\n" },
-  ]);
-  const card = await checkSentence(window, editor, OWN);
-  await chooseIn(window, card, "Ports");
-  await expect(window.getByTestId("citation-pick-line").getByRole("status")).toHaveText(
-    "Select the cells that say this",
-  );
-  await pointAndClick(window, window.getByTestId("viewer-grid").locator('td[data-ref="B2"]'));
-  await window.keyboard.press("Shift+ArrowDown");
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("viewer-selection-cite")).toBeFocused();
-  await window.keyboard.press("Enter");
-  await expect.poll(() => noteText(editor)).toBe(`${OWN.slice(0, -1)}￼.`);
-  await expect(window.getByTestId("citation-pick-line")).toHaveCount(0);
-  await app.close();
-});
+/** Whether two laid-out boxes share any point. */
+const overlap = (
+  one: { x: number; y: number; width: number; height: number },
+  other: { x: number; y: number; width: number; height: number },
+) =>
+  one.x < other.x + other.width &&
+  other.x < one.x + one.width &&
+  one.y < other.y + other.height &&
+  other.y < one.y + one.height;
+
+for (const [language, cells] of [
+  ["en", "Select the cells that say this"],
+  ["zh-CN", "选中能支持这句话的单元格"],
+] as const) {
+  test(`in a sheet the line asks for cells above the sheet's tabs, and Enter, Enter cites the cells selected (${language})`, async () => {
+    test.setTimeout(240_000);
+    const { app, window, editor } = await launchNote(language, 1440, "Seabirds", [
+      ...FILES,
+      { name: "Ports.csv", contents: "Port,Ships\nNorth,12\nSouth,8\n" },
+    ]);
+    const card = await checkSentence(window, editor, OWN);
+    await chooseIn(window, card, "Ports");
+    const line = window.getByTestId("citation-pick-line");
+    await expect(line.getByRole("status")).toHaveText(cells);
+    const tabs = window.getByTestId("viewer-sheet-tabs").filter({ visible: true });
+    for (const width of [1440, 900]) {
+      await setWindowSize(app, window, width, 900);
+      // One group under 1,000 px: the sheet's tab is brought to the front, as a person would.
+      await pointAndClick(window, window.getByTestId("document-tab").filter({ hasText: "Ports" }));
+      await expect(line).toBeVisible();
+      await motionSettled(window);
+      const [lineBox, tabsBox] = [await line.boundingBox(), await tabs.boundingBox()];
+      if (!lineBox || !tabsBox) throw new Error("The line or the sheet's tabs aren't laid out.");
+      expect(overlap(lineBox, tabsBox), `${width} px`).toBe(false);
+      expect(lineBox.y + lineBox.height, `${width} px`).toBeLessThanOrEqual(tabsBox.y);
+    }
+    await pointAndClick(window, window.getByTestId("viewer-grid").locator('td[data-ref="B2"]'));
+    await window.keyboard.press("Shift+ArrowDown");
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("viewer-selection-cite")).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect.poll(() => noteText(editor)).toBe(`${OWN.slice(0, -1)}￼.`);
+    await expect(line).toHaveCount(0);
+    await app.close();
+  });
+}
 
 /** Files the Document named `name` in a new Folder that keeps its work inside it, as the Library's menu does. */
 const wallOff = (window: Page, name: string) =>

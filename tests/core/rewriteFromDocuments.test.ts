@@ -7,6 +7,7 @@ import { setUpWithDocuments } from "../helpers/citations";
 import { waitForProcessing } from "../helpers/documents";
 import { writeMind } from "../helpers/minds";
 import { type GenerateCall, scriptedModel } from "../helpers/models";
+import { REWRITE_CASES } from "../helpers/notFoundFixesHeldOut";
 
 /*
  * Rewrite with what the Documents say (#1554): the model names the old words and the quote's,
@@ -135,10 +136,7 @@ describe("A rewrite is refused, and the sentence kept", () => {
     ).toEqual({ kind: "kept" });
   });
 
-  test("as the same value when the reply says nothing differs, and when it gives two choices", () => {
-    expect(
-      rewritten("The Tenant pays a monthly rent of $12,500.", "Change 1: none\nTo 1: none"),
-    ).toEqual({ kind: "same" });
+  test("when the reply gives two choices", () => {
     expect(
       rewritten(
         "The rent is $12,500.",
@@ -149,6 +147,217 @@ describe("A rewrite is refused, and the sentence kept", () => {
     expect(
       rewritten("The rent is $12,500.", "Change 1: $12,500\nTo 1: $14,250", "The rent is $14,250."),
     ).toMatchObject({ kind: "rewritten" });
+  });
+});
+
+describe("A reply that names nothing to change", () => {
+  const NONE = "Change 1: none\nTo 1: none";
+
+  test("is the same value only when the sentence gives the quote's figure, of what the quote gives it for", () => {
+    expect(rewritten("The Tenant pays a monthly rent of $14,250.", NONE)).toEqual({ kind: "same" });
+    expect(
+      rewritten("每位员工每年享有 15 天带薪年假。", NONE, "每位员工每年享有 15 天带薪年假。"),
+    ).toEqual({ kind: "same" });
+  });
+
+  test.each([
+    ["another figure", "The Tenant pays a monthly rent of $12,500.", LEASE],
+    ["the figure of another thing", "The deposit is $14,250.", "The rent is $14,250."],
+    [
+      "the figure for another period",
+      "每位员工每月享有 15 天带薪年假。",
+      "每位员工每年享有 15 天带薪年假。",
+    ],
+    [
+      "no figure",
+      "The Landlord is Northgate Holdings.",
+      "The Landlord is Westmarch Commercial Property Investments Limited.",
+    ],
+  ])("is the model's alone for %s, and the sentence stays", (_, sentence, quote) => {
+    expect(rewritten(sentence, NONE, quote)).toEqual({ kind: "none" });
+  });
+});
+
+/** The old figure of each held-out sentence, and the line's figure a careful reader writes for it. */
+const HELD_OUT_CHANGES: readonly [string, string, string][] = [
+  ["rent", "$12,500", "$14,250"],
+  ["notice", "60", "90"],
+  ["deposit", "$40,000", "$42,750"],
+  ["rent-other-year", "$12,500", "$14,250"],
+  ["rent-extra-figure", "$12,500", "$14,250"],
+  ["leave", "10", "15"],
+  ["payday", "15", "10"],
+  ["hotel", "500", "600"],
+  ["leave-other-year", "10", "15"],
+  ["leave-extra-figure", "10", "15"],
+];
+
+describe("The held-out rewrites", () => {
+  test("are each rewritten to the line's figure, and each control kept", () => {
+    expect(REWRITE_CASES.filter((each) => each.rewrites)).toHaveLength(6);
+    expect(HELD_OUT_CHANGES.map(([id]) => id).sort()).toEqual(
+      REWRITE_CASES.map((each) => each.id).sort(),
+    );
+    for (const [id, from, to] of HELD_OUT_CHANGES) {
+      const each = REWRITE_CASES.find((one) => one.id === id);
+      if (!each) throw new Error(`No held-out case ${id}.`);
+      const result = rewritten(each.sentence, `Change 1: ${from}\nTo 1: ${to}`, each.line);
+      expect(result, id).toMatchObject(
+        each.rewrites
+          ? { kind: "rewritten", correction: { choices: [{ wording: each.figure }] } }
+          : { kind: "kept" },
+      );
+    }
+  });
+});
+
+describe("A rewritten figure keeps the words before it", () => {
+  test.each([
+    [
+      "a lower bound for an upper one",
+      "The rent is at least $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "The rent is at most $14,250.",
+      "The rent is at most $12,500.",
+    ],
+    [
+      "below for above",
+      "The rent is below $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "The rent is above $14,250.",
+      "The rent is above $12,500.",
+    ],
+    [
+      "more than for less than",
+      "The lease runs for more than 10 years.",
+      "Change 1: 10\nTo 1: 12",
+      "The lease runs for less than 12 years.",
+      "The lease runs for less than 10 years.",
+    ],
+    [
+      "不超过 for 不少于",
+      "出差住宿标准为每晚不超过 500 元。",
+      "Change 1: 500\nTo 1: 600",
+      "出差住宿标准为每晚不少于 600 元。",
+      "出差住宿标准为每晚不少于 500 元。",
+    ],
+    [
+      "至少 for 最多",
+      "每位员工每年至少享有 10 天带薪年假。",
+      "Change 1: 10\nTo 1: 15",
+      "每位员工每年最多享有 15 天带薪年假。",
+      "每位员工每年最多享有 10 天带薪年假。",
+    ],
+    [
+      "a negation",
+      "The rent is not $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "The rent is $14,250.",
+      "The rent is $12,500.",
+    ],
+    [
+      "a negation, in Chinese",
+      "租金不是12万元。",
+      "Change 1: 12万元\nTo 1: 15万元",
+      "租金是15万元。",
+      "租金是12万元。",
+    ],
+    [
+      "another thing's figure",
+      "Revenue was $1.2 million.",
+      "Change 1: $1.2 million\nTo 1: $1.5 million",
+      "Costs were $1.5 million.",
+      "Costs were $1.2 million.",
+    ],
+    [
+      "net for gross",
+      "Net revenue was $1.2 million.",
+      "Change 1: $1.2 million\nTo 1: $1.5 million",
+      "Gross revenue was $1.5 million.",
+      "Gross revenue was $1.2 million.",
+    ],
+    [
+      "营收 for 成本",
+      "公司去年营收 1.2亿元。",
+      "Change 1: 1.2亿元\nTo 1: 1.5亿元",
+      "公司去年成本 1.5亿元。",
+      "公司去年成本 1.2亿元。",
+    ],
+    [
+      "税后 for 税前",
+      "税后利润为1.2亿元。",
+      "Change 1: 1.2亿元\nTo 1: 1.5亿元",
+      "税前利润为1.5亿元。",
+      "税前利润为1.2亿元。",
+    ],
+    [
+      "another thing's figure, from a line that gives only the one",
+      "The deposit is $12,500.",
+      "Change 1: $12,500\nTo 1: $14,250",
+      "The rent is $14,250.",
+      "The rent is $12,500.",
+    ],
+  ])("refuses %s, and rewrites the quote's own thing", (_, sentence, reply, quote, same) => {
+    expect(rewritten(sentence, reply, quote)).toEqual({ kind: "kept" });
+    expect(rewritten(same, reply, quote)).toMatchObject({ kind: "rewritten" });
+  });
+});
+
+describe("A rewritten name keeps whose name it is", () => {
+  test("refuses the other party's name, told by the words after it", () => {
+    expect(
+      rewritten(
+        "Northgate Holdings is the Landlord.",
+        "Change 1: Northgate Holdings\nTo 1: Westmarch Limited",
+        "Westmarch Limited is the Tenant.",
+      ),
+    ).toEqual({ kind: "kept" });
+    const reply = "Change 1: Northgate Holdings\nTo 1: Westmarch Limited";
+    expect(
+      rewritten(
+        "The lease is signed by Northgate Holdings as the Landlord.",
+        reply,
+        "The lease is signed by Westmarch Limited as the Tenant.",
+      ),
+    ).toEqual({ kind: "kept" });
+    expect(
+      rewritten(
+        "The lease is signed by Northgate Holdings as the Landlord.",
+        reply,
+        "The lease is signed by Westmarch Limited as the Landlord.",
+      ),
+    ).toMatchObject({ kind: "rewritten" });
+  });
+
+  test("refuses a subject in capitals for another, and writes a name after a linking word", () => {
+    expect(
+      rewritten("The Deposit is $14,250.", "Change 1: Deposit\nTo 1: Rent", "The Rent is $14,250."),
+    ).toEqual({ kind: "kept" });
+    expect(
+      rewritten(
+        "The rent is paid to Northgate Holdings.",
+        "Change 1: Northgate Holdings\nTo 1: Westmarch Limited",
+        "The rent is paid to Westmarch Limited.",
+      ),
+    ).toMatchObject({ kind: "rewritten" });
+  });
+
+  test.each([
+    ["王先生", "项目负责人为王先生。"],
+    ["王女士", "项目负责人为王女士。"],
+  ])("refuses %s in Chinese: a surname and a title", (name, quote) => {
+    expect(rewritten("项目负责人为李明。", `Change 1: 李明\nTo 1: ${name}`, quote)).toEqual({
+      kind: "kept",
+    });
+  });
+
+  test("writes one of two Chinese names, the other kept", () => {
+    expect(
+      rewritten("签字人为张伟和李明。", "Change 1: 张伟\nTo 1: 王芳", "签字人为王芳和李明。"),
+    ).toMatchObject({
+      kind: "rewritten",
+      correction: { from: "张伟", choices: [{ wording: "王芳" }] },
+    });
   });
 });
 
@@ -500,6 +709,20 @@ describe("rewriteFromDocuments", () => {
     expect(calls[0]?.system).toBe(REWRITE_INSTRUCTIONS);
     expect(calls[0]?.prompt).toContain(SENTENCE);
     expect(calls[0]?.prompt).toContain(LINE);
+  });
+
+  test("says the value is the same only when the sentence gives the Passage's, else that the model found nothing", async () => {
+    const none = () => ({ text: "Change 1: none\nTo 1: none" });
+    const other = await noteWithCheck(none);
+    expect(
+      await other.core.rewriteFromDocuments({ mindId: other.mindId, checkId: "check-rent" }),
+    ).toEqual({ kind: "none" });
+    expect(other.calls).toHaveLength(1);
+    const same = await noteWithCheck(none, { text: LINE }, LINE);
+    expect(
+      await same.core.rewriteFromDocuments({ mindId: same.mindId, checkId: "check-rent" }),
+    ).toEqual({ kind: "same" });
+    expect(same.calls).toHaveLength(1);
   });
 
   test("keeps the sentence when the model's words aren't the Passage's", async () => {

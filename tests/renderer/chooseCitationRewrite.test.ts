@@ -15,6 +15,7 @@ import {
   MIND_SETTINGS_FIELD,
   type RewriteFromDocumentsResult,
 } from "../../src/core/api";
+import { TranslatableError } from "../../src/core/errors";
 import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
 import {
   ClaimChecks,
@@ -24,6 +25,7 @@ import {
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { registerMindEditor } from "../../src/renderer/src/editor/openEditors";
 import { useNotices } from "../../src/renderer/src/notices";
+import { translate } from "../../src/shared/i18n";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { writeVerification } from "../../src/shared/verification";
 
@@ -70,6 +72,8 @@ Object.assign(globalThis, {
 const { offersRewrite, rewriteWithDocuments } = await import("../../src/renderer/src/rewriteFix");
 const { citeChosenWords, useCitationPick } = await import("../../src/renderer/src/citationPick");
 const { useChecks } = await import("../../src/renderer/src/checks");
+const { checkCommands } = await import("../../src/renderer/src/commands/checks");
+const { noteHandle } = await import("../../src/renderer/src/commands/handles");
 
 const SENTENCE = "Rent is 1100 dollars.";
 const LINE = "Rent is 1250 dollars monthly.";
@@ -199,6 +203,13 @@ function verdictLands(editor: Editor, check: ClaimCheckAttributes): void {
 
 const errors = () => useNotices.getState().errors.map((each) => each.message);
 
+/** The confirmation line as the window says it, in each language. */
+function shownLine(): Record<"en" | "zh-CN", string> {
+  const message = useNotices.getState().confirmation?.message;
+  if (!message) throw new Error("No line shown.");
+  return { en: translate("en", message), "zh-CN": translate("zh-CN", message) };
+}
+
 beforeEach(() => {
   core.recordAiUse.mockClear();
   core.checkSentences.mockClear();
@@ -289,7 +300,7 @@ describe("Rewrite with what the Documents say", () => {
     });
   });
 
-  test("says there is nothing to change, as no failure, when the Documents give the same value", async () => {
+  test("says there is nothing to change, as no failure, when the core finds the Documents give the same value", async () => {
     core.rewriteFromDocuments.mockResolvedValue({ kind: "same" });
     const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
 
@@ -297,7 +308,64 @@ describe("Rewrite with what the Documents say", () => {
 
     expect(textOf(editor)).toBe(SENTENCE);
     expect(errors()).toEqual([]);
-    expect(useNotices.getState().confirmation?.message).toBe("claim.rewrite.same");
+    expect(shownLine()).toEqual({
+      en: "Nothing to change: the Documents give the same value.",
+      "zh-CN": "无需改动：文档中的数值与这句话相同。",
+    });
+  });
+
+  test("says only that it couldn't rewrite, as no failure, when the model alone found nothing to change", async () => {
+    core.rewriteFromDocuments.mockResolvedValue({ kind: "none" });
+    const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
+
+    expect(await rewriteWithDocuments(editor, "mind", doc, claim(editor))).toBe("not-written");
+
+    expect(textOf(editor)).toBe(SENTENCE);
+    expect(errors()).toEqual([]);
+    expect(shownLine()).toEqual({
+      en: "Couldn’t rewrite this sentence from the Documents, so it stays as you wrote it.",
+      "zh-CN": "无法按文档改写这句话，已保留原句。",
+    });
+    expect(core.checkSentences).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    [
+      "same" as const,
+      "Nothing to change: the Documents give the same value.",
+      "无需改动：文档中的数值与这句话相同。",
+    ],
+    [
+      "none" as const,
+      "Couldn’t rewrite this sentence from the Documents, so it stays as you wrote it.",
+      "无法按文档改写这句话，已保留原句。",
+    ],
+  ])("tells the assistant what the line says, when the core answers %s", async (kind, en, zh) => {
+    core.rewriteFromDocuments.mockResolvedValue({ kind });
+    const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
+    editor.commands.setTextSelection(3);
+    noteHandle.current = { editor, mindId: "mind", doc, place: "mind" };
+    onTestFinished(() => {
+      noteHandle.current = null;
+    });
+    const rewrite = checkCommands.find((each) => each.id === "check.rewrite");
+    if (!rewrite) throw new Error("No Rewrite command.");
+    const ctx = {
+      selection: [],
+      focus: null,
+      surface: "palette" as const,
+      assistant: true as const,
+    };
+
+    const ended = await Promise.resolve(rewrite.run(ctx)).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    if (!(ended instanceof TranslatableError) || !ended.wording) throw new Error("No wording.");
+    expect(translate("en", ended.wording.key)).toBe(en);
+    expect(translate("zh-CN", ended.wording.key)).toBe(zh);
+    expect(textOf(editor)).toBe(SENTENCE);
   });
 
   test("keeps the sentence, saying so, when the core keeps it", async () => {
