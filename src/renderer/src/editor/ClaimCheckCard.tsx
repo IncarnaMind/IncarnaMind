@@ -79,6 +79,7 @@ import {
 } from "../unsupportedFixes";
 import { type CitationDecision, citationDecision, citationsOf } from "./alreadyCited";
 import { ChangedCitations } from "./ChangedSourceNotice";
+import { CheckedByLine } from "./CheckedByLine";
 import { ClaimOutline } from "./ClaimOutline";
 import { ClaimPartRows, citesMore, type PartCitations } from "./ClaimPartRows";
 import { CorrectButton, CorrectionConflict } from "./CorrectionOffer";
@@ -1402,6 +1403,7 @@ export function ClaimCard({
           onPickerChange={onSourcePickerChange}
         />
       )}
+      <CheckedByLine check={check} shown={state} />
       {findSourcesOffered && (
         <ObjectMenu
           target={{ kind: "check", id: check.id }}

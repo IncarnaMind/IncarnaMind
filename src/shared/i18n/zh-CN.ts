@@ -1045,6 +1045,9 @@ export const zhCN = {
   "claim.card.label": "句子核对：{state}。{sentence}",
   "claim.showCard": "查看这句话的核对结果",
   "claim.sentence": "“{sentence}”",
+  "claim.checkedWith": "由 {model} 核对，{when}",
+  "list.and": "{first} 和 {last}",
+  "list.separator": "、",
   "claim.recordCites.label": "这句话中的记录引用",
   "claim.recordCites.partly": "部分有依据",
   "claim.recordCites.choose": "选择文档",
@@ -4119,7 +4122,6 @@ export const zhCN = {
     "这台电脑上无法启动用于数据分析和脚本的沙盒：请安装 {packages}，然后重启 IncarnaMind。在此之前，无法对整个文件运行数据分析，脚本也不在沙盒中运行；除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
   "scripts.settings.problem.sandboxStart":
     "这台电脑不允许 IncarnaMind 启动用于数据分析和脚本的沙盒，因此无法对整个文件运行数据分析，脚本也不在沙盒中运行；除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
-  "scripts.settings.sandboxPackages.and": "{first} 和 {last}",
   "scripts.settings.timeout": "脚本运行超过此时长即停止：",
   "scripts.settings.seconds": "秒",
 

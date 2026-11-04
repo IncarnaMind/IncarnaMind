@@ -328,8 +328,14 @@ export interface CreateMindInput {
  *   `comments` map. An older version would strip the mark, so it opens these
  *   Notes read-only. Older content is version 49 content as it is: a Note
  *   written before has no comments.
+ * - 51: each part of a `claimCheck` mark keeps the model and time that judged
+ *   it (`providerId`, `modelId`, `checkedAt` on a part, #1667), so checking
+ *   one part again leaves the others' as they were. An older version would
+ *   write the parts again without them and name the newest model for every
+ *   part, so it opens these Notes read-only. Older content is version 51
+ *   content as it is: a part with none was judged by its mark's model.
  */
-export const CONTENT_SCHEMA_VERSION = 50;
+export const CONTENT_SCHEMA_VERSION = 51;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -6617,7 +6623,10 @@ export interface ClaimPartCoverage {
   domainEvidence: CitationAttributes[];
 }
 
-export interface ClaimCheckPart extends ClaimPartPlan {
+/** A part keeps the model and time that judged it: checking another part again changes neither (#1667). */
+export interface ClaimCheckPart
+  extends ClaimPartPlan,
+    Partial<Pick<ClaimCheckBasis, "checkedAt" | "providerId" | "modelId">> {
   verdict: ClaimVerdict | "not-checked" | "checking" | null;
   kept?: true;
   figures?: ClaimPartFigure[];
