@@ -57,9 +57,12 @@ test("a run folder left over an hour ago is removed when a runner is made; a new
   expect(errors).toEqual([]);
 });
 
-test("a plot font that can't be found doesn't stop a bash run, which never reads it", async () => {
+test("a bash run never looks for the plot font, nor reads its folder", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "incarnamind-font-"));
   onTestFinished(() => rm(tempDir, { recursive: true, force: true }));
+  const font = join(tempDir, "fonts", "plot.otf");
+  await mkdir(join(tempDir, "fonts"));
+  await writeFile(font, "a font");
   const read: string[][] = [];
   const runner = createCodeRunner({
     executor: {
@@ -79,7 +82,7 @@ test("a plot font that can't be found doesn't stop a bash run, which never reads
     tempDir,
     python: null,
     helper: "",
-    font: join(tempDir, "fonts", "plot.otf"),
+    font,
     appVersion: "test",
     reportError: (error) => {
       throw error;

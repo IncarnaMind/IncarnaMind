@@ -803,6 +803,52 @@ console.log(JSON.stringify(results));
       },
     );
 
+    test("a prefix's lib that links elsewhere in the home is read where it really is, and one that links to the home opens nothing of it", async () => {
+      const { root, home, data, canary } = await setUp();
+      const env = { tempDir: join(root, "temp"), denyRead: deniedFor(home, data) };
+      const roots = interpreterRoots({ platform: process.platform, home });
+      const probe = (path: string) =>
+        [
+          "echo started",
+          `cat '${path}' 2>/dev/null || echo denied`,
+          `cat '${canary}' 2>/dev/null || echo denied`,
+        ].join("; ");
+      const prefixWith = async (name: string, lib: string) => {
+        const prefix = join(home, name);
+        await mkdir(join(prefix, "bin"), { recursive: true });
+        await writeFile(join(prefix, "bin", "python3"), '#!/bin/sh\nexec /bin/sh "$@"\n', {
+          mode: 0o755,
+        });
+        await symlink(lib, join(prefix, "lib"));
+        return osExecutor({
+          ...env,
+          env: { PATH: `${join(prefix, "bin")}:/usr/bin:/bin` },
+          interpreterRoots: roots,
+        });
+      };
+      const elsewhere = join(home, "elsewhere", "lib");
+      await mkdir(join(elsewhere, "python3.12"), { recursive: true });
+      await writeFile(join(elsewhere, "python3.12", "os.py"), "STDLIB\n");
+
+      const linked = await (await prefixWith("linked", elsewhere)).run({
+        ...shell(probe(join(home, "linked", "lib", "python3.12", "os.py"))),
+        command: "python3",
+      });
+      const toHome = await (await prefixWith("to-home", home)).run({
+        ...shell(probe(join(home, "to-home", "lib", ".ssh", "id_canary"))),
+        command: "python3",
+      });
+
+      expect({ exitCode: linked.exitCode, stdout: linked.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\nSTDLIB\ndenied\n",
+      });
+      expect({ exitCode: toHome.exitCode, stdout: toHome.stdout }).toEqual({
+        exitCode: 0,
+        stdout: "started\ndenied\ndenied\n",
+      });
+    });
+
     test("a venv's python in a home runs with its site-packages, and the project beside the venv stays unread", async () => {
       const { root, home, data } = await setUp();
       const project = join(home, "project");
