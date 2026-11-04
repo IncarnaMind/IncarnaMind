@@ -329,6 +329,7 @@ import {
   withHelp,
 } from "./meetingHelp";
 import { paragraphAsked } from "./paragraphAsked";
+import { createPrintedNumbers } from "./printedNumbers";
 import {
   analysisInstructions,
   answerInstructions,
@@ -1551,6 +1552,16 @@ export function createAnswers(options: AnswersOptions) {
         writeSoon();
       },
     });
+    const markPrinted = createPrintedNumbers({
+      language: answerLanguage(context.question),
+      record: (figure, above) => figures.record(figure, [], above),
+    });
+    const withPrintedFigures = (text: string): string =>
+      markPrinted(text, {
+        analyses,
+        quoteOf: (marker) => session.quotes.recorded(marker)?.citation.quote ?? null,
+        figureOf: (marker) => figures.figure(marker),
+      });
     const scaleChangeIn = (text: string): ChangedScale | null =>
       changedScale(
         text,
@@ -1783,6 +1794,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       // A marker no Citation backs is not kept in the text, and each is counted for the summary.
       markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
+      if (calculating) markdown = withPrintedFigures(markdown);
     };
 
     /**
@@ -2753,7 +2765,9 @@ export function createAnswers(options: AnswersOptions) {
                   ...(input.assistant?.lastAnswer?.answer.analyses ?? []),
                 ];
                 const markdown = withAnalysisResults(
-                  calculating ? citeFigures(written.markdown) : written.markdown,
+                  calculating
+                    ? withPrintedFigures(citeFigures(written.markdown))
+                    : written.markdown,
                   markerAnalyses,
                   answerLanguage(context.question),
                 );
