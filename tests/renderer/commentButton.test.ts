@@ -1,10 +1,10 @@
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import type { CommandId } from "../../src/shared/commands";
-import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 import {
   commentCommandName,
   commentKeyshortcuts,
 } from "../../src/renderer/src/editor/commentButton";
+import type { CommandId } from "../../src/shared/commands";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 const t = (language: "en" | "zh-CN") => (key: MessageKey, params?: MessageParams) =>
   translate(language, key, params);
