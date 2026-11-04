@@ -381,6 +381,22 @@ test("a Folder made and the leases moved into it are one request: the card, the 
   await undoFrom(window, card);
   await expect.poll(async () => (await library(window)).folders).not.toContain("Leases");
   await expect(card.getByTestId("command-changes-undone")).toBeVisible();
+
+  await pointAndClick(window, card.getByTestId("command-changes-title").first());
+  await window.keyboard.press("ControlOrMeta+Shift+z");
+  await expect
+    .poll(async () => (await foldersOf(window)).Leases)
+    .toEqual(["Lease Harbour Street", "Lease Mill Lane"]);
+  await expect(window.getByTestId("sidebar")).toContainText("Leases");
+  await expect(card.getByTestId("command-changes-undone")).toHaveCount(0);
+  await expect(window.getByTestId("undo-line")).toContainText(
+    "Made “Leases” and moved 2 Documents into it",
+  );
+  await undoFrom(window, card);
+  await expect.poll(async () => (await library(window)).folders).not.toContain("Leases");
+  await expect(card.getByTestId("command-changes-undone")).toBeVisible();
+  await expect(window.getByTestId("sidebar")).not.toContainText("Leases");
+  expect((await library(window)).names).toEqual([...DOCUMENTS].sort());
   await app.close();
 });
 

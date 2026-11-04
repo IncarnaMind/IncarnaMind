@@ -23,6 +23,7 @@ import {
   type CheckedCommand,
   type Checker,
   COMMAND_EXPORT_FORMATS,
+  type CommandExportFormat,
   type CommandInput,
   type CommandPlace,
   type CommandsHost,
@@ -48,6 +49,12 @@ interface CoreCommand {
 }
 
 const RECENTLY_DELETED = "sent to Recently deleted, where the User can restore them";
+
+/** The formats whose names say less than the interface's. */
+const FORMATS_SAID: Partial<Record<CommandExportFormat, string>> = {
+  "source-pack": "source-pack (a PDF of the pages the Note cites)",
+  "share-page": "share-page (one web page anyone opens in a browser)",
+};
 
 export const CORE_COMMANDS = {
   "document.rename": {
@@ -104,7 +111,7 @@ export const CORE_COMMANDS = {
   "mind.export": {
     on: "mind",
     does: "export",
-    takes: `ids: one Note; format: ${COMMAND_EXPORT_FORMATS.join(", ")}; folder: an absolute path, or none for the Output location; marks: "mark" or "leave", only when the User's request says whether a Word file marks the text IncarnaMind wrote`,
+    takes: `ids: one Note, or none for the Note the Question was asked from; format: ${COMMAND_EXPORT_FORMATS.map((format) => FORMATS_SAID[format] ?? format).join(", ")}; folder: an absolute path, or none for the Output location; marks: "mark" or "leave", only when the User's request says whether a Word file marks the text IncarnaMind wrote`,
     check: LIBRARY_CHECKERS["mind.export"],
   },
   "mind.citationStyle": {
@@ -255,6 +262,16 @@ async function wallAskedAbout(
   return folder && { id: folder.id, name: folder.name };
 }
 
+/**
+ * An export given no ids exports the Note the Question was asked from: "export this note" needs no
+ * search for it. Only the export, which changes no Note: a rename or delete that names no Note is
+ * refused, so a slip never changes the Note the User is in.
+ */
+function onThisNote(input: CommandInput, mindId: string | null): CommandInput {
+  if (input.ids.length > 0 || mindId === null || input.command !== "mind.export") return input;
+  return { ...input, ids: [mindId] };
+}
+
 export interface CheckContext extends WindowRun, CommandPlace {
   /** The window's commands, as it offered them for this Answer. */
   offered: readonly OfferedCommand[];
@@ -266,10 +283,11 @@ export interface CheckContext extends WindowRun, CommandPlace {
  * it offered. Throws for one that can't run.
  */
 export async function checkCommand(
-  input: CommandInput,
+  given: CommandInput,
   host: CommandsHost,
   context: CheckContext,
 ): Promise<CheckedCommand> {
+  const input = onThisNote(given, context.mindId);
   // A Folder's wall is the User's alone, whatever the window offered (#1934).
   if (input.command === WALL_SWITCH) {
     return yoursChecked(WALL_SWITCH, "wall", await wallAskedAbout(input, host, context.mindId));
