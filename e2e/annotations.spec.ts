@@ -613,3 +613,131 @@ test("a PDF zoom closes a selection's menu with its words", async () => {
   await expect(window.getByTestId("viewer-selection-menu")).toHaveCount(0);
   await app.close();
 });
+
+/** The viewer's own width, through the layout's split: a Mind must be beside it for two groups. */
+async function viewerWidth(window: Page, wanted: number): Promise<void> {
+  await window.evaluate(async (width) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const groups = document.querySelector('[data-testid="tab-groups"]');
+    if (!groups) throw new Error("No groups.");
+    const room = groups.getBoundingClientRect().width - 1;
+    await bridge.changeLayout("main", { type: "resize", widths: [room - width, width] });
+  }, wanted);
+  await expect
+    .poll(async () => (await window.getByTestId("viewer").boundingBox())?.width ?? 0)
+    .toBeCloseTo(wanted, 0);
+}
+
+test("the list takes the page's place below 760 and sits beside it from 760, in English and Chinese", async () => {
+  const { window, viewer } = await openMarkdown("en", MARKDOWN, "Costs.md", { mind: true });
+  const words = "4% is held";
+  await highlight(window, viewer, words);
+  const toggle = viewer.getByTestId("viewer-annotations-toggle");
+  const panel = window.getByTestId("annotations-panel");
+  const back = window.getByTestId("annotations-back");
+  const close = async () => {
+    if (await panel.isVisible()) {
+      if (await back.isVisible()) await pointAndClick(window, back);
+      else await pointAndClick(window, toggle);
+    }
+    await expect(panel).toHaveCount(0);
+  };
+
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    for (const width of [700, 760, 900]) {
+      await viewerWidth(window, width);
+      await close();
+      await pointAndClick(window, toggle);
+      await expect(panel).toBeVisible();
+      const header = viewer.getByTestId("viewer-header");
+      expect((await header.boundingBox())?.height, `header at ${width}`).toBe(36);
+      await expect(viewer.getByTestId("viewer-open-externally")).toBeVisible();
+      await expect(header.getByTestId("document-file-menu").first()).toBeVisible();
+      if (width < 760) {
+        await expect(back, `${language} at ${width}`).toHaveText(
+          language === "en" ? "Back to the page" : "返回页面",
+        );
+        await expect(panel).toHaveClass(/annotations-panel--in-place/);
+        const panelBox = await panel.boundingBox();
+        const headerBox = await header.boundingBox();
+        if (!panelBox || !headerBox) throw new Error("The list or the toolbar has no box.");
+        expect(panelBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+      } else {
+        await expect(back).toHaveCount(0);
+        const pageBox = await viewer.getByTestId("viewer-text").boundingBox();
+        const panelBox = await panel.boundingBox();
+        if (!pageBox || !panelBox) throw new Error("The page or the list has no box.");
+        expect(pageBox.x + pageBox.width).toBeLessThanOrEqual(panelBox.x + 1);
+      }
+    }
+  }
+
+  // Back, Esc, the pressed button: each returns to the page.
+  await viewerWidth(window, 700);
+  await close();
+  await pointAndClick(window, toggle);
+  await expect(back).toBeVisible();
+  await pointAndClick(window, back);
+  await expect(panel).toHaveCount(0);
+  await expect(viewer.getByTestId("viewer-text")).toBeVisible();
+  await pointAndClick(window, toggle);
+  await window.getByTestId("annotations-list").click();
+  await window.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await pointAndClick(window, toggle);
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await pointAndClick(window, toggle);
+  await expect(panel).toHaveCount(0);
+
+  // Choosing an item shows the page at its highlight.
+  await pointAndClick(window, toggle);
+  await pointAndClick(window, panel.getByTestId("annotation-quote").first());
+  await expect(panel).toHaveCount(0);
+  await expect(viewer.locator("[data-annotation-id]").first()).toContainText(words);
+
+  // Resizing: a widened in-place list becomes the pane; a narrowed pane closes and keeps the page.
+  await viewerWidth(window, 700);
+  await close();
+  await pointAndClick(window, toggle);
+  await expect(back).toBeVisible();
+  await viewerWidth(window, 800);
+  await expect(back).toHaveCount(0);
+  await expect(panel).toBeVisible();
+  await close();
+  await pointAndClick(window, toggle);
+  await expect(back).toHaveCount(0);
+  await viewerWidth(window, 700);
+  await expect(panel).toHaveCount(0);
+  await expect(viewer.getByTestId("viewer-text")).toBeVisible();
+});
+
+test("a selection's menu follows its words on a scroll and a resize", async () => {
+  const { app, window, viewer } = await openMarkdown();
+  const words = "The programme allows 18 months";
+  const line = paragraph(viewer, "The programme allows 18 months");
+  await slideSelect(window, line, words);
+  const menu = window.getByTestId("viewer-selection-menu");
+  await expect(menu).toBeVisible();
+  const before = await menu.boundingBox();
+  if (!before) throw new Error("The menu has no box.");
+
+  const scroller = viewer.getByTestId("viewer-text");
+  await scroller.evaluate((element) => {
+    element.scrollTop += 120;
+  });
+  await expect
+    .poll(async () => before.y - ((await menu.boundingBox())?.y ?? before.y))
+    .toBeGreaterThan(80);
+
+  await setWindowSize(app, window, 1200, 900);
+  await expect
+    .poll(async () => {
+      const menuBox = await menu.boundingBox();
+      const lineBox = await line.boundingBox();
+      if (!menuBox || !lineBox) return 999;
+      return menuBox.y - lineBox.y;
+    })
+    .toBeLessThan(80);
+  await expect(menu).toBeVisible();
+});

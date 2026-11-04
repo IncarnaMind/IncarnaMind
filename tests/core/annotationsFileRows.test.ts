@@ -61,7 +61,8 @@ async function harness() {
   let answer: (unit: number, text: string) => Cited = found;
   const citer: AnnotationCiter = {
     currentVersion: () => null,
-    cite: (_documentId, anchor) => answer(anchor.unit ?? 1, anchor.parts[0]?.text ?? ""),
+    cite: (_documentId, anchor) =>
+      answer(anchor.unit ?? anchor.parts[0]?.unit ?? 1, anchor.parts[0]?.text ?? ""),
   };
   const store = createAnnotations(db, () => new Date().toISOString(), citer);
   const read = (
@@ -202,6 +203,116 @@ test("a file highlight whose words aren't on its page is not found", async () =>
   expect(store.list(document.id)).toMatchObject([
     { quote: "The first line of the note.", check: "not-found", missing: true, passageId: null },
   ]);
+  db.close();
+});
+
+test("a file highlight a version lacks keeps the current version and no Passage", async () => {
+  const { document, store, read, db } = await harness();
+  read("version-a", [highlight("The first line of the note.")]);
+  const [before] = store.list(document.id);
+  if (!before) throw new Error("The highlight wasn't read.");
+
+  read("version-b", []);
+  expect(store.list(document.id)).toMatchObject([
+    {
+      id: before.id,
+      contentHash: "version-b",
+      passageId: null,
+      check: "not-found",
+      missing: true,
+    },
+  ]);
+  db.close();
+});
+
+test("the same words twice keep their comments in page order when a page is inserted", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1), highlight(quote, 2)]);
+  const [first, second] = store
+    .list(document.id)
+    .sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
+  if (!first || !second) throw new Error("Both highlights weren't read.");
+  store.update(first.id, { note: "first" });
+  store.update(second.id, { note: "second" });
+
+  read("version-b", [highlight(quote, 2), highlight(quote, 3)]);
+  const reread = store.list(document.id).sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
+  expect(reread).toMatchObject([
+    { id: first.id, pageFrom: 2, note: "first", missing: false },
+    { id: second.id, pageFrom: 3, note: "second", missing: false },
+  ]);
+  db.close();
+});
+
+test("a new sticky note on another page leaves the old note its comment", async () => {
+  const { document, store, read, db } = await harness();
+  const note = (page: number, said: string): FileAnnotation => ({
+    page,
+    kind: "note",
+    quote: "",
+    note: said,
+    colour: "yellow",
+    author: "Priya Raman",
+  });
+  read("version-a", [note(1, "Mine")]);
+  const [before] = store.list(document.id);
+  if (!before) throw new Error("The note wasn't read.");
+  store.update(before.id, { note: "Mine, rewritten" });
+
+  read("version-b", [note(2, "New remark")]);
+  const [old, fresh] = store
+    .list(document.id)
+    .sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
+  expect(old).toMatchObject({ id: before.id, pageFrom: 1, note: "Mine, rewritten", missing: true });
+  expect(fresh).toMatchObject({ pageFrom: 2, note: "New remark" });
+  expect(fresh?.id).not.toBe(before.id);
+  db.close();
+});
+
+test("a two-line highlight matches a read whose cite lost the line break", async () => {
+  const { document, store, read, db } = await harness();
+  const raw = highlight("The first line of the note.\nThe second line of it.");
+  read("version-a", [raw]);
+  const [before] = store.list(document.id);
+  if (!before) throw new Error("The highlight wasn't read.");
+  store.update(before.id, { note: "Mine" });
+
+  read("version-b", [raw], (unit, text) => lost(unit, text));
+  expect(store.list(document.id)).toMatchObject([{ id: before.id, missing: true, note: "Mine" }]);
+  db.close();
+});
+
+test("the same version with one of two marks still keeps that mark's row", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1), highlight(quote, 2)]);
+  const second = store.list(document.id).find((row) => row.pageFrom === 2);
+  if (!second) throw new Error("The second highlight wasn't read.");
+  store.update(second.id, { note: "second" });
+
+  read("version-a", [highlight(quote, 2)]);
+  const reread = store.list(document.id).sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
+  expect(reread).toMatchObject([
+    { pageFrom: 1, missing: true },
+    { id: second.id, pageFrom: 2, note: "second", missing: false },
+  ]);
+  db.close();
+});
+
+test("a file's own note follows the file until the User edits it", async () => {
+  const { document, store, read, db } = await harness();
+  read("version-a", [highlight("The first line of the note.", 1, "Compare with Table 3.")]);
+  expect(store.list(document.id)[0]).toMatchObject({ note: "Compare with Table 3." });
+
+  read("version-b", [highlight("The first line of the note.", 1, "Compare with Table 4.")]);
+  expect(store.list(document.id)[0]).toMatchObject({ note: "Compare with Table 4." });
+
+  const [row] = store.list(document.id);
+  if (!row) throw new Error("The highlight wasn't read.");
+  store.update(row.id, { note: "Mine" });
+  read("version-c", [highlight("The first line of the note.", 1, "Compare with Table 5.")]);
+  expect(store.list(document.id)[0]).toMatchObject({ note: "Mine" });
   db.close();
 });
 

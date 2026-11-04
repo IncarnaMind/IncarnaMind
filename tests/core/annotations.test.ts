@@ -845,4 +845,89 @@ describe("annotations", () => {
       .sort();
     expect(quotes).toEqual(["Line one has words.", "Line two has words."]);
   });
+
+  test("a PDF's own highlights survive a moved line and one the new version drops says so", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const quoted = {
+      subtype: "Highlight" as const,
+      rect: [72, 744, 300, 756] as const,
+      quadPoints: [72, 756, 300, 756, 72, 744, 300, 744] as const,
+      contents: "Compare with Table 3.",
+      title: "Priya Raman",
+    };
+    const droppedMark = {
+      subtype: "Highlight" as const,
+      rect: [72, 758, 300, 770] as const,
+      quadPoints: [72, 770, 300, 770, 72, 758, 300, 758] as const,
+      title: "Priya Raman",
+    };
+    const path = await writeSourceFile(
+      sources,
+      "Survey.pdf",
+      buildPdf([
+        {
+          lines: ["Alpha report cover.", "Highlighted words here."],
+          marks: [droppedMark, quoted],
+        },
+      ]),
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The Document wasn't added.");
+    const before = await core.listAnnotations(document.id);
+    const kept = before.find((each) => each.quote === "Highlighted words here.");
+    const gone = before.find((each) => each.quote === "Alpha report cover.");
+    if (!kept || !gone) throw new Error("The file's highlights weren't read.");
+    expect(kept.note).toBe("Compare with Table 3.");
+
+    const moved = {
+      ...quoted,
+      rect: [72, 730, 300, 742] as const,
+      quadPoints: [72, 742, 300, 742, 72, 730, 300, 730] as const,
+    };
+    await writeFile(
+      path,
+      buildPdf([
+        {
+          lines: ["Added line above.", "Alpha report cover.", "Highlighted words here."],
+          marks: [{ ...moved, contents: "Compare with Table 4." }],
+        },
+      ]),
+    );
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [document.id]);
+
+    const after = await core.listAnnotations(document.id);
+    expect(after.find((each) => each.id === kept.id)).toMatchObject({
+      quote: "Highlighted words here.",
+      note: "Compare with Table 4.",
+      missing: false,
+      check: "found",
+    });
+    expect(after.find((each) => each.id === gone.id)).toMatchObject({
+      missing: true,
+      check: "not-found",
+      passageId: null,
+    });
+    expect((await core.searchAnnotations("Table 4")).map((each) => each.annotationId)).toContain(
+      kept.id,
+    );
+
+    // The User's own note stays theirs when the file's changes again.
+    await core.updateAnnotation(kept.id, { note: "Mine" });
+    await writeFile(
+      path,
+      buildPdf([
+        {
+          lines: ["Added line above.", "Alpha report cover.", "Highlighted words here."],
+          marks: [{ ...moved, contents: "Compare with Table 5." }],
+        },
+      ]),
+    );
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [document.id]);
+    expect(
+      (await core.listAnnotations(document.id)).find((each) => each.id === kept.id),
+    ).toMatchObject({ note: "Mine" });
+  });
 });
