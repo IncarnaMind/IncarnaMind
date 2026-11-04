@@ -69,10 +69,12 @@ test("a Question asked in the assistant gets an Answer that streams in there, an
   await expect(editor.locator("strong")).toHaveText("scripted");
   await first.app.close();
 
-  // Reopened: the Block menu opens the conversation, its Answer as it was.
+  // Reopened: the conversation it was in comes back (#258), and the Block menu opens it too.
   const second = await launchApp(dataDir, { fakeChat: true });
   await second.window.getByTestId("mind-list-item").click();
-  await expect(second.window.getByTestId("assistant-empty")).toBeVisible();
+  await expect(second.window.getByTestId("assistant-question")).toContainText(
+    "What is IncarnaMind?",
+  );
   const added = second.window
     .getByTestId("mind-editor")
     .locator(":scope > p", { hasText: "scripted" });

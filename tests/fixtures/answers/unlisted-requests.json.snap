@@ -5066,6 +5066,10 @@
        "document": {
         "type": "string",
         "description": "Search only this Document, named as the instructions list it: to find what each of several Documents says."
+       },
+       "properties": {
+        "type": "boolean",
+        "description": "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds."
        }
       },
       "required": [
@@ -5186,6 +5190,10 @@
        "document": {
         "type": "string",
         "description": "Search only this Document, named as the instructions list it: to find what each of several Documents says."
+       },
+       "properties": {
+        "type": "boolean",
+        "description": "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds."
        }
       },
       "required": [
@@ -5343,6 +5351,10 @@
        "document": {
         "type": "string",
         "description": "Search only this Document, named as the instructions list it: to find what each of several Documents says."
+       },
+       "properties": {
+        "type": "boolean",
+        "description": "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds."
        }
       },
       "required": [
@@ -5533,6 +5545,10 @@
        "document": {
         "type": "string",
         "description": "Search only this Document, named as the instructions list it: to find what each of several Documents says."
+       },
+       "properties": {
+        "type": "boolean",
+        "description": "true for a sentence about a file itself: when it was created or last modified, its author as the file records it, its page, slide or sheet count, its size or its file name. The result adds the file properties of the Document named in document, else of the Documents the search finds."
        }
       },
       "required": [

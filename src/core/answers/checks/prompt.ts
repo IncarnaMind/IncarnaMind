@@ -636,6 +636,8 @@ const EVIDENCE = /^[\s>*_#`'"“”-]*(?:evidence|证据)[\s*_]*[:：][\s*_]*(.*
 const COVERAGE = /^[\s>*_#`'"“”-]*(?:coverage|覆盖情况)[\s*_]*[:：][\s*_]*(.*)$/i;
 const REASON_KIND =
   /^[\s>*_#`'"“”-]*(?:reason kind|原因类型)[\s*_]*[:：][\s*_]*(forecast-certainty|unbacked-cause)\s*$/i;
+/** "Property: modified", the file properties a sentence states (./fileProperties), on a line of its own. */
+export const PROPERTY = /^[\s>*_#`'"“”-]*(?:property|属性)[\s*_]*[:：][\s*_]*(.*)$/i;
 const FIELDS = [
   PARTS_LINE,
   COVERED,
@@ -651,6 +653,7 @@ const FIELDS = [
   EVIDENCE,
   COVERAGE,
   REASON_KIND,
+  PROPERTY,
   FIGURES,
 ];
 const MAX_PHRASE = 120;

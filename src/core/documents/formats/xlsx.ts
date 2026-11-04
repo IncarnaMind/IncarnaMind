@@ -158,6 +158,19 @@ async function tableFilters(zip: ZipArchive, part: string): Promise<XmlElement[]
   return filters;
 }
 
+const isHiddenSheet = (entry: XmlElement) =>
+  entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden";
+
+/** The sheets xl/workbook.xml lists (#2458), and how many of them are hidden; null for none. */
+export async function workbookSheets(
+  bytes: Uint8Array,
+): Promise<{ count: number; hidden: number } | null> {
+  const xml = await openPackage(bytes).readText("xl/workbook.xml");
+  const entries = xml === undefined ? [] : descendants(parseXml(xml), "sheet");
+  if (entries.length === 0) return null;
+  return { count: entries.length, hidden: entries.filter(isHiddenSheet).length };
+}
+
 /**
  * Reads a workbook's visible sheets, and with `readHidden`, its hidden and very
  * hidden ones too. With `layout`, it also reads how they look, for the sheet
@@ -233,10 +246,8 @@ export async function readWorkbook(
   const rowsCut: { sheet: string; from: number }[] = [];
   const sheetsNotRead: string[] = [];
   const entries = descendants(workbook, "sheet");
-  const hiddenEntry = (entry: XmlElement) =>
-    entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden";
   const ordered = readHidden
-    ? [...entries.filter((entry) => !hiddenEntry(entry)), ...entries.filter(hiddenEntry)]
+    ? [...entries.filter((entry) => !isHiddenSheet(entry)), ...entries.filter(isHiddenSheet)]
     : entries;
   const positions = new Map(entries.map((entry, position) => [entry, position]));
   const active = Number(descendants(workbook, "workbookView")[0]?.attrs.activeTab ?? 0);
@@ -252,7 +263,7 @@ export async function readWorkbook(
     const part = targets.get(entry.attrs["r:id"] ?? "");
     if (!part || !zip.has(part)) continue;
     const name = entry.attrs.name ?? `Sheet${(positions.get(entry) ?? 0) + 1}`;
-    const hidden = hiddenEntry(entry);
+    const hidden = isHiddenSheet(entry);
     if (!readHidden && hidden) {
       hiddenSheets.push(name);
       continue;

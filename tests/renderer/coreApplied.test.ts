@@ -121,6 +121,7 @@ const OPEN_LAYOUT: WindowLayout = {
   groups: [{ id: "group", tabs: [], activeTabId: null, width: 1 }],
   focusedGroupId: "group",
   reopenable: 0,
+  conversationId: null,
   assistant: DEFAULT_ASSISTANT,
 };
 const listeners = new Map<string, Set<(payload: unknown) => void>>();
