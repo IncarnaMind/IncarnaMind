@@ -270,6 +270,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
       await core.saveLibrarySettings({
         classifier: { kind: "ollama", baseUrl: url, modelId: "tev1:0.8b" },
         automatic: true,
+        turnOn: true,
       });
     }, `http://127.0.0.1:${port}`);
     const stoppedPath = join(sources, "Note 4.txt");
@@ -661,6 +662,7 @@ test("a first move takes the tagging it settles, and a retag between Undo and Re
       await core.saveLibrarySettings({
         classifier: { kind: "ollama", baseUrl: url, modelId: "tev1:0.8b" },
         automatic: true,
+        turnOn: true,
       });
     }, `http://127.0.0.1:${port}`);
     await writeFile(join(sources, "Brief 1.txt"), "Brief 1 about the harbour budget.");

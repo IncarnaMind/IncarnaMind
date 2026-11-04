@@ -512,7 +512,7 @@ describe("The monthly cap", () => {
     expect(rows(first.dataDir)[0]?.reserved).toBeGreaterThan(0);
     first.core.close();
 
-    const again = startCore(first.dataDir, { createChatModel: () => hung });
+    const again = startCore(first.dataDir, { createChatModel: () => hung, now: first.clock.now });
 
     expect(rows(first.dataDir)).toEqual([
       expect.objectContaining({ status: "interrupted", cost: 0, input_tokens: null }),
@@ -545,7 +545,7 @@ describe("The monthly cap", () => {
     const [open] = rows(first.dataDir);
     first.core.close();
 
-    const again = startCore(first.dataDir, { createChatModel: () => hung });
+    const again = startCore(first.dataDir, { createChatModel: () => hung, now: first.clock.now });
 
     const price = haikuPrice();
     const expected = (counted.input * price.input + counted.output * price.output) / 1_000_000;
@@ -1117,6 +1117,17 @@ describe("The estimate before a check run (#973)", () => {
       calls: 42,
       tokens: 42 * 28_300,
     });
+  });
+
+  test("an Edit with AI too long for one request is estimated a part at a time (#2348)", async () => {
+    const { core } = await cloudCore(reportingModel([{ input: 0, output: 0 }]));
+
+    const estimate = await core.estimateRun({ items: 3, each: "edit" });
+
+    // Each part is measured at 6,900 tokens in and 3,000 out until this computer has asked for
+    // edits on the model twice per part: 3 calls of 9,900 tokens.
+    expect(estimate).toMatchObject({ billing: "per-token", calls: 3, tokens: 29_700 });
+    expect(estimate.billing === "per-token" && (estimate.cost?.amount ?? 0) > 0).toBe(true);
   });
 
   test("checks recorded on the model are what a check's estimate averages", async () => {

@@ -309,7 +309,16 @@ test("on a scanned page, the text read from its picture is selected across lines
     script,
     JSON.stringify({
       pages: Object.fromEntries(
-        scans.map((id, index) => [index + 1, { lines: READ.pages[id]?.lines ?? [], unsure: [] }]),
+        // The script's own unsure list, not the words the recording happened to mark: none here.
+        scans.map((id, index) => [
+          index + 1,
+          {
+            lines: (READ.pages[id]?.lines ?? []).map((line) =>
+              typeof line === "string" ? line : { text: line.text, quad: line.quad },
+            ),
+            unsure: [],
+          },
+        ]),
       ),
     }),
   );
@@ -358,4 +367,48 @@ test("on a scanned page, the text read from its picture is selected across lines
     /^乙方应于每季度首月的五日前.*汇入甲方指定的银行账户。三、乙方逾期支付租金的，每逾期一日/,
   );
   await expect(chinese.getByTestId("citation-chip")).toHaveAttribute("aria-label", /p\. 2/);
+});
+
+test("a scanned selection that covers a word its reading may have misread is added as Check the page (#535)", async () => {
+  const script = join(sources, "scans.json");
+  await writeFile(
+    script,
+    JSON.stringify({
+      pages: {
+        1: {
+          lines: (READ.pages["en-clean"]?.lines ?? []).map((line) =>
+            typeof line === "string" ? line : { text: line.text, quad: line.quad },
+          ),
+          unsure: ["(30)"],
+        },
+      },
+    }),
+  );
+  const path = join(sources, "Lease scan.pdf");
+  await writeFile(path, buildPdf([{ scan: readFileSync(join(SCANS, "en-clean.jpg")) }]));
+  const { app, window } = await launchApp(dataDir, { scans: script });
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await addDocuments(window, [path]);
+  await expectReadyDocuments(window, 1);
+  await newMind(window);
+  await window.keyboard.type("Terms");
+  await pointAndClick(
+    window,
+    window.getByTestId("document-list-item").getByTestId("open-document"),
+  );
+  const layer = window.getByTestId("viewer").locator('[data-page-number="1"] .textLayer');
+  await dragOver(window, layer, "each undisputed invoice", {
+    layer,
+    words: "of the date of receipt",
+  });
+  // The words are where the User selected them, but one may be misread: the quote goes in the
+  // note with the Citation that asks for a look at the page, not a refusal.
+  await pointAndClick(window, window.getByTestId("viewer-selection-add"));
+  const quote = await quoteIn(
+    window,
+    /^each undisputed invoice within thirty \(30\) days of the date of receipt/,
+  );
+  await expect(quote.getByTestId("citation-chip")).toHaveAttribute("data-check", "cant-check");
+  await expect(quote.getByTestId("citation-chip")).toHaveAccessibleName(/Check the page/);
 });

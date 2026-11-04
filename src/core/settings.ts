@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { isRecentStyles } from "../shared/citationStyles";
 import { isHelpKeys } from "../shared/meetingHelp";
+import {
+  type ChineseScript,
+  isChineseScript,
+  isMeetingWords,
+  transcriptScript,
+} from "../shared/meetingWords";
 import { DEFAULT_MIND_STYLE, isMindStyle } from "../shared/mindStyle";
 import {
   type ChatModelChoice,
@@ -18,6 +24,7 @@ import {
   type MonthlyCap,
   type MotionPreference,
   type SandboxLevel,
+  type SandboxProblem,
   type Settings,
   type SharePagePreferences,
   SKILL_SCRIPT_LIMITS,
@@ -74,6 +81,8 @@ const isQuestionsOption = (value: unknown) =>
   hasOnly(value, ["includeQuestions"]) && isBoolean(value.includeQuestions);
 
 const WORD_SWITCHES = ["trackChanges", "commentFailedChecks"] as const;
+/** A Note's own comments choice (#328), chosen after the switches, so an older save has neither. */
+const WORD_LATER = ["includeMyComments", "myCommentsFile"] as const;
 
 const isMarkAiTextAnswer = (value: unknown): value is MarkAiTextChoice | null =>
   value === null || MARK_AI_TEXT_CHOICES.some((choice) => choice === value);
@@ -82,12 +91,19 @@ const isMarkAiTextAnswer = (value: unknown): value is MarkAiTextChoice | null =>
  * Word's choices of #107 came later: choices saved before them have none, and read as the
  * defaults. A boolean is still read for marking AI text, as `markAiTextRead` says.
  */
-const isWordOption = (value: unknown) =>
-  isQuestionsOption(value) ||
-  (hasOnly(value, ["includeQuestions", "markAiText", ...WORD_SWITCHES]) &&
+const isWordOption = (value: unknown) => {
+  if (isQuestionsOption(value)) return true;
+  if (!isRecord(value)) return false;
+  const later = WORD_LATER.filter((key) => Object.hasOwn(value, key));
+  return (
+    hasOnly(value, ["includeQuestions", "markAiText", ...WORD_SWITCHES, ...later]) &&
     isBoolean(value.includeQuestions) &&
     WORD_SWITCHES.every((choice) => isBoolean(value[choice])) &&
-    (isBoolean(value.markAiText) || isMarkAiTextAnswer(value.markAiText)));
+    (isBoolean(value.markAiText) || isMarkAiTextAnswer(value.markAiText)) &&
+    (!Object.hasOwn(value, "includeMyComments") || isBoolean(value.includeMyComments)) &&
+    (!Object.hasOwn(value, "myCommentsFile") || typeof value.myCommentsFile === "string")
+  );
+};
 
 function markAiTextRead(saved: unknown): MarkAiTextChoice | null {
   // The switch was on by default, so a saved "on" was never an answer; "off" was a choice.
@@ -173,6 +189,8 @@ const userScope: Scope<UserSettings> = {
     taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: DEFAULT_MIND_STYLE,
+    meetingWords: [],
+    transcriptScript: null,
   },
   validators: {
     language: isLanguagePreference,
@@ -190,6 +208,9 @@ const userScope: Scope<UserSettings> = {
     taskNotifications: isBoolean,
     recentCitationStyles: isRecentStyles,
     newMindStyle: isMindStyle,
+    meetingWords: isMeetingWords,
+    transcriptScript: (value): value is ChineseScript | null =>
+      value === null || isChineseScript(value),
   },
 };
 
@@ -349,7 +370,8 @@ export type SettingsStore = ReturnType<typeof createSettings>;
 
 /**
  * `scriptSandbox`: the level of the Executor Skill scripts run on
- * (`Settings.scriptSandbox`); `meetingAudio`: what a Meeting can record here.
+ * (`Settings.scriptSandbox`); `meetingAudio`: what a Meeting can record here;
+ * `sandboxProblem`: why the OS sandbox can't start here (`Settings.sandboxProblem`).
  */
 export function createSettings(
   db: Database,
@@ -358,6 +380,7 @@ export function createSettings(
   scriptSandbox: SandboxLevel,
   meetingAudio: Settings["meetingAudio"] = "none",
   systemUserName: () => string = () => "",
+  sandboxProblem: SandboxProblem | null = null,
 ) {
   const get = (): Settings => {
     const user = read(db, userScope);
@@ -381,7 +404,17 @@ export function createSettings(
     };
     const language = resolveLanguage(user.language, systemLanguages());
     const author = user.authorName ?? systemUserName().trim();
-    return { user, device, language, scriptSandbox, meetingAudio, author };
+    const chineseScript = transcriptScript(user.transcriptScript, user.language, systemLanguages());
+    return {
+      user,
+      device,
+      language,
+      scriptSandbox,
+      sandboxProblem,
+      meetingAudio,
+      author,
+      chineseScript,
+    };
   };
 
   return {

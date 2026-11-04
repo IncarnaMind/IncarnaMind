@@ -172,8 +172,12 @@ describe("The evaluation of requests that change several Minds", { timeout: 60_0
       },
     ]);
 
-    const sentence = `Revenue for September was €312,000, ${"and the team grew again, ".repeat(10)}up 6%.`;
-    const longer = await runScripted("shorten-three-en", shorten(`${sentence} ${sentence}`));
+    const longer = await runScripted(
+      "shorten-three-en",
+      shorten(
+        "Revenue for September was €312,000, up 6% on August, with the largest gains in the Nordic region, and support tickets fell by a fifth after the help centre was rewritten, and the average response time dropped to 3 hours. Two senior engineers joined in September, which brings the team to 23 people, and the office move is planned for November, as the board agreed in October.",
+      ),
+    );
     expect(longer.failures).toEqual([
       {
         kind: "wrong-text",
@@ -226,7 +230,7 @@ describe("The evaluation of requests that change several Minds", { timeout: 60_0
             )
             .replace(
               "Public launch on 1 March.",
-              "Public launch on 1 March.\n\nThe beta opens to 50 customers.",
+              "Public launch on 1 March.\n\n¶+ The beta opens to 50 customers.",
             ),
         };
       }
@@ -283,7 +287,7 @@ describe("The evaluation of requests that change several Minds", { timeout: 60_0
 
     const open = await runScripted("missing-mind-en", (call) => {
       const rewritten = rewrittenTerm(call);
-      if (rewritten) return { text: "Goals are short." };
+      if (rewritten) return { text: "¶+ Goals are short." };
       return call.results.length === 0
         ? {
             calls: [

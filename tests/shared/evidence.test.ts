@@ -30,10 +30,13 @@ const settings = (leaveOutOwnFiles: boolean): Pick<Settings, "user"> => ({
     taskNotifications: true,
     recentCitationStyles: [],
     newMindStyle: { font: "default", size: "default" },
+    meetingWords: [],
+    transcriptScript: null,
   },
 });
 
 const folder = (countsOwnFiles: boolean): LibraryGroup => ({
+  parentId: null,
   keepInside: false,
   id: "drafts",
   name: "Drafts",

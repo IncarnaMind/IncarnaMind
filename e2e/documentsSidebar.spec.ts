@@ -136,9 +136,9 @@ test("a Document that failed offers Retry, which processes it again", async () =
   await app.close();
 });
 
-test("the footer shows the most pressing status, keeps the others a click away, and stays 28px", async () => {
+test("the footer shows the most pressing status, keeps the others a click away, and gives a problem its second line", async () => {
   await writeFile(join(sources, "Paper.txt"), "Test loss falls as a power law in model size.\n");
-  await writeFile(join(sources, "Picture.png"), "not a document");
+  await writeFile(join(sources, "Archive.zip"), "not a document");
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   const status = window.getByTestId("sidebar-status");
@@ -146,7 +146,7 @@ test("the footer shows the most pressing status, keeps the others a click away, 
 
   await window
     .getByTestId("add-documents-input")
-    .setInputFiles([join(sources, "Paper.txt"), join(sources, "Picture.png")]);
+    .setInputFiles([join(sources, "Paper.txt"), join(sources, "Archive.zip")]);
   // Once the paper is read, two things to say, whatever the machine's speed: the skipped
   // file first, and tagging, which waits for a model, behind "+1".
   await expect(window.getByTestId("document-list-item")).toHaveAttribute("data-status", "ready");
@@ -160,7 +160,11 @@ test("the footer shows the most pressing status, keeps the others a click away, 
   await expect(status.getByTestId("skipped-files")).toBeVisible();
   const more = status.getByTestId("status-more");
   await expect(more).toHaveText("+1");
-  expect(await status.boundingBox()).toEqual(before);
+  // A file it can't take, with Show beside it, takes a second line: 20px of text either side of
+  // the row's 4px. The footer keeps its width, and no more.
+  const after = await status.boundingBox();
+  expect(after?.width).toBe(before?.width);
+  expect(after?.height).toBe(48);
   await more.click();
   const others = status.getByTestId("status-others");
   await expect(others).toBeVisible();
@@ -208,21 +212,45 @@ test("a right-click on a row opens its menu, without selecting its name; a selec
   await app.close();
 });
 
-test("the drop overlay hides what is under it", async () => {
+test("the drop overlay is the card's alone, and hides what is under it", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
-  await window.evaluate(() => {
+  await window.getByTestId("tab-groups").evaluate((element) => {
     const transfer = new DataTransfer();
     transfer.items.add(new File(["x"], "Notes.txt", { type: "text/plain" }));
-    document
-      .querySelector('[data-testid="sidebar"]')
-      ?.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: transfer }));
+    const box = element.getBoundingClientRect();
+    element.dispatchEvent(
+      new DragEvent("dragenter", {
+        bubbles: true,
+        dataTransfer: transfer,
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
   });
   const overlay = window.getByTestId("drop-overlay");
   await expect(overlay).toBeVisible();
   await expect(overlay).toHaveCSS("background-color", "rgb(231, 237, 251)");
   await expect(overlay).toContainText("or a folder to link it");
   await screenshot(window, "drop-overlay");
+
+  // Over the sidebar the card stays quiet, so the sidebar is never covered, and the label says
+  // what the window's own add would do.
+  await window.getByTestId("sidebar").evaluate((element) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(["x"], "Notes.txt", { type: "text/plain" }));
+    const box = element.getBoundingClientRect();
+    element.dispatchEvent(
+      new DragEvent("dragover", {
+        bubbles: true,
+        dataTransfer: transfer,
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+  });
+  await expect(overlay).toHaveCount(0);
+  await expect(window.getByTestId("drop-label")).toHaveText("Add to Library");
   await app.close();
 });
 

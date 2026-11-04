@@ -19,9 +19,11 @@ import {
 
 /**
  * Day one (#1942): a newcomer's sidebar is one flat list called Documents,
- * with the example's row beside it and no Library, Folders, Linked folders or
- * Tags named until one helps. Tags become a Library filter once one exists,
- * and the example's Documents stay out of the User's Library.
+ * with the example's row beside it and Folders, Linked folders and Tags named
+ * only once one helps. The Library is there as soon as the User has a Document
+ * or a Note of their own, even while the first open's steps show (#2376).
+ * Tags become a Library filter once one exists, and the example's Documents
+ * stay out of the User's Library.
  */
 const SHOTS = process.env.DAY_ONE_SHOTS;
 
@@ -124,8 +126,10 @@ for (const language of ["en", "zh-CN"] as const) {
       ).toHaveCount(1);
     }
 
-    // Nothing else new: no Library row, no Linked folders, no Tags.
-    await expect(window.getByTestId("open-library")).toHaveCount(0);
+    // The Library comes with the User's first Document, even while the steps show (#2376); nothing
+    // else new: no Linked folders, no Tags.
+    await expect(window.getByTestId("open-library")).toBeVisible();
+    await expect(window.getByTestId("library-row-count")).toHaveText("3");
     await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
     await expect(window.getByTestId("sidebar-tags")).toHaveCount(0);
     // And nothing asks for a model for Tags, or names them at all.
@@ -177,14 +181,16 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(documents.getByTestId("sidebar-section-count")).toHaveText("1");
     await expect(documents.getByTestId("document-list-item")).toHaveCount(1);
     await expect(documents.getByTestId("mind-row")).toHaveCount(0);
-    // Still day one: the example has folded to its Note's own name under its own heading, and the Library waits.
+    // Still day one: the example has folded to its Note's own name under its own heading, and the
+    // Library is there for the Document and the Note the User has of their own (#2376).
     const example = window.getByTestId("example-section");
     await expect(example.getByTestId("example-title")).toContainText(words.examples);
     const exampleRow = example.getByTestId("mind-row");
     await expect(exampleRow).toHaveCount(1);
     await expect(exampleRow.getByTestId("row-text")).toHaveText(words.exampleNote);
     await expect(documents.getByTestId("mind-row")).toHaveCount(0);
-    await expect(window.getByTestId("open-library")).toHaveCount(0);
+    await expect(window.getByTestId("open-library")).toBeVisible();
+    await expect(window.getByTestId("library-row-count")).toHaveText("1");
     await shot(window, `day-one-note-${language}-900`);
 
     // The counts hold at 1,600 px, and the Note is in ⌘K.
@@ -250,14 +256,17 @@ test("Undo takes the add on day one back", async () => {
   await setLanguage(window, "en");
   await addFiles(window, paths);
   await expect(window.getByTestId("not-in-a-folder-section")).toBeVisible();
+  await expect(window.getByTestId("open-library")).toBeVisible();
 
   await window.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => countPdfs(window)).toBe(0);
+  // With nothing of the User's left, the Library waits again with the rest of the shell.
+  await expect(window.getByTestId("open-library")).toHaveCount(0);
 
-  // Added again, it counts once each time: the list stays one flat list.
+  // Added again, it counts once each time: the list stays one flat list, and the Library returns.
   await addFiles(window, paths);
   await expect(window.getByTestId("sidebar-section-count")).toHaveText("3");
-  await expect(window.getByTestId("open-library")).toHaveCount(0);
+  await expect(window.getByTestId("open-library")).toBeVisible();
 });
 
 test("a Folder is offered at the eighth loose Document, by pointer and by the tree's keys (#1942)", async () => {
@@ -270,8 +279,8 @@ test("a Folder is offered at the eighth loose Document, by pointer and by the tr
   await setLanguage(window, "en");
   await window.getByTestId("add-documents-input").setInputFiles(files);
   await expect.poll(() => countOwn(window), { timeout: 30_000 }).toBe(8);
-  // Still day one: one flat list, no Library row.
-  await expect(window.getByTestId("open-library")).toHaveCount(0);
+  // Still day one: one flat list, and the Library for the User's own Documents (#2376).
+  await expect(window.getByTestId("open-library")).toBeVisible();
   await expect(window.getByTestId("not-in-a-folder-title")).toContainText("Documents");
 
   // The offer sits in the tree's keys: ↓ reaches it from the last row, Enter makes a Folder.
@@ -292,13 +301,13 @@ test("a Folder is offered at the eighth loose Document, by pointer and by the tr
   await expect(window.getByTestId("folder-row").filter({ hasText: "Tides" })).toHaveCount(1);
   // A Folder of the User's own is one of the three ways day one ends.
   await expect(window.getByTestId("open-library")).toBeVisible();
-  // And ⌘Z puts it back as it was.
+  // And ⌘Z puts it back as it was: no Folder, and the Library stays for the Documents.
   await window.keyboard.press("ControlOrMeta+z");
   await expect(window.getByTestId("folder-row").filter({ hasText: "Tides" })).toHaveCount(0);
-  await expect(window.getByTestId("open-library")).toHaveCount(0);
+  await expect(window.getByTestId("open-library")).toBeVisible();
 });
 
-test("a Linked folder of the User's own shows its row only, never the example's, and leaves the Library row waiting (#1942)", async () => {
+test("a Linked folder of the User's own shows its row only, never the example's, and brings the Library with its first Document (#1942, #2376)", async () => {
   test.setTimeout(180_000);
   const folder = join(sources, "Contracts");
   await mkdir(folder);
@@ -312,10 +321,11 @@ test("a Linked folder of the User's own shows its row only, never the example's,
   await expect(section).toBeVisible();
   await expect(section.getByTestId("row-text")).toHaveText(["Contracts"]);
   await expect(window.getByTestId("linked-folder-rows").getByText("Examples")).toHaveCount(0);
-  // One Linked folder and no Folder is not a reason to show the Library on day one.
-  await expect(window.getByTestId("open-library")).toHaveCount(0);
+  // A Linked folder's file is a Document of the User's own: the Library is there for it, and its
+  // Source locations view opens from the folder's row (#2376).
+  await expect(window.getByTestId("open-library")).toBeVisible();
 
-  // The steps put away, the Library row comes as it did.
+  // The steps put away, the rest of the shell comes as it did.
   await leaveFirstOpen(window);
   await expect(window.getByTestId("open-library")).toBeVisible();
 });
@@ -334,7 +344,11 @@ async function tagAutomatically(window: Window, apiKey: string): Promise<string 
       apiKey: key,
       modelId: "gpt-6-luna",
     });
-    await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: true });
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      automatic: true,
+      turnOn: true,
+    });
     return provider.service?.id ?? null;
   }, apiKey);
 }
@@ -473,6 +487,7 @@ test("an example's stored Organize assignment owes no progress on restart (#1942
           choice: { providerId: provider.id, modelId: "gpt-6-luna" },
         },
         automatic: true,
+        turnOn: true,
       });
     });
     // The example's Documents are copied in as the app starts: wait for the first.

@@ -304,3 +304,37 @@ test.each([6_000, 6_001])(
     });
   },
 );
+
+test("a failing retry that blocks past five seconds gives up after it without another call (#2067)", () => {
+  const error = sqliteError(1546);
+  const attempts: number[] = [];
+  sqlite.exec.mockImplementation(() => {
+    attempts.push(now);
+    if (attempts.length === 20) now += 2_350;
+    throw error;
+  });
+  const { log, entries } = recordingLog();
+  expect(thrownBy(() => openDatabase("saved.db", log))).toBe(error);
+  expect(attempts).toHaveLength(20);
+  expect(attempts.at(-1)).toBe(5_750);
+  expect(Atomics.wait).toHaveBeenCalledTimes(19);
+  expect(entries.slice(-2)).toEqual([
+    failed(20, 7_100, 1546),
+    { level: "warn", event: "storage.walOpen.gaveUp", fields: { attempts: 20, elapsedMs: 7_100 } },
+  ]);
+});
+
+test.each([
+  ["a WAL error it doesn't retry", (sql: string) => sql === WAL, sqliteError(26)],
+  ["Windows error 1546 that outlasts the retries", (sql: string) => sql === WAL, sqliteError(1546)],
+  ["a later pragma", (sql: string) => sql === "PRAGMA foreign_keys = ON", sqliteError(1)],
+])(
+  "a setup that fails on %s closes its connection before it throws (#2067)",
+  (_case, fails, error) => {
+    sqlite.exec.mockImplementation((sql) => {
+      if (fails(sql)) throw error;
+    });
+    expect(thrownBy(() => openDatabase("saved.db"))).toBe(error);
+    expect(sqlite.close).toHaveBeenCalledTimes(1);
+  },
+);

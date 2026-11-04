@@ -16,6 +16,7 @@ import {
   reasonKey,
   sourceValueText,
   statusKey,
+  workbookFormulaText,
 } from "../../shared/figureSchedule";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import type { ChatModelChoice, Citation, FigureSchedule, FigureScheduleRow } from "../api";
@@ -33,6 +34,7 @@ const CHECK_WORDS: Readonly<Record<Citation["check"], MessageKey>> = {
   found: "aiStatement.citations.found",
   "not-found": "aiStatement.citations.notFound",
   "cant-check": "aiStatement.citations.cantCheck",
+  "not-checked": "aiStatement.citations.cantCheck",
   unsupported: "aiStatement.citations.unsupported",
   contradicted: "aiStatement.citations.contradicted",
   checking: "aiStatement.citations.checking",
@@ -136,7 +138,12 @@ export function figureScheduleBook(
       id: row.id,
       cells: [
         text("number", String(row.number)),
-        text("figure", `${row.calculated ? "= " : ""}${row.reading.chars}`),
+        text(
+          "figure",
+          row.calculated?.figure.workbook?.change
+            ? `= ${row.reading.chars} · ${workbookFormulaText(row.calculated.figure, language)}`
+            : `${row.calculated ? "= " : ""}${row.reading.chars}`,
+        ),
         text("where", figurePlaceText(row, language), true),
         amount("sourceValue", unchecked ? null : sourceValueText(row)),
         {

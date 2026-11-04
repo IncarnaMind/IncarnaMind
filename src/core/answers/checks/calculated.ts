@@ -17,6 +17,7 @@ import {
   type FormulaInput,
   type ResultUnit,
   sameNumber,
+  showResult,
 } from "../../../shared/formula";
 import { INTEGER_WORDS, wholeNumberWords } from "../../../shared/numberWords";
 import type { CalculatedFigure, LimitRelation } from "../../api";
@@ -247,12 +248,12 @@ function tolerance(stated: Figure): number {
 
 const BRACKETED = /^[^\d]*[(（]/;
 
+const NAME = /[\p{L}_][\p{L}\p{N}_.]*/gu;
+
 /** Whether `formula` only multiplies or divides its inputs: no sum, difference or function. */
 function onlyScales(formula: string, names: readonly string[]): boolean {
   const own = new Set(names.map((name) => name.toLowerCase()));
-  const rest = formula.replace(/[\p{L}_][\p{L}\p{N}_.]*/gu, (word) =>
-    own.has(word.toLowerCase()) ? "" : word,
-  );
+  const rest = formula.replace(NAME, (word) => (own.has(word.toLowerCase()) ? "" : word));
   return /^[\d.\s*/()]*$/.test(rest);
 }
 
@@ -281,6 +282,45 @@ function bracketsOnly(
 }
 
 /**
+ * The figure a sentence's number is compared with, as its card shows it. When its only minus
+ * comes from costs printed in brackets (`bracketsOnly`), each of them is taken at its size,
+ * ABS(name), and the formula worked out again: the formula, value and shown figure are then the
+ * ones compared, and each input keeps the sign and characters its quote writes (#1908). Null when
+ * that can't be worked out, so the number isn't compared.
+ */
+export function comparedFigure(
+  stated: Figure,
+  figure: CalculatedFigure,
+  costs: ReadonlySet<string>,
+): CalculatedFigure | null {
+  if (!bracketsOnly(stated, figure, costs)) return figure;
+  const sized = new Set(
+    figure.inputs
+      .filter((input) => input.number.value < 0)
+      .map((input) => input.name.toLowerCase()),
+  );
+  const formula = figure.formula.replace(NAME, (word) =>
+    sized.has(word.toLowerCase()) ? `ABS(${word})` : word,
+  );
+  const result = evaluateFormula(
+    formula,
+    figure.inputs.map((input) => ({ name: input.name, ...input.number })),
+    figure.engine,
+  );
+  if (!result.ok || typeof result.value !== "number") return null;
+  const shown = showResult(result, figure.show);
+  if (!shown.ok) return null;
+  return {
+    ...figure,
+    formula,
+    value: result.value,
+    unit: result.unit,
+    shown: shown.shown,
+    literals: result.literals,
+  };
+}
+
+/**
  * Whether the sentence's number agrees with the figure worked out for it, to
  * the sentence's rounding: a range agrees when the figure is in it, and a
  * limit (`relation`) when the figure stays within it. Null when they measure
@@ -289,11 +329,11 @@ function bracketsOnly(
 function comparisonValue(
   stated: Figure,
   figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
-  { relation, costs = new Set() }: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
+  { relation }: { relation?: LimitRelation } = {},
 ): number | null {
   if (typeof figure.value === "boolean" || !comparable(stated.unit, figure.unit, figure.inputs))
     return null;
-  const value = bracketsOnly(stated, figure, costs) ? -figure.value : figure.value;
+  const { value } = figure;
   // A figure of the other sign isn't inside a limit the sentence writes as positive: a loss-making
   // EBITDA gives a negative leverage. The model's verdict stands instead.
   if (relation === "at most" && value < 0 && stated.value > 0 && !/[-−(（]/.test(stated.chars))
@@ -304,7 +344,7 @@ function comparisonValue(
 export function agreesWith(
   stated: Figure,
   figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
-  options: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
+  options: { relation?: LimitRelation } = {},
 ): boolean | null {
   const value = comparisonValue(stated, figure, options);
   if (value === null) return null;
@@ -321,11 +361,11 @@ export function agreesWith(
 export function agreesAtShownPrecision(
   stated: Figure,
   figure: Pick<CalculatedFigure, "value" | "unit" | "inputs" | "formula">,
-  { relation, costs = new Set() }: { relation?: LimitRelation; costs?: ReadonlySet<string> } = {},
+  { relation }: { relation?: LimitRelation } = {},
 ): boolean | null {
   // "about £130m" is rounded to its last significant figure, looser than its shown places.
-  if (stated.approximate) return agreesWith(stated, figure, { relation, costs });
-  const value = comparisonValue(stated, figure, { relation, costs });
+  if (stated.approximate) return agreesWith(stated, figure, { relation });
+  const value = comparisonValue(stated, figure, { relation });
   if (value === null || !Number.isFinite(value)) return null;
   if (relation === "at most") return value <= stated.value;
   if (relation === "at least") return value >= stated.value;

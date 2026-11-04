@@ -131,8 +131,18 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
       return t("mindCall.failed.stopped", { mind });
     case "no-table":
       return t("mindCall.failed.noTable", { mind });
+    case "unplaced":
+      return t("mindCall.failed.unplaced", { mind });
+    case "misnamed":
+      return t("mindCall.failed.misnamed", { mind });
+    case "typed-tag":
+      return t("mindCall.failed.typedTag", { mind });
+    case "not-placed":
+      return t("mindCall.failed.notPlaced", { mind });
     case "uncited":
       return t("mindCall.failed.uncited", { mind });
+    case "length":
+      return t("mindCall.failed.length", { mind });
     case "no-chart":
       return t(`mindCall.failed.noChart.${problem.problem}`, { mind });
     case "new-mind":

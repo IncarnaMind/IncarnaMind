@@ -31,6 +31,8 @@ export interface Plan {
   number?: string;
   /** The line of the quote's Passage that states that number's unit, as the model gives it. */
   unitQuote?: string;
+  /** What its figure items say the number measures; none by default. */
+  measure?: { sentence: string; quote: string | null; match: "same" | "differs" };
   says?: string;
   /** Its Absence line: no when left out, as the reply form asks of an ordinary sentence; null: no line. */
   absence?: boolean | null;
@@ -58,6 +60,8 @@ interface PlannedFigure {
     label: string;
     quote: string;
     number: string;
+    /** The line of the same Passage that states the number's unit, when its own doesn't. */
+    unitQuote?: string;
     bracketedCost?: boolean;
   }[];
   formula: string;
@@ -73,9 +77,13 @@ const FIGURES = /<figures>\n([\s\S]*?)\n<\/figures>/;
  * The figures of the sentence a check Run is asked to bind, each with its id, its shown text and,
  * for one it may be read more than one way, its first reading, as a model names one.
  */
-export function requestedFigures(
-  call: ModelCall,
-): { id: string; shown: string; reading: number | null }[] {
+export function requestedFigures(call: ModelCall): {
+  id: string;
+  shown: string;
+  reading: number | null;
+  label: string | null;
+  context: string | null;
+}[] {
   const match = FIGURES.exec(call.prompt);
   if (!match?.[1]) return [];
   const value: unknown = JSON.parse(match[1]);
@@ -84,7 +92,9 @@ export function requestedFigures(
     if (!isRecord(figure) || typeof figure.id !== "string" || typeof figure.shown !== "string")
       throw new Error("The fixture received an invalid figure.");
     const unsettled = Array.isArray(figure.ambiguities) && figure.ambiguities.length > 0;
-    return { id: figure.id, shown: figure.shown, reading: unsettled ? 1 : null };
+    const label = typeof figure.label === "string" ? figure.label : null;
+    const context = typeof figure.context === "string" ? figure.context : null;
+    return { id: figure.id, shown: figure.shown, reading: unsettled ? 1 : null, label, context };
   });
 }
 
@@ -219,6 +229,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
               ...(plan.unitQuote && { unitQuote: plan.unitQuote }),
             }
           : null,
+        measure: source ? (plan.measure ?? null) : null,
         calculation: null,
       };
     });

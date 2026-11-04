@@ -88,9 +88,8 @@ export const dialogClass = `${dialogFrameClass} max-h-[calc(100vh-48px)] max-w-[
 /** The padding inside a dialog. */
 export const dialogBodyClass = "flex flex-col gap-4 px-6 pt-6 pb-5";
 
-/** A dialog's title: serif, like the writing. */
-export const dialogTitleClass =
-  "font-serif text-[22px] leading-[30px] font-semibold text-ink [font-variation-settings:'opsz'_32]";
+/** A dialog's title: the heading style, in the interface's font. */
+export const dialogTitleClass = "font-sans text-heading font-semibold text-ink";
 
 /** The line under a dialog's title. */
 export const dialogTextClass = "text-ui break-words text-ink-secondary";

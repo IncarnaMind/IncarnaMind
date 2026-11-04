@@ -90,53 +90,56 @@ function afterSkip(
   { insists = false, givesNone = false }: { insists?: boolean; givesNone?: boolean } = {},
 ) {
   const asked: ModelCall[] = [];
-  const model = scriptedModel((call): ScriptedReply => {
-    if (call.json) {
-      if (call.system === CITE_RETRY_INSTRUCTIONS) asked.push(call);
-      return { text: JSON.stringify({ citations: givesNone ? [] : citationsAsked(call) }) };
-    }
-    const results = (tool: string) => call.results.filter((each) => each.tool === tool);
-    if (results("ask_user").length === 0) return { calls: [{ tool: "ask_user", input: WHICH }] };
-    if (results("search_documents").length === 0) {
-      return {
-        calls: FACTS.map((fact) => ({ tool: "search_documents", input: { query: fact.query } })),
-      };
-    }
-    const summary = summaryIn(language);
-    if (into === "reply") return { text: `${ASSUMED[language]} ${summary}` };
-    const written = (content: string) => ({
-      calls: [
-        { tool: "create_mind", input: { title: TITLE[language], content }, streamInput: true },
-      ],
-    });
-    const heading = `# ${TITLE[language]}\n\n`;
-    const writes = results("create_mind");
-    if (writes.length === 0) return written(`${heading}${summary}`);
-    if (refusedUncited(call)) {
-      if (insists) return written(`${heading}${summary}`);
-      const passages = results("search_documents").flatMap((each) => shownPassages(each.text));
-      return {
+  const model = scriptedModel(
+    (call): ScriptedReply => {
+      if (call.json) {
+        if (call.system === CITE_RETRY_INSTRUCTIONS) asked.push(call);
+        return { text: JSON.stringify({ citations: givesNone ? [] : citationsAsked(call) }) };
+      }
+      const results = (tool: string) => call.results.filter((each) => each.tool === tool);
+      if (results("ask_user").length === 0) return { calls: [{ tool: "ask_user", input: WHICH }] };
+      if (results("search_documents").length === 0) {
+        return {
+          calls: FACTS.map((fact) => ({ tool: "search_documents", input: { query: fact.query } })),
+        };
+      }
+      const summary = summaryIn(language);
+      if (into === "reply") return { text: `${ASSUMED[language]} ${summary}` };
+      const written = (content: string) => ({
         calls: [
-          {
-            tool: "cite",
-            input: {
-              citations: FACTS.map((fact, index) => ({
-                marker: index + 1,
-                passage: passages.find((each) => each.text.includes(fact.quote))?.id,
-                quote: fact.quote,
-              })),
-            },
-          },
+          { tool: "create_mind", input: { title: TITLE[language], content }, streamInput: true },
         ],
-      };
-    }
-    if (call.results.at(-1)?.tool === "cite") {
-      return written(
-        `${heading}${FACTS.map((fact, index) => `${fact[language]}[^${index + 1}]`).join("\n\n")}`,
-      );
-    }
-    return { text: ASSUMED[language] };
-  });
+      });
+      const heading = `# ${TITLE[language]}\n\n`;
+      const writes = results("create_mind");
+      if (writes.length === 0) return written(`${heading}${summary}`);
+      if (refusedUncited(call)) {
+        if (insists) return written(`${heading}${summary}`);
+        const passages = results("search_documents").flatMap((each) => shownPassages(each.text));
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: FACTS.map((fact, index) => ({
+                  marker: index + 1,
+                  passage: passages.find((each) => each.text.includes(fact.quote))?.id,
+                  quote: fact.quote,
+                })),
+              },
+            },
+          ],
+        };
+      }
+      if (call.results.at(-1)?.tool === "cite") {
+        return written(
+          `${heading}${FACTS.map((fact, index) => `${fact[language]}[^${index + 1}]`).join("\n\n")}`,
+        );
+      }
+      return { text: ASSUMED[language] };
+    },
+    { judgesItsAnswers: true },
+  );
   return { model, asked };
 }
 
@@ -238,16 +241,19 @@ describe("A summary written after a skipped question cites each Document (#1415)
     ["“didn't find”, after a search", "我在你的文档中没有找到关于停车位的内容。", true],
   ])("%s, in Chinese, isn't asked", async (_, reply, searches) => {
     const asked: ModelCall[] = [];
-    const model = scriptedModel((call): ScriptedReply => {
-      if (call.json) {
-        if (call.system === CITE_RETRY_INSTRUCTIONS) asked.push(call);
-        return { text: JSON.stringify({ citations: [] }) };
-      }
-      if (searches && !call.results.some((each) => each.tool === "search_documents")) {
-        return { calls: [{ tool: "search_documents", input: { query: "parking space" } }] };
-      }
-      return { text: reply };
-    });
+    const model = scriptedModel(
+      (call): ScriptedReply => {
+        if (call.json) {
+          if (call.system === CITE_RETRY_INSTRUCTIONS) asked.push(call);
+          return { text: JSON.stringify({ citations: [] }) };
+        }
+        if (searches && !call.results.some((each) => each.tool === "search_documents")) {
+          return { calls: [{ tool: "search_documents", input: { query: "parking space" } }] };
+        }
+        return { text: reply };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await setUpWithDocuments(model, DOCUMENTS);
 
     const answer = await askAssistant(core, { text: "你好", mindId: null });
@@ -259,17 +265,19 @@ describe("A summary written after a skipped question cites each Document (#1415)
 
   // protects=text written with no search before it isn't refused or marked, even with a small Library given whole with the Question; fails_when=a packing list is refused for want of Citations; no_claim=none beyond protects.
   test("text written with no search isn't refused", async () => {
-    const model = scriptedModel((call) =>
-      call.results.some((each) => each.tool === "create_mind")
-        ? { text: "Wrote the list." }
-        : {
-            calls: [
-              {
-                tool: "create_mind",
-                input: { title: "Packing", content: "# Packing\n\nPassport, charger and boots." },
-              },
-            ],
-          },
+    const model = scriptedModel(
+      (call) =>
+        call.results.some((each) => each.tool === "create_mind")
+          ? { text: "Wrote the list." }
+          : {
+              calls: [
+                {
+                  tool: "create_mind",
+                  input: { title: "Packing", content: "# Packing\n\nPassport, charger and boots." },
+                },
+              ],
+            },
+      { judgesItsAnswers: true },
     );
     const { core } = await setUpWithDocuments(model, DOCUMENTS);
 

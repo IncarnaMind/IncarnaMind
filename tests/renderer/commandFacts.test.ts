@@ -3,6 +3,7 @@ import type { AnswerToolCall, ApprovalReadText, CommandDone } from "../../src/co
 import {
   commandCallText,
   doneText,
+  organizeAskWhy,
   readTextLine,
   refusalsOf,
   repliesOnlyRefusals,
@@ -33,6 +34,24 @@ const done = (more: Partial<CommandDone> & Pick<CommandDone, "command">): Comman
   run: "run",
   items: [],
   ...more,
+});
+
+describe("What the assistant's Organize asks, and what its Allow sends (#2252)", () => {
+  // protects=the card gives the Library's details line and, after a standing no, says Allow sends this time only; fails_when=the card lists less than the Library or joins Chinese with a space; no_claim=the card's layout.
+  test("the details line, then the this-time-only line, in English and Chinese", () => {
+    const ask = { service: "OpenAI", declined: true };
+    expect(organizeAskWhy(en, enGap, ask)).toBe(
+      "Organize reads what each Document says and files it in the Folder that fits. Undo puts them back. Sends document names and excerpts to OpenAI. Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to OpenAI. You said no to this before. Allow sends them this time only.",
+    );
+    expect(organizeAskWhy(zh, zhGap, ask)).toBe(
+      "整理会读取每个文档的内容，放进合适的文件夹。可以用撤销恢复。会把文档名称和摘录发送给 OpenAI。每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 OpenAI。你之前选择了不发送。点“允许”只在这一次发送。",
+    );
+  });
+
+  test("with no standing no, the this-time-only line is absent", () => {
+    expect(organizeAskWhy(en, enGap, { service: "OpenAI" })).not.toContain("You said no");
+    expect(organizeAskWhy(zh, zhGap, { service: "OpenAI" })).not.toContain("你之前选择了不发送");
+  });
 });
 
 describe("What the assistant's commands did, in words (#1421)", () => {
@@ -405,6 +424,14 @@ describe("A refusal the reply says is said once (#2252)", () => {
     expect(repliesOnlyRefusals({ text: `${spending}${privacy}`, toolCalls })).toBe(true);
     expect(repliesOnlyRefusals({ text: `${privacy} I opened the lease.`, toolCalls })).toBe(false);
     expect(repliesOnlyRefusals({ text: "Opened it.", toolCalls: [opened] })).toBe(false);
+    // A model may straighten the sentence's quotes when copying it (#2252).
+    const straight = privacy.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    expect(saidInReply(straight, "privacy", undefined)).toBe(true);
+    expect(repliesOnlyRefusals({ text: straight, toolCalls: [refusal("privacy")] })).toBe(true);
+    // A near miss isn't the sentence, so the card says it.
+    expect(
+      saidInReply(straight.replace("this computer", "your computer"), "privacy", undefined),
+    ).toBe(false);
   });
 
   // protects=a Folder's wall refusal names its Folder in the reply as on the card; fails_when=the named sentence isn't known as said; no_claim=the Folder menu.

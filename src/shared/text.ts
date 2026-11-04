@@ -186,7 +186,7 @@ const UNIFIED: Readonly<Record<string, string>> = {
 const HYPHENS: ReadonlySet<string> = new Set(["-", "‐"]);
 
 /** Dropped entirely: NUL, soft hyphen, zero-width space and joiners, word joiner, byte-order mark. */
-const INVISIBLE: ReadonlySet<string> = new Set([
+export const INVISIBLE: ReadonlySet<string> = new Set([
   "\u0000",
   "\u00ad",
   "\u200b",

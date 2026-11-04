@@ -24,6 +24,7 @@ import { originMaps } from "../../shared/blockOrigins";
 import { holdsOnlyItsTitle } from "../../shared/madeMind";
 import { aiUseOfAccepted, decideProposals, pendingProposals } from "../../shared/proposals";
 import { nameOlderCitations } from "../../shared/signOffs";
+import { type ArrivingInMind, arrivingNow } from "./arrivingChanges";
 import type { ChangedMind } from "./changedMinds";
 import { readMindHandle } from "./commands/handles";
 import { core } from "./core";
@@ -96,19 +97,29 @@ const belongsTo = (requests: readonly string[]) => (proposal: ProposalRef) =>
 interface WaitingIn {
   mindId: string;
   requests: readonly string[] | null;
+  /** Leave out the changes this window is applying at once, which its copy holds only on the way in (#1325). */
+  besidesApplied?: true;
+  /** What this window still has on its way in the Mind: the only changes it leaves out. */
+  arriving?: ArrivingInMind;
 }
 
 /**
  * How many of a row's changes wait in its Mind, counted as the Mind's bar and its change card
  * count them (what Accept and Reject act on), or every change from anyone; null until its copy
- * has arrived.
+ * has arrived. `applying`: how many of the row's changes this window is applying at once.
  */
-function waiting(row: WaitingIn): { count: number; ids: readonly string[] } | null {
+function waiting(
+  row: WaitingIn,
+): { count: number; ids: readonly string[]; applying: number } | null {
   const doc = held.get(row.mindId)?.doc;
   if (!doc) return null;
   const belongs = row.requests ? belongsTo(row.requests) : () => true;
-  const pending = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).filter(belongs);
-  return { count: pending.length, ids: pending.map((each) => each.id) };
+  const own = pendingProposals(doc.getXmlFragment(MIND_CONTENT_FIELD)).filter(belongs);
+  const applying = new Set(
+    own.filter((each) => arrivingNow(doc, each.request, row.arriving)).map((each) => each.id),
+  );
+  const pending = row.besidesApplied ? own.filter((each) => !applying.has(each.id)) : own;
+  return { count: pending.length, ids: pending.map((each) => each.id), applying: applying.size };
 }
 
 /** How many of a row's changes wait in its Mind, and which: a count, "gone" for a Mind deleted, null until its copy arrives. */
@@ -116,6 +127,8 @@ export type Waiting = number | "gone" | null;
 
 export interface WaitingRow {
   count: Waiting;
+  /** How many of the row's changes this window is applying at once, which its copy holds only while they come in. */
+  applying: number;
   /** The changes still waiting there, so a card can tell its copy has taken the ones an apply took. */
   pending: readonly string[];
 }
@@ -152,16 +165,17 @@ export function useWaitingChanges(rows: readonly WaitingIn[]): WaitingRow[] {
   const snapshot = useSyncExternalStore(subscribe, () =>
     rows
       .map((row) => {
-        if (!live.includes(row)) return "gone|";
+        if (!live.includes(row)) return "gone||";
         const counted = waiting(row);
-        return counted ? `${counted.count}|${counted.ids.join(" ")}` : "|";
+        return counted ? `${counted.count}|${counted.applying}|${counted.ids.join(" ")}` : "||";
       })
       .join(";"),
   );
   return snapshot.split(";").map((each) => {
-    const [count = "", ids = ""] = each.split("|");
+    const [count = "", applying = "", ids = ""] = each.split("|");
     return {
       count: count === "gone" ? "gone" : count === "" ? null : Number(count),
+      applying: Number(applying) || 0,
       pending: ids === "" ? [] : ids.split(" "),
     };
   });
@@ -170,6 +184,17 @@ export function useWaitingChanges(rows: readonly WaitingIn[]): WaitingRow[] {
 /** How many changes wait in a Mind, from anyone, as they change. */
 export function useWaitingIn(mindId: string | null): Waiting {
   const rows = useMemo(() => (mindId ? [{ mindId, requests: null }] : []), [mindId]);
+  return useWaitingChanges(rows)[0]?.count ?? null;
+}
+
+export function useWaitingBesidesApplied(
+  mindId: string | null,
+  arriving?: ArrivingInMind,
+): Waiting {
+  const rows = useMemo(
+    () => (mindId ? [{ mindId, requests: null, besidesApplied: true as const, arriving }] : []),
+    [mindId, arriving],
+  );
   return useWaitingChanges(rows)[0]?.count ?? null;
 }
 

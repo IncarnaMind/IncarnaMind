@@ -13,6 +13,7 @@
  * here) and then deleted is `w:del` inside `w:ins` (or `w:moveTo`), as Word
  * writes it.
  */
+import type { MindComment } from "../api";
 import { elements, parseXml, type XmlElement } from "../documents/formats/xml";
 import type { FailedSentence, Footnote, Pending } from "../mindText";
 import type { ExportLabels } from "./labels";
@@ -22,6 +23,7 @@ import {
   commentEnd,
   commentStart,
   dateAttribute,
+  type ExtendedComment,
   escapeXml,
   type WordIds,
 } from "./wordml";
@@ -45,6 +47,10 @@ export interface ReviewChoices {
   commentFailedChecks: boolean;
   /** When the file is written, ISO 8601: the date of the User's changes and of comments. */
   now: string;
+  /** Writing back into an imported file (#105): its own comments are kept, and only new ones are added. */
+  intoWordFile?: boolean;
+  /** The User's name, which their own comments and replies go under (#328). */
+  authorName: string;
 }
 
 /** A tracked change's mark, as a paragraph mark or a table row carries it. */
@@ -303,6 +309,8 @@ export interface Piece {
   key: object;
   authorship: Authorship;
   sentence?: FailedSentence | undefined;
+  /** The comment the text is on (#328), by the record's id. */
+  comments?: readonly string[];
 }
 
 /** Where IncarnaMind's comments on AI text start and end: at pieces of the text, by identity. */
@@ -373,19 +381,147 @@ export class Review {
   private failedCitations = 0;
   private readonly trackings = new Map<string, Tracking>();
 
+  /** Where each comment's thread starts and ends, by the piece it starts or ends at (#328). */
+  private readonly commentRanges = new Map<string, { start: object; end: object }>();
+  /** The comments whose range was opened and not yet closed as the text is written. */
+  private readonly openComments = new Set<string>();
+  /** The Word id and `w14:paraId` of each comment and reply this writer writes, by record id. */
+  private readonly commentWordIds = new Map<string, number>();
+  private readonly commentParaIds = new Map<string, string>();
+  /** The comments the Mind holds (#328), in the order their threads were written. */
+  private readonly mindComments: readonly MindComment[];
+  private readonly intoWordFile: boolean;
+  /** What `commentsExtended.xml` says: the file's comments and the new ones. */
+  readonly extended: ExtendedComment[] = [];
+  /** Comments this writer can't keep: their words were never written, all of them deleted (#328). */
+  readonly lostComments: MindComment[] = [];
+  private nextParaId = 0x10000000;
+  private readonly addedComments = new Set<string>();
+
   constructor(
     readonly choices: ReviewChoices,
     private readonly ids: WordIds,
     private readonly labels: ExportLabels,
     /** The document's comment styles: asked for only once a comment is written. */
     private readonly styles: () => CommentStyles,
-  ) {}
+    mindComments: readonly MindComment[] = [],
+  ) {
+    this.mindComments = mindComments;
+    this.intoWordFile = choices.intoWordFile === true;
+    for (const root of mindComments) {
+      this.placeComment(root.id, root.word);
+      for (const reply of root.replies) this.placeComment(reply.id, reply.word);
+      this.extended.push(
+        ...(this.commentParaIds.has(root.id)
+          ? [
+              {
+                paraId: this.commentParaIds.get(root.id) as string,
+                parentParaId: null,
+                done: root.resolvedAt !== null,
+              },
+            ]
+          : []),
+        ...root.replies.flatMap((reply) => {
+          const paraId = this.commentParaIds.get(reply.id);
+          const parent = this.commentParaIds.get(root.id);
+          return paraId && parent ? [{ paraId, parentParaId: parent, done: false }] : [];
+        }),
+      );
+    }
+    this.comments.push(...this.userComments());
+  }
+
+  /** Takes a new comment's thread out of the comments part: its words, or all of them, weren't written. */
+  private dropComment(id: string): void {
+    const root = this.mindComments.find((each) => each.id === id);
+    if (root && !this.lostComments.some((each) => each.id === root.id)) {
+      this.lostComments.push(root);
+    }
+    const ids = new Set([id, ...(root?.replies.map((reply) => reply.id) ?? [])]);
+    for (const each of ids) {
+      const wordId = this.commentWordIds.get(each);
+      if (wordId === undefined) continue;
+      const at = this.comments.findIndex((xml) => xml.startsWith(`<w:comment w:id="${wordId}"`));
+      if (at !== -1) this.comments.splice(at, 1);
+      const paraId = this.commentParaIds.get(each);
+      if (paraId) {
+        const entry = this.extended.findIndex((entry) => entry.paraId === paraId);
+        if (entry !== -1) this.extended.splice(entry, 1);
+      }
+      this.commentWordIds.delete(each);
+    }
+  }
+
+  /** Gives a comment the id its XML uses: the file's own for one it holds, a new one for a new comment. */
+  private placeComment(id: string, word: { id: number; paraId: string | null } | undefined): void {
+    if (word && this.intoWordFile) {
+      this.commentWordIds.set(id, word.id);
+      if (word.paraId) this.commentParaIds.set(id, word.paraId);
+      return;
+    }
+    this.commentWordIds.set(id, this.ids.take("annotation"));
+    this.commentParaIds.set(id, (this.nextParaId++).toString(16).toUpperCase());
+  }
+
+  /** Whether the writer adds this comment to the file, rather than keeping the file's own (#328). */
+  addsComment(id: string): boolean {
+    return this.addedComments.has(id);
+  }
+
+  /** Whether this comment's thread gains a comment or a reply here, so its paragraph is written again (#328). */
+  renewsComment(id: string): boolean {
+    const root = this.mindComments.find(
+      (each) => each.id === id || each.replies.some((reply) => reply.id === id),
+    );
+    return (
+      root !== undefined && [root, ...root.replies].some((each) => this.addedComments.has(each.id))
+    );
+  }
+
+  /** The Word XML of each new comment and reply (#328): a comment of the file's own is already in its part. */
+  private userComments(): string[] {
+    const out: string[] = [];
+    for (const root of this.mindComments) {
+      const messages = [root, ...root.replies];
+      for (const message of messages) {
+        if (this.intoWordFile && message.word) continue;
+        if (message.text.trim() === "") continue;
+        const id = this.commentWordIds.get(message.id);
+        const paraId = this.commentParaIds.get(message.id);
+        if (id === undefined || !paraId) continue;
+        out.push(
+          comment(
+            id,
+            message.author ?? this.choices.authorName,
+            message.createdAt || this.choices.now,
+            message.text,
+            this.styles(),
+            paraId,
+          ),
+        );
+        this.addedComments.add(message.id);
+      }
+    }
+    return out;
+  }
 
   /** Where AI text's passages and the sentences to comment on are, as far as each is asked for. */
   mark(pieces: Iterable<Piece>): void {
     const all = [...pieces];
     if (this.choices.markAiText) this.passages = passagesOf(all);
     if (this.choices.commentFailedChecks) this.sentences = sentencePassagesOf(all);
+    for (const piece of all) {
+      for (const id of piece.comments ?? []) {
+        const root = this.mindComments.find((each) => each.id === id);
+        // A reply goes around the words its comment is on (#328).
+        for (const each of [id, ...(root?.replies.map((reply) => reply.id) ?? [])]) {
+          if (!this.addedComments.has(each)) continue;
+          const range = this.commentRanges.get(each);
+          if (range) range.end = piece.key;
+          else this.commentRanges.set(each, { start: piece.key, end: piece.key });
+        }
+      }
+    }
   }
 
   /**
@@ -425,6 +561,17 @@ export class Review {
     const unfinished = [...this.openSentences.values()];
     if (this.open !== null) unfinished.push(this.open);
     this.open = null;
+    for (const id of this.openComments) {
+      const wordId = this.commentWordIds.get(id);
+      if (wordId !== undefined) text = text.replace(commentStart(wordId), "");
+      this.dropComment(id);
+    }
+    this.openComments.clear();
+    // A new comment or reply whose words were never written (all of them deleted) has no range to keep.
+    for (const id of [...this.addedComments]) {
+      if (this.commentRanges.has(id)) continue;
+      this.dropComment(id);
+    }
     for (const id of this.openSentences.keys()) this.commented.delete(id);
     this.openSentences.clear();
     let out = text;
@@ -456,6 +603,13 @@ export class Review {
   /** What goes before a piece of text: the start of a sentence's comment, and of a passage of AI text's. */
   before(key: object): string {
     let xml = "";
+    for (const [id, range] of this.commentRanges) {
+      if (range.start !== key) continue;
+      const wordId = this.commentWordIds.get(id);
+      if (wordId === undefined) continue;
+      this.openComments.add(id);
+      xml += commentStart(wordId);
+    }
     const sentence = this.sentences.starts.get(key);
     if (sentence) {
       const id = this.add(this.labels.failedSentence(sentence));
@@ -473,6 +627,11 @@ export class Review {
   /** What goes after a piece of text: the end of the comments it ends, with each one's mark. */
   after(key: object): string {
     let xml = "";
+    for (const [id, range] of this.commentRanges) {
+      if (range.end !== key || !this.openComments.delete(id)) continue;
+      const wordId = this.commentWordIds.get(id);
+      if (wordId !== undefined) xml += commentEnd(wordId, this.styles().reference);
+    }
     if (this.passages.ends.has(key) && this.open !== null) {
       xml += commentEnd(this.open, this.styles().reference);
       this.open = null;

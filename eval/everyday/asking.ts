@@ -23,10 +23,11 @@ import {
   messageReference,
 } from "../../src/core";
 import { forPage } from "../../src/core/answers/pointersBack";
-import { toolRecordLines } from "../../src/core/answers/toolRecord";
+import { type ChangeStates, toolRecordLines } from "../../src/core/answers/toolRecord";
 import { plainText } from "../../src/core/mindText";
 import type { createAiSdkChatModel } from "../../src/core/providers/models";
 import { pageBlocks } from "../../src/shared/answerBlocks";
+import { appliedAsAsked } from "../../src/shared/askedChanges";
 import { namesOneOf, sourcesAsText } from "../../src/shared/namedSources";
 import { resolveProposals } from "../../src/shared/proposals";
 import { connectToMind } from "../../tests/helpers/mindClient";
@@ -39,6 +40,7 @@ import type { Library } from "../lib/library";
 import type { Log } from "../lib/log";
 import type { EverydayCase } from "./cases";
 import {
+  documentsCovered,
   givenToMindsOf,
   pointersIn,
   type RequestFailure,
@@ -180,6 +182,8 @@ export interface CaseResult {
   support: SentenceSupport[] | null;
   /** A summary: its sentences outside headings that make a claim, and how many carry a Citation; null for the others. */
   claims: { claims: number; cited: number } | null;
+  /** Asked about every Document in scope: what it did with each (`documentsCovered`). */
+  covered?: ReturnType<typeof documentsCovered>;
   /** Arm C (./decisions): what the decision model chose for the request, and how many of its model requests were forced; absent in arms A and B. */
   decision?: { choice: Route; confidence: number; forced: number };
 }
@@ -282,6 +286,20 @@ async function importWord(library: Library, word: NonNullable<EverydayCase["word
       body: [paragraph(title, { style: "Title" }), ...body.map((each) => paragraph(each))].join(""),
     }),
     { name: word.name, origin: "own", addOriginal: true },
+  );
+}
+
+/** The top-level Blocks that are headings: they name the text, which is what a follow-up changes. */
+function headingIdsOf(doc: Y.Doc): Set<string> {
+  return new Set(
+    doc
+      .getXmlFragment(MIND_CONTENT_FIELD)
+      .toArray()
+      .flatMap((block) =>
+        block instanceof Y.XmlElement && block.nodeName === "heading"
+          ? [String(block.getAttribute(BLOCK_ID_ATTRIBUTE))]
+          : [],
+      ),
   );
 }
 
@@ -466,6 +484,21 @@ export async function runCase(
     earlierCalls.push(...answer.toolCalls);
     last = answer;
   }
+  // The window applies an Answer's asked changes at once with Undo; without it a follow-up reads
+  // them waiting. Apply the before step's write first, so the follow-up sees the User's state.
+  if (client && last && each.before?.length && each.expected.inPlace) {
+    const asked = last.toolCalls.flatMap((call) =>
+      call.mindChange ? [{ mindId: call.mindChange.mindId, request: call.mindChange.request }] : [],
+    );
+    const byMind = new Map<string, string[]>();
+    for (const { mindId, request } of asked) {
+      byMind.set(mindId, [...(byMind.get(mindId) ?? []), request]);
+    }
+    for (const [mindId, requests] of byMind) {
+      await core.applyAskedChanges({ answerId: last.id, mindId, requests });
+    }
+    if (byMind.size > 0) await client.settled();
+  }
   let addedBlocks: number[] | undefined;
   if (each.addToNote && last && mind && client) {
     const earlier = new Set(ids);
@@ -480,8 +513,22 @@ export async function runCase(
     });
     await client.settled();
     ids = idsNow();
-    addedBlocks = ids.flatMap((id, block) => (earlier.has(id) ? [] : [block]));
+    const headings = headingIdsOf(client.doc);
+    addedBlocks = ids.flatMap((id, block) => (earlier.has(id) || headings.has(id) ? [] : [block]));
     before = acceptedTexts(client.doc, new Set());
+  }
+  // An in-place follow-up after the assistant wrote in `before` must change that text: the
+  // baseline is taken after the before step, and the Blocks it leaves are what `inPlace` looks at.
+  // No Block holding text means the before step wrote nothing, and the follow-up can't be tested.
+  if (each.before?.length && each.expected.inPlace && !addedBlocks && client) {
+    await client.settled();
+    ids = idsNow();
+    before = acceptedTexts(client.doc, new Set());
+    const headings = headingIdsOf(client.doc);
+    const body = ids.flatMap((id, block) => (headings.has(id) ? [] : [block]));
+    addedBlocks = body.some((block) => (before.get(ids[block] ?? "") ?? "").trim() !== "")
+      ? body
+      : [];
   }
   const quoted = each.quote ? await quoteOf(core, scoped, each.quote) : null;
   watch?.begin(each.firstReply ?? null);
@@ -501,14 +548,45 @@ export async function runCase(
     { choose: each.answerAsk, stopped: () => (stoppedAtAsk.last = true) },
   );
   const answeredSeconds = (Date.now() - started) / 1000;
-  const asks = watch ? { ...watch.end() } : { again: 0, citations: 0 };
+  const asks = watch ? { ...watch.end() } : { again: 0, coverage: 0, citations: 0 };
   const forced = deciding ? deciding.forcing.end() : 0;
   const decision = decided.last;
   counting();
   const minds = await core.listMinds();
   const names = (id: string) => minds.find((each) => each.id === id)?.title ?? null;
-  const record = toolRecordLines(answer.toolCalls, names);
   const support = each.research ? await checkCitedSentences(core, answer, checkModel) : null;
+  const changed = new Set(
+    answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
+  );
+  const requests = new Set(
+    answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.request] : [])),
+  );
+  const citedInMinds: string[] = [];
+  const sourcesAsTextIn: string[] = [];
+  const writtenInMinds: string[] = [];
+  const mindDocs = new Map<string, Y.Doc>();
+  const documentNames = scoped.map((document) => document.name);
+  for (const mindId of changed) {
+    const written = await connectToMind(core, mindId);
+    await written.settled();
+    mindDocs.set(mindId, written.doc);
+    citedInMinds.push(...citedDocuments(written.doc));
+    const was = mindId === mind?.id ? before : new Map<string, string>();
+    for (const [id, text] of acceptedTexts(written.doc, requests)) {
+      sourcesAsTextIn.push(
+        ...sourcesAsText(text, (source) => namesOneOf(source.name, documentNames)),
+      );
+      if (was.get(id) !== text) writtenInMinds.push(text);
+    }
+  }
+  // The judge reads the record as the app's own claim check does: what the window applies at once.
+  const states: ChangeStates = (change) => {
+    const doc = mindDocs.get(change.mindId);
+    return doc && appliedAsAsked(doc, change, answer.toolCalls)
+      ? { waiting: 0, accepted: 0, rejected: 0, applied: true }
+      : null;
+  };
+  const record = toolRecordLines(answer.toolCalls, names, states);
   const verdict = await judgeClaims(
     judge,
     answer.text,
@@ -520,29 +598,8 @@ export async function runCase(
     each.expected.honestTools || (answer.steps?.unrunTools ?? []).length > 0
       ? await judgeToolClaims(judge, answer.text, record)
       : null;
-  const changed = new Set(
-    answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.mindId] : [])),
-  );
-  const requests = new Set(
-    answer.toolCalls.flatMap((call) => (call.mindChange ? [call.mindChange.request] : [])),
-  );
-  const citedInMinds: string[] = [];
-  const sourcesAsTextIn: string[] = [];
-  const writtenInMinds: string[] = [];
-  const documentNames = scoped.map((document) => document.name);
-  for (const mindId of changed) {
-    const written = await connectToMind(core, mindId);
-    await written.settled();
-    citedInMinds.push(...citedDocuments(written.doc));
-    const was = mindId === mind?.id ? before : new Map<string, string>();
-    for (const [id, text] of acceptedTexts(written.doc, requests)) {
-      sourcesAsTextIn.push(
-        ...sourcesAsText(text, (source) => namesOneOf(source.name, documentNames)),
-      );
-      if (was.get(id) !== text) writtenInMinds.push(text);
-    }
-  }
   let changes: CaseResult["changes"] = [];
+  let longer = false;
   if (client) {
     await client.settled();
     const after = acceptedTexts(client.doc, requests);
@@ -551,6 +608,17 @@ export async function runCase(
         ? []
         : [{ block, before: before.get(id) ?? "", after: after.get(id) ?? "(removed)" }],
     );
+    const headings = headingIdsOf(client.doc);
+    const summaryIds = new Set(
+      (addedBlocks ?? []).flatMap((block) => (ids[block] ? [ids[block]] : [])),
+    );
+    const length = (texts: Map<string, string>) =>
+      [...texts.entries()].reduce(
+        (total, [id, text]) =>
+          total + (summaryIds.has(id) && !headings.has(id) ? text.trim().length : 0),
+        0,
+      );
+    longer = length(after) > length(before);
   }
   const changedBlocks = changes.map((change) => change.block);
   const page = forPage(answer.text, each.request);
@@ -580,11 +648,13 @@ export async function runCase(
     citedInMinds,
     changedBlocks,
     addedBlocks,
+    longer,
     sourcesAsText: sourcesAsTextIn,
     writtenInMinds,
     addedToPage: page,
     givenToMinds,
-    askedAgain: asks.again > 0,
+    askedAgain: asks.again > 0 || asks.coverage > 0,
+    coverageAsks: asks.coverage,
     scoped,
     texts: each.expected.textDates ? DATED_TEXTS : undefined,
     stoppedAtAsk: stoppedAtAsk.last,
@@ -616,6 +686,7 @@ export async function runCase(
     asks,
     support,
     claims: each.summary ? citedClaims(answer.text) : null,
+    ...(each.expected.coverAll && { covered: documentsCovered(outcome) }),
     ...(decision && {
       decision: { choice: decision.choice, confidence: decision.confidence, forced },
     }),

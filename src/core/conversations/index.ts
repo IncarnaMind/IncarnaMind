@@ -11,6 +11,7 @@
  * deleting it permanently is Recently deleted's (../recentlyDeleted).
  */
 import { randomUUID } from "node:crypto";
+import { PICTURE_DATA_URL } from "../../shared/askedQuote";
 import { withFigureText } from "../../shared/figureMarkers";
 import { parseLocation } from "../../shared/locations";
 import { conversationName, cutTitle } from "../../shared/naming";
@@ -32,10 +33,14 @@ import type {
   AnswerSteps,
   AnswerToolCall,
   AskedFrom,
+  AskedPictureData,
   AskedQuote,
+  AskedTable,
   ChatModelChoice,
+  CitationCheck,
   CitationSupport,
   ClaimedChange,
+  ClaimedCommand,
   ClaimedTool,
   Conversation,
   ConversationAnswer,
@@ -54,7 +59,13 @@ import type {
   SearchScope,
   ThirdPartySource,
 } from "../api";
-import { CLAIMED_CHANGES, CLAIMED_TOOLS, MOST_ASKED_QUOTES } from "../api";
+import {
+  CITATION_CHECK_REASONS,
+  CLAIMED_CHANGES,
+  CLAIMED_COMMANDS,
+  CLAIMED_TOOLS,
+  MOST_ASKED_QUOTES,
+} from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { isSignInRouteProblem } from "../providers/signInRoutes";
 import { parseSearchScope } from "../scope";
@@ -252,6 +263,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     firstWordMs,
     careful,
     unbackedClaims,
+    unbackedCommands,
     unrunTools,
     calculateUnavailable,
     askedAgainFor,
@@ -265,6 +277,11 @@ function storedSteps(value: string | null): AnswerSteps | null {
   const claimed = Array.isArray(unbackedClaims)
     ? unbackedClaims.filter((each): each is ClaimedChange =>
         CLAIMED_CHANGES.some((claim) => claim === each),
+      )
+    : [];
+  const commands = Array.isArray(unbackedCommands)
+    ? unbackedCommands.filter((each): each is ClaimedCommand =>
+        CLAIMED_COMMANDS.some((claim) => claim === each),
       )
     : [];
   const unrun = claimedTools(unrunTools);
@@ -293,6 +310,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(typeof firstWordMs === "number" && firstWordMs >= 0 && { firstWordMs }),
     ...(careful === true && { careful }),
     ...(claimed.length > 0 && { unbackedClaims: claimed }),
+    ...(commands.length > 0 && { unbackedCommands: commands }),
     ...(unrun.length > 0 && {
       unrunTools: unrun,
       ...(calculateUnavailable === true && { calculateUnavailable }),
@@ -428,26 +446,111 @@ const pageOf = (value: unknown): number | null | undefined =>
       ? value
       : undefined;
 
+const CHECK_STATES: readonly CitationCheck[] = [
+  "checking",
+  "found",
+  "not-found",
+  "cant-check",
+  "not-checked",
+  "unsupported",
+  "contradicted",
+];
+
+/** A sheet range's cells, as far as they read; null if they don't. */
+function parseAskedTable(value: unknown): AskedTable | null | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || !Array.isArray(value.rows)) return null;
+  const header = value.header;
+  if (
+    header !== null &&
+    (!Array.isArray(header) || !header.every((cell) => typeof cell === "string"))
+  ) {
+    return null;
+  }
+  if (
+    !value.rows.every((row) => Array.isArray(row) && row.every((cell) => typeof cell === "string"))
+  ) {
+    return null;
+  }
+  const rowLabels = value.rowLabels;
+  if (
+    rowLabels !== undefined &&
+    (!Array.isArray(rowLabels) || !rowLabels.every((cell) => typeof cell === "string"))
+  ) {
+    return null;
+  }
+  return {
+    header: header as string[] | null,
+    rows: value.rows as string[][],
+    ...(rowLabels && { rowLabels: rowLabels as string[] }),
+  };
+}
+
+function parseAskedPicture(value: unknown): AskedPictureData | null | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return null;
+  const { src, width, height } = value;
+  if (
+    typeof src !== "string" ||
+    !PICTURE_DATA_URL.test(src) ||
+    typeof width !== "number" ||
+    !Number.isInteger(width) ||
+    width < 1 ||
+    typeof height !== "number" ||
+    !Number.isInteger(height) ||
+    height < 1
+  ) {
+    return null;
+  }
+  return { src, width, height };
+}
+
 function parseQuote(value: unknown): AskedQuote | null {
   if (!isRecord(value)) return null;
   const { documentId, documentName, quote } = value;
   const pageFrom = pageOf(value.pageFrom);
   const pageTo = pageOf(value.pageTo);
   const location = value.location === null ? null : parseLocation(value.location);
+  const table = parseAskedTable(value.table);
+  const picture = parseAskedPicture(value.picture);
+  const pick =
+    value.pick === "rows" || value.pick === "slide" || value.pick === "area"
+      ? value.pick
+      : undefined;
+  const check = CHECK_STATES.find((state) => state === value.check);
+  const checkReason =
+    value.checkReason === null
+      ? null
+      : CITATION_CHECK_REASONS.find((reason) => reason === value.checkReason);
   if (
     typeof documentId !== "string" ||
     documentId === "" ||
     typeof documentName !== "string" ||
     typeof quote !== "string" ||
-    quote.trim() === "" ||
+    (quote.trim() === "" && !picture) ||
     quote.length > MOST_QUOTED_CHARACTERS ||
     pageFrom === undefined ||
     pageTo === undefined ||
-    (value.location !== null && location === null)
+    (value.location !== null && location === null) ||
+    table === null ||
+    picture === null ||
+    (value.check !== undefined && check === undefined)
   ) {
     return null;
   }
-  return { documentId, documentName, quote, pageFrom, pageTo, location };
+  return {
+    documentId,
+    documentName,
+    quote,
+    pageFrom,
+    pageTo,
+    location,
+    ...(pick && { pick }),
+    ...(table && { table }),
+    ...(picture && { picture }),
+    ...(check && { check }),
+    ...(value.checkReason !== undefined && { checkReason: checkReason ?? null }),
+  };
 }
 
 function parseQuotes(value: unknown): AskedQuote[] {
@@ -744,6 +847,30 @@ export function createConversations(db: Database, now: () => string) {
       ),
       question.asked_from_mind_id,
     ),
+  });
+
+  /**
+   * A Citation of an ended Answer still waiting for its sentence's judgement when an earlier run of
+   * the app ended (#2311): nothing judges it any more, so it is not checked, and Check again can
+   * judge it. One of an Answer left being written never had its quote checked: it stays as it was.
+   */
+  db.transaction(() => {
+    for (const row of db.all<{ id: string; citations: string }>(
+      `SELECT id, citations FROM conversation_messages
+       WHERE kind = 'answer' AND status <> 'streaming' AND citations LIKE '%"check":"checking"%'`,
+    )) {
+      const citations = storedList<MarkedCitation>(row.citations).map(
+        (citation): MarkedCitation =>
+          citation.check === "checking"
+            ? { ...citation, check: "not-checked", checkReason: null }
+            : citation,
+      );
+      db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(citations),
+        now(),
+        row.id,
+      ]);
+    }
   });
 
   /** Answers left being written by an earlier run of the app: nothing writes them any more. */
@@ -1248,6 +1375,31 @@ export function createConversations(db: Database, now: () => string) {
       if (row?.kind !== "answer") return null;
       db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
         JSON.stringify(toolCalls),
+        now(),
+        answerId,
+      ]);
+      return toAnswer(storedMessage(answerId));
+    },
+
+    /** An Answer as stored; null if it is gone. */
+    answer(answerId: string): ConversationAnswer | null {
+      const row = liveMessage(answerId);
+      return row?.kind === "answer" ? toAnswer(storedMessage(answerId)) : null;
+    },
+
+    /**
+     * Writes an ended Answer's Citations again once its sentences are judged (#2311), only while it
+     * still reads `text`: one written again since keeps its own. Returns it, or null if not written.
+     */
+    writeCitations(
+      answerId: string,
+      text: string,
+      citations: readonly MarkedCitation[],
+    ): ConversationAnswer | null {
+      const row = liveMessage(answerId);
+      if (row?.kind !== "answer" || row.text !== text) return null;
+      db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(citations),
         now(),
         answerId,
       ]);

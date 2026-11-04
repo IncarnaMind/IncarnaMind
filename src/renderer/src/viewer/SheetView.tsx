@@ -1,7 +1,11 @@
+import type { VirtualElement } from "@floating-ui/dom";
 import {
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -12,6 +16,7 @@ import { extractCsv } from "../../../core/documents/formats/csv";
 import {
   type Cell,
   gridUnits,
+  headerRow,
   MAX_ROWS,
   type Sheet,
   type Workbook,
@@ -29,13 +34,17 @@ import type { CellStyle, FontStyle } from "../../../core/documents/formats/xlsxS
 import type { PageArea } from "../../../shared/citedPage";
 import { anchorsCovered, quoteInUnits } from "../../../shared/locations";
 import { columnName, parseCellRef, type TextUnit } from "../../../shared/units";
+import { useViewerHandle } from "../commands/handles";
 import { commands } from "../commands/registry";
 import { ProblemLine } from "../components/ProblemLine";
 import { useT } from "../i18n";
+import { useSettingUp } from "../modelSetup";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { FileStates } from "./FileStates";
-import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
+import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone } from "./quoteMark";
+import { SheetSelectionMenu } from "./SelectionMenu";
+import { addRangeToNote, askAboutRange, copyRange } from "./selectionActions";
 import {
   Axis,
   borderCss,
@@ -45,9 +54,12 @@ import {
   fontCss,
   rowHeightFor,
 } from "./sheetGeometry";
+import { type MarkPlace, markGutter, placeSheetMark, scrollAcross } from "./sheetMark";
+import { isInRange, rangeBetween, rangeParts, rangeSize, rangeTable } from "./sheetSelection";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import "./officeFonts.css";
+import { officeFontName } from "./officeFontNames";
 
 /** The header row's height and the row numbers' width, in CSS pixels; rows drawn past the view. */
 const HEADER_HEIGHT = 24;
@@ -69,10 +81,13 @@ interface Loaded {
   units: TextUnit[];
 }
 
-const readXlsx = async (bytes: Uint8Array): Promise<Loaded> => {
-  const workbook = await readWorkbook(bytes, undefined, {
-    shortDate: shortDatePattern(navigator.language),
-  });
+const readXlsx = async (bytes: Uint8Array, readHiddenSheets: boolean): Promise<Loaded> => {
+  const workbook = await readWorkbook(
+    bytes,
+    undefined,
+    { shortDate: shortDatePattern(navigator.language) },
+    readHiddenSheets,
+  );
   // The workbook's fonts, loaded before text is measured to fit rows and spill over cells.
   const fonts = new Set(
     (workbook.layout?.styles ?? [])
@@ -99,8 +114,9 @@ const readCsv = (bytes: Uint8Array): Loaded => extractCsv(bytes);
 export function SheetView({ document, target }: { document: Document; target: ViewerTarget }) {
   const { loaded, reload } = useDocumentFile(
     document.id,
-    document.contentHash,
-    document.kind === "csv" ? readCsv : readXlsx,
+    // A workbook read with its hidden sheets looks different at the same content hash (#740).
+    `${document.contentHash}:${document.readHiddenSheets ? "hidden" : "visible"}`,
+    document.kind === "csv" ? readCsv : (bytes) => readXlsx(bytes, document.readHiddenSheets),
   );
   return (
     <FileStates
@@ -142,9 +158,12 @@ function findCells(
   };
 }
 
+/** The cited cells to scroll to: their first and last rows and columns. */
 interface ScrollRequest {
-  row: number;
-  column: number;
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
   request: number;
 }
 
@@ -193,13 +212,30 @@ function Sheets({
     const rows = refs.map((ref) => ref?.row ?? 1);
     const columns = refs.map((ref) => ref?.column ?? 0);
     setScrollTo({
-      row: Math.min(...rows),
-      column: Math.min(...columns),
+      top: Math.min(...rows),
+      bottom: Math.max(...rows),
+      left: Math.min(...columns),
+      right: Math.max(...columns),
       request: target.request,
     });
   }, [target.request, target.pageFrom, found, citedSheet, citedUnit, sheets]);
 
   const sheet = sheets[active];
+  // A sheet's own header row, among its first ten: the range's chip and table bring it along (#118).
+  const headerRows = useMemo(() => {
+    const rows = new Map<string, number | null>();
+    for (const each of sheets) {
+      const byRow = new Map<number, Cell[]>();
+      for (const cell of each.cells) {
+        const list = byRow.get(cell.row) ?? [];
+        list.push(cell);
+        byRow.set(cell.row, list);
+      }
+      // The core takes the first 10 rows that have anything, however far down they start.
+      rows.set(each.name, headerRow(byRow));
+    }
+    return rows;
+  }, [sheets]);
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
   const hasContent =
     sheet &&
@@ -250,7 +286,10 @@ function Sheets({
           <Grid
             key={active}
             sheet={sheet}
+            doc={document}
             book={workbook.layout ?? null}
+            units={units}
+            headerRow={headerRows.get(sheet.name) ?? null}
             highlighted={found?.sheet === sheet.name ? found.cells : null}
             mark={found?.sheet === sheet.name ? mark : null}
             scrollTo={sheet.name === (citedSheet ?? "") ? scrollTo : null}
@@ -318,8 +357,8 @@ let measuring: CanvasRenderingContext2D | null = null;
 /** A font as the canvas takes it: concrete families, as `var()` means nothing there. */
 function canvasFont(font: FontStyle, fallbackPoints: number): string {
   const size = ((font.size ?? fallbackPoints) * 4) / 3;
-  const family = font.name ? `"${font.name.replace(/["\\]/g, "")}", ` : "";
-  return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}"Source Sans 3", sans-serif`;
+  const family = font.name ? `"${officeFontName(font.name).replace(/["\\]/g, "")}", ` : "";
+  return `${font.italic ? "italic " : ""}${font.bold ? 700 : 400} ${size}px ${family}system-ui, sans-serif`;
 }
 
 function measure(text: string, font: string): number {
@@ -347,7 +386,7 @@ function wrappedLines(text: string, font: string, width: number): number {
 }
 
 /** The UI font a CSV's grid is set in (viewer.css), as the canvas takes it. */
-const CSV_FONT = '400 13px "Source Sans 3", sans-serif';
+const CSV_FONT = "400 13px system-ui, sans-serif";
 
 /** A CSV's column widths: fitted to the widest value among its first rows. */
 function csvWidths(sheet: Sheet): Map<number, number> {
@@ -506,9 +545,11 @@ function edgeCss(edge: Edge, side: "right" | "bottom", css: CSSProperties, shado
   }
 }
 
-interface MarkPlace {
-  top: number;
-  left: number;
+/** The Citation's mark as measured, with its label and without, and the label it was measured with. */
+interface MarkMeasure {
+  full: number;
+  compact: number;
+  label: string | undefined;
 }
 
 /** Rows not drawn, above or below the view: one empty row of their height. */
@@ -522,13 +563,19 @@ function Spacer({ height, columns }: { height: number; columns: number }) {
 
 function Grid({
   sheet,
+  doc,
   book,
+  units,
+  headerRow: sheetHeaderRow,
   highlighted,
   mark,
   scrollTo,
 }: {
   sheet: Sheet;
+  doc: Document;
   book: WorkbookLayout | null;
+  units: readonly TextUnit[];
+  headerRow: number | null;
   highlighted: ReadonlySet<string> | null;
   mark: ReturnType<typeof quoteMarkOf>;
   scrollTo: ScrollRequest | null;
@@ -538,27 +585,106 @@ function Grid({
   const table = useRef<HTMLTableElement>(null);
   const [view, setView] = useState({ top: 0, height: 600, left: 0, width: 600 });
   const [place, setPlace] = useState<MarkPlace | null>(null);
-  const [markWidth, setMarkWidth] = useState(40);
+  const [pick, setPick] = useState<{
+    anchor: { row: number; column: number };
+    focus: { row: number; column: number };
+  } | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<VirtualElement | null>(null);
+  const keys = useRef<HTMLButtonElement>(null);
+  const markLabel = mark?.label;
+  const [markSize, setMarkSize] = useState<MarkMeasure | null>(null);
+  const measuredMark = useCallback(
+    (size: { full: number; compact: number }) =>
+      setMarkSize((previous) =>
+        previous?.full === size.full &&
+        previous.compact === size.compact &&
+        previous.label === markLabel
+          ? previous
+          : { ...size, label: markLabel },
+      ),
+    [markLabel],
+  );
+  const measured = mark && markSize?.label === mark.label ? markSize : null;
+  const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
   const applied = useRef<number | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);
   const csv = model.look === null;
+  const settingUp = useSettingUp();
+  const sheetUnits = useMemo(
+    () => (csv ? units : units.filter((unit) => (unit.label?.sheet ?? "") === sheet.name)),
+    [units, csv, sheet.name],
+  );
+  /** A cell's own text, as the Document stores it: what the range's Citation is checked against. */
+  const cellValue = useCallback(
+    (row: number, column: number) => model.cells.get(cellIndex(row, column))?.value ?? "",
+    [model],
+  );
+  const activeRange = useMemo(
+    () =>
+      pick ? rangeBetween(pick.anchor, pick.focus, csv ? null : sheet.name, sheetHeaderRow) : null,
+    [pick, csv, sheet.name, sheetHeaderRow],
+  );
+  const activeTable = useMemo(() => {
+    if (!activeRange) return null;
+    const table = rangeTable(activeRange, cellValue);
+    if (activeRange.fromColumn > 0) {
+      table.rowLabels = [];
+      for (let row = activeRange.fromRow; row <= activeRange.toRow; row++) {
+        table.rowLabels.push(cellValue(row, 0));
+      }
+    }
+    return table;
+  }, [activeRange, cellValue]);
+  const activeParts = useMemo(
+    () => (activeRange ? rangeParts(activeRange, sheetUnits) : []),
+    [activeRange, sheetUnits],
+  );
+  const rangeSelection = useMemo(
+    () =>
+      activeRange && activeTable
+        ? { document: doc, range: activeRange, table: activeTable, parts: activeParts }
+        : null,
+    [doc, activeRange, activeTable, activeParts],
+  );
+  const activeSize = activeRange ? rangeSize(activeRange, t).text : "";
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+  // The range's actions stay in ⌘K while it is selected, whether its menu is open or not (#118).
+  const rangeActions = useMemo(
+    () =>
+      rangeSelection
+        ? {
+            ...(!settingUp && { ask: () => void askAboutRange(rangeSelection) }),
+            addToNote: () => void addRangeToNote(rangeSelection),
+            copy: () => void copyRange(rangeSelection),
+          }
+        : null,
+    [rangeSelection, settingUp],
+  );
+  useViewerHandle("range", rangeActions);
 
-  // As in Excel, empty rows and columns fill the view past the sheet's last ones.
+  // As in Excel, empty rows and columns fill the view past the sheet's last ones; a wide
+  // sheet gets room past its last column for a Citation's mark beside it.
   const columns = useMemo(() => {
     const used = new Axis(0, model.usedColumns, model.defaultColumn, model.columnSizes);
     const room = view.width - ROW_HEADER_WIDTH - used.total;
-    const more = room > 0 ? Math.ceil(room / model.defaultColumn) : 0;
+    const more = Math.max(
+      Math.ceil(gutter / model.defaultColumn),
+      room > 0 ? Math.ceil(room / model.defaultColumn) : 0,
+    );
     return new Axis(
       0,
       Math.min(MAX_COLUMNS, model.usedColumns + more),
       model.defaultColumn,
       model.columnSizes,
     );
-  }, [model, view.width]);
+  }, [model, view.width, gutter]);
   const rows = useMemo(() => {
     const used = new Axis(1, model.usedRows, model.defaultRow, model.rowSizes);
-    const room = view.height - HEADER_HEIGHT - used.total;
-    const more = room > 0 ? Math.ceil(room / model.defaultRow) : 0;
+    // A long sheet gets rows past its last too, so a Citation to its last rows scrolls them a
+    // third of the way down, not to the bottom edge under the scrollbar (#974).
+    const body = view.height - HEADER_HEIGHT;
+    const more = Math.ceil(Math.max(body - used.total, (body * 2) / 3) / model.defaultRow);
     return new Axis(1, model.usedRows + more, model.defaultRow, model.rowSizes);
   }, [model, view.height]);
   const shownColumns = useMemo(() => columns.visible(0, columns.last), [columns]);
@@ -602,57 +728,193 @@ function Grid({
     return () => observer.disconnect();
   }, [updateView]);
 
-  // Scroll the cited rows into view a third of the way down, below any frozen rows,
-  // and their first column into view if it is off to the right.
+  // Scroll the cited rows into view a third of the way down, below any frozen rows, and
+  // across to their columns, as far as a merged cell among them reaches. It waits for the view's
+  // own size, as the rows past the sheet's last are counted from it, and for the mark's width.
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element || !scrollTo || applied.current === scrollTo.request) return;
+    if (view.height !== element.clientHeight || view.width !== element.clientWidth) return;
+    if (mark && !measured) return;
     applied.current = scrollTo.request;
     const frozenHeight = rows.start(model.frozen.rows + 1);
     const body = element.clientHeight - HEADER_HEIGHT - frozenHeight;
-    element.scrollTop = Math.max(0, rows.start(scrollTo.row) - frozenHeight - body / 3);
-    const left = ROW_HEADER_WIDTH + columns.start(scrollTo.column);
-    const frozenWidth = columns.start(model.frozen.columns);
-    if (left + columns.size(scrollTo.column) > element.clientWidth) {
-      element.scrollLeft = Math.max(0, left - ROW_HEADER_WIDTH - frozenWidth - 24);
+    element.scrollTop = Math.max(0, rows.start(scrollTo.top) - frozenHeight - body / 3);
+    let right = scrollTo.right;
+    for (let row = scrollTo.top; row <= scrollTo.bottom; row++) {
+      for (let column = scrollTo.left; column <= scrollTo.right; column++) {
+        right = Math.max(right, model.merges.get(cellIndex(row, column))?.right ?? right);
+      }
     }
+    element.scrollLeft = scrollAcross(
+      {
+        left: columns.start(scrollTo.left),
+        right: columns.start(Math.min(right, columns.last) + 1),
+      },
+      columns.start(model.frozen.columns),
+      element.clientWidth - ROW_HEADER_WIDTH,
+      gutter,
+    );
     updateView();
-  }, [scrollTo, updateView, rows, columns, model.frozen]);
+  }, [
+    scrollTo,
+    updateView,
+    rows,
+    columns,
+    model.frozen,
+    model.merges,
+    view,
+    mark,
+    measured,
+    gutter,
+  ]);
+
+  /** The cell under a pointer or an event's target, if it is one of the grid's. */
+  const cellAt = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof Element)) return null;
+    const td = target.closest<HTMLElement>("td[data-ref]");
+    if (!td || !scroller.current?.contains(td)) return null;
+    const ref = parseCellRef(td.dataset.ref ?? "");
+    return ref ? { row: ref.row, column: ref.column } : null;
+  }, []);
+  const openMenu = useCallback((current: NonNullable<typeof pick>) => {
+    // Under the cell the range started at, as a sheet's menu opens where the selection began (#118).
+    const ref = `${columnName(current.anchor.column)}${current.anchor.row}`;
+    const cell = table.current?.querySelector<HTMLElement>(`td[data-ref="${ref}"]`);
+    const rect = cell?.getBoundingClientRect() ?? scroller.current?.getBoundingClientRect();
+    if (rect) setMenuAnchor({ getBoundingClientRect: () => rect });
+  }, []);
+  // The range stays drawn after the mouse comes up; its menu opens when the drag was one, or with Shift.
+  const [dragging, setDragging] = useState(false);
+  const dragMoved = useRef(false);
+  useEffect(() => {
+    if (!dragging) return;
+    const onUp = () => {
+      setDragging(false);
+      const current = pickRef.current;
+      if (current && dragMoved.current) openMenu(current);
+      dragMoved.current = false;
+    };
+    window.addEventListener("pointerup", onUp);
+    return () => window.removeEventListener("pointerup", onUp);
+  }, [dragging, openMenu]);
+  const onPointerDown = (event: ReactPointerEvent) => {
+    if (event.button !== 0) return;
+    const cell = cellAt(event.target);
+    if (!cell) return;
+    // Cells are selected, not the words in them.
+    event.preventDefault();
+    keys.current?.focus();
+    const anchor = event.shiftKey && pick ? pick.anchor : cell;
+    setPick({ anchor, focus: cell });
+    setMenuAnchor(null);
+    dragMoved.current = event.shiftKey;
+    setDragging(true);
+  };
+  const onPointerMove = (event: ReactPointerEvent) => {
+    if (!dragging || event.buttons === 0) return;
+    const cell = cellAt(window.document.elementFromPoint(event.clientX, event.clientY));
+    if (!cell) return;
+    dragMoved.current = true;
+    setPick((before) =>
+      before && (before.focus.row !== cell.row || before.focus.column !== cell.column)
+        ? { ...before, focus: cell }
+        : before,
+    );
+  };
+  const onKeyDown = (event: ReactKeyboardEvent) => {
+    if (window.document.activeElement !== keys.current) return;
+    const steps: Record<string, [number, number]> = {
+      ArrowUp: [-1, 0],
+      ArrowDown: [1, 0],
+      ArrowLeft: [0, -1],
+      ArrowRight: [0, 1],
+    };
+    const step = steps[event.key];
+    if (step) {
+      event.preventDefault();
+      const base = pick?.focus ?? { row: Math.max(1, rows.indexAt(view.top)), column: 0 };
+      const next = {
+        row: Math.min(Math.max(1, base.row + step[0]), model.usedRows),
+        column: Math.min(Math.max(0, base.column + step[1]), Math.max(0, model.usedColumns - 1)),
+      };
+      setPick((before) => ({
+        anchor: event.shiftKey ? (before?.anchor ?? base) : next,
+        focus: next,
+      }));
+      setMenuAnchor(null);
+      return;
+    }
+    const command = event.metaKey || event.ctrlKey;
+    if (pick && (event.key === "Enter" || (command && event.key === "/"))) {
+      event.preventDefault();
+      openMenu(pick);
+      return;
+    }
+    if (event.key === "Escape") {
+      if (menuAnchor) setMenuAnchor(null);
+      else setPick(null);
+    }
+  };
+  // A cell moved to with the arrows is brought into view.
+  useLayoutEffect(() => {
+    const focus = pick?.focus;
+    const ref = focus && `${columnName(focus.column)}${focus.row}`;
+    if (!ref) return;
+    table.current
+      ?.querySelector<HTMLElement>(`td[data-ref="${ref}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [pick?.focus]);
 
   const firstBody = model.frozen.rows + 1;
   const first = Math.max(firstBody, rows.indexAt(view.top) - OVERSCAN);
   const last = Math.min(rows.last, rows.indexAt(view.top + view.height) + OVERSCAN);
 
-  // The Citation's mark, to the right of the quote's cells in its first row; while
-  // those run on past the view, at the view's right edge, over the washed row.
+  // The Citation's mark, outside the quote's cells and never over them (#974).
   // biome-ignore lint/correctness/useExhaustiveDependencies: placed again as the view moves
   useLayoutEffect(() => {
     const grid = table.current;
     const box = grid?.parentElement;
-    if (!grid || !box || !mark || !highlighted) {
+    if (!grid || !box || !mark || !measured || !highlighted) {
       setPlace(null);
       return;
     }
     const marked = [...grid.querySelectorAll<HTMLElement>("td[data-quote-highlight]")];
-    const top = marked[0];
-    if (!top) {
+    if (marked.length === 0) {
       setPlace(null);
       return;
     }
-    const row = top.dataset.row;
-    const right = Math.max(
-      ...marked
-        .filter((cell) => cell.dataset.row === row)
-        .map((cell) => cell.getBoundingClientRect().right),
-    );
     const origin = box.getBoundingClientRect();
-    const rect = top.getBoundingClientRect();
-    const visibleRight = view.left + view.width - markWidth - 8;
-    setPlace({
-      top: rect.top - origin.top + rect.height / 2 - 9,
-      left: Math.max(0, Math.min(right - origin.left + 8, visibleRight)),
+    const boxes = marked.map((cell) => {
+      const rect = cell.getBoundingClientRect();
+      return {
+        left: rect.left - origin.left,
+        top: rect.top - origin.top,
+        right: rect.right - origin.left,
+        bottom: rect.bottom - origin.top,
+      };
     });
-  }, [mark, highlighted, first, last, view.left, view.width, markWidth]);
+    const cited = {
+      left: Math.min(...boxes.map((each) => each.left)),
+      top: Math.min(...boxes.map((each) => each.top)),
+      right: Math.max(...boxes.map((each) => each.right)),
+      bottom: Math.max(...boxes.map((each) => each.bottom)),
+    };
+    const firstRow = boxes.filter((each) => each.top === cited.top);
+    setPlace(
+      placeSheetMark(
+        cited,
+        { top: cited.top, bottom: Math.min(...firstRow.map((each) => each.bottom)) },
+        {
+          left: view.left + ROW_HEADER_WIDTH + columns.start(model.frozen.columns),
+          top: view.top + HEADER_HEIGHT + rows.start(model.frozen.rows + 1),
+          right: view.left + view.width,
+          bottom: view.top + view.height,
+        },
+        { ...measured, height: MARK_HEIGHT },
+      ),
+    );
+  }, [mark, highlighted, first, last, view, measured, rows, columns, model.frozen]);
 
   const styleOf = (row: number, column: number): CellStyle | undefined =>
     model.book?.styles[styleIndexAt(model, row, column)];
@@ -687,6 +949,7 @@ function Grid({
       const { at, cell, shown, text } = contentOf(top, column);
       const style = styleOf(top, column);
       const isHighlighted = highlighted?.has(cellKey(sheet.name, ref)) ?? false;
+      const isPicked = activeRange !== null && isInRange(activeRange, top, column);
 
       // Its extent: merged rows and columns in view, or empty cells its text spills over.
       let spanColumns = 1;
@@ -795,6 +1058,14 @@ function Grid({
         // A filled cell keeps its fill, washed over.
         shadows.push("inset 0 0 0 9999px var(--quote-overlay)");
       }
+      if (isPicked && activeRange) {
+        // The range's edge is drawn on its cells, and the cells washed under it (#118).
+        if (top === activeRange.fromRow) shadows.push("inset 0 2px 0 var(--color-accent)");
+        if (bottom === activeRange.toRow) shadows.push("inset 0 -2px 0 var(--color-accent)");
+        if (column === activeRange.fromColumn) shadows.push("inset 2px 0 0 var(--color-accent)");
+        if (right === activeRange.toColumn) shadows.push("inset -2px 0 0 var(--color-accent)");
+        shadows.push("inset 0 0 0 9999px var(--selection-overlay)");
+      }
       if (shadows.length > 0) css.boxShadow = shadows.join(", ");
       else if (!csv) css.boxShadow = "none";
       // Frozen panes stay put as the rest scrolls under them.
@@ -805,7 +1076,11 @@ function Grid({
         if (column < model.frozen.columns) css.left = ROW_HEADER_WIDTH + columns.start(column);
         css.zIndex = frozen && column < model.frozen.columns ? 4 : frozen ? 3 : 2;
         if (!css.background) {
-          css.background = isHighlighted ? "var(--quote-wash)" : "var(--color-sheet)";
+          css.background = isHighlighted
+            ? "var(--quote-wash)"
+            : isPicked
+              ? "var(--selection-wash)"
+              : "var(--color-sheet)";
         }
       }
 
@@ -846,6 +1121,7 @@ function Grid({
           data-ref={ref}
           data-row={top}
           data-quote-highlight={isHighlighted ? "" : undefined}
+          data-selected={isPicked ? "" : undefined}
           rowSpan={spanRows > 1 ? spanRows : undefined}
           colSpan={spanColumns > 1 ? spanColumns : undefined}
           title={note ?? (unsavedMark ? t("sheet.noSavedValue") : undefined)}
@@ -896,7 +1172,7 @@ function Grid({
   const style = {
     "--grid-width": `${ROW_HEADER_WIDTH + columns.total}px`,
   } as CSSProperties;
-  return (
+  const grid = (
     <div
       ref={scroller}
       data-testid="viewer-grid"
@@ -906,9 +1182,27 @@ function Grid({
           ? `${model.frozen.rows},${model.frozen.columns}`
           : undefined
       }
+      role="application"
+      aria-label={t("viewer.sheet.grid", { name: sheet.name || doc.name })}
       onScroll={updateView}
+      onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
       className={`viewer-grid-scroll min-h-0 flex-1 overflow-auto ${csv ? "" : "viewer-grid-scroll--styled"}`}
     >
+      <button
+        ref={keys}
+        type="button"
+        data-testid="viewer-grid-keys"
+        aria-label={t("viewer.sheet.grid", { name: sheet.name || doc.name })}
+        onKeyDown={onKeyDown}
+        className="sr-only"
+      >
+        {t("viewer.selection.range")}
+      </button>
+      <span className="sr-only" role="status" data-testid="viewer-selection-announce">
+        {activeRange ? `${t("viewer.selection.range")} · ${activeSize}` : ""}
+      </span>
       <div className="relative w-max" style={style}>
         <table ref={table} className={`viewer-grid ${csv ? "" : "viewer-grid--styled"}`}>
           <colgroup>
@@ -959,12 +1253,34 @@ function Grid({
         {mark && place && (
           <CitationMark
             mark={mark}
-            onWidth={setMarkWidth}
+            room={place.label ? undefined : 0}
+            onSize={measuredMark}
             style={{ top: place.top, left: place.left, zIndex: 5 }}
+          />
+        )}
+        {mark && !place && !measured && (
+          <CitationMark
+            mark={mark}
+            onSize={measuredMark}
+            style={{ top: 0, left: 0, visibility: "hidden" }}
           />
         )}
       </div>
     </div>
+  );
+  return (
+    <>
+      {grid}
+      {rangeSelection && menuAnchor && (
+        <SheetSelectionMenu
+          selection={rangeSelection}
+          anchor={menuAnchor}
+          size={activeSize}
+          askable={!settingUp}
+          onClose={() => setMenuAnchor(null)}
+        />
+      )}
+    </>
   );
 }
 

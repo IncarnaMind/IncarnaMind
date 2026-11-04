@@ -16,8 +16,15 @@ async function moveIntoNew(items: MoveItems, name: string): Promise<void> {
   if (made) useFolds.getState().reveal(made);
 }
 
+/** A Folder put inside another, or at the top level: the Folder it went into opens, so it stays in sight. */
+async function moveFolderThere(folderId: string, parentId: string | null): Promise<void> {
+  await useAppStore.getState().moveFolder(folderId, parentId);
+  if (parentId) useFolds.getState().reveal(parentId);
+}
+
 export function SidebarMoveTo() {
   const request = useSidebarMove((state) => state.request);
+  const groups = useAppStore((state) => state.library?.groups);
   const minds = useAppStore((state) => state.minds);
   const assignments = useAppStore((state) => state.library?.assignments);
   const { mindIds, documentIds } = itemsOf(request?.items ?? {});
@@ -30,13 +37,27 @@ export function SidebarMoveTo() {
   const [current] = folders;
   // Only while asked for: the Library has a picker of its own, and a page has one at a time.
   if (!request) return null;
+  const moving = request.folderId
+    ? (groups ?? []).find((group) => group.id === request.folderId)
+    : undefined;
+  // The Folder went (deleted as this opened): there is nothing to move.
+  if (request.folderId !== undefined && moving === undefined) return null;
   return (
     <MoveToPicker
       anchor={request.anchor}
-      name={nameOfMoved(request.items)}
-      current={folders.size === 1 ? (current ?? null) : undefined}
-      onChoose={(folderId) => void moveThere(request.items, folderId)}
-      onCreate={(name) => void moveIntoNew(request.items, name)}
+      name={moving ? moving.name : nameOfMoved(request.items)}
+      current={moving ? moving.parentId : folders.size === 1 ? (current ?? null) : undefined}
+      forFolder={moving}
+      onChoose={(folderId) =>
+        moving ? void moveFolderThere(moving.id, folderId) : void moveThere(request.items, folderId)
+      }
+      onCreate={
+        moving
+          ? undefined
+          : (name) => {
+              void moveIntoNew(request.items, name);
+            }
+      }
       onClose={() => useSidebarMove.getState().hide()}
     />
   );

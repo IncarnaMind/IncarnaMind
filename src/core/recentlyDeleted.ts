@@ -10,6 +10,9 @@
  * still quotes stays (ADR-0010), as the text kept of an unlinked Document does.
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
+import { sameName } from "../shared/names";
+import { isTagColour } from "../shared/tagColours";
+import type { TagAsShown } from "./api";
 import {
   DELETED_KINDS,
   type DeletedItem,
@@ -32,7 +35,7 @@ import type { createMindContent } from "./mindContent";
 import { forgetMindBlocks } from "./mindIndex";
 import type { createMinds } from "./minds";
 import type { Database } from "./storage";
-import { parseTagLinkStates, sameName, type TagsStore } from "./tags";
+import { parseTagLinkStates, type TagsStore } from "./tags";
 
 const TABLES: Readonly<Record<DeletedKind, string>> = {
   mind: "minds",
@@ -72,6 +75,40 @@ function parseRefs(input: unknown, what: string): RestoreRef[] {
     if (!kind) throw new InvalidInputError(`${what} can't take a ${String(each.kind)}.`);
     if (each.links === undefined) return { kind, id: each.id };
     return { kind, id: each.id, links: parseTagLinkStates(each.links) };
+  });
+}
+
+/** The Tags whose source a restore puts back, from its `tagSources` option. */
+function parseTagSources(
+  options: unknown,
+): { tagId: string; madeByUser: boolean; expected: TagAsShown }[] {
+  if (!isRecord(options) || options.tagSources === undefined) return [];
+  if (!Array.isArray(options.tagSources))
+    throw new InvalidInputError("restore's tagSources must be a list.");
+  return options.tagSources.map((each) => {
+    if (
+      !isRecord(each) ||
+      typeof each.tagId !== "string" ||
+      each.tagId === "" ||
+      typeof each.madeByUser !== "boolean" ||
+      !isRecord(each.expected) ||
+      typeof each.expected.name !== "string" ||
+      typeof each.expected.description !== "string" ||
+      !isTagColour(each.expected.colour)
+    ) {
+      throw new InvalidInputError(
+        "A Tag source says which Tag, whether it was the User's, and what it showed.",
+      );
+    }
+    return {
+      tagId: each.tagId,
+      madeByUser: each.madeByUser,
+      expected: {
+        name: each.expected.name,
+        description: each.expected.description,
+        colour: each.expected.colour,
+      },
+    };
   });
 }
 
@@ -327,7 +364,11 @@ export function createRecentlyDeleted(options: {
           ),
         ...db
           .all<{ id: string; name: string; deleted_at: string }>(
-            "SELECT id, name, deleted_at FROM library_groups WHERE deleted_at >= ? AND purged_at IS NULL",
+            // A Folder deleted with the Folder it is in waits as part of that one item.
+            `SELECT g.id, g.name, g.deleted_at FROM library_groups g
+             WHERE g.deleted_at >= ? AND g.purged_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM library_groups p
+                 WHERE p.id = g.parent_id AND p.deleted_at = g.deleted_at)`,
             [since],
           )
           .map((row) => item("folder", row)),
@@ -358,9 +399,10 @@ export function createRecentlyDeleted(options: {
     restore(input: unknown, restoreOptions?: unknown): RestoreResult {
       // Over the bridge the call isn't type-checked: anything but a true `reopen` restores quietly.
       const reopen = isRecord(restoreOptions) && restoreOptions.reopen === true;
+      const tagSources = parseTagSources(restoreOptions);
       const refs = parseRefs(input, "restore");
       const since = earliestRestorable(now());
-      const done = db.transaction(() => {
+      const outcome = db.transaction(() => {
         const restored = {
           minds: false,
           mindIds: [] as string[],
@@ -369,6 +411,7 @@ export function createRecentlyDeleted(options: {
           conversations: false,
           documents: [] as string[],
           folders: false,
+          toTopLevel: [] as string[],
           tags: false,
           tagged: new Set<string>(),
         };
@@ -421,9 +464,14 @@ export function createRecentlyDeleted(options: {
               restored.documents.push(ref.id);
             } else if (kind === "folder") {
               const taken = library.restore(ref.id);
-              if (minds.returnToFolder(taken.minds, ref.id)) restored.minds = true;
-              if (conversations.returnToFolder(taken.conversations, ref.id)) {
-                restored.conversations = true;
+              restored.toTopLevel.push(...taken.toTopLevel);
+              for (const group of taken.minds) {
+                if (minds.returnToFolder(group.ids, group.folderId)) restored.minds = true;
+              }
+              for (const group of taken.conversations) {
+                if (conversations.returnToFolder(group.ids, group.folderId)) {
+                  restored.conversations = true;
+                }
               }
               restored.folders = true;
             } else {
@@ -442,8 +490,14 @@ export function createRecentlyDeleted(options: {
         const links = refs.flatMap((ref) => ref.links ?? []);
         checkLinks(links);
         for (const id of tags.revert(links)) restored.tagged.add(id);
-        return restored;
+        let sourcesChanged = false;
+        for (const { tagId, madeByUser, expected } of tagSources) {
+          if (tags.setSource(tagId, madeByUser, expected)) sourcesChanged = true;
+        }
+        return { restored, sourcesChanged };
       });
+      const done = outcome.restored;
+      const sourcesChanged = outcome.sourcesChanged;
       for (const { id, deletedAt } of done.mindsDeletedAt) content.restored(id, deletedAt);
       if (done.minds) options.mindsChanged();
       if (done.mindIds.length > 0) options.mindsRestored(done.mindIds, reopen);
@@ -456,10 +510,15 @@ export function createRecentlyDeleted(options: {
         library.resume();
       }
       if (done.folders) library.restored();
-      if (done.tags) options.tagsChanged();
+      if (done.tags || sourcesChanged) options.tagsChanged();
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
       const audio = options.meetings.restored(done.meetings);
-      return { audioLost: audio.lost, audioExpired: audio.expired };
+      return {
+        audioLost: audio.lost,
+        audioExpired: audio.expired,
+        // Only when a Folder went somewhere: the result keeps its shape for every other restore.
+        ...(done.toTopLevel.length > 0 && { toTopLevel: done.toTopLevel }),
+      };
     },
 
     /**
@@ -492,7 +551,15 @@ export function createRecentlyDeleted(options: {
               key: "error.restore.notDeleted",
               values: { name: nameOf(kind, row) },
             });
-          purge(db, kind, [id], at, documentText);
+          purge(
+            db,
+            kind,
+            kind === "folder" && row.deleted_at !== null
+              ? library.deletedWith(id, row.deleted_at)
+              : [id],
+            at,
+            documentText,
+          );
           // After the Mind, so its Citations no longer keep its Transcript's text.
           if (kind === "mind" && row.deleted_at !== null) {
             purge(db, "document", documentsWith(id, row.deleted_at), at, documentText);

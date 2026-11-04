@@ -46,7 +46,8 @@ export function WordImportDialog() {
   const t = useT();
   const language = useLanguage();
   const state = useWordImport();
-  const { path, check, origin, importing, refusal, dropped, addOriginal, newVersion } = state;
+  const { path, check, origin, importing, refusal, dropped, addOriginal, newVersion, converted } =
+    state;
   const dialog = useModal(path !== null);
   const id = useId();
   const fileName = check?.fileName ?? path?.split(/[\\/]/).pop() ?? "";
@@ -89,17 +90,42 @@ export function WordImportDialog() {
             {t("wordImport.reading", { name: fileName })}
           </p>
         ) : refusedSaid ? (
-          <ProblemLine
-            testId="word-import-refusal"
-            title={refusedSaid.fullMessage}
-            action={{
-              label: t("wordImport.chooseAnother"),
-              testId: "word-import-choose-another",
-              onClick: () => void state.pick(),
-            }}
-          >
-            {refusedSaid.message}
-          </ProblemLine>
+          <>
+            <ProblemLine
+              testId="word-import-refusal"
+              title={refusedSaid.fullMessage}
+              action={
+                check?.canConvert === true
+                  ? {
+                      label: t(state.converting ? "wordImport.converting" : "wordImport.convert"),
+                      testId: "word-import-convert",
+                      disabled: state.converting,
+                      onClick: () => void state.convert(),
+                    }
+                  : {
+                      label: t("wordImport.chooseAnother"),
+                      testId: "word-import-choose-another",
+                      onClick: () => void state.pick(),
+                    }
+              }
+              also={
+                check?.canConvert === true
+                  ? {
+                      label: t("wordImport.chooseAnother"),
+                      testId: "word-import-choose-another",
+                      onClick: () => void state.pick(),
+                    }
+                  : undefined
+              }
+            >
+              {refusedSaid.message}
+            </ProblemLine>
+            {state.conversionFailed && (
+              <ProblemLine testId="word-import-convert-failed">
+                {t("wordImport.convertFailed", { name: fileName })}
+              </ProblemLine>
+            )}
+          </>
         ) : (
           <fieldset disabled={importing}>
             <legend className={`mb-1.5 ${fieldLabelClass}`}>{t("wordImport.whose")}</legend>
@@ -130,17 +156,19 @@ export function WordImportDialog() {
               </p>
             )}
             <p className="mt-3 text-[13px] leading-5 text-ink-meta">{t("wordImport.keeps")}</p>
-            <label className={tickClass}>
-              <input
-                type="checkbox"
-                data-testid="word-import-add-original"
-                checked={addOriginal}
-                onChange={(event) => state.setAddOriginal(event.target.checked)}
-                className={tickBoxClass}
-              />
-              {t("wordImport.addOriginal")}
-            </label>
-            {addOriginal && check.earlierDraft && (
+            {!converted && (
+              <label className={tickClass}>
+                <input
+                  type="checkbox"
+                  data-testid="word-import-add-original"
+                  checked={addOriginal}
+                  onChange={(event) => state.setAddOriginal(event.target.checked)}
+                  className={tickBoxClass}
+                />
+                {t("wordImport.addOriginal")}
+              </label>
+            )}
+            {!converted && addOriginal && check.earlierDraft && (
               <label className={`${tickClass} ml-6`}>
                 <input
                   type="checkbox"
@@ -156,7 +184,7 @@ export function WordImportDialog() {
         )}
 
         <div className={dialogActionsClass}>
-          {dropped && (
+          {dropped && !converted && (
             <button
               type="button"
               data-testid="word-import-as-document"

@@ -125,15 +125,26 @@ function WordReviewRows({
   draft,
   fromWord,
   othersFile,
+  myComments,
+  myCommentsOptional,
+  includeMine,
   onChange,
   onOthersChange,
+  onIncludeMine,
 }: {
   draft: WordExportPreferences;
   fromWord: boolean;
   /** A Note made by Verify from someone else's file: this Note's own comment switch (#110); null for the User's own. */
   othersFile: { checked: boolean } | null;
+  /** The User's own comments and replies in the Note (#328). */
+  myComments: number;
+  /** The file came from someone else: its export offers "Include my comments" (#328). */
+  myCommentsOptional: boolean;
+  /** This Note's own choice, if it was made here: another Note's choice doesn't show. */
+  includeMine: boolean;
   onChange(next: WordExportPreferences): void;
   onOthersChange(checked: boolean): void;
+  onIncludeMine(checked: boolean): void;
 }) {
   const t = useT();
   const author = useAppStore((state) => state.settings?.author ?? "");
@@ -167,6 +178,14 @@ function WordReviewRows({
           checked={draft.commentFailedChecks}
           onChange={(commentFailedChecks) => onChange({ ...draft, commentFailedChecks })}
           testId="export-comment-failed-checks"
+        />
+      )}
+      {myCommentsOptional && myComments > 0 && (
+        <SwitchRow
+          label={t("export.includeMyComments")}
+          checked={includeMine}
+          onChange={onIncludeMine}
+          testId="export-include-my-comments"
         />
       )}
     </>
@@ -417,12 +436,11 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     fromWord: boolean;
     othersFile: boolean;
     othersComments: boolean;
+    myComments: number;
+    myCommentsOptional: boolean;
     theirChanges: number;
-    unreadFiles: number;
-    unreadFileNames: boolean;
     hiddenColumns: number;
   } | null>(null);
-  const [nameUnreadFiles, setNameUnreadFiles] = useState<boolean | null>(null);
   /** This Note's own comment choice, for someone else's file (#110); null until changed here. */
   const [othersComments, setOthersComments] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
@@ -472,12 +490,11 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
           fromWord: preview.fromWord,
           othersFile: preview.othersFile,
           othersComments: preview.othersComments,
+          myComments: preview.myComments,
+          myCommentsOptional: preview.myCommentsOptional,
           theirChanges: preview.theirChanges,
-          unreadFiles: preview.unreadFiles,
-          unreadFileNames: preview.unreadFileNames,
           hiddenColumns: preview.hiddenColumns,
         });
-        setNameUnreadFiles((chosen) => chosen ?? preview.unreadFileNames);
       },
       (error: unknown) => useAppStore.getState().reportError(error),
     );
@@ -493,13 +510,6 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
     try {
       const settings = await core.updateSettings({ user: { exportOptions: draft } });
       useAppStore.setState({ settings });
-      if (
-        nameUnreadFiles !== null &&
-        counts !== null &&
-        nameUnreadFiles !== counts.unreadFileNames
-      ) {
-        await core.setMindUnreadFileNames(mind.id, nameUnreadFiles);
-      }
       if (othersComments !== null && othersComments !== counts?.othersComments) {
         await core.setCheckComments(mind.id, othersComments);
       }
@@ -651,19 +661,19 @@ function ExportOptionsForm({ mind, onDone }: { mind: Mind; onDone(): void }) {
             othersFile={
               counts?.othersFile ? { checked: othersComments ?? counts.othersComments } : null
             }
+            myComments={counts?.myComments ?? 0}
+            myCommentsOptional={counts?.myCommentsOptional ?? false}
+            includeMine={
+              draft.docx.myCommentsFile === mind.id && (draft.docx.includeMyComments ?? false)
+            }
             onChange={(docx) => setDraft({ ...draft, docx })}
             onOthersChange={setOthersComments}
-          />
-        )}
-
-        {/* A Word round trip writes back into the imported file, which gets no unread section. */}
-        {!(format === "docx" && counts?.fromWord) && (counts?.unreadFiles ?? 0) > 0 && (
-          <SwitchRow
-            label={t("export.unreadNames")}
-            hint={t("export.unreadNames.hint")}
-            checked={nameUnreadFiles ?? false}
-            onChange={setNameUnreadFiles}
-            testId="export-unread-names"
+            onIncludeMine={(includeMyComments) =>
+              setDraft({
+                ...draft,
+                docx: { ...draft.docx, includeMyComments, myCommentsFile: mind.id },
+              })
+            }
           />
         )}
 

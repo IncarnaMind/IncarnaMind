@@ -4,6 +4,8 @@ status: accepted (2026-10-18)
 
 # Python analysis runs in Pyodide, in a sandboxed hidden window
 
+**Amended 2026-10-31 (#2346, ADR-0025): scipy, statsmodels, scikit-learn and matplotlib are bundled too, and a job loads only those its code uses.** The spare interpreter keeps numpy and pandas, as below; ADR-0025 records the rest, with its measurements.
+
 **Amended 2026-10-18 (#446's review): each job runs in a fresh interpreter, with one spare kept ready.** A warm interpreter shared by every job let one job change what the next ran with: Python's modules, pandas and the helper, and the rows it had read. Below, "A fresh interpreter for each job" replaces "One Worker", and the measurements are taken again.
 
 Analysts ask questions about spreadsheets and CSV files, such as "revenue by region and quarter: which grew fastest?". Models answer those badly in their heads and well with code. So the assistant will write code and run it on data cited from the User's Documents. Running code a model wrote is only safe in a sandbox tested against escape and network access, on every system we ship.
@@ -37,7 +39,7 @@ We run **Python first, offline, in Pyodide** (CPython compiled to WebAssembly), 
   - While a job runs, a spare Worker starts, so a job that comes once the spare is ready starts within tens of milliseconds. A job straight after another waits for the spare to start, 3–6 s (below).
   - The window's storage (IndexedDB, the file system and the rest) is cleared after each job and before each new window.
   - A time-out, a stop, a `MemoryError` or a page past 2 GB ends the window, and another starts at once.
-- **Bundled, never fetched.** Pyodide's files and the wheels for numpy, pandas, python-dateutil, pytz and six ship in the app's resources and load from there. There is no CDN and no package index. They add about 14 MB to the installer compressed (21.4 MB unpacked), and the files are the same on every system. scipy, statsmodels and matplotlib are not bundled; they are added only if Users ask.
+- **Bundled, never fetched.** Pyodide's files and the wheels for numpy, pandas, python-dateutil, pytz and six ship in the app's resources and load from there. There is no CDN and no package index. They add about 14 MB to the installer compressed (21.4 MB unpacked), and the files are the same on every system. scipy, statsmodels and matplotlib were not bundled at first; since ADR-0025 they are, with scikit-learn, for about 36 MB more.
 - **Linux:** Chromium's sandbox needs its setuid helper (`chrome-sandbox` owned by root, mode 4755, as a .deb installs it) or unprivileged user namespaces. The app is never run with `--no-sandbox`. When it is started that way, or with `ELECTRON_DISABLE_SANDBOX`, every renderer is unsandboxed, so Analyses don't run: each ends as unavailable, and the User reads "Analyses need the app's sandbox, which is off · How to fix", which links to `docs/linux-sandbox.md`. Whether the AppImage gets a working sandbox on Ubuntu 24.04, where AppArmor restricts user namespaces, is a packaging question for the whole app, checked in #1116.
 
 ## Licences: an exception for Pyodide

@@ -13,6 +13,7 @@ import { LANGUAGES } from "../../core/language";
 import {
   type CommandId,
   isCommandId,
+  sameWords,
   type Yours,
   yoursLine,
   yoursWordsOf,
@@ -22,6 +23,23 @@ import { commands, labelOf } from "./commands/registry";
 import { folderName } from "./linkedFolders";
 import type { Translate } from "./objects";
 
+/** What an Organize asks, and what its Allow sends: the same lines the Library's Organize gives. */
+export function organizeAskWhy(
+  t: Translate,
+  gap: (before: string, after: string) => string,
+  ask: { service?: string | undefined; declined?: boolean | undefined },
+): string {
+  const why = t("commands.ask.why.organize");
+  if (!ask.service) return why;
+  const lines = [
+    why,
+    t("library.organize.sends", { company: ask.service }),
+    t("library.organize.sends.details", { company: ask.service }),
+    ...(ask.declined ? [t("commands.ask.organize.declined")] : []),
+  ];
+  return lines.reduce((line, part) => `${line}${gap(line, part)}${part}`);
+}
+
 /** The core's commands' words once done: for one thing, then for several. */
 const DONE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "document.rename": ["commands.done.rename.document.one", "commands.done.rename.document"],
@@ -29,6 +47,7 @@ const DONE: Readonly<Partial<Record<CommandId, [MessageKey, MessageKey]>>> = {
   "document.moveTo": ["commands.done.moveTo.document.one", "commands.done.moveTo.document"],
   "mind.moveTo": ["commands.done.moveTo.mind.one", "commands.done.moveTo.mind"],
   "document.tags": ["commands.done.tags.one", "commands.done.tags"],
+  "tag.merge": ["commands.done.merge.one", "commands.done.merge"],
   "document.delete": ["commands.done.delete.document.one", "commands.done.delete.document"],
   "mind.delete": ["commands.done.delete.mind.one", "commands.done.delete.mind"],
   "documents.addFromFolder": ["commands.done.add.one", "commands.done.add"],
@@ -54,6 +73,7 @@ const RUNNING: Readonly<Partial<Record<CommandId, MessageKey>>> = {
   "document.moveTo": "commands.running.moveTo",
   "mind.moveTo": "commands.running.moveTo",
   "document.tags": "commands.running.tags",
+  "tag.merge": "commands.running.merge",
   "document.delete": "commands.running.delete",
   "mind.delete": "commands.running.delete",
   "folder.delete": "commands.running.delete",
@@ -82,10 +102,13 @@ export function refusalsOf(
 
 /**
  * Whether the reply already says this refusal's sentence, in either language, as the core writes
- * it when the model says nothing (#2252): the card then shows only its button.
+ * it after the reply (#2252): the card then shows only its button. A copy with straight quotes
+ * counts (#2252).
  */
 export const saidInReply = (text: string, what: Yours, folder: CommandDone["folder"]): boolean =>
-  LANGUAGES.some((language) => text.includes(yoursLine(language, what, folder)));
+  LANGUAGES.some((language) =>
+    sameWords(text).includes(sameWords(yoursLine(language, what, folder))),
+  );
 
 /** Whether the reply is only its refusals' sentences: nothing in it to keep in a note. */
 export function repliesOnlyRefusals(
@@ -95,7 +118,11 @@ export function repliesOnlyRefusals(
     LANGUAGES.map((language) => yoursLine(language, what, folder)),
   );
   if (lines.length === 0) return false;
-  return lines.reduce((rest, line) => rest.split(line).join(""), answer.text).trim() === "";
+  const rest = lines.reduce(
+    (text, line) => text.split(sameWords(line)).join(""),
+    sameWords(answer.text),
+  );
+  return rest.trim() === "";
 }
 
 /** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */
@@ -299,8 +326,17 @@ export function doneText(
     });
   }
   if (count === 0) return t("commands.done.none");
+  // A merge into more than one Tag names no single Tag, so it says how many merged.
+  if (done.command === "tag.merge" && !done.into) {
+    return t("commands.done.mergeGroups", { count });
+  }
   const into = done.into?.name ?? "";
-  const params: MessageParams = { count, folder: into, tag: into };
+  const params: MessageParams = {
+    count,
+    name: done.items[0]?.name ?? "",
+    folder: into,
+    tag: into,
+  };
   const made =
     done.into?.made && done.into.kind === "folder" ? MADE_AND_MOVED[done.command] : undefined;
   const words = made ?? DONE[done.command];

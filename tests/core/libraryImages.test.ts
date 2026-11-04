@@ -79,6 +79,7 @@ describe("Library PDF page images", () => {
               id: "research",
               name: "Research",
               description: "Papers",
+              parentId: null,
               countsOwnFiles: false,
               keepInside: false,
               createdAt: "",
@@ -209,6 +210,7 @@ describe("Library PDF page images", () => {
             id: "research",
             name: "Research",
             description: "Papers",
+            parentId: null,
             countsOwnFiles: false,
             keepInside: false,
             createdAt: "",
@@ -304,6 +306,7 @@ describe("Library PDF page images", () => {
       await core.saveLibrarySettings({
         classifier: { kind: "chat", choice: { providerId: saved.id, modelId: provider.modelId } },
         automatic,
+        turnOn: automatic,
       });
       const folder = await createTempDataFolder();
       const [scan, text] = await addAndProcess(core, [

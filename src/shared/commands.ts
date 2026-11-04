@@ -94,14 +94,17 @@ export const yoursWordsOf = (
     : YOURS_WORDS[what];
 
 /**
- * A refusal's sentence in `language`: the card's, and the reply's when the model writes none, so
- * the card leaves it out then and shows only its button (#2252).
+ * A refusal's sentence in `language`: the card's, and the one the core ends the reply with, so the
+ * card leaves it out and shows only its button (#2252).
  */
 export const yoursLine = (
   language: Language,
   what: Yours,
   folder?: { name: string } | null,
 ): string => translate(language, yoursWordsOf(what, folder).said, { folder: folder?.name ?? "" });
+
+/** The same words, with a model's straight quotes read as the app's typographic ones (#2252). */
+export const sameWords = (text: string): string => text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
 
 /** The switch of a Folder's wall (#1934): the User's alone, never offered to the assistant. */
 export const WALL_SWITCH = "folder.keepInside" satisfies CommandId;

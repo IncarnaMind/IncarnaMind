@@ -310,6 +310,12 @@ export function createConsent(
 
     dataFlow: flowFor,
 
+    /** When the User accepted the flow to the service, if their acceptance stands; else null. */
+    acceptedAt(flowId: DataFlowId, service: ExternalService): string | null {
+      const row = find(flowId, service.id);
+      return row?.decision === "accepted" ? row.updated_at : null;
+    },
+
     /**
      * Whether the User's acceptance of the flow to the service still stands. A flow that has
      * since grown to send more still counts: work started before it grew doesn't send the more.

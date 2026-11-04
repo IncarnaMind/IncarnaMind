@@ -1,5 +1,6 @@
 import { type ChangeEvent, type KeyboardEvent, memo, type ReactNode, useMemo, useRef } from "react";
 import type { Document, DocumentStatus, Tag } from "../../../core/api";
+import { ADDABLE_FILES_ACCEPT } from "../../../shared/addFilesAction";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { isProcessing } from "../../../shared/documentStatus";
 import type { MessageKey } from "../../../shared/i18n";
@@ -11,7 +12,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
-import { useDayOne, useLibraryDocuments } from "../ownDocuments";
+import { useLibraryDocuments, useLibraryShown } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -55,7 +56,7 @@ import {
 import { TagMarks, TagNamesTip, tagNamesTipListProps } from "./TagMarks";
 
 /** What the file picker offers. The core decides what it takes. */
-const ACCEPTED_FILES = ".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.markdown";
+const ACCEPTED_FILES = ADDABLE_FILES_ACCEPT;
 
 /** A Document's status as its row's end shows it: nothing once it's ready. */
 const shortStatusMessages: Record<DocumentStatus, MessageKey | null> = {
@@ -75,21 +76,20 @@ const NO_DOCUMENTS: readonly Document[] = [];
  * the sections, each shown once it has something in it: the Folders, each
  * with its Minds and Documents, and Not in a Folder (see `LibraryFolders`),
  * the Linked folders (see `LinkedFolderRows`), and the Tags in
- * use (see `SidebarTags`). On a first open with nothing of the User's own,
- * the Library waits for their first Document. Each Document is one row: its
- * name, its Tags' colours (see `TagMarks`) and, while it's processed, if it
- * failed, or if its file is missing or can't be reached, its status at the
- * end. Its Tags are in its Tags menu, and the Tags dialog; its "More" menu
- * renames it, moves it, opens its file or shows it in its folder, and
- * deletes it. Clicking a Document opens it in the viewer. Documents and
- * Linked folders are added from the header's New menu, or dropped anywhere
- * on the window (see `FileDrop`).
+ * use (see `SidebarTags`). On a first open it waits, with the rest of the shell, until the User
+ * has a Document or a Note of their own, and then it is there (#2376). Each Document is one
+ * row: its name, its Tags' colours (see `TagMarks`) and, while it's processed, if it failed, or
+ * if its file is missing or can't be reached, its status at the end. Its Tags are in its Tags
+ * menu, and the Tags dialog; its "More" menu renames it, moves it, opens its file or shows it in
+ * its folder, and deletes it. Clicking a Document opens it in the viewer. Documents and Linked
+ * folders are added from the header's New menu, or dropped anywhere on the window (see
+ * `FileDrop`).
  */
 export function DocumentsSection() {
   const t = useT();
   const language = useLanguage();
   const libraryDocuments = useLibraryDocuments();
-  const dayOne = useDayOne();
+  const libraryShown = useLibraryShown();
   const firstOpen = useFirstOpen();
   const hasOwnDocuments = useAppStore((state) =>
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
@@ -194,7 +194,7 @@ export function DocumentsSection() {
       />
       <SidebarHome />
       <SidebarSearch />
-      {!quiet && !dayOne && (
+      {libraryShown && (
         <div className={rowClass(libraryOpen)}>
           <button
             type="button"
@@ -407,6 +407,7 @@ const DocumentRow = memo(function DocumentRow({
                 </span>
               )}
             </span>
+            <YourNoteLabel item={item} />
             <NotCitedLabel item={item} />
             <TagMarks
               chips={chips}
@@ -448,6 +449,21 @@ export function NotCitedLabel({ item }: { item: Pick<Document, "notCited"> }) {
   );
 }
 
+/** "Your note" beside a Document that is a snapshot of a Mind (#335). */
+export function YourNoteLabel({ item }: { item: Pick<Document, "yourNote"> }) {
+  const t = useT();
+  if (!item.yourNote) return null;
+  return (
+    <span
+      data-testid="document-your-note"
+      title={t("mind.yourNote")}
+      className="shrink-0 text-label font-semibold text-ink-meta"
+    >
+      {t("mind.yourNote")}
+    </span>
+  );
+}
+
 /**
  * The status at a row's end: "Missing" or "Unavailable" when its file isn't
  * where it was (that comes first: it's what the User can act on), "38%"
@@ -477,7 +493,11 @@ export function DocumentStatusLabel({ item }: { item: Document }) {
   const unread = item.status === "failed" && item.failure?.reason === "pages-unread";
   const full = documentStatusText(item, t, language, scanning?.full ?? null);
   const percent = Math.floor((item.progress ?? 0) * 100);
-  const shortKey = unread ? "documents.statusShort.pagesUnread" : shortStatusMessages[item.status];
+  const shortKey = unread
+    ? item.kind === "image"
+      ? "documents.statusShort.pictureUnread"
+      : "documents.statusShort.pagesUnread"
+    : shortStatusMessages[item.status];
   const short = shortKey && (scanning?.short ?? t(shortKey, { percent }));
   const title = item.failure?.message ? `${full}\n${item.failure.message}` : full;
   if (!short) {

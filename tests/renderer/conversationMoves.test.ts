@@ -1,11 +1,14 @@
-import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type {
   Conversation,
   ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
   ExampleReadyAsked,
+  Meeting,
 } from "../../src/core/api";
+import { NotFoundError } from "../../src/core/errors";
+import { errorForWindow } from "../../src/shared/errorWording";
 
 /*
  * The assistant shows the conversation the User moved to last: a reply that comes after they
@@ -47,6 +50,11 @@ const conversation = (id: string): Conversation => ({
 });
 
 const reads = new Map<string, Promise<{ messages: ConversationMessage[] }>>();
+const readsAsked: string[] = [];
+const stopped: string[] = [];
+/** The conversations the window's layout was told to show, as the assistant moved. */
+const layoutWrites: (string | null)[] = [];
+const listeners = new Map<string, (payload: unknown) => void>();
 let ask: () => Promise<ConversationAskResult> = async () => {
   throw new Error("No Question is asked in this test.");
 };
@@ -54,16 +62,34 @@ let deleting: Promise<void> = Promise.resolve();
 let exampleAsk: () => Promise<ExampleReadyAsked> = async () => {
   throw new Error("No ready Question is asked in this test.");
 };
+let helpAsk: () => Promise<ConversationAskResult> = async () => {
+  throw new Error("No help is asked in this test.");
+};
 
 const bridge = new Proxy(
   {
-    on: () => () => undefined,
+    on: (event: string, listener: (payload: unknown) => void) => {
+      listeners.set(event, listener);
+      return () => listeners.delete(event);
+    },
     listConversations: async () => [],
-    getConversation: (id: string) => reads.get(id) ?? Promise.resolve({ messages: [question(id)] }),
+    getConversation: (id: string) => {
+      readsAsked.push(id);
+      return reads.get(id) ?? Promise.resolve({ messages: [question(id)] });
+    },
     getSettings: async () => ({ device: {} }),
     askInConversation: () => ask(),
+    stopConversationAnswer: async ({ answerId }: { answerId: string }) =>
+      void stopped.push(answerId),
     deleteConversation: () => deleting,
     askExampleReadyQuestion: () => exampleAsk(),
+    askMeetingHelp: () => helpAsk(),
+    changeLayout: async (
+      _windowId: string,
+      change: { type: string; conversationId?: string | null },
+    ) => {
+      if (change.type === "conversation") layoutWrites.push(change.conversationId ?? null);
+    },
   },
   {
     get: (target: object, name: string) =>
@@ -73,26 +99,39 @@ const bridge = new Proxy(
 
 let conversations: typeof import("../../src/renderer/src/conversations");
 
+/** Kept by the browser: localStorage for good, sessionStorage through a reload of the page. */
+function storage(): Storage {
+  const kept = new Map<string, string>();
+  return {
+    getItem: (key: string) => kept.get(key) ?? null,
+    setItem: (key: string, value: string) => void kept.set(key, value),
+    removeItem: (key: string) => void kept.delete(key),
+  } as Storage;
+}
+
 beforeAll(async () => {
-  const store = new Map<string, string>();
   Object.assign(globalThis, {
     window: { incarnamind: bridge, incarnamindFiles: bridge },
-    localStorage: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => void store.set(key, value),
-      removeItem: (key: string) => void store.delete(key),
-    },
+    localStorage: storage(),
+    sessionStorage: storage(),
   });
   conversations = await import("../../src/renderer/src/conversations");
 });
 
 afterAll(() => {
-  Object.assign(globalThis, { window: undefined, localStorage: undefined });
+  Object.assign(globalThis, {
+    window: undefined,
+    localStorage: undefined,
+    sessionStorage: undefined,
+  });
 });
 
 beforeEach(() => {
-  reads.clear();
   conversations.startNewChat();
+  reads.clear();
+  readsAsked.length = 0;
+  stopped.length = 0;
+  layoutWrites.length = 0;
 });
 
 const shown = () => conversations.useConversations.getState().openId;
@@ -184,14 +223,19 @@ test("clearing a conversation starts a new chat when the User stayed", async () 
   expect(shown()).toBeNull();
 });
 
+/** Lets the ask's reply be handled until it has asked for the new conversation's messages. */
+async function untilRead(id: string) {
+  for (let turn = 0; turn < 10 && !readsAsked.includes(id); turn++) await Promise.resolve();
+  expect(readsAsked).toContain(id);
+}
+
 test("a new conversation's first read doesn't replace a newer one the User opened it with since", async () => {
   const first = held<{ messages: ConversationMessage[] }>();
   reads.set("new", first.promise);
   const { reply, asked } = askHeld();
   reply.settle(askedIn("new"));
-  for (let turn = 0; turn < 10 && shown() !== "new"; turn++) await Promise.resolve();
-  expect(shown()).toBe("new");
-  // The User goes to another conversation and back, which reads it again, before the first read.
+  await untilRead("new");
+  // The User opens another conversation, then this one, which reads it again, before the first read.
   await conversations.openConversation("other");
   reads.set("new", Promise.resolve({ messages: [question("new"), question("later")] }));
   await conversations.openConversation("new");
@@ -211,7 +255,7 @@ test.each(["opens another conversation", "starts a New chat"] as const)(
     const reading = held<ExampleReadyAsked>();
     exampleAsk = () => reading.promise;
     const asking = conversations.askReadyQuestion({
-      question: "What leverage does the agreement allow?",
+      question: "What’s the leverage cap?",
       scope: null,
       waitingFor: "Northwind Retail · Q3 2026 results",
     });
@@ -231,10 +275,221 @@ test("the example's ready Question shows its conversation when the User stayed",
     stopped: false,
   });
   await conversations.askReadyQuestion({
-    question: "What leverage does the agreement allow?",
+    question: "What’s the leverage cap?",
     scope: null,
     waitingFor: null,
   });
 
   expect(shown()).toBe("example");
+});
+
+const answerTo = (conversationId: string): ConversationMessage =>
+  ({
+    kind: "answer",
+    id: `answer in ${conversationId}`,
+    conversationId,
+    questionId: `question in ${conversationId}`,
+    status: "streaming",
+    text: "The first words",
+  }) as unknown as ConversationMessage;
+
+test("an Answer written while a new conversation is read never shows above its Question (#1741)", async () => {
+  const first = held<{ messages: ConversationMessage[] }>();
+  reads.set("new", first.promise);
+  const drawn: (readonly ConversationMessage[])[] = [];
+  const unsubscribe = conversations.useConversations.subscribe(({ messages }) =>
+    drawn.push(messages),
+  );
+  const { reply, asked } = askHeld();
+  reply.settle(askedIn("new"));
+  await untilRead("new");
+  // Written before the core read the conversation, its first words come ahead of the read.
+  listeners.get("conversation.message")?.(answerTo("new"));
+  first.settle({ messages: [question("new"), answerTo("new")] });
+  await asked;
+  unsubscribe();
+
+  // The thread draws its messages, then the Question still on its way: never an Answer before it.
+  expect(drawn.filter((messages) => messages.at(0)?.kind === "answer")).toEqual([]);
+  expect(shown()).toBe("new");
+  expect(conversations.useConversations.getState().messages).toEqual([
+    question("new"),
+    answerTo("new"),
+  ]);
+});
+
+test("Stop pressed while a new conversation is read stops its Answer", async () => {
+  const first = held<{ messages: ConversationMessage[] }>();
+  reads.set("new", first.promise);
+  const { reply, asked } = askHeld();
+  reply.settle(askedIn("new"));
+  await untilRead("new");
+  conversations.stopWriting();
+  first.settle({ messages: [question("new"), answerTo("new")] });
+  await asked;
+
+  expect(stopped).toEqual(["answer in new"]);
+});
+
+/** A call being recorded, whose help buttons ask in the assistant. */
+async function inACall() {
+  const { useMeetings } = await import("../../src/renderer/src/meetings");
+  const call = { id: "call", mindId: "notes", kind: "meeting", status: "recording" };
+  useMeetings.setState({ meetings: [call as Meeting] });
+  return import("../../src/renderer/src/meetingHelp");
+}
+
+test.each(["open another conversation", "start a New chat"] as const)(
+  "help asked during a call doesn't take the User away when they %s while it is asked",
+  async (move) => {
+    const { askHelpInAssistant } = await inACall();
+    const reply = held<ConversationAskResult>();
+    helpAsk = () => reply.promise;
+    const asking = askHelpInAssistant("sum");
+    if (move === "open another conversation") await conversations.openConversation("other");
+    else conversations.startNewChat();
+    reply.settle(askedIn("help"));
+    await asking;
+
+    expect(shown()).toBe(move === "open another conversation" ? "other" : null);
+    expect(readsAsked).not.toContain("help");
+  },
+);
+
+test("help asked during a call doesn't take the User from a Question they asked in the new chat meanwhile", async () => {
+  const { askHelpInAssistant } = await inACall();
+  const help = held<ConversationAskResult>();
+  helpAsk = () => help.promise;
+  const asking = askHelpInAssistant("sum");
+  const { reply, asked } = askHeld();
+  reply.settle(askedIn("new"));
+  await asked;
+  help.settle(askedIn("help"));
+  await asking;
+
+  expect(shown()).toBe("new");
+  expect(readsAsked).not.toContain("help");
+});
+
+test.each(["first", "last"] as const)(
+  "the help pressed last in a New chat shows when the help pressed before it comes back %s",
+  async (order) => {
+    const { askHelpInAssistant } = await inACall();
+    const replies = [held<ConversationAskResult>(), held<ConversationAskResult>()];
+    const [first, second] = replies;
+    let asks = 0;
+    helpAsk = () => (replies[asks++] as (typeof replies)[number]).promise;
+    const pressed = [askHelpInAssistant("sum"), askHelpInAssistant("ask")];
+    if (order === "first") first?.settle(askedIn("help1"));
+    second?.settle(askedIn("help2"));
+    if (order === "last") first?.settle(askedIn("help1"));
+    await Promise.all(pressed);
+
+    expect(shown()).toBe("help2");
+  },
+);
+
+test("help asked during a call shows its conversation when the User stayed", async () => {
+  const { askHelpInAssistant } = await inACall();
+  helpAsk = async () => askedIn("help");
+  await askHelpInAssistant("sum");
+
+  expect(shown()).toBe("help");
+});
+
+/** The window as a reload of its page leaves it, with the conversation it showed kept by its layout. */
+async function reloadedShowing(conversationId: string) {
+  const { DEFAULT_ASSISTANT } = await import("../../src/core/api");
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  useAppStore.setState({
+    layout: {
+      groups: [],
+      focusedGroupId: "",
+      reopenable: 0,
+      conversationId,
+      assistant: DEFAULT_ASSISTANT,
+    },
+  });
+  const { installWindowMemory } = await import("../../src/renderer/src/windowMemory");
+  installWindowMemory();
+}
+
+test("a New chat clicked while a reload shows the conversation again stays a New chat", async () => {
+  const restoring = held<{ messages: ConversationMessage[] }>();
+  reads.set("kept", restoring.promise);
+  await reloadedShowing("kept");
+  conversations.startNewChat();
+  restoring.settle({ messages: [question("kept")] });
+  // The layout says so too: the next start shows a New chat.
+  await vi.waitFor(() => expect(layoutWrites).toContain(null));
+
+  expect(readsAsked).toContain("kept");
+  expect(shown()).toBeNull();
+});
+
+test("a reload shows the conversation it showed again when the User stayed", async () => {
+  await reloadedShowing("kept");
+  await vi.waitFor(() => expect(shown()).toBe("kept"));
+
+  expect(conversations.useConversations.getState().messages).toEqual([question("kept")]);
+});
+
+const goneError = () => errorForWindow(new NotFoundError({ key: "error.conversation.notFound" }));
+
+test("a conversation gone since the window kept it leaves a New chat, the app's own words for one (#258)", async () => {
+  const gone = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("gone", gone.promise);
+  await reloadedShowing("gone");
+  gone.reject(goneError());
+  await vi.waitFor(() => expect(layoutWrites).toContain(null));
+
+  expect(shown()).toBeNull();
+});
+
+test("a gone conversation read does not clear one the User opened meanwhile (#258)", async () => {
+  const gone = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("gone", gone.promise);
+  await reloadedShowing("gone");
+  await conversations.openConversation("other");
+  expect(shown()).toBe("other");
+
+  gone.reject(goneError());
+  // The read that found it gone says nothing about the conversation opened since.
+  await vi.waitFor(() => expect(layoutWrites).toEqual(["other", "other"]));
+  expect(shown()).toBe("other");
+});
+
+test("a kept read that fails for another reason is reported and keeps the id (#258)", async () => {
+  const broken = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("broken", broken.promise);
+  const reported: unknown[] = [];
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  const reportError = useAppStore.getState().reportError;
+  useAppStore.setState({ reportError: (error: unknown) => void reported.push(error) });
+  try {
+    await reloadedShowing("broken");
+    broken.reject(new Error("database is locked"));
+
+    // Not gone: the failure is said, and the kept id stays for the next start.
+    await vi.waitFor(() => expect(reported).toHaveLength(1));
+    expect(readsAsked).toContain("broken");
+    expect(layoutWrites).not.toContain(null);
+    expect(shown()).toBeNull();
+  } finally {
+    useAppStore.setState({ reportError });
+  }
+});
+
+test("a kept conversation read does not replace one already showing (#258)", async () => {
+  const kept = Promise.withResolvers<{ messages: ConversationMessage[] }>();
+  reads.set("kept", kept.promise);
+  await reloadedShowing("kept");
+  conversations.useConversations.setState({ openId: "open", messages: [question("open")] });
+
+  kept.resolve({ messages: [question("kept")] });
+  // The read is awaited by the restore, so its guard has run once this promise is seen to settle.
+  await kept.promise;
+  // A conversation already showing stays, even though the kept one's read lands later.
+  expect(shown()).toBe("open");
+  expect(layoutWrites).not.toContain("kept");
 });

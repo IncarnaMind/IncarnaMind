@@ -583,6 +583,8 @@ describe("Research", { timeout: 30_000 }, () => {
     expect(folderOf(page?.id)).toBe(filed?.id);
     expect(folderOf(report.id)).toBe(folder.id);
     const tea = (await core.listTags()).find((tag) => tag.name === "Tea");
+    // Research made it, not the User.
+    expect(tea?.madeByUser).toBe(false);
     const tagged = (await core.listDocuments()).find((each) => each.id === page?.id);
     expect(tagged?.tags).toEqual([
       expect.objectContaining({ tagId: tea?.id, source: "automatic" }),
@@ -683,6 +685,8 @@ describe("Research", { timeout: 30_000 }, () => {
     // The filing was allowed before the pause: going on doesn't ask again.
     expect(asked).toHaveLength(1);
     const tea = (await core.listTags()).find((tag) => tag.name === "Tea");
+    // Research made it, not the User.
+    expect(tea?.madeByUser).toBe(false);
     const tagged = (await core.listDocuments()).find((each) => each.id === page?.id);
     expect(tagged?.tags.map((each) => each.tagId)).toEqual([tea?.id]);
     expect((await changesIn(core, mind.id)).ids).toHaveLength(1);

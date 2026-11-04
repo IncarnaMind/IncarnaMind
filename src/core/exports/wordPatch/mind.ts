@@ -8,11 +8,14 @@
  */
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../../shared/blockJson";
+import { withoutInertBrackets } from "../../../shared/inertBrackets";
+import { isNumberingScheme, itemLevel, type NumberingScheme } from "../../../shared/numbering";
 import { readTextColor, readTextFont, readTextSize } from "../../../shared/paragraphFormat";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 import { readWordAtom } from "../../../shared/wordFiles";
 import {
   ANSWER_BLOCK,
+  COMMENT_MARK,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -38,6 +41,8 @@ export interface TextMarks {
   font: string | null;
   size: number | null;
   vertical: "superscript" | "subscript" | null;
+  /** The comment the text is on (#328), by the record's id; not a format, so a change to it rewrites no run. */
+  comment: string | null;
 }
 
 export const NO_MARKS: TextMarks = {
@@ -52,6 +57,7 @@ export const NO_MARKS: TextMarks = {
   font: null,
   size: null,
   vertical: null,
+  comment: null,
 };
 
 export function marksOf(marks: readonly MarkJSON[] | undefined): TextMarks {
@@ -71,6 +77,10 @@ export function marksOf(marks: readonly MarkJSON[] | undefined): TextMarks {
     font: readTextFont(attribute(TEXT_FONT_MARK, "family")),
     size: readTextSize(attribute(TEXT_SIZE_MARK, "size")),
     vertical: has(SUPERSCRIPT_MARK) ? "superscript" : has(SUBSCRIPT_MARK) ? "subscript" : null,
+    comment: (() => {
+      const id = attribute(COMMENT_MARK, "id");
+      return typeof id === "string" && id !== "" ? id : null;
+    })(),
   };
 }
 
@@ -195,7 +205,9 @@ export function mindJson(
             ? { type, attrs: value as Record<string, unknown> }
             : { type },
         );
-        content.push({ type: "text", text: run.insert, ...(marks.length > 0 && { marks }) });
+        // An outside agent's inert brackets read as written in the file (#352).
+        const text = withoutInertBrackets(run.insert);
+        content.push({ type: "text", text, ...(marks.length > 0 && { marks }) });
       }
     } else if (child instanceof Y.XmlElement) {
       const node = mindJson(child, elements, review);
@@ -216,6 +228,22 @@ export interface ListPlace {
   list: NodeJSON;
   ordered: boolean;
   depth: number;
+  /**
+   * The level of its scheme its items draw: the level the outermost numbered list it is in starts
+   * at, one more for each numbered list between. It is its depth, unless its numbering starts
+   * again under an unnumbered list (#1419).
+   */
+  level: number;
+  /** A numbered list's scheme, and the outermost numbered list it is in, whose numbering it shares. */
+  numbered: { scheme: NumberingScheme; outer: NodeJSON } | null;
+  /** How many lists it is in, 0 for an outermost one. */
+  nesting: number;
+  /**
+   * The level its outermost list says it starts at, 0 included, or null when it says none: a
+   * Note imported before lists kept their level (#1419) has none, though its file's list may
+   * start deeper.
+   */
+  startLevel: number | null;
 }
 
 /** What a counterpart is, as the export writes it. */
@@ -278,14 +306,30 @@ function collect(
       pending: { ...within.pending, ...nodePendings(node, within.review) },
     };
     if (LISTS.has(node.type)) {
-      const place = (depth: number): ListPlace => ({
+      const ordered = node.type === "orderedList";
+      const raw = node.attrs?.startLevel;
+      const named = raw === null || raw === undefined || raw === "" ? Number.NaN : Number(raw);
+      const startLevel = itemLevel(0, named || 0);
+      // Where its items sit in the file, which an outermost list that starts deeper does at its level.
+      const depth = list ? Math.min(list.depth + 1, 8) : startLevel;
+      const outer = ordered && list?.numbered ? list.numbered : null;
+      const scheme = node.attrs?.numbering;
+      const place: ListPlace = {
         list: node,
-        ordered: node.type === "orderedList",
+        ordered,
         depth,
-      });
-      const depth = list ? list.depth + 1 : 0;
+        // The scheme's level its items draw: on in the numbered list it is nested in, else at its start.
+        level: ordered && list?.numbered ? Math.min(list.level + 1, 8) : startLevel,
+        numbered:
+          outer ??
+          (ordered
+            ? { scheme: isNumberingScheme(scheme) ? scheme : "default", outer: node }
+            : null),
+        nesting: list ? list.nesting + 1 : 0,
+        startLevel: list ? list.startLevel : Number.isInteger(named) ? startLevel : null,
+      };
       for (const item of node.content ?? []) {
-        collect(item.content ?? [], keyOf, place(depth), into, {
+        collect(item.content ?? [], keyOf, place, into, {
           ...inner,
           pending: { ...inner.pending, ...nodePendings(item, within.review) },
         });

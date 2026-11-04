@@ -5,6 +5,7 @@
  * build fakes; a future hosted server would pass its own. The core never
  * imports Electron (ADR-0004, ADR-0006).
  */
+
 import type { ChildProcess } from "node:child_process";
 import type {
   AnalysisEnd,
@@ -22,6 +23,7 @@ import type {
   EngineSwitchReason,
   ExternalService,
   SandboxLevel,
+  SandboxProblem,
   SecretProtection,
   TranscriptionEngine,
   WebPageLookFailure,
@@ -33,6 +35,7 @@ import type { WatchFolder } from "./documents/watcher";
 import type { FetchLimits, PageFetch } from "./documents/web/fetch";
 import type { PictureLimits } from "./documents/web/pictures";
 import type { ModelCopies } from "./embedding/modelSources";
+import type { ModelFactsLayer } from "./providers/capabilities";
 import type { AnswerPathsOverride } from "./providers/catalog/answerPaths";
 import type { ChatGptPlanEndpoints } from "./providers/chatgpt/plan";
 import type { AnthropicOAuthConfig } from "./providers/claudeAccount/config";
@@ -42,6 +45,7 @@ import type { LocalServers } from "./providers/localServers";
 import type { ChatModelFactory } from "./providers/models";
 import type { OllamaModels } from "./providers/ollamaModels";
 import type { RerankingModelFactory } from "./providers/rerank";
+import type { CodeHost } from "./runCode";
 import type { RunEngine } from "./runs/engine";
 import type { TaskKind } from "./runs/tasks";
 import type { PaceTimers } from "./sources/pace";
@@ -308,6 +312,13 @@ export interface ExecRequest {
    */
   env: Readonly<Record<string, string>>;
   /**
+   * "minimal": of the login environment, only `MINIMAL_ENVIRONMENT` is passed on, then `env`: for
+   * code a model wrote, which could print any variable to it (`DATABASE_URL`, `SSH_AUTH_SOCK`)
+   * or be steered by one (`BASH_ENV`, `DYLD_*`, `LD_PRELOAD`). Not given: all of it, less names
+   * that look like secrets.
+   */
+  environment?: "minimal";
+  /**
    * What it may read, write and reach. Enforced from "os" up; at "none" it is
    * only declared, for approvals (see `declaredAccess` in ./execution).
    */
@@ -316,8 +327,28 @@ export interface ExecRequest {
   timeoutMs: number;
   /** How much of each output is kept: the start of its standard output, the end of its error output. */
   maxOutputBytes: number;
+  /** Bounds beyond its time and output, for code a model wrote (`ExecLimits`). */
+  limits?: ExecLimits;
   /** Stops it at once, with every process it started (e.g. the User stops the Answer). */
   signal: AbortSignal;
+}
+
+/**
+ * What a program may use besides time and output. Files and processes are
+ * the kernel's limits, set where the program starts (`ulimit`, macOS and
+ * Linux); memory and the working folder are watched while it runs, since
+ * macOS refuses a memory limit, and it is stopped with every process it
+ * started when it goes over (`ExecResult.limit`).
+ */
+export interface ExecLimits {
+  /** The largest file it may write, in bytes. */
+  fileBytes?: number;
+  /** How many more processes it may run at once than the User's account already runs. */
+  processes?: number;
+  /** Its processes' resident memory together, in bytes. */
+  memoryBytes?: number;
+  /** What its working folder may hold, in bytes. */
+  folderBytes?: number;
 }
 
 /** How a program an `Executor` ran ended, and what it wrote (see `SkillScriptRun`, which adds `error`). */
@@ -334,6 +365,8 @@ export interface ExecResult {
   stdoutTruncated: boolean;
   /** It wrote more to its error output than is kept. */
   stderrTruncated: boolean;
+  /** It went over this limit of its `ExecLimits`, so it was stopped with every process it started. */
+  limit?: "memory" | "folder";
 }
 
 /**
@@ -522,6 +555,34 @@ export interface PictureRead {
   height: number;
 }
 
+/** What an old Office or WPS file is converted to, with the User's own LibreOffice (#762). */
+export type OfficeTarget = "docx" | "xlsx" | "pptx";
+
+/** A file converted to a format IncarnaMind reads, or why it wasn't. */
+export type OfficeConversion =
+  | {
+      outcome: "converted";
+      /** The copy's file name, with its new extension ("Report.docx"). */
+      name: string;
+      bytes: Uint8Array;
+    }
+  | { outcome: "failed"; message: string };
+
+/**
+ * Converts one of the User's files to a format IncarnaMind reads, with the
+ * LibreOffice installed on this computer (#762): found where it is, by its
+ * real path, never bundled, copied or downloaded, and run headless with a
+ * private profile of its own, so no window shows and the User's LibreOffice
+ * is never touched. Its temporary folder is removed whatever happens.
+ * Absent where the computer has no LibreOffice, or the host has none to run.
+ */
+export interface OfficeConverter {
+  /** Whether one is installed here. The host caches the answer. */
+  available(): Promise<boolean>;
+  /** Converts a copy of `path`; the original is never written, renamed or removed. */
+  convert(path: string, target: OfficeTarget): Promise<OfficeConversion>;
+}
+
 /** One file of a built-in model, as recorded when the app was built. */
 export interface ModelFile {
   /** Relative to the model's folder in the data folder, and to the source's base URL unless `url` says. */
@@ -685,15 +746,18 @@ export interface SpeechSegment {
 
 /**
  * A stream's audio sent to a cloud transcription service instead (#141), with the User's key.
- * OpenAI's live model needs our own voice activity detection: `vad` is Silero's file.
+ * OpenAI's live model needs our own voice activity detection: `vad` is Silero's file. Qwen's
+ * address is the host of the key's region: a key works in no other.
  */
 export type CloudStream =
   | { service: "openai"; model: string; apiKey: string; vad: string }
-  | { service: "soniox"; model: string; apiKey: string };
+  | { service: "soniox"; model: string; apiKey: string }
+  | { service: "qwen"; model: string; apiKey: string; url: string };
 
 /**
  * Why a cloud stream ended before it was finished: the connection was lost ("dropped"), or the
- * service refused the key or the account has no credit left ("refused").
+ * service refused the key (Qwen: one made in the other region too) or the account has no credit
+ * left ("refused").
  */
 export type CloudLoss = "dropped" | "refused";
 
@@ -708,6 +772,11 @@ export type CloudLoss = "dropped" | "refused";
 export interface Transcriber {
   /** Starts the engine with these files, if it isn't running them already. Rejects if it can't start. */
   load(model: TranscriptionModelFiles): Promise<void>;
+  /**
+   * The words a stream's speech may hold (the names in the call, #1031), told to an engine on this
+   * computer that can lean towards them, before the stream's audio. A cloud stream isn't told.
+   */
+  words(stream: string, words: readonly string[]): void;
   /** Audio for a stream, `MEETING_SAMPLE_RATE` mono, signed 16-bit, in order. */
   push(stream: string, samples: Int16Array): void;
   /**
@@ -730,7 +799,8 @@ export interface Transcriber {
 
 export interface TranscriberListener {
   segment(segment: SpeechSegment): void;
-  progress(stream: string, doneMs: number): void;
+  /** `heardMs`: how far a cloud service has answered for (`doneMs` when absent), see `CloudStreamReport`. */
+  progress(stream: string, doneMs: number, heardMs?: number): void;
   /** A stretch of a stream couldn't be decoded: it has no text, and the stream goes on. */
   failed(stream: string, message: string): void;
   /** The engine stopped by itself (it crashed, or ran out of memory): its streams are gone. */
@@ -878,6 +948,24 @@ export interface CoreAdapters {
   /** What Skill scripts run with (see `ScriptRuntimes`); the defaults suit the desktop app. */
   scriptRuntimes?: ScriptRuntimes;
   /**
+   * Runs `run_code` (ADR-0025), on an `executor` at level "os" only: the host copies the
+   * Documents, runs the code with IncarnaMind's own Python or bash, and reads back what it left.
+   * Absent: no Answer is offered `run_code`.
+   */
+  codeRuntime?: CodeHost;
+  /**
+   * Facts laid over every source's for a model, `provider` as the catalog names it: a test's, to
+   * turn on a Tool for a model the catalog doesn't offer it to (`codeTool`, #2351). The app passes
+   * none.
+   */
+  modelFacts?(provider: string, modelId: string): ModelFactsLayer | undefined;
+  /**
+   * Why the OS sandbox can't start on this computer, when it can't and the User can fix it:
+   * Linux without bubblewrap, socat or ripgrep, or one that doesn't let apps start a sandbox.
+   * Settings says so, with how to fix it; absent: it starts, or there is none to start (Windows).
+   */
+  sandboxProblem?: SandboxProblem;
+  /**
    * Outside agents (#351): how an agent starts the shim that reaches this app
    * (the desktop app's own binary, run as Node, with its shim script), where
    * the shim's socket is (by default in the data folder, see
@@ -919,6 +1007,14 @@ export interface CoreAdapters {
    * the little text they have.
    */
   textRecognizer?: TextRecognizer;
+  /**
+   * This computer's own decoder for a picture the engine that draws pictures
+   * can't read (a HEIC, #1937), as a PNG (#762). Absent: such a picture
+   * can't be read here. Tests pass a stand-in.
+   */
+  decodePicture?(bytes: Uint8Array): Promise<Uint8Array | null>;
+  /** Converts old Office and WPS files with the User's own LibreOffice (#762). Absent: none is here. */
+  officeConverter?: OfficeConverter;
   /**
    * Where the text recognition model's files come from. Defaults to the
    * pinned Hugging Face revisions; tests give no files for a fake that needs none.

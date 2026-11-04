@@ -295,7 +295,9 @@ async function onClaudePlan() {
 }
 
 const claudeTagging = (fake: FakeAnthropic) =>
-  fake.messages.filter((request) => JSON.stringify(request.body).includes("names of the Tags"));
+  fake.messages.filter((request) =>
+    JSON.stringify(request.body).includes("names of the existing Tags"),
+  );
 
 describe("Tagging on a Claude plan", () => {
   test("Automatic tags with Claude Haiku 5.5, one Document at a time, its requests spaced", async () => {

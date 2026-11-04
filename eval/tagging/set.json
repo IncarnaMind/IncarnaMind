@@ -1,0 +1,2063 @@
+{
+ "about": "Tags from content (#2308): synthetic Documents as the tagger reads them (name, type, the start of their text). `invoice`: whether the Invoice kind Tag fits; `fits`: words of which one, in a Tag's name, makes the Tags fitting (compared case-free); `topic`: the walk's two subjects, for the Folders Organize proposes. `tune`: 60 Documents (20 English, 40 Chinese) whose results have been read; `heldout`: 40 more (20 per language), none paired with a tuning Document, the Chinese ones of other kinds and subjects than the English, fixed before any model read them. Tune on `tune` only.",
+ "documents": [
+  {
+   "id": "t-en-1",
+   "split": "tune",
+   "language": "en",
+   "name": "Roof repair estimate",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Hillside Roofing. ESTIMATE #E-2231. Prepared for: J. Moreno. Replace 14 damaged slate tiles and flashing on the north side. Labour 2 days. Materials 640.00. Labour 1,100.00. Estimated total 1,740.00. This estimate is valid for 30 days and is not a bill.",
+   "invoice": false,
+   "fits": [
+    "roof",
+    "repair",
+    "estimate",
+    "house",
+    "home"
+   ]
+  },
+  {
+   "id": "t-en-2",
+   "split": "tune",
+   "language": "en",
+   "name": "Electricity bill March",
+   "kind": "pdf",
+   "pageCount": 2,
+   "text": "Northgrid Energy. INVOICE 88120394. Billing period 1–31 March 2026. Account 5520-118. Electricity used 412 kWh at 0.28 = 115.36. Standing charge 9.30. Amount due 124.66 by 15 April 2026. Pay by direct debit or bank transfer.",
+   "invoice": true,
+   "fits": [
+    "electric",
+    "energy",
+    "utilit",
+    "bill",
+    "invoice"
+   ]
+  },
+  {
+   "id": "t-en-3",
+   "split": "tune",
+   "language": "en",
+   "name": "Book club notes",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# Book club, 12 March\nWe read The Remains of the Day. Priya thought Stevens is unreliable from the first page. Next month: Klara and the Sun. Snacks: Tom. Cost of the room is 20, split four ways.",
+   "invoice": false,
+   "fits": [
+    "book",
+    "club",
+    "reading",
+    "literature",
+    "note"
+   ]
+  },
+  {
+   "id": "t-en-4",
+   "split": "tune",
+   "language": "en",
+   "name": "Swim lessons signup",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "City Aquatics Centre. Registration confirmed. Participant: Mia Lee, age 7. Course: Beginner swim, Saturdays 9:00, 8 weeks from 4 April. Fee paid: 96.00. Please bring a towel and goggles. To cancel, contact the front desk.",
+   "invoice": false,
+   "fits": [
+    "swim",
+    "lesson",
+    "class",
+    "child",
+    "kid",
+    "registration",
+    "sport"
+   ]
+  },
+  {
+   "id": "t-en-5",
+   "split": "tune",
+   "language": "en",
+   "name": "Garden planting plan",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "Sheet: Beds\nBed | Plant | Sow | Harvest\nA | Tomatoes | April | August\nB | Beans | May | July\nC | Lettuce | March | May\nSheet: Shopping\nItem | Quantity\nCompost | 6 bags\nSeeds | 5 packs",
+   "invoice": false,
+   "fits": [
+    "garden",
+    "plant",
+    "planting",
+    "vegetable"
+   ]
+  },
+  {
+   "id": "t-en-6",
+   "split": "tune",
+   "language": "en",
+   "name": "Sofa order confirmation",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Order confirmation #A77812. Thank you for your order. Item: Linden 3-seat sofa, grey. Price 899.00. Delivery expected in 6–8 weeks. You will be charged when the order ships. Track your order online.",
+   "invoice": false,
+   "fits": [
+    "sofa",
+    "furniture",
+    "order",
+    "home",
+    "purchase"
+   ]
+  },
+  {
+   "id": "t-en-7",
+   "split": "tune",
+   "language": "en",
+   "name": "Dentist receipt",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Bright Smile Dental. RECEIPT. Patient: Ana Ruiz. 14 Feb 2026. Check-up and cleaning 85.00. X-ray 40.00. Total 125.00. Paid by card. Thank you.",
+   "invoice": true,
+   "fits": [
+    "dental",
+    "dentist",
+    "health",
+    "medical",
+    "receipt",
+    "invoice"
+   ]
+  },
+  {
+   "id": "t-en-8",
+   "split": "tune",
+   "language": "en",
+   "name": "Wedding venue shortlist",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "Wedding venues to visit\n1. The Old Mill: holds 120, 4,500 for the day, catering in-house.\n2. Ashby Barn: holds 90, 3,200, bring your own caterer.\n3. Riverside Hotel: holds 150, 6,000 with dinner. Questions to ask: parking, music curfew, rain plan.",
+   "invoice": false,
+   "fits": [
+    "wedding",
+    "venue",
+    "event",
+    "planning"
+   ]
+  },
+  {
+   "id": "t-en-9",
+   "split": "tune",
+   "language": "en",
+   "name": "Lease agreement flat 4B",
+   "kind": "pdf",
+   "pageCount": 9,
+   "text": "ASSURED SHORTHOLD TENANCY AGREEMENT. This agreement is made between Harbour Lettings Ltd (the Landlord) and Sam Patel (the Tenant) for Flat 4B, 22 Quay Street. Term: 12 months from 1 May 2026. Rent: 1,350 per month, payable in advance. Deposit: 1,550, protected in an approved scheme.",
+   "invoice": false,
+   "fits": [
+    "lease",
+    "tenancy",
+    "contract",
+    "rent",
+    "flat",
+    "housing"
+   ]
+  },
+  {
+   "id": "t-en-10",
+   "split": "tune",
+   "language": "en",
+   "name": "Q1 sales review",
+   "kind": "pptx",
+   "pageCount": 6,
+   "text": "Q1 2026 sales review\nRevenue up 8% on Q4\nEurope flat, Asia +21%\nTop accounts: Norvik, Pellam\nPipeline for Q2\nNext steps",
+   "invoice": false,
+   "fits": [
+    "sales",
+    "review",
+    "quarter",
+    "q1",
+    "business",
+    "slides",
+    "report"
+   ]
+  },
+  {
+   "id": "t-zh-1",
+   "split": "tune",
+   "language": "zh",
+   "name": "空调维修报价",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "家电维修服务部 报价单 编号 BJ-0412。客户：王先生。项目：卧室空调不制冷，检测、加氟、更换电容。材料费 180 元，人工费 220 元，合计 400 元。本报价单有效期 15 天，不作为付款凭证。",
+   "invoice": false,
+   "fits": [
+    "空调",
+    "维修",
+    "报价",
+    "家电"
+   ]
+  },
+  {
+   "id": "t-zh-2",
+   "split": "tune",
+   "language": "zh",
+   "name": "电费账单2026年3月",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "国网电力 电费缴费通知单。户号 3301-2287。计费期间 2026 年 3 月 1 日至 3 月 31 日。用电量 356 千瓦时，电费 198.30 元。请于 4 月 20 日前缴纳。已开具电子发票。",
+   "invoice": true,
+   "fits": [
+    "电费",
+    "电力",
+    "账单",
+    "水电",
+    "发票"
+   ]
+  },
+  {
+   "id": "t-zh-3",
+   "split": "tune",
+   "language": "zh",
+   "name": "读书会笔记",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 读书会 3 月 12 日\n这次读《活着》。小李觉得福贵的命运写得太苦，老张说这正是余华的力量。下次读《三体》。场地费 80 元，四人平摊。",
+   "invoice": false,
+   "fits": [
+    "读书",
+    "书",
+    "阅读",
+    "笔记"
+   ]
+  },
+  {
+   "id": "t-zh-4",
+   "split": "tune",
+   "language": "zh",
+   "name": "少儿游泳班报名",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "市游泳馆 报名成功通知。学员：陈小雨，7 岁。课程：少儿初级游泳班，每周六上午 9 点，共 8 次，4 月 4 日开课。已缴学费 960 元。请自备泳镜和毛巾。",
+   "invoice": false,
+   "fits": [
+    "游泳",
+    "报名",
+    "课程",
+    "孩子",
+    "运动"
+   ]
+  },
+  {
+   "id": "t-zh-5",
+   "split": "tune",
+   "language": "zh",
+   "name": "阳台种菜计划",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：种植\n花盆 | 作物 | 播种 | 收获\n1 | 番茄 | 4 月 | 8 月\n2 | 生菜 | 3 月 | 5 月\n3 | 小葱 | 4 月 | 6 月\n工作表：采购\n物品 | 数量\n营养土 | 4 袋\n种子 | 5 包",
+   "invoice": false,
+   "fits": [
+    "种菜",
+    "种植",
+    "阳台",
+    "蔬菜",
+    "园艺"
+   ]
+  },
+  {
+   "id": "t-zh-6",
+   "split": "tune",
+   "language": "zh",
+   "name": "沙发订单确认",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "订单确认 编号 DD20260318。感谢下单。商品：北欧三人布艺沙发，灰色，单价 3,299 元。预计 30 天内发货，发货时扣款。可在“我的订单”查看物流。",
+   "invoice": false,
+   "fits": [
+    "沙发",
+    "家具",
+    "订单",
+    "家居",
+    "购物"
+   ]
+  },
+  {
+   "id": "t-zh-7",
+   "split": "tune",
+   "language": "zh",
+   "name": "体检收费收据",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "仁和体检中心 收费收据。姓名：刘敏。日期：2026 年 2 月 14 日。项目：入职体检套餐 260 元，血常规 40 元。合计 300 元。支付方式：微信。",
+   "invoice": true,
+   "fits": [
+    "体检",
+    "医疗",
+    "健康",
+    "收据",
+    "发票"
+   ]
+  },
+  {
+   "id": "t-zh-8",
+   "split": "tune",
+   "language": "zh",
+   "name": "婚礼场地备选",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "婚礼场地候选\n1. 湖畔酒店：可坐 150 人，含晚宴 6 万元。\n2. 老厂房草坪：可坐 100 人，场地费 2.5 万元，需自带餐饮。\n3. 山居民宿：可坐 80 人，3 万元。待确认：停车、雨天方案、音响。",
+   "invoice": false,
+   "fits": [
+    "婚礼",
+    "场地",
+    "活动",
+    "筹备"
+   ]
+  },
+  {
+   "id": "t-zh-9",
+   "split": "tune",
+   "language": "zh",
+   "name": "房屋租赁合同",
+   "kind": "pdf",
+   "pageCount": 8,
+   "text": "房屋租赁合同。出租方（甲方）：张建国。承租方（乙方）：李薇。甲方将位于滨江路 18 号 3 单元 502 室的房屋出租给乙方使用。租期十二个月，自 2026 年 5 月 1 日起。月租金 4,800 元，押一付三。",
+   "invoice": false,
+   "fits": [
+    "租赁",
+    "合同",
+    "租房",
+    "房屋"
+   ]
+  },
+  {
+   "id": "t-zh-10",
+   "split": "tune",
+   "language": "zh",
+   "name": "一季度销售复盘",
+   "kind": "pptx",
+   "pageCount": 6,
+   "text": "2026 年一季度销售复盘\n营收环比增长 8%\n华东持平，华南增长 21%\n重点客户：恒通、立方\n二季度商机\n下一步计划",
+   "invoice": false,
+   "fits": [
+    "销售",
+    "复盘",
+    "季度",
+    "业务",
+    "报告",
+    "幻灯片"
+   ]
+  },
+  {
+   "id": "h-en-1",
+   "split": "tune",
+   "language": "en",
+   "name": "Bathroom refit quotation",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Coastline Bathrooms. QUOTATION Q-5517. Customer: L. Hart. Remove old suite, supply and fit walk-in shower, basin and WC, tile two walls. Materials 2,850.00. Labour 1,900.00. Total quoted 4,750.00. Quote valid 60 days. A deposit invoice follows acceptance.",
+   "invoice": false,
+   "fits": [
+    "bathroom",
+    "renovation",
+    "refit",
+    "quote",
+    "home",
+    "house"
+   ]
+  },
+  {
+   "id": "h-en-2",
+   "split": "tune",
+   "language": "en",
+   "name": "Plumber invoice 2207",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Rapid Plumbing Ltd. INVOICE 2207. Date: 3 March 2026. Bill to: L. Hart, 9 Elm Road. Replace kitchen tap and fix leak under sink: labour 95.00, parts 42.50. VAT 27.50. Total due 165.00. Payment due within 14 days. Bank: 20-11-04 41229.",
+   "invoice": true,
+   "fits": [
+    "plumb",
+    "repair",
+    "home",
+    "invoice",
+    "bill"
+   ]
+  },
+  {
+   "id": "h-en-3",
+   "split": "tune",
+   "language": "en",
+   "name": "Paint colour notes",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# Paint samples for the hall\n- Farrow Sage: too green in the evening light\n- Stone White: clean, but shows marks\n- Hay: warm, works with the oak floor\nTester pots were 5.50 each. Decide by Friday; painter starts on the 20th.",
+   "invoice": false,
+   "fits": [
+    "paint",
+    "colour",
+    "color",
+    "decor",
+    "home",
+    "renovation",
+    "note"
+   ]
+  },
+  {
+   "id": "h-en-4",
+   "split": "tune",
+   "language": "en",
+   "name": "Triathlon entry confirmation",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Lakeside Sprint Triathlon 2026. Entry confirmed. Athlete: R. Osei. Race number 318. Wave start 08:20, 7 June. Entry fee 72.00 received with thanks. Race pack collection the day before. Transfer requests close 1 May.",
+   "invoice": false,
+   "fits": [
+    "triathlon",
+    "race",
+    "entry",
+    "registration",
+    "sport",
+    "event"
+   ]
+  },
+  {
+   "id": "h-en-5",
+   "split": "tune",
+   "language": "en",
+   "name": "Cycling training block",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "Sheet: Weeks\nWeek | Mon | Wed | Sat | Hours\n1 | Rest | Intervals 6x3 | Long ride 60 km | 6\n2 | Rest | Tempo 40 min | Long ride 70 km | 7\n3 | Rest | Hills 5x5 | Long ride 80 km | 8\nSheet: Notes\nTarget FTP 250 W by June",
+   "invoice": false,
+   "fits": [
+    "cycling",
+    "training",
+    "bike",
+    "fitness",
+    "plan",
+    "sport"
+   ]
+  },
+  {
+   "id": "h-en-6",
+   "split": "tune",
+   "language": "en",
+   "name": "Kitchen appliance price list",
+   "kind": "pdf",
+   "pageCount": 2,
+   "text": "Spring price list 2026. Induction hob 80 cm 649. Built-in oven 499. Integrated dishwasher 429. Extractor 299. Prices include VAT. Installation from 120 per item. Prices may change without notice.",
+   "invoice": false,
+   "fits": [
+    "kitchen",
+    "appliance",
+    "price",
+    "home"
+   ]
+  },
+  {
+   "id": "h-en-7",
+   "split": "tune",
+   "language": "en",
+   "name": "Hotel folio Lisbon",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Hotel Avenida, Lisbon. GUEST FOLIO / RECEIPT. Guest: K. Brandt. Arrival 10 Mar, departure 13 Mar. 3 nights at 140.00 = 420.00. City tax 6.00. Breakfast 36.00. Total 462.00. Paid by Visa ending 4410. Balance 0.00.",
+   "invoice": true,
+   "fits": [
+    "hotel",
+    "travel",
+    "trip",
+    "lisbon",
+    "receipt",
+    "invoice"
+   ]
+  },
+  {
+   "id": "h-en-8",
+   "split": "tune",
+   "language": "en",
+   "name": "Research proposal soil microbes",
+   "kind": "docx",
+   "pageCount": 12,
+   "text": "Research proposal. Soil microbial diversity under no-till farming. Abstract: We propose a three-year field study comparing microbial communities in tilled and no-till plots using 16S sequencing. Aims: 1) measure diversity; 2) link it to yield; 3) model carbon retention.",
+   "invoice": false,
+   "fits": [
+    "soil",
+    "microb",
+    "research",
+    "farming",
+    "agricultur",
+    "proposal",
+    "paper"
+   ]
+  },
+  {
+   "id": "h-en-9",
+   "split": "tune",
+   "language": "en",
+   "name": "Meeting notes product launch",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "Launch sync, 18 March. Attendees: Dana, Wei, Omar. Decisions: launch date 2 June; pricing stays at 12 per seat. Actions: Wei to finish the press kit by 15 May; Omar to brief support. Risks: the payment provider review.",
+   "invoice": false,
+   "fits": [
+    "launch",
+    "product",
+    "meeting",
+    "note",
+    "marketing"
+   ]
+  },
+  {
+   "id": "h-en-10",
+   "split": "tune",
+   "language": "en",
+   "name": "Car insurance renewal",
+   "kind": "pdf",
+   "pageCount": 3,
+   "text": "Your car insurance renewal. Policy CX-889120. Vehicle: 2019 Golf, reg AB19 XYZ. Cover: comprehensive. Renewal date 1 May 2026. Premium this year 412.00 (last year 389.00). If you do nothing, your policy renews automatically and we will take payment.",
+   "invoice": false,
+   "fits": [
+    "car",
+    "insurance",
+    "vehicle",
+    "policy",
+    "motor"
+   ]
+  },
+  {
+   "id": "h-zh-1",
+   "split": "tune",
+   "language": "zh",
+   "name": "卫生间翻新报价",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "安居装饰 报价单 编号 BJ-5517。客户：何女士。拆除旧洁具，安装淋浴房、台盆、马桶，两面墙重新贴砖。材料费 1.8 万元，人工费 1.2 万元，合计 3 万元。报价有效期 60 天，签约后另开订金发票。",
+   "invoice": false,
+   "fits": [
+    "卫生间",
+    "装修",
+    "翻新",
+    "报价",
+    "家装"
+   ]
+  },
+  {
+   "id": "h-zh-2",
+   "split": "tune",
+   "language": "zh",
+   "name": "水管维修发票",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "电子发票（普通发票）。发票号码 0442207。开票日期 2026 年 3 月 3 日。购买方：何敏。销售方：快修水电服务部。项目：厨房水龙头更换及下水管维修，金额 150.44 元，税额 4.56 元，价税合计 155.00 元。",
+   "invoice": true,
+   "fits": [
+    "维修",
+    "水电",
+    "发票",
+    "家居"
+   ]
+  },
+  {
+   "id": "h-zh-3",
+   "split": "tune",
+   "language": "zh",
+   "name": "墙面涂料比较",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 客厅墙面涂料小样\n- 奶咖色：傍晚灯光下偏黄\n- 云白：干净，但容易显脏\n- 浅灰绿：和木地板很搭\n小样每罐 35 元。周五前定下来，油漆师傅 20 号进场。",
+   "invoice": false,
+   "fits": [
+    "涂料",
+    "油漆",
+    "墙面",
+    "装修",
+    "家装",
+    "笔记"
+   ]
+  },
+  {
+   "id": "h-zh-4",
+   "split": "tune",
+   "language": "zh",
+   "name": "半程马拉松参赛确认",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "2026 西湖半程马拉松 参赛确认函。选手：周航。参赛号 A3182。起跑时间 4 月 19 日 7:30。报名费 120 元已收到。请于赛前一天凭身份证领取参赛包。转让申请截止 3 月 31 日。",
+   "invoice": false,
+   "fits": [
+    "马拉松",
+    "跑步",
+    "比赛",
+    "参赛",
+    "报名",
+    "赛事"
+   ]
+  },
+  {
+   "id": "h-zh-5",
+   "split": "tune",
+   "language": "zh",
+   "name": "骑行训练计划",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：周计划\n周 | 周一 | 周三 | 周六 | 小时\n1 | 休息 | 间歇 6x3 | 长距离 60 公里 | 6\n2 | 休息 | 节奏骑 40 分钟 | 长距离 70 公里 | 7\n3 | 休息 | 爬坡 5x5 | 长距离 80 公里 | 8\n工作表：备注\n6 月前功率目标 250 瓦",
+   "invoice": false,
+   "fits": [
+    "骑行",
+    "训练",
+    "自行车",
+    "健身",
+    "计划",
+    "运动"
+   ]
+  },
+  {
+   "id": "h-zh-6",
+   "split": "tune",
+   "language": "zh",
+   "name": "厨电价目表",
+   "kind": "pdf",
+   "pageCount": 2,
+   "text": "2026 春季价目表。嵌入式电磁炉 80 厘米 3,999 元。嵌入式烤箱 2,999 元。洗碗机 3,599 元。油烟机 1,999 元。以上价格含税，安装费每件 150 元起。价格如有变动，恕不另行通知。",
+   "invoice": false,
+   "fits": [
+    "厨电",
+    "厨房",
+    "家电",
+    "价目",
+    "价格"
+   ]
+  },
+  {
+   "id": "h-zh-7",
+   "split": "tune",
+   "language": "zh",
+   "name": "酒店住宿结账单",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "成都锦江宾馆 住宿结账单（收据）。宾客：赵立。入住 3 月 10 日，离店 3 月 13 日。房费 3 晚 × 520 元 = 1,560 元。早餐 96 元。合计 1,656 元。已用支付宝付清，余额 0 元。",
+   "invoice": true,
+   "fits": [
+    "酒店",
+    "住宿",
+    "差旅",
+    "出差",
+    "旅行",
+    "收据",
+    "发票"
+   ]
+  },
+  {
+   "id": "h-zh-8",
+   "split": "tune",
+   "language": "zh",
+   "name": "土壤微生物课题申请书",
+   "kind": "docx",
+   "pageCount": 12,
+   "text": "课题申请书。免耕条件下土壤微生物多样性研究。摘要：本课题拟开展为期三年的田间试验，利用 16S 测序比较翻耕与免耕地块的微生物群落。研究目标：一、测定多样性；二、分析其与产量的关系；三、建立碳储存模型。",
+   "invoice": false,
+   "fits": [
+    "土壤",
+    "微生物",
+    "课题",
+    "研究",
+    "农业",
+    "论文"
+   ]
+  },
+  {
+   "id": "h-zh-9",
+   "split": "tune",
+   "language": "zh",
+   "name": "新品发布会议纪要",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "发布会筹备会 3 月 18 日。参会：丹丹、小魏、欧阳。决定：6 月 2 日发布；价格维持每席位 88 元。待办：小魏 5 月 15 日前完成新闻稿；欧阳负责客服培训。风险：支付渠道审核。",
+   "invoice": false,
+   "fits": [
+    "发布",
+    "新品",
+    "会议",
+    "纪要",
+    "产品",
+    "市场"
+   ]
+  },
+  {
+   "id": "h-zh-10",
+   "split": "tune",
+   "language": "zh",
+   "name": "车险续保通知",
+   "kind": "pdf",
+   "pageCount": 3,
+   "text": "机动车保险续保通知。保单号 PDAA2026889120。车辆：2019 款大众高尔夫，浙 A·19XYZ。险种：交强险、车损险、三者险 200 万。续保日期 2026 年 5 月 1 日。今年保费 4,120 元（去年 3,890 元）。如无异议将自动续保扣款。",
+   "invoice": false,
+   "fits": [
+    "车险",
+    "保险",
+    "汽车",
+    "续保",
+    "车辆"
+   ]
+  },
+  {
+   "id": "w-1",
+   "split": "walk",
+   "language": "en",
+   "topic": "kitchen",
+   "name": "Quartz countertop quote",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Stoneworks Surfaces. QUOTE #SW-1188. For: the Lin kitchen, 12 Birch Lane. Calacatta quartz, 20 mm, 3.4 m² with one undermount sink cut-out and polished edges. Template visit included. Price 2,940.00. Fitting 380.00. Total quoted 3,320.00. Valid until 30 April. 30% deposit on acceptance.",
+   "invoice": false,
+   "fits": [
+    "kitchen",
+    "countertop",
+    "renovation",
+    "remodel",
+    "quote",
+    "home"
+   ]
+  },
+  {
+   "id": "w-2",
+   "split": "walk",
+   "language": "en",
+   "topic": "kitchen",
+   "name": "Tile samples notes",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# Tile samples\n- Zellige green: lovely, 89/m², uneven so grout lines vary\n- White metro: cheap at 22/m², safe\n- Terrazzo grey: matches the quartz, 64/m²\nNeed 6 m² for the splashback plus 10% spare. Ask the fitter about the corner by the window.",
+   "invoice": false,
+   "fits": [
+    "kitchen",
+    "tile",
+    "renovation",
+    "remodel",
+    "note",
+    "home"
+   ]
+  },
+  {
+   "id": "w-3",
+   "split": "walk",
+   "language": "en",
+   "topic": "kitchen",
+   "name": "Cabinet invoice",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Oakline Kitchens. INVOICE 40213. Date 2 March 2026. Bill to: M. Lin, 12 Birch Lane. 14 shaker cabinets, painted sage, with soft-close hinges: 6,120.00. Delivery 150.00. Less deposit paid 1,800.00. Balance due 4,470.00 by 16 March.",
+   "invoice": true,
+   "fits": [
+    "kitchen",
+    "cabinet",
+    "renovation",
+    "remodel",
+    "invoice"
+   ]
+  },
+  {
+   "id": "w-4",
+   "split": "walk",
+   "language": "en",
+   "topic": "kitchen",
+   "name": "Contractor agreement",
+   "kind": "docx",
+   "pageCount": 4,
+   "text": "Building works agreement between M. Lin (the Client) and Harlow Build Ltd (the Contractor) for the kitchen renovation at 12 Birch Lane. Scope: strip out, new electrics, plastering, fit cabinets and worktops. Start 9 March, finish 24 April. Price 11,400, paid in three stages.",
+   "invoice": false,
+   "fits": [
+    "kitchen",
+    "renovation",
+    "remodel",
+    "contract",
+    "agreement",
+    "builder"
+   ]
+  },
+  {
+   "id": "w-5",
+   "split": "walk",
+   "language": "en",
+   "topic": "kitchen",
+   "name": "Induction hob manual",
+   "kind": "pdf",
+   "pageCount": 36,
+   "text": "User manual. Induction hob IH-804. Safety instructions: keep children away while cooking zones are hot. Installation: the hob needs a 32 A supply. Using the hob: touch the power key, choose a zone, set a level from 1 to 9. Cleaning and care. Troubleshooting codes E1 to E9.",
+   "invoice": false,
+   "fits": [
+    "kitchen",
+    "hob",
+    "appliance",
+    "manual",
+    "induction",
+    "book"
+   ]
+  },
+  {
+   "id": "w-6",
+   "split": "walk",
+   "language": "en",
+   "topic": "race",
+   "name": "Race registration",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Riverside Marathon 2026. Registration confirmed. Runner: Mei Lin. Bib 2271. Start wave B, 08:45, Sunday 17 May. Entry fee 65.00 paid. Collect your race pack at the expo on 15–16 May with photo ID. Deferrals close on 1 April.",
+   "invoice": false,
+   "fits": [
+    "marathon",
+    "race",
+    "running",
+    "run",
+    "registration",
+    "event"
+   ]
+  },
+  {
+   "id": "w-7",
+   "split": "walk",
+   "language": "en",
+   "topic": "race",
+   "name": "Training plan",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "Sheet: Plan\nWeek | Tue | Thu | Sun long run | Total km\n1 | 6 km easy | 5x800 m | 16 km | 32\n2 | 8 km easy | Tempo 6 km | 19 km | 38\n3 | 8 km easy | 6x1 km | 22 km | 42\n4 | 6 km easy | Hills 8x | 14 km | 30\nSheet: Paces\nEasy | 6:10/km\nMarathon | 5:20/km",
+   "invoice": false,
+   "fits": [
+    "marathon",
+    "training",
+    "running",
+    "run",
+    "race",
+    "plan",
+    "fitness"
+   ]
+  },
+  {
+   "id": "w-8",
+   "split": "walk",
+   "language": "en",
+   "topic": "race",
+   "name": "Race day checklist",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# Race day\n- Bib pinned, chip on shoe\n- Gels: 4 (every 8 km)\n- Vaseline, cap, sunglasses\n- Breakfast 3 h before: porridge, banana\n- Bag drop closes 08:15\n- Meet Dan at mile 20",
+   "invoice": false,
+   "fits": [
+    "marathon",
+    "race",
+    "running",
+    "run",
+    "checklist"
+   ]
+  },
+  {
+   "id": "w-9",
+   "split": "walk",
+   "language": "en",
+   "topic": "race",
+   "name": "Running shoes receipt",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "StrideRun Store. RECEIPT 77310. 22 Feb 2026. Pegasus 41, size 7: 129.99. Running socks x3: 18.00. Total 147.99. Paid: Mastercard. Returns within 30 days with this receipt.",
+   "invoice": true,
+   "fits": [
+    "running",
+    "run",
+    "shoe",
+    "marathon",
+    "race",
+    "receipt",
+    "invoice"
+   ]
+  },
+  {
+   "id": "w-10",
+   "split": "walk",
+   "language": "zh",
+   "topic": "kitchen",
+   "name": "厨房装修预算",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：预算\n项目 | 预算 | 已花\n橱柜 | 45,000 | 18,000\n台面 | 24,000 | 0\n瓷砖 | 6,000 | 0\n电工 | 8,000 | 8,000\n合计 | 83,000 | 26,000",
+   "invoice": false,
+   "fits": [
+    "厨房",
+    "装修",
+    "预算",
+    "家装"
+   ]
+  },
+  {
+   "id": "w-11",
+   "split": "walk",
+   "language": "zh",
+   "topic": "kitchen",
+   "name": "瓷砖样品对比",
+   "kind": "docx",
+   "pageCount": 1,
+   "text": "瓷砖样品对比\n绿色手工砖：好看，每平方米 620 元，砖缝宽窄不一。\n白色地铁砖：便宜，每平方米 150 元，不会出错。\n灰色水磨石：和石英石台面最配，每平方米 450 元。\n挡水墙需要 6 平方米，另加一成备用。",
+   "invoice": false,
+   "fits": [
+    "瓷砖",
+    "厨房",
+    "装修",
+    "家装"
+   ]
+  },
+  {
+   "id": "w-12",
+   "split": "walk",
+   "language": "zh",
+   "topic": "race",
+   "name": "马拉松训练日志",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 训练日志\n3 月 2 日：轻松跑 8 公里，配速 6:05，膝盖没问题。\n3 月 4 日：间歇 5×800 米，最后一组很吃力。\n3 月 8 日：长距离 19 公里，第 15 公里补了一支能量胶。\n下周加到 22 公里。",
+   "invoice": false,
+   "fits": [
+    "马拉松",
+    "训练",
+    "跑步",
+    "日志"
+   ]
+  },
+  {
+   "id": "w-13",
+   "split": "walk",
+   "language": "zh",
+   "topic": "race",
+   "name": "比赛报名须知",
+   "kind": "pdf",
+   "pageCount": 2,
+   "text": "河畔马拉松 2026 报名须知。报名时间：1 月 10 日至 3 月 31 日。报名费：全程 200 元，半程 150 元。参赛选手须年满 18 周岁并提交体检证明。领物时间：5 月 15–16 日。比赛当天 7:30 起跑，关门时间 6 小时。",
+   "invoice": false,
+   "fits": [
+    "马拉松",
+    "比赛",
+    "报名",
+    "跑步",
+    "赛事"
+   ]
+  },
+  {
+   "id": "w-14",
+   "split": "walk",
+   "language": "en",
+   "topic": "race",
+   "name": "Fuel plan",
+   "kind": "text",
+   "pageCount": null,
+   "text": "Race fuelling: one gel every 8 km, four in all. Electrolyte drink at 10, 20 and 30 km. Carb-load for three days before. Protein within an hour after the finish.",
+   "invoice": false,
+   "fits": [
+    "marathon",
+    "fuel",
+    "nutrition",
+    "running",
+    "run",
+    "race",
+    "training"
+   ]
+  },
+  {
+   "id": "n-en-1",
+   "split": "heldout",
+   "language": "en",
+   "name": "Employment contract",
+   "kind": "pdf",
+   "pageCount": 6,
+   "text": "EMPLOYMENT AGREEMENT between Fernhill Analytics Ltd (the Employer) and Priya Nair (the Employee). Position: Senior Data Engineer. Start date: 2 June 2026. Salary: 78,000 per year, paid monthly. Probation: 3 months. Notice period: 2 months. Holidays: 25 days plus public holidays.",
+   "invoice": false,
+   "fits": [
+    "employment",
+    "contract",
+    "job",
+    "hr",
+    "work"
+   ]
+  },
+  {
+   "id": "n-en-2",
+   "split": "heldout",
+   "language": "en",
+   "name": "Laptop spec sheet",
+   "kind": "pdf",
+   "pageCount": 2,
+   "text": "Aero 14 Pro. Technical specifications. Processor: 12-core, up to 4.8 GHz. Memory: 32 GB. Storage: 1 TB SSD. Display: 14-inch, 2880 x 1800, 120 Hz. Battery: 72 Wh, up to 18 hours. Weight: 1.4 kg. Ports: 2 x USB-C, HDMI, headphone jack.",
+   "invoice": false,
+   "fits": [
+    "laptop",
+    "spec",
+    "computer",
+    "hardware",
+    "product",
+    "tech"
+   ]
+  },
+  {
+   "id": "n-en-3",
+   "split": "heldout",
+   "language": "en",
+   "name": "Board meeting minutes April",
+   "kind": "docx",
+   "pageCount": 3,
+   "text": "Minutes of the board meeting, 9 April 2026. Present: A. Clarke (chair), M. Osei, L. Fung, R. Patel. 1. The minutes of March were approved. 2. The CFO presented Q1 results. 3. The board approved the new office lease. 4. Next meeting: 14 May.",
+   "invoice": false,
+   "fits": [
+    "board",
+    "minutes",
+    "meeting",
+    "governance"
+   ]
+  },
+  {
+   "id": "n-en-4",
+   "split": "heldout",
+   "language": "en",
+   "name": "Lab notebook PCR run 12",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# PCR run 12, 21 March\nTemplate: plasmid pUC19, 10 ng. Primers F2/R2. Annealing 58 °C, 30 cycles. Gel: 1% agarose, band at ~500 bp as expected; faint primer dimer. Next: repeat with 56 °C annealing and fresh polymerase.",
+   "invoice": false,
+   "fits": [
+    "pcr",
+    "lab",
+    "experiment",
+    "dna",
+    "biology",
+    "molecular",
+    "research"
+   ]
+  },
+  {
+   "id": "n-en-5",
+   "split": "heldout",
+   "language": "en",
+   "name": "Tax return summary 2025",
+   "kind": "pdf",
+   "pageCount": 4,
+   "text": "Self Assessment tax return summary, tax year 2024–25. Employment income 52,400. Savings interest 610. Allowable expenses 1,250. Taxable income 39,190 after personal allowance. Tax due 7,838.00. Already paid through PAYE 7,600.00. Balance to pay by 31 January 2026: 238.00.",
+   "invoice": false,
+   "fits": [
+    "tax",
+    "return",
+    "income",
+    "self assessment",
+    "finance"
+   ]
+  },
+  {
+   "id": "n-en-6",
+   "split": "heldout",
+   "language": "en",
+   "name": "Banana bread",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# Banana bread\nMakes one loaf. 3 ripe bananas, 75 g melted butter, 150 g sugar, 1 egg, 1 tsp vanilla, 1 tsp baking soda, pinch of salt, 190 g flour. Mash the bananas, stir in the butter, then the rest. Bake at 175 °C for 55–60 minutes.",
+   "invoice": false,
+   "fits": [
+    "recipe",
+    "baking",
+    "bread",
+    "cooking",
+    "food",
+    "banana"
+   ]
+  },
+  {
+   "id": "n-en-7",
+   "split": "heldout",
+   "language": "en",
+   "name": "STAT 101 syllabus",
+   "kind": "pdf",
+   "pageCount": 5,
+   "text": "STAT 101: Introduction to Statistics. Autumn 2026. Instructor: Dr. K. Ahmed. Weeks 1–3: describing data. Weeks 4–6: probability. Weeks 7–10: sampling and confidence intervals. Weeks 11–13: hypothesis tests and regression. Assessment: weekly problem sets 30%, midterm 30%, final exam 40%.",
+   "invoice": false,
+   "fits": [
+    "statistics",
+    "course",
+    "syllabus",
+    "class",
+    "teaching",
+    "university"
+   ]
+  },
+  {
+   "id": "n-en-8",
+   "split": "heldout",
+   "language": "en",
+   "name": "Seed round pitch",
+   "kind": "pptx",
+   "pageCount": 12,
+   "text": "Loop: compost pickup for apartment buildings\nThe problem: 40% of household waste is food\nOur solution\nTraction: 3,200 households, 18% month-on-month growth\nBusiness model\nTeam\nThe ask: 1.5M seed",
+   "invoice": false,
+   "fits": [
+    "pitch",
+    "investor",
+    "startup",
+    "fundraising",
+    "seed",
+    "compost",
+    "slides"
+   ]
+  },
+  {
+   "id": "n-en-9",
+   "split": "heldout",
+   "language": "en",
+   "name": "Web hosting invoice",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Stackwell Hosting. INVOICE SW-90311. Invoice date 1 April 2026. Customer: Fernhill Analytics. Cloud server CX31, April: 18.50. Backups: 3.70. Domain renewal fernhill.io: 14.00. Subtotal 36.20. VAT 7.24. Total due 43.44 by 15 April 2026.",
+   "invoice": true,
+   "fits": [
+    "hosting",
+    "web",
+    "server",
+    "cloud",
+    "invoice"
+   ]
+  },
+  {
+   "id": "n-en-10",
+   "split": "heldout",
+   "language": "en",
+   "name": "Donation receipt",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Riverside Food Bank. Official donation receipt no. 2026-0417. Received from: Tom Becker. Date: 17 March 2026. Amount: 250.00, by bank transfer. Thank you for your gift; no goods or services were provided in exchange. Registered charity 1123456.",
+   "invoice": false,
+   "fits": [
+    "donation",
+    "charity",
+    "receipt",
+    "giving"
+   ]
+  },
+  {
+   "id": "n-en-11",
+   "split": "heldout",
+   "language": "en",
+   "name": "Purchase order PO-7781",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "PURCHASE ORDER PO-7781. Buyer: Fernhill Analytics. Supplier: Officeline Supplies. Please supply: 10 ergonomic chairs at 189.00; 4 standing desks at 420.00. Order total 3,570.00. Deliver to 22 Mill Street by 30 April. Invoice to accounts@fernhill.io quoting the PO number.",
+   "invoice": false,
+   "fits": [
+    "purchase",
+    "order",
+    "procurement",
+    "office",
+    "furniture",
+    "supplies"
+   ]
+  },
+  {
+   "id": "n-en-12",
+   "split": "heldout",
+   "language": "en",
+   "name": "Packing slip 55120",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "PACKING SLIP. Order 55120. Ship to: Mia Lee, 4 Orchard Close. Items: 1 x Trail running shoes, size 7; 2 x Merino socks. Shipped 12 March via Parcelforce, tracking PF889201. Returns: use the label enclosed within 30 days.",
+   "invoice": false,
+   "fits": [
+    "packing",
+    "shipment",
+    "delivery",
+    "order",
+    "shipping"
+   ]
+  },
+  {
+   "id": "n-en-13",
+   "split": "heldout",
+   "language": "en",
+   "name": "Kyoto itinerary",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "Kyoto, 5 days\nDay 1: arrive Kansai airport, Haruka train to Kyoto, check in near Gion.\nDay 2: Fushimi Inari early, Tofuku-ji, Nishiki market.\nDay 3: Arashiyama bamboo grove, Tenryu-ji.\nDay 4: day trip to Nara.\nDay 5: Kinkaku-ji, fly home.",
+   "invoice": false,
+   "fits": [
+    "travel",
+    "trip",
+    "itinerary",
+    "kyoto",
+    "japan",
+    "holiday",
+    "vacation"
+   ]
+  },
+  {
+   "id": "n-en-14",
+   "split": "heldout",
+   "language": "en",
+   "name": "Data analyst job description",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "Job description: Data Analyst (12-month contract). You will build dashboards for the sales team, clean and join data from our CRM, and answer ad-hoc questions. You have: 2+ years of SQL, experience with a BI tool, clear writing. Salary 42,000–48,000. Hybrid, 2 days in the office.",
+   "invoice": false,
+   "fits": [
+    "job",
+    "hiring",
+    "recruit",
+    "analyst",
+    "role",
+    "vacancy",
+    "career"
+   ]
+  },
+  {
+   "id": "n-en-15",
+   "split": "heldout",
+   "language": "en",
+   "name": "Vaccination record",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Immunisation record. Name: Leo Grant. Date of birth: 3 May 2019. MMR dose 1: 10 June 2020. MMR dose 2: 4 September 2023. DTaP/IPV booster: 4 September 2023. Influenza (nasal): 18 October 2025. Next due: none scheduled.",
+   "invoice": false,
+   "fits": [
+    "vaccin",
+    "immuni",
+    "health",
+    "medical",
+    "child"
+   ]
+  },
+  {
+   "id": "n-en-16",
+   "split": "heldout",
+   "language": "en",
+   "name": "Flat inspection checklist",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "Sheet: Rooms\nRoom | Item | Condition | Note\nKitchen | Hob | OK |\nKitchen | Extractor | Not working | Report to agent\nBathroom | Shower seal | Mould | Photo taken\nBedroom | Window lock | OK |\nSheet: Meters\nGas | 04512\nElectric | 18890",
+   "invoice": false,
+   "fits": [
+    "inspection",
+    "flat",
+    "home",
+    "house",
+    "property",
+    "checklist",
+    "move"
+   ]
+  },
+  {
+   "id": "n-en-17",
+   "split": "heldout",
+   "language": "en",
+   "name": "Episode 14 outline",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# Episode 14: Why bus networks fail\n- Cold open: the 47 bus that never comes\n- Guest: transit planner Ana Ruiz\n- Frequency beats coverage\n- The Houston redesign\n- Listener question\n- Outro and next week",
+   "invoice": false,
+   "fits": [
+    "podcast",
+    "episode",
+    "outline",
+    "show",
+    "transit",
+    "bus"
+   ]
+  },
+  {
+   "id": "n-en-18",
+   "split": "heldout",
+   "language": "en",
+   "name": "Grant budget",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "Sheet: Budget\nLine | Year 1 | Year 2 | Total\nResearch assistant | 32,000 | 33,000 | 65,000\nEquipment | 12,000 | 0 | 12,000\nTravel | 3,000 | 3,000 | 6,000\nOverheads | 9,400 | 7,200 | 16,600\nTotal | 56,400 | 43,200 | 99,600",
+   "invoice": false,
+   "fits": [
+    "grant",
+    "budget",
+    "funding",
+    "research",
+    "proposal"
+   ]
+  },
+  {
+   "id": "n-en-19",
+   "split": "heldout",
+   "language": "en",
+   "name": "Privacy policy",
+   "kind": "web",
+   "pageCount": null,
+   "text": "Privacy policy. Last updated 1 March 2026. This policy explains what personal data Loop collects when you use our app, why we use it and your rights. We collect your address and pickup schedule to provide the service. We never sell your data. You can ask us to delete your account at any time.",
+   "invoice": false,
+   "fits": [
+    "privacy",
+    "policy",
+    "legal",
+    "data",
+    "gdpr"
+   ]
+  },
+  {
+   "id": "n-en-20",
+   "split": "heldout",
+   "language": "en",
+   "name": "Talk abstract",
+   "kind": "text",
+   "pageCount": null,
+   "text": "Talk abstract for the Urban Data conference: Counting cyclists with cheap sensors. We placed 40 low-cost radar counters across a mid-sized city for a year and compared them with manual counts. Error was under 6% in dry weather and rose to 15% in heavy rain. We share the open dataset and lessons for cities.",
+   "invoice": false,
+   "fits": [
+    "conference",
+    "talk",
+    "abstract",
+    "cycling",
+    "sensor",
+    "research",
+    "urban"
+   ]
+  },
+  {
+   "id": "m-zh-1",
+   "split": "heldout",
+   "language": "zh",
+   "name": "开题报告",
+   "kind": "docx",
+   "pageCount": 8,
+   "text": "硕士学位论文开题报告。题目：短视频平台算法推荐对青少年阅读习惯的影响。研究背景与意义。国内外研究现状。研究方法：问卷调查 600 份，深度访谈 20 人。研究进度：2026 年 3 月完成文献综述，9 月完成初稿。",
+   "invoice": false,
+   "fits": [
+    "开题",
+    "论文",
+    "学位",
+    "研究",
+    "毕业",
+    "阅读"
+   ]
+  },
+  {
+   "id": "m-zh-2",
+   "split": "heldout",
+   "language": "zh",
+   "name": "会员积分功能需求文档",
+   "kind": "docx",
+   "pageCount": 6,
+   "text": "产品需求文档（PRD）v1.2。功能：会员积分。背景：复购率下降。需求：下单每满 10 元积 1 分；积分可抵现，100 分抵 1 元；积分 12 个月后过期。验收标准：积分实时到账，退款时扣回。",
+   "invoice": false,
+   "fits": [
+    "需求",
+    "产品",
+    "积分",
+    "会员",
+    "prd"
+   ]
+  },
+  {
+   "id": "m-zh-3",
+   "split": "heldout",
+   "language": "zh",
+   "name": "家长会通知",
+   "kind": "text",
+   "pageCount": null,
+   "text": "各位家长：本学期家长会定于 11 月 8 日（周五）下午 3 点在各班教室召开，内容包括期中考试情况、寒假安全教育和下学期选课。请准时参加，不能到场的请提前告知班主任。三年级二班",
+   "invoice": false,
+   "fits": [
+    "家长会",
+    "学校",
+    "通知",
+    "班级",
+    "孩子",
+    "教育",
+    "家校"
+   ]
+  },
+  {
+   "id": "m-zh-4",
+   "split": "heldout",
+   "language": "zh",
+   "name": "社区植树活动报名表",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：报名\n姓名 | 楼栋 | 人数 | 是否带工具\n刘洋 | 3 栋 | 2 | 是\n陈静 | 5 栋 | 3 | 否\n赵磊 | 1 栋 | 1 | 是\n工作表：说明\n活动时间：3 月 12 日上午 9 点，集合地点：小区东门",
+   "invoice": false,
+   "fits": [
+    "植树",
+    "社区",
+    "活动",
+    "报名",
+    "志愿"
+   ]
+  },
+  {
+   "id": "m-zh-5",
+   "split": "heldout",
+   "language": "zh",
+   "name": "外卖订单详情",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "订单详情。订单号 20260318-8812。商家：老街牛肉面。宫保鸡丁饭 1 份 28 元，酸辣汤 1 份 12 元，配送费 3 元，满减 -8 元。实付 35 元。送达时间 18:42。如有问题请联系商家。",
+   "invoice": false,
+   "fits": [
+    "外卖",
+    "订单",
+    "餐饮",
+    "美食"
+   ]
+  },
+  {
+   "id": "m-zh-6",
+   "split": "heldout",
+   "language": "zh",
+   "name": "停车费电子发票",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "电子发票（普通发票）。发票号码 25330000000045120。开票日期 2026 年 3 月 20 日。购买方：周宁。销售方：某停车场管理有限公司。项目：停车服务费 2026 年 3 月，金额 291.26 元，税额 8.74 元，价税合计 300.00 元。",
+   "invoice": true,
+   "fits": [
+    "停车",
+    "发票",
+    "交通"
+   ]
+  },
+  {
+   "id": "m-zh-7",
+   "split": "heldout",
+   "language": "zh",
+   "name": "打车电子发票",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "电子发票（普通发票）。发票号码 25110000000077310。开票日期 2026 年 3 月 22 日。购买方：周宁。销售方：某网约车平台。项目：客运服务费，行程 3 次，金额 145.63 元，税额 4.37 元，价税合计 150.00 元。",
+   "invoice": true,
+   "fits": [
+    "打车",
+    "出行",
+    "交通",
+    "发票",
+    "差旅"
+   ]
+  },
+  {
+   "id": "m-zh-8",
+   "split": "heldout",
+   "language": "zh",
+   "name": "年终述职",
+   "kind": "pptx",
+   "pageCount": 10,
+   "text": "2026 年度述职\n年度目标完成情况\n重点项目：会员积分上线\n团队建设\n不足与反思\n明年计划",
+   "invoice": false,
+   "fits": [
+    "述职",
+    "年终",
+    "总结",
+    "工作",
+    "幻灯片",
+    "汇报"
+   ]
+  },
+  {
+   "id": "m-zh-9",
+   "split": "heldout",
+   "language": "zh",
+   "name": "第12周工作周报",
+   "kind": "docx",
+   "pageCount": 1,
+   "text": "第 12 周工作周报。本周完成：积分功能联调、修复 7 个缺陷、参加需求评审。进行中：活动页改版（60%）。下周计划：积分功能灰度发布。风险：支付接口变更待确认。",
+   "invoice": false,
+   "fits": [
+    "周报",
+    "工作",
+    "汇报",
+    "进度",
+    "积分"
+   ]
+  },
+  {
+   "id": "m-zh-10",
+   "split": "heldout",
+   "language": "zh",
+   "name": "用户访谈记录",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 用户访谈 #7\n受访者：32 岁，二胎妈妈，每周网购 3 次。\n- 积分规则看不懂，觉得“满 10 元积 1 分”太少\n- 最在意配送时间\n- 希望积分能换优惠券\n结论：积分说明要放在结算页。",
+   "invoice": false,
+   "fits": [
+    "访谈",
+    "用户",
+    "调研",
+    "积分",
+    "研究"
+   ]
+  },
+  {
+   "id": "m-zh-11",
+   "split": "heldout",
+   "language": "zh",
+   "name": "打印机驱动安装说明",
+   "kind": "pdf",
+   "pageCount": 12,
+   "text": "打印机驱动安装说明。适用型号：LJ-2200 系列。一、下载驱动：访问官网支持页面。二、运行安装程序，选择“USB 连接”或“网络连接”。三、打印测试页。常见问题：无法识别打印机时，请检查数据线并重启电脑。",
+   "invoice": false,
+   "fits": [
+    "打印机",
+    "驱动",
+    "安装",
+    "说明书",
+    "手册"
+   ]
+  },
+  {
+   "id": "m-zh-12",
+   "split": "heldout",
+   "language": "zh",
+   "name": "体检报告",
+   "kind": "pdf",
+   "pageCount": 14,
+   "text": "健康体检报告。姓名：周宁，男，35 岁。体检日期：2026 年 3 月 5 日。主要异常：总胆固醇 6.1 mmol/L（偏高）；脂肪肝（轻度）；视力下降。建议：低脂饮食，每周运动 3 次以上，半年后复查血脂。",
+   "invoice": false,
+   "fits": [
+    "体检",
+    "健康",
+    "医疗",
+    "报告"
+   ]
+  },
+  {
+   "id": "m-zh-13",
+   "split": "heldout",
+   "language": "zh",
+   "name": "猫咪领养协议",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "领养协议。送养人：小橘救助站。领养人：方晴。被领养猫：橘猫“团子”，约 1 岁，已绝育、已接种疫苗。领养人承诺：不弃养、不转送，室内饲养，按时驱虫，接受三次回访。",
+   "invoice": false,
+   "fits": [
+    "领养",
+    "猫",
+    "宠物",
+    "协议"
+   ]
+  },
+  {
+   "id": "m-zh-14",
+   "split": "heldout",
+   "language": "zh",
+   "name": "基金定投记录",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：定投\n日期 | 基金 | 金额 | 份额 | 净值\n2026-01-05 | 沪深300指数 | 1,000 | 254.3 | 3.932\n2026-02-05 | 沪深300指数 | 1,000 | 248.1 | 4.031\n2026-03-05 | 沪深300指数 | 1,000 | 251.7 | 3.973\n工作表：汇总\n累计投入 | 3,000",
+   "invoice": false,
+   "fits": [
+    "基金",
+    "定投",
+    "投资",
+    "理财"
+   ]
+  },
+  {
+   "id": "m-zh-15",
+   "split": "heldout",
+   "language": "zh",
+   "name": "秋夜",
+   "kind": "text",
+   "pageCount": null,
+   "text": "秋夜。窗外的桂花开了，香气一阵一阵地飘进来。我想起小时候，外婆在院子里摇着蒲扇，给我讲月亮上的故事。如今院子早已拆了，只有这香气，每年秋天还会准时回来。",
+   "invoice": false,
+   "fits": [
+    "散文",
+    "随笔",
+    "回忆",
+    "文学",
+    "写作"
+   ]
+  },
+  {
+   "id": "m-zh-16",
+   "split": "heldout",
+   "language": "zh",
+   "name": "办公楼保洁服务招标公告",
+   "kind": "pdf",
+   "pageCount": 3,
+   "text": "招标公告。项目名称：办公楼保洁服务采购。招标编号：ZB-2026-031。服务期限：一年。投标人资格：具有物业保洁资质，近三年无重大事故。投标截止时间：2026 年 4 月 15 日 9:30。开标地点：行政楼三楼会议室。",
+   "invoice": false,
+   "fits": [
+    "招标",
+    "保洁",
+    "采购",
+    "公告"
+   ]
+  },
+  {
+   "id": "m-zh-17",
+   "split": "heldout",
+   "language": "zh",
+   "name": "婚礼请柬",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "诚邀您参加 林皓 与 苏念 的婚礼。时间：2026 年 5 月 20 日（周三）中午 11:58。地点：西湖边 湖畔酒店 二楼宴会厅。敬请光临。",
+   "invoice": false,
+   "fits": [
+    "婚礼",
+    "请柬",
+    "邀请",
+    "喜宴"
+   ]
+  },
+  {
+   "id": "m-zh-18",
+   "split": "heldout",
+   "language": "zh",
+   "name": "科目一错题本",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 科目一错题\n1. 高速公路最低车速：60 公里/小时（我选了 50）\n2. 驾驶证记满 12 分：参加满分学习和考试\n3. 雾天能见度小于 50 米：车速不超过 20 公里/小时\n下周六第二次模拟考。",
+   "invoice": false,
+   "fits": [
+    "驾照",
+    "科目一",
+    "驾考",
+    "错题",
+    "学车"
+   ]
+  },
+  {
+   "id": "m-zh-19",
+   "split": "heldout",
+   "language": "zh",
+   "name": "房贷还款计划",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：还款\n期数 | 月供 | 本金 | 利息 | 剩余本金\n1 | 5,368 | 2,035 | 3,333 | 997,965\n2 | 5,368 | 2,042 | 3,326 | 995,923\n3 | 5,368 | 2,049 | 3,319 | 993,874\n工作表：说明\n贷款 100 万元，30 年，年利率 4%，等额本息",
+   "invoice": false,
+   "fits": [
+    "房贷",
+    "贷款",
+    "还款",
+    "月供",
+    "房子"
+   ]
+  },
+  {
+   "id": "m-zh-20",
+   "split": "heldout",
+   "language": "zh",
+   "name": "《流浪地球》观后感",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 《流浪地球》观后感\n最打动我的不是特效，而是刘启和外公之间的亲情。带着地球去流浪，是中国式的浪漫：故土难离。缺点是后半段节奏太快，几个配角的故事没讲完。",
+   "invoice": false,
+   "fits": [
+    "观后感",
+    "电影",
+    "影评",
+    "流浪地球"
+   ]
+  },
+  {
+   "id": "n-zh-1",
+   "split": "tune",
+   "language": "zh",
+   "name": "劳动合同",
+   "kind": "pdf",
+   "pageCount": 6,
+   "text": "劳动合同。甲方（用人单位）：杭州远帆科技有限公司。乙方（劳动者）：王晓。岗位：前端开发工程师。合同期限三年，自 2026 年 6 月 1 日起，试用期三个月。月工资 18,000 元。工作时间实行标准工时制。",
+   "invoice": false,
+   "fits": [
+    "劳动",
+    "合同",
+    "入职",
+    "雇佣",
+    "工作"
+   ]
+  },
+  {
+   "id": "n-zh-2",
+   "split": "tune",
+   "language": "zh",
+   "name": "手机参数表",
+   "kind": "pdf",
+   "pageCount": 2,
+   "text": "星辰 X5 手机 规格参数。处理器：八核，最高 3.2 GHz。内存：12 GB。存储：256 GB。屏幕：6.7 英寸，2800×1260，120 Hz。电池：5,000 毫安时，支持 80 瓦快充。重量：198 克。",
+   "invoice": false,
+   "fits": [
+    "手机",
+    "参数",
+    "规格",
+    "产品",
+    "数码"
+   ]
+  },
+  {
+   "id": "n-zh-3",
+   "split": "tune",
+   "language": "zh",
+   "name": "董事会会议纪要",
+   "kind": "docx",
+   "pageCount": 3,
+   "text": "董事会会议纪要。时间：2026 年 4 月 9 日。出席：张董事长、李董事、周董事、吴董事。一、审议通过上次会议纪要。二、财务总监汇报一季度业绩。三、同意新办公室租赁方案。四、下次会议定于 5 月 14 日。",
+   "invoice": false,
+   "fits": [
+    "董事会",
+    "会议",
+    "纪要"
+   ]
+  },
+  {
+   "id": "n-zh-4",
+   "split": "tune",
+   "language": "zh",
+   "name": "细胞培养实验记录",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 实验记录 3 月 21 日\nHeLa 细胞传代，第 12 代。DMEM + 10% 胎牛血清，37 ℃，5% CO₂。接种密度 2×10⁵/孔。镜下贴壁良好，无污染。明天换液并加药处理。",
+   "invoice": false,
+   "fits": [
+    "实验",
+    "细胞",
+    "培养",
+    "科研",
+    "记录",
+    "生物"
+   ]
+  },
+  {
+   "id": "n-zh-5",
+   "split": "tune",
+   "language": "zh",
+   "name": "个人所得税年度汇算",
+   "kind": "pdf",
+   "pageCount": 3,
+   "text": "个人所得税年度汇算 2025 年度。工资薪金收入 312,000 元。专项附加扣除：子女教育 24,000 元，住房贷款利息 12,000 元。应纳税所得额 216,000 元。应纳税额 22,680 元，已预缴 23,400 元。应退税额 720 元。",
+   "invoice": false,
+   "fits": [
+    "个税",
+    "个人所得税",
+    "税",
+    "汇算",
+    "退税",
+    "财务"
+   ]
+  },
+  {
+   "id": "n-zh-6",
+   "split": "tune",
+   "language": "zh",
+   "name": "红烧肉做法",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 红烧肉\n五花肉 500 克，冰糖 30 克，生抽 2 勺，老抽 1 勺，料酒、姜片、八角。五花肉切块焯水，小火炒出糖色，下肉翻炒上色，加调料和热水，小火炖 60 分钟，大火收汁。",
+   "invoice": false,
+   "fits": [
+    "菜谱",
+    "食谱",
+    "烹饪",
+    "做菜",
+    "美食",
+    "红烧肉"
+   ]
+  },
+  {
+   "id": "n-zh-7",
+   "split": "tune",
+   "language": "zh",
+   "name": "高等数学课程大纲",
+   "kind": "pdf",
+   "pageCount": 5,
+   "text": "《高等数学（一）》课程大纲。2026 年秋季学期。主讲：陈老师。第 1–4 周：函数与极限。第 5–8 周：导数与微分。第 9–12 周：不定积分与定积分。第 13–16 周：微分方程。考核：平时作业 30%，期中 30%，期末 40%。",
+   "invoice": false,
+   "fits": [
+    "高等数学",
+    "数学",
+    "课程",
+    "大纲",
+    "教学",
+    "大学"
+   ]
+  },
+  {
+   "id": "n-zh-8",
+   "split": "tune",
+   "language": "zh",
+   "name": "天使轮融资路演",
+   "kind": "pptx",
+   "pageCount": 12,
+   "text": "“回收侠”：社区上门回收\n痛点：居民可回收物投放不便\n解决方案\n数据：覆盖 3,200 户，月增长 18%\n商业模式\n团队\n融资需求：天使轮 800 万元",
+   "invoice": false,
+   "fits": [
+    "融资",
+    "路演",
+    "投资",
+    "创业",
+    "幻灯片",
+    "回收"
+   ]
+  },
+  {
+   "id": "n-zh-9",
+   "split": "tune",
+   "language": "zh",
+   "name": "云服务器电子发票",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "电子发票（普通发票）。发票号码 25330000000099031。开票日期 2026 年 4 月 1 日。购买方：杭州远帆科技有限公司。销售方：某云计算有限公司。项目：云服务器 ECS 4 月费用 1,260.00 元，对象存储 86.00 元。价税合计 1,346.00 元。",
+   "invoice": true,
+   "fits": [
+    "云服务器",
+    "服务器",
+    "云",
+    "发票"
+   ]
+  },
+  {
+   "id": "n-zh-10",
+   "split": "tune",
+   "language": "zh",
+   "name": "慈善捐赠收据",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "公益事业捐赠统一票据（收据）。编号 2026-0417。捐赠人：唐明。捐赠日期：2026 年 3 月 17 日。捐赠金额：500.00 元（银行转账）。用途：乡村儿童图书角。受赠单位：某市慈善总会。",
+   "invoice": false,
+   "fits": [
+    "捐赠",
+    "慈善",
+    "公益",
+    "收据"
+   ]
+  },
+  {
+   "id": "n-zh-11",
+   "split": "tune",
+   "language": "zh",
+   "name": "办公用品采购订单",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "采购订单 编号 CG-7781。采购方：杭州远帆科技有限公司。供应商：某办公用品公司。人体工学椅 10 把，单价 1,290 元；升降桌 4 张，单价 2,800 元。订单金额合计 24,100 元。请于 4 月 30 日前送达，发票请注明订单号。",
+   "invoice": false,
+   "fits": [
+    "采购",
+    "订单",
+    "办公用品",
+    "办公家具",
+    "行政"
+   ]
+  },
+  {
+   "id": "n-zh-12",
+   "split": "tune",
+   "language": "zh",
+   "name": "快递发货单",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "发货单。订单号 55120。收件人：林悦，滨江区秋涛路 4 号。商品：越野跑鞋 1 双（38 码），羊毛袜 2 双。3 月 12 日已发货，顺丰单号 SF889201。如需退货，请在 7 天内使用附带的退货单。",
+   "invoice": false,
+   "fits": [
+    "发货",
+    "物流",
+    "快递",
+    "订单",
+    "网购"
+   ]
+  },
+  {
+   "id": "n-zh-13",
+   "split": "tune",
+   "language": "zh",
+   "name": "京都五日游行程",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "京都五日游\n第 1 天：抵达关西机场，坐 Haruka 到京都，入住祇园附近。\n第 2 天：早去伏见稻荷，再去东福寺、锦市场。\n第 3 天：岚山竹林、天龙寺。\n第 4 天：奈良一日游。\n第 5 天：金阁寺，返程。",
+   "invoice": false,
+   "fits": [
+    "旅行",
+    "旅游",
+    "行程",
+    "京都",
+    "日本",
+    "攻略"
+   ]
+  },
+  {
+   "id": "n-zh-14",
+   "split": "tune",
+   "language": "zh",
+   "name": "数据分析师招聘",
+   "kind": "docx",
+   "pageCount": 2,
+   "text": "招聘：数据分析师（一年合同）。职责：为销售团队搭建看板，清洗并合并 CRM 数据，回答临时业务问题。要求：两年以上 SQL 经验，熟悉一种 BI 工具，表达清楚。薪资 15–20K，每周到岗两天。",
+   "invoice": false,
+   "fits": [
+    "招聘",
+    "岗位",
+    "职位",
+    "数据分析",
+    "求职"
+   ]
+  },
+  {
+   "id": "n-zh-15",
+   "split": "tune",
+   "language": "zh",
+   "name": "儿童疫苗接种记录",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "预防接种证。姓名：顾乐。出生日期：2019 年 5 月 3 日。麻腮风疫苗第 1 剂：2020 年 6 月 10 日。第 2 剂：2023 年 9 月 4 日。百白破加强：2023 年 9 月 4 日。流感疫苗：2025 年 10 月 18 日。",
+   "invoice": false,
+   "fits": [
+    "疫苗",
+    "接种",
+    "儿童",
+    "健康",
+    "医疗"
+   ]
+  },
+  {
+   "id": "n-zh-16",
+   "split": "tune",
+   "language": "zh",
+   "name": "二手房验房清单",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：房间\n房间 | 项目 | 状况 | 备注\n厨房 | 燃气灶 | 正常 |\n厨房 | 油烟机 | 不工作 | 告知中介\n卫生间 | 淋浴房密封 | 发霉 | 已拍照\n卧室 | 窗锁 | 正常 |\n工作表：水电表\n燃气 | 04512\n电 | 18890",
+   "invoice": false,
+   "fits": [
+    "验房",
+    "房屋",
+    "二手房",
+    "房产",
+    "清单",
+    "买房"
+   ]
+  },
+  {
+   "id": "n-zh-17",
+   "split": "tune",
+   "language": "zh",
+   "name": "第14期播客提纲",
+   "kind": "markdown",
+   "pageCount": null,
+   "text": "# 第 14 期：为什么公交总是等不来\n- 开场：永远不来的 47 路\n- 嘉宾：交通规划师刘安\n- 发车频率比覆盖面更重要\n- 一个城市线网重构的案例\n- 听众提问\n- 结尾预告",
+   "invoice": false,
+   "fits": [
+    "播客",
+    "节目",
+    "提纲",
+    "公交",
+    "交通"
+   ]
+  },
+  {
+   "id": "n-zh-18",
+   "split": "tune",
+   "language": "zh",
+   "name": "课题经费预算表",
+   "kind": "xlsx",
+   "pageCount": null,
+   "text": "工作表：预算\n科目 | 第一年 | 第二年 | 合计\n劳务费 | 120,000 | 125,000 | 245,000\n设备费 | 80,000 | 0 | 80,000\n差旅费 | 15,000 | 15,000 | 30,000\n间接费用 | 40,000 | 32,000 | 72,000\n合计 | 255,000 | 172,000 | 427,000",
+   "invoice": false,
+   "fits": [
+    "经费",
+    "预算",
+    "课题",
+    "科研",
+    "项目"
+   ]
+  },
+  {
+   "id": "n-zh-19",
+   "split": "tune",
+   "language": "zh",
+   "name": "用户隐私政策",
+   "kind": "web",
+   "pageCount": null,
+   "text": "隐私政策。更新日期：2026 年 3 月 1 日。本政策说明“回收侠”在你使用 App 时收集哪些个人信息、为何使用以及你的权利。为提供上门服务，我们收集你的地址和预约时间。我们不会出售你的个人信息。你可以随时申请注销账号。",
+   "invoice": false,
+   "fits": [
+    "隐私",
+    "政策",
+    "个人信息",
+    "法律",
+    "数据"
+   ]
+  },
+  {
+   "id": "n-zh-20",
+   "split": "tune",
+   "language": "zh",
+   "name": "学术会议报告摘要",
+   "kind": "text",
+   "pageCount": null,
+   "text": "城市数据大会报告摘要：用低成本传感器统计骑行人数。我们在一座中等城市布设 40 个低成本雷达计数器，持续一年，并与人工计数对比。晴天误差低于 6%，大雨时升至 15%。我们公开数据集，并分享给各城市的经验。",
+   "invoice": false,
+   "fits": [
+    "会议",
+    "报告",
+    "摘要",
+    "骑行",
+    "传感器",
+    "学术",
+    "城市"
+   ]
+  },
+  {
+   "id": "t-en-11",
+   "split": "tune",
+   "language": "en",
+   "name": "Thank you for your gift",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "Northside Animal Rescue. Thank you for your generous gift of 75.00 on 2 February 2026, received by card. Your donation feeds and shelters our dogs while they wait for a home. No goods or services were provided in return. Charity no. 1187331.",
+   "invoice": false,
+   "fits": [
+    "donation",
+    "charity",
+    "gift",
+    "giving",
+    "receipt"
+   ]
+  },
+  {
+   "id": "t-en-12",
+   "split": "tune",
+   "language": "en",
+   "name": "Series A deck",
+   "kind": "pptx",
+   "pageCount": 14,
+   "text": "Crumb: fresh bread delivered before breakfast\nThe market: 4M households buy bread daily\nHow it works\nTraction: 12,000 subscribers, 9% churn\nUnit economics\nUse of funds\nRaising 6M Series A",
+   "invoice": false,
+   "fits": [
+    "pitch",
+    "fundraising",
+    "investor",
+    "series a",
+    "deck",
+    "slides"
+   ]
+  },
+  {
+   "id": "t-zh-11",
+   "split": "tune",
+   "language": "zh",
+   "name": "捐款感谢函",
+   "kind": "pdf",
+   "pageCount": 1,
+   "text": "城南流浪动物救助站 感谢函。感谢您于 2026 年 2 月 2 日捐款 300 元（微信支付）。善款将用于救助犬的口粮和医疗。本次捐赠未获得任何商品或服务。",
+   "invoice": false,
+   "fits": [
+    "捐款",
+    "捐赠",
+    "慈善",
+    "公益",
+    "感谢"
+   ]
+  },
+  {
+   "id": "t-zh-12",
+   "split": "tune",
+   "language": "zh",
+   "name": "A轮融资计划书",
+   "kind": "pptx",
+   "pageCount": 14,
+   "text": "“早面包”：早餐前送到家的新鲜面包\n市场规模：400 万家庭每天买面包\n商业模式\n数据：订阅用户 1.2 万，月流失率 9%\n单位经济模型\n资金用途\n本轮融资 4,000 万元",
+   "invoice": false,
+   "fits": [
+    "融资",
+    "路演",
+    "投资",
+    "计划书",
+    "商业计划"
+   ]
+  }
+ ]
+}

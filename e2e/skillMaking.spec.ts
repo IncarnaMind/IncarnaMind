@@ -14,6 +14,7 @@ import {
   openSteps,
   pathsShown,
   removeDataFolder,
+  savedLine,
   setWindowSize,
   useLocalChatModel,
   useOutputLocation,
@@ -211,7 +212,8 @@ test("a Skill name that is taken, an empty field and a too-long description are 
   await item.getByTestId("skill-menu").click();
   await item.getByTestId("skill-export").click();
   const done = section.getByTestId("skill-export-done");
-  await expect(done).toContainText("Saved harbour-notes.zip");
+  await expect(done).toContainText(savedLine("harbour-notes.zip", outputs));
+  await shot(window, "skill-export-saved");
   const zip = join(outputs, "harbour-notes.zip");
   expect((await readFile(zip)).subarray(0, 2).toString()).toBe("PK");
   await done.getByTestId("skill-export-show").click();
@@ -262,6 +264,7 @@ test("in Chinese and in a narrow window: the Skills page, the draft and the pick
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
+  await useOutputLocation(window, outputs);
   await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: import("../src/core/api").CoreBridge })
       .incarnamind;
@@ -286,6 +289,12 @@ test("in Chinese and in a narrow window: the Skills page, the draft and the pick
   await window.getByRole("button", { name: "设置" }).click();
   await window.getByTestId("settings-nav-skills").click();
   await expect(window.getByTestId("skills-yours")).toContainText("scripted-review");
+  const saved = window.getByTestId("skills-yours").getByTestId("skill-item").first();
+  await saved.getByTestId("skill-menu").click();
+  await saved.getByTestId("skill-export").click();
+  await expect(window.getByTestId("skill-export-done")).toContainText(
+    savedLine("scripted-review.zip", outputs, "zh-CN"),
+  );
   await shot(window, "skills-page-zh-narrow");
   await window.getByRole("button", { name: "关闭设置" }).click();
   await window.keyboard.press("ControlOrMeta+j");

@@ -26,6 +26,15 @@ export const defaultFolderLabel = (t: Translate): string =>
 export const outputFolderLabel = (folder: string, suggested: string, t: Translate): string =>
   folder === suggested ? defaultFolderLabel(t) : folderName(folder);
 
+/**
+ * A folder a file was just saved in, as its line names it, from the answer the save worked out
+ * with links resolved rather than a guessed path.
+ */
+export const savedFolderLabel = (
+  saved: { folder: string; inDefaultFolder: boolean },
+  t: Translate,
+): string => (saved.inDefaultFolder ? defaultFolderLabel(t) : folderName(saved.folder));
+
 /** Opens Settings at the Output location, its Change… focused: a first save's Change folder…. */
 export const showOutputLocationSetting = (): void =>
   useAppStore.getState().openSettings("general", "output-location");

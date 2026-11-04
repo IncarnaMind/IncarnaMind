@@ -96,3 +96,18 @@ export const ExclamationIcon = (props: IconProps) => (
     <path d="M12 18.5v.01" />
   </Stroke>
 );
+
+/** A grey "?": a scan's unsure word asks for a look at the page (#535). */
+export const QuestionIcon = (props: IconProps) => (
+  <Stroke strokeWidth={3} {...props}>
+    <path d="M9 9a3 3 0 0 1 5.8.9c0 2-2.8 2.4-2.8 4.6" />
+    <path d="M12 19v.01" />
+  </Stroke>
+);
+
+/** A dashed square: select an area of the page as a figure (#118). */
+export const AreaIcon = (props: IconProps) => (
+  <Stroke {...props} strokeDasharray="3 2.5">
+    <rect x="3.75" y="3.75" width="16.5" height="16.5" rx="1.5" />
+  </Stroke>
+);

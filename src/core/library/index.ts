@@ -8,12 +8,15 @@ import {
   supportsLibraryImages,
 } from "../../shared/libraryModels";
 import { libraryPresetKeys } from "../../shared/libraryPresets";
+import { sameName } from "../../shared/names";
 import type {
+  CloudReadPermit,
   DocumentKind,
   ExternalService,
   FolderDeletion,
   MovedDocument,
   ProviderError,
+  TagLinkChange,
 } from "../api";
 import type { BackgroundQueue } from "../backgroundQueue";
 import {
@@ -25,14 +28,18 @@ import {
   NotFoundError,
   TaggingNotReadyError,
 } from "../errors";
+import type { Language } from "../language";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
-import { sameName, type TagsStore } from "../tags";
+import type { TagsStore } from "../tags";
+import { documentType, excerptFromPassages } from "../tags/classify";
+import { clearForService, mayBackgroundSend, turnOnTime } from "../tags/held";
 import { type RateLimitPause, rateLimitError } from "../tags/rateLimit";
-import type { GroupClassifier } from "./classifier";
+import { fallbackLine } from "../tags/suggest";
+import type { FolderSample, GroupClassifier } from "./classifier";
 import {
   ORGANIZE_PASSAGES,
   type OrganizeSource,
@@ -99,7 +106,40 @@ interface DocumentRow {
   status: string;
 }
 const GROUP_COLUMNS =
-  "id, name, description, counts_own_files, keep_inside, created_at AS createdAt, updated_at AS updatedAt";
+  "id, name, description, parent_id AS parentId, counts_own_files, keep_inside, created_at AS createdAt, updated_at AS updatedAt";
+
+/** A live Folder and every live Folder inside it, at any depth; none for a deleted one. */
+const SUBTREE = `
+  WITH RECURSIVE subtree (id) AS (
+    SELECT id FROM library_groups WHERE id = ? AND deleted_at IS NULL
+    UNION
+    SELECT g.id FROM library_groups g JOIN subtree ON g.parent_id = subtree.id
+    WHERE g.deleted_at IS NULL
+  )
+  SELECT id FROM subtree`;
+
+/** A Folder and the Folders deleted with it: those inside it whose deleted_at is its own. */
+const DELETED_SUBTREE = `
+  WITH RECURSIVE subtree (id) AS (
+    SELECT id FROM library_groups WHERE id = ? AND deleted_at = ?
+    UNION
+    SELECT g.id FROM library_groups g JOIN subtree ON g.parent_id = subtree.id
+    WHERE g.deleted_at = ?
+  )
+  SELECT id FROM subtree`;
+
+/**
+ * A Folder and the Folders inside it, stopping at a Folder that keeps its work inside it: that
+ * Folder's work is behind its own wall, never the wall around it (#1934, #246).
+ */
+const TREE = `
+  WITH RECURSIVE tree (id, wall) AS (
+    SELECT id, 0 FROM library_groups WHERE id = ? AND deleted_at IS NULL
+    UNION
+    SELECT g.id, g.keep_inside FROM library_groups g JOIN tree ON g.parent_id = tree.id
+    WHERE g.deleted_at IS NULL AND tree.wall = 0
+  )
+  SELECT id FROM tree WHERE wall = 0`;
 
 /** A stored Folder: its switches are 0 or 1. */
 type GroupRow = Omit<LibraryGroup, "countsOwnFiles" | "keepInside"> & {
@@ -279,6 +319,11 @@ function parseAssignmentState(input: unknown): AssignmentState {
  */
 export const CLASSIFICATION_FLOW_SENDS = ["groups", "tags", "document-excerpts"] as const;
 
+/** How many Documents a Folder proposal reads the start of, how much of each, and how many more by name. */
+const SAMPLED = 60;
+const SAMPLE_TOKENS = 120;
+const NAMED = 240;
+
 /** Up to 3 page images of a PDF with no text, to a model that reads images. */
 export const SCAN_IMAGES_FLOW_SENDS = ["page-images"] as const;
 
@@ -297,7 +342,9 @@ export function createLibrary(options: {
   assigned(assignments: DocumentGroupAssignment[]): void;
   tags: TagsStore;
   tagged(ids: string[]): void;
-  prepare(settings: LibrarySettings): Promise<GroupClassifier>;
+  /** Organize made new Tags: the list of Tags is to be read again. */
+  tagsMade?(): void;
+  prepare(settings: LibrarySettings, permit?: CloudReadPermit): Promise<GroupClassifier>;
   providerExists(id: string): boolean;
   /**
    * Whether a model that tags reads a PDF's pages, so it can organize one with
@@ -305,13 +352,23 @@ export function createLibrary(options: {
    */
   readsPages(classifier: TaggingClassifier): boolean;
   /**
-   * Whether the model tagging or organizing would use runs on another computer:
-   * the switch for doing it by itself is off for one until the User turns it on.
+   * The services tagging and organizing by themselves would send to, none for models on this
+   * computer: the switch for doing it by itself is off for one until the User turns it on there.
    */
-  usesCloud(settings: {
+  sendsTo(settings: {
     classifier: LibraryClassifier;
     organizeWith: TaggingClassifier | null;
-  }): boolean;
+  }): ExternalService[];
+  /** When the User allowed tagging or Organize to send to this service (../consent); null if not. */
+  consentedAt(service: ExternalService): string | null;
+  /** Whether the User's consent to tagging sending to this service stands (../consent). */
+  taggingAllowed(service: ExternalService): boolean;
+  /**
+   * The service an Organize request with these settings sends a Document to; none on this
+   * computer. A scan's page images may go to the image model's too, which the User allows for
+   * itself (the "scan-images" flow).
+   */
+  organizeService(settings: LibrarySettings): ExternalService | null;
   /**
    * The service that would read a scan's pages for this classifier if the User
    * allowed it, while they haven't; null when it reads them, or can't.
@@ -343,6 +400,14 @@ export function createLibrary(options: {
       classifier: taggingClassifierOf(saved.classifier) ?? LIBRARY_DEFAULTS.classifier,
       // Null until the User sets the switch: it follows the model then (see `LibrarySettings.automatic`).
       automatic: typeof saved.automatic === "boolean" ? saved.automatic : null,
+      // When the User turned it on for each service; null for a switch saved before these were kept.
+      automaticSince: isRecord(saved.automaticSince)
+        ? Object.fromEntries(
+            Object.entries(saved.automaticSince).filter(
+              (each): each is [string, string] => typeof each[1] === "string",
+            ),
+          )
+        : null,
       organizeWith: taggingClassifierOf(saved.organizeWith),
       taggingStopped: Array.isArray(saved.taggingStopped)
         ? saved.taggingStopped.filter(
@@ -351,11 +416,44 @@ export function createLibrary(options: {
         : [],
     };
   };
-  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !options.usesCloud(saved);
-  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => ({
-    ...saved,
-    automatic: saved.automatic ?? defaultAutomatic(saved),
-  });
+  const usesCloud = (saved: Parameters<typeof options.sendsTo>[0]) =>
+    options.sendsTo(saved).length > 0;
+  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !usesCloud(saved);
+  /**
+   * When the switch was turned on for each service. One saved before these were kept holds from
+   * when the User allowed tagging or Organize to send there.
+   */
+  const sinceOf = (saved: ReturnType<typeof savedSettings>): Record<string, string> =>
+    saved.automaticSince ??
+    Object.fromEntries(
+      options.sendsTo(saved).flatMap((service) => {
+        const at = options.consentedAt(service);
+        return at === null ? [] : [[service.id, at]];
+      }),
+    );
+  /**
+   * Whether the switch the User turned on holds where tagging sends now: turned on for one
+   * service, it is off for another until they turn it on there (#2308).
+   */
+  const turnedOnHere = (saved: ReturnType<typeof savedSettings>) => {
+    const since = sinceOf(saved);
+    return options.sendsTo(saved).every((service) => since[service.id] !== undefined);
+  };
+  /** When the User turned tagging on for this service; null if they haven't. */
+  const turnedOnAt = (service: ExternalService): string | null => {
+    const saved = savedSettings();
+    return saved.automaticSince
+      ? (saved.automaticSince[service.id] ?? null)
+      : options.consentedAt(service);
+  };
+  const shownSettings = (saved: ReturnType<typeof savedSettings>): LibrarySettings => {
+    const { automaticSince: _automaticSince, ...shown } = saved;
+    return {
+      ...shown,
+      automatic:
+        saved.automatic === null ? defaultAutomatic(saved) : saved.automatic && turnedOnHere(saved),
+    };
+  };
   const getSettings = (): LibrarySettings => shownSettings(savedSettings());
   const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
   const automaticOffNotice = (): boolean => {
@@ -419,6 +517,96 @@ export function createLibrary(options: {
     if (!value) throw new NotFoundError({ key: "error.folder.notFound" });
     return value;
   };
+  /** A live Folder and every live Folder inside it, at any depth. */
+  const subtree = (folderId: string): string[] =>
+    db.all<{ id: string }>(SUBTREE, [folderId]).map((row) => row.id);
+  /** A live Folder and the live Folders inside it up to the next wall, that Folder's own excluded. */
+  const tree = (folderId: string): string[] =>
+    db.all<{ id: string }>(TREE, [folderId]).map((row) => row.id);
+  /** A deleted Folder and the Folders deleted with it, at any depth. */
+  const deletedWith = (folderId: string, at: string): string[] =>
+    db.all<{ id: string }>(DELETED_SUBTREE, [folderId, at, at]).map((row) => row.id);
+  /**
+   * Every live Folder's nearest walled Folder, or null, in one pass: kept until the Library
+   * changes, so a search or a move over many Folders reads them once, not once per Folder.
+   */
+  let wallsCache: { revision: number; walls: Map<string, string | null> } | null = null;
+  const wallsOf = (): ReadonlyMap<string, string | null> => {
+    if (wallsCache?.revision === revision) return wallsCache.walls;
+    const folders = groups();
+    const byId = new Map(folders.map((folder) => [folder.id, folder]));
+    const walls = new Map<string, string | null>();
+    const nearest = (id: string): string | null => {
+      const known = walls.get(id);
+      if (known !== undefined) return known;
+      const chain: string[] = [];
+      const seen = new Set<string>();
+      let at: string | null = id;
+      let wall: string | null = null;
+      while (at !== null && !seen.has(at)) {
+        const cached = walls.get(at);
+        if (cached !== undefined) {
+          wall = cached;
+          break;
+        }
+        seen.add(at);
+        const folder = byId.get(at);
+        if (!folder) break;
+        if (folder.keepInside) {
+          wall = folder.id;
+          break;
+        }
+        chain.push(at);
+        at = folder.parentId;
+      }
+      for (const each of chain) walls.set(each, wall);
+      walls.set(id, wall);
+      return wall;
+    };
+    for (const folder of folders) nearest(folder.id);
+    wallsCache = { revision, walls };
+    return walls;
+  };
+  /**
+   * The id of the Folder keeping its work inside it that a Folder is in, or is; null outside
+   * every wall. `deleted`: a Folder in Recently deleted reads the walls around it as they were,
+   * deleted Folders included.
+   */
+  const wallOf = (folderId: string, deleted = false): string | null => {
+    if (!deleted) return wallsOf().get(folderId) ?? null;
+    const byId = new Map(
+      db
+        .all<GroupRow>(`SELECT ${GROUP_COLUMNS} FROM library_groups`)
+        .map((row) => [row.id, toGroup(row)]),
+    );
+    const seen = new Set<string>();
+    let at: string | null = folderId;
+    while (at !== null && !seen.has(at)) {
+      seen.add(at);
+      const folder = byId.get(at);
+      if (!folder) return null;
+      if (folder.keepInside) return folder.id;
+      at = folder.parentId;
+    }
+    return null;
+  };
+  /** The Documents filed in this Folder (a suggestion too, unless the Folder keeps its work inside it). */
+  const filedDocumentIdsOf = (folderId: string): string[] => {
+    const walled = wallOf(folderId) !== null;
+    return db
+      .all<{ document_id: string }>(
+        `SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL${walled ? " AND a.source = 'user'" : ""}`,
+        [folderId],
+      )
+      .map((row) => row.document_id);
+  };
+  const everyFiledDocumentIdsOf = (folderId: string): string[] =>
+    db
+      .all<{ document_id: string }>(
+        "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
+        [folderId],
+      )
+      .map((row) => row.document_id);
   const document = (id: unknown) => {
     if (typeof id !== "string") throw new InvalidInputError("A Document id must be text.");
     const value = db.get<DocumentRow>(
@@ -717,127 +905,188 @@ export function createLibrary(options: {
     background.add({
       kind: "classification",
       async run(call) {
-        const initial = assignment(id);
-        const version = revision;
-        const stale = () =>
-          lifetime.signal.aborted ||
-          call.signal.aborted ||
-          version !== revision ||
-          assignment(id)?.request_id !== initial?.request_id;
         try {
-          if (!initial || initial.status === "classified") return;
-          const current = document(id);
-          if (!hasContent(current)) {
-            state(id, "waiting", scanWaits(current));
-            return;
-          }
-          const definitions = groups();
-          const tagDefinitions = options.tags.list();
-          if (definitions.length === 0) {
-            state(id, "waiting");
-            return;
-          }
-          if (taggingStoppedFor(id) && !asked.has(id)) {
-            stopped(id);
-            return;
-          }
-          const limitedUntil = options.rateLimit.pausedUntil();
-          if (limitedUntil !== null) {
-            state(id, "waiting", rateLimitError(limitedUntil));
-            return;
-          }
-          const refusal = options.rateLimit.refusal();
-          if (refusal !== null) {
-            state(id, "waiting", refusal);
-            return;
-          }
-          state(id, "classifying");
-          const classifier = await options.prepare(getSettings());
-          if (classifier.local) call.runsLocally();
-          if (stale()) return;
-          const declined = rejected(id);
-          const offered = definitions.filter((item) => !declined.has(item.id));
-          const read = source(current);
-          const signal = AbortSignal.any([lifetime.signal, call.signal]);
-          const images = organizeReadsPages(classifier.pageImages, read)
-            ? await options.pageImages(id, current.content_hash ?? "", signal)
-            : [];
-          if (stale()) return;
-          const result = await classifier.organize(
-            offered,
-            tagDefinitions,
-            organizeExcerpt(read),
-            signal,
-            images,
-          );
-          if (stale()) return;
-          options.rateLimit.succeeded();
-          const latest = document(id);
-          if (!hasContent(latest) || latest.content_hash !== current.content_hash) {
-            state(id, "pending");
-            return;
-          }
-          // Definition changes make the complete result stale, including tags.
-          if (JSON.stringify(tagDefinitions) !== JSON.stringify(options.tags.list())) {
-            state(id, "pending");
-            return;
-          }
-          const { groupId } = result;
-          if (groupId !== null && !offered.some((item) => item.id === groupId))
-            throw new Error("The classifier returned an unknown group.");
-          const chosen = initial.source === "user";
-          db.transaction(() => {
-            write(
-              latest,
-              chosen ? initial.group_id : groupId,
-              initial.source,
-              "classified",
-              classifier.model
-                ? { ...classifier.model, images: images.length > 0 && classifier.model.images }
-                : null,
-              !chosen && groupId !== null,
-            );
-            options.tags.applyAutomatic(id, result.tags);
-            tagState(id, "classified");
-          });
-          options.tagged([id]);
-          announce([id]);
-        } catch (error) {
-          if (!stale()) {
-            if (error instanceof NotFoundError) return;
-            const limitedUntil = options.rateLimit.pause(error);
-            const refused = limitedUntil === null ? options.rateLimit.refuse(error) : null;
-            // The plan's limit: it waits for the plan to reset (see ./planPace).
-            const waiting =
-              limitedUntil !== null ||
-              refused !== null ||
-              error instanceof ChatNotReadyError ||
-              error instanceof ConsentDeclinedError ||
-              error instanceof ConsentNeededError ||
-              gateStop(error) !== null ||
-              error instanceof TaggingNotReadyError ||
-              reachedPlanLimit(error);
-            state(
-              id,
-              waiting ? "waiting" : "failed",
-              limitedUntil === null
-                ? (refused ?? classifyProviderError(error))
-                : rateLimitError(limitedUntil, error),
-            );
-          }
+          await classifyOne(id, { signal: call.signal, runsLocally: () => call.runsLocally() });
         } finally {
           if (!lifetime.signal.aborted) {
             if (assignment(id)?.status === "classifying") state(id, "pending");
             if (!call.gaveWay) {
               queued.delete(id);
-              if (assignment(id)?.status === "pending") enqueue(id);
-              else asked.delete(id);
+              const status = assignment(id)?.status;
+              // Waiting to be allowed, it is still the User's request when it goes.
+              if (status === "pending") enqueue(id);
+              else if (status !== "waiting") asked.delete(id);
             }
           }
         }
       },
     });
   }
+
+  async function classifyOne(
+    id: string,
+    call: {
+      /** Stops the work when the turn or the app does. */
+      signal: AbortSignal;
+      /** The model is on this computer: an Answer that starts makes the queue's job give way. */
+      runsLocally(): void;
+      /** What stopped it, once the Document's state says why. */
+      failed?(error: unknown): void;
+      /** The links automatic tagging changed, before and after (#2252). */
+      applied?(id: string, links: readonly TagLinkChange[]): void;
+      /** The Folders it may choose, when a wall keeps it to some (#1934); none: all of them. */
+      allowedGroups?: ReadonlySet<string>;
+      /** The one service this run's Allow covers, without storing consent (#2252). */
+      permit?: CloudReadPermit;
+    },
+  ): Promise<void> {
+    const initial = assignment(id);
+    const version = revision;
+    const stale = () =>
+      lifetime.signal.aborted ||
+      call.signal.aborted ||
+      version !== revision ||
+      assignment(id)?.request_id !== initial?.request_id;
+    try {
+      if (!initial || initial.status === "classified") return;
+      const current = document(id);
+      if (!hasContent(current)) {
+        state(id, "waiting", scanWaits(current));
+        return;
+      }
+      const definitions = groups().filter(
+        (group) => !call.allowedGroups || call.allowedGroups.has(group.id),
+      );
+      const tagDefinitions = options.tags.list();
+      if (definitions.length === 0) {
+        state(id, "waiting");
+        return;
+      }
+      if (taggingStoppedFor(id) && !asked.has(id)) {
+        stopped(id);
+        return;
+      }
+      const limitedUntil = options.rateLimit.pausedUntil();
+      if (limitedUntil !== null) {
+        state(id, "waiting", rateLimitError(limitedUntil));
+        return;
+      }
+      const refusal = options.rateLimit.refusal();
+      if (refusal !== null) {
+        state(id, "waiting", refusal);
+        return;
+      }
+      state(id, "classifying");
+      const settingsNow = getSettings();
+      const classifier = await options.prepare(settingsNow, call.permit);
+      if (classifier.local) call.runsLocally();
+      if (stale()) return;
+      // Checked on where this request goes, as prepared; the User's own Organize goes.
+      const service = options.organizeService(settingsNow);
+      const services = service ? [service] : [];
+      if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
+        holdBack(id, initial);
+        return;
+      }
+      const declined = rejected(id);
+      const offered = definitions.filter((item) => !declined.has(item.id));
+      const read = source(current);
+      const signal = AbortSignal.any([lifetime.signal, call.signal]);
+      const images = organizeReadsPages(classifier.pageImages, read)
+        ? await options.pageImages(id, current.content_hash ?? "", signal)
+        : [];
+      if (stale()) return;
+      const result = await classifier.organize(
+        offered,
+        tagDefinitions,
+        organizeExcerpt(read),
+        signal,
+        images,
+      );
+      if (stale()) return;
+      options.rateLimit.succeeded();
+      const latest = document(id);
+      if (!hasContent(latest) || latest.content_hash !== current.content_hash) {
+        state(id, "pending");
+        return;
+      }
+      // Definition changes make the complete result stale, including tags.
+      if (JSON.stringify(tagDefinitions) !== JSON.stringify(options.tags.list())) {
+        state(id, "pending");
+        return;
+      }
+      const { groupId } = result;
+      if (groupId !== null && !offered.some((item) => item.id === groupId))
+        throw new Error("The classifier returned an unknown group.");
+      if (result.fallback) console.info(fallbackLine(id));
+      const chosen = initial.source === "user";
+      const { made, links } = db.transaction(() => {
+        write(
+          latest,
+          chosen ? initial.group_id : groupId,
+          initial.source,
+          "classified",
+          classifier.model
+            ? { ...classifier.model, images: images.length > 0 && classifier.model.images }
+            : null,
+          !chosen && groupId !== null,
+        );
+        const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
+        tagState(id, "classified");
+        if (asked.has(id)) clearForService(db, id, services, now());
+        return applied;
+      });
+      if (made > 0) options.tagsMade?.();
+      if (links.length > 0) call.applied?.(id, links);
+      options.tagged([id]);
+      announce([id]);
+    } catch (error) {
+      if (!stale()) {
+        if (error instanceof NotFoundError) return;
+        const limitedUntil = options.rateLimit.pause(error);
+        const refused = limitedUntil === null ? options.rateLimit.refuse(error) : null;
+        // The plan's limit: it waits for the plan to reset (see ./planPace).
+        const waiting =
+          limitedUntil !== null ||
+          refused !== null ||
+          error instanceof ChatNotReadyError ||
+          error instanceof ConsentDeclinedError ||
+          error instanceof ConsentNeededError ||
+          gateStop(error) !== null ||
+          error instanceof TaggingNotReadyError ||
+          reachedPlanLimit(error);
+        state(
+          id,
+          waiting ? "waiting" : "failed",
+          limitedUntil === null
+            ? (refused ?? classifyProviderError(error))
+            : rateLimitError(limitedUntil, error),
+        );
+        call.failed?.(error);
+      }
+    }
+  }
+
+  const queueClassification = (ids: readonly string[]) => {
+    const docs = ids.map(document);
+    for (const doc of docs) asked.add(doc.id);
+    db.transaction(() => {
+      for (const doc of docs) {
+        const existing = assignment(doc.id);
+        write(
+          doc,
+          existing?.group_id ?? null,
+          existing?.source ?? "automatic",
+          hasContent(doc) ? "pending" : "waiting",
+          null,
+          existing?.suggested === 1,
+        );
+        tagState(doc.id, hasContent(doc) ? "pending" : "waiting");
+      }
+    });
+    options.tagged(docs.map((doc) => doc.id));
+    announce(docs.map((doc) => doc.id));
+  };
 
   function resume(): void {
     if (lifetime.signal.aborted) return;
@@ -871,12 +1120,13 @@ export function createLibrary(options: {
     const at = now();
     const id = randomUUID();
     db.run(
-      `INSERT INTO library_groups (id, name, description, counts_own_files, keep_inside, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO library_groups (id, name, description, parent_id, counts_own_files, keep_inside, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         value.name,
         value.description,
+        value.parentId ?? null,
         value.countsOwnFiles ? 1 : 0,
         value.keepInside ? 1 : 0,
         at,
@@ -900,12 +1150,64 @@ export function createLibrary(options: {
       throw new InvalidInputError({ key: "error.folder.nameTaken" });
     if (!exceptId && groups().length >= 100)
       throw new InvalidInputError({ key: "error.folder.limit" });
-    const { countsOwnFiles, keepInside } = input;
+    const { countsOwnFiles, keepInside, parentId } = input;
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
       throw new InvalidInputError("countsOwnFiles must be true or false.");
     if (keepInside !== undefined && typeof keepInside !== "boolean")
       throw new InvalidInputError({ key: "error.folder.keepInside" });
-    return { name, description, countsOwnFiles, keepInside };
+    if (parentId !== undefined && parentId !== null && typeof parentId !== "string")
+      throw new InvalidInputError({ key: "error.folder.parentId" });
+    const inside = parentId === undefined ? undefined : parentId;
+    if (inside !== undefined && inside !== null) {
+      group(inside);
+      if (exceptId !== undefined && (inside === exceptId || subtree(exceptId).includes(inside)))
+        throw new InvalidInputError({ key: "error.folder.insideItself" });
+    }
+    return { name, description, countsOwnFiles, keepInside, parentId: inside };
+  }
+
+  const documentIdsOf = (input: unknown): string[] => {
+    if (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
+      throw new InvalidInputError("Choose valid Documents.");
+    return [...new Set(input as string[])];
+  };
+
+  /**
+   * What a proposal reads: the first `SAMPLED` Documents with the start of their text, the rest
+   * up to `NAMED` by name and type only, so a Linked folder of thousands stays one request.
+   */
+  const samplesOf = (docs: readonly DocumentRow[]): FolderSample[] =>
+    docs.slice(0, SAMPLED + NAMED).map((doc, at) => {
+      const excerpt = organizeExcerpt(source(doc, at < SAMPLED));
+      return {
+        name: doc.name,
+        type: documentType(excerpt),
+        text: at < SAMPLED ? excerptFromPassages([excerpt.text], SAMPLE_TOKENS) : "",
+      };
+    });
+
+  /**
+   * A Document Organize may not send by itself (`mayBackgroundSend`) waits for the User, "off":
+   * one it hadn't filed has no assignment, as if it was never sorted; one it had stays filed.
+   */
+  function holdBack(id: string, row: { source: string; group_id: string | null }): void {
+    const at = now();
+    db.transaction(() => {
+      if (row.source === "automatic" && row.group_id === null) {
+        db.run(
+          "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
+          [at, at, id],
+        );
+      } else {
+        state(id, "classified");
+      }
+      db.run(
+        "UPDATE documents SET tagging_status = 'off', tagging_error_kind = NULL, tagging_error_message = NULL, tagging_error_resets_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+        [at, id],
+      );
+    });
+    options.tagged([id]);
+    announce([id]);
   }
 
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
@@ -917,6 +1219,7 @@ export function createLibrary(options: {
 
   return {
     settings: getSettings,
+    turnedOnAt,
     taggingStoppedFor,
     isOrganizing,
     taggingPlaces(): (string | null)[] {
@@ -969,21 +1272,17 @@ export function createLibrary(options: {
       announce(ids);
       resume();
     },
-    documentIds(folderId: string): string[] {
-      return db
-        .all<{ document_id: string }>(
-          "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL AND (g.keep_inside = 0 OR a.source = 'user')",
-          [folderId],
-        )
-        .map((row) => row.document_id);
+    documentIds: filedDocumentIdsOf,
+    allDocumentIds: everyFiledDocumentIdsOf,
+    subtree,
+    deletedWith,
+    wallOf,
+    wallsOf,
+    treeDocumentIds(folderId: string): string[] {
+      return [...new Set(tree(folderId).flatMap((id) => filedDocumentIdsOf(id)))];
     },
-    allDocumentIds(folderId: string): string[] {
-      return db
-        .all<{ document_id: string }>(
-          "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
-          [folderId],
-        )
-        .map((row) => row.document_id);
+    allTreeDocumentIds(folderId: string): string[] {
+      return [...new Set(tree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
     },
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": one with a
@@ -1081,14 +1380,71 @@ export function createLibrary(options: {
       const value = parseGroup(input, existing.id);
       const counts = value.countsOwnFiles ?? existing.countsOwnFiles;
       const keepInside = value.keepInside ?? existing.keepInside;
+      const parentId = value.parentId === undefined ? existing.parentId : value.parentId;
       db.run(
-        `UPDATE library_groups SET name = ?, description = ?, counts_own_files = ?, keep_inside = ?, updated_at = ?
+        `UPDATE library_groups SET name = ?, description = ?, parent_id = ?, counts_own_files = ?, keep_inside = ?, updated_at = ?
          WHERE id = ?`,
-        [value.name, value.description, counts ? 1 : 0, keepInside ? 1 : 0, now(), existing.id],
+        [
+          value.name,
+          value.description,
+          parentId,
+          counts ? 1 : 0,
+          keepInside ? 1 : 0,
+          now(),
+          existing.id,
+        ],
       );
       revision++;
       changed();
       return group(existing.id);
+    },
+    /**
+     * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved
+     * with one of its own Folders stays where it is, so the tree keeps its shape; one already
+     * there, or gone since, is left. Nothing changes when any move is refused.
+     */
+    moveGroups(moves: readonly { id: string; parentId: string | null }[]): string[] {
+      const wanted = [...new Map(moves.map((move) => [move.id, move])).values()];
+      if (wanted.length === 0) return [];
+      const live = new Map(groups().map((folder) => [folder.id, folder]));
+      const changing = wanted.filter((move) => {
+        const folder = live.get(move.id);
+        return folder !== undefined && folder.parentId !== move.parentId;
+      });
+      // A Folder moving with one of its own Folders goes with it; one listed beside a Folder that
+      // stays where it is moves as it asks.
+      const moving = changing.filter(
+        (move) =>
+          !changing.some((other) => other.id !== move.id && subtree(other.id).includes(move.id)),
+      );
+      for (const move of moving) if (move.parentId !== null) group(move.parentId);
+      // The Folders as they will be, to catch a loop formed by the moves together: X into Y while
+      // Y comes into X leaves both in no tree at all.
+      const parentAfter = new Map([...live].map(([id, folder]) => [id, folder.parentId]));
+      for (const move of moving) parentAfter.set(move.id, move.parentId);
+      for (const id of parentAfter.keys()) {
+        const seen = new Set<string>();
+        let at: string | null | undefined = id;
+        while (at !== null && at !== undefined && !seen.has(at)) {
+          seen.add(at);
+          at = parentAfter.get(at) ?? null;
+        }
+        if (at !== null && at !== undefined)
+          throw new InvalidInputError({ key: "error.folder.insideItself" });
+      }
+      const changes = moving;
+      if (changes.length === 0) return [];
+      db.transaction(() => {
+        const at = now();
+        for (const change of changes)
+          db.run(
+            "UPDATE library_groups SET parent_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            [change.parentId, at, change.id],
+          );
+      });
+      revision++;
+      changed();
+      return changes.map((change) => change.id);
     },
     /** The citation style new Minds in a live Folder start in (#289); null if none was chosen. */
     citationStyle(id: string): CitationStyleId | null {
@@ -1107,43 +1463,57 @@ export function createLibrary(options: {
       changed();
     },
     /**
-     * Deletes a Folder: its Documents go to Not in a Folder, as the Minds and conversations
-     * the caller took out of it did, and all are recorded so that restoring it puts them back.
-     * `at`: when Undo of a Restore deletes it again.
+     * Deletes a Folder and the Folders inside it: their Documents go to Not in a Folder, as the
+     * Minds and conversations the caller took out of them did, and all are recorded folder by
+     * folder so that restoring it puts them back. `at`: when Undo of a Restore deletes it again.
      */
     delete(
       id: unknown,
-      taken: { minds?: readonly string[]; conversations?: readonly string[] } = {},
+      taken: {
+        minds?: Readonly<Record<string, readonly string[]>>;
+        conversations?: Readonly<Record<string, readonly string[]>>;
+      } = {},
       at: string = now(),
     ): Pick<FolderDeletion, "assignments"> {
       const existing = group(id);
-      const record = (kind: "document" | "mind" | "conversation", itemId: string, suggested = 0) =>
+      const folders = subtree(existing.id);
+      const record = (
+        folderId: string,
+        kind: "document" | "mind" | "conversation",
+        itemId: string,
+        suggested = 0,
+      ) =>
         db.run(
           `INSERT INTO deleted_folder_items
              (id, folder_id, item_kind, item_id, suggested, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [randomUUID(), existing.id, kind, itemId, suggested, at, at],
+          [randomUUID(), folderId, kind, itemId, suggested, at, at],
         );
       const assignments = db.transaction(() => {
         const rows = db.all<AssignmentRow & { live: number }>(
           `SELECT g.*, d.deleted_at IS NULL AS live FROM document_groups g
            JOIN documents d ON d.id = g.document_id
-           WHERE g.group_id = ? AND g.deleted_at IS NULL ORDER BY g.rowid`,
-          [existing.id],
+           WHERE g.group_id IN (SELECT value FROM json_each(?)) AND g.deleted_at IS NULL
+           ORDER BY g.rowid`,
+          [JSON.stringify(folders)],
         );
-        db.run("UPDATE library_groups SET deleted_at = ?, updated_at = ? WHERE id = ?", [
-          at,
-          at,
-          existing.id,
-        ]);
-        for (const row of rows) record("document", row.document_id, row.suggested);
-        for (const mindId of taken.minds ?? []) record("mind", mindId);
-        for (const conversationId of taken.conversations ?? []) {
-          record("conversation", conversationId);
+        db.run(
+          "UPDATE library_groups SET deleted_at = ?, updated_at = ? WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
+          [at, at, JSON.stringify(folders)],
+        );
+        for (const row of rows) {
+          if (row.group_id !== null)
+            record(row.group_id, "document", row.document_id, row.suggested);
+        }
+        for (const [folderId, ids] of Object.entries(taken.minds ?? {})) {
+          for (const mindId of ids) record(folderId, "mind", mindId);
+        }
+        for (const [folderId, ids] of Object.entries(taken.conversations ?? {})) {
+          for (const conversationId of ids) record(folderId, "conversation", conversationId);
         }
         db.run(
-          "UPDATE document_groups SET group_id = NULL, suggested = 0, updated_at = ? WHERE group_id = ? AND deleted_at IS NULL",
-          [at, existing.id],
+          "UPDATE document_groups SET group_id = NULL, suggested = 0, updated_at = ? WHERE group_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
+          [at, JSON.stringify(folders)],
         );
         return rows.filter((row) => row.live).map((row) => assignmentOf(row));
       });
@@ -1152,42 +1522,85 @@ export function createLibrary(options: {
       return { assignments };
     },
     /**
-     * Brings back a deleted Folder (the caller checks it may), and the Documents its
-     * deletion took out that are in no Folder now. Returns the Minds and conversations it
-     * took out, for the caller to put back. Throws if its name is taken or the Library is
-     * full. Run in the caller's transaction, then `restored`.
+     * Brings back a deleted Folder, the Folders deleted with it and the Documents its deletion
+     * took out that are in no Folder now. Returns each restored Folder's Minds and conversations,
+     * for the caller to put back. Throws if a name is taken or the Library is full. Run in the
+     * caller's transaction, then `restored`.
      */
-    restore(id: string): { minds: string[]; conversations: string[] } {
-      const row = db.get<{ name: string }>("SELECT name FROM library_groups WHERE id = ?", [id]);
+    restore(id: string): {
+      folders: string[];
+      minds: { folderId: string; ids: string[] }[];
+      conversations: { folderId: string; ids: string[] }[];
+      /** Folders put at the top level, the Folder they were in still deleted. */
+      toTopLevel: string[];
+    } {
+      const row = db.get<{ name: string; deleted_at: string | null }>(
+        "SELECT name, deleted_at FROM library_groups WHERE id = ?",
+        [id],
+      );
       if (!row) throw new NotFoundError({ key: "error.folder.notFound" });
-      if (groups().some((item) => sameName(item.name, row.name)))
-        throw new InvalidInputError({
-          key: "error.restore.folderNameTaken",
-          values: { name: row.name },
-        });
-      if (groups().length >= 100) throw new InvalidInputError({ key: "error.restore.folderLimit" });
+      const folders = row.deleted_at === null ? [id] : deletedWith(id, row.deleted_at);
+      const live = groups();
+      const takenNames = new Set(live.map((folder) => folder.name.toLowerCase()));
+      for (const folder of db.all<{ name: string }>(
+        "SELECT name FROM library_groups WHERE id IN (SELECT value FROM json_each(?))",
+        [JSON.stringify(folders)],
+      )) {
+        if (takenNames.has(folder.name.toLowerCase()))
+          throw new InvalidInputError({
+            key: "error.restore.folderNameTaken",
+            values: { name: folder.name },
+          });
+      }
+      if (live.length + folders.length > 100)
+        throw new InvalidInputError({ key: "error.restore.folderLimit" });
       const at = now();
-      db.run("UPDATE library_groups SET deleted_at = NULL, updated_at = ? WHERE id = ?", [at, id]);
+      const list = JSON.stringify(folders);
+      db.run(
+        "UPDATE library_groups SET deleted_at = NULL, updated_at = ? WHERE id IN (SELECT value FROM json_each(?))",
+        [at, list],
+      );
+      // A Folder restored without the Folder it was in (still deleted) goes to the top level,
+      // rather than point at a Folder that isn't there and come back inside it later.
+      const orphaned = `id IN (SELECT value FROM json_each(?))
+           AND parent_id IS NOT NULL
+           AND parent_id NOT IN (SELECT id FROM library_groups WHERE deleted_at IS NULL)`;
+      const toTopLevel = db
+        .all<{ id: string }>(`SELECT id FROM library_groups WHERE ${orphaned}`, [list])
+        .map((folder) => folder.id);
+      db.run(`UPDATE library_groups SET parent_id = NULL, updated_at = ? WHERE ${orphaned}`, [
+        at,
+        list,
+      ]);
       db.run(
         `UPDATE document_groups SET group_id = item.folder_id, suggested = item.suggested,
            updated_at = ?
          FROM deleted_folder_items item
-         WHERE item.folder_id = ? AND item.item_kind = 'document' AND item.deleted_at IS NULL
+         WHERE item.folder_id IN (SELECT value FROM json_each(?))
+           AND item.item_kind = 'document' AND item.deleted_at IS NULL
            AND item.item_id = document_groups.document_id
            AND document_groups.deleted_at IS NULL AND document_groups.group_id IS NULL`,
-        [at, id],
+        [at, list],
       );
-      const taken = (kind: "mind" | "conversation") =>
-        db
-          .all<{ item_id: string }>(
-            "SELECT item_id FROM deleted_folder_items WHERE folder_id = ? AND item_kind = ? AND deleted_at IS NULL",
-            [id, kind],
-          )
-          .map((each) => each.item_id);
-      const items = { minds: taken("mind"), conversations: taken("conversation") };
+      const taken = (kind: "mind" | "conversation") => {
+        const byFolder = new Map<string, string[]>();
+        for (const row of db.all<{ folder_id: string; item_id: string }>(
+          "SELECT folder_id, item_id FROM deleted_folder_items WHERE folder_id IN (SELECT value FROM json_each(?)) AND item_kind = ? AND deleted_at IS NULL",
+          [list, kind],
+        )) {
+          byFolder.set(row.folder_id, [...(byFolder.get(row.folder_id) ?? []), row.item_id]);
+        }
+        return [...byFolder].map(([folderId, ids]) => ({ folderId, ids }));
+      };
+      const items = {
+        folders,
+        minds: taken("mind"),
+        conversations: taken("conversation"),
+        toTopLevel,
+      };
       db.run(
-        "UPDATE deleted_folder_items SET deleted_at = ?, updated_at = ? WHERE folder_id = ? AND deleted_at IS NULL",
-        [at, at, id],
+        "UPDATE deleted_folder_items SET deleted_at = ?, updated_at = ? WHERE folder_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
+        [at, at, list],
       );
       return items;
     },
@@ -1226,58 +1639,173 @@ export function createLibrary(options: {
         if (!isRecord(each)) throw new InvalidInputError("Choose a classifier.");
         checkClassifier(each);
       }
-      // A save that leaves the switch where it shows doesn't set it: it goes on following the model.
       const before = savedSettings();
-      const showing = before.automatic ?? !options.usesCloud(before);
-      const setByUser = before.automatic !== null || input.automatic !== showing;
-      if (setByUser && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
+      const next = {
+        classifier: automaticChosen ? AUTOMATIC : (taggingClassifierOf(chosen) ?? AUTOMATIC),
+        organizeWith: taggingClassifierOf(organizeWith),
+      };
+      // Only `turnOn`, sent where the line says what goes, turns it on, and records when, for
+      // each service it sends to (ADR-0022). Any other save may only turn it off: a save sends
+      // the switch as shown, which can be a window's older view (#2308).
+      const turnOn = input.turnOn === true;
+      const showing = shownSettings(before).automatic;
+      const automatic = turnOn
+        ? true
+        : input.automatic === false && showing
+          ? false
+          : before.automatic;
+      const at = turnOnTime(db, now());
+      // Turned on again where it is on, and still allowed, as a new key's Use this does, it keeps
+      // its time: what came in while it was on stays new. Where the User took the consent back,
+      // turning it on is a new consent.
+      const onFor = new Set(
+        showing
+          ? options
+              .sendsTo(before)
+              .filter((service) => options.taggingAllowed(service))
+              .map((service) => service.id)
+          : [],
+      );
+      const automaticSince = turnOn
+        ? {
+            ...sinceOf(before),
+            ...Object.fromEntries(
+              options
+                .sendsTo(next)
+                .filter((service) => !onFor.has(service.id))
+                .map((service) => [service.id, at]),
+            ),
+          }
+        : sinceOf(before);
+      if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
         settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       }
       settings.writeDeviceValue("library", {
         classifier: automaticChosen ? AUTOMATIC : chosen,
-        ...(setByUser && { automatic: input.automatic }),
+        ...(automatic !== null && { automatic }),
         organizeWith,
+        automaticSince,
         taggingStopped: before.taggingStopped,
       });
       revision++;
       changed();
       resume();
     },
+    /**
+     * Proposes Folders for these Documents (the User's own, live ones with text), names them in
+     * `language` and makes them; Organize then sorts the Documents into them (`classify`).
+     * Returns the Folders made. Throws InvalidInputError when Organize's model can't name Folders.
+     */
+    async propose(
+      input: unknown,
+      language: Language,
+      permit?: CloudReadPermit,
+    ): Promise<LibraryGroup[]> {
+      const settings = getSettings();
+      if (!organizeModelOf(settings))
+        throw new InvalidInputError({ key: "error.library.noClassifier" });
+      const docs = documentIdsOf(input)
+        .filter((id) => !options.isExampleDocument?.(id))
+        .map(document)
+        .filter(hasContent);
+      if (docs.length === 0) return [];
+      const classifier = await options.prepare(settings, permit);
+      if (!classifier.proposeFolders)
+        throw new InvalidInputError({ key: "error.library.cantPropose" });
+      const existing = groups().map((each) => each.name);
+      const proposed = await classifier.proposeFolders(
+        samplesOf(docs),
+        existing,
+        language,
+        lifetime.signal,
+      );
+      const made: LibraryGroup[] = [];
+      for (const folder of proposed) {
+        if (groups().some((each) => sameName(each.name, folder.name))) continue;
+        if (groups().length >= 100) break;
+        made.push(create(folder));
+      }
+      return made;
+    },
     classify(input: unknown) {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
-      if (
-        input !== undefined &&
-        (!Array.isArray(input) || !input.every((id) => typeof id === "string" && id !== ""))
-      )
-        throw new InvalidInputError("Choose valid Documents.");
       const ids = (
         input === undefined
           ? db
               .all<{ id: string }>("SELECT id FROM documents WHERE deleted_at IS NULL")
               .map((row) => row.id)
-          : [...new Set(input as string[])]
+          : documentIdsOf(input)
       ).filter((id) => !options.isExampleDocument?.(id));
-      const docs = ids.map(document);
-      for (const doc of docs) asked.add(doc.id);
-      db.transaction(() => {
-        for (const doc of docs) {
-          const existing = assignment(doc.id);
-          write(
-            doc,
-            existing?.group_id ?? null,
-            existing?.source ?? "automatic",
-            hasContent(doc) ? "pending" : "waiting",
-            null,
-            existing?.suggested === 1,
-          );
-          tagState(doc.id, hasContent(doc) ? "pending" : "waiting");
-        }
-      });
-      options.tagged(docs.map((doc) => doc.id));
-      announce(docs.map((doc) => doc.id));
+      queueClassification(ids);
       resume();
+    },
+    /**
+     * Organize these Documents and wait for the model, inside the turn that asked (#2252): the
+     * queue never starts while an Answer is written, so a request that files them before its reply
+     * sorts here, as the Library does. It stops at the first failure and puts every Document it
+     * hadn't reached back as it was, so none is left working with no job to finish it.
+     */
+    async organizeAtOnce(
+      input: unknown,
+      signal: AbortSignal,
+      allowedGroups?: ReadonlySet<string>,
+      permit?: CloudReadPermit,
+    ): Promise<{ failed: unknown | null; untouched: number; tagChanges: TagLinkChange[] }> {
+      if (!organizeModelOf(getSettings()))
+        throw new InvalidInputError({ key: "error.library.noClassifier" });
+      if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
+      const ids = documentIdsOf(input).filter((id) => !options.isExampleDocument?.(id));
+      const before = new Map(
+        ids.map((id) => {
+          const row = assignment(id);
+          return [
+            id,
+            { assignment: row ? assignmentFields(row) : null, tagging: taggingSnapshot(id) },
+          ];
+        }),
+      );
+      queueClassification(ids);
+      let failure: unknown | null = null;
+      const reached = new Set<string>();
+      const tagChanges: TagLinkChange[] = [];
+      for (const id of ids) {
+        if (signal.aborted) break;
+        let stopped: unknown = null;
+        await classifyOne(id, {
+          signal,
+          runsLocally: () => undefined,
+          failed: (error) => {
+            stopped = error;
+          },
+          applied: (_id, links) => tagChanges.push(...links),
+          allowedGroups,
+          permit,
+        });
+        // Stopped during this one: it goes back as it was, like the ones after it.
+        if (signal.aborted && !lifetime.signal.aborted) break;
+        reached.add(id);
+        if (stopped) {
+          failure = stopped;
+          break;
+        }
+      }
+      const untouched = ids.filter((id) => !reached.has(id));
+      for (const id of untouched) {
+        const prior = before.get(id);
+        if (!prior) continue;
+        try {
+          restoreAssignmentRow(document(id), prior.assignment);
+          if (prior.tagging) restoreTaggingRow(id, prior.tagging);
+        } catch (error) {
+          if (!(error instanceof NotFoundError)) throw error;
+        }
+        if (prior.assignment?.status === "pending" || prior.assignment?.status === "waiting") {
+          enqueue(id);
+        }
+      }
+      return { failed: failure, untouched: untouched.length, tagChanges };
     },
     assign(id: unknown, groupId: unknown): AssignmentChange {
       const doc = document(id);

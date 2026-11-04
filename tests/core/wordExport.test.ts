@@ -268,6 +268,18 @@ describe("an edited paragraph", () => {
     );
   });
 
+  test("an outside agent's bracket goes back as the words read, without the word joiner the Note keeps (#352)", async () => {
+    const { core, mindId, client } = await setUp({ body: paragraph("See the note.") });
+    editText(client, (value) =>
+      value === "See the note." ? "See [\u20601] and [\u2060sic]." : value,
+    );
+    await client.settled();
+    expect(readMind(client).textContent).toBe("See [\u20601] and [\u2060sic].");
+    const { document } = await exported(core, mindId);
+    expect(textOf(document)).toBe("See [1] and [sic].");
+    expect(document).not.toContain("\u2060");
+  });
+
   test("a word made bold, or no longer bold, changes only that toggle: the font stays", async () => {
     const { core, mindId, client } = await setUp({
       body: paragraph(

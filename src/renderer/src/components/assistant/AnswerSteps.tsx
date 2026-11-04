@@ -12,6 +12,7 @@ import type {
   AskedFrom,
   ConversationAnswer,
   ConversationQuestion,
+  EmbeddingModelStatus,
 } from "../../../../core/api";
 import { shownDocumentName } from "../../../../shared/citations";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
@@ -47,10 +48,12 @@ import { CallRow, SkillRow } from "../../editor/AnswerView";
 import { CheckMarkIcon, RegenerateSmallIcon } from "../../editor/icons";
 import { holdSteps, type ShownStep, type StepHold, takeOver } from "../../heldStep";
 import { useT } from "../../i18n";
+import { useJudgementLimit } from "../../judgementLimit";
 import { useMeetings } from "../../meetings";
 import { useModelNames } from "../../modelNames";
 import type { Translate } from "../../objects";
 import { openCited, quoteSaysSo } from "../../openCited";
+import { usePythonRuntime } from "../../pythonRuntime";
 import { scopeChips } from "../../scope";
 import { skillTitle } from "../../skills";
 import { useAppStore } from "../../store";
@@ -63,9 +66,10 @@ import {
   MindLineIcon,
   SparkLineIcon,
 } from "../lineIcons";
-import { ProblemLine } from "../ProblemLine";
+import { LineAction, ProblemLine } from "../ProblemLine";
 import { AnswerWait } from "./AnswerWait";
 import { askCallText } from "./AskCall";
+import { CheckTheRest } from "./CheckTheRest";
 import { mindCallText } from "./MindCall";
 
 /** Sources shown under a search before "+N more". */
@@ -138,6 +142,7 @@ export function AnswerSteps({
           <Timeline
             rows={stepRows({ answer, askedFrom, meeting, selection }, step, checking.current)}
             scope={scopeOf(0)}
+            answer={answer}
             onRegenerate={onRegenerate}
           />
         )}
@@ -172,6 +177,7 @@ export function AnswerSteps({
           <Timeline
             rows={stepRows({ answer, askedFrom, meeting, selection })}
             scope={scopeOf(0)}
+            answer={answer}
             onRegenerate={onRegenerate}
           />
           <button
@@ -226,9 +232,10 @@ export function LiveLine({
       ? call.input.mind
       : askedFrom?.name || namedMind(t, call);
   };
+  const python = usePythonRuntime((state) => state.status);
   const waitingSeconds = useSecondsOn(liveStepKey(shown));
   const summary = shown.kind === "thinking" ? shown.summary : "";
-  const label = liveText(t, shown, scope, mindOf);
+  const label = liveText(t, shown, scope, mindOf, python);
   const waiting = shown.kind === "waiting" || shown.kind === "consent";
   return (
     <p
@@ -328,6 +335,7 @@ function liveText(
   step: LiveStep,
   scope: string,
   mindOf: (call: AnswerToolCall) => string,
+  python: EmbeddingModelStatus | null,
 ): string {
   switch (step.kind) {
     case "waiting":
@@ -341,7 +349,7 @@ function liveText(
     case "searching":
       return t("steps.live.searching", { scope });
     case "call":
-      return runningText(t, step.call, mindOf);
+      return runningText(t, step.call, mindOf, python);
     case "thinking":
       return t(step.summary ? "steps.live.thinkingAbout" : "steps.live.thinking");
     case "writing":
@@ -366,13 +374,14 @@ function runningText(
   t: Translate,
   call: AnswerToolCall,
   mindOf: (call: AnswerToolCall) => string,
+  python: EmbeddingModelStatus | null = null,
 ): string {
   if (call.source === "connector") {
     return t("connectors.call.running", { connector: call.connector?.name ?? "", tool: call.tool });
   }
   if (call.source === "sources") return t("sources.call.running", { query: field(call, "query") });
   if (call.source === "minds") return mindCallText(t, call, mindOf(call));
-  if (call.source === "analysis") return analysisCallText(t, call);
+  if (call.source === "analysis") return analysisCallText(t, call, python);
   if (call.source === "commands") return commandCallText(t, call);
   if (call.source === "asks") return askCallText(t, call);
   if (call.tool === "read_document") return documentReadText(t, call, true);
@@ -526,10 +535,12 @@ function FoldedToggle({
 function Timeline({
   rows,
   scope,
+  answer,
   onRegenerate,
 }: {
   rows: StepRow[];
   scope: string;
+  answer: ConversationAnswer;
   onRegenerate(): void;
 }) {
   const t = useT();
@@ -541,6 +552,7 @@ function Timeline({
           key={index}
           row={row}
           scope={scope}
+          answer={answer}
           onRegenerate={onRegenerate}
         />
       ))}
@@ -551,10 +563,12 @@ function Timeline({
 function StepItem({
   row,
   scope,
+  answer,
   onRegenerate,
 }: {
   row: StepRow;
   scope: string;
+  answer: ConversationAnswer;
   onRegenerate(): void;
 }) {
   const t = useT();
@@ -675,7 +689,19 @@ function StepItem({
         </Step>
       );
     case "check":
-      return <CheckStep count={row.count} notFound={row.notFound} running={row.running} />;
+      return (
+        <CheckStep
+          count={row.count}
+          notFound={row.notFound}
+          cantCheck={row.cantCheck ?? 0}
+          needALook={row.needALook ?? 0}
+          contradicted={row.contradicted ?? 0}
+          notChecked={row.notChecked ?? 0}
+          stopped={row.stopped ?? null}
+          answer={answer}
+          running={row.running}
+        />
+      );
   }
 }
 
@@ -935,17 +961,34 @@ function FailedSearch({
   );
 }
 
-/** The Citations checked against their sources: all found, or how many weren't, with the margin's mark. */
+/**
+ * The Citations checked against their sources: all found, or how many weren't and how many
+ * sentences their quotes don't support (#2311), with the mark of the worst.
+ */
 function CheckStep({
   count,
   notFound,
+  cantCheck,
+  needALook,
+  contradicted,
+  notChecked,
+  stopped,
+  answer,
   running,
 }: {
   count: number;
   notFound: number;
+  cantCheck: number;
+  needALook: number;
+  contradicted: number;
+  notChecked: number;
+  stopped: Extract<StepRow, { kind: "check" }>["stopped"] | null;
+  answer: ConversationAnswer;
   running?: boolean | undefined;
 }) {
   const t = useT();
+  const limits = useJudgementLimit();
+  const openSettings = useAppStore((state) => state.openSettings);
   if (running) {
     return (
       <Step kind="check" icon={null} running>
@@ -953,20 +996,60 @@ function CheckStep({
       </Step>
     );
   }
-  const allFound = notFound === 0;
+  if (stopped) {
+    const mark = contradicted > 0 ? "contradicted" : needALook > 0 ? "unsupported" : "not-checked";
+    const values = { checked: stopped.checked, total: stopped.total };
+    return (
+      <Step
+        kind="check"
+        icon={<CheckMarkIcon check={mark} data-check={mark} className="answer-step-check" />}
+      >
+        <p data-testid="answer-check-stopped" className="answer-step-title">
+          {stopped.by === "answer-limit"
+            ? t("steps.check.answerLimit", { ...values, limit: limits.limit })
+            : t("steps.check.monthlyLimit", { ...values, cap: limits.cap })}
+          <span aria-hidden="true"> · </span>
+          {stopped.by === "answer-limit" ? (
+            <CheckTheRest answer={answer} />
+          ) : (
+            <LineAction
+              action={{
+                label: t("steps.check.settings"),
+                testId: "answer-check-settings",
+                onClick: () => openSettings("general"),
+              }}
+            />
+          )}
+        </p>
+      </Step>
+    );
+  }
+  const allFound = notFound === 0 && needALook === 0 && notChecked === 0 && cantCheck === 0;
+  const mark =
+    contradicted > 0
+      ? "contradicted"
+      : notFound > 0
+        ? "not-found"
+        : needALook > 0
+          ? "unsupported"
+          : notChecked > 0
+            ? "not-checked"
+            : cantCheck > 0
+              ? "cant-check"
+              : "found";
   const result = allFound
     ? t(count === 1 ? "steps.check.found" : "steps.check.allFound")
-    : t("steps.check.notFound", { count: notFound });
+    : [
+        ...(notFound > 0 ? [t("steps.check.notFound", { count: notFound })] : []),
+        ...(cantCheck > 0 ? [t("steps.check.cantCheck", { count: cantCheck })] : []),
+        ...(needALook === 1 ? [t("steps.check.needALook.one")] : []),
+        ...(needALook > 1 ? [t("steps.check.needALook", { count: needALook })] : []),
+        ...(notChecked > 0 ? [t("steps.check.notChecked", { count: notChecked })] : []),
+      ].join(" · ");
   return (
     <Step
       kind="check"
-      icon={
-        <CheckMarkIcon
-          check={allFound ? "found" : "not-found"}
-          data-check={allFound ? "found" : "not-found"}
-          className="answer-step-check"
-        />
-      }
+      icon={<CheckMarkIcon check={mark} data-check={mark} className="answer-step-check" />}
     >
       <p className="answer-step-title">
         {checkedWords(t, count)}

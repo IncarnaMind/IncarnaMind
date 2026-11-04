@@ -81,7 +81,6 @@ function pdfjsData(): Plugin {
  */
 const FONT_LICENCES: Readonly<Record<string, string>> = {
   "SourceSerif4-OFL.txt": "@fontsource-variable/source-serif-4/LICENSE",
-  "SourceSans3-OFL.txt": "@fontsource-variable/source-sans-3/LICENSE",
   "JetBrainsMono-OFL.txt": "@fontsource/jetbrains-mono/LICENSE",
   // Calibri's and Cambria's stand-ins in drawn slides and in Word Notes' look.
   "Carlito-OFL.txt": "@fontsource/carlito/LICENSE",

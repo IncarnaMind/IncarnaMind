@@ -10,7 +10,7 @@ import {
 import { pageBlocks } from "../../src/shared/answerBlocks";
 import { citationState, needsRecheck } from "../../src/shared/citations";
 import { translate } from "../../src/shared/i18n";
-import { checkReply, isCheckRun } from "../helpers/checks";
+import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import {
   answerEnded,
   citingModel,
@@ -110,17 +110,29 @@ async function writeReview(core: Core, client: MindClient, documents: readonly D
 
 const idsShown = (text: string) => [...text.matchAll(/· (C\d+)\]/g)].map((match) => match[1]);
 
+/** The report's sentences, each backed by the quote it cites when the Answer checks it (#2311). */
+const REPORTED: Record<string, Plan> = {
+  "The Transformer drops recurrence.": { verdict: "supported", quote: ATTENTION },
+  "Its big model reached 28.4 BLEU.": { verdict: "supported", quote: BLEU },
+  "Later work took it to vision and speech.": { verdict: "supported", quote: OVERVIEW },
+  "It drops recurrence.": { verdict: "supported", quote: ATTENTION },
+  "It reached 28.4 BLEU.": { verdict: "supported", quote: BLEU },
+};
+
 /** A model that records each Citation it reads by its id (unless `cite` is false), then writes `answer`. */
 function reportModel(answer: (prompt: string) => string, cite = true) {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    if (isCheckRun(call)) return checkReply(call, {});
-    if (cite && !call.results.some((result) => result.tool === "cite")) {
-      const ids = [...new Set(idsShown(call.prompt))];
-      const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
-      return { calls: [{ tool: "cite", input: { citations } }] };
-    }
-    return { text: answer(call.prompt) };
-  });
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      if (isCheckRun(call)) return checkReply(call, REPORTED);
+      if (cite && !call.results.some((result) => result.tool === "cite")) {
+        const ids = [...new Set(idsShown(call.prompt))];
+        const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
+        return { calls: [{ tool: "cite", input: { citations } }] };
+      }
+      return { text: answer(call.prompt) };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 const REPORT = [
@@ -302,7 +314,8 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
 
     const [first, , third] = answer.citations;
     expect(first?.contentHash).toBe(citations[0]?.contentHash);
-    expect(first?.check).toBe("found");
+    // Its sentence can't be judged against the version it quotes, which no search reaches (#2311).
+    expect(first?.check).toBe("not-checked");
     const live = (await core.listDocuments()).map((each) => ({ ...each }));
     expect(citationState(first ?? {}, live).changedAfterCited).toBe(true);
     expect(third).toMatchObject({ check: "cant-check", checkReason: "document-removed" });
@@ -377,16 +390,19 @@ describe("Turning a cited Mind into a report keeps its Citations", { timeout: 60
   // protects=a reply whose markers no record backs, while the context shows ids, is asked again in the Tool loop, and the model's records then keep the Mind's Citations; fails_when=the markers are dropped and the claims read uncited; no_claim=how often a real model needs it (eval/reports).
   test("markers written without cite are asked about once, and then kept by id", async () => {
     const UNBACKED = "no cite record backs";
-    const model = scriptedModel((call: ModelCall): ScriptedReply => {
-      if (isCheckRun(call)) return checkReply(call, {});
-      if (!call.prompt.includes(UNBACKED)) return { text: REPORT };
-      if (!call.results.some((result) => result.tool === "cite")) {
-        const ids = [...new Set(idsShown(call.prompt))];
-        const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
-        return { calls: [{ tool: "cite", input: { citations } }] };
-      }
-      return { text: REPORT };
-    });
+    const model = scriptedModel(
+      (call: ModelCall): ScriptedReply => {
+        if (isCheckRun(call)) return checkReply(call, {});
+        if (!call.prompt.includes(UNBACKED)) return { text: REPORT };
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const ids = [...new Set(idsShown(call.prompt))];
+          const citations = ids.map((id, index) => ({ marker: index + 1, passage: id }));
+          return { calls: [{ tool: "cite", input: { citations } }] };
+        }
+        return { text: REPORT };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core, client, mind, documents } = await setUpWithDocuments(model, pdfs());
     const citations = await writeReview(core, client, documents);
 

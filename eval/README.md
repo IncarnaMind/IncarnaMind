@@ -9,7 +9,7 @@ It drives the core's public interface in Node, the way the desktop app's UI does
 3. It searches for each Question with `searchPassages` in hybrid, keyword and vector mode, and scores the top 5. A cross-lingual Question with a translated query is searched with that too.
 4. It reranks keyword search's top 20 with the built-in reranking model, mmarco-mMiniLMv2-L12-H384, as the search Tool does by default, with embeddings off, and scores the top 5 again ("keyword top 20 + rerank"; see [Keyword + rerank](#keyword--rerank)). Then, with embeddings off as Users have them, it runs the search Tool itself for each Question and scores the Passages it hands the model: this is the gate ("search Tool"). Then it reranks what the search Tool hands a reranker with embeddings on (keyword search's top 10 and vector search's top 10, each Passage once) with the same model ("hybrid + rerank", reported only). Other reranking candidates, when given, are scored both ways too. Then the built-in model reranks the candidates of seven other searches, with embeddings off, reported only (see [Other ways to find the candidates](#other-ways-to-find-the-candidates)).
 5. When a chat model is given, it turns embeddings off again, as Users have them by default (the vectors stay, unused), asks each Question with `askQuestion` and scores the Citations of each Answer. The core reranks those Answers' searches with the real built-in reranking model, as the app does.
-6. It does steps 1 to 5 again for the every-format set (see [Every format](#every-format)), in a temporary data folder of its own: Word, PowerPoint, Excel, CSV, Markdown, plain-text and PDF Documents, asked about the hard places in each. That set is reported per format and never gates.
+6. It does steps 1 to 5 again for the every-format set (see [Every format](#every-format)), in a temporary data folder of its own: Word, PowerPoint, Excel, CSV, Markdown, plain-text and PDF Documents, Transcripts and Web pages, asked about the hard places in each. That set is reported per format and never gates.
 7. It writes a report under `eval/results/` and prints a summary.
 
 The command fails (exit code 1) when a gating target is missed. It isn't part of `npm test` or CI's default run.
@@ -26,7 +26,7 @@ The first run downloads the two built-in models from Hugging Face, the embedding
 
 The models run on Node worker threads (`lib/embedderWorker.ts`, `lib/rerankerWorker.ts`). They use the same code as the app's utility processes: `createOnnxEmbedder` and `createOnnxCrossEncoder`, served over the channels in `src/core/embedding/channel.ts` and `src/core/reranking/channel.ts`.
 
-A run takes about two minutes on an Apple M2 Max, most of it spent embedding about 1,200 Passages for the hybrid and vector modes, then reranking 75 searches twice (keyword search's top 20, about 0.8 s a search, then hybrid search's candidates, about 0.6 s). The other ways to find the candidates add about seven minutes more, reranking 65 searches each: about a minute for each mode of 20 candidates and two for keyword search's top 40, as a reranker's time grows with its candidates. The every-format set adds 22 small Documents and 145 searches, reranked twice too.
+A run takes about two minutes on an Apple M2 Max, most of it spent embedding about 1,200 Passages for the hybrid and vector modes, then reranking 75 searches twice (keyword search's top 20, about 0.8 s a search, then hybrid search's candidates, about 0.6 s). The other ways to find the candidates add about seven minutes more, reranking 65 searches each: about a minute for each mode of 20 candidates and two for keyword search's top 40, as a reranker's time grows with its candidates. The every-format set adds 30 small Documents and 169 Questions, reranked twice too.
 
 ### Reranking candidates
 
@@ -272,7 +272,7 @@ To compare how searches are made on Answers, set `INCARNAMIND_EVAL_RERANK_DEPTH`
 
 ### Every format
 
-The gating set asks only about text PDFs. The every-format set, `retrieval/formats.json` (#70), asks about Word, PowerPoint, Excel, CSV, Markdown, plain text, PDF and Transcript Documents, and the hard places in each: 155 Questions over 24 Documents, at least 3 English and 3 Chinese Questions for each format's hard place, and 8 cross-lingual ones (4 each way, each with a `translatedQuery`). Each has one answer, at one Location.
+The gating set asks only about text PDFs. The every-format set, `retrieval/formats.json` (#70), asks about Word, PowerPoint, Excel, CSV, Markdown, plain text, PDF, Transcript and Web page Documents (#155), and the hard places in each: 169 Questions over 30 Documents, at least 2 English and 2 Chinese Questions for each Web page's hard place and at least 3 for the others', and 8 cross-lingual ones (4 each way, each with a `translatedQuery`). Each has one answer, at one Location.
 
 | Format | Documents | Hard places | Questions (English + Chinese) |
 |---|---|---|---|
@@ -282,20 +282,21 @@ The gating set asks only about text PDFs. The every-format set, `retrieval/forma
 | Markdown and plain text | Field Kit Setup Guide.md, 实验室数据管理规范.md, Night Shift Handbook.txt, 冷链仓库值班手册.txt | table, list, code block | 10 + 9 |
 | PDF | Urban Heat in Six Districts.pdf, 城市绿地与夏季降温调查.pdf, and four image-only scans | table, two columns (one sentence runs from a column's foot onto the next page), footnote, figure caption, scanned | 15 + 15 |
 | Transcript (#136) | Riverside Library Steering Meeting.vtt, 社区食堂周例会.vtt | a cue, a sentence the speaker split over two cues, a cue in the second block of cues | 9 + 9 |
+| Web page (#155) | Riverbank Allotment Water Plan.html, Harbour Museum Volunteer Handbook.html, 社区花园浇水指南.html, 图书馆志愿值班手册.html, and two article-length pages with header, navigation and footer: Harbourline Ferry Terminal Winter Sailing Notes.html and 青禾社区图书馆冬季开放须知.html | a paragraph under its heading, table cell, list item, and an answer in a later Passage of an article-length page, found through its heading | 7 + 7 |
 
-- **Fixtures:** synthetic, Apache-2.0. The 14 Office files, PDFs and text files in `retrieval/formats/files/` are written by `retrieval/formats/make-fixtures.py` (python-docx, python-pptx, openpyxl, reportlab), the same bytes each time; the two WebVTT Transcripts were written by hand; the others are the repository's own test fixtures, written by other libraries. See `retrieval/formats/ATTRIBUTION.md`.
-- **Locations:** `expected.pages` are Unit numbers, as Citations count them (ADR-0011): a PDF's page, a deck's slide, a Word or Markdown section in reading order (a Word file's footnotes are its last Unit), a block of rows (later sheets continue the count), a block of lines, a block of a Transcript's cues.
+- **Fixtures:** synthetic, Apache-2.0. The 14 Office files, PDFs and text files in `retrieval/formats/files/` are written by `retrieval/formats/make-fixtures.py` (python-docx, python-pptx, openpyxl, reportlab), the same bytes each time; the two WebVTT Transcripts and the six Web pages in `retrieval/formats/files/web/` were written by hand; the others are the repository's own test fixtures, written by other libraries. See `retrieval/formats/ATTRIBUTION.md`.
+- **Locations:** `expected.pages` are Unit numbers, as Citations count them (ADR-0011): a PDF's page, a deck's slide, a Word or Markdown section in reading order (a Word file's footnotes are its last Unit), a block of rows (later sheets continue the count), a block of lines, a block of a Transcript's cues, a Web page's sections in reading order.
 - **Known gaps:** 6 Questions ask about text the readers don't index today: scanned pages (no text layer; ADR-0011 leaves text recognition out). They are asked and reported, by hard place, and counted apart from their format's figures. The 6 Word comment Questions were known gaps too until #76, when the Word reader came to read comments into the section their mark is in; they count with Word's figures now.
-- **Checked against the stored text:** `tests/eval/formatSet.test.ts` processes each Document as the core does and checks each quote: on its expected Units and no others, citable together, and inside a Passage that covers them. A known gap's quote is on none of its Document's Units.
-- **Run:** in a temporary data folder of its own, so the gating set's Documents, Questions and bar are unchanged. Retrieval as for the gating set, with the search Tool's default (keyword search reranked by the built-in model) reported per format and language, and plain hybrid search and hybrid + rerank per format. With a chat model, each Question is asked once, and its Citations scored with the same figures, per format.
+- **Checked against the stored text:** `tests/eval/formatSet.test.ts` processes each Document as the core does and checks each quote: on its expected Units and no others, citable together, and inside a Passage that covers them. A Web page is read from the snapshot `saveWebPage` makes of it. A known gap's quote is on none of its Document's Units.
+- **Run:** in a temporary data folder of its own, so the gating set's Documents, Questions and bar are unchanged. Each Web page is served from a loopback server the run starts and saved with `saveWebPage`, as a User saves one from the app, with look-keeping off; nothing outside this computer is reached. Retrieval as for the gating set, with the search Tool's default (keyword search reranked by the built-in model) reported per format and language, and plain hybrid search and hybrid + rerank per format. With a chat model, each Question is asked once, and its Citations scored with the same figures, per format.
 - **Not gating:** no bar is set yet. The proposed bars below are for the User to approve once the first run's numbers are in.
 
 #### Proposed bars per format
 
-To approve after the first run, for each of Word, PowerPoint, Excel and CSV, Markdown and plain text, and PDF, over the Questions that aren't known gaps:
+To approve after the first run, for each of Word, PowerPoint, Excel and CSV, Markdown and plain text, PDF, Transcript and Web page, over the Questions that aren't known gaps:
 
-- **Retrieval:** at least 80% with the search Tool's default, overall and in each language, as for the gating set. One Question is 7 to 11 points of a format's language here, so a bar that the first run misses by one Question is evidence of nothing; a format that misses by more has a problem to look into first.
-- **Citations, with a cloud model:** the gating set's targets per format: at least 90% "Quote found" and at most 5% false "not found", over at least 20 Citations per format.
+- **Retrieval:** at least 80% with the search Tool's default, overall and in each language, as for the gating set. One Question is 6 to 17 points of a format's language here, so a bar that the first run misses by one Question is evidence of nothing; a format that misses by more has a problem to look into first.
+- **Citations, with a cloud model:** the gating set's targets per format: at least 90% "Quote found" and at most 5% false "not found", over at least 20 Citations per format; a Web page's 14 Questions may give fewer, and are reported as a smaller sample.
 - **Known gaps:** reported, never gating, until their text is indexed.
 
 ## Citation-check cases
@@ -497,6 +498,7 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `retrieval/formats.json`: the every-format set's Questions.
   - `retrieval/formats/`: its Documents (`files/`), the script that writes them, and `ATTRIBUTION.md`.
 - **The checks evaluation:** `checks/`, with its labels, Documents and README.
+- **The calculations evaluation:** `calculations/`, with its Questions, Documents, scoring and README.
 - **Tests of the evaluation itself:** these run with `npm test`, without the model.
   - `tests/eval/scoring.test.ts` checks how the evaluation scores sentences, Citations, hits and the reviewer sheet.
   - `tests/eval/citations.test.ts` runs the Citation part through a core with a scripted model.
@@ -505,15 +507,25 @@ The check now ignores letter case, reads "[^3]" as "[3]", and finds a quote with
   - `tests/eval/smallModelCitations.test.ts` shows, without a model, the ways a small model's Citations of the gating set's long PDFs aren't found (#67): records written by hand, through the core's citation session, over the stored text of their pages.
   - `tests/eval/formatSet.test.ts` checks the every-format set against the stored text; `tests/eval/formatScoring.test.ts`, its figures and reports; `tests/eval/formatCitations.test.ts`, the Citation check on every Location kind.
   - `tests/eval/checkSet.test.ts` checks the checks evaluation's labels against the stored text; `tests/eval/checkScoring.test.ts`, its scoring; `tests/eval/checkPipeline.test.ts`, its pipeline through a core with a scripted model.
+  - `tests/eval/calculationScoring.test.ts` checks the calculations evaluation's scoring and its set.
+  - `tests/eval/calculationEvidence.test.ts` scores the calculations evaluation's kept Answers again and checks its published results.
   - `tests/eval/skillCases.test.ts` checks the finance and law Skills' case table: six Skills, each in both languages, with its invented Documents.
 
 ## The checks evaluation
 
 `npm run eval` also runs the checks evaluation when a chat model is given (`npm run eval -- eval/checks` runs it alone): Find support's 200 labelled sentences and verify's 10 received documents, run end to end against one Folder and scored against the labels, with the bars of #86, #96 and #97 reported until those exist (#86). See `checks/README.md`.
 
+## The calculations evaluation
+
+`npm run eval` also runs the calculations evaluation (`npm run eval -- eval/calculations` runs it alone): 80 Questions in English and Chinese whose Answers work figures out from made-up reports, a deck, a Word file, a workbook and a survey, each result scored on its own, with the calculate Tool offered and withheld (#441). With no chat model, a scripted model answers as the set says, with no key and no network. See `calculations/README.md`.
+
 ## Repeated checks
 
 `npm run eval:repeats` presses Check this Mind ten times on Minds nobody edits, with a real chat model and the app's real search, and counts each sentence's verdict and how its card shows it: how steady the verdicts are, false Supported, and a sentence a Document states reported as not found (#1608). `npm run eval` doesn't run it. See `repeats/README.md`; `tests/eval/repeatsScoring.test.ts` checks its scoring.
+
+## Answer sentences against their quotes
+
+`npm run eval:support` checks sentences an Answer might write against the quote each cites, as an Answer in the assistant checks them before it ends, on a real chat model (#2311): the walk's two sentences that kept a green check, held-out sentences of the same two mistakes, controls their quotes support, and Find support's supported sentences that state a date. `npm run eval` doesn't run it. See `answerSupport/README.md`.
 
 ## The hard tier
 

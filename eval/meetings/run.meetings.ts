@@ -13,6 +13,8 @@
  * INCARNAMIND_EVAL_UNTIL_MINUTES: only the first minutes of each case, for a quick look. The
  *   real-time factor is not reported then.
  * INCARNAMIND_EVAL_OUT: the results folder (default eval/results/meetings-local-<date>).
+ * INCARNAMIND_EVAL_WORDS=1: each case's transcriber is told its words in words.json (#1031), as a
+ *   Meeting tells it its Words to know; the run scores those words either way.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { loadavg } from "node:os";
@@ -26,12 +28,14 @@ import { monoSamples } from "../lib/wav";
 import { FRAME, modelData } from "../transcription/clips";
 import { loadCase, readCases } from "./cache";
 import { type CaseScore, formatReport, scoreCase } from "./report";
-import type { Hypothesis, Track } from "./types";
+import { formatTerms, readWords, scoreTerms, type TermScore } from "./terms";
+import type { Hypothesis, Language, Track } from "./types";
 
 const ONLY = process.env.INCARNAMIND_EVAL_CASES?.split(",").filter(Boolean);
 const UNTIL = process.env.INCARNAMIND_EVAL_UNTIL_MINUTES
   ? Number(process.env.INCARNAMIND_EVAL_UNTIL_MINUTES) * 60
   : undefined;
+const TOLD = process.env.INCARNAMIND_EVAL_WORDS === "1";
 const LABELS: Partial<Record<Track, string>> = { mic: "Me", system: "Them" };
 const YIELD_EVERY = 50;
 
@@ -49,8 +53,11 @@ describe("Transcription on this computer, on the meeting set", () => {
     const files = transcriptionModelFiles(dataDir, QWEN3_ASR_0_6B);
     const engine = await createSherpaEngine(files);
     const scores: CaseScore[] = [];
+    const words = await readWords();
+    const termScores: { id: string; language: Language; score: TermScore }[] = [];
 
     for (const definition of definitions) {
+      const told = words[definition.id] ?? { said: [], notSaid: [], told: [] };
       const loaded = await loadCase(definition);
       const segments: SpeechSegment[] = [];
       const host = createSpeechHost(engine, {
@@ -69,6 +76,7 @@ describe("Transcription on this computer, on the meeting set", () => {
           return [track as Track, samples.subarray(0, length)] as const;
         }),
       );
+      if (TOLD) for (const [track] of tracks) host.words(track, told.told);
       const started = Date.now();
       const length = Math.max(...tracks.map(([, samples]) => samples.length));
       for (let at = 0, frames = 0; at < length; at += FRAME, frames++) {
@@ -80,7 +88,7 @@ describe("Transcription on this computer, on the meeting set", () => {
 
       const hypothesis: Hypothesis = {
         case: definition.id,
-        transcriber: `${QWEN3_ASR_0_6B.name} with Silero VAD, ${files.threads} threads`,
+        transcriber: `${QWEN3_ASR_0_6B.name} with Silero VAD, ${files.threads} threads${TOLD ? ", told its words" : ""}`,
         processingSeconds,
         segments: segments.map((segment) => {
           const speaker = LABELS[segment.stream as Track];
@@ -94,12 +102,18 @@ describe("Transcription on this computer, on the meeting set", () => {
       };
       await writeFile(join(out, `${definition.id}.json`), JSON.stringify(hypothesis));
       scores.push(scoreCase(definition, loaded.reference, hypothesis, { until: UNTIL }));
+      termScores.push({
+        id: definition.id,
+        language: definition.language,
+        score: scoreTerms(definition.language, loaded.reference, hypothesis, told, UNTIL),
+      });
       console.log(`${definition.id}: ${formatReport(scores.slice(-1)).split("\n").at(-1)}`);
     }
     engine.close();
 
-    const report = formatReport(scores);
+    const report = `${formatReport(scores)}\n\n${formatTerms(termScores)}`;
     await writeFile(join(out, "score.md"), `${report}\n`);
+    await writeFile(join(out, "terms.json"), JSON.stringify(termScores, null, 2));
     console.log(
       `${report}\n\nLoad average while it ran: ${loadavg()
         .map((v) => v.toFixed(1))

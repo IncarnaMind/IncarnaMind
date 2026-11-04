@@ -29,7 +29,8 @@ the documents describe no real company or agreement.
 
 The Chinese documents were written in Chinese, not translated. The PDFs
 embed subsets of Source Sans 3 and Noto Sans SC, each under the SIL Open
-Font License 1.1 (https://openfontlicense.org).
+Font License 1.1 (https://openfontlicense.org). Their pages are in
+scripts/exampleDocuments, which `npm run examples:credit:print` prints.
 
 
 === Papers and research, English (papers/en/) ===

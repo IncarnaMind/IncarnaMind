@@ -94,8 +94,44 @@ function offeredTags(options: GenerateOptions): string[] {
   return names.filter((name): name is string => typeof name === "string");
 }
 
+/** The new Tag a Document's text names on a line "Subject: …" ("主题：…"), as the scripted model's own. */
+function fakeNewTags(text: string): { name: string; description: string }[] {
+  const named = /(?:^|\n)\s*(?:Subject:|主题：)\s*([^\n]+)/u.exec(text)?.[1]?.trim();
+  return named ? [{ name: named, description: `Documents about ${named}.` }] : [];
+}
+
+/**
+ * The scripted Folder proposal: one Folder for each first word the Documents' names share, or a
+ * Document's line "Project: …" ("项目：…"), at most six.
+ */
+function fakeFolders(options: GenerateOptions): string {
+  const input = JSON.parse(organizeInput(options) || "{}") as {
+    folders?: string[];
+    documents?: { name: string; text: string }[];
+  };
+  const taken = new Set((input.folders ?? []).map((name) => name.toLowerCase()));
+  const names: string[] = [];
+  for (const document of input.documents ?? []) {
+    const project = /(?:Project:|项目：)\s*([^\n]+)/u.exec(document.text)?.[1]?.trim();
+    const word = document.name.split(/[\s._-]+/u)[0] ?? "";
+    const name = project ?? (word && `${word.charAt(0).toUpperCase()}${word.slice(1)}`);
+    if (!name || taken.has(name.toLowerCase())) continue;
+    taken.add(name.toLowerCase());
+    names.push(name);
+  }
+  return JSON.stringify({
+    folders: names.slice(0, 6).map((name) => ({ name, description: `Documents about ${name}.` })),
+  });
+}
+
+const proposesFolders = (options: GenerateOptions): boolean => {
+  const format = options.responseFormat;
+  return format?.type === "json" && !!format.schema?.properties?.folders;
+};
+
 /** Test-only classifier: chooses a group whose name appears in the excerpt. */
 export function fakeStructuredOutput(options: GenerateOptions): string {
+  if (proposesFolders(options)) return fakeFolders(options);
   if (checksChangeClaims(options))
     return fakeChangeClaims(options) ?? JSON.stringify({ claims: [] });
   const format = options.responseFormat;
@@ -114,7 +150,11 @@ export function fakeStructuredOutput(options: GenerateOptions): string {
       tags: (input.tags ?? [])
         .filter((tag) => document.includes(tag.name.toLowerCase()))
         .map((tag) => tag.id),
+      newTags: fakeNewTags(input.document.text),
     });
   }
-  return JSON.stringify({ tags: fakeTags(options.prompt, offeredTags(options)) });
+  return JSON.stringify({
+    tags: fakeTags(options.prompt, offeredTags(options)),
+    newTags: fakeNewTags(excerptOf(options.prompt)),
+  });
 }

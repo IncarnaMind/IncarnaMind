@@ -14,7 +14,7 @@ import { mindScopeOf } from "../../shared/mindScope";
 import { readProposalAttribute } from "../../shared/proposals";
 import { comparableSentence } from "../../shared/sentences";
 import { toolCallsOf } from "../../shared/toolCalls";
-import { checkUnreadOf, unreadFileNamesOf } from "../../shared/unreadFiles";
+import { checkUnreadOf } from "../../shared/unreadFiles";
 import { countFor, countText, firstWords } from "../../shared/wordCount";
 import { isEdited, textAttribute } from "../answers/blocks";
 import { checkedSentences, figuresNow } from "../answers/checks/sentences";
@@ -25,7 +25,6 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type CitationAttributes,
   type KeptCitationText,
-  MIND_SETTINGS_FIELD,
   PROPOSAL_ATTRIBUTE,
   QUESTION_BLOCK,
   type UnreadFile,
@@ -54,6 +53,7 @@ export const USES: readonly Use[] = [
   "answer-added",
   "edit-with-ai-accepted",
   "assistant-change-accepted",
+  "outside-agent-change-accepted",
   "comparison-table-accepted",
   "suggestion-accepted",
   "search-documents",
@@ -127,8 +127,6 @@ export interface AiUseFigures {
   sentences: SentenceCounts;
   checked: CheckedSentence[];
   unread: UnreadFile[];
-  /** Whether the statement names them: the Mind's own choice, off until the User ticks it. */
-  unreadNames: boolean;
 }
 
 export interface FigureSources {
@@ -140,6 +138,8 @@ export interface FigureSources {
   folderId: string | null;
   /** The name to give a model, or null when the record names none. */
   modelName(providerId: string | null, modelId: string | null): string | null;
+  /** What the model column says for a change an outside agent made (#352): its name, as an agent's. */
+  agentName(agent: string): string;
   /** What a heading with no text is called. */
   untitled: string;
 }
@@ -214,6 +214,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     found: "found",
     "not-found": "notFound",
     "cant-check": "cantCheck",
+    "not-checked": "cantCheck",
     unsupported: "unsupported",
     contradicted: "contradicted",
     checking: "checking",
@@ -304,7 +305,12 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   let removed = 0;
   for (const entry of entries) {
     if (entry.kind === "assistant-change-rejected") continue;
-    use(entry.kind, sources.modelName(entry.providerId, entry.modelId));
+    use(
+      entry.kind,
+      entry.agent !== null
+        ? sources.agentName(entry.agent)
+        : sources.modelName(entry.providerId, entry.modelId),
+    );
     if (entry.blockIds.length === 0) continue;
     if (entry.outcome === "deleted") {
       removed++;
@@ -372,6 +378,5 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     sentences,
     checked,
     unread: fragment.doc ? checkUnreadOf(fragment.doc, requests) : [],
-    unreadNames: fragment.doc ? unreadFileNamesOf(fragment.doc.getMap(MIND_SETTINGS_FIELD)) : false,
   };
 }

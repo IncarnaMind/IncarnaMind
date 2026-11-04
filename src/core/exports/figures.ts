@@ -6,7 +6,6 @@
  */
 import { formulaText } from "../../shared/formula";
 import type { StyledRun } from "../api";
-import { InvalidInputError } from "../errors";
 import {
   type FigureSource,
   type Footnote,
@@ -14,7 +13,7 @@ import {
   NO_MARKS,
   type ReadOptions,
 } from "../mindText";
-import type { ExportLabels, FigureNoteSource } from "./labels";
+import type { ExportLabels, FigureNoteSource, FigureWorked } from "./labels";
 
 export type FigureInline = Extract<Inline, { kind: "figure" }>;
 
@@ -24,10 +23,9 @@ export interface FigureWriting {
   labels: ExportLabels;
 }
 
-/** A figure's sources; one whose saved Analysis is gone can't be written with them. */
+/** A figure's sources; one whose saved Analysis is gone has none, and is written as its value (#2378). */
 export function figureSourcesOf(figure: FigureInline): FigureSource[] {
-  if (figure.sources === null) throw new InvalidInputError({ key: "error.figure.evidenceMissing" });
-  return figure.sources;
+  return figure.sources ?? [];
 }
 
 const changeOf = ({ inserted, deleted }: FigureInline) => ({
@@ -62,8 +60,20 @@ export function figureWithNote(
   const labelOf = new Map(
     figure.figure.inputs.map((input) => [input.name.toLowerCase(), input.label.trim()]),
   );
-  const worked =
-    figure.analysis === null
+  const workbook = figure.figure.workbook;
+  const changed = workbook?.change
+    ? figure.figure.inputs.find((input) => input.name === workbook.change?.input)
+    : undefined;
+  const worked: FigureWorked = workbook
+    ? {
+        cell: `${workbook.cell.sheet}!${workbook.cell.ref}`,
+        workbookFormula: workbook.cell.formula,
+        change:
+          workbook.change && changed
+            ? { input: changed.label, value: workbook.change.shown }
+            : null,
+      }
+    : figure.analysis === null
       ? {
           formula: formulaText(
             figure.figure.formula,
@@ -76,7 +86,14 @@ export function figureWithNote(
     { kind: "text", text: figure.figure.shown, marks: NO_MARKS, ...change },
     {
       kind: "cite",
-      runs: [{ text: labels.figureNote(worked, figure.figure.shown, [...bySource.values()]) }],
+      runs: [
+        {
+          text:
+            figure.sources === null
+              ? labels.figureUnavailable(figure.figure.shown)
+              : labels.figureNote(worked, figure.figure.shown, [...bySource.values()]),
+        },
+      ],
       note: true,
       unverified: false,
       ...failedOf(read.map((each) => each.footnote)),
@@ -92,10 +109,26 @@ export function figureCited(
   note: boolean,
   { footnote, labels }: FigureWriting,
 ): Inline[] {
-  const footnotes = figureSourcesOf(figure).map(({ citation }) => footnote({ ...citation }));
-  const [before, after] = labels.figureCluster(note);
   const { shown } = figure.figure;
   const change = changeOf(figure);
+  if (figure.sources === null) {
+    return [
+      { kind: "text", text: shown, marks: NO_MARKS, ...change },
+      {
+        kind: "cite",
+        runs: [
+          {
+            text: note ? labels.figureUnavailable(shown) : labels.figureUnavailableInText(shown),
+          },
+        ],
+        note,
+        unverified: false,
+        ...change,
+      },
+    ];
+  }
+  const footnotes = figureSourcesOf(figure).map(({ citation }) => footnote({ ...citation }));
+  const [before, after] = labels.figureCluster(note);
   return [
     // A note's number goes right after the figure, as in print.
     { kind: "text", text: note ? shown : `${shown} `, marks: NO_MARKS, ...change },

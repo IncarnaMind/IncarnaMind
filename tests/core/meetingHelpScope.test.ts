@@ -6,6 +6,7 @@ import type {
   MeetingHelpTemplate,
 } from "../../src/core";
 import { translate } from "../../src/shared/i18n";
+import { isCheckRun } from "../helpers/checks";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -57,23 +58,26 @@ async function setup(language: "en" | "zh-CN", heard = true) {
       : "未问及的笔记：董事会将在十一月开会。";
   const name = language === "en" ? "Interview guide" : "访谈提纲";
   const models = scriptedModels(
-    scriptedModel((call) => {
-      calls.push(call);
-      const passages = shownPassages(call.prompt);
-      const library = passages.find((passage) => passage.document === name);
-      const source = library ?? passages.find((passage) => passage.text.includes(spoken));
-      if (!source)
-        return { text: language === "en" ? "Not enough call content yet." : "通话内容还不够。" };
-      const quote = library ? fact : spoken;
-      if (!call.results.some((result) => result.tool === "cite")) {
-        return {
-          calls: [
-            { tool: "cite", input: { citations: [{ marker: 1, passage: source.id, quote }] } },
-          ],
-        };
-      }
-      return { text: `- ${quote} [^1]` };
-    }),
+    scriptedModel(
+      (call) => {
+        calls.push(call);
+        const passages = shownPassages(call.prompt);
+        const library = passages.find((passage) => passage.document === name);
+        const source = library ?? passages.find((passage) => passage.text.includes(spoken));
+        if (!source)
+          return { text: language === "en" ? "Not enough call content yet." : "通话内容还不够。" };
+        const quote = library ? fact : spoken;
+        if (!call.results.some((result) => result.tool === "cite")) {
+          return {
+            calls: [
+              { tool: "cite", input: { citations: [{ marker: 1, passage: source.id, quote }] } },
+            ],
+          };
+        }
+        return { text: `- ${quote} [^1]` };
+      },
+      { judgesItsAnswers: true },
+    ),
   );
   const { core, record } = await transcribingCore(await createTempDataFolder(), {
     createChatModel: models.createChatModel,
@@ -124,13 +128,16 @@ for (const language of ["en", "zh-CN"] as const) {
       language === "en"
         ? "Zircon vessels stabilize in forty-five days"
         : "锆石容器在四十五天内稳定";
-    const model = scriptedModel((call) => {
-      if (call.tools.length > 0) {
-        return { error: { status: 400, message: "This model does not support tools" } };
-      }
-      const answer = call.prompt.includes(fact) ? fact : "No readable source.";
-      return { text: call.json ? JSON.stringify({ answer, citations: [] }) : answer };
-    });
+    const model = scriptedModel(
+      (call) => {
+        if (call.tools.length > 0) {
+          return { error: { status: 400, message: "This model does not support tools" } };
+        }
+        const answer = call.prompt.includes(fact) ? fact : "No readable source.";
+        return { text: call.json ? JSON.stringify({ answer, citations: [] }) : answer };
+      },
+      { judgesItsAnswers: true },
+    );
     const { core } = await transcribingCore(await createTempDataFolder(), { model });
     await core.updateSettings({ user: { language } });
     const provider = await core.saveChatProvider({
@@ -169,6 +176,148 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(answer.citations.some((citation) => citation.documentId === guide.id)).toBe(true);
   });
 
+  test(`${language}: a recap after guide help keeps the call's scope beside the Question, and the guide stays for follow-ups`, async () => {
+    const { core, meeting, guide, calls, fact } = await setup(language);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const recap = translate(language, "meeting.ask.recap");
+    const first = await answerOf(
+      core,
+      await core.askInConversation({ mindId: meeting.mindId, text: recap }),
+    );
+    const firstCall = calls.find(
+      (call) => call.prompt.includes(recap) && call.prompt.includes("<live-transcript>"),
+    );
+    expect(firstCall).toBeDefined();
+    expect(firstCall?.prompt).not.toContain("<call>");
+    expect(first.citations.length).toBeGreaterThan(0);
+    const prior = await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" });
+    const priorAnswer = await answerOf(core, prior);
+    const helpCall = calls.find(
+      (call) =>
+        call.prompt.includes("<help>") &&
+        call.prompt.includes(translate(language, "meetings.help.notCovered")),
+    );
+    expect(helpCall).toBeDefined();
+    expect(helpCall?.prompt).not.toContain("<call>");
+    const typed = language === "en" ? "What have we covered so far?" : "我们聊到哪了？";
+    const before = calls.length;
+    const second = await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: priorAnswer.conversationId,
+        mindId: meeting.mindId,
+        text: typed,
+      }),
+    );
+    const secondCall = calls
+      .slice(before)
+      .find((call) => call.prompt.includes(typed) && call.prompt.includes("<live-transcript>"));
+    expect(secondCall).toBeDefined();
+    const scope = secondCall?.prompt ?? "";
+    expect(scope).toContain("<call>");
+    expect(scope).toContain(
+      "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
+    );
+    expect(scope).toContain(
+      "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
+    );
+    expect(scope).toContain(
+      "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
+    );
+    expect(scope).toContain(
+      "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
+    );
+    expect(scope).toContain("</call>");
+    expect(scope.indexOf("</live-transcript>")).toBeLessThan(scope.indexOf("<call>"));
+    expect(scope.indexOf("<call>")).toBeLessThan(scope.indexOf(typed));
+    const guideSaid =
+      language === "en"
+        ? "supplier payments are due in forty-five days"
+        : "提纲要求询问供应商的付款期是否为四十五天";
+    expect(secondCall?.prompt).toContain(guideSaid);
+    expect(second.text).not.toContain(fact);
+    expect(second.citations.length).toBeGreaterThan(0);
+    expect(second.citations.every((citation) => citation.documentId !== guide.id)).toBe(true);
+    const retryFrom = calls.length;
+    const retried = await answerOf(
+      core,
+      await core.regenerateConversationAnswer({
+        conversationId: second.conversationId,
+        answerId: second.id,
+      }),
+    );
+    const retryCall = calls
+      .slice(retryFrom)
+      .find((call) => call.prompt.includes(typed) && call.prompt.includes("<live-transcript>"));
+    expect(retryCall).toBeDefined();
+    expect(retryCall?.prompt).toContain("<call>");
+    expect(retried.citations.every((citation) => citation.documentId !== guide.id)).toBe(true);
+    const follow =
+      language === "en"
+        ? "Which of those guide topics should I ask about first?"
+        : "上一条回答里列的问题，先问哪一个好？";
+    const from = calls.length;
+    await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: priorAnswer.conversationId,
+        mindId: meeting.mindId,
+        text: follow,
+      }),
+    );
+    const followCall = calls
+      .slice(from)
+      .find((call) => call.prompt.includes(follow) && call.prompt.includes("<live-transcript>"));
+    expect(followCall).toBeDefined();
+    expect(followCall?.prompt).toContain(guideSaid);
+    await core.stopMeeting(meeting.id);
+    const endedFrom = calls.length;
+    await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: priorAnswer.conversationId,
+        mindId: meeting.mindId,
+        text: typed,
+      }),
+    );
+    const endedCall = calls
+      .slice(endedFrom)
+      .find((call) => call.prompt.includes(typed) && !call.prompt.includes("<live-transcript>"));
+    expect(endedCall).toBeDefined();
+    expect(endedCall?.prompt).not.toContain("<call>");
+    expect(endedCall?.prompt).not.toContain("The User is in a meeting that is being recorded");
+    expect(endedCall?.prompt).toContain(guideSaid);
+  });
+
+  test(`${language}: a recap before speech says there is no call content, with no Library summary`, async () => {
+    const { core, meeting, calls, fact } = await setup(language, false);
+    await core.setMeetingTemplate({ meetingId: meeting.id, template: "interview" });
+    const prior = await core.askMeetingHelp({ meetingId: meeting.id, kind: "notCovered" });
+    const priorAnswer = await answerOf(core, prior);
+    const recap = translate(language, "meeting.ask.recap");
+    const before = calls.length;
+    const answer = await answerOf(
+      core,
+      await core.askInConversation({
+        conversationId: priorAnswer.conversationId,
+        mindId: meeting.mindId,
+        text: recap,
+      }),
+    );
+    const call = calls
+      .slice(before)
+      .find((each) => each.prompt.includes(recap) && each.prompt.includes("<live-transcript>"));
+    expect(call).toBeDefined();
+    expect(call?.prompt).toContain("<call>");
+    expect(call?.prompt).toContain(
+      "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
+    );
+    expect(answer.text).toBe(
+      language === "en" ? "Not enough call content yet." : "通话内容还不够。",
+    );
+    expect(answer.text).not.toContain(fact);
+  });
+
   for (const heard of [false, true]) {
     test(`${language}: an ordinary recap ${heard ? "with speech" : "before speech"} leaves Library facts out on ask and retry`, async () => {
       const { core, meeting, calls, fact, spoken } = await setup(language, heard);
@@ -194,7 +343,12 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(answer.citations[0]?.check).toBe("found");
         }
       }
-      expect(calls.every((call) => call.prompt.includes("<live-transcript>"))).toBe(true);
+      // The Answer's sentence is then checked against its quote alone (#2311).
+      expect(
+        calls
+          .filter((call) => !isCheckRun(call))
+          .every((call) => call.prompt.includes("<live-transcript>")),
+      ).toBe(true);
       expect(calls.some((call) => call.prompt.includes(fact))).toBe(false);
     });
   }

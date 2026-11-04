@@ -1,6 +1,7 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { Dragged } from "../../src/renderer/src/dragDrop";
 import type { ObjectRef } from "../../src/renderer/src/objects";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 type Store = typeof import("../../src/renderer/src/store");
 type Targets = typeof import("../../src/renderer/src/folderDrag");
@@ -79,5 +80,138 @@ describe("the Folder and Tag targets", () => {
         .tagTarget("t")
         .accepts({ kind: "objects", refs: [doc("a"), { kind: "mind", id: "m" }] }, at),
     ).toBeNull();
+  });
+});
+
+describe("files from Finder dropped on a Folder (#212)", () => {
+  test("a Folder takes them into it; Not in a Folder leaves them to the window", () => {
+    store.setState({
+      documents: [],
+      library: { groups: [{ id: "f", name: "Finance" }], assignments: [] } as never,
+    });
+    // A real drag says only the files' types; their names come with the drop.
+    const one: Dragged = { kind: "files", types: ["text/plain"], names: null };
+    const target = targets.folderTarget("f");
+    const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+    expect(target.accepts(one, at)?.said?.(en)).toBe("Add to Finance");
+    expect(target.accepts({ ...one, types: ["text/plain", "text/plain"] }, at)?.said?.(en)).toBe(
+      "Add 2 files to Finance",
+    );
+    expect(targets.folderTarget(null).accepts(one, at)).toBeNull();
+
+    const addDropped = vi.fn(async () => undefined);
+    store.setState({ addDropped });
+    const files = [new File(["budget"], "Budget.txt")];
+    target.drop({ kind: "files", files, folders: [] }, { kind: "import" });
+    expect(addDropped).toHaveBeenCalledWith(files, [], "f");
+  });
+
+  // protects=a link dragged onto a Folder says it will add the web page there, in English and Chinese, and Not in a Folder takes no link (#261); fails_when=the Folder lights with no words, or with words that don't name it; no_claim=how the page is fetched.
+  test("a Folder says it will add a dropped web page, in both languages", () => {
+    store.setState({
+      documents: [],
+      library: { groups: [{ id: "f", name: "Finance" }], assignments: [] } as never,
+    });
+    const target = targets.folderTarget("f");
+    const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+    const zh = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
+    const link: Dragged = { kind: "links" };
+    expect(target.accepts(link, at)?.said?.(en)).toBe("Add the web page to Finance");
+    store.setState({
+      library: { groups: [{ id: "f", name: "财务" }], assignments: [] } as never,
+    });
+    expect(target.accepts(link, at)?.said?.(zh)).toBe("将网页添加到“财务”");
+    expect(targets.folderTarget(null).accepts(link, at)).toBeNull();
+  });
+});
+
+describe("a Folder dragged onto another (#246)", () => {
+  const folder = (id: string): ObjectRef => ({ kind: "folder", id });
+  const groups = (list: { id: string; name: string; parentId: string | null }[]) =>
+    ({ groups: list, assignments: [] }) as never;
+  /** A row 40px tall with its top at 100: its middle nests, its first and last 11px place beside. */
+  const rect = () => ({ top: 100, bottom: 140, height: 40, left: 0, right: 200 }) as DOMRect;
+  const middle = { x: 100, y: 120 };
+  const topEdge = { x: 100, y: 104 };
+
+  beforeAll(() => {
+    store.setState({
+      minds: [],
+      documents: [],
+      library: groups([
+        { id: "thesis", name: "Thesis", parentId: null },
+        { id: "chapter", name: "Chapter 2", parentId: "thesis" },
+        { id: "other", name: "Other", parentId: null },
+        { id: "notes", name: "Notes", parentId: null },
+      ]),
+    });
+  });
+
+  test("its middle puts it inside, and a top edge puts it beside", () => {
+    const target = targets.folderTarget("chapter", rect);
+    expect(target.accepts({ kind: "objects", refs: [folder("other")] }, middle)).toMatchObject({
+      kind: "move",
+      place: "into",
+    });
+    expect(target.accepts({ kind: "objects", refs: [folder("other")] }, topEdge)).toMatchObject({
+      kind: "move",
+      place: "before",
+    });
+  });
+
+  test("a Folder can't go inside itself or one of its own sub-Folders, and the row says why", () => {
+    const intoItsOwnSubfolder = targets.folderTarget("chapter", rect);
+    const dragged = { kind: "objects" as const, refs: [folder("thesis")] };
+    expect(intoItsOwnSubfolder.accepts(dragged, middle)).toBeNull();
+    expect(intoItsOwnSubfolder.refuses?.(dragged, middle)).toBeTypeOf("function");
+    // Beside its own sub-Folder is inside itself too: Chapter 2's parent is Thesis.
+    expect(intoItsOwnSubfolder.accepts(dragged, topEdge)).toBeNull();
+    expect(intoItsOwnSubfolder.refuses?.(dragged, topEdge)).toBeTypeOf("function");
+
+    const itself = targets.folderTarget("thesis", rect);
+    expect(itself.accepts({ kind: "objects", refs: [folder("thesis")] }, middle)).toBeNull();
+    expect(itself.refuses?.({ kind: "objects", refs: [folder("thesis")] }, middle)).toBeTypeOf(
+      "function",
+    );
+  });
+
+  test("a Folder already inside one takes no drop there, and one going out changes where it is", () => {
+    // Chapter 2 is already in Thesis: its middle is no move, and nothing is refused.
+    const thesis = targets.folderTarget("thesis", rect);
+    const chapter = { kind: "objects" as const, refs: [folder("chapter")] };
+    expect(thesis.accepts(chapter, middle)).toBeNull();
+    expect(thesis.refuses?.(chapter, middle)).toBeNull();
+    // An edge of a Folder at the same level would change nothing either: nothing is refused.
+    const other = { kind: "objects" as const, refs: [folder("other")] };
+    expect(thesis.accepts(other, topEdge)).toBeNull();
+    expect(thesis.refuses?.(other, topEdge)).toBeNull();
+    // The top level takes a Folder out of its Folder.
+    expect(targets.folderTopTarget().accepts(chapter, middle)).toMatchObject({ kind: "move" });
+    expect(
+      targets.folderTopTarget().accepts({ kind: "objects", refs: [folder("thesis")] }, middle),
+    ).toBeNull();
+  });
+
+  test("several selected Folders drag together into one, and one inside itself refuses them all", () => {
+    const dragged = { kind: "objects" as const, refs: [folder("other"), folder("notes")] };
+    const thesis = targets.folderTarget("thesis", rect);
+    expect(thesis.accepts(dragged, middle)).toMatchObject({ kind: "move", place: "into" });
+    const moveFolders = vi.fn(async () => undefined);
+    store.setState({ moveFolders });
+    thesis.drop({ kind: "objects", refs: dragged.refs }, { kind: "move", place: "into" });
+    expect(moveFolders).toHaveBeenCalledWith(["other", "notes"], "thesis");
+
+    // The top level takes them all out: Chapter 2 is inside Thesis, so it accepts the two.
+    expect(
+      targets
+        .folderTopTarget()
+        .accepts({ kind: "objects", refs: [folder("chapter"), folder("other")] }, middle),
+    ).toMatchObject({ kind: "move" });
+
+    // With Chapter 2's own Folder among them, into Chapter 2 is inside itself: refused, not moved.
+    const insideItself = { kind: "objects" as const, refs: [folder("thesis"), folder("chapter")] };
+    const chapter = targets.folderTarget("chapter", rect);
+    expect(chapter.accepts(insideItself, middle)).toBeNull();
+    expect(chapter.refuses?.(insideItself, middle)).toBeTypeOf("function");
   });
 });

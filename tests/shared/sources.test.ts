@@ -72,6 +72,22 @@ describe("a Citation's source", () => {
     expect(link).toBeNull();
   });
 
+  test("a snapshot of a Mind is named Your note, with its title and date", () => {
+    const note = {
+      documentId: "note",
+      documentName: "Field visit",
+      contentHash: "n1",
+      pageFrom: 1,
+      pageTo: 1,
+      yourNoteAt: `${new Date().getFullYear()}-10-12T09:00:00.000Z`,
+    };
+    expect(sourceText(note, { language: "en", documents: [] }).text).toMatch(
+      /^Your note: Field visit, 12 Oct, p\. 1$/,
+    );
+    const zhText = sourceText(note, { language: "zh-CN", documents: [] }).text;
+    expect(zhText.startsWith("你的笔记：Field visit，10月12日")).toBe(true);
+  });
+
   test("is in the interface language", () => {
     expect(sourceText(tides(14), zh).text).toBe("Tides，第 14 页");
     expect(sourceText(tea("old"), zh).text).toContain("，访问于 2026年10月6日");

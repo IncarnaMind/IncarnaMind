@@ -8,6 +8,34 @@
     --quote-wash: var(--color-success-wash);
     --quote-edge: var(--color-success);
   }
+  /* The viewer takes the focus while an area is being picked (#118). */
+  .viewer-pane:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  .viewer-area-drawing {
+    position: absolute;
+    z-index: 20;
+    border: 1.5px dashed var(--color-accent);
+    background: var(--selection-overlay);
+    pointer-events: none;
+  }
+  /* What the area said while its Citation and picture are made: a pick is never a silent pause (#118). */
+  .viewer-area-reading {
+    position: absolute;
+    z-index: 21;
+    transform: translateY(-100%);
+    @apply rounded-md bg-sheet px-2 py-1 text-[12px] font-medium text-ink-secondary;
+    pointer-events: none;
+  }
+  /* A figure a Citation points at, as its area chip opens it: a solid edge under the dashed pick. */
+  .viewer-area-region {
+    position: absolute;
+    z-index: 11;
+    border: 1.5px solid var(--color-accent);
+    background: color-mix(in srgb, AccentColor, transparent 93%);
+    pointer-events: none;
+  }
 
   /*
    * A Document tab's 36px toolbar, under its group's strip, on the sheet with
@@ -45,7 +73,7 @@
       outline-offset: 0;
     }
   }
-  @container viewer (width < 400px) {
+  @container viewer (width < 620px) {
     .viewer-keep > span {
       @apply sr-only;
     }
@@ -113,18 +141,33 @@
   .viewer-zoom-level {
     @apply min-w-9 shrink-0 text-center whitespace-nowrap tabular-nums;
   }
-  /* In a narrow viewer the labels give way first (still read out), then the dividers. */
-  @container viewer (width < 520px) {
+  /*
+   * One toolbar for every viewer, giving way by the viewer's own width in the design's order:
+   * the zoom percentage, Tags, Keep's label, the page count, the dividers. The name truncates
+   * and never goes; the arrows, zoom, Select area, Open externally and ⋯ always stay.
+   */
+  @container viewer (width < 700px) {
     .viewer-zoom-level {
       @apply sr-only;
+      min-width: 0;
     }
   }
-  @container viewer (width < 460px) {
+  @container viewer (width < 600px) {
     .viewer-page-count {
       @apply sr-only;
     }
+  }
+  @container viewer (width < 580px) {
     .viewer-divider {
       @apply hidden;
+    }
+  }
+  @container viewer (width < 540px) {
+    .viewer-header {
+      @apply gap-px;
+    }
+    .viewer-name-area {
+      @apply min-w-18;
     }
   }
 
@@ -177,6 +220,11 @@
   [data-quote-tone="not-found"] {
     --quote-wash: var(--color-warning-wash);
     --quote-edge: var(--color-warning);
+  }
+  /* A scan's unsure words: the quote is quiet grey, as an uncited sentence is (#535). */
+  [data-quote-tone="cant-check"] {
+    --quote-wash: var(--color-chip);
+    --quote-edge: var(--color-ink-secondary);
   }
   /* Contradicted is never green: no fill, the words outlined in red. */
   [data-quote-tone="contradicted"] {
@@ -495,6 +543,9 @@
   .quote-mark--not-found {
     @apply bg-warning-wash text-warning;
   }
+  .quote-mark--cant-check {
+    @apply bg-chip text-ink-secondary;
+  }
   .quote-mark--contradicted {
     @apply bg-sheet text-danger;
     box-shadow: inset 0 0 0 1.5px var(--color-danger);
@@ -503,9 +554,13 @@
   .quote-mark-label {
     @apply ml-[3px] border-l border-current/25 pl-[5px] font-semibold whitespace-nowrap;
   }
-  /* Measured but not shown: there is no room for it beside the page's text. */
-  .quote-mark-label--measured {
+  /* Not shown: there is no room for it beside the page's text. */
+  .quote-mark-label--hidden {
     @apply pointer-events-none invisible absolute;
+  }
+  /* A copy of the mark, never shown, that gives its width with its label and without (#2459). */
+  .quote-mark--copy {
+    @apply invisible top-0 left-0;
   }
 
   /* A deck's or a document's outline: a slide's number before its title. */
@@ -599,6 +654,10 @@
   }
   .viewer-grid-scroll {
     @apply bg-sheet;
+  }
+  .viewer-grid-scroll:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
   }
   .viewer-grid {
     @apply border-separate border-spacing-0 font-sans text-[13px] leading-5 text-ink;
@@ -882,14 +941,20 @@
 }
 
 /*
- * Too narrow for the chips, the Tags' header keeps only their button. The chips set their
- * display with utility classes, which sit in the utilities layer and beat anything in
- * components, so this rule lives in that layer too, where its selector's weight wins.
+ * Tags leave the bar at their step in the give-way order; they stay in the Document's ⋯ menu.
+ * The row folds to nothing rather than `display: none`, so the picker it holds can still open
+ * from that menu: the row keeps its popover, and hides only the chips and its button.
+ * The row's `display` comes from a utility class, so this rule is in the utilities layer too.
  */
 @layer utilities {
-  @container viewer (width < 560px) {
-    .viewer-tags [data-testid="tag-chip"],
-    .viewer-tags [data-testid="tag-chip-more"] {
+  @container viewer (width < 630px) {
+    .viewer-header .viewer-tags {
+      width: 0;
+      min-width: 0;
+      gap: 0;
+      overflow: visible;
+    }
+    .viewer-header .viewer-tags > :not([popover]) {
       @apply hidden;
     }
   }
@@ -908,4 +973,13 @@
 }
 .peek-view :is(.viewer-header, .viewer-sheet-tabs, .viewer-slide-number) {
   display: none;
+}
+
+/*
+ * A pick answers at once, over a PDF's text layer too, whose spans say `cursor: text`.
+ * Unlayered, as that layer is: a rule in `components` would lose whatever its weight.
+ */
+.viewer-pane.viewer-area-taking,
+.viewer-pane.viewer-area-taking * {
+  cursor: progress;
 }

@@ -175,14 +175,10 @@ test("the one Check in a Folder checks the cited sentence and its contradiction 
   await citedClaim(window);
   await bridge(window).folder("Harbours", ["Tides", "Office"]);
 
-  // One action: Check asks once, with the one count (#1909) and no price line for a run under a dollar (#1941).
+  // One action: Check runs from its one press (#2313), with no price line for a run under a dollar (#1941).
   const card = await checkCard(window);
   await expect(card.getByTestId("badge-check-mind")).toHaveText("Check");
   await pointAndClick(window, card.getByTestId("badge-check-mind"));
-  const ask = card.getByTestId("mind-check-ask");
-  await expect(ask).toContainText("Check this note’s claim against this Folder’s Documents?");
-  await expect(ask).not.toContainText("About");
-  await pointAndClick(window, ask.getByTestId("mind-check-check"));
 
   // The sentence is checked for support and against the Folder's other Document: the contradiction is what shows.
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");

@@ -12,6 +12,7 @@
  * office-formats spike.
  */
 import { type TextUnit, UnitBuilder } from "../../../shared/units";
+import { cellTable, headingRowsOf, isFigure, shiftedDigits } from "../tableCells";
 import { ExtractionError } from "./errors";
 import { dataUrlOf, imageTypeOf } from "./images";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
@@ -42,6 +43,16 @@ async function relationships(zip: ZipArchive, part: string): Promise<Map<string,
   return rels;
 }
 
+/** A merge flag as DrawingML writes it: "1", or "true" in files that spell booleans out. */
+const mergedAttr = (value: string | undefined) => value === "1" || value === "true";
+
+/** A run's text, digits set raised or lowered written as Unicode's superscript or subscript digits. */
+function runText(run: XmlElement): string {
+  const text = textOf(child(run, "a:t") ?? run);
+  const baseline = Number(child(run, "a:rPr")?.attrs.baseline ?? 0);
+  return baseline === 0 || !Number.isFinite(baseline) ? text : shiftedDigits(text, baseline > 0);
+}
+
 /** A DrawingML text body (a:txBody or p:txBody) as lines, one per paragraph. */
 function paragraphs(txBody: XmlElement): string[] {
   return elements(txBody)
@@ -52,7 +63,7 @@ function paragraphs(txBody: XmlElement): string[] {
           run.name === "a:br"
             ? "\n"
             : run.name === "a:r" || run.name === "a:fld"
-              ? textOf(child(run, "a:t") ?? run)
+              ? runText(run)
               : "",
         )
         .join("")
@@ -85,10 +96,16 @@ export interface SlideOutline {
   notes: string[];
 }
 
+interface DeckRow {
+  cells: string[];
+  covered: boolean[];
+  continued: boolean[];
+}
+
 interface Collected {
   title: string | null;
   blocks: string[][];
-  tables: string[][][];
+  tables: DeckRow[][];
   images: { part: string; alt: string }[];
   charts: string[];
 }
@@ -117,11 +134,19 @@ function collect(tree: XmlElement, rels: Map<string, Rel>, into: Collected): voi
           into.tables.push(
             elements(table)
               .filter((each) => each.name === "a:tr")
-              .map((row) =>
-                elements(row)
-                  .filter((each) => each.name === "a:tc")
-                  .map((cell) => paragraphs(child(cell, "a:txBody") ?? cell).join(" ")),
-              ),
+              .map((row) => {
+                const cells: string[] = [];
+                const covered: boolean[] = [];
+                const continued: boolean[] = [];
+                for (const cell of elements(row).filter((each) => each.name === "a:tc")) {
+                  // A row names each of its grid's columns with a cell of its own; the cells a
+                  // merged one covers come after it marked hMerge, so the span adds none.
+                  cells.push(paragraphs(child(cell, "a:txBody") ?? cell).join(" "));
+                  covered.push(mergedAttr(cell.attrs.hMerge));
+                  continued.push(mergedAttr(cell.attrs.vMerge));
+                }
+                return { cells, covered, continued };
+              }),
           );
         }
         for (const chart of descendants(shape, "c:chart")) {
@@ -196,6 +221,34 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     const tree = root ? descendants(root, "p:spTree")[0] : undefined;
     const collected: Collected = { title: null, blocks: [], tables: [], images: [], charts: [] };
     if (tree) collect(tree, rels, collected);
+    for (const rows of collected.tables) {
+      // A merge repeats the text it continues down the body's rows, not into another heading row,
+      // and never a figure, which would count twice.
+      const starts: string[] = [];
+      const startedAt: number[] = [];
+      const headingRows = headingRowsOf(
+        rows.map((row) => row.cells),
+        { covered: rows.map((row) => row.covered) },
+      );
+      for (const [at, row] of rows.entries()) {
+        for (let column = 0; column < row.cells.length; column++) {
+          const start = starts[column];
+          if (
+            row.continued[column] &&
+            start &&
+            !isFigure(start) &&
+            (startedAt[column] ?? -1) >= headingRows
+          )
+            row.cells[column] = start;
+        }
+        for (let column = 0; column < row.cells.length; column++) {
+          if (!row.continued[column]) {
+            starts[column] = row.cells[column] ?? "";
+            startedAt[column] = at;
+          }
+        }
+      }
+    }
 
     const notesRel = [...rels.values()].find((rel) => rel.type.endsWith(REL_NOTES));
     const notes: string[] = [];
@@ -216,7 +269,7 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     }
     for (const [table, rows] of collected.tables.entries()) {
       for (const [row, cells] of rows.entries()) {
-        builder.add(cells.join("\t"), `table${table + 1}.row${row + 1}`);
+        builder.add(cells.cells.join("\t"), `table${table + 1}.row${row + 1}`);
       }
     }
     const charts: string[] = [];
@@ -228,12 +281,20 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     if (notes.length) builder.add(notes.join("\n"), "notes", "\n\n");
 
     const hidden = root?.attrs.show === "0";
+    const tables = collected.tables.flatMap(
+      (rows) =>
+        cellTable(
+          rows.map((row) => row.cells),
+          { covered: rows.map((row) => row.covered) },
+        ) ?? [],
+    );
     units.push({
       page: number,
       kind: "slide",
       label: {
         ...(collected.title ? { title: collected.title } : {}),
         ...(hidden ? { hidden } : {}),
+        ...(tables.length > 0 ? { tables } : {}),
       },
       text: builder.text,
       anchors: builder.anchors,
@@ -243,7 +304,7 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
       hidden,
       title: collected.title,
       blocks: collected.blocks,
-      tables: collected.tables,
+      tables: collected.tables.map((rows) => rows.map((row) => row.cells)),
       charts: charts.filter(Boolean),
       images: collected.images,
       notes,

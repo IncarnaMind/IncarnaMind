@@ -7,7 +7,7 @@
  * changed scale, and only against an amount whose scale the Document states in words the reader
  * knows. Anything less certain is left alone: an amount none of them gives (worked out, a total
  * or a difference of them, or another figure), an approximate one, a scale stated in a form the
- * reader doesn't know ("£000", "TEUR"), and percents, multiples and plain counts. A check that
+ * reader can't settle ("in MM", "(000)"), and percents, multiples and plain counts. A check that
  * flags a right amount teaches the model to write a wrong one.
  */
 

@@ -1,11 +1,13 @@
 import { expect, test } from "vitest";
 import {
+  type AnswerAnalysis,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
   type Citation,
   type FigureInput,
 } from "../../src/core/api";
-import { hasText } from "../../src/shared/answerBlocks";
+import { noAnalysisOutput } from "../../src/shared/analysis";
+import { answerBlocks, hasText } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import {
   calculatedFigureNode,
@@ -15,6 +17,7 @@ import {
   readFigureCitation,
   readFigureInput,
 } from "../../src/shared/calculatedFigures";
+import { calculatedFiguresIn } from "../../src/shared/figureRuns";
 import { FORMULA_MAX_LENGTH, FORMULA_VERSION } from "../../src/shared/formula";
 import { firstLineOfBlocks } from "../../src/shared/noteBlocks";
 
@@ -87,6 +90,18 @@ test("a complete existing figure preserves every input, raw cell, chosen reading
   expect(readCalculatedFigure(serialized)).toEqual(original);
   expect(readFigureInput(input())).toEqual(input());
   expect(readFigureCitation(citation())).toEqual(citation());
+});
+
+test("a unit statement keeps the currency as its line writes it, and refuses one that isn't text", () => {
+  const written = { ...input(), unitStatement: { ...input().unitStatement, currencyChars: "£" } };
+  expect(readFigureInput(written)?.unitStatement).toMatchObject({ currencyChars: "£" });
+  expect(
+    readFigureInput({
+      ...written,
+      unitStatement: { ...written.unitStatement, currencyChars: 3 },
+    }),
+  ).toBeNull();
+  expect(readFigureInput(written)?.unitStatement).not.toHaveProperty("currencyChars", null);
 });
 
 test("Chinese shown scales and quoted character offsets survive without unit conversion", () => {
@@ -347,4 +362,47 @@ test("an Answer of only a calculated figure has something to read, and an empty 
   expect(hasText([paragraph([calculatedFigureNode(figure(), "figure-1")])])).toBe(true);
   expect(hasText([paragraph([{ type: "text", text: "  " }])])).toBe(false);
   expect(hasText([paragraph([{ type: CALCULATED_FIGURE_NODE, attrs: {} }])])).toBe(false);
+});
+
+/** An Analysis that ran, and the value it gave, so a figure can name it. */
+function analysed(end: AnswerAnalysis["end"], value: number): AnswerAnalysis {
+  return {
+    number: 1,
+    title: "Revenue growth",
+    language: "python",
+    code: "result('growth', 0.2345)",
+    inputs: [],
+    versions: null,
+    codeSha256: "a".repeat(64),
+    outputSha256: "b".repeat(64),
+    end,
+    output: {
+      ...noAnalysisOutput(),
+      results: [{ kind: "figure", name: "growth", label: "Revenue growth", value, unit: null }],
+    },
+    ms: 1,
+    ranAt: "2026-11-01T00:00:00.000Z",
+    markers: { figures: [{ result: "growth", marker: 1 }], tables: [], charts: [] },
+  };
+}
+
+test("an Analysis figure is written only when that run finished with that very value (#2378)", () => {
+  const analysedFigure = { ...figure(), analysis: { analysis: 1, result: "growth" } };
+  const blocks = (analysis: AnswerAnalysis) =>
+    answerBlocks({
+      text: "It grew [=1].",
+      citations: [],
+      figures: [{ ...analysedFigure, marker: 1 }],
+      status: "done",
+      id: "answer",
+      analyses: [analysis],
+    });
+  const figures = (analysis: AnswerAnalysis) => calculatedFiguresIn(blocks(analysis));
+
+  expect(figures(analysed({ kind: "done" }, 0.2345))).toHaveLength(1);
+  // The same result's name is not enough: a figure that shows another value is its text.
+  expect(figures(analysed({ kind: "done" }, 0.235))).toEqual([]);
+  // An Analysis that stopped may hold a value it never finished for.
+  expect(figures(analysed({ kind: "stopped" }, 0.2345))).toEqual([]);
+  expect(JSON.stringify(blocks(analysed({ kind: "stopped" }, 0.2345)))).toContain("23.5%");
 });

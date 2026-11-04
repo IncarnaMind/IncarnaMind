@@ -92,6 +92,8 @@ export interface DocumentPatchInput {
   tokensOf(node: NodeJSON): Token[];
   /** What the native writer writes for a Block the document didn't have. */
   blocksOf(node: NodeJSON): Block[];
+  /** The number a numbered list's first item is drawn with, `nested` in a numbered list's item or not. */
+  firstNumberOf(list: NodeJSON, nested: boolean): number;
   /** The bookmark a table of contents links to, for a heading: none for other Blocks. */
   bookmarkOf(node: NodeJSON): { id: number; name: string } | null;
   writer: DocxWriter;
@@ -329,14 +331,16 @@ export class DocumentPatch {
   /** Copied as it was, a paragraph has no runs a comment's range could start and end in. */
   private forceForComments(counterpart: Counterpart): void {
     const based = counterpart.key ? this.based.get(counterpart.key) : undefined;
-    if (
-      !based ||
-      counterpart.kind !== "paragraph" ||
-      !this.input.review.choices.commentFailedChecks ||
-      !this.input.tokensOf(counterpart.node).some((token) => token.sentence)
-    ) {
-      return;
-    }
+    if (!based || counterpart.kind !== "paragraph") return;
+    const tokens = this.input.tokensOf(counterpart.node);
+    const sentence =
+      this.input.review.choices.commentFailedChecks && tokens.some((token) => token.sentence);
+    // A comment made here needs the paragraph written again, to hold its range (#328).
+    const comment = tokens.some(
+      (token) =>
+        token.marks.comment !== null && this.input.review.renewsComment(token.marks.comment),
+    );
+    if (!sentence && !comment) return;
     for (let at: XmlElement | undefined = based.element; at; at = this.parents.get(at))
       this.forced.add(at);
   }
@@ -438,13 +442,19 @@ export class DocumentPatch {
       if (counterpart.pending.inserted) continue;
       const based = counterpart.key ? this.based.get(counterpart.key) : undefined;
       if (counterpart.kind === "paragraph") {
-        if (based && !this.needsWriting(counterpart, based)) {
+        // A new comment makes an unchanged paragraph be written again, for its range (#328):
+        // its tokens then carry the comment, as the writer's do.
+        const addsComment = this.input
+          .tokensOf(counterpart.node)
+          .some(
+            (token) =>
+              token.marks.comment !== null && this.input.review.renewsComment(token.marks.comment),
+          );
+        if (based && !this.needsWriting(counterpart, based) && !addsComment) {
           yield { key: counterpart.node, authorship: "own" };
           continue;
         }
-        const tokens = based
-          ? withWordChanges(this.input.tokensOf(counterpart.node), counterpart.pending)
-          : this.input.tokensOf(counterpart.node);
+        const tokens = this.tokensOfWritten(counterpart, based ?? null);
         for (const each of alignTokens(based ? this.baseTokensOf(based) : [], tokens)) {
           if (each.step === "delete" || each.step === "proposed") continue;
           const token = tokens[each.y] as Token;
@@ -458,7 +468,12 @@ export class DocumentPatch {
                   : /^\s$/u.test(token.char)
                     ? "neither"
                     : "own";
-          yield { key: token, authorship, sentence: token.sentence };
+          yield {
+            key: token,
+            authorship,
+            sentence: token.sentence,
+            ...(token.marks.comment && { comments: [token.marks.comment] }),
+          };
         }
       } else if (counterpart.kind === "table" && based) {
         if (!this.input.edited(counterpart.node) && !this.forced.has(based.element)) {
@@ -499,6 +514,35 @@ export class DocumentPatch {
     const target = this.input.relationships.get(hyperlink.attrs["r:id"] ?? "");
     if (target?.external) return anchor ? `${target.target}#${anchor}` : target.target;
     return anchor ? `#${anchor}` : null;
+  }
+
+  /**
+   * The tokens a paragraph is written from, made once so a comment's range
+   * finds the same tokens the writer writes (#328): kept-as-is atoms become
+   * their characters, as the writer writes them.
+   */
+  private readonly writtenTokens = new Map<Counterpart, Token[]>();
+
+  private tokensOfWritten(counterpart: Counterpart, based: Based | null): Token[] {
+    const cached = this.writtenTokens.get(counterpart);
+    if (cached) return cached;
+    const { plan } = this.input;
+    const tokens = this.input.tokensOf(counterpart.node).flatMap((token): Token[] => {
+      const { node } = token;
+      if (token.kind !== "atom" || !token.source || !node) return [token];
+      if (plan.writes(token.source, node, keptKindOf(node))) return [token];
+      if (token.inline) {
+        // A note kept as is is a new footnote with only its text, so it is said, as a copy is.
+        if (node.type === WORD_ATOM_NODE) plan.copied(node);
+        return [special(token.inline)];
+      }
+      if (!plan.isForeign(node) && !plan.written(token.source)) return [];
+      plan.copied(node);
+      return asCharacters(token, copiedText(node));
+    });
+    const result = based ? withWordChanges(tokens, counterpart.pending) : tokens;
+    this.writtenTokens.set(counterpart, result);
+    return result;
   }
 
   /** The main part's text with every change made. */
@@ -807,20 +851,7 @@ export class DocumentPatch {
     scope: Namespaces,
     references: () => Reference[],
   ): string {
-    const { plan } = this.input;
-    const tokens = this.input.tokensOf(counterpart.node).flatMap((token): Token[] => {
-      const { node } = token;
-      if (token.kind !== "atom" || !token.source || !node) return [token];
-      if (plan.writes(token.source, node, keptKindOf(node))) return [token];
-      if (token.inline) {
-        // A note kept as is is a new footnote with only its text, so it is said, as a copy is.
-        if (node.type === WORD_ATOM_NODE) plan.copied(node);
-        return [special(token.inline)];
-      }
-      if (!plan.isForeign(node) && !plan.written(token.source)) return [];
-      plan.copied(node);
-      return asCharacters(token, copiedText(node));
-    });
+    const tokens = this.tokensOfWritten(counterpart, based ?? null);
     const filePPr = based ? this.pPrOf(based.element) : "";
     const basePPr = based
       ? resolvedMark(filePPr, based.counterpart.pending, counterpart.pending)
@@ -835,7 +866,7 @@ export class DocumentPatch {
     const { xml, lost } = writeParagraph(
       {
         base: based ? { element: based.element, tokens: this.baseTokensOf(based) } : null,
-        current: based ? withWordChanges(tokens, counterpart.pending) : tokens,
+        current: tokens,
         pPr,
         pPrChanged: pPr !== filePPr,
         fallbackRun: rPr,
@@ -984,29 +1015,75 @@ export class DocumentPatch {
       return;
     }
     const numId = this.numIdOf(list);
+    const level = (based && this.importedLevel(based, list)) ?? this.levelOf(list);
     properties.set(
       "w:numPr",
-      `<w:numPr><w:ilvl w:val="${Math.min(list.depth, 8)}"/><w:numId w:val="${numId}"/></w:numPr>`,
+      `<w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numId}"/></w:numPr>`,
     );
   }
 
-  /** The numbering a list of the Mind is written with: that of its imported items, else a new one. */
+  /**
+   * The numbering a list of the Mind is written with: that of its imported items, else a new one.
+   * A numbered list nested in another is an instance of the outer one's, which starts again at its
+   * own start; each starts where the editor draws it, a continued list going on from the one before.
+   */
   private numIdOf(list: ListPlace): number {
     const known = this.lists.get(list.list);
     if (known !== undefined) return known;
-    for (const item of this.listItems.get(list.list) ?? []) {
-      const based = item.key ? this.based.get(item.key) : undefined;
-      if (!based?.counterpart.list || based.counterpart.list.ordered !== list.ordered) continue;
-      const numId = numIdIn(this.pPrOf(based.element));
-      if (numId !== null && numId !== "0") {
-        this.lists.set(list.list, Number(numId));
-        return Number(numId);
-      }
+    const own = this.imported(list);
+    if (own) {
+      this.lists.set(list.list, own.numId);
+      return own.numId;
     }
-    const start = Math.max(Math.trunc(Number(list.list.attrs?.start)) || 1, 0);
-    const numId = this.input.target.list(list.ordered, Math.min(list.depth, 8), start);
+    const outerNode = list.numbered?.outer;
+    const nested = outerNode !== undefined && outerNode !== list.list;
+    const start = list.ordered ? this.input.firstNumberOf(list.list, nested) : 1;
+    const outer = outerNode
+      ? (this.lists.get(outerNode) ??
+        this.imported({ ...list, list: outerNode, ordered: true })?.numId)
+      : undefined;
+    if (outer !== undefined && list.numbered) {
+      if (outerNode) this.lists.set(outerNode, outer);
+      const numId = this.input.target.restart(outer, list.numbered.scheme, list.depth, start);
+      this.lists.set(list.list, numId);
+      return numId;
+    }
+    const numId = this.input.target.list(
+      list.numbered?.scheme ?? "bullet",
+      list.depth,
+      start,
+      list.level,
+    );
     this.lists.set(list.list, numId);
+    if (outerNode) this.lists.set(outerNode, numId);
     return numId;
+  }
+
+  private levelOf(list: ListPlace): number {
+    return this.imported(list)?.level ?? list.depth;
+  }
+
+  /**
+   * The Word level an imported item goes at in `place`: its level in the file, moved by as many
+   * levels as the item was, so a list that starts deeper in the file than in the Note keeps it.
+   */
+  private importedLevel(based: Based, place: ListPlace): number | null {
+    const was = based.counterpart.list;
+    const level = levelIn(this.pPrOf(based.element));
+    if (!was || level === null) return null;
+    const started = place.startLevel === null ? 0 : place.startLevel - (was.startLevel ?? 0);
+    return Math.min(Math.max(level + place.nesting - was.nesting + started, 0), 8);
+  }
+
+  private imported(place: ListPlace): { numId: number; level: number } | null {
+    for (const item of this.listItems.get(place.list) ?? []) {
+      const based = item.key ? this.based.get(item.key) : undefined;
+      if (!based?.counterpart.list || based.counterpart.list.ordered !== place.ordered) continue;
+      const numId = numIdIn(this.pPrOf(based.element));
+      if (numId !== null && numId !== "0")
+        return { numId: Number(numId), level: this.importedLevel(based, place) ?? place.depth };
+    }
+    return null;
   }
 
   /** An imported item of the same list, the nearest before this one, else after: a new item takes its look. */
@@ -1487,9 +1564,18 @@ function resolvedMark(pPr: string, was: Pendings, now: Pendings): string {
   return properties.toXml();
 }
 
-const sameList = (a: ListPlace | null, b: ListPlace | null): boolean =>
-  (a === null && b === null) ||
-  (a !== null && b !== null && a.ordered === b.ordered && a.depth === b.depth);
+/**
+ * Whether an item is where it was in the file: as deep in lists, its list starting at the same
+ * level. A list that names no start level, as in a Note imported before lists kept theirs, starts
+ * where the file's does.
+ */
+const sameList = (now: ListPlace | null, was: ListPlace | null): boolean =>
+  (now === null && was === null) ||
+  (now !== null &&
+    was !== null &&
+    now.ordered === was.ordered &&
+    now.nesting === was.nesting &&
+    (now.startLevel === null || now.startLevel === (was.startLevel ?? 0)));
 
 const isHeaderRow = (row: NodeJSON) =>
   (row.content ?? []).length > 0 &&
@@ -1498,6 +1584,11 @@ const isHeaderRow = (row: NodeJSON) =>
 /** The numId a paragraph's own numbering names, if it has any. */
 function numIdIn(pPr: string): string | null {
   return /<w:numId\b[^>]*\bw:val="([^"]*)"/.exec(pPr)?.[1] ?? null;
+}
+
+function levelIn(pPr: string): number | null {
+  const value = /<w:ilvl\b[^>]*\bw:val="(\d+)"/.exec(pPr)?.[1];
+  return value === undefined ? null : Math.min(Number(value), 8);
 }
 
 /**

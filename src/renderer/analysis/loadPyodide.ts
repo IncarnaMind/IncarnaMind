@@ -8,8 +8,9 @@ export async function loadPython(base: string, moduleUrl = `${base}pyodide.mjs`)
     lockFileURL: `${base}pyodide-lock.json`,
     packageBaseUrl: base,
     fullStdLib: false,
-    // Sets and dicts of text iterate in the same order on every run.
-    env: { PYTHONHASHSEED: "0" },
+    // Sets and dicts of text iterate in the same order on every run. A Worker has no page for
+    // matplotlib's browser backend: it draws into PNGs.
+    env: { PYTHONHASHSEED: "0", MPLBACKEND: "Agg" },
     stdout: () => {},
     stderr: () => {},
   });

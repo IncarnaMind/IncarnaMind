@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import type { PDFPageProxy, TextItem } from "pdfjs-dist/types/src/display/api";
 import { readPdfPageText } from "../../shared/pdfFormText";
 import { CJK } from "../../shared/text";
-import type { Anchor, TextUnit } from "../../shared/units";
+import type { Anchor, TextUnit, UnitTable } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentKind, UnreadParts } from "../api";
 import { isRecord } from "../errors";
@@ -20,11 +20,33 @@ import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
-import { type CanvasFactory, isScanned, pagePicture } from "./scan/pages";
+import {
+  type CanvasFactory,
+  invisibleText,
+  isScanned,
+  MIN_PICTURE_SHARE,
+  pagePicture,
+  pictureShare,
+} from "./scan/pages";
 import { anchorsBack, readWithQuarterTurn } from "./scan/rotation";
-import { findTables, type TableGrid, textItemOf, textLayerRows } from "./tables";
+import {
+  continuedTables,
+  findTables,
+  type PageTables,
+  pageTables,
+  scannedRows,
+  type TableGrid,
+  textItemOf,
+  textLayerRows,
+} from "./tables";
 import { unreadMessage } from "./unreadMessage";
-import { PICTURE_LIMITS, pictureSize, pictureType } from "./web/pictures";
+import {
+  PICTURE_LIMITS,
+  type PictureProblem,
+  pictureProblem,
+  pictureSize,
+  pictureType,
+} from "./web/pictures";
 
 export { ExtractionError };
 
@@ -36,8 +58,8 @@ export interface PageReading {
   keep: ReadonlyMap<number, TextUnit>;
   /** The lines on a page's picture. Rejects with `ReadingUnavailable` when no page can be read now. */
   read(page: number, picture: PagePicture): Promise<RecognizedLine[]>;
-  /** As `read`, for a picture file, decoded where the model runs. */
-  readFile(page: number, file: Uint8Array): Promise<PictureRead>;
+  /** As `read`, for a picture file, decoded where the model runs; a refusal when it must not be read. */
+  readFile(page: number, file: Uint8Array): Promise<PictureRead | { refused: PictureProblem }>;
   /** Logs in the core, with the Document's id: the worker's own console reaches no log. */
   log(event: string, fields: LogFields): void;
   /** `read` of `of` scanned pages are read; `unit` is the one just read. */
@@ -55,8 +77,8 @@ export interface ExtractedText {
   /** PDFs only. */
   pageCount: number | null;
   units: TextUnit[];
-  /** PDF pages with unread content, and why; null when all could be read. */
-  unread: { pages: number[]; message: string; forms?: true } | null;
+  /** PDF pages with unread content, and why; null when all could be read. `picture`: a picture Document's one page. */
+  unread: { pages: number[]; message: string; forms?: true; picture?: true } | null;
   /** What of the file wasn't read when the rest was (#740): a workbook's hidden sheets and rows; null when all was. */
   parts: UnreadParts | null;
   /**
@@ -70,6 +92,8 @@ export interface ExtractedText {
  * `password`: what opens a locked PDF, from ./pdfPasswords (#763).
  * `readPicture`: a saved web page's picture, by its path in the snapshot,
  * whose text is read when `reading` is given.
+ * `readHiddenSheets`: a workbook's hidden and very hidden sheets are read too,
+ * when the User asked for them (#740).
  */
 export async function extractText(
   kind: DocumentKind,
@@ -77,8 +101,10 @@ export async function extractText(
   reading: PageReading | null = null,
   password?: string,
   readPicture: ((src: string) => Promise<Uint8Array>) | null = null,
+  readHiddenSheets = false,
 ): Promise<ExtractedText> {
   if (kind === "pdf") return extractPdf(bytes, reading, password);
+  if (kind === "image") return extractImage(bytes, reading);
   if (kind === "web" && reading && readPicture) {
     return {
       pageCount: null,
@@ -88,10 +114,62 @@ export async function extractText(
     };
   }
   if (kind === "xlsx") {
-    const { units, workbook } = await extractXlsx(bytes);
+    const { units, workbook } = await extractXlsx(bytes, readHiddenSheets);
     return { pageCount: null, units, unread: null, parts: unreadPartsOf(workbook) };
   }
   return { pageCount: null, units: await extractUnits(kind, bytes), unread: null, parts: null };
+}
+
+/**
+ * A picture Document (#762) as a scanned page is: its one page is its picture,
+ * read on this computer. Without a reader, or while the model can't be had,
+ * the page is left unread so Retry reads it; a file that isn't a picture is
+ * unreadable.
+ */
+async function extractImage(
+  bytes: Uint8Array,
+  reading: PageReading | null,
+): Promise<ExtractedText> {
+  const unread = (message: string): ExtractedText => ({
+    pageCount: 1,
+    units: [],
+    unread: { pages: [1], message, picture: true },
+    parts: null,
+  });
+  if (!reading) return unread("The picture can't be read here.");
+  // The same pixel cap a saved page's pictures get: a small file can claim a size
+  // whose decoding takes a gigabyte, before the OCR engine ever sees it (#762).
+  const problem = pictureProblem(bytes);
+  if (problem !== null) {
+    throw new ExtractionError(
+      problem.kind === "too-large" ? "too-large" : "picture-unreadable",
+      problem.message,
+    );
+  }
+  reading.progress(0, 1, null);
+  try {
+    const picture = await reading.readFile(1, bytes);
+    if ("refused" in picture) {
+      throw new ExtractionError(
+        picture.refused.kind === "too-large" ? "too-large" : "picture-unreadable",
+        picture.refused.message,
+      );
+    }
+    const unit = scannedUnit(1, picture.lines, picture, reading.reader, 0, true);
+    reading.progress(1, 1, unit);
+    return { pageCount: 1, units: [unit], unread: null, parts: null };
+  } catch (error) {
+    reading.signal.throwIfAborted();
+    if (error instanceof ReadingUnavailable) {
+      return unread(error.message);
+    }
+    // A refusal already says its reason; only a reader's own failure is wrapped.
+    if (error instanceof ExtractionError) throw error;
+    throw new ExtractionError(
+      "unreadable",
+      `The picture couldn't be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**
@@ -158,6 +236,10 @@ async function readFigure(
     return null;
   }
   const picture = await reading.readFile(number, file);
+  if ("refused" in picture) {
+    reading.log("documents.pictureNotRead", { picture: src, message: picture.refused.message });
+    return null;
+  }
   const read = scannedUnit(number, picture.lines, picture, reading.reader);
   const unsure = read.label?.scan?.unsure;
   return {
@@ -294,6 +376,8 @@ const XMP_CREATE_DATE = /xmp:CreateDate\s*(?:=\s*(["'])([^"'<>]*)\1|>([^<]*)<)/i
 export interface PdfMetadata {
   /** Its Info dictionary's CreationDate, a PDF date string. */
   info: string | null;
+  /** Its Info dictionary's ModDate, a PDF date string (#2458). */
+  modified: string | null;
   /** Its XMP metadata's xmp:CreateDate, an ISO 8601 date. */
   xmp: string | null;
   /** Its Info dictionary's Title (#213). */
@@ -310,8 +394,8 @@ export interface PdfMetadata {
 
 /**
  * A PDF's metadata as written: its document information dictionary's
- * CreationDate (#53), Title (#213) and Author, and its XMP metadata, whose
- * xmp:CreateDate is read here; never its ModDate. Its first page's lines, and
+ * CreationDate (#53), Title (#213), Author and ModDate (#2458), and its XMP
+ * metadata, whose xmp:CreateDate is read here. Its first page's lines, and
  * with `pages`, the text of its first pages too (#286: a DOI or an arXiv id is
  * printed there). Throws if the PDF can't be opened.
  */
@@ -349,6 +433,7 @@ export async function pdfMetadata(
     }
     return {
       info: entry("CreationDate"),
+      modified: entry("ModDate"),
       xmp: xmp ? (xmp[2] ?? xmp[3] ?? null) : null,
       title: entry("Title"),
       author: entry("Author"),
@@ -477,6 +562,7 @@ async function extractPdf(
     const scanned: number[] = [];
     const scanFields = new Map<number, { text: string; anchors: Anchor[] }>();
     const unreadForms: number[] = [];
+    const layouts = new Map<number, PageTables>();
     const metadata = await document.getMetadata();
     const xfa = isRecord(metadata.info) && metadata.info.IsXFAPresent === true;
     const signatures = await document.getSignatures();
@@ -492,6 +578,17 @@ async function extractPdf(
       const read = readPageText(content.items);
       if (read.kept.size > 0) keptBreaks.set(number, read.kept);
       pages.push({ page: number, kind: "page", label: null, text: read.text, anchors: null });
+      const layout = pageTables(textLayerRows(content.items));
+      // A recognizer's searchable layer is invisible text over the page's picture; visible text
+      // over a background picture is the page's own, so its figures are still checked (#448).
+      if (
+        layout.tables.length > 0 &&
+        (await pictureShare(page, OPS)) >= MIN_PICTURE_SHARE &&
+        (await invisibleText(page, OPS))
+      ) {
+        layout.tables = layout.tables.map((table) => ({ ...table, overPicture: true }));
+      }
+      layouts.set(number, layout);
       if (reading && (await isScanned(page, pageText(source.items), OPS))) {
         scanned.push(number);
         if (fields.length > 0) scanFields.set(number, scannedFormFields(page, fields));
@@ -517,7 +614,16 @@ async function extractPdf(
       await document.getPageLabels(),
       pages.map((unit) => unit.text),
     );
-    const units = pages.map((unit, index) => withPrintedName(unit, names[index] ?? null));
+    for (const unit of pages) {
+      const scan = unit.label?.scan;
+      if (!scan) continue;
+      // An unread scan keeps its text layer but no anchors, so it has no rows to find a table in.
+      layouts.set(unit.page, pageTables(scannedRows(unit.text, unit.anchors ?? [], scan.turn)));
+    }
+    const tables = continuedTables(layouts);
+    const units = pages.map((unit, index) =>
+      withTables(withPrintedName(unit, names[index] ?? null), tables.get(unit.page)),
+    );
     return { pageCount: pages.length, units, unread, parts: null, keptBreaks };
   } catch (error) {
     if (reading?.signal.aborted) throw reading.signal.reason;
@@ -530,6 +636,13 @@ async function extractPdf(
   } finally {
     await task.destroy();
   }
+}
+
+/** `unit` with `tables`, in place of any a kept scanned page had from an earlier read. */
+function withTables(unit: TextUnit, tables: UnitTable[] | undefined): TextUnit {
+  const { tables: _earlier, ...label } = unit.label ?? {};
+  const kept = tables && tables.length > 0 ? { ...label, tables } : label;
+  return { ...unit, label: Object.keys(kept).length > 0 ? kept : null };
 }
 
 function withPrintedName(unit: TextUnit, name: string | null): TextUnit {

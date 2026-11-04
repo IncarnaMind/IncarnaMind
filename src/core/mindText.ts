@@ -33,7 +33,6 @@
  * Word export reads them too, for review (`ReadOptions.review`, #107).
  */
 import * as Y from "yjs";
-import { originOf } from "../shared/blockOrigins";
 import { figureShownText, readCalculatedFigureAttributes } from "../shared/calculatedFigures";
 import {
   type ChartAttributes,
@@ -50,11 +49,18 @@ import {
   comparisonQuestionsOf,
   visibleComparisonQuestions,
 } from "../shared/comparisons";
-import { type CalculatedSources, calculatedSources, labelledCitations } from "../shared/figureRuns";
+import { calculatedSources, labelledCitations } from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
+import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
 import { cutTitle } from "../shared/naming";
+import {
+  isNumberingScheme,
+  itemLevel,
+  type NumberingScheme,
+  numberingMarker,
+} from "../shared/numbering";
 import {
   readParagraphFormat,
   readTextColor,
@@ -72,7 +78,6 @@ import { comparisonCellTarget } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
   ANSWER_BLOCK,
-  BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
   type CalculatedFigureAttributes,
@@ -82,6 +87,7 @@ import {
   type CitedWork,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
+  COMMENT_MARK,
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonQuestion,
@@ -122,6 +128,8 @@ export interface Marks {
   code: boolean;
   /** The link's target, or null. */
   link: string | null;
+  /** The comment the text is on (#328), by the record's id; absent when it is on none. */
+  comment?: string;
   /** Hex "RRGGBB". */
   color?: string;
   font?: string;
@@ -206,7 +214,7 @@ export interface Pending {
   id: string;
   /** When it was asked for, or made, ISO 8601; null when the Mind doesn't say. */
   at: string | null;
-  /** Who made it, for someone's change in a Word file (#108); otherwise IncarnaMind's. */
+  /** Who made it: someone in a Word file (#108), or an outside agent (#352); else IncarnaMind. */
   by?: string;
 }
 
@@ -331,6 +339,11 @@ export type Block = (
       items: Block[][];
       /** A checklist's state, in the same order as its items; absent on ordinary lists. */
       checked?: boolean[];
+      /**
+       * A numbered list's scheme and its items' level (#1419), and each item's marker as the
+       * editor draws it ("(a)", "1.2.", "（一）"); absent on bullets and checklists.
+       */
+      numbering?: { scheme: NumberingScheme; level: number; markers: string[] };
     }
   | { kind: "quote"; content: Block[] }
   | { kind: "rule" }
@@ -367,6 +380,8 @@ export type Block = (
 
 export interface ReadOptions {
   includeQuestions: boolean;
+  /** For a file that leaves the app: an outside agent's inert brackets read as written (#352). */
+  leavesApp?: boolean;
   /** The footnote for a Citation, from its node's attributes. */
   footnote(attributes: Record<string, unknown>): Footnote;
   /**
@@ -381,6 +396,8 @@ export interface ReadOptions {
    * decides (./exports/citations).
    */
   trimBeforeFootnote?: boolean;
+  /** The numbered list a list being read is nested in: its scheme, and its items' level and numbers. */
+  outerList?: OuterList;
   /**
    * A comparison table's own words (#98): its first column's heading, and what a cell
    * without an Answer says. Absent: in English.
@@ -446,9 +463,13 @@ export function theirChangesReading(doc: Y.Doc): ReviewReading {
   };
 }
 
-/** When a request's changes were made, and by whom if not by IncarnaMind: someone's from a Word file. */
+/**
+ * When a request's changes were made, and by whom if not by IncarnaMind: someone's from a Word
+ * file, or an outside agent, by its name (#352).
+ */
 export function madeBy(made: ProposalRequest | null): Omit<Pending, "id"> {
   if (made?.source === "word-change") return { at: made.date, by: made.author ?? "" };
+  if (made?.source === "outside-agent") return { at: made.createdAt, by: made.agent };
   return { at: made?.createdAt ?? null };
 }
 
@@ -545,34 +566,6 @@ export function firstLineOf(blocks: Y.XmlFragment): string {
     if (written !== "") return written;
   }
   return "";
-}
-
-/**
- * What a Mind's export file is called (#1945): the words of its first Block that has any, as it
- * reads, and the Question that made them when an Answer wrote them — a sentence from an Answer
- * says less about the note than the Question did. A heading is a title, so it names the file
- * itself. Neither is cut here: a file name is cut only where a file name can't hold it.
- */
-export function namedLineOf(blocks: Y.XmlFragment): { line: string; question: string } {
-  for (const block of blocks.toArray()) {
-    if (
-      !(block instanceof Y.XmlElement) ||
-      block.nodeName === ANSWER_BLOCK ||
-      block.nodeName === COMPARISON_TABLE_NODE
-    ) {
-      continue;
-    }
-    const line = firstText(block).trim();
-    if (line === "") continue;
-    const id = block.getAttribute(BLOCK_ID_ATTRIBUTE);
-    const doc = blocks.doc;
-    const question =
-      block.nodeName === "heading" || typeof id !== "string" || doc === null
-        ? ""
-        : (originOf(doc, id)?.question.trim() ?? "");
-    return { line, question };
-  }
-  return { line: "", question: "" };
 }
 
 export interface HeadingEntry {
@@ -698,6 +691,80 @@ const hasBlockChildren = (element: Y.XmlElement) =>
     .toArray()
     .some((child) => child instanceof Y.XmlElement && !INLINE_TYPES.has(child.nodeName));
 
+interface OuterList {
+  scheme: NumberingScheme;
+  level: number;
+  numbers: readonly number[];
+}
+
+const startOf = (element: Y.XmlElement) =>
+  Math.max(Math.trunc(Number(element.getAttribute("start"))) || 1, 1);
+
+/**
+ * A numbered list's scheme, its items' level, and the numbers before its first item, as the
+ * editor draws them: nested, its outer list's scheme one level deeper; outermost, its own scheme
+ * from the level it starts at, going on from the numbered list before when it continues.
+ */
+function numberingOf(
+  element: Y.XmlElement,
+  outer: OuterList | undefined,
+): { scheme: NumberingScheme; level: number; numbers: number[] } {
+  if (outer) {
+    const level = Math.min(outer.level, 8);
+    const numbers = [...outer.numbers];
+    numbers[level] = startOf(element) - 1;
+    return { scheme: outer.scheme, level, numbers };
+  }
+  const scheme = element.getAttribute("numbering");
+  const level = itemLevel(0, Number(element.getAttribute("startLevel")) || 0);
+  const numbers = Array.from({ length: level }, () => 1);
+  const before =
+    (element.getAttributes() as Record<string, unknown>).continues === true
+      ? lastNumbersBefore(element)
+      : null;
+  numbers[level] = before ? (before[level] ?? 0) : startOf(element) - 1;
+  if (before) for (let at = 0; at < level; at++) numbers[at] = before[at] || 1;
+  return { scheme: isNumberingScheme(scheme) ? scheme : "default", level, numbers };
+}
+
+/**
+ * The number a numbered list's first item is drawn with: `nested` in a numbered list's item, its
+ * own start; else as its own numbering counts it, going on from the list before when it continues.
+ */
+export function firstNumberOf(element: Y.XmlElement, nested: boolean): number {
+  if (nested) return startOf(element);
+  const { level, numbers } = numberingOf(element, undefined);
+  return (numbers[level] ?? 0) + 1;
+}
+
+function lastNumbersBefore(element: Y.XmlElement): number[] | null {
+  for (let at = element.prevSibling; at; at = at.prevSibling) {
+    if (!(at instanceof Y.XmlElement) || at.nodeName !== "orderedList") continue;
+    const { level, numbers } = numberingOf(at, undefined);
+    const last = [...numbers];
+    const count = (list: Y.XmlElement, depth: number) => {
+      for (const item of list.toArray()) {
+        if (!(item instanceof Y.XmlElement)) continue;
+        last[depth] = (last[depth] ?? 0) + 1;
+        last.length = depth + 1;
+        for (const inner of item.toArray()) {
+          if (inner instanceof Y.XmlElement && inner.nodeName === "orderedList") {
+            const next = Math.min(depth + 1, 8);
+            const own: number | undefined = last[depth];
+            last[next] = startOf(inner) - 1;
+            count(inner, next);
+            last[depth] = own ?? 0;
+          }
+        }
+      }
+    };
+    count(at, level);
+    last.length = level + 1;
+    return last;
+  }
+  return null;
+}
+
 function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] {
   switch (element.nodeName) {
     case "paragraph":
@@ -729,19 +796,33 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
     case "taskList":
     case "orderedList": {
       const ordered = element.nodeName === "orderedList";
-      const start = ordered
-        ? Math.max(Math.trunc(Number(element.getAttribute("start"))) || 1, 0)
-        : 1;
+      const numbering = ordered ? numberingOf(element, options.outerList) : null;
+      let number = numbering ? (numbering.numbers[numbering.level] ?? 0) : 0;
+      const start = numbering ? number + 1 : 1;
+      const markers: string[] = [];
       const items = element
         .toArray()
         .filter((item): item is Y.XmlElement => item instanceof Y.XmlElement)
         .flatMap((item) => {
-          const change = options.review ? changeOf(item, options) : undefined;
-          if (options.review && !change) return [];
+          // An item a Proposal adds isn't the Mind's until it is accepted, read for review or not.
+          const change = changeOf(item, options);
+          if (!change) return [];
+          let inside: ReadOptions = options.outerList
+            ? { ...options, outerList: undefined }
+            : options;
+          if (numbering) {
+            number++;
+            const numbers = [...numbering.numbers.slice(0, numbering.level), number];
+            markers.push(numberingMarker(numbering.scheme, numbering.level, numbers));
+            inside = {
+              ...options,
+              outerList: { scheme: numbering.scheme, level: numbering.level + 1, numbers },
+            };
+          }
           const attributes: Record<string, unknown> = item.getAttributes();
           const checked = attributes.checked === true;
-          const content = readChildren(item.toArray(), options);
-          return [{ content: change ? withChange(content, change) : content, checked }];
+          const content = readChildren(item.toArray(), inside);
+          return [{ content: withChange(content, change), checked }];
         });
       return [
         {
@@ -750,6 +831,9 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
           start,
           items: items.map((item) => item.content),
           ...(element.nodeName === "taskList" && { checked: items.map((item) => item.checked) }),
+          ...(numbering && {
+            numbering: { scheme: numbering.scheme, level: numbering.level, markers },
+          }),
         },
       ];
     }
@@ -1107,6 +1191,9 @@ function marksOf(attributes: Record<string, unknown> = {}): Marks {
     highlight: Object.hasOwn(attributes, "highlight"),
     code: Object.hasOwn(attributes, "code"),
     link: link && typeof link.href === "string" && link.href !== "" ? link.href : null,
+    ...(typeof attributeOf(attributes[COMMENT_MARK], "id") === "string" && {
+      comment: attributeOf(attributes[COMMENT_MARK], "id") as string,
+    }),
     ...(color && { color }),
     ...(font && { font }),
     ...(size && { size }),
@@ -1142,7 +1229,7 @@ function readInline(
             checkId === undefined ? undefined : options.sentenceChecks?.get(checkId);
           content.push({
             kind: "text",
-            text: run.insert,
+            text: options.leavesApp ? withoutInertBrackets(run.insert) : run.insert,
             marks: marksOf(run.attributes),
             ...(ai && { ai: true }),
             ...(sentenceCheck && { sentenceCheck }),
@@ -1235,14 +1322,11 @@ function readInlineElement(
 
 function readFigure(attributes: CalculatedFigureAttributes, doc: Y.Doc | null): Inline {
   const { figure } = attributes;
-  let sources: CalculatedSources;
-  try {
-    sources = calculatedSources(attributes, doc);
-  } catch {
-    // Its saved Analysis is gone: it still reads as its text, and an export that would write its
-    // sources says they aren't available, as the editor does (`error.figure.evidenceMissing`).
+  const sources = calculatedSources(attributes, doc);
+  // A figure that names an Analysis whose record the Note no longer keeps reads as its value, and
+  // an export says its saved inputs aren't available, as the editor does (#2378).
+  if (figure.analysis && !sources.analysis)
     return { kind: "figure", figure, sources: null, analysis: null };
-  }
   return {
     kind: "figure",
     figure,

@@ -6,8 +6,8 @@ import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { nodeOf } from "../../src/core/answers/blocks";
 import { plainText } from "../../src/core/mindText";
-import type { AnalysisJob } from "../../src/shared/analysis";
-import { answerBlocks } from "../../src/shared/answerBlocks";
+import { type AnalysisJob, noAnalysisOutput } from "../../src/shared/analysis";
+import { answerBlocks, pageBlocks } from "../../src/shared/answerBlocks";
 import {
   calculatedFiguresIn,
   figureRunsFor,
@@ -19,7 +19,7 @@ import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core"
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn, question, readMind, writeMind } from "../helpers/minds";
-import { scriptedModel, scriptedModels } from "../helpers/models";
+import { answerRequests, scriptedModel, scriptedModels } from "../helpers/models";
 import { xlsxOf } from "../helpers/office";
 
 const SALES_CSV = [
@@ -67,7 +67,7 @@ const salesRun =
   });
 
 function told(model: MockLanguageModelV4, tool: string): string[] {
-  const last = model.doStreamCalls.at(-1);
+  const last = answerRequests(model).at(-1);
   if (!last) throw new Error("The model wasn't asked anything.");
   const texts: string[] = [];
   for (const message of last.prompt) {
@@ -129,6 +129,40 @@ const totalOf = (): FakeAnswer => ({
 });
 
 describe("an Analysis an Answer runs", () => {
+  test("two inputs that read the same rows of a sheet are refused before anything runs, so a join can't count a row twice", async () => {
+    const twice = (passages: ShownPassage[]): Call => ({
+      tool: "run_analysis",
+      input: {
+        title: "Revenue",
+        inputs: [
+          { name: "found", passage: passageOf(passages, "sales") },
+          { name: "again", passage: passageOf(passages, "sales"), range: "A1:C3" },
+        ],
+        code: 'df = pd.concat([inputs["found"], inputs["again"]])\nresult("n", len(df), "Rows")',
+      },
+    });
+    const model = analysingModel({
+      query: "revenue",
+      runs: [twice, salesRun()],
+      answer: "The total revenue is [=1].",
+    });
+    const jobs: AnalysisJob[] = [];
+    const { core } = await setUp(model, (job) => {
+      jobs.push(job);
+      return totalOf();
+    });
+
+    await askAndRead(core, "What was the total revenue?");
+
+    expect(told(model, "run_analysis")[0]).toBe(
+      'Nothing ran. Fix the inputs and run it again:\n- "found" and "again" read the same rows of "sales", so joined they would count each row twice. Every Passage of a sheet reads the whole sheet: give the sheet once, as one input, and pick its rows in the code',
+    );
+    // The run that gives the sheet once runs, with its 4 rows once.
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.inputs.map((input) => input.name)).toEqual(["sales"]);
+    expect(jobs[0]?.inputs[0]?.kind === "table" && jobs[0].inputs[0].rows).toHaveLength(4);
+  });
+
   test.each(["error", "out-of-memory"] as const)(
     "%s after giving results publishes no figure, table or chart",
     async (kind) => {
@@ -155,7 +189,12 @@ describe("an Analysis an Answer runs", () => {
       }));
       const { answer } = await askAndRead(core, "What was the total revenue?");
       expect(answer.figures).toEqual([]);
-      expect(answer.analyses[0]?.markers).toEqual({ figures: [], tables: [], charts: [] });
+      expect(answer.analyses[0]?.markers).toEqual({
+        figures: [],
+        tables: [],
+        charts: [],
+        pictures: [],
+      });
       expect(answer.text).not.toContain("| Region | Revenue |");
       const report = told(model, "run_analysis").join("\n");
       expect(report).not.toContain("Unfinished total");
@@ -164,6 +203,21 @@ describe("an Analysis an Answer runs", () => {
       expect(report).toContain("can't be used");
     },
   );
+
+  test("the report asks a figure worked out from an input's rows to name them, so its Citation leads to them (#2378)", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun()],
+      answer: "Revenue [=1].",
+    });
+    const { core } = await setUp(model, totalOf);
+
+    await askAndRead(core, "What was the total revenue?");
+
+    expect(told(model, "run_analysis")[0]).toContain(
+      "A figure worked out from an input's rows names them with of= that input's DataFrame or column.",
+    );
+  });
 
   test("a percent figure keeps its fraction and shows 0.081 as 8.1%", async () => {
     const model = analysingModel({
@@ -567,6 +621,279 @@ describe("an Analysis an Answer runs", () => {
     },
   );
 
+  test("a statistic far below 0.01 shows its digits, not 0.00, a whole count no decimals, and a unit that only says it is a number is no unit", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun('result("p", 2.3e-14, "p-value", "number")')],
+      answer: "The slope is [=1], with p = [=2], over [=3] months.",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [
+          {
+            kind: "figure",
+            name: "slope",
+            label: "Slope",
+            unit: "number",
+            value: 2.999615514509133,
+          },
+          {
+            kind: "figure",
+            name: "p",
+            label: "p-value",
+            unit: "number",
+            value: 2.3042123624685662e-14,
+          },
+          { kind: "figure", name: "n", label: "Months used", unit: "number", value: 29 },
+        ],
+      },
+    }));
+
+    const { answer } = await askAndRead(core, "Is revenue's slope significant?");
+
+    expect(answer.figures.map((figure) => [figure.shown, figure.unit])).toEqual([
+      ["3.00", { kind: "plain" }],
+      ["2.3e-14", { kind: "plain" }],
+      ["29", { kind: "plain" }],
+    ]);
+  });
+
+  test("a figure() figure gets its marker only when IncarnaMind's own arithmetic over its cells gives the same number, and the model reads what the cells come to when it doesn't", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun('figure("total", inputs["sales"]["Revenue"], "sum", "Total revenue")')],
+      answer: "Revenue came to [=1], and the slope was [=2].",
+    });
+    const sales = (rows: [number, number][], how: "sum" | "max" | null, columns = ["Revenue"]) => ({
+      input: "sales",
+      columns,
+      rows,
+      count: rows.reduce((n, [from, to]) => n + to - from + 1, 0),
+      how,
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        results: [
+          // 120 + 150.5 + 80, the rows before row 5's "n/a".
+          {
+            kind: "figure",
+            name: "total",
+            label: "Total",
+            unit: "USD",
+            value: 350.5,
+            of: sales([[2, 4]], "sum"),
+          },
+          {
+            kind: "figure",
+            name: "north",
+            label: "North",
+            unit: "USD",
+            value: 999,
+            of: sales([[2, 3]], "sum"),
+          },
+          {
+            kind: "figure",
+            name: "late",
+            label: "Late",
+            unit: null,
+            value: 1,
+            of: sales([[9, 9]], "max"),
+          },
+          // A run far longer than the sheet: worked out only as far as the sheet's own rows.
+          {
+            kind: "figure",
+            name: "huge",
+            label: "Huge",
+            unit: null,
+            value: 1,
+            of: sales([[2, 4_294_967_300]], "sum"),
+          },
+          {
+            kind: "figure",
+            name: "slope",
+            label: "Slope",
+            unit: null,
+            value: 1.25,
+            of: sales(
+              [
+                [2, 3],
+                [5, 5],
+              ],
+              null,
+              ["Quarter", "Revenue"],
+            ),
+          },
+        ],
+      },
+    }));
+
+    const { answer } = await askAndRead(core, "What was the total revenue?");
+
+    expect(answer.analyses[0]?.markers.figures).toEqual([
+      { result: "total", marker: 1 },
+      { result: "slope", marker: 2 },
+    ]);
+    expect(answer.analyses[0]?.recalculations).toEqual([
+      { result: "total", check: { kind: "same", value: 350.5 } },
+      { result: "north", check: { kind: "differs", value: 270.5 } },
+      { result: "late", check: { kind: "unchecked", reason: "sales has no row 9" } },
+      { result: "huge", check: { kind: "unchecked", reason: "sales has no row 6" } },
+    ]);
+    expect(answer.figures.map((figure) => [figure.marker, figure.value])).toEqual([
+      [1, 350.5],
+      [2, 1.25],
+    ]);
+    const report = told(model, "run_analysis")[0] ?? "";
+    expect(report).toContain(
+      "- [=1] Total: 350.5 USD (the sum of Revenue in 3 rows of sales (rows 2–4), worked out again by IncarnaMind from its cells)",
+    );
+    expect(report).toContain(
+      "- north: no marker, so it can't be used: figure() gave 999, but the sum of Revenue in those rows of sales comes to 270.5",
+    );
+    expect(report).toContain(
+      "- late: no marker, so it can't be used: IncarnaMind couldn't work it out again: sales has no row 9.",
+    );
+    expect(report).toContain(
+      "- huge: no marker, so it can't be used: IncarnaMind couldn't work it out again: sales has no row 6.",
+    );
+    expect(report).toContain(
+      "- [=2] Slope: 1.25 (from 3 rows of sales (rows 2–3, 5): Quarter, Revenue)",
+    );
+    expect(report).not.toContain("[=3]");
+
+    const blocks = answerBlocks(answer);
+    const [run] = figureRunsOfAnswer(answer, blocks);
+    expect(run?.values).toEqual([
+      expect.objectContaining({
+        name: "total",
+        of: sales([[2, 4]], "sum"),
+        check: { kind: "same", value: 350.5 },
+      }),
+      expect.objectContaining({
+        name: "slope",
+        of: sales(
+          [
+            [2, 3],
+            [5, 5],
+          ],
+          null,
+          ["Quarter", "Revenue"],
+        ),
+      }),
+    ]);
+    // The app doesn't work a model's own figure out again, so its Note record says no check.
+    expect(run?.values[1]).not.toHaveProperty("check");
+  });
+
+  test("every plot left out for its characters is counted, past the five whose titles are listed", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun("import matplotlib.pyplot as plt")],
+      answer: "No plot could be drawn.",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        withoutGlyphs: ["매출 1", "매출 2", "매출 3", "매출 4", "매출 5"],
+        cut: { ...noAnalysisOutput().cut, withoutGlyphs: 2 },
+      },
+    }));
+
+    await askAndRead(core, "Plot revenue");
+
+    expect(told(model, "run_analysis")[0]).toContain(
+      'Left out: 7 pictures ("매출 1", "매출 2", "매출 3", "매출 4", "매출 5", 2 more) whose text has characters',
+    );
+    expect(told(model, "run_analysis")[0]).toContain(
+      "In the Answer, tell the User these plots were left out and why.",
+    );
+  });
+
+  test("a chart the Answer says it drew but never placed is shown at its end, the latest of a title once", async () => {
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun(), salesRun()],
+      answer: "图表已生成：每个地区的收入。",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        charts: [
+          {
+            kind: "line",
+            title: "每个地区的收入",
+            x: "地区",
+            y: ["收入"],
+            table: {
+              columns: ["地区", "收入"],
+              rows: [["North", 270.5]],
+              rowCount: 1,
+              columnCount: 2,
+            },
+          },
+        ],
+      },
+    }));
+
+    const { answer } = await askAndRead(core, "画出每个地区的收入");
+
+    expect(answer.analyses.map((each) => each.markers.charts)).toEqual([[1], [2]]);
+    expect(answer.text.split("**每个地区的收入**")).toHaveLength(2);
+    expect(answer.text).toContain("| North | 270.5 |");
+    expect(answer.text.indexOf("图表已生成")).toBeLessThan(answer.text.indexOf("每个地区的收入**"));
+  });
+
+  test("a plot comes back as a picture where the Answer puts [=picture n], in the conversation and in a Note", async () => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const model = analysingModel({
+      query: "revenue",
+      runs: [salesRun("import matplotlib.pyplot as plt\nplt.plot([1, 2])")],
+      answer: "Revenue over time:\n\n[=picture 1]\n\nIt rose. [=picture 2]",
+    });
+    const { core } = await setUp(model, () => ({
+      output: {
+        pictures: [{ title: "Revenue by quarter", png, width: 1200, height: 900 }],
+        withoutGlyphs: ["매출 지역별"],
+      },
+    }));
+
+    const { answer } = await askAndRead(core, "Plot revenue by quarter");
+
+    expect(answer.analyses[0]?.markers.pictures).toEqual([1]);
+    const report = told(model, "run_analysis")[0];
+    expect(report).toContain("- [=picture 1] Revenue by quarter (a picture matplotlib drew)");
+    expect(report).toContain(
+      "Left out: a picture (\"매출 지역별\") whose text has characters the plot's fonts don't have, such as Japanese, Korean or a rare Chinese character, which would show as boxes. In the Answer, tell the User this plot was left out and why. To show it, draw with chart(), which the app draws in any language, or write the plot's text without those characters.",
+    );
+    const picture = {
+      type: "picture",
+      attrs: {
+        src: `data:image/png;base64,${png}`,
+        alt: "Revenue by quarter",
+        width: 600,
+        height: 450,
+      },
+    };
+    const blocks = answerBlocks(answer);
+    expect(blocks.filter((block) => block.type === "picture")).toEqual([picture]);
+    expect(blocks.map((block) => block.type)).toEqual(["paragraph", "picture", "paragraph"]);
+    expect(JSON.stringify(blocks)).not.toContain("[=picture");
+
+    const mind = await core.createMind({ title: "Revenue" });
+    await core.addToNote({
+      mindId: mind.id,
+      blocks,
+      figureRuns: figureRunsOfAnswer(answer, blocks),
+      model: answer.model,
+      origin: null,
+    });
+    const reader = await connectToMind(core, mind.id);
+    expect(
+      (readMind(reader).toJSON().content ?? []).filter(
+        (block: { type: string }) => block.type === "picture",
+      ),
+    ).toEqual([expect.objectContaining({ attrs: expect.objectContaining(picture.attrs) })]);
+  });
+
   test("a result table written as [=table 1] on a line of its own is in the Answer as a table, its numbers as a report shows them", async () => {
     const model = analysingModel({
       query: "revenue",
@@ -602,6 +929,36 @@ describe("an Analysis an Answer runs", () => {
     expect(answer.text).toContain("| South | 80 | 0.2282 |");
     expect(answer.text).not.toContain("[=table");
     expect(told(model, "run_analysis")[0]).toContain("[=table 1] Revenue by region");
+
+    // The Answer's table and what Add to note writes keep the Analysis's Citations (#2378).
+    for (const blocks of [answerBlocks(answer), pageBlocks(answer, "Revenue by region?")]) {
+      const table = blocks.find((block) => block.type === "table");
+      if (!table) throw new Error("The Answer has no table.");
+      const citations: Record<string, unknown>[] = [];
+      const visit = (node: { content?: unknown[] }) => {
+        for (const child of (node.content ?? []) as {
+          type?: string;
+          attrs?: Record<string, unknown>;
+          content?: unknown[];
+        }[]) {
+          if (child.type === "citation") citations.push(child.attrs ?? {});
+          visit(child);
+        }
+      };
+      visit(table);
+      expect(citations).toEqual([
+        expect.objectContaining({
+          documentId: expect.any(String),
+          location: { kind: "rows", sheet: null, from: 1, to: 5 },
+          check: "found",
+        }),
+        expect.objectContaining({
+          documentId: expect.any(String),
+          location: { kind: "rows", sheet: null, from: 1, to: 5 },
+          check: "found",
+        }),
+      ]);
+    }
   });
 
   test("the model is told the numbers written in the code, the cells that aren't numbers, and an error's own message", async () => {
@@ -631,7 +988,9 @@ describe("an Analysis an Answer runs", () => {
 
     const [first] = told(model, "run_analysis");
     expect(first).toContain("Numbers written in the code: 0.2 (line 1)");
-    expect(first).toContain("1 cell of sales's column Revenue isn't a number");
+    expect(first).toContain(
+      '1 cell of Revenue in sales isn\'t a number, so the code reads it as missing: row 5 "n/a".',
+    );
     expect(first).toContain("KeyError: 'Revnue'");
     expect(first).toContain("Fix the code and run it again");
   });
@@ -702,6 +1061,8 @@ describe("an Analysis an Answer runs", () => {
 
     expect(answer.analyses[0]?.inputs[0]).toMatchObject({ kind: "range", cut: true });
     expect(told(model, "run_analysis")[0]).toContain("cut: only its first");
+    expect(told(model, "run_analysis")[0]).toContain("say so in the Answer");
+    expect(told(model, "run_analysis")[0]).not.toContain("run_code");
   }, 60_000);
 
   test("it is offered only with a sheet or CSV to read, or when the User chose Analyse data", async () => {

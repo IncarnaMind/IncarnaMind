@@ -4,9 +4,12 @@
  * Values are shown as Excel shows them: formulas give their last cached
  * result, numbers follow their cell's number format ("£350,200", "4.2%"),
  * dates become ISO dates, booleans TRUE and FALSE. Hidden sheets are left
- * out. Sheets are read as a stream of rows, so a huge sheet costs no more
- * than the rows read: past `MAX_ROWS` rows or `MAX_CELLS` cells in all,
- * reading stops and the workbook says it was cut short. Ported from the
+ * out unless the read asks for them (#740). Rows the file strikes through or
+ * hides are read, and named as such: the file sets them aside, often as an
+ * older version of a row shown beside them (#1979). Sheets are read as a
+ * stream of rows, so a huge sheet costs no more than the rows read: past
+ * `MAX_ROWS` rows or `MAX_CELLS` cells in all, reading stops and the
+ * workbook says it was cut short. Ported from the
  * office-formats spike, with streaming and number formats added.
  *
  * The sheet preview also asks for the workbook's look (`layout`), read in the
@@ -15,8 +18,9 @@
  * each value as Excel's own format shows it (./sheetLayout). Indexing never
  * asks for it.
  */
-import { parseCellRef, type TextUnit } from "../../../shared/units";
+import { parseCellRef, type TextUnit, type WorkbookFacts } from "../../../shared/units";
 import type { UnreadParts } from "../../api";
+import { cellName, ERROR_CODES, moveFormula, parseFormula } from "../../workbooks/parse";
 import { ExtractionError } from "./errors";
 import { type Cell, gridUnits, MAX_CELLS, MAX_ROWS, type Sheet, type Workbook } from "./grid";
 import { displayNumber, displayText } from "./numberDisplay";
@@ -37,7 +41,7 @@ import {
   readNotes,
   relationshipsOf,
 } from "./xlsxDrawings";
-import { readFont, readStyles, type WorkbookStyles } from "./xlsxStyles";
+import { readFont, readStyles, struckStyles, type WorkbookStyles } from "./xlsxStyles";
 import {
   child,
   descendants,
@@ -86,20 +90,99 @@ interface ReadCell extends Pick<Cell, "value" | "numeric" | "raw"> {
   number?: number;
   /** A shared string's index. */
   shared?: number;
+  /** A number shown as a date: its value is ISO text, its number the serial. */
+  date?: true;
 }
 
 /** The parts the elements of a sheet's stream are read from. */
-const SHEET_PARTS = ["col", "row", "mergeCell"];
-const LAYOUT_PARTS = [...SHEET_PARTS, "sheetPr", "sheetView", "sheetFormatPr", "drawing"];
+const SHEET_PARTS = ["sheetPr", "col", "row", "mergeCell", "autoFilter"];
+const LAYOUT_PARTS = [...SHEET_PARTS, "sheetView", "sheetFormatPr", "drawing"];
+
+/** An XML boolean, as Excel ("1") and LibreOffice ("true") write one. */
+const flagOn = (value: string | undefined): boolean => value === "1" || value === "true";
+
+/** What a sheet's rows need beside them to settle which it sets aside (`setAsideRows`). */
+interface RowFacts {
+  /** Rows hidden by hand or by a filter, not by a collapsed group. */
+  hidden: readonly number[];
+  /** Rows some of whose cells are struck through: the columns of those that aren't. */
+  partlyStruck: ReadonlyMap<number, readonly number[]>;
+  /** Rows every cell of which is struck through: the columns that hold a value. */
+  struckColumns: ReadonlyMap<number, readonly number[]>;
+  /** The sheet says a filter hides some of its rows (`<sheetPr filterMode>`). */
+  filterMode: boolean;
+  /** The sheet's AutoFilter and its Tables', each with a criterion: the ranges they filter. */
+  filters: readonly XmlElement[];
+}
 
 /**
- * Reads a workbook's visible sheets. With `layout`, it also reads how they
- * look, for the sheet preview (see the file's comment).
+ * Settles the rows a sheet sets aside, once its merges and filters are read (they follow its
+ * rows). A row struck through but for its revision's label is struck through: the label is
+ * merged down beside the rows, or written once above struck rows that leave its column empty. A
+ * row a filter hides is a current row the filter doesn't match: one inside a filter's range, or
+ * any hidden row when the sheet says a filter is on but no range with a criterion is known.
+ */
+function setAsideRows(sheet: Sheet, facts: RowFacts): void {
+  const labels = new Set<string>();
+  for (const merge of sheet.merges) {
+    const [from, to] = merge.split(":").map((ref) => parseCellRef(ref));
+    if (from && to && to.row > from.row) labels.add(`${from.row}:${from.column}`);
+  }
+  const labelAbove = (row: number, column: number) => {
+    const below = facts.struckColumns.get(row + 1);
+    return below !== undefined && !below.includes(column);
+  };
+  for (const [row, plain] of facts.partlyStruck)
+    if (plain.every((column) => labels.has(`${row}:${column}`) || labelAbove(row, column)))
+      sheet.struckRows?.add(row);
+  const ranges = facts.filters.flatMap((filter) => {
+    if (descendants(filter, "filterColumn").length === 0) return [];
+    const [from, to] = (filter.attrs.ref ?? "").split(":").map((ref) => parseCellRef(ref));
+    return from && to ? [{ header: from.row, last: to.row }] : [];
+  });
+  const filtered = (row: number) =>
+    ranges.length === 0
+      ? facts.filterMode
+      : ranges.some((range) => row > range.header && row <= range.last);
+  for (const row of facts.hidden) if (!filtered(row)) sheet.hiddenRows?.add(row);
+}
+
+/** The AutoFilters of a sheet's Tables, which their own parts hold (`xl/tables/table1.xml`). */
+async function tableFilters(zip: ZipArchive, part: string): Promise<XmlElement[]> {
+  const filters: XmlElement[] = [];
+  for (const { target, type } of (await relationshipsOf(zip, part)).values()) {
+    const xml = type.endsWith("/table") && zip.has(target) ? await zip.readText(target) : undefined;
+    const filter = xml ? child(parseXml(xml), "autoFilter") : undefined;
+    if (filter) filters.push(filter);
+  }
+  return filters;
+}
+
+const isHiddenSheet = (entry: XmlElement) =>
+  entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden";
+
+/** The sheets xl/workbook.xml lists (#2458), and how many of them are hidden; null for none. */
+export async function workbookSheets(
+  bytes: Uint8Array,
+): Promise<{ count: number; hidden: number } | null> {
+  const xml = await openPackage(bytes).readText("xl/workbook.xml");
+  const entries = xml === undefined ? [] : descendants(parseXml(xml), "sheet");
+  if (entries.length === 0) return null;
+  return { count: entries.length, hidden: entries.filter(isHiddenSheet).length };
+}
+
+/**
+ * Reads a workbook's visible sheets, and with `readHidden`, its hidden and very
+ * hidden ones too. With `layout`, it also reads how they look, for the sheet
+ * preview (see the file's comment). Hidden sheets are read after the visible
+ * ones, under a budget of their own, so the Units a Citation already points at
+ * keep their numbers (#740).
  */
 export async function readWorkbook(
   bytes: Uint8Array,
   limits: Limits = { rows: MAX_ROWS, cells: MAX_CELLS },
   layout?: LayoutOptions,
+  readHidden = false,
 ): Promise<Workbook> {
   const zip = openPackage(bytes);
   const workbookXml = await zip.readText("xl/workbook.xml");
@@ -108,6 +191,7 @@ export async function readWorkbook(
   }
   const workbook = parseXml(workbookXml);
   const date1904 = ["1", "true"].includes(child(workbook, "workbookPr")?.attrs.date1904 ?? "");
+  const calc = child(workbook, "calcPr")?.attrs ?? {};
 
   const relsXml = await zip.readText("xl/_rels/workbook.xml.rels");
   const targets = new Map<string, string>();
@@ -135,6 +219,7 @@ export async function readWorkbook(
       formats.push(custom.get(id) ?? builtInFormat(id));
     }
   }
+  const struck = struckStyles(styles);
   let looks: WorkbookStyles | undefined;
   if (layout) {
     const themeXml = themePart && zip.has(themePart) ? await zip.readText(themePart) : undefined;
@@ -160,20 +245,39 @@ export async function readWorkbook(
   const hiddenSheets: string[] = [];
   const rowsCut: { sheet: string; from: number }[] = [];
   const sheetsNotRead: string[] = [];
+  const entries = descendants(workbook, "sheet");
+  const ordered = readHidden
+    ? [...entries.filter((entry) => !isHiddenSheet(entry)), ...entries.filter(isHiddenSheet)]
+    : entries;
+  const positions = new Map(entries.map((entry, position) => [entry, position]));
   const active = Number(descendants(workbook, "workbookView")[0]?.attrs.activeTab ?? 0);
+  const activeEntry = entries[active];
+  const activeIndex = readHidden && activeEntry ? ordered.indexOf(activeEntry) : active;
   let activeSheet = 0;
   let rowsLeft = limits.rows;
   let cellsLeft = limits.cells;
   let truncated = false;
-  for (const [position, entry] of descendants(workbook, "sheet").entries()) {
+  let visibleTruncated = false;
+  let hiddenPass = false;
+  for (const [index, entry] of ordered.entries()) {
     const part = targets.get(entry.attrs["r:id"] ?? "");
     if (!part || !zip.has(part)) continue;
-    const name = entry.attrs.name ?? `Sheet${position + 1}`;
-    if (entry.attrs.state === "hidden" || entry.attrs.state === "veryHidden") {
+    const name = entry.attrs.name ?? `Sheet${(positions.get(entry) ?? 0) + 1}`;
+    const hidden = isHiddenSheet(entry);
+    if (!readHidden && hidden) {
       hiddenSheets.push(name);
       continue;
     }
-    if (position === active) activeSheet = sheets.length;
+    // The hidden sheets' pass: the visible pass's cut is kept, and the limits start again, so
+    // the sheets a Citation points at keep their Unit numbers and the hidden ones still read.
+    if (readHidden && hidden && !hiddenPass) {
+      hiddenPass = true;
+      visibleTruncated = truncated;
+      truncated = false;
+      rowsLeft = limits.rows;
+      cellsLeft = limits.cells;
+    }
+    if (index === activeIndex) activeSheet = sheets.length;
     const sheet: Sheet = {
       name,
       cells: [],
@@ -181,7 +285,12 @@ export async function readWorkbook(
       rowCount: 0,
       columnCount: 0,
       columnWidths: [],
+      formulas: new Map(),
+      saved: new Map(),
+      struckRows: new Set(),
+      hiddenRows: new Set(),
     };
+    const formulas = new SheetFormulas(sheet);
     const look = looks ? emptyLayout() : undefined;
     if (look) sheet.layout = look;
     sheets.push(sheet);
@@ -192,8 +301,16 @@ export async function readWorkbook(
       continue;
     }
     let rowNumber = 0;
+    let filterMode = false;
+    let filter: XmlElement | undefined;
+    const hiddenRows: number[] = [];
+    const partlyStruck = new Map<number, number[]>();
+    const struckColumns = new Map<number, number[]>();
     const chunks = zip.textChunks(part, MAX_STREAMED_BYTES);
     for await (const element of streamElements(chunks, look ? LAYOUT_PARTS : SHEET_PARTS)) {
+      if (is(element, "sheetPr")) filterMode = flagOn(element.attrs.filterMode);
+      // The sheet's own AutoFilter comes first; a custom view's comes after it, and isn't the one on.
+      if (is(element, "autoFilter")) filter ??= element;
       if (is(element, "col")) {
         readColumns(element, sheet, look);
         continue;
@@ -218,6 +335,8 @@ export async function readWorkbook(
       }
       rowsLeft--;
       let column = -1;
+      const plain: number[] = [];
+      const valued: number[] = [];
       for (const c of cells) {
         const ref = c.attrs.r ? parseCellRef(c.attrs.r) : null;
         column = ref ? ref.column : column + 1;
@@ -225,8 +344,11 @@ export async function readWorkbook(
         if (look && looks) {
           lookOfCell(c, cell, rowNumber, column, look, looks, sharedRuns, { ...layout, date1904 });
         }
+        formulas.read(c, cell, rowNumber, column);
         if (!cell) continue;
         cellsLeft--;
+        valued.push(column);
+        if (!struck.has(Number(c.attrs.s ?? 0))) plain.push(column);
         sheet.cells.push({
           row: rowNumber,
           column,
@@ -237,7 +359,25 @@ export async function readWorkbook(
         sheet.rowCount = Math.max(sheet.rowCount, rowNumber);
         sheet.columnCount = Math.max(sheet.columnCount, column + 1);
       }
+      if (valued.length === 0) continue;
+      if (plain.length === 0) {
+        sheet.struckRows?.add(rowNumber);
+        struckColumns.set(rowNumber, valued);
+      } else if (plain.length < valued.length) partlyStruck.set(rowNumber, plain);
+      // A collapsed group hides its detail rows, which are current rows out of view.
+      const grouped = Number(element.attrs.outlineLevel ?? 0) > 0;
+      if (flagOn(element.attrs.hidden) && !grouped) hiddenRows.push(rowNumber);
     }
+    setAsideRows(sheet, {
+      hidden: hiddenRows,
+      partlyStruck,
+      struckColumns,
+      filterMode,
+      filters: [
+        ...(filter ? [filter] : []),
+        ...(hiddenRows.length > 0 ? await tableFilters(zip, part) : []),
+      ],
+    });
   }
   // Merged ranges stretch the grid even where they hold nothing.
   for (const sheet of sheets) {
@@ -248,7 +388,25 @@ export async function readWorkbook(
       sheet.columnCount = Math.max(sheet.columnCount, end.column + 1);
     }
   }
-  const read = { sheets, truncated, hiddenSheets, rowsCut, sheetsNotRead };
+  const facts: WorkbookFacts = {
+    ...(date1904 ? { date1904: true as const } : {}),
+    ...(["1", "true"].includes(calc.iterate ?? "") ? { iterate: true as const } : {}),
+    ...(calc.calcMode === "manual" ? { manual: true as const } : {}),
+    ...(rowsCut.length > 0 ? { cut: rowsCut } : {}),
+    ...(hiddenSheets.length + sheetsNotRead.length > 0
+      ? { unread: [...hiddenSheets, ...sheetsNotRead] }
+      : {}),
+  };
+  const names = definedNames(workbook, entries);
+  if (names.length > 0) facts.names = names;
+  const read = {
+    sheets,
+    truncated: visibleTruncated || truncated,
+    hiddenSheets,
+    rowsCut,
+    sheetsNotRead,
+    facts,
+  };
   if (!looks) return read;
   const budget: ImageBudget = { left: MAX_WORKBOOK_IMAGE_BYTES };
   for (const [index, sheet] of sheets.entries()) {
@@ -427,6 +585,7 @@ function readCell(
   let number: number | undefined;
   let stored: number | undefined;
   let sharedIndex: number | undefined;
+  let date: true | undefined;
   if (type === "s") {
     sharedIndex = Number(raw);
     value = shared[sharedIndex] ?? "";
@@ -443,6 +602,7 @@ function readCell(
       value = format ? formatNumber(parsed, format, date1904) : generalNumber(parsed);
       const isDate = format !== undefined && isDateFormat(format);
       numeric = !isDate;
+      if (isDate) date = true;
       // Excel computes with the stored number; a date stays its ISO text.
       if (!isDate && value.trim() !== generalNumber(parsed)) stored = parsed;
     }
@@ -457,6 +617,7 @@ function readCell(
     ...(stored !== undefined ? { raw: stored } : {}),
     ...(number !== undefined ? { number } : {}),
     ...(sharedIndex !== undefined ? { shared: sharedIndex } : {}),
+    ...(date ? { date } : {}),
   };
 }
 
@@ -465,9 +626,13 @@ export interface XlsxResult {
   workbook: Workbook;
 }
 
-export async function extractXlsx(bytes: Uint8Array): Promise<XlsxResult> {
-  const workbook = await readWorkbook(bytes);
-  return { units: gridUnits(workbook.sheets, true), workbook };
+export async function extractXlsx(
+  bytes: Uint8Array,
+  readHidden = false,
+  limits?: Limits,
+): Promise<XlsxResult> {
+  const workbook = await readWorkbook(bytes, limits, undefined, readHidden);
+  return { units: gridUnits(workbook.sheets, true, 1, workbook.facts), workbook };
 }
 
 /** The parts of the workbook that weren't read, for the unread list (#740); null when all of it was. */
@@ -476,4 +641,119 @@ export function unreadPartsOf(workbook: Workbook): UnreadParts | null {
   return hiddenSheets.length === 0 && rowsCut.length === 0 && sheetsNotRead.length === 0
     ? null
     : { hiddenSheets, rowsCut, sheetsNotRead };
+}
+
+/** Text a cell holds that its shown text alone would read as a number, TRUE or an error. */
+const READS_AS_OTHER = new RegExp(
+  `^(?:-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?|TRUE|FALSE|${ERROR_CODES.map((code) =>
+    code.replace(/[/?!]/g, "\\$&"),
+  ).join("|")})$`,
+);
+
+/**
+ * A sheet's formulas as its cells are read (#2347): a shared formula is
+ * written once and filled across its range, so each cell's own is worked
+ * out from its first cell's; an array formula and a data table cover a
+ * block, every cell of which gets it, in braces.
+ */
+class SheetFormulas {
+  private readonly shared = new Map<string, { formula: string; row: number; column: number }>();
+  private readonly blocks: {
+    top: number;
+    left: number;
+    bottom: number;
+    right: number;
+    formula: string;
+  }[] = [];
+
+  constructor(private readonly sheet: Sheet) {}
+
+  read(c: XmlElement, cell: ReadCell | null, row: number, column: number): void {
+    const ref = cellName(row, column);
+    const formula = this.formulaOf(c, row, column);
+    if (formula === null) {
+      if (
+        cell &&
+        cell.type !== "n" &&
+        cell.type !== "b" &&
+        cell.type !== "e" &&
+        READS_AS_OTHER.test(cell.value)
+      )
+        this.sheet.saved?.set(ref, cell.value);
+      if (cell?.date && cell.number !== undefined) this.sheet.saved?.set(ref, cell.number);
+      // General shows 15 digits; an input worked from keeps every digit the file stores.
+      else if (
+        cell?.number !== undefined &&
+        cell.raw === undefined &&
+        Number(cell.value) !== cell.number
+      )
+        this.sheet.saved?.set(ref, cell.number);
+      return;
+    }
+    this.sheet.formulas?.set(ref, formula);
+    if (cell) {
+      if (cell.date && cell.number !== undefined) this.sheet.saved?.set(ref, cell.number);
+      else if (cell.type === "str" && READS_AS_OTHER.test(cell.value))
+        this.sheet.saved?.set(ref, cell.value);
+      return;
+    }
+    if (savedNoResult(c)) return;
+    const v = child(c, "v");
+    if (!v) return;
+    const raw = textOf(v);
+    const type = c.attrs.t ?? "n";
+    if (type === "n" && Number.isFinite(Number(raw)) && raw.trim() !== "")
+      this.sheet.saved?.set(ref, Number(raw));
+    else if (type === "b") this.sheet.saved?.set(ref, raw === "1");
+    else if (type === "str" || type === "inlineStr") this.sheet.saved?.set(ref, raw.trim());
+  }
+
+  private formulaOf(c: XmlElement, row: number, column: number): string | null {
+    const f = child(c, "f");
+    if (!f) {
+      const block = this.blocks.find(
+        (each) =>
+          row >= each.top && row <= each.bottom && column >= each.left && column <= each.right,
+      );
+      return block ? block.formula : null;
+    }
+    const kind = f.attrs.t ?? "normal";
+    const text = textOf(f).trim();
+    if (kind === "shared") {
+      const id = f.attrs.si ?? "";
+      if (text !== "") {
+        this.shared.set(id, { formula: text, row, column });
+        return text;
+      }
+      const first = this.shared.get(id);
+      return first ? moveFormula(first.formula, row - first.row, column - first.column) : null;
+    }
+    if (kind === "array" || kind === "dataTable") {
+      const formula =
+        kind === "dataTable" ? `{TABLE(${f.attrs.r1 ?? ""},${f.attrs.r2 ?? ""})}` : `{${text}}`;
+      const range = parseFormula(f.attrs.ref ?? "");
+      if (range.kind === "reference") {
+        const { top, left, bottom, right } = range.range;
+        if (top !== bottom || left !== right)
+          this.blocks.push({ top, left, bottom, right, formula });
+      }
+      return formula;
+    }
+    return text === "" ? null : text;
+  }
+}
+
+/** A workbook's defined names, but Excel's own (print areas, filters: "_xlnm."). */
+function definedNames(
+  workbook: XmlElement,
+  sheets: readonly XmlElement[],
+): NonNullable<WorkbookFacts["names"]> {
+  return descendants(workbook, "definedName").flatMap((each) => {
+    const name = each.attrs.name ?? "";
+    const refersTo = textOf(each).trim();
+    if (name === "" || refersTo === "" || /^_xlnm\./i.test(name)) return [];
+    const local = each.attrs.localSheetId;
+    const sheet = local === undefined ? null : (sheets[Number(local)]?.attrs.name ?? null);
+    return [{ name, sheet, refersTo }];
+  });
 }

@@ -3,7 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Document } from "../../src/core";
-import { EDIT_INSTRUCTIONS } from "../../src/core/edits/prompt";
+import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult, mindCalls } from "../helpers/assistant";
 import { checkReply, isCheckRun } from "../helpers/checks";
@@ -71,7 +71,7 @@ function citation(tides: Document): JSONContent {
 
 /** Edit with AI's request, and the passage it asks to rewrite; null for any other request. */
 const editPassage = (call: ModelCall): string | null =>
-  call.system === EDIT_INSTRUCTIONS
+  [EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED].includes(call.system)
     ? (/<passage>\n([\s\S]*?)\n<\/passage>/.exec(call.prompt)?.[1] ?? null)
     : null;
 
@@ -217,11 +217,12 @@ describe("A table the assistant writes into a Mind is a table", { timeout: 30_00
         proposals: 2,
         tables: 1,
         cited: 1,
-        // The one cited claim was checked before it landed; the two with none are left to the one Check (#1111, #1909).
+        // The one cited claim was checked before it landed; the other claim, with no Citation, is left
+        // to the one Check (#1111, #1909). A header cell names its column and counts as no claim (#2378).
         selfCheck: {
           request: expect.any(String),
           blocks: expect.any(Array),
-          checkable: 3,
+          checkable: 2,
           cited: 1,
           sent: 1,
           checked: 1,

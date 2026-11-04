@@ -16,6 +16,7 @@ const chip = (name: string | null, deleted = false): ScopeChip => ({
   kind: "folder",
   id: name ?? "gone",
   name,
+  path: name ? [name] : [],
   deleted,
   documentKind: null,
 });
@@ -59,6 +60,7 @@ describe("what an Answer's steps say was searched", () => {
     kind: "document",
     id: name,
     name,
+    path: [],
     deleted: false,
     documentKind: "pdf",
   });

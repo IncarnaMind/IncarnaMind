@@ -34,13 +34,14 @@ import {
 } from "./app";
 
 /**
- * Every Answer, check, Verify run, export and the check record say which files
- * in their scope couldn't be read, and why (#740): a Folder with a .doc, a
+ * Every Answer, check, Verify run and the check record say which files in
+ * their scope couldn't be read, and why (#740): a Folder with a .doc, a
  * password-protected PDF and a scan, besides a file that reads. "3 files
  * couldn't be read · Show" lists each with its reason, and the Library shows
- * each file with the same reason. Nothing shows when everything was read.
- * English and Chinese. Set INCARNAMIND_SCREENSHOTS to a folder to also save
- * screenshots.
+ * each file with the same reason. An export says nothing about them; its
+ * Saved line counts them with Show, which opens the check badge's card.
+ * Nothing shows when everything was read. English and Chinese. Set
+ * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 const screenshot = async (window: Page, name: string) => {
@@ -111,6 +112,7 @@ async function start(
 const WORDS = {
   en: {
     count: "3 files couldn’t be read",
+    show: "Show",
     reasons: [
       ["Contract.doc", /Format not read yet \(\.doc\)/],
       ["Locked.pdf", /Locked with a password/],
@@ -120,19 +122,11 @@ const WORDS = {
       locked: "Password-protected: remove it in its app, then add the copy",
       scan: "A scan with no text yet",
     },
-    markdown: {
-      heading: "## What couldn’t be read",
-      count: "3 files couldn’t be read",
-      reasons: [
-        "- Contract.doc: Format not read yet (.doc)",
-        "- Locked.pdf: Password-protected. Remove the password and add it again.",
-        "- Scan.pdf: A scan with no text that could be recognized",
-      ],
-    },
     checkRecord: "What couldn’t be read",
   },
   "zh-CN": {
     count: "3 个文件未能读取",
+    show: "查看",
     reasons: [
       ["Contract.doc", /暂不支持此格式（\.doc）/],
       ["Locked.pdf", /已加密/],
@@ -141,15 +135,6 @@ const WORDS = {
     library: {
       locked: "文件设有密码：在它的应用中去掉密码，再添加副本",
       scan: "这是扫描件，暂时没有文字",
-    },
-    markdown: {
-      heading: "## 未能读取的文件",
-      count: "3 个文件未能读取",
-      reasons: [
-        "- Contract.doc：暂不支持此格式（.doc）",
-        "- Locked.pdf：已设置密码。请去掉密码后重新添加。",
-        "- Scan.pdf：扫描件，未识别出文字",
-      ],
     },
     checkRecord: "未能读取的文件",
   },
@@ -432,7 +417,7 @@ test("nothing shows when everything in scope was read", async () => {
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`an export and the check record say which files couldn't be read, and why (${language})`, async () => {
+  test(`an export says nothing about the files the checks couldn't read, and its Saved line counts them with Show (${language})`, async () => {
     test.setTimeout(180_000);
     const out = await createDataFolder();
     try {
@@ -455,37 +440,41 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await setOutputLocation(window, out);
 
-      // The files aren't named until the User asks for them in the export options, for this Mind.
+      // Export options have no switch that would put the files in the file.
       await openExportOptions(window);
-      await expect(window.getByTestId("export-unread-names")).not.toBeChecked();
+      await expect(window.getByTestId("export-unread-names")).toHaveCount(0);
       await screenshot(window, `export-options-unread-${language}`);
       await pointAndClick(window, window.getByTestId("export-options-close"));
 
       await exportFromMenu(window, "markdown");
       const done = window.getByTestId("export-result").getByTestId("export-done");
       await expect(done).toContainText(savedLine("Harbour.md", out, language), { timeout: 30_000 });
-      const counted = await readFile(join(out, "Harbour.md"), "utf8");
-      expect(counted).toContain(WORDS[language].markdown.heading);
-      expect(counted).toContain(WORDS[language].markdown.count);
-      for (const reason of WORDS[language].markdown.reasons) expect(counted).not.toContain(reason);
+      // The Saved line says the count, and Show opens the card that names each file.
+      // The count and its Show are one part, so a wrapped line never leaves Show on its own.
+      await expect(done.getByTestId("export-unread")).toContainText(WORDS[language].count);
+      await expect(done.getByTestId("export-unread-show")).toHaveText(WORDS[language].show);
+      const exported = await readFile(join(out, "Harbour.md"), "utf8");
+      expect(exported).toContain(SENTENCE);
+      expect(exported).not.toContain(WORDS[language].checkRecord);
+      expect(exported).not.toContain(WORDS[language].count);
+      for (const [name, reason] of WORDS[language].reasons) {
+        expect(exported).not.toContain(name);
+        expect(exported).not.toMatch(reason);
+      }
 
-      await openExportOptions(window);
-      await pointAndClick(window, window.getByTestId("export-unread-names"));
-      await pointAndClick(window, window.getByTestId("export-save"));
-      await expect(window.getByTestId("export-dialog")).toBeHidden();
+      await pointAndClick(window, done.getByTestId("export-unread-show"));
+      const card = window.getByTestId("check-card");
+      await expect(card).toBeVisible();
+      const unread = card.getByTestId("checks-unread");
+      await expect(unread).toContainText(WORDS[language].count);
+      await pointAndClick(window, unread.getByTestId("checks-unread-show"));
+      const rows = unread.getByTestId("unread-file");
+      await expect(rows).toHaveCount(3);
+      for (const [name, reason] of WORDS[language].reasons) {
+        await expect(rows.filter({ hasText: name })).toHaveText(reason);
+      }
 
-      await exportFromMenu(window, "markdown");
-      await expect(done).toContainText("Harbour", { timeout: 30_000 });
-      const exports = await Promise.all(
-        (await readdir(out))
-          .filter((name) => name.endsWith(".md"))
-          .map(async (name) => readFile(join(out, name), "utf8")),
-      );
-      const named = exports.find((each) => each.includes(WORDS[language].markdown.reasons[0]));
-      if (named === undefined) throw new Error("No export named the files.");
-      for (const reason of WORDS[language].markdown.reasons) expect(named).toContain(reason);
-
-      // The check record, its PDF and its CSV: the same count and list.
+      // The check record keeps the names for the User's own audit.
       const mind = window.getByTestId("mind-row").filter({ hasText: "Harbour" });
       await pointAt(window, mind);
       await pointAndClick(window, mind.getByTestId("mind-menu"));
@@ -497,12 +486,11 @@ for (const language of ["en", "zh-CN"] as const) {
       const csvName = (await readdir(out)).find((name) => name.endsWith(".csv"));
       const csv = await readFile(join(out, csvName ?? ""), "utf8");
       const record = parseCsv(csv).find((each) => each[0] === WORDS[language].checkRecord);
-      expect(record?.[1]).toContain(WORDS[language].markdown.count);
+      expect(record?.[1]).toContain(WORDS[language].count);
       for (const [name] of WORDS[language].reasons) expect(record?.[1]).toContain(name);
 
       if (SCREENSHOTS) {
-        await writeFile(join(SCREENSHOTS, `export-count-${language}.md`), counted);
-        await writeFile(join(SCREENSHOTS, `export-names-${language}.md`), named);
+        await writeFile(join(SCREENSHOTS, `export-unread-free-${language}.md`), exported);
         await writeFile(join(SCREENSHOTS, `check-record-${language}.csv`), csv);
         const pdfName = (await readdir(out)).find((name) => name.endsWith(".pdf"));
         if (pdfName)
@@ -550,6 +538,39 @@ for (const language of ["en", "zh-CN"] as const) {
         : /隐藏工作表“Q3 raw”、“Q4 raw”未读取；“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取/,
     );
     await screenshot(window, `answer-workbook-${language}`);
+
+    // The Document's menu reads it again with the hidden sheets, and the line says only the rows.
+    const document = window.getByTestId("document-list-item").filter({ hasText: "Budget 2026" });
+    await pointAndClick(window, document.getByTestId("document-file-menu"));
+    const menu = window.getByTestId("document-file-actions").filter({ visible: true });
+    await expect(menu.getByTestId("document.readHiddenSheets")).toBeVisible();
+    // The screenshot waits for the menu's own motion to rest, not a time.
+    await menu.evaluate((element) =>
+      Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished)),
+    );
+    await screenshot(window, `document-menu-hidden-sheets-${language}`);
+    await pointAndClick(window, menu.getByTestId("document.readHiddenSheets"));
+    await expect(row).not.toContainText(language === "en" ? "hidden sheet" : "隐藏工作表", {
+      timeout: 60_000,
+    });
+    await expect(row).toHaveText(
+      language === "en"
+        ? /“Big”: rows 20,000\+ weren’t read; “After”: the whole sheet wasn’t read/
+        : /“Big”：第 20,000 行及之后的内容未读取；“After”：整张工作表未读取/,
+    );
+    await screenshot(window, `answer-workbook-hidden-read-${language}`);
+
+    // The viewer shows the sheets that were hidden too, so their cells can be cited and read.
+    await pointAndClick(window, document.getByTestId("open-document"));
+    await expect(
+      window.getByTestId("viewer-sheet-tab").filter({ hasText: "Q3 raw" }),
+    ).toBeVisible();
+
+    // Undo reads it again without them, and the list says so.
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(row).toContainText(language === "en" ? "hidden sheet" : "隐藏工作表", {
+      timeout: 60_000,
+    });
     await app.close();
   });
 }

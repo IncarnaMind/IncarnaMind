@@ -15,8 +15,8 @@
     "Source Serif 4", "Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC",
     ui-serif, Georgia, serif;
   --sans:
-    "Source Sans 3", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
-    "Source Han Sans SC", ui-sans-serif, system-ui, sans-serif;
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 

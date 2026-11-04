@@ -13,8 +13,9 @@ import { checklistLabel } from "../../editor/checklistLabel";
 import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
 import { CitationNumbers } from "../../editor/citationNumbers";
 import { CopyCitations } from "../../editor/copyCitations";
-import { RegenerateAnswerContext } from "../../editor/mindContext";
+import { JudgedAnswerContext, RegenerateAnswerContext } from "../../editor/mindContext";
 import { noteExtensions } from "../../editor/noteSchema";
+import { UncheckedFigures } from "../../editor/uncheckedFigures";
 import { useT } from "../../i18n";
 import { useTableFades } from "../useTableFades";
 import { OpenAsTable } from "./OpenAsTable";
@@ -57,6 +58,7 @@ export function AnswerText({
   label,
   streaming,
   regenerate,
+  judged,
   onOpenTable,
 }: {
   answerId: string;
@@ -66,6 +68,8 @@ export function AnswerText({
   streaming: boolean;
   /** Writes the Answer again. */
   regenerate(): void;
+  /** The Answer itself, whose sentences are judged and can be checked again. */
+  judged: { id: string; conversationId: string };
   onOpenTable(table: NodeJSON): void;
 }) {
   const t = useT();
@@ -104,6 +108,8 @@ export function AnswerText({
           figureRuns: (selected) => readFigureRunClosure(selected, receipts.current),
         }),
         AnswerTableSlots,
+        // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
+        UncheckedFigures,
       ],
     },
     [],
@@ -129,10 +135,12 @@ export function AnswerText({
   return (
     // A quote not found offers to write the Answer again, from its Citation's card.
     <RegenerateAnswerContext.Provider value={regenerate}>
-      <div ref={frame} className="assistant-answer-frame">
-        <EditorContent editor={editor} />
-        <OpenAsTable frame={frame} editor={editor} streaming={streaming} onOpen={onOpenTable} />
-      </div>
+      <JudgedAnswerContext.Provider value={judged}>
+        <div ref={frame} className="assistant-answer-frame">
+          <EditorContent editor={editor} />
+          <OpenAsTable frame={frame} editor={editor} streaming={streaming} onOpen={onOpenTable} />
+        </div>
+      </JudgedAnswerContext.Provider>
     </RegenerateAnswerContext.Provider>
   );
 }

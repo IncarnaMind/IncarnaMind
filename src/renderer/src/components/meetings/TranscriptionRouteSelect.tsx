@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { TRANSCRIPTION_ROUTES, type TranscriptionRoute } from "../../../../core/api";
-import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import type { ServicesView } from "../../transcriptionServices";
-
-export const ROUTE_LABELS: Record<TranscriptionRoute, MessageKey> = {
-  local: "meetings.route.local",
-  openai: "meetings.route.openai",
-  soniox: "meetings.route.soniox",
-};
+import { ROUTE_LABELS, type ServicesView } from "../../transcriptionServices";
 
 /**
  * Where meeting audio is transcribed, one setting wherever it is shown (Settings › Models,

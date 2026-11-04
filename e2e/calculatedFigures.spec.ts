@@ -100,11 +100,6 @@ for (const [language, width] of [
 
       // The one Check recalculates each figure from its kept inputs.
       await runCommand(window, "mind.check", t("mindCheck.command"));
-      const ask = window.getByTestId("mind-check-ask");
-      await expect(
-        ask.or(window.locator('[data-testid="calculated-figure"][data-state="supported"]')),
-      ).toBeVisible({ timeout: 30_000 });
-      if (await ask.isVisible()) await pointAndClick(window, ask.getByTestId("mind-check-check"));
       await expect(figures.nth(0)).toHaveAttribute("data-state", "supported", { timeout: 60_000 });
       await expect(figures.nth(1)).toHaveAttribute("data-state", "supported");
 

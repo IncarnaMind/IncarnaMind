@@ -351,7 +351,7 @@ function keptLineOf(leftOut: readonly LeftOutPart[]): KeptLine | null {
 export const appliedMessage = (blocks: ChangedBlocks) => appliedText(t, blocks);
 
 /** Accepts the edit's Proposals as part of its Undo step, and shows the line over it. Returns what changed. */
-function apply(edit: Applying, request: string): ChangedBlocks {
+function apply(edit: Applying, request: string, parts?: number): ChangedBlocks {
   const { editor } = edit;
   const places = changesOf(editor.state, request);
   const blocks = edit.doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -380,6 +380,7 @@ function apply(edit: Applying, request: string): ChangedBlocks {
     reason: reasonOf(edit.doc, request),
     changes,
     kept: keptLineOf(edit.leftOut.filter((part) => blockAt(doc, part.blockId) !== null)),
+    ...(parts !== undefined && parts > 1 && { parts }),
   });
   offerEditorUndo(editor, (t) => appliedText(t, changed), pageUndoPlace);
   return changed;
@@ -825,7 +826,7 @@ export async function finishApplying(
     });
     return "held";
   }
-  return { applied: apply(edit, result.request) };
+  return { applied: apply(edit, result.request, result.parts) };
 }
 
 function undoEdit(editor: Editor): void {
@@ -925,19 +926,23 @@ export function restoreChange(editor: Editor, index: number): void {
   const group =
     line?.kind === "review" ? changeGroupsOf(editor.state, changesLeft(line))[index] : undefined;
   if (line?.kind !== "review" || !group?.restorable || editor.isDestroyed) return;
-  const tr = editor.state.tr;
-  // Last first, so the places of the ones before it hold.
+  // Last first, so the places of the ones before it hold; one transaction each, so y-prosemirror
+  // syncs only the words each change replaces, not every item between the first change and the
+  // last, and the changes not restored here keep their places.
   const lastFirst = [...group.members].sort(
     (a, b) => b.place.from - a.place.from || b.index - a.index,
   );
-  for (const { change, place } of lastFirst) tr.replaceWith(place.from, place.to, change.removed);
-  // Until the change reaches the Mind's document its Yjs place is read against the text before it.
   const restoring = new Set(group.members.map(({ change }) => change));
-  tr.setMeta(appliedLineKey, {
-    ...line,
-    shows: (change: AppliedChange) => !restoring.has(change) && (line.shows?.(change) ?? true),
+  const shows = (change: AppliedChange) => !restoring.has(change) && (line.shows?.(change) ?? true);
+  asOneStep(editor, () => {
+    for (const { change, place } of lastFirst) {
+      const tr = editor.state.tr;
+      tr.replaceWith(place.from, place.to, change.removed);
+      // Until the change reaches the Mind's document its Yjs place is read against the text before it.
+      tr.setMeta(appliedLineKey, { ...line, shows });
+      editor.view.dispatch(tr);
+    }
   });
-  asOneStep(editor, () => editor.view.dispatch(tr));
   const top = undoStackOf(editor)?.undoStack.at(-1);
   const edit = lastApplied.get(editor);
   if (top && edit) {

@@ -20,6 +20,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../core/api";
+import type { AnalysisTableMatch } from "./analysisTables";
 import type { NodeJSON } from "./blockJson";
 import { readCalculatedFigureAttributes } from "./calculatedFigures";
 import { type Figure, type FigureUnit, figureContextOf, readFigures } from "./figures";
@@ -53,10 +54,24 @@ export interface ChartValue {
   /** The Citation that was with it, as its node held it; null: it had none, or it is calculated. */
   citation: CitationAttributes | null;
   /**
+   * Every Citation the value rests on, when more than one does, as its own text held them.
+   */
+  citations?: CitationAttributes[];
+  /**
+   * Each input the Analysis read for this value, kept apart from the cell's own Citation so an
+   * Update can read that one fresh and keep these (#2378).
+   */
+  inputs?: CitationAttributes[];
+  /**
    * The calculated figure it is, as its node held it: its formula and every
    * Input with its own Citation (#2307). Absent for a value quoted or written.
    */
   figure?: CalculatedFigureAttributes;
+  /**
+   * The Analysis gave this number, its table's text only rounding it: an Update keeps it with the
+   * Analysis's inputs, whatever the cell's words become (#2378).
+   */
+  fromAnalysis?: true;
   from: ChartValueOrigin;
 }
 
@@ -124,6 +139,12 @@ function readValue(value: unknown): ChartValue | null {
   if (!from) return null;
   const number =
     typeof value.value === "number" && Number.isFinite(value.value) ? value.value : null;
+  const citations = Array.isArray(value.citations)
+    ? (value.citations.filter(isRecord) as unknown as CitationAttributes[])
+    : [];
+  const inputs = Array.isArray(value.inputs)
+    ? (value.inputs.filter(isRecord) as unknown as CitationAttributes[])
+    : [];
   return {
     shown: text(value.shown),
     value: number,
@@ -136,7 +157,10 @@ function readValue(value: unknown): ChartValue | null {
         ? value.scale
         : null,
     citation: isRecord(value.citation) ? (value.citation as unknown as CitationAttributes) : null,
+    ...(citations.length > 0 && { citations }),
+    ...(inputs.length > 0 && { inputs }),
     ...figureOf(value.figure),
+    ...(value.fromAnalysis === true && { fromAnalysis: true as const }),
     from,
   };
 }
@@ -486,11 +510,24 @@ const isFound = (check: CitationCheck | undefined) => check === "found";
 
 /** The Citations a value rests on: its own, or each of its Inputs' when it is calculated (#2307). */
 export function valueCitations(value: ChartValue): CitationAttributes[] {
-  if (!value.figure) return value.citation ? [value.citation] : [];
-  return value.figure.figure.inputs.flatMap((input) => [
-    input.citation,
-    ...(input.unitStatement ? [input.unitStatement.citation] : []),
-  ]);
+  if (value.figure)
+    return value.figure.figure.inputs.flatMap((input) => [
+      input.citation,
+      ...(input.unitStatement ? [input.unitStatement.citation] : []),
+    ]);
+  const seen = new Set<string>();
+  // The Analysis's inputs first, then the cell's own: an Analysis value rests on both (#2378).
+  const citations = [
+    ...(value.inputs ?? []),
+    ...(value.citation ? [value.citation] : []),
+    ...(value.citations ?? []),
+  ];
+  return citations.filter((citation) => {
+    const key = JSON.stringify(citation);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 class Places {
@@ -587,11 +624,13 @@ export function chartSources(
       figures.push(value.figure);
       continue;
     }
-    if (!value.citation) {
+    if (!value.citation && !value.citations && !value.inputs) {
       uncitedCells.push({ row, series });
       continue;
     }
-    quoted.add(value.citation);
+    for (const each of value.inputs ?? []) quoted.add(each);
+    if (value.citation) quoted.add(value.citation);
+    for (const each of value.citations ?? []) quoted.add(each);
   }
   return {
     values,
@@ -621,6 +660,10 @@ export interface SourceCell extends SourceLine {
   header: boolean;
   /** It spans down or across from another slot: its value is that slot's, its words read again. */
   continued?: boolean;
+  /** The number it holds where something knows it better than its text: an Analysis's own value (#2378). */
+  number?: number;
+  /** Each input the Analysis read for that value, apart from the cell's own Citation (#2378). */
+  inputs?: CitationAttributes[];
 }
 
 /** A table laid out on its grid, row by row: a cell in each slot, or null where none is. */
@@ -901,12 +944,20 @@ export function chartFromTable(
     if (!cell || cell.continued || cell.text.trim() === "") return null;
     const read = figureIn(figuresIn(cell.text, column));
     const calculated = figureAt(cell, read?.figure);
+    // A calculated figure's value, not the rounded number its shown text reads as (#2378).
+    const worked = calculated.figure?.figure.value;
+    // A bare year is a label in a year column, even when the Analysis gives it as a number (#1131).
+    const bareYear = !read && BARE_YEAR.test(cell.text.trim());
+    const readValue = bareYear ? null : (cell.number ?? read?.value ?? null);
     return {
       shown: cell.text.trim(),
-      value: read?.value ?? null,
+      value: typeof worked === "number" ? worked : readValue,
       unit: read ? read.figure.unit : null,
       scale: read ? read.figure.scale : null,
       citation: calculated.figure ? null : cell.citation,
+      ...(cell.citations && !calculated.figure && { citations: cell.citations }),
+      ...(cell.inputs && !calculated.figure && { inputs: cell.inputs }),
+      ...(cell.number !== undefined && !calculated.figure && { fromAnalysis: true as const }),
       ...calculated,
       from: { kind: "cell", row, column },
     };
@@ -956,6 +1007,8 @@ export function chartFromTable(
 export interface SourceLine {
   text: string;
   citation: CitationAttributes | null;
+  /** Every Citation it holds, when more than one does: an Analysis's value cites all its inputs (#2378). */
+  citations?: CitationAttributes[];
   /** Where each calculated figure in it reads, by UTF-16 offset in `text`, end exclusive. */
   figures?: readonly FigureSpan[];
 }
@@ -1016,18 +1069,19 @@ const proposed = (node: NodeJSON) =>
 export function sourceLineOf(node: NodeJSON): SourceLine {
   let text = "";
   let citation: CitationAttributes | null = null;
+  const citations: CitationAttributes[] = [];
   const figures: FigureSpan[] = [];
   const visit = (child: NodeJSON) => {
     if (proposed(child)) return;
     if (child.type === CITATION_NODE) {
-      if (!citation) {
-        const copy: Record<string, unknown> = {};
-        for (const key of CITATION_KEYS) {
-          const value = child.attrs?.[key];
-          if (value !== undefined) copy[key] = value;
-        }
-        citation = copy as unknown as CitationAttributes;
+      const copy: Record<string, unknown> = {};
+      for (const key of CITATION_KEYS) {
+        const value = child.attrs?.[key];
+        if (value !== undefined) copy[key] = value;
       }
+      const read = copy as unknown as CitationAttributes;
+      citation ??= read;
+      citations.push(read);
       return;
     }
     if (child.type === FOOTNOTE_NODE) return;
@@ -1049,6 +1103,7 @@ export function sourceLineOf(node: NodeJSON): SourceLine {
   return {
     text: squeezed.text,
     citation,
+    ...(citations.length > 1 && { citations }),
     ...(figures.length > 0 && {
       figures: figures.map((span) => ({
         ...span,
@@ -1112,6 +1167,48 @@ export function gridOfTable(table: NodeJSON): SourceGrid {
   return grid.map((row) => Array.from({ length: width }, (_, column) => row[column] ?? null));
 }
 
+/**
+ * A grid with the numbers the Analysis gave where its cells read: its own value, never the number
+ * a rounded display reads as, and the Citation its inputs have (#2378).
+ */
+export function withAnalysisValues(grid: SourceGrid, match: AnalysisTableMatch): SourceGrid {
+  const citations = match.citations;
+  return grid.map((row, at) =>
+    row.map((cell, column) => {
+      if (!cell || at === 0) return cell;
+      const value = match.value(at - 1, column);
+      if (value === null) return cell;
+      // The number is the Analysis's; its inputs are kept apart from the cell's own Citation, which
+      // an Update reads fresh (#2378).
+      const unique = citations.filter(
+        (citation, index) =>
+          citations.findIndex((each) => JSON.stringify(each) === JSON.stringify(citation)) ===
+          index,
+      );
+      return {
+        ...cell,
+        number: value,
+        ...(unique.length > 0 && { inputs: unique }),
+      };
+    }),
+  );
+}
+
+/**
+ * Whether the `cell`th cell of a table's `row` gives a value rather than naming its row: a body
+ * cell after the row's first column, or the only filled cell of its row (#2447). The checks name
+ * each figure in a table by its row's first cell and its column's headings.
+ */
+export function givesValue(grid: SourceGrid, row: number, cell: number): boolean {
+  const slots = grid[row] ?? [];
+  const column = slots.flatMap((slot, at) => (slot && !slot.continued ? [at] : []))[cell];
+  if (column === undefined || slots[column]?.header !== false) return false;
+  return (
+    column > 0 ||
+    slots.every((slot, at) => at === 0 || !slot || slot.continued || slot.text.trim() === "")
+  );
+}
+
 /** What separates a label from the figure after it: "Q1: 289.4", "Revenue – $1.2bn". */
 const LABEL_END = /[\s:：,，;；=\-–—]+$/u;
 const LABEL_START = /^[\s:：,，;；=\-–—•·*]+/u;
@@ -1135,12 +1232,13 @@ export function chartFromFigures(
     const before = line.text.slice(0, figure.start).replace(LABEL_END, "").replace(LABEL_START, "");
     const after = line.text.slice(figure.end).replace(LABEL_START, "").replace(LABEL_END, "");
     const calculated = figureAt(line, figure);
+    const worked = calculated.figure?.figure.value;
     rows.push({
       label: (before || after).trim(),
       values: [
         {
           shown: figure.chars,
-          value: read.value,
+          value: typeof worked === "number" ? worked : read.value,
           unit: figure.unit,
           scale: figure.scale,
           citation: calculated.figure ? null : line.citation,

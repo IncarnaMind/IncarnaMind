@@ -35,6 +35,7 @@ import {
   linkAndProcess,
   writeSourceFile,
 } from "../helpers/documents";
+import { startFakeJev } from "../helpers/jev";
 import { scriptedModels } from "../helpers/models";
 import { taggingModel, tagNamed, tagNamesOf, waitForTagging } from "../helpers/tags";
 
@@ -105,6 +106,7 @@ describe("Preset Tags", () => {
         name: tag.name,
         description: expect.stringMatching(/\w{4,}.*\./),
         preset: true,
+        madeByUser: false,
         colour: expect.any(String),
         createdAt: "2026-10-06T12:00:00.000Z",
         updatedAt: "2026-10-06T12:00:00.000Z",
@@ -156,6 +158,7 @@ describe("Managing Tags", () => {
       name: "Quarterly",
       description: "Covers one quarter of a year.",
       preset: false,
+      madeByUser: true,
       // The one colour no preset has.
       colour: "teal",
       createdAt: "2026-10-06T12:00:00.000Z",
@@ -175,6 +178,78 @@ describe("Managing Tags", () => {
     expect(await core.createTag({ name: "receipts" })).toMatchObject({ description: "" });
     // Name order ignores case.
     expect(names(await core.listTags()).indexOf("receipts")).toBe(6);
+  });
+
+  test("an edit makes a preset Tag the User's, and its Undo hides it at 0 again", async () => {
+    const core = startCore(await createTempDataFolder());
+    const slides = await tagNamed(core, "Slides");
+    expect(slides.madeByUser).toBe(false);
+
+    const edited = await core.updateTag(slides.id, { colour: "teal" });
+    expect(edited.madeByUser).toBe(true);
+
+    const undone = await core.updateTag(
+      slides.id,
+      { colour: slides.colour },
+      {
+        madeByUser: slides.madeByUser,
+        expected: { name: edited.name, description: edited.description, colour: edited.colour },
+      },
+    );
+    expect(undone.madeByUser).toBe(false);
+    expect((await tagNamed(core, "Slides")).madeByUser).toBe(false);
+  });
+
+  test("an edit's Undo leaves a Tag changed since the edit the User's", async () => {
+    const core = startCore(await createTempDataFolder(), { now: tickingClock() });
+    const slides = await tagNamed(core, "Slides");
+
+    const edited = await core.updateTag(slides.id, { description: "Decks, in order." });
+    await core.updateTag(slides.id, { description: "Mine now." });
+
+    const undone = await core.updateTag(
+      slides.id,
+      { description: slides.description },
+      {
+        madeByUser: slides.madeByUser,
+        expected: { name: edited.name, description: edited.description, colour: edited.colour },
+      },
+    );
+
+    expect(undone.madeByUser).toBe(true);
+    expect(undone.description).toBe(slides.description);
+    expect((await tagNamed(core, "Slides")).madeByUser).toBe(true);
+  });
+
+  test("two edits' Undos put a preset Tag's source back in turn", async () => {
+    const core = startCore(await createTempDataFolder(), { now: tickingClock() });
+    const slides = await tagNamed(core, "Slides");
+    const colour = await core.updateTag(slides.id, { colour: "teal" });
+    const description = await core.updateTag(slides.id, { description: "Decks, in order." });
+
+    await core.updateTag(
+      slides.id,
+      { description: colour.description },
+      {
+        madeByUser: true,
+        expected: {
+          name: description.name,
+          description: description.description,
+          colour: description.colour,
+        },
+      },
+    );
+    expect((await tagNamed(core, "Slides")).madeByUser).toBe(true);
+
+    await core.updateTag(
+      slides.id,
+      { colour: slides.colour },
+      {
+        madeByUser: slides.madeByUser,
+        expected: { name: colour.name, description: colour.description, colour: colour.colour },
+      },
+    );
+    expect((await tagNamed(core, "Slides")).madeByUser).toBe(false);
   });
 
   test("a Tag needs a name, and a name no other Tag has (ignoring case)", async () => {
@@ -201,6 +276,7 @@ describe("Managing Tags", () => {
     expect(edited).toEqual({
       ...paper,
       description: "Peer-reviewed only.",
+      madeByUser: true,
       updatedAt: edited.updatedAt,
     });
     expect(edited.updatedAt > paper.updatedAt).toBe(true);
@@ -209,6 +285,7 @@ describe("Managing Tags", () => {
       name: "Research paper",
       description: "Peer-reviewed only.",
       preset: true,
+      madeByUser: true,
     });
     // Its own name in other case is fine; another Tag's name isn't.
     expect(await core.updateTag(paper.id, { name: "RESEARCH PAPER" })).toMatchObject({
@@ -432,9 +509,31 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
     expect(tagging.requests).toHaveLength(1);
   });
 
-  test("with no Tags to choose from, no model is asked and the Document is checked once a Tag exists", async () => {
-    const { core, tagging } = await startTagging(["Paper"]);
+  test("with no Tags to choose from, the chat model names one from what the Document says", async () => {
+    const { core, tagging } = await startTagging([]);
+    tagging.name([{ name: "Attention", description: "Attention in neural networks." }]);
     await core.saveChatProvider(LOCAL);
+    for (const tag of await core.listTags()) await core.deleteTag(tag.id);
+
+    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
+    const [tagged] = await waitForTagging(core, [document.id]);
+
+    expect(tagged?.tagging).toBe("tagged");
+    expect(await tagNamesOf(core, document.id)).toEqual(["Attention"]);
+    expect(tagging.requests[0]?.text).toContain("Tags: none yet.");
+    expect(names(await core.listTags())).toEqual(["Attention"]);
+    // Automatic tagging made it, so it is not the User's.
+    expect((await core.listTags())[0]?.madeByUser).toBe(false);
+  });
+
+  test("with no Tags to choose from, a decision model is skipped and the Document is checked once a Tag exists", async () => {
+    const jev = await startFakeJev({ apiKey: "ollama" });
+    jev.answer({ Paper: 0.9 });
+    const { core } = await startTagging([]);
+    await core.saveLibrarySettings({
+      classifier: { kind: "ollama", baseUrl: jev.url, modelId: "tev1:4b" },
+      automatic: true,
+    });
     for (const tag of await core.listTags()) await core.deleteTag(tag.id);
 
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
@@ -443,43 +542,26 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
       [document.id],
       (each) => each.tagging === "no-tags",
     );
-
     expect(waiting).toMatchObject({ status: "ready", tags: [] });
-    expect(tagging.requests).toEqual([]);
+    expect(jev.requests).toEqual([]);
 
     await core.createTag({ name: "Paper", description: "A research paper." });
     const [tagged] = await waitForTagging(core, [document.id]);
 
     expect(tagged?.tagging).toBe("tagged");
     expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
-    expect(tagging.requests).toHaveLength(1);
-  });
-
-  test("while Organize files new Documents by itself, a Document the tagger checked with no Tags is checked once a Tag exists", async () => {
-    const { core } = await startTagging(["Paper"]);
-    const provider = await core.saveChatProvider(LOCAL);
-    const classifier = {
-      kind: "chat",
-      choice: { providerId: provider.id, modelId: "local-model" },
-    } as const;
-    await core.saveLibrarySettings({ classifier, automatic: true });
-    for (const tag of await core.listTags()) await core.deleteTag(tag.id);
-    const document = await addDocument(core, "Attention.md", PAPER_TEXT);
-    await waitForTagging(core, [document.id], (each) => each.tagging === "no-tags");
-
-    // With a Folder, Organize files new Documents by itself and takes them over.
-    await core.createLibraryGroup({ name: "Papers", description: "Research papers" });
-    await core.createTag({ name: "Paper", description: "A research paper." });
-    const [tagged] = await waitForTagging(core, [document.id]);
-
-    expect(tagged?.tagging).toBe("tagged");
-    expect(await tagNamesOf(core, document.id)).toEqual(["Paper"]);
+    expect(jev.requests).toHaveLength(1);
   });
 
   test("a Document still waiting for a Tag when the app quits is checked at the next start, if a Tag exists by then", async () => {
+    const jev = await startFakeJev({ apiKey: "ollama" });
+    jev.answer({ Paper: 0.9 });
     const dataDir = await createTempDataFolder();
-    const first = await startTagging(["Paper"], dataDir);
-    await first.core.saveChatProvider(LOCAL);
+    const first = await startTagging([], dataDir);
+    await first.core.saveLibrarySettings({
+      classifier: { kind: "ollama", baseUrl: jev.url, modelId: "tev1:4b" },
+      automatic: true,
+    });
     for (const tag of await first.core.listTags()) await first.core.deleteTag(tag.id);
     const document = await addDocument(first.core, "Attention.md", PAPER_TEXT);
     await waitForTagging(first.core, [document.id], (each) => each.tagging === "no-tags");
@@ -495,7 +577,7 @@ describe("Automatic tagging", { timeout: 30_000 }, () => {
       db.close();
     }
 
-    const second = await startTagging(["Paper"], dataDir);
+    const second = await startTagging([], dataDir);
     const [tagged] = await waitForTagging(second.core, [document.id]);
 
     expect(tagged?.tagging).toBe("tagged");
@@ -679,7 +761,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     ]);
   });
 
-  test("a declined tagging flow sends nothing, until choosing the model again replaces the decline", async () => {
+  test("a declined tagging flow sends nothing, until choosing the model again replaces the decline for new Documents", async () => {
     const dataDir = await createTempDataFolder();
     const { core, tagging } = await startTagging(["Paper"], dataDir);
     const provider = await core.saveChatProvider(OPENAI);
@@ -706,8 +788,13 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     await core.saveLibrarySettings({
       classifier: { kind: "chat", choice: { providerId: provider.id, modelId: OPENAI.modelId } },
       automatic: true,
+      turnOn: true,
     });
-    await waitForTagging(core, [document.id]);
+    // The Document waiting from before isn't sent by the choice: only new ones are (#2308).
+    await waitForTagging(core, [document.id], (each) => each.tagging === "off");
+    expect(tagging.requests).toEqual([]);
+    const next = await addDocument(core, "Report.md", PAPER_TEXT);
+    await waitForTagging(core, [next.id]);
     expect(tagging.requests).toHaveLength(1);
     expect(await core.listDataFlows()).toContainEqual(
       expect.objectContaining({
@@ -902,6 +989,8 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
     expect(await tagsOf(both.id)).toEqual([[findings.id, "user"]]);
     expect(await tagsOf(removed.id)).toEqual([]);
     expect(names(await core.listTags())).not.toContain("Report");
+    // The Tag kept is the User's from now on.
+    expect(merged.tag?.madeByUser).toBe(true);
 
     // A removal the User made carries over: re-tagging doesn't put Findings on that one.
     tagging.choose(["Findings"]);
@@ -910,6 +999,126 @@ describe("Merging Tags", { timeout: 30_000 }, () => {
 
     await expect(core.mergeTags(findings.id, findings.id)).rejects.toThrow(InvalidInputError);
     await expect(core.mergeTags(report.id, findings.id)).rejects.toThrow(NotFoundError);
+  });
+});
+
+describe("Merging Tags", { timeout: 30_000 }, () => {
+  test("merging into a preset Tag makes it the User's", async () => {
+    const core = startCore(await createTempDataFolder());
+    const book = await tagNamed(core, "Book");
+    expect(book.madeByUser).toBe(false);
+    const drafts = await core.createTag({ name: "Drafts" });
+
+    const merged = await core.mergeTags(drafts.id, book.id);
+
+    expect(merged.tag).toMatchObject({ id: book.id, madeByUser: true });
+    expect(merged.keptMadeByUserBefore).toBe(false);
+    expect((await tagNamed(core, "Book")).madeByUser).toBe(true);
+
+    // The Undo of the merge puts back whether the Book was the User's.
+    await core.restore([merged.merged], {
+      tagSources: [
+        {
+          tagId: book.id,
+          madeByUser: merged.keptMadeByUserBefore,
+          expected: {
+            name: merged.tag.name,
+            description: merged.tag.description,
+            colour: merged.tag.colour,
+          },
+        },
+      ],
+    });
+    expect((await tagNamed(core, "Book")).madeByUser).toBe(false);
+  });
+
+  test("a merge's Undo leaves a Tag changed since the merge the User's", async () => {
+    const core = startCore(await createTempDataFolder(), { now: tickingClock() });
+    const book = await tagNamed(core, "Book");
+    const drafts = await core.createTag({ name: "Drafts" });
+    const merged = await core.mergeTags(drafts.id, book.id);
+    await core.updateTag(book.id, { description: "Mine now." });
+
+    await core.restore([merged.merged], {
+      tagSources: [
+        {
+          tagId: book.id,
+          madeByUser: merged.keptMadeByUserBefore,
+          expected: {
+            name: merged.tag.name,
+            description: merged.tag.description,
+            colour: merged.tag.colour,
+          },
+        },
+      ],
+    });
+
+    const after = await tagNamed(core, "Book");
+    expect(after.description).toBe("Mine now.");
+    expect(after.madeByUser).toBe(true);
+  });
+
+  test("two merges' Undos put the kept Tag's source back in turn", async () => {
+    const core = startCore(await createTempDataFolder(), { now: tickingClock() });
+    const book = await tagNamed(core, "Book");
+    const aa = await core.createTag({ name: "Aa" });
+    const bb = await core.createTag({ name: "Bb" });
+    const first = await core.mergeTags(aa.id, book.id);
+    const second = await core.mergeTags(bb.id, book.id);
+
+    await core.restore([second.merged], {
+      tagSources: [
+        {
+          tagId: book.id,
+          madeByUser: second.keptMadeByUserBefore,
+          expected: {
+            name: second.tag.name,
+            description: second.tag.description,
+            colour: second.tag.colour,
+          },
+        },
+      ],
+    });
+    expect((await tagNamed(core, "Book")).madeByUser).toBe(true);
+
+    await core.restore([first.merged], {
+      tagSources: [
+        {
+          tagId: book.id,
+          madeByUser: first.keptMadeByUserBefore,
+          expected: {
+            name: first.tag.name,
+            description: first.tag.description,
+            colour: first.tag.colour,
+          },
+        },
+      ],
+    });
+    expect((await tagNamed(core, "Book")).madeByUser).toBe(false);
+  });
+
+  test("merging into a Tag the User made leaves it the User's, and its Undo says so", async () => {
+    const core = startCore(await createTempDataFolder());
+    const findings = await core.createTag({ name: "Findings" });
+    const drafts = await core.createTag({ name: "Drafts" });
+
+    const merged = await core.mergeTags(drafts.id, findings.id);
+
+    expect(merged.keptMadeByUserBefore).toBe(true);
+    await core.restore([merged.merged], {
+      tagSources: [
+        {
+          tagId: findings.id,
+          madeByUser: merged.keptMadeByUserBefore,
+          expected: {
+            name: merged.tag.name,
+            description: merged.tag.description,
+            colour: merged.tag.colour,
+          },
+        },
+      ],
+    });
+    expect((await tagNamed(core, "Findings")).madeByUser).toBe(true);
   });
 });
 

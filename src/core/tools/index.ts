@@ -151,7 +151,11 @@ export const MIND_TOOLS = {
   create: "create_mind",
 } as const;
 
-export const ANALYSIS_TOOLS = { run: "run_analysis" } as const;
+/** `run_analysis` runs in Pyodide; `run_code` in the OS sandbox, on copies of whole Documents (ADR-0025). */
+export const ANALYSIS_TOOLS = { run: "run_analysis", code: "run_code" } as const;
+export const RUN_CODE_TOOL = ANALYSIS_TOOLS.code;
+/** The names of the Tools that read a workbook's formulas (#2347). */
+export const WORKBOOK_TOOLS = { trace: "trace_formulas", whatIf: "what_if" } as const;
 /** The names of the commands' Tools, offered to an Answer in the assistant (#1110). */
 export const COMMAND_TOOLS = { list: "list_commands", run: "run_command" } as const;
 
@@ -169,6 +173,7 @@ export const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   ...Object.values(WEB_TOOLS),
   ...Object.values(MIND_TOOLS),
   ...Object.values(ANALYSIS_TOOLS),
+  ...Object.values(WORKBOOK_TOOLS),
   ...Object.values(COMMAND_TOOLS),
   ...Object.values(ASK_TOOLS),
 ]);

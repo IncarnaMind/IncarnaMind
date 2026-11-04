@@ -12,6 +12,7 @@
  * needs no consent.
  */
 import {
+  type CloudReadPermit,
   type ConnectionTestResult,
   type ExternalService,
   JEV_DEFAULT_MODEL,
@@ -172,7 +173,10 @@ export function decisionModelTagger(connection: { baseUrl: string; model: string
         retries: 0,
         timeoutMs: TAGGING_TIMEOUT_MS,
       });
-      return decisionsFromProbabilities(tags, probabilities, reviewBandFor(connection.model));
+      return {
+        decisions: decisionsFromProbabilities(tags, probabilities, reviewBandFor(connection.model)),
+        newTags: [],
+      };
     },
   };
 }
@@ -308,21 +312,30 @@ export function createJevTagging(options: {
             retries: TAGGING_RETRIES,
             timeoutMs: TAGGING_TIMEOUT_MS,
           });
-          return decisionsFromProbabilities(tags, probabilities, jev.reviewBand);
+          return {
+            decisions: decisionsFromProbabilities(tags, probabilities, jev.reviewBand),
+            newTags: [],
+          };
         },
       };
     },
 
-    /** Reuses the saved connection with the Library's separate consent. */
-    async prepareGroups() {
+    /** Reuses the saved connection with the Library's separate consent, or a run's permit. */
+    async prepareGroups(permit?: CloudReadPermit) {
       const jev = stored();
       if (!jev) throw new TaggingNotReadyError({ key: "error.tagging.jevNotSetUp" });
       const apiKey = await secrets.tryGet(KEY_NAME);
       if (!apiKey) throw new TaggingNotReadyError({ key: "error.tagging.jevKeyUnreadable" });
       const service = serviceOf(jev.endpoint);
-      if (service) await consent.ensure("classification", service);
+      const permitted =
+        service !== null && permit?.flow === "classification" && permit.serviceId === service.id;
+      if (service && !permitted) await consent.ensure("classification", service);
       return decisionGroupClassifier({
-        ...(service && { beforeSend: () => gate.check("classification", service) }),
+        ...(service && {
+          beforeSend: () => {
+            if (!permitted) gate.check("classification", service);
+          },
+        }),
         baseUrl: baseUrlOf(jev.endpoint),
         apiKey,
         model: jev.model ?? JEV_DEFAULT_MODEL,

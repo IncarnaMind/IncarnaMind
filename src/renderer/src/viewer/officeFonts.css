@@ -3,276 +3,260 @@
  * Cambria, Aptos and Segoe UI come with Office and Windows, so a Mac, for one,
  * has none of them, and a page that names one would fall back to the
  * browser's Times. Each name here is the font itself where it is installed
- * (local()), and otherwise the nearest of the app's own bundled fonts: Source
- * Sans 3 for the sans faces, Source Serif 4 for Cambria. Nothing loads from
- * the network (the Content-Security-Policy's font-src is 'self'). Latin only:
- * other characters fall through to the next family a page names.
+ * (local()), and otherwise the nearest of the app's own bundled fonts: Carlito
+ * (Calibri's metrics) for the sans faces, Source Serif 4 for Cambria. Nothing
+ * loads from the network (the Content-Security-Policy's font-src is 'self').
+ * Latin only: other characters fall through to the next family a page names.
+ *
+ * The families carry a prefix of their own: an @font-face named "Segoe UI"
+ * would be registered for the whole app, and Chromium would then draw every
+ * "Segoe UI" the app names with these two weights, or with Carlito where the
+ * font isn't installed. The viewer maps a Document's font names to these in
+ * `officeFontNames.ts`, so only the Document's own pages use them.
  */
 
 @font-face {
-  font-family: "Calibri";
+  font-family: "IncarnaMind Office Calibri";
   font-style: normal;
   font-weight: 400;
   font-display: block;
   src:
     local("Calibri"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Calibri";
+  font-family: "IncarnaMind Office Calibri";
   font-style: italic;
   font-weight: 400;
   font-display: block;
   src:
     local("Calibri Italic"),
     local("Calibri-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Calibri";
+  font-family: "IncarnaMind Office Calibri";
   font-style: normal;
   font-weight: 700;
   font-display: block;
   src:
     local("Calibri Bold"),
     local("Calibri-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Calibri";
+  font-family: "IncarnaMind Office Calibri";
   font-style: italic;
   font-weight: 700;
   font-display: block;
   src:
     local("Calibri Bold Italic"),
     local("Calibri-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Calibri Light";
+  font-family: "IncarnaMind Office Calibri Light";
   font-style: normal;
   font-weight: 300;
   font-display: block;
   src:
     local("Calibri Light"),
     local("CalibriLight"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Calibri Light";
+  font-family: "IncarnaMind Office Calibri Light";
   font-style: italic;
   font-weight: 300;
   font-display: block;
   src:
     local("Calibri Light Italic"),
     local("CalibriLight-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos";
+  font-family: "IncarnaMind Office Aptos";
   font-style: normal;
   font-weight: 400;
   font-display: block;
   src:
     local("Aptos"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos";
+  font-family: "IncarnaMind Office Aptos";
   font-style: italic;
   font-weight: 400;
   font-display: block;
   src:
     local("Aptos Italic"),
     local("Aptos-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos";
+  font-family: "IncarnaMind Office Aptos";
   font-style: normal;
   font-weight: 700;
   font-display: block;
   src:
     local("Aptos Bold"),
     local("Aptos-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos";
+  font-family: "IncarnaMind Office Aptos";
   font-style: italic;
   font-weight: 700;
   font-display: block;
   src:
     local("Aptos Bold Italic"),
     local("Aptos-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos Narrow";
+  font-family: "IncarnaMind Office Aptos Narrow";
   font-style: normal;
   font-weight: 400;
   font-display: block;
   src:
     local("Aptos Narrow"),
     local("AptosNarrow"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos Narrow";
+  font-family: "IncarnaMind Office Aptos Narrow";
   font-style: italic;
   font-weight: 400;
   font-display: block;
   src:
     local("Aptos Narrow Italic"),
     local("AptosNarrow-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos Narrow";
+  font-family: "IncarnaMind Office Aptos Narrow";
   font-style: normal;
   font-weight: 700;
   font-display: block;
   src:
     local("Aptos Narrow Bold"),
     local("AptosNarrow-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos Narrow";
+  font-family: "IncarnaMind Office Aptos Narrow";
   font-style: italic;
   font-weight: 700;
   font-display: block;
   src:
     local("Aptos Narrow Bold Italic"),
     local("AptosNarrow-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos Display";
+  font-family: "IncarnaMind Office Aptos Display";
   font-style: normal;
   font-weight: 400;
   font-display: block;
   src:
     local("Aptos Display"),
     local("AptosDisplay"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos Display";
+  font-family: "IncarnaMind Office Aptos Display";
   font-style: italic;
   font-weight: 400;
   font-display: block;
   src:
     local("Aptos Display Italic"),
     local("AptosDisplay-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos Display";
+  font-family: "IncarnaMind Office Aptos Display";
   font-style: normal;
   font-weight: 700;
   font-display: block;
   src:
     local("Aptos Display Bold"),
     local("AptosDisplay-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Aptos Display";
+  font-family: "IncarnaMind Office Aptos Display";
   font-style: italic;
   font-weight: 700;
   font-display: block;
   src:
     local("Aptos Display Bold Italic"),
     local("AptosDisplay-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Segoe UI";
+  font-family: "IncarnaMind Office Segoe UI";
   font-style: normal;
   font-weight: 400;
   font-display: block;
   src:
     local("Segoe UI"),
     local("SegoeUI"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Segoe UI";
+  font-family: "IncarnaMind Office Segoe UI";
   font-style: italic;
   font-weight: 400;
   font-display: block;
   src:
     local("Segoe UI Italic"),
     local("SegoeUI-Italic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Segoe UI";
+  font-family: "IncarnaMind Office Segoe UI";
   font-style: normal;
   font-weight: 700;
   font-display: block;
   src:
     local("Segoe UI Bold"),
     local("SegoeUI-Bold"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-normal.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Segoe UI";
+  font-family: "IncarnaMind Office Segoe UI";
   font-style: italic;
   font-weight: 700;
   font-display: block;
   src:
     local("Segoe UI Bold Italic"),
     local("SegoeUI-BoldItalic"),
-    url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
-    format("woff2");
+    url("@fontsource/carlito/files/carlito-latin-700-italic.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "Cambria";
+  font-family: "IncarnaMind Office Cambria";
   font-style: normal;
   font-weight: 400;
   font-display: block;
@@ -283,7 +267,7 @@
 }
 
 @font-face {
-  font-family: "Cambria";
+  font-family: "IncarnaMind Office Cambria";
   font-style: italic;
   font-weight: 400;
   font-display: block;
@@ -295,7 +279,7 @@
 }
 
 @font-face {
-  font-family: "Cambria";
+  font-family: "IncarnaMind Office Cambria";
   font-style: normal;
   font-weight: 700;
   font-display: block;
@@ -307,7 +291,7 @@
 }
 
 @font-face {
-  font-family: "Cambria";
+  font-family: "IncarnaMind Office Cambria";
   font-style: italic;
   font-weight: 700;
   font-display: block;

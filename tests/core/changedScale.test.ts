@@ -122,12 +122,24 @@ describe("A cell's amount against its Citations' amounts", () => {
     expect(
       check("£340 million [^1]", [cited("Net debt: 340.", page("Net debt: 340."))]),
     ).toBeNull();
-    for (const heading of ["£000", "€000", "TEUR", "(000's omitted)"]) {
+    // Forms that read more than one way (#2365): "MM" may be millions or millimetres.
+    for (const heading of ["(in MM)", "in K", "(000)"]) {
       const sheet = page(`Group results\nNet debt ${heading}\n310,000`);
       for (const cell of ["£310m", "€310 million", "£310,000", "£310 billion"]) {
         expect(check(`${cell} [^1]`, [cited("310,000", sheet)]), `${heading}: ${cell}`).toBeNull();
       }
     }
+  });
+
+  // protects=#2365; fails_when="£000", which the reader now knows, still leaves "£310,000" for £310m unflagged, or flags the right "£310m".
+  test("flags an amount written at a thousandth of a “£000” column's", () => {
+    const sheet = page("Group results\nNet debt £000\n310,000");
+    expect(check("£310m [^1]", [cited("310,000", sheet)])).toBeNull();
+    expect(check("£310,000 [^1]", [cited("310,000", sheet)])).toEqual({
+      written: "£310,000",
+      given: "310,000 £000",
+      times: 0.001,
+    });
   });
 
   // protects=a quoted amount with its own currency under a heading's scale may be either, so a right per-share figure isn't flagged (R55); fails_when="$2.15" earnings per share under "(in millions, except per share data)" is flagged, and the note then gets "$2.15 million" written; no_claim=which of the two the Document means.

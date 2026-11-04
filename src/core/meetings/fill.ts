@@ -36,6 +36,8 @@ import {
   lineMarker,
   notesContext,
   partsOf,
+  SECTION_TITLES,
+  sectionNamed,
   sectionOf,
   sectionsContext,
   textOf,
@@ -49,17 +51,10 @@ import {
   tidiedNote,
   wordsAdded,
 } from "./memo";
+import { withoutRepeats } from "./repeats";
 
 /** The most of a Transcript one Run reads: about two hours of talk. */
 export const FILL_PART_TOKENS = 24_000;
-
-const SECTION_TITLES = {
-  summary: "meetings.fill.section.summary",
-  decisions: "meetings.fill.section.decisions",
-  actions: "meetings.fill.section.actions",
-  questions: "meetings.fill.section.questions",
-  claims: "meetings.fill.section.claims",
-} as const satisfies Record<FillSection, MessageKey>;
 
 /** Claims checked at once on a model off this computer; one at a time on one on it. */
 const CLAIMS_AT_ONCE = 4;
@@ -183,9 +178,11 @@ function userLines(blocks: Y.XmlFragment): UserLine[] {
     }
     const heading = element.nodeName === "heading";
     const { text } = readLine(element);
-    lines.push({ id, text, heading, headingId, marker: heading ? "" : lineMarker(filled) });
+    const section = sectionNamed(text);
+    const marker = heading || section ? "" : lineMarker(filled);
+    lines.push({ id, text, heading, section, headingId, marker });
     if (heading) headingId = id;
-    else filled++;
+    else if (!section) filled++;
   }
   return lines;
 }
@@ -220,6 +217,23 @@ const withIds = (nodes: readonly NodeJSON[]): NodeJSON[] =>
 
 const idOf = (node: NodeJSON) => String(node.attrs?.[BLOCK_ID_ATTRIBUTE]);
 
+/** Puts `nodes` under `element`: at the end of a heading's part, else right after it. */
+function placeUnder(
+  blocks: Y.XmlFragment,
+  element: Y.XmlElement,
+  nodes: readonly NodeJSON[],
+): string[] | null {
+  const parent = element.parent;
+  if (!(parent instanceof Y.XmlElement || parent instanceof Y.XmlFragment)) return null;
+  const placed = withIds(nodes);
+  const at =
+    element.nodeName === "heading" && parent === blocks
+      ? endOfHeadingPart(blocks, element)
+      : parent.toArray().indexOf(element) + 1;
+  parent.insert(at, placed.map(createElement));
+  return placed.map(idOf);
+}
+
 function placeUnderLines(
   blocks: Y.XmlFragment,
   lines: readonly UserLine[],
@@ -227,35 +241,44 @@ function placeUnderLines(
 ): string[] {
   const added: string[] = [];
   for (const line of lines) {
-    const nodes = additions.get(line.marker);
+    const nodes = line.marker === "" ? undefined : additions.get(line.marker);
     if (!nodes || nodes.length === 0) continue;
-    const placed = withIds(nodes);
     const element = findById(blocks, line.id);
-    const parent = element?.parent;
-    if (element && (parent instanceof Y.XmlElement || parent instanceof Y.XmlFragment)) {
-      const at = parent.toArray().indexOf(element) + 1;
-      parent.insert(at, placed.map(createElement));
-    } else {
-      const heading = line.headingId ? findById(blocks, line.headingId) : null;
-      const at = heading?.parent === blocks ? endOfHeadingPart(blocks, heading) : blocks.length;
-      blocks.insert(at, placed.map(createElement));
+    const under = element && placeUnder(blocks, element, nodes);
+    if (under) {
+      added.push(...under);
+      continue;
     }
+    const placed = withIds(nodes);
+    const heading = line.headingId ? findById(blocks, line.headingId) : null;
+    const at = heading?.parent === blocks ? endOfHeadingPart(blocks, heading) : blocks.length;
+    blocks.insert(at, placed.map(createElement));
     added.push(...placed.map(idOf));
   }
   return added;
 }
 
+/** Each section under the User's line that names it, else at the end under its title. */
 function placeSections(
   blocks: Y.XmlFragment,
   sections: ReadonlyMap<FillSection, NodeJSON[]>,
+  lines: readonly UserLine[],
   language: Language,
 ): string[] {
-  const placed: NodeJSON[] = [];
+  const added: string[] = [];
+  const atEnd: NodeJSON[] = [];
   for (const section of FILL_SECTIONS) {
     const nodes = sections.get(section);
     if (!nodes || nodes.length === 0) continue;
+    const named = lines.find((line) => line.section === section);
+    const element = named ? findById(blocks, named.id) : null;
+    const under = element && placeUnder(blocks, element, nodes);
+    if (under) {
+      added.push(...under);
+      continue;
+    }
     const title = translate(language, SECTION_TITLES[section]);
-    placed.push(
+    atEnd.push(
       {
         type: "heading",
         attrs: { level: 2 },
@@ -264,9 +287,7 @@ function placeSections(
       ...nodes,
     );
   }
-  const withId = withIds(placed);
-  blocks.insert(blocks.length, withId.map(createElement));
-  return withId.map(idOf);
+  return [...added, ...placeAtEnd(blocks, atEnd)];
 }
 
 const blank = (child: unknown) =>
@@ -276,10 +297,10 @@ const blank = (child: unknown) =>
   readLine(child).text === "";
 
 /**
- * A voice memo's note: in place of a Mind with nothing written in it yet, so its title line
- * names the Mind; after what the User wrote, otherwise.
+ * After what the User wrote; in place of a Mind with nothing written in it yet, so it doesn't
+ * open on blank lines (#2305) and a voice memo's title line names the Mind.
  */
-function placeMemo(blocks: Y.XmlFragment, nodes: readonly NodeJSON[]): string[] {
+function placeAtEnd(blocks: Y.XmlFragment, nodes: readonly NodeJSON[]): string[] {
   const placed = withIds(nodes);
   if (blocks.toArray().every(blank)) blocks.delete(0, blocks.length);
   blocks.insert(blocks.length, placed.map(createElement));
@@ -406,7 +427,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
       ),
     );
 
-  /** A Meeting's notes: under the User's lines, or in sections when they wrote none. */
+  /**
+   * A Meeting's notes: under the User's lines, then the sections they don't cover; in sections
+   * when they wrote none.
+   */
   async function notes(
     meeting: Meeting,
     transcriptId: string,
@@ -415,7 +439,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
   ): Promise<Written> {
     // Lines get an id if they had none, before the model reads them: an attribute, not text.
     const lines = content.edit(meeting.mindId, (blocks) => userLines(blocks));
-    const mode = lines.some((line) => !line.heading) ? "notes" : "sections";
+    const mode = lines.some((line) => !line.heading || line.section) ? "notes" : "sections";
     set(meeting.id, { state: "filling", mode, local: route.local, problem: null, blocks: [] });
     const passages = await passagesOf(transcriptId);
     const parts = partsFor(passages, route);
@@ -434,19 +458,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
     if (gathered.size === 0) {
       throw new FillProblemError({ kind: "model", message: words("meetings.fill.problem.empty") });
     }
-    if (mode === "notes") {
-      return {
-        mode,
-        problem: null,
-        parts: parts.length,
-        place: (blocks) => placeUnderLines(blocks, lines, gathered),
-      };
-    }
-    const sections = new Map<FillSection, NodeJSON[]>();
+    const written = new Map<FillSection, NodeJSON[]>();
+    const lineParts: NodeJSON[] = [];
     for (const [marker, blocks] of gathered) {
       const section = sectionOf(marker);
-      if (section) sections.set(section, blocks);
+      if (section) written.set(section, blocks);
+      else lineParts.push(...blocks);
     }
+    const sections = mode === "notes" ? withoutRepeats(lineParts, written) : written;
     const claims = sections.get("claims");
     if (claims) {
       const unsupported = await notSupported(claims, meeting.mindId, transcriptId, route);
@@ -458,7 +477,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
       mode,
       problem: null,
       parts: parts.length,
-      place: (blocks) => placeSections(blocks, sections, options.language()),
+      place: (blocks) => [
+        ...(mode === "notes" ? placeUnderLines(blocks, lines, gathered) : []),
+        ...placeSections(blocks, sections, lines, options.language()),
+      ],
     };
   }
 
@@ -482,7 +504,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
         });
       }
       const nodes = asItIs(title, cues, options.citeUnit);
-      return { mode: "transcript", problem, parts: 0, place: (blocks) => placeMemo(blocks, nodes) };
+      return {
+        mode: "transcript",
+        problem,
+        parts: 0,
+        place: (blocks) => placeAtEnd(blocks, nodes),
+      };
     };
     if ("problem" in route) return asIs(route.problem);
     set(meeting.id, {
@@ -515,7 +542,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       mode: "memo",
       problem: null,
       parts: parts.length,
-      place: (blocks) => placeMemo(blocks, nodes),
+      place: (blocks) => placeAtEnd(blocks, nodes),
     };
   }
 

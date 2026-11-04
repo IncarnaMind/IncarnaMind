@@ -7,7 +7,12 @@ import { askAssistant } from "../helpers/assistant";
 import { type ShownPassage, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  answerRequests,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 /**
@@ -107,8 +112,10 @@ const withMarker = (sentence: string, marker: number) =>
 
 /** Everything a request sent the model: its instructions, messages and Tool results. */
 function sentText(model: MockLanguageModelV4, from: number): string {
+  const own = answerRequests(model);
   return model.doStreamCalls
     .slice(from)
+    .filter((call) => own.includes(call))
     .flatMap((call) =>
       call.prompt.flatMap((message) =>
         typeof message.content === "string"
@@ -131,31 +138,34 @@ function sentText(model: MockLanguageModelV4, from: number): string {
  * was signed. It cites each sentence it writes.
  */
 function contractReader(walk: Walk) {
-  return scriptedModel((call: ModelCall): ScriptedReply => {
-    const passages = shownPassages(
-      [call.prompt, ...call.results.map((each) => each.text)].join("\n\n"),
-    );
-    const contract = passages.find((passage) => passage.document === "Contract");
-    if (!contract) return { calls: [{ tool: "search_documents", input: { query: "contract" } }] };
-    const asksSigned = call.prompt.includes(walk.signed);
-    const lines = asksSigned ? [walk.blank] : walk.sentences;
-    if (!citedSince(call)) {
-      return {
-        calls: [
-          {
-            tool: "cite",
-            input: {
-              citations: lines.map((line, index) => record(contract, index + 1, line.quote)),
+  return scriptedModel(
+    (call: ModelCall): ScriptedReply => {
+      const passages = shownPassages(
+        [call.prompt, ...call.results.map((each) => each.text)].join("\n\n"),
+      );
+      const contract = passages.find((passage) => passage.document === "Contract");
+      if (!contract) return { calls: [{ tool: "search_documents", input: { query: "contract" } }] };
+      const asksSigned = call.prompt.includes(walk.signed);
+      const lines = asksSigned ? [walk.blank] : walk.sentences;
+      if (!citedSince(call)) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: lines.map((line, index) => record(contract, index + 1, line.quote)),
+              },
             },
-          },
-        ],
-      };
-    }
-    const stated = /^date="([^"]+)"$/.exec(contract.date ?? "")?.[1];
-    const cited = lines.map((line, index) => withMarker(line.text, index + 1)).join(" ");
-    const said = stated ? `${cited} ${walk.signedOn(stated)}` : cited;
-    return { text: asksSigned ? said : `${walk.heading}\n\n${said}` };
-  });
+          ],
+        };
+      }
+      const stated = /^date="([^"]+)"$/.exec(contract.date ?? "")?.[1];
+      const cited = lines.map((line, index) => withMarker(line.text, index + 1)).join(" ");
+      const said = stated ? `${cited} ${walk.signedOn(stated)}` : cited;
+      return { text: asksSigned ? said : `${walk.heading}\n\n${said}` };
+    },
+    { judgesItsAnswers: true },
+  );
 }
 
 const citedSince = (call: ModelCall) => call.results.some((result) => result.tool === "cite");

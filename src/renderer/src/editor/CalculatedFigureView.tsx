@@ -59,7 +59,13 @@ export function CalculatedFigureView({
   const evidence = useFigureEvidence(attributes, doc);
   const shown = useEditorState({
     editor,
-    selector: ({ editor: current }) => figureShownIn(current.state, attributes?.id ?? ""),
+    selector: ({ editor: current }) =>
+      figureShownIn(
+        current.state,
+        attributes?.id ?? "",
+        evidence?.sources?.analysis ?? null,
+        attributes?.figure.analysis?.result ?? null,
+      ),
   });
   const style = formatting?.style ?? "numbered";
   const known = useStyleCatalogue((state) => state.byId.get(style));
@@ -91,7 +97,11 @@ export function CalculatedFigureView({
   };
   const copyFormula = () => {
     if (attributes)
-      void copyText(attributes.figure.formula).catch(useAppStore.getState().reportError);
+      void copyText(
+        attributes.figure.workbook
+          ? `=${attributes.figure.workbook.cell.formula}`
+          : attributes.figure.formula,
+      ).catch(useAppStore.getState().reportError);
   };
   const actions: FigureHandle = {
     id: attributes?.id ?? "",

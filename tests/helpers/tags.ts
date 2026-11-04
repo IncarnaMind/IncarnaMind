@@ -19,6 +19,12 @@ export interface TaggingModel {
   readonly requests: TaggingRequest[];
   /** What the model chooses from now on. */
   choose(names: readonly string[] | ((request: TaggingRequest) => string[])): void;
+  /** The new Tags the model names from now on, beside those it chooses. */
+  name(
+    tags:
+      | readonly { name: string; description: string }[]
+      | ((request: TaggingRequest) => { name: string; description: string }[]),
+  ): void;
   /** Holds every answer until `release()`. */
   hold(): void;
   release(): void;
@@ -60,6 +66,7 @@ function describe(options: CallOptions): TaggingRequest {
  */
 export function taggingModel(initial: readonly string[] = []): TaggingModel {
   let choose: (request: TaggingRequest) => string[] = () => [...initial];
+  let naming: (request: TaggingRequest) => { name: string; description: string }[] = () => [];
   let gate: Promise<void> | null = null;
   let open = () => {};
   let failure: Error | null = null;
@@ -74,7 +81,12 @@ export function taggingModel(initial: readonly string[] = []): TaggingModel {
       if (gate) await gate;
       if (failure) throw failure;
       return {
-        content: [{ type: "text", text: JSON.stringify({ tags: choose(request) }) }],
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ tags: choose(request), newTags: naming(request) }),
+          },
+        ],
         finishReason: { unified: "stop", raw: undefined },
         usage: USAGE,
         warnings: [],
@@ -87,6 +99,9 @@ export function taggingModel(initial: readonly string[] = []): TaggingModel {
     requests,
     choose(names) {
       choose = typeof names === "function" ? names : () => [...names];
+    },
+    name(tags) {
+      naming = typeof tags === "function" ? tags : () => [...tags];
     },
     hold() {
       gate = new Promise((resolve) => {

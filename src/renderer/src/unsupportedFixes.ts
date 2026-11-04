@@ -130,7 +130,7 @@ export interface FigureFix {
 }
 
 /** How a sentence writes its numbers, as the check read it (the core's `documentFigureContext`). */
-const contextOf = (sentence: string): FigureContext =>
+export const sentenceFigureContext = (sentence: string): FigureContext =>
   figureContextOf(sentence, figureLanguageTag(detectLanguage(sentence.slice(0, 20_000))));
 
 /**
@@ -145,7 +145,7 @@ export function figureFix(
 ): FigureFix | null {
   // A limit the figure breaks is the sentence's own number, not one to replace with the figure.
   if (!calculation || calculation.agrees || calculation.relation) return null;
-  const written = readFigures(sentence, contextOf(sentence)).filter(
+  const written = readFigures(sentence, sentenceFigureContext(sentence)).filter(
     (figure) => figure.chars === calculation.stated,
   );
   const [only] = written;
@@ -349,14 +349,18 @@ export function applyFigure(
   asOneStep(editor, () => {
     editor.view.dispatch(editor.state.tr.insertText(fix.shown, place.from, place.to));
   });
+  const recheck = () => {
+    const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
+    if (again) void checkAgain(editor, mindId, doc, again, undefined, showCard);
+  };
   offerEditorUndo(
     editor,
     (t) => t("claim.useFigure.done", { figure: fix.shown }),
     undefined,
     () => restoreCheck(editor, claim, earlier),
+    recheck,
   );
-  const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
-  if (again) void checkAgain(editor, mindId, doc, again, undefined, showCard);
+  recheck();
 }
 
 export function applyDocumentWording(

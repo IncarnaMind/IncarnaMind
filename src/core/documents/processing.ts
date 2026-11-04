@@ -11,27 +11,33 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { pageScale } from "../../shared/figures";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
-import type { DocumentFailureReason, DocumentKind, UnreadParts } from "../api";
+import type { DocumentFailureReason, DocumentKind, FileProperties, UnreadParts } from "../api";
 import {
   type FileMetadata,
   type FileReference,
   readReference,
   webPageReference,
+  xmpProperties,
 } from "../referenceRecords/read";
 import { BOILERPLATE_PARAMETERS, stripBoilerplate } from "./boilerplate";
-import { creationDate, pdfDate, w3cDate } from "./creationDate";
+import { creationDate, ownDate, pdfDate, w3cDate } from "./creationDate";
 import { addDepositionAnchors, hasPrintedLines } from "./deposition";
 import { ExtractionError, extractText, type PageReading, pdfMetadata } from "./extract";
+import { readableText } from "./fileProperties";
 import { officeProperties } from "./formats/coreProperties";
+import { htmlTitleOf } from "./formats/html";
 import { readWebPage, SAVED_PICTURE } from "./formats/web";
+import { workbookSheets } from "./formats/xlsx";
 import { isPackageKind, packageSizeError } from "./formats/zip";
 import { keywordText } from "./keywords";
 import { joinCjkLineWraps } from "./lineWrap";
 import { type BuiltPassage, buildPassages } from "./passages";
 import { documentTitle } from "./title";
 import { unreadMessage } from "./unreadMessage";
+import type { PictureProblem } from "./web/pictures";
 
 /**
  * The version of this pipeline: text extraction, Passage building, text
@@ -60,9 +66,18 @@ import { unreadMessage } from "./unreadMessage";
  * Passage's row; see `NAME_INDEX_CURRENT_SINCE`). 16: #2110 (a PDF line break
  * beside CJK text or full-width punctuation is joined). 17: #2219 (a line the
  * page ended itself, such as a heading, keeps its break). 18: #1709 (explicit
- * deposition layouts keep their printed page and line anchors).
+ * deposition layouts keep their printed page and line anchors). 19: #1001 (a
+ * PDF's page keeps the scale its running header wrote). 20: #2347 (a
+ * workbook's rows Units keep each cell's formula beside its saved value, and
+ * its first Unit its defined names and what of it wasn't read). 21: #2365 (a
+ * Word section's headers and footers, and more forms of a scale, are read for
+ * it). 22: #762 (pictures are read as scanned pages are; RTF and HTML files
+ * are read). 23: #448 (the tables of a PDF's pages, a Word file's sections and a
+ * deck's slides are kept with their Units as rows and columns; a Word table's
+ * merged cells keep their columns; raised digits stay raised). 24: #1979 (a
+ * workbook's rows Units name the rows the file strikes through or hides).
  */
-export const PROCESSING_VERSION = 18;
+export const PROCESSING_VERSION = 24;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -85,18 +100,48 @@ export const PROCESSING_VERSION = 18;
  * only PDFs' too: a deposition's explicit "Page N" layout over numbered lines
  * gains printed page and line anchors and keeps its "Page N" lines, which
  * cleanup took for running headers; other PDFs' pages come out as they were.
+ * Version 19 only PDFs' as well: a page keeps the scale its running header
+ * wrote ("(£'000)", "All figures in thousands") for a calculated figure (#1001).
+ * Version 20 only workbooks', whose Units gain their formulas; their text,
+ * Passages and embeddings come out as they were. Version 21 Word files' and
+ * PDFs': a Word section keeps the scale its header or footer writes, and a
+ * PDF's running header the forms the reader now knows ("(000 omitted)",
+ * "金额（万）"), each as the Unit's scale marker; their text, Passages and
+ * embeddings come out as they were (#2365). Version 22 adds the kinds of
+ * Document from #762: a picture's one page read from it, and RTF and HTML
+ * files read as text with their headings. No other kind's Passage or Unit
+ * changes. Version 23 PDFs', Word files' and decks': their Units keep their
+ * tables' rows and columns, and a PDF's text comes out as it was. A Word
+ * table's row keeps a tab for each of its grid's columns, also the empty ones
+ * a merged cell leaves, a merged cell's text repeats down the rows it
+ * continues, and digits a Word file or a deck sets raised or lowered are
+ * superscript or subscript digits, not plain ones (#448). Version 24 only
+ * workbooks', whose rows Units name the rows the file strikes through or
+ * hides; their text, Passages and embeddings come out as they were (#1979).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 18,
+  pdf: 23,
   text: 5,
   markdown: 5,
-  docx: 7,
-  pptx: 5,
-  xlsx: 13,
+  docx: 23,
+  pptx: 23,
+  xlsx: 24,
   csv: 5,
+  image: 22,
+  rtf: 22,
+  html: 22,
   web: 7,
   transcript: 7,
 };
+
+/**
+ * For a PDF, the oldest version whose Passages are still what this version
+ * builds: version 23 changes only the labels of a PDF's Units (their tables),
+ * not the text its Passages are built from, so a PDF kept at 21 or 22 keeps
+ * its Passage windows rather than being embedded again (#448). Bump this when
+ * a PDF's Passages change.
+ */
+export const PDF_PASSAGES_CURRENT_SINCE = 21;
 
 /**
  * For a Document with Han characters in its text or name (Chinese, or
@@ -154,9 +199,10 @@ export const PICTURES_CURRENT_SINCE = 10;
  * job, in the background, without being processed or embedded again. When
  * only the metadata read changes, bump this, not `PROCESSING_VERSION`.
  * 1: #53 (creation dates). 2: #213 (titles). 3: #286 (reference records).
- * 4: #706 (reference records from a PDF's first page).
+ * 4: #706 (reference records from a PDF's first page). 5: #2458 (the file's
+ * own dates and author, which a check of a sentence about the file cites).
  */
-export const METADATA_VERSION = 4;
+export const METADATA_VERSION = 5;
 
 /** How many of a PDF's first pages a DOI or an arXiv id is looked for in (#286). */
 const REFERENCE_PAGES = 2;
@@ -170,6 +216,8 @@ export interface ProcessingJob {
   file: string;
   /** How a PDF's scanned pages are read; none when they can't be (no model to read them with). */
   scan?: ScanJob | null;
+  /** A workbook's hidden and very hidden sheets are read too, as the User asked (#740). */
+  readHiddenSheets?: true;
 }
 
 /** Reading a PDF's scanned pages from their pictures (#397). */
@@ -235,8 +283,8 @@ type Processed =
        * as the Passages were built from it (see ./boilerplate), with its label and anchors.
        */
       pages: TextUnit[];
-      /** PDF pages with unread content, and why; null when all could be read. */
-      unread: { pages: number[]; message: string; forms?: true } | null;
+      /** PDF pages with unread content, and why; null when all could be read. `picture`: a picture's page. */
+      unread: { pages: number[]; message: string; forms?: true; picture?: true } | null;
       /** What of it wasn't read when the rest was (#740); null when all was. */
       parts: UnreadParts | null;
     }
@@ -269,6 +317,11 @@ export interface VersionMetadata {
   title: string | null;
   /** The version's reference record, as far as the file gives it (see ../referenceRecords/read). */
   reference: FileReference;
+  /**
+   * What the version's file records about itself (#2458); null when that can't be read, and for
+   * a web page, whose file is IncarnaMind's snapshot of it.
+   */
+  properties: FileProperties | null;
 }
 
 export type ProcessingResult =
@@ -307,8 +360,11 @@ export type WorkerResult = ProcessingResult | MetadataResult | KeywordsResult;
 export interface ReadingChannel {
   /** The lines on a page's picture. Rejects with `ReadingUnavailable` when no page can be read now. */
   read(page: number, picture: PagePicture): Promise<RecognizedLine[]>;
-  /** The lines on a picture file, read where the model runs (`TextRecognizer.readFile`). */
-  readFile(page: number, file: Uint8Array): Promise<PictureRead>;
+  /**
+   * The lines on a picture file, read where the model runs (`TextRecognizer.readFile`), or why
+   * it was refused (a HEIC decoded to an oversized PNG, for one).
+   */
+  readFile(page: number, file: Uint8Array): Promise<PictureRead | { refused: PictureProblem }>;
   log(event: string, fields: LogFields): void;
   /** `read` of `of` scanned pages of version `contentHash` are read; `unit` is the one just read. */
   progress(contentHash: string, read: number, of: number, unit: TextUnit | null): void;
@@ -328,6 +384,7 @@ export type WorkerRequest =
       request: number;
       lines?: RecognizedLine[];
       read?: PictureRead;
+      refused?: PictureProblem;
       error?: { message: string; unavailable: boolean };
     };
 
@@ -404,6 +461,7 @@ async function refuseTooLarge(file: string, kind: DocumentKind): Promise<Process
       creationDate: null,
       title: null,
       reference: readReference({ kind, firstPages: [] }),
+      properties: null,
     };
   } catch (error) {
     return unreadable(error);
@@ -450,6 +508,7 @@ export async function processFile(
     reading,
     password,
     readPicture,
+    job.readHiddenSheets === true,
   );
   if (reading?.signal.aborted) return { outcome: "stopped" };
   const firstUnit = processed.outcome === "ready" ? (processed.pages[0]?.text ?? null) : null;
@@ -470,6 +529,7 @@ export async function readMetadata(job: MetadataJob, password?: string): Promise
       creationDate: creationDate([], job.firstUnit, thisYear()),
       title: documentTitle(null, job.firstUnit),
       reference: readReference({ kind: job.kind, firstPages }),
+      properties: recordsNone(job.kind) ? NO_PROPERTIES : null,
     };
   }
   const bytes = await readBytes(job.file);
@@ -490,6 +550,15 @@ const hasMetadata = (kind: DocumentKind) =>
 /** The local calendar year now: no later creation date is plausible. */
 const thisYear = () => new Date().getFullYear();
 
+const NO_PROPERTIES: FileProperties = { created: null, modified: null, author: null, sheets: null };
+
+/**
+ * What a file of a kind with no place for properties records about itself: nothing. Any other
+ * kind's are read from the file, and are unknown (null) when they can't be (#2458).
+ */
+const recordsNone = (kind: DocumentKind) =>
+  kind === "text" || kind === "markdown" || kind === "csv" || kind === "transcript";
+
 /**
  * A version's creation date (see ./creationDate): the metadata's (a PDF's
  * Info dictionary, then its XMP; an Office file's core properties), or else
@@ -508,6 +577,7 @@ async function readMetadataOf(
 ): Promise<VersionMetadata> {
   let fromMetadata: (string | null)[] = [];
   let property: string | null = null;
+  let properties: FileProperties | null = recordsNone(kind) ? NO_PROPERTIES : null;
   const parts: FileMetadata = { kind, firstPages: firstPages ?? [] };
   try {
     if (kind === "web") {
@@ -530,6 +600,7 @@ async function readMetadataOf(
           },
           title,
         ),
+        properties: null,
       };
     }
     if (kind === "pdf") {
@@ -538,14 +609,37 @@ async function readMetadataOf(
         pdf.info === null ? null : pdfDate(pdf.info),
         pdf.xmp === null ? null : w3cDate(pdf.xmp),
       ];
+      const xmp = pdf.xmpPacket === null ? null : xmpProperties(pdf.xmpPacket);
+      const xmpDate = (name: string) => {
+        const written = xmp?.get(name)?.[0];
+        return written === undefined ? null : w3cDate(written);
+      };
+      properties = {
+        created: ownDate(fromMetadata, new Date()),
+        modified: ownDate(
+          [pdf.modified === null ? null : pdfDate(pdf.modified), xmpDate("xmp:ModifyDate")],
+          new Date(),
+        ),
+        author: readableText(pdf.author, xmp?.get("dc:creator")?.join("; ")),
+        sheets: null,
+      };
       property = pdf.title;
       parts.info = { title: pdf.title, author: pdf.author };
       parts.xmp = pdf.xmpPacket;
       parts.firstPageLines = pdf.firstPageLines;
       if (firstPages === null) parts.firstPages = pdf.firstPages;
+    } else if (kind === "html") {
+      // The page's own title, as its head says it; its text names it otherwise.
+      property = htmlTitleOf(bytes);
     } else if (hasMetadata(kind)) {
       const office = await officeProperties(bytes);
       fromMetadata = [office.created === null ? null : w3cDate(office.created)];
+      properties = {
+        created: ownDate(fromMetadata, new Date()),
+        modified: ownDate([office.modified === null ? null : w3cDate(office.modified)], new Date()),
+        author: readableText(office.creator),
+        sheets: kind === "xlsx" ? await workbookSheets(bytes) : null,
+      };
       property = office.title;
       parts.office = office;
     }
@@ -556,6 +650,7 @@ async function readMetadataOf(
     creationDate: creationDate(fromMetadata, firstUnit, thisYear()),
     title: documentTitle(property, firstUnit),
     reference: readReference(parts),
+    properties,
   };
 }
 
@@ -566,9 +661,17 @@ async function processBytes(
   reading: PageReading | null,
   password: string | undefined,
   readPicture: ((src: string) => Promise<Uint8Array>) | null,
+  readHiddenSheets: boolean,
 ): Promise<{ processed: Processed; firstPages: string[] }> {
   try {
-    const extracted = await extractText(kind, bytes, reading, password, readPicture);
+    const extracted = await extractText(
+      kind,
+      bytes,
+      reading,
+      password,
+      readPicture,
+      readHiddenSheets,
+    );
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
     // The running headers go while a page's lines are the ones extraction joined as they
     // always were; the wider join comes after, where it reaches the model.
@@ -580,7 +683,7 @@ async function processBytes(
     // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
     // layout, as a transcript's numbered lines are, and joining two of them would merge a
     // table's rows or a deposition's lines (and move their anchors).
-    const pages =
+    const laid =
       kind === "pdf"
         ? stripped.map((unit, index) => {
             if (unit.label?.scan || hasPrintedLines(unit)) return unit;
@@ -588,6 +691,15 @@ async function processBytes(
             return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
           })
         : stripped;
+    // The running header a page had before it was stripped, or a Word section's header or footer,
+    // kept as its scale marker: a page that wrote "(£'000)" there scaled its amounts, which the
+    // stored text doesn't show (#1001, #2365).
+    const markerOf = (written: string) => pageScale(written) ?? "";
+    const pages = laid.map(({ runningText, ...unit }, index) => {
+      const scaleMarker =
+        markerOf(runningText ?? "") || markerOf(extracted.units[index]?.text ?? "");
+      return { ...unit, scaleMarker };
+    });
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,

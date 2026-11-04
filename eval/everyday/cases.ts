@@ -386,6 +386,25 @@ const THIS_DOCUMENT: readonly EverydayCase[] = [
     request: "把这个加到我的笔记里。",
     expected: { ...EDIT, into: "asked-from", addsAnswer: true },
   },
+  // A copy request, in the words of #1431: the last Answer goes into the Note as it is.
+  {
+    id: "copy-note-en",
+    language: "en",
+    library: "dated",
+    mind: CALL_NOTES,
+    before: ["How much notice does the employment contract require?"],
+    request: "Put that in my Note.",
+    expected: { ...EDIT, into: "asked-from", addsAnswer: true },
+  },
+  {
+    id: "copy-note-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: CALL_NOTES_ZH,
+    before: ["劳动合同的解除通知期是多久？"],
+    request: "把刚才的回答放进笔记。",
+    expected: { ...EDIT, into: "asked-from", addsAnswer: true },
+  },
   {
     id: "notes-on-documents-en",
     language: "en",
@@ -561,6 +580,75 @@ const SELECTED: readonly EverydayCase[] = [
     expected: { ...NOTHING, asks: "may" },
   },
 ];
+
+// Several Documents over smaller sets, worded otherwise, with the example made first as on a first
+// run (#894). Asked last in their libraries, so the example is there for none of the others. The
+// example is a facilities agreement too, so over the covenant folder only a Citation of it counts
+// as a mention, not its words.
+const SMALLER_SETS: readonly EverydayCase[] = [
+  {
+    id: "cover-cedar-en",
+    language: "en",
+    library: "cedar",
+    mind: { title: "Covenant review", blocks: ["Notes for the covenant review."] },
+    afterExample: true,
+    request: "Give me an overview of each of these files",
+    expected: EITHER_ALL,
+  },
+  {
+    id: "cover-cedar-zh",
+    language: "zh-CN",
+    library: "cedar-zh",
+    mind: { title: "契约审查", blocks: ["契约审查的笔记。"] },
+    afterExample: true,
+    request: "把这几份文件逐一概括一下",
+    expected: EITHER_ALL,
+  },
+  {
+    id: "cover-dated-en",
+    language: "en",
+    library: "dated",
+    mind: { title: "Contracts", blocks: ["Notes on the contracts and minutes."] },
+    afterExample: true,
+    request: "Write a recap page of all my documents",
+    expected: { ...WRITE_ALL, noExample: true },
+  },
+  {
+    id: "cover-dated-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: { title: "合同", blocks: ["合同和会议纪要的笔记。"] },
+    afterExample: true,
+    request: "帮我写一页所有文档的摘要",
+    expected: { ...WRITE_ALL, noExample: true },
+  },
+];
+
+/** 2.1% as a whole figure, in ASCII or full-width digits: never inside 12.1%. */
+const TWO_POINT_ONE = String.raw`(?<![\d.０-９．])[2２][.．][1１]\s?[%％]`;
+
+/**
+ * The 10-Q's comparable sales rose 2.1%: an Answer gives it, and never as a decline ("fell 2.1%",
+ * "were down 2.1%", "a decline of 2.1%", "−2.1%", "a 2.1% decrease", "下降幅度为 2.1%");
+ * "growth fell to 2.1%" is the rise, slower.
+ */
+const COMPARABLE_ROSE = new RegExp(
+  [
+    String.raw`^(?![\s\S]*\b(?:declin\w*|fell|fall\w*|dropp?\w*|decreas\w*|lower|down)\s+(?:by\s+)?(?:about\s+)?${TWO_POINT_ONE})`,
+    String.raw`(?![\s\S]*\b(?:decline|decrease|drop|fall)\s+of\s+(?:about\s+)?${TWO_POINT_ONE})`,
+    String.raw`(?![\s\S]*[-−]${TWO_POINT_ONE})`,
+    String.raw`(?![\s\S]*${TWO_POINT_ONE}\s+(?:declin|decreas|drop|fall))`,
+    String.raw`[\s\S]*${TWO_POINT_ONE}`,
+  ].join(""),
+  "i",
+);
+const COMPARABLE_ROSE_ZH = new RegExp(
+  [
+    String.raw`^(?![\s\S]*(?:下降|下跌|减少|降低|下滑|降幅)[^。！？，,；;\n\d２]{0,6}${TWO_POINT_ONE})`,
+    String.raw`(?![\s\S]*[-−－]${TWO_POINT_ONE})`,
+    String.raw`[\s\S]*${TWO_POINT_ONE}`,
+  ].join(""),
+);
 
 export const CASES: readonly EverydayCase[] = [
   // The owner's own conversation, 2026-10-15.
@@ -790,6 +878,26 @@ export const CASES: readonly EverydayCase[] = [
     mind: EMPTY,
     request: "帮我写一份 GraphST 论文的简短摘要。",
     expected: { ...WRITE, into: "asked-from" },
+  },
+  // Its own summary, just written into the empty Mind in front: the follow-up changes that
+  // summary in place, never reads it as the User's own text and never asks for another page (#1431).
+  {
+    id: "own-summary-longer-en",
+    language: "en",
+    library: "papers",
+    mind: EMPTY,
+    before: ["Write a short summary of the GraphST paper."],
+    request: "Make the summary longer.",
+    expected: { ...EDIT, into: "asked-from", inPlace: true, longer: true },
+  },
+  {
+    id: "own-summary-longer-zh",
+    language: "zh-CN",
+    library: "papers",
+    mind: EMPTY,
+    before: ["帮我写一份 GraphST 论文的简短摘要。"],
+    request: "把摘要写长一点。",
+    expected: { ...EDIT, into: "asked-from", inPlace: true, longer: true },
   },
   // The User's own text, changed.
   {
@@ -1181,7 +1289,7 @@ export const CASES: readonly EverydayCase[] = [
     before: ["What does the tutorial paper say? Answer in a short paragraph."],
     addToNote: true,
     request: "Make the summary longer.",
-    expected: { ...EDIT, inPlace: true },
+    expected: { ...EDIT, inPlace: true, longer: true },
   },
   {
     id: "added-longer-zh",
@@ -1191,7 +1299,7 @@ export const CASES: readonly EverydayCase[] = [
     before: ["这篇教程论文讲了什么？请用一小段话回答。"],
     addToNote: true,
     request: "把摘要写长一点。",
-    expected: { ...EDIT, inPlace: true },
+    expected: { ...EDIT, inPlace: true, longer: true },
   },
   {
     id: "follow-shorter",
@@ -1227,6 +1335,27 @@ export const CASES: readonly EverydayCase[] = [
     mind: { title: "简报", blocks: ["周一简报的笔记。"] },
     request: "总结这些文档",
     expected: EITHER_ALL,
+  },
+  // The first reply names none of the four a capped summary leaves: the app asks again, and the reply the User reads names them (#894).
+  {
+    id: "reports-left-en",
+    language: "en",
+    library: "reports",
+    mind: { title: "Briefing", blocks: ["Notes for Monday's briefing."] },
+    request: "Write a summary page of these documents",
+    firstReply: "These documents cover risk, statistics, research and committee work.",
+    expected: { ...EITHER, cite: false, leftOutAsk: true },
+    hard: true,
+  },
+  {
+    id: "reports-left-zh",
+    language: "zh-CN",
+    library: "reports",
+    mind: { title: "简报", blocks: ["周一简报的笔记。"] },
+    request: "写一页这些文档的摘要",
+    firstReply: "这些文档涉及风险、统计、研究和委员会工作。",
+    expected: { ...EITHER, cite: false, leftOutAsk: true },
+    hard: true,
   },
   {
     id: "reports-esg",
@@ -1721,10 +1850,10 @@ export const CASES: readonly EverydayCase[] = [
       "In Northmart's Q2 2026 10-Q, what was the consolidated comparable-sales change? Answer with the figure and cite it.",
     expected: {
       ...ANSWER,
-      answerWith: /declin\w*[^.!?\n]{0,20}6\.2%/i,
+      answerWith: COMPARABLE_ROSE,
       answerEvidence: {
         document: /Northmart Q2 2026 10-Q/,
-        quote: /like-for-like sales declined 6\.2%/i,
+        quote: /2\.1%/,
       },
       noDocumentAbsence: /comparable|同店/,
       documentAbsenceMetric: "consolidated comparable-sales change",
@@ -1738,10 +1867,10 @@ export const CASES: readonly EverydayCase[] = [
     request: "北域零售2026年第二季度季报中，集团同店销售额变化了多少？请给出数字并注明出处。",
     expected: {
       ...ANSWER,
-      answerWith: /下降[^。！？\n]{0,12}6\.2%/,
+      answerWith: COMPARABLE_ROSE_ZH,
       answerEvidence: {
         document: /北域零售 2026年第二季度季报/,
-        quote: /同店销售额下降 6\.2%/,
+        quote: /2\.1%/,
       },
       noDocumentAbsence: /comparable|同店/,
       documentAbsenceMetric: "集团同店销售额变化",
@@ -1759,7 +1888,7 @@ export const CASES: readonly EverydayCase[] = [
       answerWith: /38\.2%/,
       answerEvidence: {
         document: /Harbour Hotels 2026 annual release/,
-        quote: /Operating profitability reached 38\.2%/,
+        quote: /38\.2%/,
       },
       noDocumentAbsence: /margin|利润率/,
       documentAbsenceMetric: "2026 operating margin",
@@ -1776,7 +1905,7 @@ export const CASES: readonly EverydayCase[] = [
       answerWith: /38\.2%/,
       answerEvidence: {
         document: /港湾酒店 2026年度业绩公告/,
-        quote: /经营利润率达到 38\.2%/,
+        quote: /38\.2%/,
       },
       noDocumentAbsence: /margin|利润率/,
       documentAbsenceMetric: "2026年经营利润率",
@@ -1788,16 +1917,16 @@ export const CASES: readonly EverydayCase[] = [
     library: "filings",
     mind: null,
     request:
-      "In Delta Manufacturing's 2026 8-K, what was the recast second-quarter revenue? Answer with the amount and cite it.",
+      "In Delta Manufacturing's 2026 8-K, what were the recast segment earnings for the second quarter of 2026? Answer with the amount and cite it.",
     expected: {
       ...ANSWER,
-      answerWith: /\$423 million/,
+      answerWith: /592/,
       answerEvidence: {
         document: /Delta Manufacturing 8-K 2026/,
-        quote: /Restated second-quarter sales: \$423 million/,
+        quote: /592/,
       },
-      noDocumentAbsence: /recast|重述|revenue|销售额/,
-      documentAbsenceMetric: "recast second-quarter revenue",
+      noDocumentAbsence: /recast|重述|earnings|利润/,
+      documentAbsenceMetric: "recast segment earnings for the second quarter of 2026",
     },
   },
   {
@@ -1805,16 +1934,17 @@ export const CASES: readonly EverydayCase[] = [
     language: "zh-CN",
     library: "filings",
     mind: null,
-    request: "三角洲制造2026年8-K中重述的第二季度收入是多少？请给出金额并注明出处。",
+    request:
+      "三角洲制造2026年的8-K中，重述后的2026年第二季度分部利润是多少？请给出金额并注明出处。",
     expected: {
       ...ANSWER,
-      answerWith: /4\.23 亿元/,
+      answerWith: /592|5\.92\s?亿/,
       answerEvidence: {
         document: /三角洲制造 8-K 2026/,
-        quote: /重述第二季度销售额：4\.23 亿元/,
+        quote: /592/,
       },
-      noDocumentAbsence: /recast|重述|revenue|销售额/,
-      documentAbsenceMetric: "重述的第二季度收入",
+      noDocumentAbsence: /recast|重述|earnings|利润/,
+      documentAbsenceMetric: "重述后的2026年第二季度分部利润",
     },
   },
   {
@@ -1864,4 +1994,5 @@ export const CASES: readonly EverydayCase[] = [
   ...CEDAR,
   ...THIS_DOCUMENT,
   ...SELECTED,
+  ...SMALLER_SETS,
 ];

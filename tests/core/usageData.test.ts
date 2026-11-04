@@ -472,6 +472,9 @@ function counts(): UsageEventFields<"documents_added"> {
     csv: 0,
     markdown: 0,
     text: 0,
+    image: 0,
+    rtf: 0,
+    html: 0,
     web: 0,
     transcript: 0,
   };

@@ -12,6 +12,11 @@ export const MindIdContext = createContext<string | null>(null);
  */
 export const RegenerateAnswerContext = createContext<(() => void) | null>(null);
 
+/** The Answer in the assistant whose sentences its Citations are judged by (#2311); null in a Mind. */
+export const JudgedAnswerContext = createContext<{ id: string; conversationId: string } | null>(
+  null,
+);
+
 /**
  * Where a Mind's composer is drawn: the assistant's composer slot, given only
  * to the Mind the assistant reads (see `MindTab`, `assistantTabOf`). Null for

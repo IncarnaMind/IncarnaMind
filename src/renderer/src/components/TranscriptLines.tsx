@@ -1,7 +1,7 @@
 import type { Meeting } from "../../../core/api";
+import { formatBytes } from "../../../shared/bytes";
 import type { MessageKey } from "../../../shared/i18n";
 import { useT } from "../i18n";
-import { formatBytes } from "../linkedFolders";
 import { useMeetings } from "../meetings";
 import { showTranscript } from "../transcripts";
 import { failedEverySource, useDownloadSources } from "./DownloadSources";

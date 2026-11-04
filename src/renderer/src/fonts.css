@@ -1,19 +1,18 @@
 /*
- * The app's fonts, bundled with it: the Content-Security-Policy (index.html)
- * loads fonts only from the app itself (font-src 'self'). See DESIGN.md.
+ * The fonts bundled with the app. The app and a Mind's Default style use the
+ * system's font, which needs nothing here; the Content-Security-Policy
+ * (index.html) lets these load only from the app itself (font-src 'self').
+ * See DESIGN.md.
  *
- * - Source Serif 4, the writing font (`font-serif`): Notes, Answers and Mind
- *   titles. The variable font with its optical-size axis, so titles use the
- *   display cut and body text the text cut. Upright and italic; Latin,
- *   Latin Extended and Greek (for formulas quoted from papers).
- *   From @fontsource-variable/source-serif-4.
- * - Source Sans 3, the interface font (`font-sans`): its partner, every weight,
- *   upright and italic, same subsets. From @fontsource-variable/source-sans-3.
+ * - Source Serif 4, the Serif style (`font-serif`): the variable font with
+ *   its optical-size axis, so titles use the display cut and body text the
+ *   text cut. Upright and italic; Latin, Latin Extended and Greek (for
+ *   formulas quoted from papers). From @fontsource-variable/source-serif-4.
  * - JetBrains Mono (`font-mono`): code and Tool arguments, 400 and 500,
  *   Latin. From @fontsource/jetbrains-mono.
  *
  * Chinese and other scripts fall through to the system fonts named after
- * these in styles.css. All three, and Carlito and Caladea below, are under
+ * these in styles.css. These, and Carlito and Caladea below, are under
  * the SIL Open Font License 1.1;
  * their licences ship with the app, in licenses/ (see `fontLicences` in
  * electron.vite.config.ts). Local files: `font-display: block` waits for
@@ -85,76 +84,6 @@
   font-weight: 200 900;
   font-display: block;
   src: url("@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-italic.woff2")
-    format("woff2");
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/* source-sans-3-greek-wght-normal */
-@font-face {
-  font-family: "Source Sans 3";
-  font-style: normal;
-  font-weight: 200 900;
-  font-display: block;
-  src: url("@fontsource-variable/source-sans-3/files/source-sans-3-greek-wght-normal.woff2")
-    format("woff2");
-  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
-}
-
-/* source-sans-3-latin-ext-wght-normal */
-@font-face {
-  font-family: "Source Sans 3";
-  font-style: normal;
-  font-weight: 200 900;
-  font-display: block;
-  src: url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-ext-wght-normal.woff2")
-    format("woff2");
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-
-/* source-sans-3-latin-wght-normal */
-@font-face {
-  font-family: "Source Sans 3";
-  font-style: normal;
-  font-weight: 200 900;
-  font-display: block;
-  src: url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2")
-    format("woff2");
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/* source-sans-3-greek-wght-italic */
-@font-face {
-  font-family: "Source Sans 3";
-  font-style: italic;
-  font-weight: 200 900;
-  font-display: block;
-  src: url("@fontsource-variable/source-sans-3/files/source-sans-3-greek-wght-italic.woff2")
-    format("woff2");
-  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
-}
-
-/* source-sans-3-latin-ext-wght-italic */
-@font-face {
-  font-family: "Source Sans 3";
-  font-style: italic;
-  font-weight: 200 900;
-  font-display: block;
-  src: url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-ext-wght-italic.woff2")
-    format("woff2");
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-
-/* source-sans-3-latin-wght-italic */
-@font-face {
-  font-family: "Source Sans 3";
-  font-style: italic;
-  font-weight: 200 900;
-  font-display: block;
-  src: url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2")
     format("woff2");
   unicode-range:
     U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;

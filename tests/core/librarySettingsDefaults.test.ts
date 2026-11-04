@@ -36,7 +36,7 @@ test("a cloud model keeps the switch's own default, so nothing is a choice of th
   expect(automaticDefault).toBe(false);
   expect(await changed(core)).toBe(false);
 
-  await core.saveLibrarySettings({ ...settings, automatic: true });
+  await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
   expect(await changed(core)).toBe(true);
 });
 
@@ -52,7 +52,7 @@ test("a model chosen by hand, the moves into Folders turned off, Organize's mode
 
   await core.saveLibrarySettings({ classifier: null, automatic: false });
   expect(await changed(core)).toBe(true);
-  await core.saveLibrarySettings({ classifier: null, automatic: true });
+  await core.saveLibrarySettings({ classifier: null, automatic: true, turnOn: true });
   expect(await changed(core)).toBe(false);
 
   await core.saveLibrarySettings({ classifier: null, automatic: true, organizeWith: chosen });

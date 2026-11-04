@@ -1,0 +1,28 @@
+{
+  "task": "M01",
+  "inputs": {
+    "en": "5b5e7fd666b6145828e85ff3950571aafdfc282448001e08530bbfd6c8f093a1"
+  },
+  "values": {
+    "churn_rate": 0.17340867043352168,
+    "auc": 0.8978557903962034,
+    "auc_range": [
+      0.8880595322466335,
+      0.9077341588727126
+    ],
+    "top_columns": [
+      {
+        "key": "arrears",
+        "coefficient": 1.5670945807692604
+      },
+      {
+        "key": "satisfaction",
+        "coefficient": -1.24706693976971
+      },
+      {
+        "key": "complaints",
+        "coefficient": 1.0952254980568623
+      }
+    ]
+  }
+}

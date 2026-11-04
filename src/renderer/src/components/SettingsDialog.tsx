@@ -101,7 +101,7 @@ export function SettingsDialog() {
             <h3
               id="settings-page-title"
               data-testid="settings-page-title"
-              className="font-serif text-heading font-semibold text-ink [font-variation-settings:'opsz'_32]"
+              className="font-sans text-heading font-semibold text-ink"
             >
               {t(settingsPageLabels[page])}
             </h3>

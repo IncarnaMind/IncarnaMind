@@ -144,6 +144,25 @@ const plausible = (date: string, thisYear: number) => {
   return year >= EARLIEST_YEAR && year <= thisYear && !ZERO_DATE.test(date);
 };
 
+/** A clock a day fast: a file saved where the day has already begun is still the file's own. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * One of a file's own dates (#2458), when it can stand as the file's: the first of `dates` (null
+ * where there is none, or it was malformed) that is plausible and no later than `now`, or null.
+ * A date to come is no date a file was saved on.
+ */
+export function ownDate(dates: readonly (string | null)[], now: Date): string | null {
+  return (
+    dates.find(
+      (date): date is string =>
+        date !== null &&
+        plausible(date, now.getFullYear()) &&
+        Date.parse(date) <= now.getTime() + DAY_MS,
+    ) ?? null
+  );
+}
+
 /**
  * The year written in a text, if any: of the years standing alone in it
  * from 1900 to this year, the latest. A Document mentions years before its
