@@ -14,7 +14,7 @@ import {
 } from "react";
 import type { MessageKey } from "../../../shared/i18n";
 import { keysHere, shortcutLabel } from "../commands/keymap";
-import { ChevronIcon } from "../components/icons";
+import { ChevronIcon, CommentIcon } from "../components/icons";
 import { PageBreakLineIcon } from "../components/lineIcons";
 import { useT } from "../i18n";
 import { isComposing } from "./composing";
@@ -186,11 +186,14 @@ export function SelectionMenu({
   editor,
   ai = [],
   edit,
+  comment,
 }: {
   editor: Editor;
   ai?: readonly SelectionAction[];
   /** What the "Edit with AI…" field at the menu's foot asks with; with none the field isn't there. */
   edit?: EditWithAiField;
+  /** Comment on the selection (#328): the words get a quiet underline, and the card opens to type. */
+  comment?: { keys: string; run(editor: Editor): void };
 }) {
   const t = useT();
   const frame = useRef<HTMLDivElement>(null);
@@ -684,6 +687,26 @@ export function SelectionMenu({
             >
               <span aria-hidden="true">T×</span>
             </button>
+            {comment && (
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="selection-comment"
+                title={`${t("comments.add")} (${comment.keys})`}
+                aria-label={`${t("comments.add")} (${comment.keys})`}
+                aria-keyshortcuts={comment.keys}
+                onMouseDown={keepSelection}
+                onClick={() => {
+                  // The card opens at the words where the menu stood, and keeps the focus the menu
+                  // would take back from it: close the menu first, then make the comment.
+                  closeMenu();
+                  act(() => comment.run(editor));
+                }}
+                className="selection-format"
+              >
+                <CommentIcon className="size-4" />
+              </button>
+            )}
           </div>
           {(shownAi.length > 0 || (edit && state.editable)) && (
             <>

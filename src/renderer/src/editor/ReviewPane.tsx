@@ -13,7 +13,6 @@ import type { ShortcutKeys } from "../../../shared/commands";
 import { keysHere } from "../commands/keymap";
 import { keysOn, pressed } from "../commands/keys";
 import {
-  ChatLineIcon,
   CheckLineIcon,
   ChevronDownLineIcon,
   CloseLineIcon,
@@ -51,7 +50,6 @@ import {
 } from "./reviewActions";
 import {
   type ChangeItem,
-  type CommentItem,
   type ExcerptPart,
   initialsOf,
   madeByLine,
@@ -59,7 +57,7 @@ import {
   waitingChanges,
 } from "./theirChanges";
 
-type Shown = Omit<ChangeItem, "from" | "to"> | Omit<CommentItem, "from" | "to">;
+type Shown = Omit<ChangeItem, "from" | "to">;
 
 // Places move with every key typed above them: without them, the cards redraw only when they change.
 const withoutPlace = ({ from: _from, to: _to, ...rest }: ReviewItem): Shown => rest;
@@ -195,8 +193,7 @@ export function ReviewPane({
       if (!mark || editor.isDestroyed) return;
       const pos = editor.view.posAtDOM(mark, 0);
       const item = itemsOf(editor).find(
-        (each) =>
-          (each.kind === "comment" || each.state === "kept") && each.from <= pos && pos < each.to,
+        (each) => each.state === "kept" && each.from <= pos && pos < each.to,
       );
       if (item) showCard(item.id);
     };
@@ -548,41 +545,6 @@ function Card({
   const t = useT();
   const language = useLanguage();
   const made = madeByLine(item, t, language);
-  if (item.kind === "comment") {
-    return (
-      <li
-        data-testid="review-comment"
-        className="review-card"
-        data-selected={selected || undefined}
-      >
-        <button
-          type="button"
-          data-review-id={item.id}
-          tabIndex={tabbable ? 0 : -1}
-          aria-current={selected || undefined}
-          aria-label={t("review.comment.label", { made, text: item.text })}
-          title={made}
-          onClick={onSelect}
-          className="review-card-main"
-        >
-          <span className="review-card-mark" aria-hidden="true">
-            <ChatLineIcon className="size-3.5" />
-          </span>
-          <span className="review-card-body">
-            <span className="review-card-head">
-              <b className="review-card-name">{item.author ?? t("proposal.unknownAuthor")}</b>
-            </span>
-            <span
-              data-testid="review-comment-text"
-              className="review-card-excerpt review-card-comment"
-            >
-              {item.text}
-            </span>
-          </span>
-        </button>
-      </li>
-    );
-  }
   const removed = spoken(item.excerpt, "delete");
   const added = spoken(item.excerpt, "insert");
   // A field or a picture someone added or removed has no words to show: what it is instead.

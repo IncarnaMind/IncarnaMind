@@ -87,6 +87,7 @@ import {
   type CitedWork,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
+  COMMENT_MARK,
   COMPARISON_ROW_NODE,
   COMPARISON_TABLE_NODE,
   type ComparisonQuestion,
@@ -127,6 +128,8 @@ export interface Marks {
   code: boolean;
   /** The link's target, or null. */
   link: string | null;
+  /** The comment the text is on (#328), by the record's id; absent when it is on none. */
+  comment?: string;
   /** Hex "RRGGBB". */
   color?: string;
   font?: string;
@@ -1188,6 +1191,9 @@ function marksOf(attributes: Record<string, unknown> = {}): Marks {
     highlight: Object.hasOwn(attributes, "highlight"),
     code: Object.hasOwn(attributes, "code"),
     link: link && typeof link.href === "string" && link.href !== "" ? link.href : null,
+    ...(typeof attributeOf(attributes[COMMENT_MARK], "id") === "string" && {
+      comment: attributeOf(attributes[COMMENT_MARK], "id") as string,
+    }),
     ...(color && { color }),
     ...(font && { font }),
     ...(size && { size }),
