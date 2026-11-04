@@ -88,6 +88,7 @@ import {
   folderScope,
   hasSearchScope,
   NO_SCOPE,
+  type ScopeKind,
   searchScopeOf,
 } from "../../shared/searchScope";
 import { normaliseText } from "../../shared/text";
@@ -367,6 +368,7 @@ import {
 } from "./prompt";
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
 import { readKinds } from "./readKinds";
+import { nameScope, type ScopeSource, SEARCH_SCOPE_RULE, scopeLines } from "./scopeLine";
 import { withoutSearchTalk } from "./searchTalk";
 import { setAsideMarksInWords } from "./sheetRows";
 import type { ChangeStates } from "./toolRecord";
@@ -670,6 +672,10 @@ export interface AnswersOptions {
   /** What a Question from a Mind searches, by the one rule (`mindSearchScope`); null: every Document. */
   searchedScope(scope: SearchScope | null, mindId: string | null): SearchScope | null;
   mindFolder(mindId: string): string | null;
+  /** The name of a Folder, Tag or Document a Search scope names, as its chip shows it now; null once gone. */
+  scopeItemName(kind: ScopeKind, id: string): string | null;
+  /** The live Folders of the Library, with whether each keeps its work inside it. */
+  libraryFolders(): readonly { id: string; name: string; keepInside: boolean }[];
   /** The walled Folder a Mind is in; null when it is in none. */
   walledFolder(mindId: string | null): string | null;
   /** The Folder itself when it is walled now; null for any other, or none. */
@@ -3383,6 +3389,7 @@ export function createAnswers(options: AnswersOptions) {
                   withMindTools || ids.size() > 0,
                   { writeFirst, minds: withMindTools, library },
                 ),
+            inAssistant && !help ? SEARCH_SCOPE_RULE : "",
             stillReadingNote(options.documents.reading(documentIds)),
             coverageInstructions(coverage, asked.each, coverageSized),
             skillInstructions(listed, forced, withSkillTools, scripts),
@@ -4034,6 +4041,31 @@ export function createAnswers(options: AnswersOptions) {
     const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
     const ids = (callOnly ? null : mind?.ids) ?? contextCitationsFor(mind?.mindId ?? null, wallId);
     const named = help ? [] : namedMinds(mind?.mindId ?? null, wallId);
+    // What the scope chip shows, and the Folder behind it, go just before the Question (#2529).
+    const scopeText =
+      callOnly || help
+        ? ""
+        : scopeLines(
+            nameScope(
+              {
+                scope: question.scope,
+                mindId: mind?.mindId ?? null,
+                // An unknown side of a wall is none to name: name as from outside every wall.
+                wallId: wallId === UNKNOWN_WALL ? null : wallId,
+                documentIds,
+              },
+              {
+                itemName: options.scopeItemName,
+                folders: options.libraryFolders,
+                walledFolderId: options.walledFolderId,
+                resolveScope: options.resolveScope,
+                searchableCount: options.documents.searchableCount,
+                searchableNames: (ids, limit) =>
+                  options.documents.searchableNames(ids, limit).names,
+                mindFolder: options.mindFolder,
+              } satisfies ScopeSource,
+            ),
+          );
     // A model that can't read pictures is sent none, even a figure the User picked (#118).
     const pictures =
       options.readsImages?.(ready.model) === false
@@ -4048,6 +4080,7 @@ export function createAnswers(options: AnswersOptions) {
       mindNames: options.readableMindName,
       changeStates: changeStatesOf,
       onScreen: shown,
+      scopeLine: scopeText,
       ids,
       pictures,
     });
@@ -4061,7 +4094,7 @@ export function createAnswers(options: AnswersOptions) {
       ...(named.length > 0 && {
         mindsLine: {
           line: mindsLine(named),
-          asked: askedText(shown, section?.selection ?? "", question.text),
+          asked: askedText(shown, section?.selection ?? "", question.text, scopeText),
         },
       }),
       home: conversationHome(conversation.id, answer.id),
@@ -4091,6 +4124,7 @@ export function createAnswers(options: AnswersOptions) {
                   mindNames: options.readableMindName,
                   changeStates: changeStatesOf,
                   onScreen: shown,
+                  scopeLine: scopeText,
                   ids,
                   pictures,
                 }).context,

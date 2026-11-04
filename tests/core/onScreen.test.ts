@@ -58,7 +58,7 @@ describe("The Documents on screen in the assistant", { timeout: 30_000 }, () => 
     });
 
     expect(lastSent(model, 0)).toMatch(
-      /(?:^|\n\n)On screen now: "Mutual NDA", "Employment contract"\n\nWrite a short summary of this document\.$/,
+      /(?:^|\n\n)On screen now: "Mutual NDA", "Employment contract"\n\nSearch scope: All Documents \(2\)\n\nWrite a short summary of this document\.$/,
     );
     const rules = instructionsOf(model, 0);
     expect(rules).toContain('A line "On screen now: …" before the Question');
@@ -91,7 +91,7 @@ describe("The Documents on screen in the assistant", { timeout: 30_000 }, () => 
     expect(lastSent(model, 0)).not.toContain("On screen now");
     expect(lastSent(model, 0)).not.toContain("Mutual NDA");
     expect(lastSent(model, 1)).toMatch(
-      /(?:^|\n\n)On screen now: "Employment contract"\n\nSummarise this document\.$/,
+      /(?:^|\n\n)On screen now: "Employment contract"\n\nSearch scope: 1 Document the User picked\n\nSummarise this document\.$/,
     );
   });
 
@@ -118,7 +118,9 @@ describe("The Documents on screen in the assistant", { timeout: 30_000 }, () => 
     await again([nda]);
     await again();
 
-    expect(lastSent(model, 1)).toMatch(/(?:^|\n\n)On screen now: "Mutual NDA"\n\nWrite a short/);
+    expect(lastSent(model, 1)).toMatch(
+      /(?:^|\n\n)On screen now: "Mutual NDA"\n\nSearch scope: All Documents \(2\)\n\nWrite a short/,
+    );
     expect(lastSent(model, 2)).not.toContain("On screen now");
     const { messages } = await core.getConversation(asked.conversation.id);
     expect(messages.find((message) => message.kind === "question")).not.toHaveProperty("onScreen");

@@ -675,6 +675,8 @@ interface ConversationContextOptions {
   changeStates?: ChangeStates;
   /** The names of the Documents open on screen, the focused group's first. */
   onScreen?: readonly string[];
+  /** What the Question's Search scope and the Folder in front are named, just before the Question (#2529). */
+  scopeLine?: string;
   ids?: ContextCitations;
   /** The pictures the User picked on pages to ask about (#118), sent with the Question. */
   pictures?: readonly AskedPicture[];
@@ -697,6 +699,7 @@ export function conversationContextOf(
     mindNames = () => null,
     changeStates,
     onScreen = [],
+    scopeLine = "",
     ids,
     pictures = [],
   }: ConversationContextOptions = {},
@@ -734,7 +737,7 @@ export function conversationContextOf(
       ...recorded,
     ];
   });
-  const asked = askedText(onScreen, mind?.selection ?? "", question);
+  const asked = askedText(onScreen, mind?.selection ?? "", question, scopeLine);
   const kept = keptWithinBudget(pieces.reverse(), budget - estimateTokens(asked));
   const withPictures = [...(mind?.pictures ?? []), ...pictures];
   return {
@@ -752,16 +755,19 @@ export function conversationContextOf(
 }
 
 /**
- * The end of the Question's message: the Documents on screen, the selection, then the Question.
- * With the Question, not the Mind: opening another Document then never changes what a prompt
- * cache keeps.
+ * The end of the Question's message: the Documents on screen, the selection, the Search scope,
+ * then the Question. With the Question, not the Mind: opening another Document then never
+ * changes what a prompt cache keeps.
  */
 export function askedText(
   onScreen: readonly string[],
   selection: string,
   question: string,
+  scopeLine = "",
 ): string {
-  return [onScreenLine(onScreen), selection, question].filter((part) => part !== "").join("\n\n");
+  return [onScreenLine(onScreen), selection, scopeLine, question]
+    .filter((part) => part !== "")
+    .join("\n\n");
 }
 
 /**

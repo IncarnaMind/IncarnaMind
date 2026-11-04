@@ -2253,6 +2253,13 @@ export function createCore(adapters: CoreAdapters): Core {
     workingCopyOf: (mindId) => wordImports.importedAsOf(mindId),
     searchedScope,
     mindFolder: (mindId) => (mindExists(mindId) ? minds.get(mindId).folderId : null),
+    scopeItemName,
+    libraryFolders: () =>
+      library.folders().map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        keepInside: folder.keepInside,
+      })),
     walledFolder,
     walledFolderId,
     walledDocuments,
