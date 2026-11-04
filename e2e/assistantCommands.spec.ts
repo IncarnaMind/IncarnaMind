@@ -4,6 +4,7 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   askInAssistant,
   assistantAnswers,
@@ -110,6 +111,20 @@ async function askAndWait(window: Page, question: string): Promise<Locator> {
   const card = answers.last().getByTestId("approval-card");
   await expect(card).toBeVisible();
   return card;
+}
+
+// A small Organize on the local model asks nothing, so its answer goes straight to done (#2252).
+async function askAndFinish(window: Page, question: string): Promise<Locator> {
+  const answers = assistantAnswers(window);
+  const before = await answers.count();
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type(question);
+  await window.keyboard.press("Enter");
+  await expect(answers).toHaveCount(before + 1);
+  const answer = answers.last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(answer.getByTestId("approval-card")).toHaveCount(0);
+  return answer;
 }
 
 test("renaming by date, moving into a new Folder and tagging each happen at once, and one Undo takes each back", async () => {
@@ -530,7 +545,7 @@ test("a reply that says Local mode is on, though it was refused, keeps a line un
   await app.close();
 });
 
-test("put the documents about rent together: Organize reads them, they wait in To review, and nothing moves", async () => {
+test("put the documents about rent together files them, and one Undo puts them back", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -553,11 +568,17 @@ test("put the documents about rent together: Organize reads them, they wait in T
   await organizeWithTheFake(window);
   await newMind(window);
 
-  const answer = await askInAssistant(window, "Put the documents about rent together");
-
-  await expect(answer.getByTestId("command-changes-title")).toHaveText("Organized 3 Documents");
-  const line = answer.getByTestId("command-organize");
-  await expect(line).toContainText("2 wait in To review for “Rent”", { timeout: 30_000 });
+  const answer = await askAndFinish(window, "Put the documents about rent together");
+  const changes = answer.getByTestId("command-changes");
+  await expect(changes.getByTestId("command-changes-title")).toHaveText("Organized 2 Documents");
+  // Nothing is left waiting in To review: the User's request was the acceptance.
+  expect(
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { assignments } = await core.getLibrary();
+      return assignments.filter((each) => each.suggested).length;
+    }),
+  ).toBe(0);
   const placed = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     const [{ assignments, groups }, documents] = await Promise.all([
@@ -577,12 +598,274 @@ test("put the documents about rent together: Organize reads them, they wait in T
       .sort((a, b) => a.name.localeCompare(b.name));
   });
   expect(placed).toEqual([
-    { name: "Harbour Street", inRent: true, chosenByUser: false },
+    { name: "Harbour Street", inRent: true, chosenByUser: true },
     { name: "Q3 commentary", inRent: false, chosenByUser: false },
-    { name: "Scan 0042", inRent: true, chosenByUser: false },
+    { name: "Scan 0042", inRent: true, chosenByUser: true },
   ]);
-  await screenshot(window, "commands-organize-en");
-  await pointAndClick(window, line.getByTestId("command-organize-review"));
-  await expect(window.getByTestId("library-review")).toBeVisible();
+  await screenshot(window, "commands-organized-en");
+
+  await pointAndClick(window, changes.getByTestId("command-changes-undo"));
+  await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
+  await expect.poll(async () => (await foldersOf(window)).Rent ?? []).toEqual([]);
   await app.close();
 });
+
+test("the first cloud read for Organize asks on its card, and Allow is that consent", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await organizeWithTheFake(window);
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "fake-model",
+    });
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+      automatic: settings.automatic,
+    });
+    const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+    if (!flow) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", flow.flow.service.id);
+  });
+
+  const card = await askAndWait(window, "Re organise the files");
+  await expect(card).toHaveAttribute("data-reason", "organize");
+  await expect(card).toContainText("Organize 4 Documents into Folders?");
+  await expect(card).toContainText("Sends document names and excerpts to OpenAI.");
+  await expect(card).toContainText(
+    "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to OpenAI.",
+  );
+  await screenshot(window, "commands-organize-cloud-asks-en");
+  await setWindowSize(app, window, 900, 900);
+  await card.evaluate((each) => each.scrollIntoView({ block: "start" }));
+  await screenshot(window, "commands-organize-cloud-asks-en-narrow");
+  await setWindowSize(app, window, 1440, 900);
+  await pointAndClick(window, card.getByTestId("approval-allow-once"));
+
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("Organized 4 Documents");
+  const consent = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
+  });
+  expect(consent).toBe("accepted");
+  await app.close();
+});
+
+test("中文：第一次用云端整理时，卡片写明会发送什么，允许后记住同意", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window, "zh-CN");
+  await organizeWithTheFake(window);
+  await acceptPlainTextKeys(window);
+  await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "fake-model",
+    });
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+      automatic: settings.automatic,
+    });
+    const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+    if (!flow) throw new Error("No classification flow.");
+    await core.revokeConsent("classification", flow.flow.service.id);
+  });
+
+  const card = await askAndWait(window, "重新整理一下这些文件");
+  await expect(card).toHaveAttribute("data-reason", "organize");
+  await expect(card).toContainText("整理 4 个文档，放进文件夹？");
+  await expect(card).toContainText(
+    "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 OpenAI。",
+  );
+  // The card's Chinese sentences meet with full-width punctuation, never an ASCII space.
+  await expect(card).toContainText("可以用撤销恢复。会把文档名称和摘录发送给 OpenAI。");
+  await screenshot(window, "commands-organize-cloud-asks-zh");
+  await setWindowSize(app, window, 900, 900);
+  await card.evaluate((each) => each.scrollIntoView({ block: "start" }));
+  await screenshot(window, "commands-organize-cloud-asks-zh-narrow");
+  await setWindowSize(app, window, 1440, 900);
+  await pointAndClick(window, card.getByTestId("approval-allow-once"));
+
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  await expect(answer.getByTestId("command-changes-title")).toHaveText("整理了 4 个文档");
+  const consent = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listDataFlows()).find((each) => each.flow.id === "classification")?.consent;
+  });
+  expect(consent).toBe("accepted");
+  await app.close();
+});
+
+test("Re organise the files files every Document, and one Undo puts them back", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await organizeWithTheFake(window);
+
+  const answer = await askAndFinish(window, "Re organise the files");
+  const changes = answer.getByTestId("command-changes");
+  await expect(changes.getByTestId("command-changes-title")).toHaveText("Organized 4 Documents");
+  await expect
+    .poll(() => foldersOf(window))
+    .toEqual({
+      Lease: ["Lease Harbour Street", "Lease Mill Lane"],
+      Northwind: ["Northwind invoice April", "Northwind invoice March"],
+    });
+
+  await pointAndClick(window, changes.getByTestId("command-changes-undo"));
+  await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
+  await expect.poll(() => foldersOf(window)).toEqual({});
+  await app.close();
+});
+
+test("重新整理文件：整理完成后撤销一次就恢复原样", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window, "zh-CN");
+  await organizeWithTheFake(window);
+
+  const answer = await askAndFinish(window, "重新整理一下这些文件");
+  const changes = answer.getByTestId("command-changes");
+  await expect(changes.getByTestId("command-changes-title")).toHaveText("整理了 4 个文档");
+  await expect
+    .poll(() => foldersOf(window))
+    .toEqual({
+      Lease: ["Lease Harbour Street", "Lease Mill Lane"],
+      Northwind: ["Northwind invoice April", "Northwind invoice March"],
+    });
+  await screenshot(window, "commands-organized-zh");
+
+  await pointAndClick(window, changes.getByTestId("command-changes-undo"));
+  await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
+  await expect.poll(() => foldersOf(window)).toEqual({});
+  await app.close();
+});
+
+test("Reduce the number of tags merges them after one Apply, and one Undo brings every Tag back", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window);
+  await tagSetUp(window, [
+    ["Harbour", "Harbours"],
+    ["Dock", "Docks"],
+  ]);
+
+  const card = await askAndWait(window, "Reduce the number of tags");
+  await expect(card).toHaveAttribute("data-kind", "command");
+  await expect(card).toHaveAttribute("data-reason", "merge");
+  await expect(card).toContainText("Merge 2 Tags?");
+  await expect(card.getByTestId("approval-file")).toHaveText([
+    "Docks → Dock",
+    "Harbours → Harbour",
+  ]);
+  await expect(card).toContainText(
+    "Each Tag’s Documents get the Tag beside it, and the Tags merged away go to Recently deleted. Undo brings them back.",
+  );
+  await expect(card.getByTestId("approval-allow-once")).toContainText("Apply");
+  await screenshot(window, "commands-tags-merge-asks-en");
+  await setWindowSize(app, window, 900, 900);
+  await screenshot(window, "commands-tags-merge-asks-en-narrow");
+  await setWindowSize(app, window, 1440, 900);
+  await pointAndClick(window, card.getByTestId("approval-allow-once"));
+
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  const changes = answer.getByTestId("command-changes");
+  await expect(changes.getByTestId("command-changes-title")).toHaveText("Merged 2 Tags");
+  await screenshot(window, "commands-tags-merged-en");
+  await expect.poll(async () => (await library(window)).tags).toContain("Harbour");
+  expect((await library(window)).tags).not.toContain("Harbours");
+  expect((await library(window)).tags).not.toContain("Docks");
+
+  await pointAndClick(window, changes.getByTestId("command-changes-undo"));
+  await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
+  await expect.poll(async () => (await library(window)).tags).toContain("Harbours");
+  await expect.poll(async () => (await library(window)).tags).toContain("Docks");
+  await app.close();
+});
+
+test("减少标签数量：确认一次就合并，撤销一次全部恢复", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setUp(app, window, "zh-CN");
+  await tagSetUp(window, [["港口", "港口区"]]);
+
+  const card = await askAndWait(window, "减少标签的数量");
+  await expect(card).toHaveAttribute("data-reason", "merge");
+  await expect(card).toContainText("将“港口区”合并到“港口”？");
+  await expect(card).toContainText(
+    "这些文档会打上“港口”标签，其他标签会移到回收站。可以用撤销恢复。",
+  );
+  await expect(card.getByTestId("approval-allow-once")).toContainText("应用");
+  await screenshot(window, "commands-tags-merge-asks-zh");
+  await setWindowSize(app, window, 900, 900);
+  await screenshot(window, "commands-tags-merge-asks-zh-narrow");
+  await setWindowSize(app, window, 1440, 900);
+  await pointAndClick(window, card.getByTestId("approval-allow-once"));
+
+  const answer = assistantAnswers(window).last();
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  const changes = answer.getByTestId("command-changes");
+  await expect(changes.getByTestId("command-changes-title")).toHaveText("已将“港口区”合并到“港口”");
+  await expect.poll(async () => (await library(window)).tags).toContain("港口");
+  expect((await library(window)).tags).not.toContain("港口区");
+  await screenshot(window, "commands-tags-merged-zh");
+
+  await pointAndClick(window, changes.getByTestId("command-changes-undo"));
+  await expect(changes.getByTestId("command-changes-undone")).toBeVisible();
+  await expect.poll(async () => (await library(window)).tags).toContain("港口区");
+  await app.close();
+});
+
+/** Each Folder's Documents, by name, sorted. */
+const foldersOf = (window: Page) =>
+  window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [library, documents] = await Promise.all([core.getLibrary(), core.listDocuments()]);
+    const names = new Map(documents.map((each) => [each.id, each.name]));
+    return Object.fromEntries(
+      library.groups.map((group) => [
+        group.name,
+        library.assignments
+          .filter((each) => each.groupId === group.id)
+          .map((each) => names.get(each.documentId) ?? "")
+          .sort(),
+      ]),
+    );
+  });
+
+/** Each pair is two Tags, the shorter a prefix of the longer, the first of them on a lease. */
+async function tagSetUp(window: Page, pairs: [string, string][]): Promise<void> {
+  await window.evaluate(async (all: [string, string][]) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const documents = await core.listDocuments();
+    const harbour = documents.find((each) => each.name === "Lease Harbour Street");
+    const mill = documents.find((each) => each.name === "Lease Mill Lane");
+    if (!harbour || !mill) throw new Error("The leases are missing.");
+    for (const [at, [kept, merged]] of all.entries()) {
+      const shorter = await core.createTag({ name: kept });
+      const longer = await core.createTag({ name: merged });
+      if (at === 0) {
+        await core.addTagToDocuments([harbour.id], shorter.id);
+        await core.addTagToDocuments([mill.id], longer.id);
+      }
+    }
+  }, pairs);
+}

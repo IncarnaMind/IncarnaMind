@@ -12,7 +12,13 @@ import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { setUpWithDocuments } from "../helpers/citations";
 import { manualClock } from "../helpers/core";
-import { type ModelCall, type ScriptedReply, scriptedModel } from "../helpers/models";
+import {
+  type GenerateCall,
+  type GeneratedReply,
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+} from "../helpers/models";
 
 /**
  * The assistant's commands are held to a Folder wall by what they declare they touch, and a
@@ -50,15 +56,21 @@ const WINDOW = "test-window";
 
 type Call = { tool: string; input: Record<string, unknown> };
 
-async function setUp(overrides: Partial<CoreAdapters> = {}) {
+async function setUp(
+  overrides: Partial<CoreAdapters> = {},
+  classify?: (call: GenerateCall) => GeneratedReply,
+) {
   let steps: Call[] = [];
   const calls: ModelCall[] = [];
-  const model = scriptedModel((call): ScriptedReply => {
-    calls.push(call);
-    const made = call.results.filter((each) => /^(?:list_commands|run_command)$/.test(each.tool));
-    const step = steps[made.length];
-    return step ? { calls: [step] } : { text: "Done." };
-  });
+  const model = scriptedModel(
+    (call): ScriptedReply => {
+      calls.push(call);
+      const made = call.results.filter((each) => /^(?:list_commands|run_command)$/.test(each.tool));
+      const step = steps[made.length];
+      return step ? { calls: [step] } : { text: "Done." };
+    },
+    classify ? { generate: classify } : {},
+  );
   const setup = await setUpWithDocuments(model, FILES, overrides);
   const { core } = setup;
   const lease = setup.documents.find((each) => each.name.startsWith("Client A"));
@@ -257,6 +269,73 @@ describe("the command gate denies by default what is behind another wall", () =>
     const folder = (await s.core.getLibrary()).groups.find((group) => group.id === s.folderA.id);
     expect(folder?.name).toBe("Client A");
     expect(folder?.keepInside).toBe(true);
+  });
+
+  test("from outside a wall it is never offered a walled Folder as a destination", async () => {
+    const offered: string[][] = [];
+    const s = await setUp({}, ({ prompt }) => {
+      const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+      if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+      offered.push(data.groups.map((each) => each.name));
+      const into =
+        data.groups.find((each) => each.name === "Client A") ??
+        data.groups.find((each) => each.name === "Office");
+      return { text: JSON.stringify({ groupId: into?.id ?? null, tags: [] }) };
+    });
+    const provider = (await s.core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await s.core.getLibrary()).settings;
+    await s.core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    const office = await s.core.createLibraryGroup({ name: "Office", description: "" });
+
+    await s.ask(s.outside.id, [
+      {
+        tool: "run_command",
+        input: { command: "documents.organize", folder: "Office", about: "General papers" },
+      },
+    ]);
+
+    expect(offered.length).toBeGreaterThan(0);
+    for (const names of offered) expect(names).not.toContain("Client A");
+    expect(await heldIn(s.core, office.id)).toEqual(["General memo: filed", "Late filing: filed"]);
+    expect(await heldIn(s.core, s.folderA.id)).toEqual(["Client A lease: filed"]);
+  });
+
+  test("from inside a wall only that Folder and its sub-Folders are offered as destinations", async () => {
+    const offered: string[][] = [];
+    const s = await setUp({}, ({ prompt }) => {
+      const data = JSON.parse(prompt) as { groups?: { id: string; name: string }[] };
+      if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+      offered.push(data.groups.map((each) => each.name));
+      const into = data.groups.find((each) => each.name === "Client A");
+      return { text: JSON.stringify({ groupId: into?.id ?? null, tags: [] }) };
+    });
+    const provider = (await s.core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await s.core.getLibrary()).settings;
+    await s.core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    const office = await s.core.createLibraryGroup({ name: "Office", description: "" });
+    await s.core.createLibraryGroup({
+      name: "Client A sub-Folder",
+      description: "",
+      parentId: s.folderA.id,
+    });
+
+    await s.ask(s.noteA.id, [
+      { tool: "run_command", input: { command: "documents.organize", ids: [s.lease.id] } },
+    ]);
+
+    expect(offered.length).toBeGreaterThan(0);
+    for (const names of offered)
+      expect([...names].sort()).toEqual(["Client A", "Client A sub-Folder"]);
+    expect(await heldIn(s.core, office.id)).toEqual([]);
+    expect(await heldIn(s.core, s.folderA.id)).toEqual(["Client A lease: filed"]);
   });
 
   test("Organize takes no Document behind a wall from outside, and nothing outside from inside", async () => {

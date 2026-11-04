@@ -52,6 +52,7 @@ export const yoursChecked = (
   final: false,
   recording: null,
   yours,
+  confirm: null,
   run: async () => ({
     done: { items: [], yours, ...(folder && { folder }) },
     step: null,
@@ -119,6 +120,7 @@ export function windowChecked(
     final: entry.final,
     recording: entry.recording,
     yours: null,
+    confirm: null,
     async run(_asking, signal) {
       const { clientId } = context;
       if (!window || clientId === null) {
