@@ -18,7 +18,7 @@ import { currentSigner, figureMarkOf, setFigureSignOffs } from "../../editor/sig
 import { exportFigureSchedule } from "../../exports";
 import { focusFigure, useFigureSchedule } from "../../figures";
 import { translateNow, useLanguage, useT } from "../../i18n";
-import { checkMind } from "../../mindCheck";
+import { startChangedCheckAsking, startFigureCheckAsking } from "../../mindCheck";
 import { openMindCopy } from "../../mindCopies";
 import { openCited, quoteSaysSo } from "../../openCited";
 import { useAppStore } from "../../store";
@@ -81,7 +81,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
   const keep = (ids: string[]) => {
     if (schedule) edit((note) => keepFigureViews(note, schedule, ids));
   };
-  const checkAgain = (figureIds: string[]) => void checkMind(mindId, "all", { figureIds });
+  const checkAgain = (figureIds: string[]) => void startFigureCheckAsking(mindId, figureIds);
   const signOff = (ids: string[], off: boolean) => {
     const signer = currentSigner();
     if (!copy || !schedule || !signer) return;
@@ -203,7 +203,7 @@ export function FigureScheduleTab({ mindId }: { mindId: string }) {
         onChangeToSource={(ids) => {
           if (!schedule) return;
           edit((note) => changeFiguresToSource(note, schedule, ids));
-          void checkMind(mindId, "changed");
+          void startChangedCheckAsking(mindId);
         }}
         onAddCitation={addCitation}
         onChooseCitation={(id) => {
