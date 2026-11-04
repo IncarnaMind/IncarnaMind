@@ -387,6 +387,9 @@ describe.skipIf(process.platform === "win32")("the paths a sandboxed program is 
     expect(await realFolders(join(root, "Data", "to-home"))).toBe(join(moved, "to-home"));
     expect(await realFolders(join(moved, "bin"))).toBe(join(moved, "bin"));
     expect(await realFolders(join(root, "Data"))).toBe(join(root, "Data"));
+    expect(await realFolders(join(root, "Data", "gone", "font.ttf"))).toBe(
+      join(root, "Data", "gone", "font.ttf"),
+    );
   });
 });
 

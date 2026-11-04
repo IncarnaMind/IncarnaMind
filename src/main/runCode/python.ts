@@ -21,6 +21,7 @@ import { downloadModel, ModelDownloadError, progressReporter } from "../../core/
 import { STALL_MS } from "../../core/embedding/modelSources";
 import { WORKING_FOLDER } from "../../core/execution";
 import type { PythonRuntimeManifest } from "../../core/runCode";
+import { realFolders } from "../sandbox";
 import { unpackTarZst } from "./tar";
 
 export type { PythonRuntimeManifest };
@@ -146,12 +147,13 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
     const started = performance.now();
     await rm(fontCache, { recursive: true, force: true });
     await mkdir(fontCache, { recursive: true });
+    const cache = await realFolders(fontCache);
     const ran = await options.executor.run({
       command,
       args: ["-I", "-B", "-c", FIRST_IMPORT],
-      env: { MPLBACKEND: "Agg", MPLCONFIGDIR: fontCache, PYTHONIOENCODING: "utf-8" },
+      env: { MPLBACKEND: "Agg", MPLCONFIGDIR: cache, PYTHONIOENCODING: "utf-8" },
       // Only this import, IncarnaMind's own code, writes the font cache: a run gets a copy of it.
-      allow: { read: [fontCache], write: [WORKING_FOLDER, fontCache], network: "none" },
+      allow: { read: [cache], write: [WORKING_FOLDER, cache], network: "none" },
       timeoutMs: FIRST_IMPORT_MS,
       maxOutputBytes: 16 * 1024,
       environment: "minimal",

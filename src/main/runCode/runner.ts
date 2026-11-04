@@ -61,6 +61,7 @@ import {
   readAnalysisOutput,
 } from "../../shared/analysis";
 import type { UnitText } from "../../shared/units";
+import { realFolders } from "../sandbox";
 import type { PythonRuntime } from "./python";
 import runnerSource from "./runner.py?raw";
 
@@ -406,7 +407,9 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
         };
       }
       request.signal.throwIfAborted();
-      const run = await mkdtemp(join(options.tempDir, "incarnamind-code-"));
+      // Every path the code is handed, in its arguments, environment and job, names real folders.
+      const run = await realFolders(await mkdtemp(join(options.tempDir, "incarnamind-code-")));
+      const font = options.font === null ? null : await realFolders(options.font);
       const lib = join(run, "lib");
       const work = join(run, "work");
       const out = join(work, "out");
@@ -445,7 +448,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
             JSON.stringify({
               code: request.code,
               limits: ANALYSIS_LIMITS,
-              font: options.font,
+              font,
               tableMegabytes: TABLE_FILE_BYTES / 1024 / 1024,
               inputsFolder: join(run, "inputs"),
               result,
@@ -486,12 +489,7 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
             }),
           },
           allow: {
-            read: [
-              join(run, "inputs"),
-              lib,
-              WORKING_FOLDER,
-              ...(options.font ? [dirname(options.font)] : []),
-            ],
+            read: [join(run, "inputs"), lib, WORKING_FOLDER, ...(font ? [dirname(font)] : [])],
             write: [WORKING_FOLDER],
             network: "none",
           },

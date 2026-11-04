@@ -46,7 +46,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import type { ExecRequest, Executor, Logger, ProcessLauncher } from "../core";
@@ -325,6 +325,25 @@ async function findCommand(command: string, path: string | undefined, cwd: strin
 }
 
 /**
+ * `path` with each folder on its way resolved, and its own name as given. A program in the
+ * sandbox can't follow a link the profile denies (macOS's /tmp is one, into /private; a data
+ * folder linked back from the home is another), so every path it is handed names the real
+ * folders. A name that is itself a link stays the link, as an allowed one is in sandbox-runtime's
+ * profile: what it points at is never opened by it. A path whose folder isn't there has no link
+ * to follow, and stays as given.
+ */
+export async function realFolders(path: string): Promise<string> {
+  const folder = dirname(path);
+  if (folder === path) return path;
+  try {
+    return join(await realpath(folder), basename(path));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return path;
+    throw error;
+  }
+}
+
+/**
  * Where the interpreter at `command` is installed, to read even inside a
  * denied folder: the folder above the one it is in (`<prefix>` of
  * `<prefix>/bin/python3`; the app bundle's Contents for Electron), else the
@@ -419,9 +438,12 @@ function osConfinement(
         );
       }
       const env = { ...(await options.environment()), ...request.env };
-      const command = await findCommand(request.command, env.PATH, workingFolder);
+      const command = await realFolders(
+        await findCommand(request.command, env.PATH, workingFolder),
+      );
+      const working = await realFolders(workingFolder);
       const paths = (folders: ExecRequest["allow"]["read"]) =>
-        folders.map((folder) => folderPath(folder, workingFolder));
+        folders.map((folder) => folderPath(folder, working));
       const config: Partial<SandboxRuntimeConfig> = {
         network: NO_NETWORK,
         filesystem: {
@@ -436,7 +458,7 @@ function osConfinement(
         },
       };
       const script = [
-        `export TMPDIR=${quote(workingFolder)}`,
+        `export TMPDIR=${quote(working)}`,
         ...(await limitLines(request.limits)),
         `exec ${[command, ...request.args].map(quote).join(" ")}`,
       ].join("; ");
