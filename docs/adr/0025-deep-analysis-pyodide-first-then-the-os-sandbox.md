@@ -167,12 +167,13 @@ On the M2 Max used for ADR-0023, with macOS 26.5, Electron 44.9.1 and Pyodide 31
 
 | | `main` | With printed numbers marked |
 |---|---|---|
-| Numbers the reply typed that its code printed, unmarked | 18, in 7 of 10 replies | none |
-| Numbers its code printed, reaching the Answer as figures calculated by code | none | 12, in 7 of 10 replies |
-| Spend | $0.032 | $0.032 |
+| Numbers the reply typed that its code printed, unmarked | 26, in 7 of 10 replies | none |
+| Numbers its code printed, reaching the Answer as figures calculated by code | none | 23, in 9 of 10 replies, each checked by hand against what was printed: all 23 genuine |
+| Spend | $0.033 | $0.037 |
 
-- Both count by the marking's own rule, which on the marked side comes to none by construction; a check by digits alone found there only numbers in inline code, in a cited quote and in a date.
-- Seven earlier runs, while the count and the rule were settled (an Analysis's own tables read as typed numbers; whole numbers, a run that failed after printing, a rounded print of a refused figure), cost $0.23; the nine came to $0.29.
+- Both count by the marking's own rule, which on the marked side comes to none by construction; a check by digits alone found there only a number written before its own figure's marker and an IP address.
+- An earlier pair, before the review's fixes, had 12 marks, 11 genuine: "below 100", the User's own threshold, was marked from a printed 74.5, which the rule for approximate numbers now refuses.
+- Nine earlier runs, while the count and the rule were settled, cost $0.29; the eleven came to $0.36.
 
 **Not measured:** Linux and Windows. On GitHub's ubuntu-24.04 runners, the OS sandbox's tests are skipped today (6 of 6 in the last green run on `main`), as `run_code`'s would be.
 
