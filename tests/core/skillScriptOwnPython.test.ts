@@ -17,7 +17,7 @@ import { answerEnded, askNew } from "../helpers/citations";
 import { createTempDataFolder, LOCAL_FETCH, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn } from "../helpers/minds";
-import { scriptedModel, scriptedModels } from "../helpers/models";
+import { answerRequests, scriptedModel, scriptedModels } from "../helpers/models";
 import { importSkill, simpleSkillMd, writeFolder } from "../helpers/skills";
 
 const MANIFEST: PythonRuntimeManifest = {
@@ -72,10 +72,25 @@ function whereModel() {
   return { model, results };
 }
 
+/** What the model was sent as each run_skill_script call's result. */
+function toldOfScripts(model: ReturnType<typeof whereModel>["model"]) {
+  const told: unknown[] = [];
+  for (const message of answerRequests(model).at(-1)?.prompt ?? []) {
+    if (message.role !== "tool") continue;
+    for (const part of message.content) {
+      if (part.type === "tool-result" && part.toolName === "run_skill_script") {
+        told.push(part.output);
+      }
+    }
+  }
+  return told;
+}
+
 async function setUp(
   options: {
     runtime?: { interpreter: string; ready?: boolean };
     scriptRuntimes?: CoreAdapters["scriptRuntimes"];
+    language?: "en" | "zh-CN";
   } = {},
 ) {
   const dataDir = await createTempDataFolder();
@@ -119,6 +134,7 @@ async function setUp(
     },
     ...(options.scriptRuntimes && { scriptRuntimes: options.scriptRuntimes }),
   });
+  if (options.language) await core.updateSettings({ user: { language: options.language } });
   await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   const skill = await importSkill(
     core,
@@ -142,7 +158,7 @@ async function setUp(
     const calls = JSON.parse(String(answerIn(client, answerId).attrs.toolCalls ?? "[]"));
     return (calls as AnswerToolCall[]).filter((call) => call.tool === "run_skill_script");
   }
-  return { core, own, skillDir, requests, fetched, results, runWhere };
+  return { core, own, skillDir, requests, fetched, results, model, runWhere };
 }
 
 const SKILL_ONLY = (skillDir: string) => ({
@@ -240,6 +256,42 @@ describe.skipIf(process.platform === "win32")(
       expect(results[0]).toContain("ValueError: no rows");
       expect(calls).toMatchObject([{ status: "failed", script: { exitCode: 1, error: null } }]);
     });
+
+    for (const [language, words] of [
+      [
+        "en",
+        "This Skill needs the Python package “zorblax_quant”, which isn’t included in IncarnaMind.",
+      ],
+      ["zh-CN", "这个技能需要 Python 包“zorblax_quant”，IncarnaMind 未包含这个包。"],
+    ] as const) {
+      test(`a package it doesn't include is a plain Problem on the card and for the model, with nothing the script wrote (${language})`, async () => {
+        const { skillDir, model, results, runWhere } = await setUp({
+          language,
+          runtime: {
+            interpreter: shell(
+              'case " $* " in *" -c "*) exit 0 ;; esac',
+              'echo "Read 12 rows."',
+              'echo "Traceback (most recent call last):" >&2',
+              'echo "  File \\"$6\\", line 1, in <module>" >&2',
+              `echo "ModuleNotFoundError: No module named 'zorblax_quant.models'" >&2`,
+              "exit 1",
+            ),
+          },
+        });
+
+        const calls = await runWhere();
+
+        expect(calls).toMatchObject([
+          { status: "failed", script: { exitCode: null, stdout: "", stderr: "", error: words } },
+        ]);
+        // A failed Tool call reaches the model as an error, as every one does.
+        expect(toldOfScripts(model)).toEqual([{ type: "error-text", value: `Error: ${words}` }]);
+        expect(results[0]).toBe(`Error: ${words}`);
+        for (const raw of ["Traceback", "ModuleNotFoundError", "Read 12 rows", skillDir]) {
+          expect(results[0]).not.toContain(raw);
+        }
+      });
+    }
 
     test("on Windows the script runs on python from the PATH, as before", async () => {
       const { skillDir, requests, results, runWhere } = await setUp({

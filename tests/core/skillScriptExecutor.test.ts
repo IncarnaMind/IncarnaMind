@@ -61,6 +61,9 @@ const OWN = {
   prefix: "/data/runtimes/python-0123456789abcdef/files/python",
 };
 
+/** IncarnaMind's own Python started again with nothing to run, to see whether it starts. */
+const startCheck = (request: ExecRequest) => request.args.includes("-c");
+
 /** A run of the toolbox's echo script, with what the case changes. */
 const toRun = (overrides: Partial<ScriptToRun>): ScriptToRun => ({
   skillDir: SKILL_DIR,
@@ -68,6 +71,7 @@ const toRun = (overrides: Partial<ScriptToRun>): ScriptToRun => ({
   args: [],
   timeoutMs: 5_000,
   signal: new AbortController().signal,
+  language: "en",
   ...overrides,
 });
 
@@ -275,7 +279,6 @@ describe("The script runner asks the Executor", () => {
       ].join("\n"),
     };
     const FAILED = { ...RAN, exitCode: 1, stdout: "", stderr: "ValueError: no rows\n" };
-    const startCheck = (request: ExecRequest) => request.args.includes("-c");
     const ownRunner = (respond: (request: ExecRequest) => Promise<ExecResult>) => {
       const { executor, requests } = fakeExecutor("os", respond);
       const scripts = createScriptRunner({
@@ -387,6 +390,103 @@ describe("The script runner asks the Executor", () => {
         error: null,
       });
       expect(requests).toHaveLength(1);
+    });
+  });
+
+  describe("A package IncarnaMind's own Python doesn't include", () => {
+    const failedOn = (last: string, exitCode = 1): ExecResult => ({
+      ...RAN,
+      exitCode,
+      stdout: "Read 12 rows.\n",
+      stderr: [
+        "Traceback (most recent call last):",
+        '  File "/data/skills/toolbox-id/scripts/hello.py", line 2, in <module>',
+        "    import zorblax_quant.models",
+        last,
+        "",
+      ].join("\n"),
+    });
+    const onOwn = (result: ExecResult) => {
+      const { executor } = fakeExecutor("os", async (request) =>
+        startCheck(request) ? RAN : result,
+      );
+      return createScriptRunner({ executor, runtimes: { platform: "linux" }, python: () => OWN });
+    };
+    const ran = async (result: ExecResult, scripts = onOwn(result)) =>
+      expect(await scripts.run(toRun({ script: "scripts/hello.py" }))).toStrictEqual({
+        ...result,
+        error: null,
+      });
+
+    test("is a plain Problem naming its top-level package, in the interface's language, with nothing the script wrote", async () => {
+      const scripts = onOwn(
+        failedOn("ModuleNotFoundError: No module named 'zorblax_quant.models'"),
+      );
+
+      await expect(scripts.run(toRun({ script: "scripts/hello.py" }))).rejects.toMatchObject({
+        message:
+          "This Skill needs the Python package “zorblax_quant”, which isn’t included in IncarnaMind.",
+      });
+      await expect(
+        scripts.run(toRun({ script: "scripts/hello.py", language: "zh-CN" })),
+      ).rejects.toMatchObject({
+        message: "这个技能需要 Python 包“zorblax_quant”，IncarnaMind 未包含这个包。",
+      });
+      await expect(
+        onOwn(failedOn("ImportError: No module named zorblax")).run(
+          toRun({ script: "scripts/hello.py" }),
+        ),
+      ).rejects.toMatchObject({
+        message:
+          "This Skill needs the Python package “zorblax”, which isn’t included in IncarnaMind.",
+      });
+      const longest = "z".repeat(64);
+      await expect(
+        onOwn(failedOn(`ModuleNotFoundError: No module named '${longest}'`)).run(
+          toRun({ script: "scripts/hello.py" }),
+        ),
+      ).rejects.toMatchObject({
+        message: `This Skill needs the Python package “${longest}”, which isn’t included in IncarnaMind.`,
+      });
+    });
+
+    test("a script that caught it and ended well, one that failed otherwise, and one on python3 come back as they ran", async () => {
+      await ran(failedOn("ModuleNotFoundError: No module named 'zorblax_quant'", 0));
+      await ran(
+        failedOn(
+          "ValueError: ModuleNotFoundError: No module named 'zorblax_quant' was in the input",
+        ),
+      );
+      const onPath = failedOn("ModuleNotFoundError: No module named 'zorblax_quant'");
+      const { executor } = fakeExecutor("os", async () => onPath);
+      await ran(onPath, createScriptRunner({ executor, runtimes: { platform: "linux" } }));
+    });
+
+    test("only the last line of its error output counts", async () => {
+      const result = failedOn("ValueError: no rows");
+      await ran({
+        ...result,
+        stderr: [
+          "ModuleNotFoundError: No module named 'zorblax_quant'",
+          "",
+          "During handling of the above exception, another exception occurred:",
+          "",
+          result.stderr,
+        ].join("\n"),
+      });
+    });
+
+    test("a name that isn't a plain module name comes back as it ran", async () => {
+      for (const name of [
+        "z".repeat(65),
+        "zorb-lax",
+        "../../etc/passwd",
+        "zorblax quant",
+        "zörblax",
+        "",
+      ]) {
+        await ran(failedOn(`ModuleNotFoundError: No module named '${name}'`));
+      }
     });
   });
 

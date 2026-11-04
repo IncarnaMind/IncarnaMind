@@ -4173,6 +4173,7 @@ export const zhCN = {
   "scripts.call.running": "正在运行 {script}（{skill}）…",
   "scripts.call.denied": "未允许：{script}（{skill}）",
   "scripts.call.cantRun": "无法运行 {script}（{skill}）",
+  "scripts.call.missingPackage": "这个技能需要 Python 包“{package}”，IncarnaMind 未包含这个包。",
   "scripts.call.timedOut": "{script}（{skill}）运行超时，已停止",
   "scripts.call.exited": "已运行 {script}（{skill}）：退出码 {code}",
   "scripts.call.stopped": "{script}（{skill}）已停止",

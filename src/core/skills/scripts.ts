@@ -12,7 +12,9 @@
  *   and so does an interpreter that isn't installed, naming what to install.
  * - IncarnaMind's own Python that can't start is said so, and the script
  *   isn't run on `python3` instead: it would see other packages than the
- *   locked ones, without the User knowing.
+ *   locked ones, without the User knowing. A script that stops at importing a
+ *   package it doesn't include is a Problem naming the package, never its
+ *   traceback.
  * - The script finds its Skill's folder in the `SKILL_DIR` environment variable.
  * - The core's `Executor` (see ../execution) runs it: in a new, empty
  *   temporary working folder, removed afterwards; with no input, until it
@@ -30,9 +32,11 @@
  * reaching the network (see `access`). That is why each run asks first.
  */
 import { join } from "node:path";
+import { translate } from "../../shared/i18n";
 import type { ExecAllow, ExecRequest, Executor, ScriptRuntimes } from "../adapters";
 import { SKILL_SCRIPT_LIMITS, type SkillScriptRun } from "../api";
 import { declaredAccess, type ExecAccess, WORKING_FOLDER } from "../execution";
+import type { Language } from "../language";
 import type { InstalledPython } from "../runCode";
 
 /**
@@ -65,6 +69,8 @@ export interface ScriptToRun {
   timeoutMs: number;
   /** Stops the script, e.g. when the User stops the Answer. */
   signal: AbortSignal;
+  /** The interface's, which a Problem the User reads on the script's card is written in. */
+  language: Language;
 }
 
 export interface ScriptRunnerOptions {
@@ -264,6 +270,20 @@ async function whyOwnPythonFails(executor: Executor, check: ExecRequest): Promis
   return ran.exitCode === null ? "the system stopped it." : `it exited with code ${ran.exitCode}.`;
 }
 
+/**
+ * The package a script couldn't import, when the last line of its error output is that import's
+ * error, or null. The name is the script's own text: only a plain top-level module name is ever
+ * shown, and nothing else it wrote.
+ */
+function missingPackage(stderr: string): string | null {
+  const last = stderr.trimEnd().split("\n").at(-1)?.trim() ?? "";
+  const named =
+    /^ModuleNotFoundError: No module named '([^']*)'$/.exec(last)?.[1] ??
+    /^ImportError: No module named '?([^'\s]*)'?$/.exec(last)?.[1];
+  const top = named?.split(".")[0] ?? "";
+  return /^[A-Za-z0-9_]{1,64}$/.test(top) ? top : null;
+}
+
 export function createScriptRunner(options: ScriptRunnerOptions) {
   const { executor } = options;
   const runtimes = runtimesFrom(options.runtimes);
@@ -323,6 +343,12 @@ export function createScriptRunner(options: ScriptRunnerOptions) {
             timeoutMs: START_CHECK_MS,
           });
           if (why !== null && !signal.aborted) throw ownPythonCantStart(request.script, why);
+          const missing = missingPackage(run.stderr);
+          if (missing !== null) {
+            throw new SkillScriptError(
+              translate(request.language, "scripts.call.missingPackage", { package: missing }),
+            );
+          }
         }
         // Field by field: the card stores exactly these in the Mind.
         return {

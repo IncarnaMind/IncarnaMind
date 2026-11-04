@@ -2288,6 +2288,7 @@ export function createAnswers(options: AnswersOptions) {
           args,
           timeoutMs: timeoutSeconds * 1000,
           signal: AbortSignal.any([signal, controller.signal]),
+          language: options.interfaceLanguage(),
         });
       } catch (error) {
         return cantRun(toolCallId, error);

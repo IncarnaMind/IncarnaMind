@@ -860,6 +860,7 @@ describe.skipIf(unavailable !== undefined || !runtimeFolder)(
         args: [homeCanary],
         timeoutMs: 60_000,
         signal: new AbortController().signal,
+        language: "en",
       });
 
       expect(run).toMatchObject({ exitCode: 0, error: null });
@@ -869,6 +870,24 @@ describe.skipIf(unavailable !== undefined || !runtimeFolder)(
         "1",
         "home: denied",
       ]);
+
+      await writeFile(
+        join(skillDir, "scripts", "forecast.py"),
+        "import numpy\nprint('Read 12 rows.')\nimport zorblax_quant.models\n",
+      );
+      await expect(
+        scripts.run({
+          skillDir,
+          script: "scripts/forecast.py",
+          args: [],
+          timeoutMs: 60_000,
+          signal: new AbortController().signal,
+          language: "en",
+        }),
+      ).rejects.toMatchObject({
+        message:
+          "This Skill needs the Python package “zorblax_quant”, which isn’t included in IncarnaMind.",
+      });
     }, 120_000);
   },
 );
