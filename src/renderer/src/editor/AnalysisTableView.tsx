@@ -179,7 +179,7 @@ export function AnalysisTableCard({ title, shown }: { title: string; shown: Anal
       {shown.columns.map((column) => (
         <div
           key={column.column}
-          className="calculated-figure-input"
+          className="calculated-figure-input analysis-table-column"
           data-testid="analysis-table-column"
         >
           <p>{columnLine(column, language)}</p>

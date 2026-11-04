@@ -362,11 +362,12 @@ for (const language of ["en", "zh-CN"] as const) {
       ]);
       const evidence = process.env.INCARNAMIND_ANALYSIS_EVIDENCE_DIR;
       if (evidence) {
+        await expect(card).toHaveCSS("opacity", "1");
         await window.screenshot({ path: join(evidence, `${language}-note-table-wide.png`) });
         await window.keyboard.press("Escape");
         await setWindowSize(app, window, 900, 660);
         await pointAndClick(window, marker.locator("button"));
-        await expect(card).toBeVisible();
+        await expect(card).toHaveCSS("opacity", "1");
         await window.screenshot({ path: join(evidence, `${language}-note-table-narrow.png`) });
         await setWindowSize(app, window, 1200, 660);
       }

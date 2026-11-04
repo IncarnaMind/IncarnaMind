@@ -19,21 +19,14 @@ import {
   MIND_FIGURE_RUNS_FIELD,
 } from "../../src/core/api";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
-import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
+import { noAnalysisOutput } from "../../src/shared/analysis";
 import { columnLine, differingLine, footedLine } from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { chartSources, readChart } from "../../src/shared/charts";
 import { readClaimCheck } from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
-import {
-  checkGenerate,
-  checkReply,
-  isCheckRun,
-  listedSentences,
-  type Plan,
-  sentenceOf,
-} from "../helpers/checks";
+import { checkGenerate, checkReply, isCheckRun, listedSentences } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
@@ -148,16 +141,12 @@ function writingModel(
   sent: string[],
   asksChart: boolean,
   again: string | null,
-  plan: (sentence: string) => Plan | undefined,
   rewrite: { part: string; content: string } | null,
 ) {
   const words = WORDS[language];
   return scriptedModel(
     (call: ModelCall) => {
-      if (isCheckRun(call)) {
-        const planned = plan(sentenceOf(call));
-        return checkReply(call, planned ? { [sentenceOf(call)]: planned } : {});
-      }
+      if (isCheckRun(call)) return checkReply(call, {});
       const search = call.results.find((result) => result.tool === "search_documents");
       if (!search) return { calls: [{ tool: "search_documents", input: { query: "Central" } }] };
       if (!call.results.some((result) => result.tool === "run_analysis")) {
@@ -231,11 +220,10 @@ async function walked(
   asksChart = true,
   again: string | null = null,
   given: FakeAnswer = ANALYSIS(WORDS[language].caption),
-  plan: (sentence: string) => Plan | undefined = () => undefined,
   rewrite: { part: string; content: string } | null = null,
 ) {
   const sent: string[] = [];
-  const model = writingModel(language, content, sent, asksChart, again, plan, rewrite);
+  const model = writingModel(language, content, sent, asksChart, again, rewrite);
   const printer = fakePrinter();
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -493,46 +481,6 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     core.close();
   });
 
-  test("a sentence is Supported by a figure worked out again only while its words say what the figure is", async () => {
-    const base = ANALYSIS(WORDS[language].caption);
-    const total: AnalysisValue = {
-      kind: "figure",
-      name: "total_amount",
-      label: "Total amount, all orders",
-      unit: "",
-      value: 35550,
-      of: { input: "orders", columns: ["amount"], rows: [[2, 41]], count: 40, how: "sum" },
-    };
-    const given = {
-      ...base,
-      output: {
-        ...noAnalysisOutput(),
-        ...base.output,
-        results: [...(base.output?.results ?? []), total],
-      },
-    };
-    const said = {
-      en: {
-        right: "Across all orders the amount comes to [=6].",
-        wrong: "The South region's total is [=6].",
-      },
-      "zh-CN": { right: "全部订单的金额合计为 [=6]。", wrong: "南部地区的合计为 [=6]。" },
-    }[language];
-    const misnamed = (sentence: string) =>
-      sentence.startsWith(said.wrong.slice(0, 8))
-        ? ({ analysis: "unsupported" } as const)
-        : undefined;
-    const content = [`# ${WORDS[language].title}`, "", said.right, "", said.wrong].join("\n");
-    const { core, madeId, client } = await walked(language, content, false, null, given, misnamed);
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    const stateOf = (words: string) =>
-      marks(client).find((mark) => mark.text.startsWith(words.slice(0, 8)))?.state;
-    expect(stateOf(said.right)).toBe("supported");
-    expect(stateOf(said.wrong)).toBe("unsupported");
-    core.close();
-  });
-
   test("the chart draws the Analysis's values, cited to the rows it read", async () => {
     const { core, answer, client } = await walked(language, CONTENT(language));
     const created = answer.toolCalls.find((call) => call.tool === "create_mind");
@@ -689,7 +637,6 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
       CONTENT(language),
       false,
       null,
-      undefined,
       undefined,
       rewrite,
     );

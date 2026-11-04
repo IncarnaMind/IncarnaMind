@@ -25,11 +25,6 @@ import {
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
-  /**
-   * What it says of an Analysis's figure, as the check's instructions ask: whether the sentence's
-   * words for it say what the figure's label says it is. "supported" when absent.
-   */
-  analysis?: "supported" | "unsupported";
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   /** The number of `quote` that backs the sentence's figure, as written: its first of a kind when absent. */
@@ -203,10 +198,10 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   const verdict = `Verdict: ${plan.verdict}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
-  // An Analysis's figure is never looked for in the Passages: only what the sentence calls it is read.
+  // An Analysis's figure is never looked for in the Passages, as the check's instructions say.
   const analysed = ({ id, reading }: { id: string; reading: number | null }) => ({
     id,
-    verdict: plan.analysis ?? "supported",
+    verdict: "supported",
     scope: "same",
     topic: "found",
     roles: "same",

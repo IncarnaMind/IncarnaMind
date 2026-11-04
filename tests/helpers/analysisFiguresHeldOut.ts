@@ -83,6 +83,8 @@ export function shipmentsReference(): Map<string, number> {
     }
   known.set("all:count", SHIPMENTS.length);
   known.set("all:cost:sum", sum(SHIPMENTS.map((each) => each.cost)));
+  known.set("all:cost:mean", sum(SHIPMENTS.map((each) => each.cost)) / SHIPMENTS.length);
+  known.set("all:weight:sum", sum(SHIPMENTS.map((each) => each.weight)));
   known.set("all:weight:mean", sum(SHIPMENTS.map((each) => each.weight)) / SHIPMENTS.length);
   known.set("all:cost:max", Math.max(...SHIPMENTS.map((each) => each.cost)));
   // Least squares of cost on weight, and its R squared.
