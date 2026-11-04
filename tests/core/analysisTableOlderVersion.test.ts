@@ -1,8 +1,8 @@
 /**
  * The content schema bump for an Analysis's table as one calculated object (#2378): a Mind written
- * at version 50, whose table of an Analysis's numbers is a typed table, opens and edits as it did,
+ * at version 51, whose table of an Analysis's numbers is a typed table, opens and edits as it did,
  * keeps that table typed and unbound, and nothing rewrites it until the User changes it; a change
- * records version 51.
+ * records version 52.
  */
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -36,8 +36,8 @@ const row = (kind: "tableHeader" | "tableCell", texts: readonly string[]): Y.Xml
   return element;
 };
 
-/** A Mind as version 50 wrote it: an Analysis's totals as a typed table, with no binding. */
-function version50State(): Uint8Array {
+/** A Mind as version 51 wrote it: an Analysis's totals as a typed table, with no binding. */
+function version51State(): Uint8Array {
   const doc = new Y.Doc();
   const table = new Y.XmlElement("table");
   table.setAttribute("id", "table-1");
@@ -47,7 +47,7 @@ function version50State(): Uint8Array {
     row("tableCell", ["North", "9,450"]),
   ]);
   doc.getXmlFragment(MIND_CONTENT_FIELD).push([table]);
-  doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, 50);
+  doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, 51);
   return Y.encodeStateAsUpdate(doc);
 }
 
@@ -83,15 +83,15 @@ const tableOf = (state: Uint8Array): Y.XmlElement | undefined =>
     );
 
 test("a Mind written before Analysis tables opens to edit, its table typed, and opening it rewrites nothing", async () => {
-  expect(CONTENT_SCHEMA_VERSION).toBe(51);
+  expect(CONTENT_SCHEMA_VERSION).toBe(52);
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Older" });
-  storeMind(dataDir, mind.id, version50State());
+  storeMind(dataDir, mind.id, version51State());
 
   const opened = await core.openMind(mind.id);
   expect(opened.access).toBe("edit");
-  expect(versionOf(opened.state)).toBe(50);
+  expect(versionOf(opened.state)).toBe(51);
   expect(tableOf(opened.state)?.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)).toBeUndefined();
   core.closeMind(mind.id);
   const again = await core.openMind(mind.id);
@@ -99,11 +99,11 @@ test("a Mind written before Analysis tables opens to edit, its table typed, and 
   core.close();
 });
 
-test("a change to a Mind written before Analysis tables records version 51", async () => {
+test("a change to a Mind written before Analysis tables records version 52", async () => {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Older" });
-  storeMind(dataDir, mind.id, version50State());
+  storeMind(dataDir, mind.id, version51State());
   const opened = await core.openMind(mind.id);
 
   const doc = docOf(opened.state);
@@ -116,7 +116,7 @@ test("a change to a Mind written before Analysis tables records version 51", asy
   if (!update) throw new Error("The edit made no update.");
   await core.applyMindUpdate(mind.id, update);
   const stored = await core.openMind(mind.id);
-  expect(versionOf(stored.state)).toBe(51);
+  expect(versionOf(stored.state)).toBe(52);
   expect(tableOf(stored.state)?.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)).toBeUndefined();
   core.close();
 });
@@ -125,7 +125,7 @@ test("a Mind a later version wrote opens read-only, so its table binding is neve
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Newer" });
-  const doc = docOf(version50State());
+  const doc = docOf(version51State());
   doc.getMap(MIND_SETTINGS_FIELD).set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
   storeMind(dataDir, mind.id, Y.encodeStateAsUpdate(doc));
   const opened = await core.openMind(mind.id);

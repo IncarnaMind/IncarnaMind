@@ -5,6 +5,7 @@ import { useT } from "../../i18n";
 import { selectedOn } from "../../selection";
 import { useAppStore } from "../../store";
 import { MoveToPicker } from "../MoveToPicker";
+import { focusStillWith } from "../useFocusReturn";
 
 interface MoveRequest {
   /** What the picker opens beside: the row's ⋯, or the selection bar's button. */
@@ -42,9 +43,12 @@ export function moveDocumentsBeside(
   });
 }
 
-/** The focus follows a Document moved to its row in the section it went to, if that shows it. */
-function focusRowOf(documentId: string | undefined): void {
-  if (!documentId) return;
+/**
+ * The focus follows a Document moved from the row `from` to its row in the section it went to,
+ * if that shows it.
+ */
+function focusRowOf(documentId: string | undefined, from: Element): void {
+  if (!documentId || !focusStillWith(from)) return;
   document
     .querySelector<HTMLElement>(
       `[data-surface="library"] [data-document-id="${CSS.escape(documentId)}"] [data-row-main]`,
@@ -77,9 +81,9 @@ export function DocumentMoveTo() {
       current={folders.size === 1 ? (current ?? null) : undefined}
       onChoose={(folderId) => {
         // From a row, the focus goes with what it moved; from the selection's bar, it stays there.
-        const fromRow = request.anchor.closest("[data-document-id]") != null && !request.keepFocus;
+        const fromRow = request.keepFocus ? null : request.anchor.closest("[data-document-id]");
         void moveIntoFolder({ documentIds: [...ids] }, folderId).then(() => {
-          if (fromRow) requestAnimationFrame(() => focusRowOf(only));
+          if (fromRow) requestAnimationFrame(() => focusRowOf(only, fromRow));
         });
       }}
       onCreate={(name) => void useAppStore.getState().createFolder({ documentIds: [...ids] }, name)}

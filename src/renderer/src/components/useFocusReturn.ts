@@ -82,6 +82,16 @@ export function giveFocusBack(
   return true;
 }
 
+/**
+ * Whether a change that lands a round trip after the User asked for it may still move the focus:
+ * only while nothing has it, or it is still inside `from`, where they asked. A place the User has
+ * given the focus since keeps it (#1741).
+ */
+export function focusStillWith(from: Element): boolean {
+  const focused = document.activeElement;
+  return !focused || focused === document.body || from.contains(focused);
+}
+
 /** Keeps what an overlay takes the focus from, to give it back when the overlay closes. */
 export function useFocusReturn(): FocusReturn {
   const remembered = useRef<Remembered | null>(null);

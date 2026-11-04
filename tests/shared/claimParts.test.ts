@@ -595,7 +595,15 @@ describe("one sentence projection", () => {
     expect(projected.parts?.[1]).toEqual(good);
     expect(resultFromParts(projected.parts ?? [])).toEqual(projected);
     const read = readClaimCheck({ ...mark([bad, good]), text, says: "An old conclusion." });
-    expect(read?.parts).toEqual(projected.parts);
+    // Read from its mark, each part was judged by the mark's model, when it was checked.
+    expect(read?.parts).toEqual(
+      projected.parts?.map((each) => ({
+        ...each,
+        checkedAt: "2026-10-28T00:00:00.000Z",
+        providerId: null,
+        modelId: null,
+      })),
+    );
     expect(read).toMatchObject({
       state: "not-checked",
       reason: "no-evidence",
@@ -938,6 +946,24 @@ describe.each(["Revenue 10. Profit 10. We should wait.", "收入10。利润10。
       pendingPart(omitted),
     ];
     const owner = (parts = checked()) => checkWithParts({ ...mark(), text: sentence }, parts);
+
+    // protects=a part with figures keeps the model and time that judged it through the sentence's result, so checking another part again doesn't rename it (#1667); fails_when=the figures' part takes the mark's model when its sentence is read; no_claim=none beyond protects.
+    test("a part with figures keeps the model and time that judged it", () => {
+      const judged = {
+        providerId: "anthropic",
+        modelId: "claude-haiku-5-5",
+        checkedAt: "2026-10-27T09:00:00.000Z",
+      };
+      const [firstPart, ...rest] = checked();
+      if (!firstPart) throw new Error("No first part.");
+      const written = owner([{ ...firstPart, ...judged }, ...rest]);
+      expect(written.parts?.[0]).toMatchObject(judged);
+      expect(readClaimCheck(JSON.parse(JSON.stringify(written)))?.parts?.[0]).toMatchObject(judged);
+      expect(written.parts?.[1]).toMatchObject({
+        modelId: null,
+        checkedAt: "2026-10-28T00:00:00.000Z",
+      });
+    });
 
     test("partitions repeated values by exact occurrence and round trips canonical native results", () => {
       expect(

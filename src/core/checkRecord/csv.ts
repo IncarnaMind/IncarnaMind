@@ -4,6 +4,7 @@ import type { Language } from "../language";
 import type { CheckRecord } from "./index";
 import {
   checkedBy,
+  checkersOf,
   KIND_LABELS,
   ORIGIN_LABELS,
   personCheck,
@@ -66,8 +67,20 @@ function recordCiteCounts(
   return [...byResult].map(([label, number]) => `${label} ${number}`).join("; ");
 }
 
+/** Each checker's model, service and time, in the same order in each column (#1667). */
+function checkerCells(item: RecordItem, t: Translator): (string | null)[] {
+  const checkers = checkersOf(item, t);
+  if (checkers.length === 0) return [null, null, null];
+  const column = (values: (string | null)[]) =>
+    values.every((value) => value === null) ? null : values.map((value) => value ?? "").join("; ");
+  return [
+    column(checkers.map((by) => by.name)),
+    column(checkers.map((by) => by.place)),
+    item.kind === "sentence" ? column(checkers.map((by) => by.at)) : null,
+  ];
+}
+
 function itemRow(item: RecordItem, t: Translator): (string | number | null)[] {
-  const by = checkedBy(item, t);
   const { evidence } = item;
   return [
     t(KIND_LABELS[item.kind]),
@@ -81,9 +94,7 @@ function itemRow(item: RecordItem, t: Translator): (string | number | null)[] {
     evidence?.location ?? null,
     evidence?.quote ?? null,
     item.says,
-    by?.name ?? null,
-    by?.place ?? null,
-    item.kind === "sentence" ? (item.check?.at ?? null) : null,
+    ...checkerCells(item, t),
     item.kind === "citation" ? personCheck(item.signOff, (at) => at, t) : null,
   ];
 }

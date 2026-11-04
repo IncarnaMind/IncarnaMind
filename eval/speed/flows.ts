@@ -107,6 +107,9 @@ export async function timed(
 
 const inLanguage = <T>(language: Language, words: Record<Language, T>): T => words[language];
 
+/** A Research Task of one step that takes longer than this is stopped and counted as failed. */
+const TASK_LIMIT_MS = 5 * 60_000;
+
 /** A Mind with these paragraphs, settled, and the ids of its paragraphs. */
 async function mindWith(core: Core, language: Language, paragraphs: readonly string[]) {
   const mind = await core.createMind({ title: inLanguage(language, BRIEFING) });
@@ -310,6 +313,57 @@ export const FLOWS: readonly Flow[] = [
           throw new Error(`Not started: ${JSON.stringify(started)}`);
         }
         await filled;
+      });
+    },
+  },
+  {
+    id: "research-task",
+    label: "A Research Task of one step from the Library, to its draft in the page",
+    async run({ core, language }) {
+      const { mindId } = await mindWith(core, language, [NOTES[language]]);
+      return timed(core, mindId, async () => {
+        const topic = inLanguage(language, {
+          en: "How the Vantrell report sets targets for financed emissions",
+          "zh-CN": "Vantrell 报告如何为融资排放设定目标",
+        });
+        let taskId: string | null = null;
+        const ended = new Promise<string>((resolve) => {
+          const stop = core.on("task.changed", (task) => {
+            if (task.id !== taskId || task.status === "running") return;
+            stop();
+            resolve(task.status === "done" ? "done" : `${task.status}: ${task.problem ?? ""}`);
+          });
+        });
+        const started = await core.startResearch({
+          mindId,
+          topic,
+          plan: {
+            title: topic,
+            steps: [
+              inLanguage(language, {
+                en: "Find the report's targets for financed emissions and the years they run to",
+                "zh-CN": "找出报告中融资排放的目标及其目标年份",
+              }),
+            ],
+          },
+          sources: { web: false, library: true },
+          writeInto: { mindId },
+          scope: { folderIds: [], tagIds: [], documentIds: [] },
+        });
+        if (!started.started) throw new Error(`Not started: ${JSON.stringify(started)}`);
+        const id = started.task.id;
+        taskId = id;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const late = new Promise<"late">((resolve) => {
+          timer = setTimeout(() => resolve("late"), TASK_LIMIT_MS);
+        });
+        const end = await Promise.race([ended, late]).finally(() => clearTimeout(timer));
+        if (end === "late") {
+          // Stopped, so a stream left open doesn't hold the run and its report back.
+          await core.stopTask(id);
+          throw new Error("The Research Task took too long.");
+        }
+        if (end !== "done") throw new Error(`The Task ended ${end}`);
       });
     },
   },

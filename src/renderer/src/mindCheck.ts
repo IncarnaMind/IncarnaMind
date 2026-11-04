@@ -111,16 +111,38 @@ function clearAsk(mindId: string): void {
   });
 }
 
-/** Not now: the question goes, and the Note is free for another window's Check. */
+/** Not now: the question goes as the User's no, and the Note is free for another window's Check. */
 export function dismissMindCheck(mindId: string): void {
-  void freeAskedNote(mindId);
+  void settleAskedNote(mindId, "declined");
 }
 
+/** The card closed on the question (Esc, ×, or the Note closing): it goes as closed, never Not now. */
+export function closeMindCheckAsk(mindId: string): void {
+  void settleAskedNote(mindId, "closed");
+}
+
+/**
+ * What closing the card does to the Note's question: a click into the page keeps it for the
+ * badge to reopen, while Esc, the badge's ×, and the Note closing close it.
+ */
+export function cardClosed(mindId: string, how: "escape" | "toggle" | "note" | "outside"): void {
+  if (how === "outside") return;
+  closeMindCheckAsk(mindId);
+}
+
+/**
+ * A Check that starts while a question waits (a second request, Check every sentence again, a
+ * retry): the question gives way as closed; the User never chose Not now.
+ */
 async function freeAskedNote(mindId: string): Promise<void> {
+  await settleAskedNote(mindId, "closed");
+}
+
+async function settleAskedNote(mindId: string, answer: "declined" | "closed"): Promise<void> {
   const asking = useMindCheck.getState().asking[mindId];
   clearAsk(mindId);
   if (!asking) return;
-  settle(asking.requestId, { kind: "declined" });
+  settle(asking.requestId, { kind: answer });
   await releaseHold(asking.requestId);
 }
 
@@ -135,7 +157,7 @@ async function releaseHold(requestId: string): Promise<void> {
 /** How a Check the window started ended: its result, a failure, or the question it asked. */
 type CheckEnd = CheckMindResult | { kind: "threw"; error: unknown };
 type CheckOutcome = CheckEnd | { kind: "asked"; requestId: string } | null;
-type CheckAnswer = CheckEnd | { kind: "declined" };
+type CheckAnswer = CheckEnd | { kind: "declined" } | { kind: "closed" };
 
 /** What each Check that asked a question comes to, by the request it asked for. */
 const answers = new Map<
@@ -536,16 +558,22 @@ export async function checkFromAssistant(
     ? await startMindCheck(mindId, "all")
     : await startCheckAsking(mindId);
   if (outcome?.kind === "asked") {
-    if (reply) throw new TranslatableError({ key: "mindCheck.waitingForOk" });
+    if (!reply) return;
+    endAs(await answerOf(outcome.requestId));
     return;
   }
   endAs(outcome ?? null);
 }
 
+/** What the Note's question comes to: its run's result, Not now, or the card closing first. */
+const answerOf = (requestId: string): Promise<CheckAnswer> =>
+  answers.get(requestId)?.promise ?? Promise.resolve({ kind: "closed" });
+
 /** Ends the assistant's Check as what it came to: only a run that checked is ever "Done". */
 function endAs(outcome: CheckAnswer | null): void {
   if (outcome === null) throw new TranslatableError({ key: "mindCheck.nothingToCheck" });
-  if (outcome.kind === "declined") throw new TranslatableError({ key: "commands.denied" });
+  if (outcome.kind === "declined") throw new TranslatableError({ key: "mindCheck.declined" });
+  if (outcome.kind === "closed") throw new TranslatableError({ key: "mindCheck.closed" });
   if (outcome.kind === "threw") {
     throw outcome.error instanceof Error
       ? outcome.error

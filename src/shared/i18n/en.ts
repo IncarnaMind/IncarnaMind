@@ -1109,6 +1109,9 @@ export const en = {
   "claim.card.label": "Sentence check: {state}. {sentence}",
   "claim.showCard": "Show the check for this sentence",
   "claim.sentence": "“{sentence}”",
+  "claim.checkedWith": "Checked with {model}, {when}",
+  "list.and": "{first} and {last}",
+  "list.separator": ", ",
   "claim.recordCites.label": "Record cites in this sentence",
   "claim.recordCites.partly": "Partly supported",
   "claim.recordCites.choose": "Choose a Document",
@@ -1452,6 +1455,8 @@ export const en = {
   "mindCheck.alreadyChecking": "Already checking this note",
   "mindCheck.nothingToCheck": "Nothing to check",
   "mindCheck.waitingForOk": "The check starts when you confirm it on the note.",
+  "mindCheck.declined": "The check didn’t run: you chose Not now on the note.",
+  "mindCheck.closed": "The check didn’t run: the question on the note was closed.",
   "mindCheck.every": "Check every sentence again",
   "mindCheck.changed.none": "Nothing changed",
   "mindCheck.unchanged": "Nothing changed since {when}",
@@ -2298,6 +2303,8 @@ export const en = {
   "tagging.problem.network": "Couldn’t tag: the AI model couldn’t be reached.",
   "tagging.problem.auth":
     "Couldn’t tag: the AI model’s service refused its key. Check it in Settings.",
+  "tagging.problem.api-key-unreadable":
+    "Couldn’t tag: the saved key can’t be read. Enter it again.",
   "tagging.problem.model":
     "Couldn’t tag: the AI model’s service doesn’t have this model. Choose another in Settings.",
   "tagging.problem.rate-limit":
@@ -2865,6 +2872,7 @@ export const en = {
   "providers.form.apiKey": "API key",
   "providers.form.apiKeyOptional": "API key (optional)",
   "providers.form.apiKeySaved": "A key is saved. Leave this empty to keep it.",
+  "providers.form.apiKeyUnreadable": "The saved key can’t be read. Enter it again.",
   "providers.form.keyRefused": "{provider} refused this key ({when}).",
   "providers.form.keyRefusedNow": "{provider} refused this key.",
   "providers.form.keyIs": "This is {service}’s key",
@@ -2929,6 +2937,7 @@ export const en = {
 
   "providers.test.ok": "Connected: the provider answered.",
   "providers.test.auth": "The key was refused. Check that it is correct and still active.",
+  "providers.test.api-key-unreadable": "The saved key can’t be read. Enter it again.",
   "providers.test.model": "The provider doesn’t know this model. Check its name.",
   "providers.test.rate-limit": "The provider is limiting requests for this key. Try again shortly.",
   "providers.test.network": "Couldn’t reach the server. Check its URL and your connection.",
@@ -2978,6 +2987,8 @@ export const en = {
   "providers.readiness.no-provider": "Asking needs an AI model. Your text doesn’t.",
   "providers.readiness.missing-api-key":
     "No API key for {service} on this device. Add it in Settings.",
+  "providers.readiness.api-key-unreadable":
+    "The saved API key for {service} on this device can’t be read. Enter it again.",
   "providers.readiness.consent-declined": "Questions are off: you chose not to send to {service}.",
   "providers.readiness.local-mode":
     "Not sent to {service}: “Keep everything on this computer” is on.",
@@ -3587,6 +3598,7 @@ export const en = {
   "models.providers.add": "Add a provider…",
   "models.providers.keySaved": "Key saved",
   "models.providers.noKey": "No key",
+  "models.providers.keyUnreadable": "Can’t be read. Enter it again.",
   "models.providers.onThisComputer": "On this computer",
   "models.providers.inMenu.one": "1 model in the menu",
   "models.providers.inMenu.other": "{count} models in the menu",
@@ -3700,6 +3712,7 @@ export const en = {
   "answer.offline.none": "Nothing in your Documents matched.",
   "answer.error.thisModel": "this model",
   "answer.error.auth": "The key for {model} was refused",
+  "answer.error.apiKeyUnreadable": "The saved key for {model} can’t be read",
   "answer.error.thisService": "This service",
   "answer.error.model": "{service} doesn’t know {model}",
   "answer.error.rate-limit": "{service} is limiting requests right now",
@@ -4346,7 +4359,6 @@ export const en = {
     "The sandbox for analyses and scripts can’t start on this computer: install {packages}, then restart IncarnaMind. Until then, analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
   "scripts.settings.problem.sandboxStart":
     "This computer doesn’t let IncarnaMind start a sandbox for analyses and scripts, so analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
-  "scripts.settings.sandboxPackages.and": "{first} and {last}",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 
@@ -5028,6 +5040,19 @@ export const en = {
   "unsaved.saveCopy.title": "Save a copy of the note",
   "unsaved.lost": "{count} changes made before IncarnaMind closed couldn’t be saved",
   "unsaved.lost.one": "1 change made before IncarnaMind closed couldn’t be saved",
+  "unexpectedEnd.app":
+    "IncarnaMind closed unexpectedly. Your last changes may not have been saved.",
+  "unexpectedEnd.window":
+    "This window stopped unexpectedly and reopened. Your last changes may not have been saved.",
+  "unexpectedEnd.window.short": "This window stopped unexpectedly and reopened.",
+  "unexpectedEnd.session":
+    "When Windows shut down or signed out, {count} changes hadn’t been saved yet. Everything else was kept.",
+  "unexpectedEnd.session.one":
+    "When Windows shut down or signed out, 1 change hadn’t been saved yet. Everything else was kept.",
+  "unexpectedEnd.session.note":
+    "When Windows shut down or signed out, {count} changes to “{name}” hadn’t been saved yet. Everything else was kept.",
+  "unexpectedEnd.session.note.one":
+    "When Windows shut down or signed out, 1 change to “{name}” hadn’t been saved yet. Everything else was kept.",
   "quit.unsaved.title": "{count} changes aren’t saved",
   "quit.unsaved.title.one": "1 change isn’t saved",
   "quit.unsaved.quit": "Quit anyway",

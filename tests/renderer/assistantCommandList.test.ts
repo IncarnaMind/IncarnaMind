@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { DEFAULT_ASSISTANT, type Mind, type WindowLayout } from "../../src/core/api";
+import { COMMAND_EXPORT_FORMATS } from "../../src/core/tools/commands/run";
 import type { Command } from "../../src/renderer/src/commands/registry";
 import {
   COMMAND_TARGETS,
@@ -505,6 +506,36 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
       expect(offered.get(id as OfferedCommand["id"])?.recording, id).toBe("starts");
     expect(offered.get("meeting.stop")?.recording).toBe("ends");
     expect(offered.get("mind.openBeside")?.yours).toBeNull();
+  });
+
+  // protects=the window's Export as… is never offered, so "export this note as a PDF into <folder>" goes to the core's mind.export, which takes the format and the folder and asks before saving outside the Output location; fails_when=one is offered, and runs into the Output location unasked; no_claim=the core's export.
+  test("Export as… is left to the core's export, which takes a format and a folder", () => {
+    offerEverything();
+    const offered = new Set(window.offeredCommands(null).map((entry) => entry.id));
+    for (const id of [
+      "mind.exportAs.docx",
+      "mind.exportAs.pdf",
+      "mind.exportAs.source-pack",
+      "mind.exportAs.html",
+      "mind.exportAs.share-page",
+      "mind.exportAs.markdown",
+    ])
+      expect(offered.has(id as OfferedCommand["id"]), id).toBe(false);
+    expect(offered.has("mind.export")).toBe(true);
+    expect(offered.has("mind.exportOptions")).toBe(true);
+  });
+
+  // protects=every format the window's Export as… saves, the core's export takes too, so leaving Export as… out takes no format away from the assistant; fails_when=the core's format list narrows; no_claim=the files each format makes.
+  test("the core's export takes every format Export as… saves", () => {
+    const formats = registry.commands
+      .all()
+      .flatMap((command) =>
+        command.id.startsWith("mind.exportAs.") ? [command.id.slice("mind.exportAs.".length)] : [],
+      )
+      .sort();
+    expect(formats).toEqual(["docx", "html", "markdown", "pdf", "share-page", "source-pack"]);
+    const taken: readonly string[] = COMMAND_EXPORT_FORMATS;
+    for (const format of formats) expect(taken, format).toContain(format);
   });
 
   // protects=what the core asks before running a window command comes from the real list's marks: every one that can turn recording on, can't be taken back or deletes asks, stopping a recording does only once the Answer read text the User didn't write, and the rest of what acts on the window runs at once; fails_when=a mark is lost between the list and the core's policy; no_claim=the card's words.
