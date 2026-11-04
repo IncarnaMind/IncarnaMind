@@ -125,6 +125,8 @@ const SURNAMES = new Set([
 const NEVER_IN_NAMES = new Set([
   ..."不未非无但须应可得经如若除及和或与的之由向对在于将已会事长理员人方部司公期内外前后上下等总",
 ]);
+/** What follows a surname to address someone, in place of their given name: 王先生, 王女士. */
+const TITLES = new Set(["先生", "女士", "小姐", "老师", "律师"]);
 
 function isChineseName(words: string): boolean {
   const characters = [...words.normalize("NFKC")];
@@ -134,6 +136,7 @@ function isChineseName(words: string): boolean {
     characters.length >= 2 &&
     characters.length <= 3 &&
     SURNAMES.has(surname) &&
+    !TITLES.has(characters.slice(1).join("")) &&
     characters.every((each) => /^\p{Script=Han}$/u.test(each) && !NEVER_IN_NAMES.has(each))
   );
 }
@@ -208,6 +211,33 @@ function clauseAround(text: string, at: number, end: number): { before: string; 
 const sameWords = (one: string, other: string): boolean =>
   tokensOf(one).join(" ") === tokensOf(other).join(" ");
 
+/** Words that say nothing of what a figure is of, so a sentence may put them otherwise than its quote. */
+const FUNCTION_WORDS = new Set(
+  "a an the of is are was were be been by with to for in on at as and or its this that".split(" "),
+);
+const FUNCTION_CHARACTERS = new Set([..."的为是与和"]);
+
+/** A word without the "s" of "pays" or "costs", so "pay" in the quote is the same word. */
+const stem = (word: string): string =>
+  word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
+
+/** The words of `text` that say what a figure is of: Latin words and Chinese characters. */
+function contentWords(text: string): Set<string> {
+  return new Set(
+    tokensOf(text).flatMap((token) => {
+      if (/^\p{Script=Han}$/u.test(token)) return FUNCTION_CHARACTERS.has(token) ? [] : [token];
+      const word = token.toLowerCase();
+      return /^\p{L}{2,}$/u.test(word) && !FUNCTION_WORDS.has(word) ? [stem(word)] : [];
+    }),
+  );
+}
+
+/** Whether every word of `mine` that says what a figure is of is one `quoted` has too. */
+function wordsWithin(mine: string, quoted: string): boolean {
+  const theirs = contentWords(quoted);
+  return [...contentWords(mine)].every((word) => theirs.has(word));
+}
+
 /** Which way a figure goes, or what it is: a rise or a fall, a loss or a profit. */
 const DIRECTIONS: readonly [string, RegExp][] = [
   [
@@ -226,13 +256,43 @@ const TIME_CHARACTERS = /[年月周日天晚]/gu;
 
 /** What comes just before a Chinese name: 负责人为李明, 由李明, 王芳和李明. */
 const BEFORE_A_NAME = /(?:^|[为是由与和及给向、，：:])\s*$/u;
+/** The word before an English name; one in capitals after "The" (the Deposit) is a defined term. */
+const BEFORE_AN_ENGLISH_NAME = /\b(?:is|by|to|from|with|of|and|named|between)\s+$/iu;
+
+/**
+ * Whether the figure `length` long at `at` in `text` is of what the quote's figure at `quotedAt`
+ * is of, `outside` being the rest of the sentence: the quote gives that one figure, so it can't be
+ * another thing's; every word before it in its clause is one the quote has before its figure (a
+ * bound, a negation, the thing measured); the words after it are the quote's (its unit); and its
+ * way and time words are the quote's.
+ */
+function measuredAsQuoted(
+  text: string,
+  at: number,
+  length: number,
+  outside: string,
+  quote: string,
+  quotedAt: number,
+): boolean {
+  const mine = clauseAround(text, at, at + length);
+  const quoted = clauseAround(quote, quotedAt, quotedAt + length);
+  const quotedDirections = directionsIn(quote);
+  const quotedTimes = new Set(quote.match(TIME_CHARACTERS));
+  return (
+    figuresIn(quote) === 1 &&
+    wordsWithin(mine.before, quoted.before) &&
+    sameWords(mine.after, quoted.after) &&
+    directionsIn(text).every((direction) => quotedDirections.includes(direction)) &&
+    (outside.match(TIME_CHARACTERS) ?? []).every((each) => quotedTimes.has(each))
+  );
+}
 
 /**
  * Whether the change writes only the value that differs, at `at` in `sentence`: a figure for a
- * figure from a quote that gives that one figure, so it can't be another thing's, with the words
- * that say what it measures (its unit, its way, its rate) as the quote has them; or a name for a
- * name, in the words that say whose name it is in the quote, which doesn't name the old one.
- * Anything more, such as a condition, a negation or another thing's name, keeps the sentence.
+ * figure, of what the quote's figure is of (`measuredAsQuoted`); or a name for a name, after a word
+ * that leads to one, with the words before and after it in its clause as the quote has them, which
+ * doesn't name the old one. Anything more, such as a condition, a negation or another thing's name,
+ * keeps the sentence.
  */
 function changesOnlyTheValue(
   sentence: string,
@@ -245,29 +305,50 @@ function changesOnlyTheValue(
   const quotedAt = quote.indexOf(to);
   if (old.length === 0 || next.length === 0 || quotedAt < 0) return false;
   const rewritten = sentence.slice(0, at) + to + sentence.slice(at + from.length);
+  const outside = sentence.slice(0, at) + sentence.slice(at + from.length);
+  if (isFigure(old) && isFigure(next)) {
+    return measuredAsQuoted(rewritten, at, to.length, outside, quote, quotedAt);
+  }
+  const before = sentence.slice(0, at);
+  const named =
+    (isName(from) && isName(to) && BEFORE_AN_ENGLISH_NAME.test(before)) ||
+    (isChineseName(from) && isChineseName(to) && BEFORE_A_NAME.test(before));
   const mine = clauseAround(rewritten, at, at + to.length);
   const quoted = clauseAround(quote, quotedAt, quotedAt + to.length);
-  if (isFigure(old) && isFigure(next)) {
-    const quotedDirections = directionsIn(quote);
-    const quotedTimes = new Set(quote.match(TIME_CHARACTERS));
-    const outside = sentence.slice(0, at) + sentence.slice(at + from.length);
-    return (
-      figuresIn(quote) === 1 &&
-      sameWords(mine.after, quoted.after) &&
-      directionsIn(rewritten).every((direction) => quotedDirections.includes(direction)) &&
-      (outside.match(TIME_CHARACTERS) ?? []).every((each) => quotedTimes.has(each))
-    );
-  }
-  const named =
-    (isName(from) && isName(to)) ||
-    (isChineseName(from) && isChineseName(to) && BEFORE_A_NAME.test(sentence.slice(0, at)));
-  return named && !quote.includes(from) && sameWords(mine.before, quoted.before);
+  return (
+    named &&
+    !quote.includes(from) &&
+    sameWords(mine.before, quoted.before) &&
+    sameWords(mine.after, quoted.after)
+  );
+}
+
+/**
+ * Whether `sentence` already gives the one figure `quote` gives, of what the quote gives it for,
+ * as a rewrite to that figure would have to: then the Documents give the same value.
+ */
+function givesTheQuotedValue(sentence: string, quote: string): boolean {
+  const figures = [...sentence.matchAll(FIGURES)];
+  const [figure] = figures;
+  if (figures.length !== 1 || !figure) return false;
+  const written = figure[0].trimEnd();
+  const at = figure.index ?? 0;
+  const quotedAt = quote.indexOf(written);
+  const outside = sentence.slice(0, at) + sentence.slice(at + written.length);
+  const quotedRates = ratesIn(quote);
+  return (
+    quotedAt >= 0 &&
+    measuredAsQuoted(sentence, at, written.length, outside, quote, quotedAt) &&
+    [...ratesIn(sentence)].every((rate) => quotedRates.has(rate)) &&
+    figuresAllQuoted(sentence, quote)
+  );
 }
 
 export type RewriteOutcome =
   | { kind: "rewritten"; correction: ClaimCorrection }
   | { kind: "kept" }
   | { kind: "same" }
+  | { kind: "none" }
   | { kind: "failed"; error: ProviderError };
 
 /** Past this, a rewrite nobody can stop gives up, so the Note's other fixes aren't held behind it. */
@@ -275,8 +356,8 @@ export const REWRITE_TIMEOUT_MS = 120_000;
 
 /**
  * The model's rewrite of `sentence` to what `evidence` quotes, as a correction of its old words,
- * when every rule holds; "same" when the model found nothing the quote gives otherwise; "kept"
- * when any rule doesn't hold.
+ * when every rule holds; "kept" when any rule doesn't hold. When the model found nothing to change:
+ * "same" when the sentence already gives the quote's figure (`givesTheQuotedValue`), else "none".
  */
 export function rewriteOf(
   sentence: string,
@@ -284,7 +365,9 @@ export function rewriteOf(
   evidence: Citation,
   documentDate: AnswerDocuments["documentDate"],
 ): RewriteOutcome {
-  if (/^\s*Change 1:\s*none\s*$/imu.test(reply)) return { kind: "same" };
+  if (/^\s*Change 1:\s*none\s*$/imu.test(reply)) {
+    return givesTheQuotedValue(sentence, evidence.quote) ? { kind: "same" } : { kind: "none" };
+  }
   const read = readChangeLines(reply);
   if (read?.choices.length !== 1) return { kind: "kept" };
   const found = correctionFor(

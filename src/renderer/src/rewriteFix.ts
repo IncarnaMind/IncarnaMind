@@ -61,6 +61,11 @@ function said(result: Exclude<RewriteFromDocumentsResult, { kind: "rewritten" }>
     case "same":
       useNotices.getState().confirm("claim.rewrite.same");
       return;
+    // Nothing failed, so no error's frame; but only the model found nothing to change, so the line
+    // never says the Documents agree.
+    case "none":
+      useNotices.getState().confirm("claim.rewrite.kept");
+      return;
     case "kept":
       showError(translateNow("claim.rewrite.kept"));
       return;
