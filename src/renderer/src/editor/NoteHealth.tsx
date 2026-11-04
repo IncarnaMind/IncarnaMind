@@ -44,7 +44,7 @@ import {
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
-import { CheckedWhen, RunningText } from "./MindCheckLine";
+import { CheckedWhen } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { OpinionsLine } from "./OpinionsLine";
 import { useOpinionChecks } from "./opinionChecks";
@@ -321,6 +321,11 @@ export function HealthCard({
   };
 
   const rows = ROWS.filter((part) => countOf(part) > 0);
+  // While a run is on, the note line carries the verdicts that have landed, not the run's
+  // progress: the foot shows that.
+  const landed = (["contradicted", "unsupported", "notFound", "found"] as const)
+    .filter((part) => countOf(part) > 0)
+    .map((part) => label(part, countOf(part)));
   const summary = healthSummary(health, {
     running: running !== undefined,
     problem: problem !== undefined,
@@ -442,28 +447,27 @@ export function HealthCard({
         />
       )}
       {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
-      {/* One line of note, in one place, from the moment the check starts: the sentence it is
-          on, then when it was checked. It stays once a run has started here: a run ends a moment
-          before its record reaches the Mind, and the line must not go in between. The card's
-          body keeps its opening height, so what is above it stays put as the run ends (#1312). */}
+      {/* One line of note, in one place, from the moment the check starts: what has landed so
+          far while it runs, then when it was checked. The foot carries the run's progress. It
+          stays once a run has started here: a run ends a moment before its record reaches the
+          Mind, and the line must not go in between. The card's body keeps its opening height, so
+          what is above it stays put as the run ends (#1312). */}
       {(running || checkedAll || ranHere) && (
         <div className="check-card-note">
-          {running ? (
-            <RunningText editor={editor} mindId={mindId} testId="card-progress" />
-          ) : (
-            // The health is counted a moment after the record lands: until no claim says it is
-            // being checked, the line would name a check a row still says is running (#2313).
-            checkedAll &&
-            health.checking.length === 0 && (
-              <CheckedWhen
-                run={checkedAll}
-                editor={editor}
-                doc={doc}
-                mindId={mindId}
-                unexamined={health.unexamined.length}
-              />
-            )
-          )}
+          {running
+            ? landed.length > 0 && <MetaLine parts={landed} />
+            : // The health is counted a moment after the record lands: until no claim says it is
+              // being checked, the line would name a check a row still says is running (#2313).
+              checkedAll &&
+              health.checking.length === 0 && (
+                <CheckedWhen
+                  run={checkedAll}
+                  editor={editor}
+                  doc={doc}
+                  mindId={mindId}
+                  unexamined={health.unexamined.length}
+                />
+              )}
         </div>
       )}
       {((smallModel && rows.length > 0) ||

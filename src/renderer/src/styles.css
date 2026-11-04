@@ -1635,9 +1635,10 @@
       outline-offset: 1px;
     }
   }
-  /* A running badge, or one whose card is open, keeps one width, so its words changing move
-     nothing; at rest it takes only its words' width, clear of the page's foot. The button fills
-     the pill, and its words start at one edge, so a change widens it without moving them. */
+  /* A running badge, or one showing a finished check, keeps one width, so its words changing move
+     nothing; at rest it takes only its words' width, clear of the page's foot, and opening the
+     card leaves it as it was. The button fills the pill, and its words start at one edge, so a
+     change widens it without moving them. */
   .check-badge[data-stable] {
     justify-content: flex-start;
     min-width: 252px;
@@ -1877,29 +1878,25 @@
     }
   }
   .check-card-progress {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0 4px;
+    display: grid;
     padding: 2px 8px 4px;
     font-variant-numeric: tabular-nums;
-  }
-  .check-card-stop {
-    padding: 0 4px;
-    border-radius: 4px;
-    font-weight: 600;
-    color: var(--color-ink-secondary);
-    outline: none;
 
-    &:hover,
-    &:focus-visible {
-      background: var(--color-hover);
-      color: var(--color-ink);
+    & > * {
+      grid-area: 1 / 1;
     }
-    &:focus-visible {
-      outline: 2px solid var(--color-accent);
-      outline-offset: 1px;
+    /* The room of every wording a run can show stays laid out under the line showing it. */
+    & > [data-hidden] {
+      visibility: hidden;
     }
+    & .meta-line {
+      margin: 0;
+      padding-left: 0;
+    }
+  }
+  /* The foot's Stop is the badge's own, in the line's height. */
+  .check-card-progress .check-badge-stop {
+    height: 20px;
   }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
