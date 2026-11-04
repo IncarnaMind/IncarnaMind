@@ -204,6 +204,12 @@ describe("a row's name on its mark", () => {
     expect(shortRowName("Abcdefghij Abcdefghij Abcdefg")).toBe("Abcdefghij Abcdefghij…");
   });
 
+  test("a long word of accented letters is cut between letters, never through one", () => {
+    const accented = "e\u0301";
+    expect(shortRowName(accented.repeat(14))).toBe(accented.repeat(14));
+    expect(shortRowName(accented.repeat(15))).toBe(`${accented.repeat(13)}…`);
+  });
+
   test("a cut never ends on the dot between two cells", () => {
     expect(shortRowName("Current liabilities due · Value added tax")).toBe(
       "Current liabilities due…",
