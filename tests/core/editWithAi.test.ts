@@ -597,9 +597,8 @@ describe("Edit with AI", () => {
 
     expect(await core.editWithAi(both("shorten"))).not.toHaveProperty("leftOut");
     await core.editWithAi(wholeParagraph(client, mind.id, third.attrs.id, "instruction", "Split"));
-    // "paragraph" replaced and three words added: four changes on three words, so it reads whole.
     expect(shownWithChanges(client)).toEqual([
-      "[-First paragraph.-]{+First and second, together.+}",
+      "First [-paragraph-]{+and second, together+}.",
       "- Second paragraph.",
       "[-Single-]{+One+} line.",
       "+ Another line.",
@@ -3758,7 +3757,7 @@ describe("How a change reads (#1028)", () => {
     },
   );
 
-  // protects=each word replaced, taken out or added counts once against the paragraph's old words, so a few words reworded with a sentence cut, 40% or more in all, read whole, as does a shortening that takes out most of a paragraph, and neither waits for the User; a few words swapped in a long paragraph, or words only added however many, read word by word (#1028, #2356); English and Chinese; fails_when=old and new words interleave through a paragraph mostly changed, a long addition reads whole, or the shortening waits; no_claim=what a real model writes.
+  // protects=only the paragraph's old words replaced or taken out count toward it written anew, so a few words reworded with a sentence cut, 40% or more in all, read whole, as does a shortening that takes out most of a paragraph, and neither waits for the User; a few words swapped in a long paragraph, or words only added however many, read word by word (#1028, #2356); English and Chinese; fails_when=old and new words interleave through a paragraph mostly changed, a long addition reads whole, or the shortening waits; no_claim=what a real model writes.
   test.each([
     {
       case: "en, two words reworded and a sentence cut",
@@ -6233,11 +6232,11 @@ describe("A rewrite of text marked as code (#2362)", () => {
     {
       case: "a paragraph with code written anew",
       content: [text("Check the build, then run "), code("npm test"), text(" before you push.")],
-      reply: "Check the build before you push.",
+      reply: "Build it first and push afterwards.",
       shown:
-        "[-Check the build, then run npm test before you push.-]{+Check the build before you push.+}",
+        "[-Check the build, then run npm test before you push.-]{+Build it first and push afterwards.+}",
       runs: ["-npm test"],
-      after: "Check the build before you push.",
+      after: "Build it first and push afterwards.",
     },
     {
       case: "code taken out in part",

@@ -1950,7 +1950,7 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     expect(shownWithChanges(client)).toEqual([after, ...each.lines.slice(1)]);
   });
 
-  // protects=how much of the User's text a change takes out is what it doesn't write back, however the paragraph reads: a paragraph that reads whole, struck and written again, but keeps most of its words applies at once ("Make my note shorter.", an amount changed with words added); English and Chinese; fails_when=the words it writes again count as taken out, so the change waits for the User; no_claim=how a real model words its reply.
+  // protects=how much of the User's text a change takes out is what it doesn't write back, however the paragraph reads: a paragraph that reads whole, struck and written again, but keeps most of its words applies at once ("Make my note shorter."); English and Chinese; fails_when=the words it writes again count as taken out, so the change waits for the User; no_claim=how a real model words its reply.
   test.each([
     {
       case: "en, a shortening",
@@ -1969,18 +1969,6 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
         "下季度我们计划在华南开设两个销售点。",
       ],
       after: "本季度销售额增长了百分之十二，主要来自华东新客户。",
-    },
-    {
-      case: "en, an amount changed with words added, the Note's only line",
-      asked: "Rent is 1,250 now, and say it's due on the first.",
-      lines: ["Rent is 1,200 a month."],
-      after: "Rent is 1,250 a month, due on the first.",
-    },
-    {
-      case: "zh, an amount changed with words added, the Note's only line",
-      asked: "房租改成1250元，再写上每月一号交。",
-      lines: ["房租每月1200元。"],
-      after: "房租每月1250元，每月一号交。",
     },
   ])(
     "a paragraph that reads whole but keeps most of its words applies at once: $case",
@@ -2007,55 +1995,67 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     },
   );
 
-  // protects=what decides that a change waits is the share of the User's text it takes out and doesn't write back, more than half, on both sides of the line: words reworded with a sentence cut, beside another paragraph (applies) or as the Note's only one (waits), and words reworded across a few kept words that the change strikes and writes again ("at", "and"; 点到) (#2356); English and Chinese; fails_when=the words written again count as taken out, the spaces and marks between them count as written back, or a change that takes out more than half applies at once; no_claim=how a real model words its reply.
+  // protects=what decides that a change waits is the share of the User's words it takes out and doesn't write back, more than half, on both sides of the line: words reworded with a sentence cut, beside another paragraph (applies) or as the Note's only one (waits), and words reworded across a few kept words that the change strikes and writes again ("at", "and"; 点到) (#2356); English and Chinese; fails_when=the words written again, or the spaces and marks of the text, count toward the share, or a change that takes out more than half applies at once; no_claim=how a real model words its reply.
   test.each([
     {
       case: "en, two words reworded and a sentence cut, beside a paragraph",
       lines: [BUDGET.en, EN_VISIT],
       after: "The board approved its budget on Tuesday. Catering costs about four hundred pounds.",
-      share: 0.32,
+      share: 0.27,
     },
     {
-      case: "en, the same as the Note's only paragraph",
+      case: "en, three words reworded and a sentence cut, as the Note's only paragraph",
       lines: [BUDGET.en],
-      after: "The board approved its budget on Tuesday. Catering costs about four hundred pounds.",
-      share: 0.56,
+      after: "The board approved its funds on Tuesday. Catering costs about four hundred pounds.",
+      share: 0.52,
     },
     {
       case: "zh, two words reworded and a sentence cut, beside a paragraph",
       lines: [BUDGET.zh, ZH_VISIT],
       after: "理事会周二批准了经费。餐饮费用大约四百英镑。",
-      share: 0.26,
+      share: 0.24,
     },
     {
       case: "zh, the same as the Note's only paragraph",
       lines: [BUDGET.zh],
       after: "理事会周二批准了经费。餐饮费用大约四百英镑。",
-      share: 0.56,
+      share: 0.52,
     },
     {
       case: "en, four words reworded across kept ones",
       lines: ["The office opens at nine and shuts at five on weekdays."],
       after: "The office starts at eight and closes at four on weekdays.",
-      share: 0.44,
+      share: 0.41,
     },
     {
       case: "en, four words reworded across kept ones, more of the line",
+      lines: ["It opens at nine and shuts at five daily."],
+      after: "It starts at eight and closes at four daily.",
+      share: 0.56,
+    },
+    {
+      case: "en, four words reworded across kept ones, a little under half of the line",
       lines: ["It opens at nine and shuts at five on weekdays."],
       after: "It starts at eight and closes at four on weekdays.",
-      share: 0.51,
+      share: 0.49,
     },
     {
       case: "zh, four words reworded across kept ones",
       lines: ["办公室上午九点到下午五点开放。"],
       after: "办公室早上八点到晚上四点开放。",
-      share: 0.47,
+      share: 0.43,
+    },
+    {
+      case: "zh, four words reworded across kept ones, half of the line",
+      lines: ["上午九点到下午五点都开放。"],
+      after: "早上八点到晚上四点都开放。",
+      share: 0.5,
     },
     {
       case: "zh, four words reworded across kept ones, more of the line",
       lines: ["上午九点到下午五点开放。"],
       after: "早上八点到晚上四点开放。",
-      share: 0.58,
+      share: 0.55,
     },
   ])("a change waits when it takes out more than half of the User's text: $case", async (each) => {
     const asked = "Tidy my note.";
