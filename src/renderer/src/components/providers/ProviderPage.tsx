@@ -19,7 +19,7 @@ import { formatDate } from "../../../../shared/dates";
 import type { MessageKey, MessageParams } from "../../../../shared/i18n";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
-import { estimateText, formatSpent, joinMeta, setAsideText } from "../../cost";
+import { formatSpent, joinMeta, perHundredAnswers, setAsideText } from "../../cost";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { type KeyRefusal, useKeyRefusals } from "../../keyRefusals";
@@ -570,7 +570,7 @@ function CostText({
     return <span data-testid="provider-model-cost">{t("models.provider.cost.free")}</span>;
   if (cost.kind === "plan")
     return <span data-testid="provider-model-cost">{t("models.provider.cost.plan")}</span>;
-  const about = estimateText(cost, null, t, language);
+  const about = perHundredAnswers(cost, t, language);
   if (!about) return null;
   const tip =
     checked &&
@@ -588,7 +588,7 @@ function CostText({
         aria-describedby={tip ? tipId : undefined}
         className="rounded-sm"
       >
-        {t("models.provider.cost.estimate", { cost: about })}
+        {about}
       </span>
       {tip && (
         <span id={tipId} className="sr-only">

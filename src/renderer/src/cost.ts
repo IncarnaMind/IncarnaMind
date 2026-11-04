@@ -75,6 +75,19 @@ export function reasonText(
     : t("claim.reason.read-budget.unknown");
 }
 
+/**
+ * A model's estimate where models are compared, per 100 Answers, so those under a cent an Answer
+ * still differ: "About $0.40 per 100 Answers". Null for one of exactly nothing.
+ */
+export function perHundredAnswers(
+  perAnswer: Money,
+  t: Translate,
+  language: Language,
+): string | null {
+  const cost = estimateText({ ...perAnswer, amount: perAnswer.amount * 100 }, null, t, language);
+  return cost && t("models.provider.cost.estimate", { cost });
+}
+
 /** Amounts in one or two currencies: "$3.20", "$3.20 and ¥1.40"; null for none. */
 export function formatSpent(
   spent: readonly Money[],
