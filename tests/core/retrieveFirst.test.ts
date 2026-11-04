@@ -58,7 +58,7 @@ function answering(more = 0) {
   });
 }
 
-/** As a model on both lists, as Claude Haiku 5.5 is: it writes the Answer, then cites it. */
+/** As a model on both lists: it writes the Answer, then cites it. */
 const setUp = (model: ReturnType<typeof scriptedModel>, retrieveFirst: boolean) =>
   setUpWithDocuments(model, [{ name: "Tides.md", contents: TIDES_MD }], {
     answerPaths: { retrievesFirst: () => retrieveFirst, writesThenCites: () => true },
@@ -108,7 +108,7 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
     );
   });
 
-  test("on Claude Haiku 5.5, as the list names it, answers from the Question's own search in one call", async () => {
+  test("on Claude Haiku 5.5, which the list no longer names, the model searches first itself", async () => {
     const model = answering();
     const { core, client, mind } = await setUpWithDocuments(model, [
       { name: "Tides.md", contents: TIDES_MD },
@@ -122,7 +122,8 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
 
     const { answerId } = await askAndFinish(core, client, mind.id, "When are spring tides?");
 
-    expect(model.doStreamCalls).toHaveLength(1);
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain("question-search");
+    expect(model.doStreamCalls).toHaveLength(2);
     expect(citationsIn(client, answerId)).toMatchObject([{ quote: SPRING, check: "found" }]);
   });
 
@@ -221,12 +222,12 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
       name: `Recipe ${at + 1}.md`,
       contents: `# Recipe ${at + 1}\n\nCream the butter and the sugar.`,
     }));
-    const requests = async (retrieveFirst: boolean | undefined) => {
+    const requests = async (retrieveFirst: boolean) => {
       const model = answering();
       const { core, mind } = await setUpWithDocuments(
         model,
         [{ name: "Tides.md", contents: TIDES_MD }, ...recipes],
-        retrieveFirst === undefined ? {} : { answerPaths: { retrievesFirst: () => retrieveFirst } },
+        { answerPaths: { retrievesFirst: () => retrieveFirst } },
       );
       const saved = await core.saveChatProvider({
         kind: "anthropic",
@@ -240,7 +241,7 @@ describe("An Answer that retrieves first", { timeout: 30_000 }, () => {
       );
     };
 
-    const listed = await requests(undefined);
+    const listed = await requests(true);
 
     expect(listed).toEqual(await requests(false));
     expect(listed[0]).not.toContain("question-search");

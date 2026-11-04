@@ -213,9 +213,9 @@ describe("the arms' Answer paths", () => {
       { searchesFirst: false, writesFirst: false },
     ],
     [
-      "Claude Haiku 5.5, on both lists",
+      "Claude Haiku 5.5, on the write-then-cite list only",
       "claude-haiku-5-5",
-      { searchesFirst: true, writesFirst: true },
+      { searchesFirst: false, writesFirst: true },
     ],
   ])(
     "%s: each arm decides the path it compares, the citation arms in the loop from its first call; today keeps the lists'",
