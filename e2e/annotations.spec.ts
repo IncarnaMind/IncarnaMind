@@ -731,6 +731,30 @@ const LONG_MARKDOWN = `${MARKDOWN}\n${Array.from(
   (_, index) => `## Filler ${index}\n\nFiller paragraph number ${index} of the page.`,
 ).join("\n\n")}\n`;
 
+test("with a Note open, a ⌘K highlight and the Document's menu open the list", async () => {
+  const { app, window, viewer } = await openMarkdown("en", MARKDOWN, "Costs.md", { mind: true });
+  await setWindowSize(app, window, 2000, 900);
+  const words = "4% is held";
+  await highlight(window, viewer, words);
+
+  // ⌘K finds the highlight; choosing it opens the Document beside the Note with its list.
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.getByTestId("palette-search").fill(words);
+  await pointAndClick(
+    window,
+    window.locator('[data-testid="palette-item"][data-kind="annotation"]').first(),
+  );
+  await expect(window.getByTestId("annotations-panel")).toBeVisible();
+  await pointAndClick(window, window.getByTestId("annotations-close"));
+
+  // The Document's own menu does the same from the Note's side.
+  const shown = window.getByTestId("viewer").first();
+  await pointAndClick(window, shown.getByTestId("document-file-menu").first());
+  await pointAndClick(window, window.getByTestId("document.showAnnotations").first());
+  await expect(window.getByTestId("annotations-panel")).toBeVisible();
+  await app.close();
+});
+
 test("the swatches keep their own keys, and the page takes the focus after", async () => {
   const { window, viewer } = await openMarkdown();
   const words = "4% is held";

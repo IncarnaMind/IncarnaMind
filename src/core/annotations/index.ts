@@ -67,6 +67,7 @@ interface AnnotationRow {
   note: string | null;
   file_note: string | null;
   file_colour: AnnotationColour | null;
+  paired_hash: string | null;
   page_from: number | null;
   page_to: number | null;
   location: string | null;
@@ -81,8 +82,8 @@ interface AnnotationRow {
 
 const COLUMNS = `a.id, a.document_id, d.name AS document_name, a.content_hash, a.passage_id,
   a.source, a.colour,
-  a.quote, a.note, a.file_note, a.file_colour, a.page_from, a.page_to, a.location, a.check_state,
-  a.check_reason, a.anchor, a.author, a.missing, a.created_at, a.updated_at`;
+  a.quote, a.note, a.file_note, a.file_colour, a.paired_hash, a.page_from, a.page_to, a.location,
+  a.check_state, a.check_reason, a.anchor, a.author, a.missing, a.created_at, a.updated_at`;
 
 const FROM = "FROM document_annotations a LEFT JOIN documents d ON d.id = a.document_id";
 
@@ -234,9 +235,9 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     const result = db.get<{ seq: number }>(
       `INSERT INTO document_annotations
          (id, document_id, content_hash, passage_id, source, colour, quote, note, file_note,
-          file_colour, page_from, page_to, location, check_state, check_reason, anchor, author,
-          missing, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          file_colour, paired_hash, page_from, page_to, location, check_state, check_reason,
+          anchor, author, missing, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING seq`,
       [
         annotation.id,
@@ -249,6 +250,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         annotation.note,
         fileNote,
         fileColour,
+        annotation.source === "file" ? annotation.contentHash : null,
         annotation.pageFrom === null ? null : BigInt(annotation.pageFrom),
         annotation.pageTo === null ? null : BigInt(annotation.pageTo),
         annotation.location ? JSON.stringify(annotation.location) : null,
@@ -646,7 +648,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           for (const [key, group] of marksByKey) {
             const all = (rowsByKey.get(key) ?? []).filter((row) => !taken.has(row.id));
             // Rows a read already left missing are not this group's place any more.
-            const live = all.filter((row) => !row.missing);
+            const live = all.filter((row) => row.paired_hash !== null);
             const rows = live.length > 0 ? live : all;
             const byPageRows = [...rows].sort(
               (a, b) =>
@@ -762,6 +764,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             row.file_note === annotation.note &&
             row.colour === colour &&
             row.file_colour === annotation.colour &&
+            row.paired_hash === contentHash &&
             row.page_from === pageFrom &&
             row.page_to === pageTo &&
             row.location === locationText &&
@@ -773,8 +776,9 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           db.run(
             `UPDATE document_annotations
                SET content_hash = ?, passage_id = ?, quote = ?, note = ?, file_note = ?,
-                 colour = ?, file_colour = ?, page_from = ?, page_to = ?, location = ?,
-                 check_state = ?, check_reason = ?, missing = ?, author = ?, updated_at = ?
+                 colour = ?, file_colour = ?, paired_hash = ?, page_from = ?, page_to = ?,
+                 location = ?, check_state = ?, check_reason = ?, missing = ?, author = ?,
+                 updated_at = ?
              WHERE id = ?`,
             [
               contentHash,
@@ -784,6 +788,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               annotation.note,
               colour,
               annotation.colour,
+              contentHash,
               pageFrom,
               pageTo,
               locationText,
@@ -840,18 +845,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         }
 
         for (const row of existing) {
-          if (taken.has(row.id) || row.deleted_at !== null) continue;
-          const current =
-            row.content_hash === contentHash &&
-            row.passage_id === null &&
-            row.check_state === "not-found" &&
-            row.check_reason === "quote-not-on-pages" &&
-            row.missing === 1;
-          if (current) continue;
+          if (taken.has(row.id) || row.missing === 1) continue;
           db.run(
             `UPDATE document_annotations
-               SET content_hash = ?, passage_id = NULL, check_state = 'not-found',
-                 check_reason = 'quote-not-on-pages', missing = 1, updated_at = ?
+               SET content_hash = ?, passage_id = NULL, paired_hash = NULL,
+                 check_state = 'not-found', check_reason = 'quote-not-on-pages', missing = 1,
+                 updated_at = ?
              WHERE id = ?`,
             [contentHash, at, row.id],
           );

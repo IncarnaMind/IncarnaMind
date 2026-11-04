@@ -594,6 +594,42 @@ test("identical words that come back bring their comments back", async () => {
   db.close();
 });
 
+test("an unpaired deleted row says it is missing, and Undo brings it back not-found", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1), highlight(quote, 2)]);
+  const second = store.list(document.id).find((row) => row.pageFrom === 2);
+  if (!second) throw new Error("The page-2 highlight wasn't read.");
+  store.remove(second.id);
+
+  read("version-b", [highlight(quote, 1)]);
+  store.restore(second.id);
+  expect(store.list(document.id).find((row) => row.id === second.id)).toMatchObject({
+    missing: true,
+    check: "not-found",
+    passageId: null,
+  });
+  db.close();
+});
+
+test("a re-read whose citer loses one copy writes no row", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1), highlight(quote, 2)]);
+  const ids = store
+    .list(document.id)
+    .map((row) => row.id)
+    .sort();
+
+  read("version-a", [highlight(quote, 1), highlight(quote, 2)], (unit, text) =>
+    unit === 2 ? lost(unit, text) : found(unit, text),
+  );
+  const rows = store.list(document.id);
+  expect(rows.map((row) => row.id).sort()).toEqual(ids);
+  expect(rows.find((row) => row.pageFrom === 2)?.missing).toBe(true);
+  db.close();
+});
+
 test("a deleted file highlight stays deleted when a new version still has its words", async () => {
   const { document, store, read, db } = await harness();
   const row = highlight("The first line of the note.");

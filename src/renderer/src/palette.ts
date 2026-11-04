@@ -50,7 +50,7 @@ import { moveFromPalette } from "./sidebarMoves";
 import { useAppStore } from "./store";
 import { findTab } from "./tabs";
 import { taskAt } from "./taskFocus";
-import { focusedViewerTabOf } from "./viewerTab";
+import { viewerTabOf } from "./viewerTab";
 
 const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette" };
 
@@ -579,7 +579,7 @@ export async function runItem(
       );
       return;
     case "annotation":
-      store.openDocument(
+      await store.openDocument(
         {
           documentId: item.documentId,
           ...(item.pageFrom !== null && {
@@ -589,16 +589,10 @@ export async function runItem(
         },
         { as: inTab ? "here" : "list" },
       );
-      void (async () => {
-        for (let tries = 0; tries < 40; tries++) {
-          const tab = focusedViewerTabOf(item.documentId);
-          if (tab) {
-            useAnnotations.getState().togglePanel(true, tab);
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-      })();
+      {
+        const tab = viewerTabOf(item.documentId);
+        if (tab) useAnnotations.getState().togglePanel(true, tab);
+      }
       return;
     case "said":
       await openConversation(item.conversationId, item.answerId ?? undefined);

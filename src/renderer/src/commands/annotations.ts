@@ -17,17 +17,7 @@ import { useNoteEditor } from "../annotationNote";
 import { useAnnotations } from "../annotations";
 import { useAppStore } from "../store";
 import { addsWithoutAsking } from "../viewer/selectionActions";
-import { focusedViewerTabOf, viewerTabOf } from "../viewerTab";
-
-/** The focused group's viewer for the Document once the layout shows it, or the best there is. */
-async function waitForFocusedViewer(documentId: string): Promise<string | null> {
-  for (let tries = 0; tries < 40; tries++) {
-    const tab = focusedViewerTabOf(documentId);
-    if (tab) return tab;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return viewerTabOf(documentId);
-}
+import { viewerTabOf } from "../viewerTab";
 
 import type { Command, CommandContext } from "./registry";
 
@@ -102,13 +92,12 @@ export const annotationCommands: readonly Command[] = [
       );
     },
     reversible: true,
-    run: (ctx) => {
+    run: async (ctx) => {
       const documentId = documentOf(ctx);
       if (!documentId) return;
-      useAppStore.getState().openDocument({ documentId }, { as: "list" });
-      void waitForFocusedViewer(documentId).then((tab) => {
-        if (tab) useAnnotations.getState().togglePanel(true, tab);
-      });
+      await useAppStore.getState().openDocument({ documentId }, { as: "list" });
+      const tab = viewerTabOf(documentId);
+      if (tab) useAnnotations.getState().togglePanel(true, tab);
     },
   },
   {
