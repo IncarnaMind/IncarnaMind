@@ -147,6 +147,9 @@ export const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
   ["«", "»"],
 ];
 
+/** What separates the parts of a Document's name: "维基百科-大型语言模型", "Report – 2025". */
+const NAME_PARTS = /\s*[-–—_|:：·•]\s*/u;
+
 /**
  * The quote as the model meant it: without location marks, without the
  * ellipses and quotation marks models put around a quote. Its words are left alone.
@@ -2289,26 +2292,23 @@ export function createCitationSession(
      * matching in the Units its Citation cites, and, in a sheet, in its title
      * rows: the rows above the header, which name the table the Citation's
      * rows are in, as a Document's name is not a quote (#2358), and words
-     * that start on the one page cited may run on to the next page of its
-     * Passage (#2504). One found changes nothing. One not found makes the Citation whose Units are nearest
-     * it "not found", with the Answer's words and the Document's nearest for
-     * its card. Where a Citation of the sentence couldn't be checked, no span
+     * that start on the one page cited may run on to the next page (#2504).
+     * One found changes nothing. One not found makes the Citation whose Units
+     * are nearest it "not found", with the Answer's words and the Document's
+     * nearest for its card. Where a Citation of the sentence couldn't be checked, no span
      * of it is. Words in another language than every page cited are a
      * translation: they aren't checked, and are returned to lose their
      * quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
       /**
-       * Whether the words start on the one page a record cites and run on to the next page of its
-       * Passage: a record's quote ends where its page does, and the Answer may quote on (#2504).
-       * Only a document's pages run on; a slide or a section is a place of its own.
+       * Whether the words start on the one page a record cites and run on to the next page: a
+       * record's quote ends where its page does, as a Passage may, and the Answer may quote on
+       * (#2504). Only a document's pages run on; a slide or a section is a place of its own.
        */
       const runsOnToNextPage = (record: Accepted, words: string, matching: Matching) => {
         const { pageFrom, pageTo } = record.range;
-        const passageTo = record.source.pageTo;
-        if (pageFrom === null || pageFrom !== pageTo || passageTo === null || pageTo >= passageTo) {
-          return false;
-        }
+        if (pageFrom === null || pageFrom !== pageTo) return false;
         const units = documents.pageTexts(
           record.source.documentId,
           record.source.contentHash,
@@ -2334,9 +2334,15 @@ export function createCitationSession(
         return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
       };
       const translated: string[] = [];
-      // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
+      // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote:
+      // also each part of a name made of parts, as "维基百科-大型语言模型" names its article's
+      // title "大型语言模型" (#2504).
       const names = new Set(
-        [...records.values()].map(({ source }) => nameKey(source.documentName)),
+        [...records.values()].flatMap(({ source }) =>
+          [source.documentName, ...source.documentName.split(NAME_PARTS)]
+            .map(nameKey)
+            .filter((key) => key.length >= 2),
+        ),
       );
       for (const { words, markers } of quoted) {
         if (names.has(nameKey(words))) continue;

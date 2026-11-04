@@ -154,7 +154,7 @@ describe.each(["en", "zh"] as const)(
   (language) => {
     const runOn = RUN_ON[language];
 
-    test("starting on the cited page and running on to the next page of the Passage: found", async () => {
+    test("starting on the cited page and running on to the next page: found", async () => {
       expect(await checkOf(runOn, runOn.found)).toEqual(FOUND);
     });
 
@@ -269,5 +269,44 @@ describe("Changed words in Chinese stay not found", () => {
     expect(await checkOf(governance, "条目列出“执行长/董事会主席由不同人担任”[^1]。")).toEqual(
       FOUND,
     );
+  });
+});
+
+const TITLE = {
+  en: {
+    file: {
+      name: "Wikipedia - Code of Practice for Industry.md",
+      contents:
+        "# Delivery of items\n\nThe reply card must give the health professional a way to say no, and the company must respect that answer.\n",
+    },
+    query: "reply card",
+    question: "What must the reply card give?",
+    quote: "The reply card must give the health professional a way to say no",
+    found: "The “Code of Practice for Industry” says the card must offer a way to say no [^1].",
+    changed: "The “Code of Practice for Medicine” says the card must offer a way to say no [^1].",
+  },
+  zh: {
+    file: {
+      name: "维基百科-大型语言模型.md",
+      contents:
+        "# 多模态\n\n使用标记化方法将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制。\n",
+    },
+    query: "PaLM-E 机器人控制",
+    question: "谷歌把哪个模型用于机器人控制？",
+    quote: "将 Google PaLM 模型微调为多模态模型 PaLM-E，并应用于机器人控制",
+    found: "维基百科“大型语言模型”词条写道，谷歌把 PaLM 微调成了多模态模型[^1]。",
+    changed: "维基百科“大型视觉语言模型”词条写道，谷歌把 PaLM 微调成了多模态模型[^1]。",
+  },
+} as const;
+
+describe.each(["en", "zh"] as const)("The Document's title in quotation marks (%s)", (language) => {
+  const title = TITLE[language];
+
+  test("a part of the Document's name, as an Answer gives an article's title, is a name: found", async () => {
+    expect(await checkOf(title, title.found)).toEqual(FOUND);
+  });
+
+  test("a title with a word changed is checked as a quote: not found", async () => {
+    expect(await checkOf(title, title.changed)).toEqual(NOT_FOUND);
   });
 });
