@@ -1822,6 +1822,7 @@ export const en = {
   "viewer.area.activeTip":
     "Stop selecting an area (Enter takes this page; the arrows choose part of it)",
   "viewer.area.selectTip": "Select area (or hold {key} while dragging)",
+  "viewer.area.highlightTip": "Drag over a page to highlight that area (Esc stops)",
   "viewer.slide.ask": "Ask about this slide",
   "viewer.selection.notOpened":
     "The quote wasn’t added: “{mind}” didn’t open for changes. You can copy it with its citation instead.",
@@ -1899,6 +1900,8 @@ export const en = {
   "command.annotations.export": "Export this Document’s highlights",
   "command.annotations.collect": "Collect this Document’s highlights into a note",
   "command.annotations.collectFolder": "Collect this Folder’s highlights into a note",
+  "command.annotations.highlightArea": "Highlight an area…",
+  "annotations.area": "Area",
   "annotations.more": "More actions for “{quote}”",
   "annotations.cantShow": "Couldn’t scroll to it in this view.",
   "annotations.export.notAllowed":

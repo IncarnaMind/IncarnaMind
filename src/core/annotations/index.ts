@@ -13,9 +13,10 @@
 import { randomUUID } from "node:crypto";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { translate } from "../../shared/i18n";
-import { formatLocation, parseLocation } from "../../shared/locations";
+import { formatLocation, parseCitedArea, parseLocation } from "../../shared/locations";
 import type {
   Annotation,
+  AnnotationAnchor,
   AnnotationColour,
   AnnotationEdit,
   AnnotationGroup,
@@ -40,8 +41,8 @@ import { excerptOf, searchTerms } from "../wordSearch";
 export interface AnnotationCiter {
   /** The current version of a live Document; null if it was deleted. */
   currentVersion(documentId: string): string | null;
-  /** The selection as the Document's current version has it. */
-  cite(documentId: string, parts: readonly SelectedPart[]): { quote: string } & CitationRecheckLike;
+  /** The selection, area or words, as the Document's current version has it. */
+  cite(documentId: string, anchor: AnnotationAnchor): { quote: string } & CitationRecheckLike;
 }
 
 /** What a Citation's check is: the fields an annotation keeps. */
@@ -107,21 +108,51 @@ const noteOf = (value: unknown): string | null => {
   return note === "" ? null : note;
 };
 
-function parseAnchor(json: string | null): SelectedPart[] | null {
+const partsOf = (value: unknown): SelectedPart[] =>
+  Array.isArray(value)
+    ? value.filter(
+        (part): part is SelectedPart =>
+          typeof part === "object" &&
+          part !== null &&
+          "text" in part &&
+          typeof part.text === "string" &&
+          "unit" in part &&
+          (part.unit === null || typeof part.unit === "number"),
+      )
+    : [];
+
+const aroundOf = (value: unknown): { before?: string; after?: string } | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { before, after } = value as Record<string, unknown>;
+  if (typeof before !== "string" && typeof after !== "string") return undefined;
+  return {
+    ...(typeof before === "string" && { before }),
+    ...(typeof after === "string" && { after }),
+  };
+};
+
+function parseAnchor(json: string | null): AnnotationAnchor | null {
   if (json === null) return null;
   try {
     const parsed: unknown = JSON.parse(json);
-    if (!Array.isArray(parsed)) return null;
-    const parts = parsed.filter(
-      (part): part is SelectedPart =>
-        typeof part === "object" &&
-        part !== null &&
-        "text" in part &&
-        typeof part.text === "string" &&
-        "unit" in part &&
-        (part.unit === null || typeof part.unit === "number"),
-    );
-    return parts.length === 0 ? null : parts;
+    // What the first versions of the table stored: its parts alone.
+    if (Array.isArray(parsed)) {
+      const parts = partsOf(parsed);
+      return parts.length === 0 ? null : { parts };
+    }
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const anchor = parsed as Record<string, unknown>;
+    const parts = partsOf(anchor.parts);
+    const area = parseCitedArea(anchor.area);
+    const unit = typeof anchor.unit === "number" ? anchor.unit : null;
+    const around = aroundOf(anchor.around);
+    if (parts.length === 0 && !area) return null;
+    return {
+      parts,
+      ...(area && { area }),
+      ...(unit !== null && { unit }),
+      ...(around && { around }),
+    };
   } catch {
     return null;
   }
@@ -142,10 +173,7 @@ const toAnnotation = (row: AnnotationRow): Annotation => ({
   location: parseLocation(row.location === null ? null : safeJson(row.location)),
   check: row.check_state,
   checkReason: row.check_reason,
-  anchor: (() => {
-    const parts = parseAnchor(row.anchor);
-    return parts ? { parts } : null;
-  })(),
+  anchor: parseAnchor(row.anchor),
   author: row.author,
   missing: row.missing !== 0,
   createdAt: row.created_at,
@@ -206,7 +234,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         annotation.location ? JSON.stringify(annotation.location) : null,
         annotation.check,
         annotation.checkReason,
-        annotation.anchor ? JSON.stringify(annotation.anchor.parts) : null,
+        annotation.anchor ? JSON.stringify(annotation.anchor) : null,
         annotation.author,
         annotation.missing ? 1 : 0,
         at,
@@ -236,16 +264,19 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     const at = now();
     db.transaction(() => {
       for (const row of rows) {
-        const parts = parseAnchor(row.anchor);
-        if (!parts) {
+        const anchor = parseAnchor(row.anchor);
+        if (!anchor) {
           db.run(
             "UPDATE document_annotations SET content_hash = ?, missing = 1, updated_at = ? WHERE id = ?",
             [current, at, row.id],
           );
           continue;
         }
-        const cited = citer.cite(documentId, parts);
+        const cited = citer.cite(documentId, anchor);
         const found = located(cited.check, cited.checkReason);
+        // A region stays where it was drawn; only its words can be lost.
+        const follow = found || anchor.area !== undefined;
+        const quote = follow && cited.quote !== "" ? cited.quote : row.quote;
         db.run(
           `UPDATE document_annotations
              SET content_hash = ?, quote = ?, page_from = ?, page_to = ?, location = ?,
@@ -253,34 +284,38 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
            WHERE id = ?`,
           [
             current,
-            found ? cited.quote : row.quote,
-            found
+            quote,
+            follow
               ? cited.pageFrom === null
                 ? null
                 : BigInt(cited.pageFrom)
               : row.page_from === null
                 ? null
                 : BigInt(row.page_from),
-            found
+            follow
               ? cited.pageTo === null
                 ? null
                 : BigInt(cited.pageTo)
               : row.page_to === null
                 ? null
                 : BigInt(row.page_to),
-            found ? (cited.location ? JSON.stringify(cited.location) : null) : row.location,
-            found ? cited.check : "not-found",
-            found ? cited.checkReason : "quote-not-on-pages",
-            found ? 0 : 1,
+            follow
+              ? cited.location
+                ? JSON.stringify({ ...cited.location })
+                : row.location
+              : row.location,
+            follow ? cited.check : "not-found",
+            follow ? cited.checkReason : "quote-not-on-pages",
+            anchor.area !== undefined ? 0 : found ? 0 : 1,
             at,
             row.id,
           ],
         );
-        if (found && cited.quote !== row.quote) {
+        if (quote !== row.quote) {
           const seq = db.get<{ seq: number }>("SELECT seq FROM document_annotations WHERE id = ?", [
             row.id,
           ])?.seq;
-          if (seq !== undefined) index(seq, cited.quote, row.note);
+          if (seq !== undefined) index(seq, quote, row.note);
         }
       }
     });
@@ -320,9 +355,15 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         location: input.location,
         check: input.check,
         checkReason: input.checkReason,
-        anchor: { parts: input.parts },
+        anchor: {
+          parts: input.parts,
+          ...(input.area && { area: input.area }),
+          ...(input.unit !== undefined && input.unit !== null && { unit: input.unit }),
+          ...(input.around && { around: input.around }),
+        },
         author: null,
-        missing: !located(input.check, input.checkReason),
+        // A region is its own place: there are no words to find again and lose.
+        missing: input.area ? false : !located(input.check, input.checkReason),
         createdAt: at,
         updatedAt: at,
       };

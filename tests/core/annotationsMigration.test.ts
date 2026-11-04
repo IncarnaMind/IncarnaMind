@@ -1,5 +1,5 @@
 /**
- * Migration 126 (#327): a Document keeps its highlights and notes, in a table
+ * Migration 127 (#327): a Document keeps its highlights and notes, in a table
  * ready to sync, with the words of each in the keyword index; a soft delete
  * takes them out of the index.
  */
@@ -12,13 +12,13 @@ import { createTempDataFolder } from "../helpers/core";
 
 const AT = "2026-11-03T09:00:00.000Z";
 
-describe("Migration 126: a Document's highlights and notes", () => {
+describe("Migration 127: a Document's highlights and notes", () => {
   test("a database from before it gains the table, its index and its triggers", async () => {
     const dataDir = await createTempDataFolder();
     const db = openDatabase(join(dataDir, DATABASE_FILE));
     migrate(
       db,
-      migrations.filter((migration) => migration.version <= 125),
+      migrations.filter((migration) => migration.version <= 126),
     );
     expect(
       db.get("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_annotations'"),
@@ -64,13 +64,13 @@ describe("Migration 126: a Document's highlights and notes", () => {
 
   test("its rows are ready to sync: a UUID id, ISO 8601 UTC times and a soft delete", () => {
     const columns = migrations
-      .filter((migration) => migration.version === 126)
+      .filter((migration) => migration.version === 127)
       .flatMap((migration) => [
         ...migration.sql.matchAll(/\b(id|created_at|updated_at|deleted_at)\b/g),
       ])
       .map((match) => match[1]);
     expect(new Set(columns)).toEqual(new Set(["id", "created_at", "updated_at", "deleted_at"]));
-    const sql = migrations.find((migration) => migration.version === 126)?.sql ?? "";
+    const sql = migrations.find((migration) => migration.version === 127)?.sql ?? "";
     expect(sql).toContain("id TEXT NOT NULL UNIQUE");
     expect(sql).toContain("deleted_at TEXT");
   });

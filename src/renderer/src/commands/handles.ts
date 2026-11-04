@@ -114,7 +114,11 @@ interface ViewerActions {
   selection: ViewerAskActions;
   range: ViewerAskActions;
   slide: { ask?: () => void };
-  area: { select?: () => void };
+  area: {
+    select?: () => void;
+    /** Starts a pick whose release highlights the region (#327); absent where areas aren't picked. */
+    highlight?: () => void;
+  };
 }
 
 const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]> } = {

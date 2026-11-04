@@ -1087,7 +1087,14 @@ export function createCore(adapters: CoreAdapters): Core {
   }
   annotations = createAnnotations(db, now, {
     currentVersion: (documentId) => documents.currentVersion(documentId),
-    cite: (documentId, parts) => citeSelection(documents, { documentId, parts }),
+    cite: (documentId, anchor) =>
+      citeSelection(documents, {
+        documentId,
+        parts: anchor.parts,
+        ...(anchor.area && { area: anchor.area }),
+        unit: anchor.unit ?? null,
+        ...(anchor.around && { around: anchor.around }),
+      }),
   });
   const annotationsChanged = (documentId: string) =>
     events.emit("annotations.changed", { documentId });
@@ -5337,13 +5344,27 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.selection.none" });
       }
       const parts = input.parts.map(parseSelectedPart);
-      if (parts.every((part) => part.text.trim() === "")) {
+      const area = input.area === undefined ? undefined : selectionArea(input.area);
+      if (parts.every((part) => part.text.trim() === "") && area === undefined) {
         throw new InvalidInputError({ key: "error.selection.none" });
       }
+      const unit =
+        typeof input.unit === "number" && Number.isInteger(input.unit) && input.unit >= 1
+          ? input.unit
+          : null;
+      const around = parseAround(input.around);
       const documentId = parseDocumentId(input.documentId);
-      const cited = citeSelection(documents, { documentId, parts });
+      const cited = citeSelection(documents, {
+        documentId,
+        parts,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
+      });
       const unsure = cited.check === "cant-check" && cited.checkReason === "unsure-word";
-      if (cited.check !== "found" && !unsure) {
+      // A region of a picture is cited as a picture: there is nothing in it to check.
+      const pictured = area !== undefined && cited.checkReason === "picture";
+      if (cited.check !== "found" && !unsure && !pictured) {
         throw new InvalidInputError({
           key:
             cited.checkReason === "too-many-pages"
@@ -5360,6 +5381,9 @@ export function createCore(adapters: CoreAdapters): Core {
         parts,
         colour: input.colour,
         note: typeof input.note === "string" ? input.note : null,
+        ...(area && { area }),
+        unit,
+        ...(around && { around }),
         ...cited,
       });
       annotationsChanged(documentId);

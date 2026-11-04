@@ -1742,6 +1742,7 @@ export const zhCN = {
   "viewer.area.selected": "取消选择区域",
   "viewer.area.activeTip": "取消选择区域（Enter 选择这一页；方向键选取其中一部分）",
   "viewer.area.selectTip": "选择区域（或拖动时按住 {key}）",
+  "viewer.area.highlightTip": "在页面上拖出一块区域即可高亮（Esc 取消）",
   "viewer.slide.ask": "就这张幻灯片提问",
   "viewer.selection.notOpened": "未能添加引述：“{mind}”无法打开编辑。你可以改为复制（含引用）。",
   "viewer.selection.notOpenedNew": "未能添加引述：新的笔记没有打开。你可以改为复制（含引用）。",
@@ -1813,6 +1814,8 @@ export const zhCN = {
   "command.annotations.export": "导出这个文档的高亮",
   "command.annotations.collect": "将这个文档的高亮收进一条笔记",
   "command.annotations.collectFolder": "将这个文件夹的高亮收进一条笔记",
+  "command.annotations.highlightArea": "高亮一块区域…",
+  "annotations.area": "区域",
   "annotations.more": "“{quote}”的更多操作",
   "annotations.cantShow": "无法在此视图中滚动到它。",
   "annotations.export.notAllowed":

@@ -219,7 +219,9 @@ ${sourceOf(document)}`
             aria-label={areaMode.active ? t("viewer.area.selected") : t("viewer.area.select")}
             title={
               areaMode.active
-                ? t("viewer.area.activeTip")
+                ? areaMode.purpose === "highlight"
+                  ? t("viewer.area.highlightTip")
+                  : t("viewer.area.activeTip")
                 : t("viewer.area.selectTip", { key: isMacOS() ? "⌥" : "Alt" })
             }
             onClick={() => areaMode.setActive(!areaMode.active)}

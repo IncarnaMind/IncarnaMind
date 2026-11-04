@@ -990,22 +990,35 @@
     @apply rounded-[2px] text-inherit;
     padding: 1px;
     margin-inline: -1px;
+    background: var(--annotation-wash);
     box-decoration-break: clone;
   }
-  .annotation-highlight--yellow {
-    background: #fff0a3;
+  .annotation-highlight--yellow,
+  .annotation-area--yellow {
+    --annotation-wash: #fff0a3;
   }
-  .annotation-highlight--green {
-    background: #d4f0cc;
+  .annotation-highlight--green,
+  .annotation-area--green {
+    --annotation-wash: #d4f0cc;
   }
-  .annotation-highlight--blue {
-    background: #d6e8ff;
+  .annotation-highlight--blue,
+  .annotation-area--blue {
+    --annotation-wash: #d6e8ff;
   }
-  .annotation-highlight--pink {
-    background: #ffdfeb;
+  .annotation-highlight--pink,
+  .annotation-area--pink {
+    --annotation-wash: #ffdfeb;
   }
-  .annotation-highlight--purple {
-    background: #eadcff;
+  .annotation-highlight--purple,
+  .annotation-area--purple {
+    --annotation-wash: #eadcff;
+  }
+
+  /* A region the User highlighted (#327, #118): its wash over the picture, under the words' ink. */
+  .annotation-area {
+    @apply pointer-events-none absolute rounded-[2px];
+    background: var(--annotation-wash);
+    mix-blend-mode: multiply;
   }
 
   .annotation-note-mark {

@@ -2260,6 +2260,12 @@ export type AnnotationSource = "user" | "file";
 /** What an annotation was made from, kept so a new version of its Document finds its words again. */
 export interface AnnotationAnchor {
   parts: SelectedPart[];
+  /** The region of a Unit a highlight marks, not only its words (#118). */
+  area?: CitedArea;
+  /** The Unit the region is on, from 1. */
+  unit?: number | null;
+  /** The words just before and after a region of a picture, where the view names no Unit. */
+  around?: { before?: string; after?: string };
 }
 
 /**
@@ -2312,6 +2318,12 @@ export interface CreateAnnotationInput {
    * selection is placed in the current version, and kept as missing when it isn't there.
    */
   contentHash?: string | null;
+  /** The region of a Unit the User marked (#118): a highlight may mark an area, not only words. */
+  area?: CitedArea;
+  /** The Unit the region is on, from 1. */
+  unit?: number | null;
+  /** The words just before and after a region of a picture, where the view names no Unit. */
+  around?: { before?: string; after?: string };
 }
 
 /** What changes on an annotation: its note and its colour, each left out when unchanged. */

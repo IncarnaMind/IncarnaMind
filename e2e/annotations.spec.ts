@@ -371,6 +371,53 @@ test("a PDF highlight selected across a page break is drawn on both pages", asyn
   await expect(panel).not.toContainText("Text not found in this version");
 });
 
+test("a PDF's area is highlighted from ⌘K, drawn as a region, listed with its words, and Undo takes it back", async () => {
+  const path = join(sources, "Region.pdf");
+  await writeFile(
+    path,
+    buildPdf([
+      {
+        lines: ["The recovery peaks in the second quarter", "of the year, as Table 3 shows."],
+      },
+    ]),
+  );
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await addDocuments(window, [path]);
+  await expectReadyDocuments(window, 1);
+  await openDocumentAt(window, { documentId: await documentIdOf(window) });
+  const viewer = window.getByTestId("viewer");
+  const page = viewer.locator('[data-page-number="1"]');
+  await expect(page).toHaveAttribute("data-drawn", "true");
+
+  // ⌘K starts the pick whose release makes a highlight, not a Question.
+  await runCommand(window, "viewer.area.highlight", "Highlight an area");
+  await expect(viewer.getByTestId("viewer-area-select")).toHaveAttribute("aria-pressed", "true");
+  const line = page.locator(".textLayer span").filter({ hasText: "The recovery peaks" }).first();
+  const box = await line.boundingBox();
+  if (!box) throw new Error("The page's line isn't in view.");
+  await window.mouse.move(box.x + 1, box.y + 1, { steps: 4 });
+  await window.mouse.down();
+  await window.mouse.move(box.x + box.width - 1, box.y + box.height - 1, { steps: 10 });
+  await window.mouse.up();
+
+  // The region is washed in the colour, the pick is done, and its row quotes the words in it.
+  const wash = viewer.getByTestId("annotation-area");
+  await expect(wash).toHaveCount(1);
+  await expect(viewer.getByTestId("viewer-area-select")).toHaveAttribute("aria-pressed", "false");
+  const panel = await openPanel(window, viewer);
+  const row = panel.getByTestId("annotation-row").first();
+  await expect(row).toContainText("The recovery peaks");
+  await expect(row).toContainText("p. 1");
+
+  // Undo takes the highlight back.
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(wash).toHaveCount(0);
+  await expect(panel.getByTestId("annotation-row")).toHaveCount(0);
+  await app.close();
+});
+
 test("a PDF's own highlights and notes are shown, marked From the file, and a new version re-anchors or says the text is gone", async () => {
   const path = join(sources, "Rate cuts.pdf");
   const pdf = (text: string) =>

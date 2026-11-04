@@ -14,6 +14,8 @@ import {
   useState,
 } from "react";
 import type { AskedPictureData, CitedArea, Document, SelectedPart } from "../../../core/api";
+import { type AreaSelection, highlightArea } from "../annotationActions";
+import { useAnnotations } from "../annotations";
 import { core, files } from "../core";
 import { translateNow, useT } from "../i18n";
 import { preparePicture } from "../pictureFile";
@@ -26,6 +28,9 @@ import { putQuoteInComposer } from "./selectionActions";
 export interface AreaMode {
   active: boolean;
   setActive(active: boolean): void;
+  /** What releasing the region does: ask about it, or highlight it (#327). */
+  purpose: "ask" | "highlight";
+  setPurpose(purpose: "ask" | "highlight"): void;
 }
 
 export const AreaModeContext = createContext<AreaMode | null>(null);
@@ -243,6 +248,57 @@ export function AreaOverlay({
   }, []);
 
   /** The picture and Citation of a region, as the composer's image chip. */
+  /** The words, region and Unit of a pick: what a highlight keeps and a Citation cites. */
+  const selectionOf = useCallback(
+    (unit: Unit, picked: DOMRect): AreaSelection => {
+      const rect = visibleRegion(unit, picked);
+      if (rect.width < MIN_SIDE || rect.height < MIN_SIDE) {
+        throw new Error(translateNow("viewer.area.outOfView"));
+      }
+      const textLayer = unit.element.querySelector(".textLayer");
+      const { text, before, after } = textLayer
+        ? textInTextLayer(textLayer, rect)
+        : textInDom(unit.element, rect);
+      const parts: SelectedPart[] =
+        text.trim() === ""
+          ? []
+          : [{ unit: unit.number, text, ...(before && { before }), ...(after && { after }) }];
+      const box = unit.element.getBoundingClientRect();
+      const area = {
+        x: Math.min(1, Math.max(0, (rect.left - box.left) / Math.max(1, box.width))),
+        y: Math.min(1, Math.max(0, (rect.top - box.top) / Math.max(1, box.height))),
+        width: Math.min(1, Math.max(0, rect.width / Math.max(1, box.width))),
+        height: Math.min(1, Math.max(0, rect.height / Math.max(1, box.height))),
+      };
+      return {
+        parts,
+        area,
+        unit: unit.number,
+        ...(parts.length === 0 && (before || after) && { around: { before, after } }),
+      };
+    },
+    [visibleRegion],
+  );
+
+  /** The region the User drew, highlighted in the last colour chosen (#327). */
+  const highlight = useCallback(
+    async ({ unit, rect: picked }: Picked) => {
+      if (busy.current) return;
+      busy.current = true;
+      try {
+        const selection = selectionOf(unit, picked);
+        setDrawn(null);
+        mode?.setActive(false);
+        await highlightArea(doc, selection, useAnnotations.getState().colour);
+      } catch (error) {
+        useAppStore.getState().reportError(error);
+      } finally {
+        busy.current = false;
+      }
+    },
+    [doc, mode, selectionOf],
+  );
+
   const take = useCallback(
     async ({ unit, rect: picked }: Picked) => {
       if (busy.current) return;
@@ -271,27 +327,13 @@ export function AreaOverlay({
         } catch (error) {
           throw new Error(translateNow("viewer.area.failed"), { cause: error });
         }
-        const textLayer = unit.element.querySelector(".textLayer");
-        const { text, before, after } = textLayer
-          ? textInTextLayer(textLayer, rect)
-          : textInDom(unit.element, rect);
-        const parts: SelectedPart[] =
-          text.trim() === ""
-            ? []
-            : [{ unit: unit.number, text, ...(before && { before }), ...(after && { after }) }];
-        const box = unit.element.getBoundingClientRect();
-        const area = {
-          x: Math.min(1, Math.max(0, (rect.left - box.left) / Math.max(1, box.width))),
-          y: Math.min(1, Math.max(0, (rect.top - box.top) / Math.max(1, box.height))),
-          width: Math.min(1, Math.max(0, rect.width / Math.max(1, box.width))),
-          height: Math.min(1, Math.max(0, rect.height / Math.max(1, box.height))),
-        };
+        const { parts, area, unit: number, around } = selectionOf(unit, picked);
         const cited = await core.citeSelection({
           documentId: doc.id,
           parts,
           area,
-          unit: unit.number,
-          ...(parts.length === 0 && (before || after) && { around: { before, after } }),
+          unit: number,
+          ...(around && { around }),
         });
         // The pick is done, so the header's square lets go as the chip arrives.
         mode?.setActive(false);
@@ -315,21 +357,25 @@ export function AreaOverlay({
         setTaking(false);
       }
     },
-    [doc, mode, visibleRegion],
+    [doc, mode, selectionOf, visibleRegion],
   );
 
   /** A region released, once the rectangle and the drag are gone from the picture. */
   const finish = useCallback(
     (picked: Picked) => {
       setDrawn(null);
+      drag.current = null;
+      keyboard.current = null;
+      if (mode?.purpose === "highlight") {
+        void highlight(picked);
+        return;
+      }
       // The pick shows it is being read at once: a cursor is never in the picture, so it can start
       // before the capture (#118).
       setTaking(true);
-      drag.current = null;
-      keyboard.current = null;
       requestAnimationFrame(() => requestAnimationFrame(() => void take(picked)));
     },
-    [take],
+    [take, highlight, mode?.purpose],
   );
 
   useEffect(() => {

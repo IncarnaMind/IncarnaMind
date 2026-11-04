@@ -560,4 +560,72 @@ describe("annotations", () => {
     ).rejects.toThrow(/highlight/i);
     expect(await core.listAnnotations(document.id)).toEqual([]);
   });
+
+  test("a region drawn on a page is highlighted, with the words in it, and a new version keeps it", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const path = await writeSourceFile(
+      sources,
+      "Notice.pdf",
+      buildPdf([{ lines: ["The notice period is 18 months."] }]),
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The Document wasn't added.");
+    const area = { x: 0.1, y: 0.1, width: 0.6, height: 0.1 };
+    const annotation = await core.createAnnotation({
+      documentId: document.id,
+      parts: [{ unit: 1, text: "The notice period is 18 months." }],
+      area,
+      unit: 1,
+      colour: "blue",
+    });
+
+    expect(annotation).toMatchObject({
+      quote: "The notice period is 18 months.",
+      check: "found",
+      missing: false,
+    });
+    expect(annotation.location).toMatchObject({ kind: "page", from: 1, area });
+    expect(annotation.anchor).toMatchObject({ unit: 1, area });
+    expect(await core.listAnnotations(document.id)).toMatchObject([
+      { id: annotation.id, location: { area } },
+    ]);
+
+    // A new version of the file: the region stays on its page, not lost like words can be.
+    const changed = buildPdf([
+      { lines: ["The notice period is 24 months."] },
+      { lines: ["Signed at the works."] },
+    ]);
+    await writeFile(path, changed);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [document.id]);
+    const [kept] = await core.listAnnotations(document.id);
+    expect(kept).toMatchObject({ id: annotation.id, missing: false, pageFrom: 1 });
+    expect(kept?.location).toMatchObject({ area });
+  });
+
+  test("a region of a picture is stored without words, cited as a picture, and not missing", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(
+      core,
+      "Plate.pdf",
+      buildPdf([{ lines: ["A diagram of the works."] }]),
+    );
+    const area = { x: 0.05, y: 0.05, width: 0.9, height: 0.6 };
+    const annotation = await core.createAnnotation({
+      documentId: document.id,
+      parts: [],
+      area,
+      unit: 1,
+      colour: "green",
+    });
+    expect(annotation).toMatchObject({
+      quote: "",
+      check: "cant-check",
+      checkReason: "picture",
+      missing: false,
+    });
+    expect(annotation.location).toMatchObject({ kind: "page", from: 1, area });
+    expect(annotation.anchor).toMatchObject({ area, unit: 1 });
+  });
 });

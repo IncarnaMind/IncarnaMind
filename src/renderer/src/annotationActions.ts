@@ -12,7 +12,9 @@ import type {
   AnnotationGroup,
   AnnotationsIn,
   CitationAttributes,
+  CitedArea,
   Document,
+  SelectedPart,
 } from "../../core/api";
 import { CITATION_NODE } from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
@@ -54,21 +56,62 @@ export async function highlightSelection(
       note,
       contentHash: selection.document.contentHash,
     });
-    useAnnotations.getState().chooseColour(colour);
-    pushUndo({
-      said: (t) => t(note === null ? "annotations.highlighted" : "annotations.noted"),
-      undo: async () => {
-        await core.deleteAnnotation(annotation.id);
-      },
-      redo: async () => {
-        await core.restoreAnnotation(annotation.id);
-      },
-    });
+    remember(annotation, colour, note === null ? "annotations.highlighted" : "annotations.noted");
     return annotation;
   } catch (error) {
     useAppStore.getState().reportError(error);
     return null;
   }
+}
+
+/** The words and region of a place the User drew on a page (#118). */
+export interface AreaSelection {
+  parts: SelectedPart[];
+  area: CitedArea;
+  unit: number | null;
+  around?: { before?: string; after?: string };
+}
+
+/** Highlights a region of a page, with the words in it where it has any (#327). */
+export async function highlightArea(
+  document: Document,
+  selection: AreaSelection,
+  colour: AnnotationColour,
+): Promise<Annotation | null> {
+  try {
+    const annotation = await core.createAnnotation({
+      documentId: document.id,
+      parts: selection.parts,
+      colour,
+      contentHash: document.contentHash,
+      area: selection.area,
+      unit: selection.unit,
+      ...(selection.around && { around: selection.around }),
+    });
+    remember(annotation, colour, "annotations.highlighted");
+    return annotation;
+  } catch (error) {
+    useAppStore.getState().reportError(error);
+    return null;
+  }
+}
+
+/** Keeps the colour for the next one, and offers Undo: Delete takes the highlight back. */
+function remember(
+  annotation: Annotation,
+  colour: AnnotationColour,
+  said: "annotations.highlighted" | "annotations.noted",
+): void {
+  useAnnotations.getState().chooseColour(colour);
+  pushUndo({
+    said: (t) => t(said),
+    undo: async () => {
+      await core.deleteAnnotation(annotation.id);
+    },
+    redo: async () => {
+      await core.restoreAnnotation(annotation.id);
+    },
+  });
 }
 
 /** Recolours a highlight, or writes its note. */

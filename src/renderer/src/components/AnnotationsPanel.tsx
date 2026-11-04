@@ -62,7 +62,8 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
         data-testid="annotation-quote"
         aria-label={t("annotations.search.open")}
         onClick={() => {
-          if (annotation.quote.trim() === "") {
+          // A file's sticky note has no words to scroll to: it opens its note here.
+          if (annotation.source === "file" && annotation.quote.trim() === "") {
             setDraft(annotation.note ?? "");
             setEditing(true);
             return;
@@ -71,7 +72,11 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
         }}
         className="annotation-row-quote"
       >
-        {annotation.quote.trim() === "" ? t("annotations.fromFile") : annotation.quote}
+        {annotation.quote.trim() === ""
+          ? annotation.source === "file"
+            ? t("annotations.fromFile")
+            : t("annotations.area")
+          : annotation.quote}
       </button>
       {annotation.missing && (
         <span className="annotation-missing" data-testid="annotation-missing">
@@ -160,7 +165,11 @@ export function scrollToAnnotation(container: HTMLElement | null, annotation: An
   if (!container) return false;
   const element =
     container.querySelector<HTMLElement>(`[data-annotation-note="${CSS.escape(annotation.id)}"]`) ??
-    container.querySelector<HTMLElement>(`[data-annotation-id="${CSS.escape(annotation.id)}"]`);
+    container.querySelector<HTMLElement>(`[data-annotation-id="${CSS.escape(annotation.id)}"]`) ??
+    // A region has no words to find: its Unit is where it is drawn (#327).
+    (annotation.location?.area && annotation.pageFrom !== null
+      ? container.querySelector<HTMLElement>(`[data-area-unit="${annotation.pageFrom}"]`)
+      : null);
   if (!element) return false;
   element.scrollIntoView({ block: "center", behavior: "auto" });
   return true;
