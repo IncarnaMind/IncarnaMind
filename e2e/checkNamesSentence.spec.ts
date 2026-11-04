@@ -23,8 +23,8 @@ import {
 /*
  * Every sentence check says which sentence it is about (#1621): its card opens with the sentence in
  * quotation marks, the sentence is outlined while the card is open, the mark sits on the sentence's
- * first line, and Next in the Mind's health card ends where a click on the mark does. The checks are
- * written into the page, so no model is involved.
+ * first line, and Next in the Mind's health card ends where a click on the mark does; a verdict's card
+ * ends naming what checked it (#1667). The checks are written into the page, so no model is involved.
  */
 
 const TIDES = buildPdf([
@@ -101,6 +101,19 @@ const checked = (id: string, state: string, text: string, extra: Record<string, 
 });
 const paragraph = (...content: object[]) => ({ type: "paragraph", content });
 
+const HAIKU = { providerId: null, modelId: "claude-haiku-5-5" };
+/** What a verdict card's last line says checked it (#1667); the time is the dates module's. */
+const CHECKED_BY = {
+  en: {
+    model: /^Checked with Claude Haiku 5\.5, \S/u,
+    copy: /^Checked word for word against its quote, no AI model, \S/u,
+  },
+  "zh-CN": {
+    model: /^由 Claude Haiku 5\.5 核对，\S/u,
+    copy: /^与引文逐字一致，未使用 AI 模型，\S/u,
+  },
+} as const;
+
 async function box(locator: Locator) {
   const found = await locator.boundingBox();
   if (!found) throw new Error("The element isn't visible.");
@@ -141,12 +154,15 @@ for (const language of ["en", "zh-CN"] as const) {
         (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
       },
       [
-        paragraph(checked("check-1", "supported", words.supported, { evidence: passage })),
-        paragraph(checked("check-2", "unsupported", words.unsupported)),
+        paragraph(
+          checked("check-1", "supported", words.supported, { evidence: passage, ...HAIKU }),
+        ),
+        paragraph(checked("check-2", "unsupported", words.unsupported, HAIKU)),
         paragraph(
           checked("check-3", "contradicted", words.contradicted, {
             evidence: passage,
             says: "The agreement says the facilities end on 14 February 2029.",
+            ...HAIKU,
           }),
         ),
         paragraph(checked("check-4", "not-checked", words.notChecked, { reason: "refused" })),
@@ -160,7 +176,10 @@ for (const language of ["en", "zh-CN"] as const) {
         }),
         // A checked claim and one not checked yet, starting on the same line (#1941).
         paragraph(
-          checked("check-7", "supported", words.besideChecked, { evidence: passage }),
+          checked("check-7", "supported", words.besideChecked, {
+            evidence: passage,
+            wordForWord: true,
+          }),
           { type: "text", text: " " },
           checked("check-8", "not-checked", words.besideUnchecked, { reason: "refused" }),
         ),
@@ -247,6 +266,14 @@ for (const language of ["en", "zh-CN"] as const) {
       ).toBe("claim-sentence");
       await expect(line).toHaveCSS("font-size", "13px");
       await expect(line).toHaveCSS("color", metaInk);
+      const checkedBy = card.getByTestId("claim-checked-by");
+      if (kind === "not-checked" || kind === "needs-recheck")
+        await expect(checkedBy).toHaveCount(0);
+      else {
+        await expect(checkedBy).toHaveText(CHECKED_BY[language].model);
+        await expect(checkedBy).toHaveCSS("font-size", "12px");
+        await expect(checkedBy).toHaveCSS("color", metaInk);
+      }
       const shape = await line.evaluate((element) => {
         const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
         return {
@@ -279,6 +306,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(outlined).toHaveCount(0);
       await expect(mark).not.toHaveAttribute("data-open", "true");
     }
+
+    await pointAndClick(window, beside);
+    await expect(card).toHaveAttribute("data-check", "supported");
+    await expect(card.getByTestId("claim-checked-by")).toHaveText(CHECKED_BY[language].copy);
+    await screenshot(window, `card-word-for-word-${language}-900`);
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
 
     await pointAndClick(window, marks.nth(5));
     await expect(card).toHaveAttribute("data-check", "supported");
