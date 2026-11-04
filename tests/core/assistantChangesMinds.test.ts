@@ -2025,7 +2025,7 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     expect(shownWithChanges(client)).toEqual([each.now, each.lines[1]]);
   });
 
-  // protects=through the assistant too, a new line of a reply without names on the pattern of the Note's lines is added, and every line of the User's stays, also when it has the same amount as one of them (#2356, part 4 of #2333); Chinese and English; fails_when=the water line is written over; no_claim=how often a model leaves its names out.
+  // protects=through the assistant too, a new line of a reply without names on the pattern of the Note's lines is added, and every line of the User's stays, also when it has the same amount as one of them, or differs from one only in its numbers (#2356, part 4 of #2333); Chinese and English; fails_when=the water line is written over; no_claim=how often a model leaves its names out.
   test.each([
     {
       asked: "在停车后面加一行网费，每月40元。",
@@ -2056,6 +2056,18 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
       lines: ["房租每月1200元。", "停车每月100元。", "水费每月30元。"],
       reply: "停车每月100元。\n\n网费每月30元。",
       added: "网费每月30元。",
+    },
+    {
+      asked: "Add 2026 at 1.4m.",
+      lines: ["2024 revenue was 1.2m.", "2025 revenue was 1.4m.", "2027 revenue will be 1.8m."],
+      reply: "2024 revenue was 1.2m.\n\n2026 revenue was 1.4m.",
+      added: "2026 revenue was 1.4m.",
+    },
+    {
+      asked: "加上103房间，已订。",
+      lines: ["101房间空着。", "102房间已订。", "104房间空着。"],
+      reply: "101房间空着。\n\n103房间已订。",
+      added: "103房间已订。",
     },
   ])(
     "a new line on the pattern of the others is added through the assistant: $reply",

@@ -5188,31 +5188,137 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     );
   });
 
-  // protects=a line of a reply without names that says the words only one paragraph has still takes that paragraph's place, a short summary of it too, so the rule above adds no copy beside a rewrite; Chinese and English; fails_when=the old line stays beside the new one; no_claim=none beyond protects.
+  const NUMBERED = {
+    revenue: ["2024 revenue was 1.2m.", "2025 revenue was 1.4m."],
+    revenueOn: ["2024 revenue was 1.2m.", "2025 revenue was 1.4m.", "2027 revenue will be 1.8m."],
+    rooms: ["Room 101 is free.", "Room 102 is booked.", "Room 104 is free."],
+    quarters: ["Q1 sales were 120.", "Q2 sales were 140.", "Q4 sales will be 190."],
+    long: [
+      "The quarterly revenue for the northern region in 2024 was reported as 1.2m by the finance team.",
+      "The quarterly revenue for the northern region in 2025 was reported as 1.4m by the finance team.",
+    ],
+    zhRevenue: ["2024年收入120万元。", "2025年收入140万元。"],
+    zhRevenueOn: ["2024年收入120万元。", "2025年收入140万元。", "2027年收入预计180万元。"],
+    zhRooms: ["101房间空着。", "102房间已订。", "104房间空着。"],
+  };
+
+  // protects=a new line of a reply without names that differs from one of the User's lines only in its numbers (a year, a room, a quarter, an amount) is added, never written over that line, as which line it means can't be told from its words: alone it is the reply's own words and goes in nowhere; after the line before it, after the first line, between two lines it repeats, and a long line the summary rule would read as the old one; a different line with the same amount is added too; English and Chinese (#2356, part 4 of #2333); fails_when=a line of the User's is written over or lost; no_claim=how often a model leaves its names out.
+  test.each([
+    { lines: COSTS.en, asked: "Water is 35 now.", reply: "Water is 35 a month.", added: null },
+    {
+      lines: COSTS.en,
+      asked: "Parking is 120 now.",
+      reply: "Rent is 1,200 a month.\n\nParking is 120 a month.",
+      added: "Parking is 120 a month.",
+    },
+    {
+      lines: NUMBERED.revenue,
+      asked: "Add 2026 at 1.4m.",
+      reply: "2026 revenue was 1.4m.",
+      added: null,
+    },
+    {
+      lines: NUMBERED.revenueOn,
+      asked: "Add 2026 at 1.4m.",
+      reply: "2024 revenue was 1.2m.\n\n2026 revenue was 1.4m.",
+      added: "2026 revenue was 1.4m.",
+    },
+    {
+      lines: NUMBERED.rooms,
+      asked: "Add room 103, booked.",
+      reply: "Room 103 is booked.",
+      added: null,
+    },
+    {
+      lines: NUMBERED.rooms,
+      asked: "Add room 103, booked.",
+      reply: "Room 101 is free.\n\nRoom 103 is booked.",
+      added: "Room 103 is booked.",
+    },
+    {
+      lines: NUMBERED.rooms,
+      asked: "Add room 103, booked.",
+      reply: "Room 101 is free.\n\nRoom 103 is booked.\n\nRoom 104 is free.",
+      added: "Room 103 is booked.",
+    },
+    {
+      lines: NUMBERED.quarters,
+      asked: "Add Q3 at 140.",
+      reply: "Q1 sales were 120.\n\nQ3 sales were 140.",
+      added: "Q3 sales were 140.",
+    },
+    {
+      lines: NUMBERED.long,
+      asked: "Add 2026 at 1.4m.",
+      reply:
+        "The quarterly revenue for the northern region in 2026 was reported as 1.4m by the finance team.",
+      added: null,
+    },
+    {
+      lines: ["Rent is 1,200 a month.", "Parking is 40 a month.", "Water is 30 a month."],
+      asked: "Add internet after parking, 40 a month.",
+      reply: "Parking is 40 a month.\n\nInternet is 40 a month.",
+      added: "Internet is 40 a month.",
+    },
+    { lines: COSTS.zh, asked: "水费改成每月35元。", reply: "水费每月35元。", added: null },
+    {
+      lines: NUMBERED.zhRevenue,
+      asked: "加上2026年，140万元。",
+      reply: "2026年收入140万元。",
+      added: null,
+    },
+    {
+      lines: NUMBERED.zhRevenueOn,
+      asked: "加上2026年，140万元。",
+      reply: "2024年收入120万元。\n\n2026年收入140万元。",
+      added: "2026年收入140万元。",
+    },
+    { lines: NUMBERED.zhRooms, asked: "加上103房间，已订。", reply: "103房间已订。", added: null },
+    {
+      lines: NUMBERED.zhRooms,
+      asked: "加上103房间，已订。",
+      reply: "101房间空着。\n\n103房间已订。",
+      added: "103房间已订。",
+    },
+  ])("a line that differs from another only in its numbers is added: $reply", async (each) => {
+    const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
+
+    await core.editWithAi(wholeMind(client, mind.id, each.asked));
+
+    const after = await acceptThenUndo(client, before);
+    if (each.added === null) {
+      expect(after).toEqual(each.lines);
+      return;
+    }
+    expect(after).toEqual(expect.arrayContaining([...each.lines, each.added]));
+    expect(after).toHaveLength(each.lines.length + 1);
+  });
+
+  // protects=a line of a reply without names that says other words of one paragraph than its numbers, as a rewrite by the quarter does, still takes that paragraph's place, so the rules above add no copy beside a rewrite; a reply by names that changes only a line's amount replaces it exactly (#2356); Chinese and English; fails_when=the old line stays beside the new one; no_claim=none beyond protects.
   test.each([
     {
       lines: COSTS.zh,
       asked: "水费改成每月35元。",
-      reply: "水费每月35元。",
+      reply: "¶3 水费每月35元。",
       now: ["房租每月1200元。", "停车每月100元。", "水费每月35元。"],
     },
     {
       lines: COSTS.zh,
-      asked: "把停车改成120元。",
-      reply: "停车每月120元。",
-      now: ["房租每月1200元。", "停车每月120元。", "水费每月30元。"],
+      asked: "房租改成1300元。",
+      reply: "¶1 房租每月1300元。",
+      now: ["房租每月1300元。", "停车每月100元。", "水费每月30元。"],
     },
     {
       lines: COSTS.en,
       asked: "Water is 35 now.",
-      reply: "Water is 35 a month.",
+      reply: "¶3 Water is 35 a month.",
       now: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 35 a month."],
     },
     {
       lines: COSTS.en,
-      asked: "Parking is 120 now.",
-      reply: "Parking is 120 a month.",
-      now: ["Rent is 1,200 a month.", "Parking is 120 a month.", "Water is 30 a month."],
+      asked: "Rent is 1,300 now.",
+      reply: "¶1 Rent is 1,300 a month.",
+      now: ["Rent is 1,300 a month.", "Parking is 100 a month.", "Water is 30 a month."],
     },
     {
       lines: COSTS.zh,
@@ -5226,13 +5332,16 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
       reply: "Parking is 100 a month.\n\nWater is 90 a quarter.",
       now: ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 90 a quarter."],
     },
-  ])("a line that says what only its paragraph has takes its place: $reply", async (each) => {
-    const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
+  ])(
+    "a line that says what its paragraph is about, or names it, takes its place: $reply",
+    async (each) => {
+      const { core, mind, client, before } = await noteOf(plain(each.lines), () => each.reply);
 
-    await core.editWithAi(wholeMind(client, mind.id, each.asked));
+      await core.editWithAi(wholeMind(client, mind.id, each.asked));
 
-    expect(await acceptThenUndo(client, before)).toEqual(each.now);
-  });
+      expect(await acceptThenUndo(client, before)).toEqual(each.now);
+    },
+  );
 
   // protects=a short summary of a long paragraph, after its heading, takes the paragraph's place, though it says few of that paragraph's words: most of its own words are that paragraph's alone (#2356); English and Chinese; fails_when=the summary is added beside the paragraph; no_claim=none beyond protects.
   test.each([
