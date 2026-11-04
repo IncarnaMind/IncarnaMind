@@ -303,8 +303,10 @@ export function SelectionMenu({
       const now = heldNow() ?? held;
       close();
       if (now) void highlightSelection(now.selection, chosen);
+      // The menu is gone: the keys go on with the page, not with the window's body.
+      section?.focus();
     },
-    [held, close, heldNow],
+    [held, close, heldNow, section],
   );
 
   const actions = useMemo(
@@ -454,6 +456,7 @@ export function SelectionMenuBody({
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => annotations.highlight(annotations.colour)}
             onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
               if (event.key !== "Enter" && event.key !== " ") return;
               event.preventDefault();
               annotations.highlight(annotations.colour);

@@ -661,6 +661,14 @@ test("the list takes the page's place below 760 and sits beside it from 760, in 
         const headerBox = await header.boundingBox();
         if (!panelBox || !headerBox) throw new Error("The list or the toolbar has no box.");
         expect(panelBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+        // The page's own controls are dimmed and out of reach; the list's own stay live.
+        expect(
+          await header
+            .locator("[inert] > *")
+            .first()
+            .evaluate((element) => getComputedStyle(element).opacity),
+        ).toBe("0.4");
+        await expect(viewer.getByTestId("viewer-open-externally")).toBeEnabled();
       } else {
         await expect(panel).not.toHaveClass(/annotations-panel--in-place/);
         const pageBox = await viewer.getByTestId("viewer-text").boundingBox();
@@ -723,6 +731,29 @@ const LONG_MARKDOWN = `${MARKDOWN}\n${Array.from(
   (_, index) => `## Filler ${index}\n\nFiller paragraph number ${index} of the page.`,
 ).join("\n\n")}\n`;
 
+test("the swatches keep their own keys, and the page takes the focus after", async () => {
+  const { window, viewer } = await openMarkdown();
+  const words = "4% is held";
+  const selectAgain = async () => {
+    await clearSelection(window);
+    await slideSelect(window, paragraph(viewer, words), words);
+    await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
+  };
+  await selectAgain();
+  await window.getByTestId("viewer-selection-highlight-pink").focus();
+  await window.keyboard.press("Enter");
+  await expect(viewer.locator("[data-annotation-id]").first()).toHaveClass(/pink/);
+  expect(
+    await window.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? ""),
+  ).toBe("viewer");
+
+  await selectAgain();
+  await window.getByTestId("viewer-selection-highlight-purple").focus();
+  await window.keyboard.press(" ");
+  await expect(viewer.locator("[data-annotation-id]").last()).toHaveClass(/purple/);
+  await window.keyboard.press("Escape");
+});
+
 test("two viewers of one Document keep their own lists, in English and Chinese", async () => {
   const { app, window } = await openMarkdown("en", MARKDOWN, "Costs.md");
   await setWindowSize(app, window, 2000, 900);
@@ -757,6 +788,32 @@ test("two viewers of one Document keep their own lists, in English and Chinese",
     await expect(leftToggle).toHaveAttribute("aria-pressed", "true");
     await expect(window.getByTestId("annotations-panel")).toHaveCount(1);
     await pointAndClick(window, window.getByTestId("annotations-close"));
+
+    // The focused wide viewer's menu and ⌘K open its own list, not the narrow one's.
+    await pointAndClick(window, left);
+    await pointAndClick(window, left.getByTestId("document-file-menu").first());
+    await pointAndClick(window, window.getByTestId("document.showAnnotations").first());
+    await expect(leftToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(window.getByTestId("annotations-panel")).toHaveCount(1);
+    await pointAndClick(window, window.getByTestId("annotations-close"));
+    await runCommand(
+      window,
+      "document.showAnnotations",
+      language === "en"
+        ? "Show this Document’s highlights and comments"
+        : "显示这个文档的高亮和批注",
+    );
+    await expect(leftToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(window.getByTestId("annotations-panel")).toHaveCount(1);
+    await pointAndClick(window, window.getByTestId("annotations-close"));
+
+    // The narrow viewer's menu says why its list cannot open.
+    await pointAndClick(window, right.getByTestId("viewer-header"));
+    await pointAndClick(window, right.getByTestId("document-file-menu").first());
+    const item = window.getByTestId("document.showAnnotations").first();
+    await expect(item).toHaveAttribute("aria-disabled", "true");
+    await expect(item).toHaveAttribute("title", /too narrow|窗口太窄/i);
+    await window.keyboard.press("Escape");
   }
   await app.close();
 });

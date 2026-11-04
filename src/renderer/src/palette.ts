@@ -50,7 +50,7 @@ import { moveFromPalette } from "./sidebarMoves";
 import { useAppStore } from "./store";
 import { findTab } from "./tabs";
 import { taskAt } from "./taskFocus";
-import { viewerTabOf } from "./viewerTab";
+import { focusedViewerTabOf } from "./viewerTab";
 
 const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette" };
 
@@ -589,10 +589,16 @@ export async function runItem(
         },
         { as: inTab ? "here" : "list" },
       );
-      requestAnimationFrame(() => {
-        const tab = viewerTabOf(item.documentId);
-        if (tab) useAnnotations.getState().togglePanel(true, tab);
-      });
+      void (async () => {
+        for (let tries = 0; tries < 40; tries++) {
+          const tab = focusedViewerTabOf(item.documentId);
+          if (tab) {
+            useAnnotations.getState().togglePanel(true, tab);
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
       return;
     case "said":
       await openConversation(item.conversationId, item.answerId ?? undefined);
