@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import type { MockLanguageModelV4 } from "ai/test";
+import { describe, expect, test, vi } from "vitest";
 import type { ApprovalRequest, ConversationAnswer, Core } from "../../src/core";
 import { DATABASE_FILE } from "../../src/core";
 import type { Language } from "../../src/core/language";
@@ -8,9 +9,15 @@ import { catalogProvider, kindOfCatalogId } from "../../src/core/providers/catal
 import { openDatabase } from "../../src/core/storage";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
-import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import {
+  createMemoryKeychain,
+  createTempDataFolder,
+  queryDatabase,
+  startCore,
+} from "../helpers/core";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { type GenerateCall, scriptedModel, scriptedModels } from "../helpers/models";
+import { waitForTagging } from "../helpers/tags";
 
 /**
  * The assistant's Organize needs no model the Library's Sort doesn't (#2252): for a new User whose
@@ -52,24 +59,39 @@ const classifying = ({ prompt }: GenerateCall) => {
   return { text: JSON.stringify({ groupId: leases?.id ?? null, tags: [] }) };
 };
 
-const organizing = () =>
+const organizing = (reply: { pause?: { after: number; until: Promise<void> } } = {}) =>
   scriptedModel(
     (call) =>
       call.results.some((each) => each.tool === "run_command")
-        ? { text: "Done." }
+        ? { text: "Done.", ...reply }
         : { calls: [{ tool: "run_command", input: { command: "documents.organize" } }] },
     { generate: classifying },
   );
+
+/** The requests a model got that carry this text: a Document's name or words. */
+const requestsWith = (model: MockLanguageModelV4, text: string) =>
+  model.doGenerateCalls.filter((call) => JSON.stringify(call.prompt).includes(text)).length;
 
 /**
  * A new User: the one key the setup card saved, as it saves it, and Documents added. No Folder,
  * and nothing chosen in Settings.
  */
-async function newUser(language: Language = "en") {
+async function newUser({
+  language = "en",
+  model = organizing(),
+  keychain,
+}: {
+  language?: Language;
+  model?: MockLanguageModelV4;
+  keychain?: ReturnType<typeof createMemoryKeychain>;
+} = {}) {
   const folder = await createTempDataFolder();
   const sources = await createTempDataFolder();
-  const models = scriptedModels(organizing());
-  const core = startCore(folder, { createChatModel: models.createChatModel });
+  const models = scriptedModels(model);
+  const core = startCore(folder, {
+    createChatModel: models.createChatModel,
+    ...(keychain && { keychain }),
+  });
   if (language !== "en") await core.updateSettings({ user: { language } });
   const modelId = catalogProvider("anthropic")?.roles.answers;
   if (!modelId) throw new Error("Anthropic has no Answers model in the catalog.");
@@ -108,7 +130,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     ["en", "Put my Documents into Folders."],
     ["zh-CN", "把我的文档放进文件夹。"],
   ] as const)("%s: the first request asks, then files them", async (language, text) => {
-    const { core, provider, mind } = await newUser(language);
+    const { core, provider, mind } = await newUser({ language });
     const premise = (await core.getTaggingModels()).automatic;
     expect(premise).toMatchObject({ name: "Claude Haiku 5.5", group: "keys" });
     const requests = approvals(core);
@@ -170,7 +192,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     expect(flow?.consent ?? "not-asked").not.toBe("accepted");
   });
 
-  // protects=a standing no to sending Documents for sorting stays a no after the card's Allow, which lets this one request send; fails_when=Allow stores accepted, or the Documents are not filed; no_claim=which Folder the classifier picks.
+  // protects=a standing no to sending Documents for sorting stays a no after the card's Allow, which lets this one request send and stores nothing, no model for Organize either; fails_when=Allow stores accepted, a model is kept, or the Documents are not filed; no_claim=which Folder the classifier picks.
   test("a standing no is still a no after the card's Allow", async () => {
     const { core, provider, mind, dataDir } = await newUser();
     if (!provider.service) throw new Error("No service.");
@@ -199,6 +221,7 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     expect(await filed(core)).toHaveLength(4);
     const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
     expect(flow?.consent).toBe("declined");
+    expect((await core.getLibrary()).settings.organizeWith).toBeNull();
   });
 
   // protects=a model chosen in Settings is the one Organize uses, with no question when its service is allowed, and Automatic's pick is not kept over it; fails_when=it asks again, uses Haiku, or sets the model Organize keeps; no_claim=which Folder the classifier picks.
@@ -244,5 +267,101 @@ describe("The assistant's Organize for a new User (#2252)", { timeout: 60_000 },
     expect(translate("zh-CN", "error.library.noClassifier")).toBe("先选择分类模型。");
     expect(await filed(core)).toEqual([]);
     expect((await core.getLibrary()).groups).toEqual([]);
+  });
+});
+
+/** What the Library stored for the switch: when it was turned on, for each service. */
+const storedSwitch = (dataDir: string) => {
+  const [row] = queryDatabase<{ value: string }>(
+    dataDir,
+    "SELECT value FROM device_settings WHERE key = 'library' AND deleted_at IS NULL",
+  );
+  const stored = JSON.parse(row?.value ?? "{}") as {
+    automatic?: boolean;
+    automaticSince?: Record<string, string>;
+  };
+  return { automatic: stored.automatic, automaticSince: stored.automaticSince };
+};
+
+/**
+ * A new User allows the first Organize; while its reply is still being written, a Document comes
+ * in and the Library's Sort is asked for it, which waits for the reply to end; the app quits. How
+ * many requests carrying that Document the next start sends by itself, and what it did with it.
+ */
+async function nextStart({ switchedOn }: { switchedOn: boolean }) {
+  const keychain = createMemoryKeychain();
+  const held = Promise.withResolvers<void>();
+  const answering = organizing({ pause: { after: 2, until: held.promise } });
+  const user = await newUser({ model: answering, keychain });
+  if (switchedOn) {
+    const { settings } = await user.core.getLibrary();
+    await user.core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
+  }
+  approvals(user.core);
+  const asked = await user.core.askInConversation({
+    text: "Put my Documents into Folders.",
+    mindId: user.mind.id,
+  });
+  if (!asked.asked) throw new Error("The Question wasn't asked.");
+  await vi.waitFor(async () => expect(await filed(user.core)).toHaveLength(4));
+  const [added] = await addAndProcess(user.core, [
+    await writeSourceFile(
+      await createSourceFolder(),
+      "Lease Willow Court.md",
+      "# Willow Court\n\nThe rent is 700 euros a month.\n",
+    ),
+  ]);
+  if (!added) throw new Error("The Document wasn't added.");
+  await user.core.classifyDocuments([added.id]);
+  expect(requestsWith(answering, "Willow Court")).toBe(0);
+  user.core.close();
+  held.resolve();
+
+  const restarted = scriptedModels(
+    scriptedModel(() => ({ text: "Not asked." }), { generate: classifying }),
+  );
+  const core = startCore(user.dataDir, { keychain, createChatModel: restarted.createChatModel });
+  const [settled] = await waitForTagging(
+    core,
+    [added.id],
+    (each) => !["pending", "tagging", "waiting-for-provider"].includes(each.tagging),
+  );
+  core.close();
+  return { sent: requestsWith(restarted.model, "Willow Court"), tagging: settled?.tagging };
+}
+
+describe("The first Organize leaves the switch as the User set it (#2252, #2308)", {
+  timeout: 60_000,
+}, () => {
+  // protects=keeping the pick stores the same record of the switch as the Library's "Use {company}" (no turn-on time for a service the User never turned it on for); fails_when=the Allow's consent is recorded before the pick is saved, so the record names the service with the time of the Allow; no_claim=which Folder the classifier picks.
+  test("the stored switch is what the Library's Use {company} stores", async () => {
+    const assistant = await newUser();
+    approvals(assistant.core);
+    await askAssistant(assistant.core, {
+      text: "Put my Documents into Folders.",
+      mindId: assistant.mind.id,
+    });
+    const library = await newUser();
+    const pick = (await library.core.getTaggingModels()).automatic;
+    if (!pick) throw new Error("Automatic has no pick.");
+    const { settings } = await library.core.getLibrary();
+    await library.core.saveLibrarySettings({ ...settings, organizeWith: pick.classifier });
+
+    expect(storedSwitch(library.dataDir)).toEqual({ automaticSince: {} });
+    expect(storedSwitch(assistant.dataDir)).toEqual({ automaticSince: {} });
+  });
+
+  // protects=a Document that was waiting for the Library's Sort when the app quit is not sent by itself at the next start, because the User allowed one Organize and never turned the switch on; fails_when=the next start sends it to the service; no_claim=which Folder the classifier picks.
+  test("a Document waiting when the app quits is not sent at the next start", async () => {
+    const start = await nextStart({ switchedOn: false });
+
+    expect(start).toEqual({ sent: 0, tagging: "off" });
+  });
+
+  // protects=the same steps do send at the next start for a User who turned the switch on for that service; fails_when=nothing is sent, so the test above would pass for any reason; no_claim=which Folder the classifier picks.
+  test("a User who turned the switch on is sent the Document at the next start", async () => {
+    const start = await nextStart({ switchedOn: true });
+
+    expect(start.sent).toBe(1);
   });
 });
