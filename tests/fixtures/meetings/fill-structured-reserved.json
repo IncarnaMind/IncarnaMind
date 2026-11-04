@@ -1,0 +1,543 @@
+[
+  {
+    "id": "reserved-en-structured-a",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Oat biscuit launch date" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Oat biscuit box price" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "I'm Cora. We need the oat biscuit launch date and box price today. My preliminary suggestion is March 12, 2027, at USD 16 per box. Neither is agreed yet."
+      },
+      {
+        "side": "them",
+        "text": "This is Dev. We cannot launch on March 12 because the cartons won't be ready, and USD 16 is too high. Let's reject both parts of that preliminary suggestion."
+      },
+      {
+        "side": "me",
+        "text": "Then the final oat biscuit launch date is March 19, 2027, and the final price is USD 13 per box. These replace March 12 and USD 16; we are not keeping either earlier option."
+      },
+      {
+        "side": "them",
+        "text": "Confirmed: the oat biscuits launch on March 19, 2027, at USD 13 per box. Both decisions are final."
+      },
+      {
+        "side": "me",
+        "text": "I will email the allergen sheet to the printer by March 8, 2027. That task is mine."
+      },
+      {
+        "side": "them",
+        "text": "I, Dev, will photograph the biscuit boxes by March 9, 2027."
+      },
+      {
+        "side": "me",
+        "text": "Lina has agreed to upload the ingredient card to the shop by March 10, 2027. I am assigning that upload to Lina, not to either of us."
+      },
+      {
+        "side": "them",
+        "text": "Those three assignments and their deadlines are agreed. There are no other tasks for this launch."
+      },
+      {
+        "side": "me",
+        "text": "Everything is settled. We have no open questions."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Final oat biscuit launch date",
+        "kind": "decision",
+        "pattern": "(?=[\\s\\S]*[Oo]at\\s+[Bb]iscuits?)(?=[\\s\\S]*(?:[Ll]aunch|[Rr]elease))(?=[\\s\\S]*(?:\\b[Mm]ar(?:ch)?\\.?\\s+19(?:th)?,?\\s+2027\\b|\\b19(?:th)?\\s+[Mm]ar(?:ch)?\\.?\\s+2027\\b|\\b2027[-/]0?3[-/]19\\b))[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*[Oo]at\\s+[Bb]iscuits?)(?=[\\s\\S]*(?:[Ll]aunch|[Rr]elease))[\\s\\S]+",
+        "said": [2, 3],
+        "underLine": "Oat biscuit launch date"
+      },
+      {
+        "name": "Final oat biscuit box price",
+        "kind": "decision",
+        "pattern": "(?=[\\s\\S]*[Oo]at\\s+[Bb]iscuits?)(?=[\\s\\S]*[Bb]ox)(?=[\\s\\S]*(?:(?:USD|US\\$|\\$)\\s*13(?:\\.00)?(?!\\d|[.,]\\d)|\\b13(?:\\.00)?\\s*(?:USD|(?:US\\s+)?[Dd]ollars?)\\b))[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*[Oo]at\\s+[Bb]iscuits?)(?=[\\s\\S]*(?:[Pp]rice|[Cc]ost|[Pp]er\\s+[Bb]ox))[\\s\\S]+",
+        "said": [2, 3],
+        "underLine": "Oat biscuit box price"
+      },
+      {
+        "name": "Cora sends the allergen sheet to the printer",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Aa]llergen\\s+(?:[Ss]heet|[Ii]nformation|[Dd]etails))(?=[\\s\\S]*[Pp]rinter)(?=[\\s\\S]*(?:[Ee]mail|[Ss]end|[Ff]orward))(?=[\\s\\S]*\\b[Cc]ora\\b)(?=[\\s\\S]*(?:\\b[Mm]ar(?:ch)?\\.?\\s+8(?:th)?,?\\s+2027\\b|\\b8(?:th)?\\s+[Mm]ar(?:ch)?\\.?\\s+2027\\b|\\b2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
+        "subject": "[Aa]llergen\\s+(?:[Ss]heet|[Ii]nformation|[Dd]etails)",
+        "said": [4]
+      },
+      {
+        "name": "Dev photographs the biscuit boxes",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Bb]iscuit\\s+[Bb]ox(?:es)?)(?=[\\s\\S]*(?:[Pp]hoto|[Pp]icture|[Ss]hoot))(?=[\\s\\S]*\\b[Dd]ev\\b)(?=[\\s\\S]*(?:\\b[Mm]ar(?:ch)?\\.?\\s+9(?:th)?,?\\s+2027\\b|\\b9(?:th)?\\s+[Mm]ar(?:ch)?\\.?\\s+2027\\b|\\b2027[-/]0?3[-/]0?9\\b))[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*[Bb]iscuit\\s+[Bb]ox(?:es)?)(?=[\\s\\S]*(?:[Pp]hoto|[Pp]icture|[Ss]hoot))[\\s\\S]+",
+        "said": [5]
+      },
+      {
+        "name": "Lina uploads the ingredient card to the shop",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Ii]ngredient\\s+[Cc]ard)(?=[\\s\\S]*(?:[Ss]hop|[Ss]tore))(?=[\\s\\S]*(?:[Uu]pload|[Pp]ublish|[Pp]ost))(?=[\\s\\S]*\\b[Ll]ina\\b)(?=[\\s\\S]*(?:\\b[Mm]ar(?:ch)?\\.?\\s+10(?:th)?,?\\s+2027\\b|\\b10(?:th)?\\s+[Mm]ar(?:ch)?\\.?\\s+2027\\b|\\b2027[-/]0?3[-/]10\\b))[\\s\\S]+",
+        "subject": "[Ii]ngredient\\s+[Cc]ard",
+        "said": [6]
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-a",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "燕麦饼干上市日期" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "燕麦饼干每盒售价" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我是柯拉。今天要定下燕麦饼干的上市日期和每盒售价。我初步提议2027年3月12日上市，每盒16美元。这两个数字都还没有定。"
+      },
+      {
+        "side": "them",
+        "text": "我是德夫。包装盒来不及做好，3月12日不能上市，而且每盒16美元太高了。刚才的初步日期和价格都否掉。"
+      },
+      {
+        "side": "me",
+        "text": "那就最终确定：燕麦饼干在2027年3月19日上市，每盒售价13美元。这取代3月12日和16美元，前面两个方案都不保留。"
+      },
+      {
+        "side": "them",
+        "text": "确认，燕麦饼干2027年3月19日上市，每盒13美元。这两项决定都定了。"
+      },
+      {
+        "side": "me",
+        "text": "我负责在2027年3月8日前把过敏原信息表通过邮件发给印刷商。这项由我来做。"
+      },
+      {
+        "side": "them",
+        "text": "我，德夫，负责在2027年3月9日前给饼干包装盒拍照。"
+      },
+      {
+        "side": "me",
+        "text": "莉娜已经答应在2027年3月10日前把配料卡上传到网店。我把上传这项交给莉娜，不是交给我们俩中的任何一个。"
+      },
+      {
+        "side": "them",
+        "text": "这三项分工和截止日期都确认了。这次上市没有其他任务。"
+      },
+      {
+        "side": "me",
+        "text": "都定下来了，没有待解决的问题。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "燕麦饼干最终上市日期",
+        "kind": "decision",
+        "pattern": "(?=[\\s\\S]*燕麦饼干)(?=[\\s\\S]*(?:上市|推出|发售))(?=[\\s\\S]*(?:2027\\s*年\\s*3\\s*月\\s*19\\s*[日号]|2027[-/]0?3[-/]19\\b))[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*燕麦饼干)(?=[\\s\\S]*(?:上市|推出|发售))[\\s\\S]+",
+        "said": [2, 3],
+        "underLine": "燕麦饼干上市日期"
+      },
+      {
+        "name": "燕麦饼干最终每盒售价",
+        "kind": "decision",
+        "pattern": "(?=[\\s\\S]*燕麦饼干)(?=[\\s\\S]*(?:盒|售价|价格))(?=[\\s\\S]*(?:\\b13(?:\\.00)?\\s*(?:美元|USD)|(?:USD|US\\$|\\$)\\s*13(?:\\.00)?(?!\\d|[.,]\\d)))[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*燕麦饼干)(?=[\\s\\S]*(?:盒价|价格|售价|定价|每盒))[\\s\\S]+",
+        "said": [2, 3],
+        "underLine": "燕麦饼干每盒售价"
+      },
+      {
+        "name": "柯拉把过敏原信息表发给印刷商",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*(?:过敏原|致敏原)(?:信息表|清单|说明表|说明|表))(?=[\\s\\S]*印刷(?:商|方|厂))(?=[\\s\\S]*(?:发送|发给|发往|寄给|交给|电邮|邮件))(?=[\\s\\S]*柯拉)(?=[\\s\\S]*(?:2027\\s*年\\s*3\\s*月\\s*8\\s*[日号]|2027[-/]0?3[-/]0?8\\b))[\\s\\S]+",
+        "subject": "(?:过敏原|致敏原)(?:信息表|清单|说明表|说明|表)",
+        "said": [4]
+      },
+      {
+        "name": "德夫给饼干包装盒拍照",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*饼干(?:包装)?盒)(?=[\\s\\S]*(?:拍照|拍摄|摄影|照片))(?=[\\s\\S]*德夫)(?=[\\s\\S]*(?:2027\\s*年\\s*3\\s*月\\s*9\\s*[日号]|2027[-/]0?3[-/]0?9\\b))[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*饼干(?:包装)?盒)(?=[\\s\\S]*(?:拍照|拍摄|摄影|照片))[\\s\\S]+",
+        "said": [5]
+      },
+      {
+        "name": "莉娜把配料卡上传到网店",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*(?:配料卡|成分卡))(?=[\\s\\S]*(?:网店|商店|店铺))(?=[\\s\\S]*(?:上传|发布|上架))(?=[\\s\\S]*莉娜)(?=[\\s\\S]*(?:2027\\s*年\\s*3\\s*月\\s*10\\s*[日号]|2027[-/]0?3[-/]10\\b))[\\s\\S]+",
+        "subject": "(?:配料卡|成分卡)",
+        "said": [6]
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-b",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "summary": "Snapshot from this call",
+      "actions": "Next steps to carry out"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Snapshot from this call" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "Observatory backup storage tier" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "Next steps to carry out" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "I'm Hugo. We need to choose the observatory backup storage tier. Should the backups use the standard tier or the cold storage tier?"
+      },
+      {
+        "side": "them",
+        "text": "I'm Inez. We restore these backups rarely, so cold storage looks suitable. That's my recommendation, not yet a decision."
+      },
+      {
+        "side": "me",
+        "text": "Final decision: use the cold storage tier for the observatory backups, not the standard tier."
+      },
+      {
+        "side": "them",
+        "text": "I, Inez, will enable the storage lifecycle rule by April 6, 2027."
+      },
+      {
+        "side": "me",
+        "text": "I will run a restore drill by April 7, 2027. That is my task, Hugo's."
+      },
+      {
+        "side": "them",
+        "text": "Omar has agreed to update the backup runbook by April 8, 2027. I am assigning that update to Omar."
+      },
+      {
+        "side": "me",
+        "text": "Exactly one question is unresolved: does the insurer require a paper copy of the backup audit? We do not know. Keep that question open; no one is assigned to investigate it on this call."
+      },
+      {
+        "side": "them",
+        "text": "Agreed: the observatory backup tier is cold storage, the three actions and their deadlines are agreed, and the insurer's paper-copy requirement is the only open question."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Observatory backups use cold storage",
+        "kind": "decision",
+        "pattern": "(?=[\\s\\S]*[Oo]bservatory)(?=[\\s\\S]*[Bb]ackup)(?=[\\s\\S]*[Cc]old\\s+[Ss]torage)[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*[Oo]bservatory)(?=[\\s\\S]*[Bb]ackup)(?=[\\s\\S]*(?:[Tt]ier|[Ss]torage))[\\s\\S]+",
+        "said": [2, 7],
+        "underLine": "Observatory backup storage tier"
+      },
+      {
+        "name": "Inez enables the storage lifecycle rule",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Ll]ifecycle\\s+[Rr]ule)(?=[\\s\\S]*(?:[Ee]nabl|[Aa]ctivat|[Cc]onfigur|[Tt]urn\\s+on))(?=[\\s\\S]*\\b[Ii]nez\\b)(?=[\\s\\S]*(?:\\b[Aa]pr(?:il)?\\.?\\s+6(?:th)?,?\\s+2027\\b|\\b6(?:th)?\\s+[Aa]pr(?:il)?\\.?\\s+2027\\b|\\b2027[-/]0?4[-/]0?6\\b))[\\s\\S]+",
+        "subject": "[Ll]ifecycle\\s+[Rr]ule",
+        "said": [3]
+      },
+      {
+        "name": "Hugo runs the restore drill",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Rr]estore\\s+(?:[Dd]rill|[Tt]est|[Ee]xercise))(?=[\\s\\S]*(?:[Rr]un|[Cc]onduct|[Pp]erform))(?=[\\s\\S]*\\b[Hh]ugo\\b)(?=[\\s\\S]*(?:\\b[Aa]pr(?:il)?\\.?\\s+7(?:th)?,?\\s+2027\\b|\\b7(?:th)?\\s+[Aa]pr(?:il)?\\.?\\s+2027\\b|\\b2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
+        "subject": "[Rr]estore\\s+(?:[Dd]rill|[Tt]est|[Ee]xercise)",
+        "said": [4]
+      },
+      {
+        "name": "Omar updates the backup runbook",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Bb]ackup\\s+(?:[Rr]unbook|[Pp]laybook|[Pp]rocedures?))(?=[\\s\\S]*(?:[Uu]pdat|[Rr]evis|[Ee]dit))(?=[\\s\\S]*\\b[Oo]mar\\b)(?=[\\s\\S]*(?:\\b[Aa]pr(?:il)?\\.?\\s+8(?:th)?,?\\s+2027\\b|\\b8(?:th)?\\s+[Aa]pr(?:il)?\\.?\\s+2027\\b|\\b2027[-/]0?4[-/]0?8\\b))[\\s\\S]+",
+        "subject": "[Bb]ackup\\s+(?:[Rr]unbook|[Pp]laybook|[Pp]rocedures?)",
+        "said": [5]
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-b",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": true,
+    "sectionHeadings": {
+      "summary": "这次聊到的要点",
+      "actions": "之后逐项落实"
+    },
+    "notes": [
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "这次聊到的要点" }]
+      },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "天文台备份的存储层级" }]
+      },
+      {
+        "type": "heading",
+        "attrs": { "level": 2 },
+        "content": [{ "type": "text", "text": "之后逐项落实" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我是雨果。要定一下天文台备份的存储层级，用标准存储层，还是冷存储层？"
+      },
+      {
+        "side": "them",
+        "text": "我是伊内斯。这些备份很少恢复，冷存储比较合适。这只是我的建议，还不是决定。"
+      },
+      {
+        "side": "me",
+        "text": "最终决定：天文台备份采用冷存储层，不用标准存储层。"
+      },
+      {
+        "side": "them",
+        "text": "我，伊内斯，负责在2027年4月6日前启用存储生命周期规则。"
+      },
+      {
+        "side": "me",
+        "text": "我负责在2027年4月7日前做一次恢复演练。这个任务由我雨果来做。"
+      },
+      {
+        "side": "them",
+        "text": "奥马尔已经答应在2027年4月8日前更新备份操作手册。我把更新这项交给奥马尔。"
+      },
+      {
+        "side": "me",
+        "text": "只有一个问题还没解决：保险公司是否要求备份审计的纸质副本？现在不知道答案，保留为待解决问题。这次通话没有把调查这件事分配给任何人。"
+      },
+      {
+        "side": "them",
+        "text": "同意。天文台备份选冷存储层，三项任务及截止日期都定了，保险公司的纸质副本要求是唯一待解决的问题。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "天文台备份采用冷存储层",
+        "kind": "decision",
+        "pattern": "(?=[\\s\\S]*天文台)(?=[\\s\\S]*备份)(?=[\\s\\S]*冷存储)[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*天文台)(?=[\\s\\S]*备份)(?=[\\s\\S]*(?:层级|存储|层))[\\s\\S]+",
+        "said": [2, 7],
+        "underLine": "天文台备份的存储层级"
+      },
+      {
+        "name": "伊内斯启用存储生命周期规则",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*生命周期规则)(?=[\\s\\S]*(?:启用|开启|激活|配置))(?=[\\s\\S]*伊内斯)(?=[\\s\\S]*(?:2027\\s*年\\s*4\\s*月\\s*6\\s*[日号]|2027[-/]0?4[-/]0?6\\b))[\\s\\S]+",
+        "subject": "生命周期规则",
+        "said": [3]
+      },
+      {
+        "name": "雨果进行恢复演练",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*恢复(?:演练|测试|试验))(?=[\\s\\S]*(?:进行|执行|开展|完成|做))(?=[\\s\\S]*雨果)(?=[\\s\\S]*(?:2027\\s*年\\s*4\\s*月\\s*7\\s*[日号]|2027[-/]0?4[-/]0?7\\b))[\\s\\S]+",
+        "subject": "恢复(?:演练|测试|试验)",
+        "said": [4]
+      },
+      {
+        "name": "奥马尔更新备份操作手册",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*备份(?:操作手册|运行手册|操作规程))(?=[\\s\\S]*(?:更新|修订|修改))(?=[\\s\\S]*奥马尔)(?=[\\s\\S]*(?:2027\\s*年\\s*4\\s*月\\s*8\\s*[日号]|2027[-/]0?4[-/]0?8\\b))[\\s\\S]+",
+        "subject": "备份(?:操作手册|运行手册|操作规程)",
+        "said": [5]
+      }
+    ]
+  },
+  {
+    "id": "reserved-en-structured-c",
+    "language": "en",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Apartment acoustic panels: material choice and division of work"
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "I'm Priya. For the apartment acoustic panels, we need both a final material choice and a division of work."
+      },
+      {
+        "side": "them",
+        "text": "I'm Rowan. The two material candidates are felt and cork. We have not selected one yet."
+      },
+      {
+        "side": "me",
+        "text": "Our final material choice for the apartment acoustic panels is cork, not felt. That decision is settled."
+      },
+      {
+        "side": "them",
+        "text": "I, Rowan, will measure the panel wall by May 4, 2027."
+      },
+      {
+        "side": "me",
+        "text": "I will order the cork samples by May 5, 2027. I am taking that task myself."
+      },
+      {
+        "side": "them",
+        "text": "Suki has accepted the task of drawing the panel mounting plan by May 6, 2027. That drawing belongs to Suki, not to me."
+      },
+      {
+        "side": "me",
+        "text": "Those are the three agreed tasks, each with its stated owner and deadline. No additional work is being assigned."
+      },
+      {
+        "side": "them",
+        "text": "We have settled both the material and the division of work. There are no pending questions."
+      },
+      {
+        "side": "me",
+        "text": "Agreed. Nothing remains open, so we can close the call."
+      }
+    ],
+    "facts": [
+      {
+        "name": "Acoustic panels use cork",
+        "kind": "decision",
+        "pattern": "(?=[\\s\\S]*[Aa]coustic\\s+[Pp]anels?)(?=[\\s\\S]*\\b[Cc]ork\\b)[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*[Aa]coustic\\s+[Pp]anels?)(?=[\\s\\S]*(?:[Mm]aterial|[Cc]ork))[\\s\\S]+",
+        "said": [2],
+        "underLine": "Apartment acoustic panels: material choice and division of work"
+      },
+      {
+        "name": "Rowan measures the panel wall",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Pp]anel\\s+[Ww]all)(?=[\\s\\S]*(?:[Mm]easur|[Dd]imensions))(?=[\\s\\S]*\\b[Rr]owan\\b)(?=[\\s\\S]*(?:\\b[Mm]ay\\s+4(?:th)?,?\\s+2027\\b|\\b4(?:th)?\\s+[Mm]ay\\s+2027\\b|\\b2027[-/]0?5[-/]0?4\\b))[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*[Pp]anel\\s+[Ww]all)(?=[\\s\\S]*(?:[Mm]easur|[Dd]imensions))[\\s\\S]+",
+        "said": [3],
+        "underLine": "Apartment acoustic panels: material choice and division of work"
+      },
+      {
+        "name": "Priya orders cork samples",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Cc]ork\\s+[Ss]amples?)(?=[\\s\\S]*(?:[Oo]rder|[Pp]urchas|[Bb]uy))(?=[\\s\\S]*\\b[Pp]riya\\b)(?=[\\s\\S]*(?:\\b[Mm]ay\\s+5(?:th)?,?\\s+2027\\b|\\b5(?:th)?\\s+[Mm]ay\\s+2027\\b|\\b2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
+        "subject": "[Cc]ork\\s+[Ss]amples?",
+        "said": [4],
+        "underLine": "Apartment acoustic panels: material choice and division of work"
+      },
+      {
+        "name": "Suki draws the panel mounting plan",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*[Pp]anel\\s+(?:[Mm]ounting|[Ii]nstallation)\\s+(?:[Pp]lan|[Dd]rawing|[Dd]iagram))(?=[\\s\\S]*(?:[Dd]raw|[Dd]raft|[Pp]repar|[Cc]reat))(?=[\\s\\S]*\\b[Ss]uki\\b)(?=[\\s\\S]*(?:\\b[Mm]ay\\s+6(?:th)?,?\\s+2027\\b|\\b6(?:th)?\\s+[Mm]ay\\s+2027\\b|\\b2027[-/]0?5[-/]0?6\\b))[\\s\\S]+",
+        "subject": "[Pp]anel\\s+(?:[Mm]ounting|[Ii]nstallation)\\s+(?:[Pp]lan|[Dd]rawing|[Dd]iagram)",
+        "said": [5],
+        "underLine": "Apartment acoustic panels: material choice and division of work"
+      }
+    ]
+  },
+  {
+    "id": "reserved-zh-structured-c",
+    "language": "zh-CN",
+    "requireSections": true,
+    "openQuestions": false,
+    "notes": [
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "text": "公寓吸音板：材料选择与工作分工" }]
+      }
+    ],
+    "turns": [
+      {
+        "side": "me",
+        "text": "我是普莉娅。公寓吸音板这件事，今天既要确定最终材料，也要把工作分工定下来。"
+      },
+      {
+        "side": "them",
+        "text": "我是罗文。材料候选是毛毡和软木，现在还没有选定。"
+      },
+      {
+        "side": "me",
+        "text": "公寓吸音板最终选软木，不选毛毡。材料的决定就这样定了。"
+      },
+      {
+        "side": "them",
+        "text": "我，罗文，负责在2027年5月4日前测量吸音板所在墙面的尺寸。"
+      },
+      {
+        "side": "me",
+        "text": "我负责在2027年5月5日前订购软木样品。这项我自己来做。"
+      },
+      {
+        "side": "them",
+        "text": "苏琪已经接下了绘制吸音板安装方案的任务，截止日期是2027年5月6日。这个方案由苏琪画，不是由我画。"
+      },
+      {
+        "side": "me",
+        "text": "就这三项，每项的负责人和截止日期都已经定好。没有增加其他工作。"
+      },
+      {
+        "side": "them",
+        "text": "材料选择和工作分工都定下来了，没有待解决的问题。"
+      },
+      {
+        "side": "me",
+        "text": "同意，没有悬而未决的事，可以结束通话了。"
+      }
+    ],
+    "facts": [
+      {
+        "name": "公寓吸音板选用软木",
+        "kind": "decision",
+        "pattern": "(?=[\\s\\S]*吸音板)(?=[\\s\\S]*软木)[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*吸音板)(?=[\\s\\S]*(?:材料|软木))[\\s\\S]+",
+        "said": [2],
+        "underLine": "公寓吸音板：材料选择与工作分工"
+      },
+      {
+        "name": "罗文测量吸音板墙面",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*吸音板)(?=[\\s\\S]*墙(?:面|壁)?)(?=[\\s\\S]*(?:测量|量取|尺寸))(?=[\\s\\S]*罗文)(?=[\\s\\S]*(?:2027\\s*年\\s*5\\s*月\\s*4\\s*[日号]|2027[-/]0?5[-/]0?4\\b))[\\s\\S]+",
+        "subject": "(?=[\\s\\S]*吸音板)(?=[\\s\\S]*墙(?:面|壁)?)(?=[\\s\\S]*(?:测量|量取|尺寸))[\\s\\S]+",
+        "said": [3],
+        "underLine": "公寓吸音板：材料选择与工作分工"
+      },
+      {
+        "name": "普莉娅订购软木样品",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*软木样(?:品|本))(?=[\\s\\S]*(?:订购|采购|购买|下单))(?=[\\s\\S]*普莉娅)(?=[\\s\\S]*(?:2027\\s*年\\s*5\\s*月\\s*5\\s*[日号]|2027[-/]0?5[-/]0?5\\b))[\\s\\S]+",
+        "subject": "软木样(?:品|本)",
+        "said": [4],
+        "underLine": "公寓吸音板：材料选择与工作分工"
+      },
+      {
+        "name": "苏琪绘制吸音板安装方案",
+        "kind": "action",
+        "pattern": "(?=[\\s\\S]*吸音板[\\s\\S]*(?:安装|固定)[\\s\\S]*(?:方案|图|规划))(?=[\\s\\S]*(?:绘制|画|制定|编制|设计|完成))(?=[\\s\\S]*苏琪)(?=[\\s\\S]*(?:2027\\s*年\\s*5\\s*月\\s*6\\s*[日号]|2027[-/]0?5[-/]0?6\\b))[\\s\\S]+",
+        "subject": "吸音板[\\s\\S]*(?:安装|固定)[\\s\\S]*(?:方案|图|规划)",
+        "said": [5],
+        "underLine": "公寓吸音板：材料选择与工作分工"
+      }
+    ]
+  }
+]
