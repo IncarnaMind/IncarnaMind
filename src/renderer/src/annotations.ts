@@ -24,9 +24,20 @@ function rememberedColour(): AnnotationColour {
   return "yellow";
 }
 
+export interface AnnotationExport {
+  documentId: string;
+  name: string;
+  folder: string;
+  inDefaultFolder: boolean;
+  path: string;
+}
+
 interface AnnotationsState {
   byDocument: Record<string, Annotation[]>;
   counts: Record<string, number>;
+  /** The last export of a Document's highlights and comments, for its result line. */
+  exported: AnnotationExport | null;
+  showExport(exported: AnnotationExport | null): void;
   /** The colour the last highlight was made in: the next one starts in it. */
   colour: AnnotationColour;
   /** The Document tab's Annotations list is open. */
@@ -40,15 +51,23 @@ interface AnnotationsState {
 }
 
 const loading = new Set<string>();
+const loadingAgain = new Set<string>();
 
 export const useAnnotations = create<AnnotationsState>()((set) => ({
   byDocument: {},
   counts: {},
+  exported: null,
+  showExport: (exported) => set({ exported }),
   colour: rememberedColour(),
   panelOpen: false,
   togglePanel: (open) => set({ panelOpen: open }),
   load: async (documentId) => {
-    if (documentId === "" || loading.has(documentId)) return;
+    if (documentId === "") return;
+    if (loading.has(documentId)) {
+      // A change while a read runs is read again once, so the last one is never lost.
+      loadingAgain.add(documentId);
+      return;
+    }
     loading.add(documentId);
     try {
       const list = await core.listAnnotations(documentId);
@@ -57,6 +76,7 @@ export const useAnnotations = create<AnnotationsState>()((set) => ({
       console.error(`The highlights of Document ${documentId} couldn't be read.`, error);
     } finally {
       loading.delete(documentId);
+      if (loadingAgain.delete(documentId)) void useAnnotations.getState().load(documentId);
     }
   },
   loadCounts: async () => {

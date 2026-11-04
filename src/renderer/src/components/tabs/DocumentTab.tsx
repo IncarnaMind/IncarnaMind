@@ -7,6 +7,7 @@ import { AnnotationsPanel } from "../../components/AnnotationsPanel";
 import { useT } from "../../i18n";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { AnnotationAreas } from "../../viewer/AnnotationAreas";
+import { AnnotationExportLine } from "../../viewer/AnnotationExportLine";
 import { AreaModeContext, AreaOverlay, RegionHighlight } from "../../viewer/areaSelection";
 import { CitedVersionView } from "../../viewer/CitedVersionView";
 import { DocumentView } from "../../viewer/DocumentView";
@@ -241,43 +242,52 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
         <AreaModeContext.Provider value={areaAvailable ? areaMode : null}>
           <ViewerFrameContext.Provider value={frame}>
             <PlaceMemoryContext.Provider value={places}>
-              {!document ? (
-                <>
-                  <ViewerHeader />
-                  <DocumentRemoved quote={target.quote} unlinked={unlinked} />
-                </>
-              ) : (
-                // Keyed, so another Document, or a new read of its file, starts afresh (the last one
-                // goes at once). While its view loads, the header alone: the page comes a moment later.
-                <Suspense key={fileKey} fallback={<ViewerHeader />}>
-                  <SelectionReaderContext.Provider value={lendReader}>
-                    {citedVersion && document.contentHash !== citedVersion ? (
-                      <CitedVersionView document={document} target={target} />
-                    ) : (
-                      <DocumentView document={document} target={target} />
-                    )}
-                  </SelectionReaderContext.Provider>
-                </Suspense>
-              )}
-              {document && reader && (
-                <SelectionMenu document={document} section={section} reader={reader} />
-              )}
-              {document && panelOpen && (
-                <AnnotationsPanel
-                  document={document}
-                  container={section}
-                  onClose={() => togglePanel(false)}
-                />
-              )}
-              {document && areaAvailable && <AreaOverlay section={section} document={document} />}
-              {document && <AnnotationAreas section={section} annotations={storedAnnotations} />}
-              {document && (
-                <RegionHighlight
-                  section={section}
-                  unit={target.pageFrom ?? null}
-                  area={target.area}
-                />
-              )}
+              <div className="flex min-h-0 min-w-0 flex-1">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+                  {!document ? (
+                    <>
+                      <ViewerHeader />
+                      <DocumentRemoved quote={target.quote} unlinked={unlinked} />
+                    </>
+                  ) : (
+                    // Keyed, so another Document, or a new read of its file, starts afresh (the last one
+                    // goes at once). While its view loads, the header alone: the page comes a moment later.
+                    <Suspense key={fileKey} fallback={<ViewerHeader />}>
+                      <SelectionReaderContext.Provider value={lendReader}>
+                        {citedVersion && document.contentHash !== citedVersion ? (
+                          <CitedVersionView document={document} target={target} />
+                        ) : (
+                          <DocumentView document={document} target={target} />
+                        )}
+                      </SelectionReaderContext.Provider>
+                    </Suspense>
+                  )}
+                  {document && reader && (
+                    <SelectionMenu document={document} section={section} reader={reader} />
+                  )}
+                  {document && areaAvailable && (
+                    <AreaOverlay section={section} document={document} />
+                  )}
+                  {document && (
+                    <AnnotationAreas section={section} annotations={storedAnnotations} />
+                  )}
+                  {document && (
+                    <RegionHighlight
+                      section={section}
+                      unit={target.pageFrom ?? null}
+                      area={target.area}
+                    />
+                  )}
+                  {document && <AnnotationExportLine documentId={document.id} />}
+                </div>
+                {document && panelOpen && (
+                  <AnnotationsPanel
+                    document={document}
+                    container={section}
+                    onClose={() => togglePanel(false)}
+                  />
+                )}
+              </div>
             </PlaceMemoryContext.Provider>
           </ViewerFrameContext.Provider>
         </AreaModeContext.Provider>

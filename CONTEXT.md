@@ -54,6 +54,17 @@ _Avoid_: chat (except in "New chat"), thread, session
 A file the User keeps, in a Linked folder or added on its own, that IncarnaMind has indexed for Answers to draw on, or a Web page. A file stays where the User keeps it; IncarnaMind keeps the text it read from it. A Web page's snapshot is kept in IncarnaMind's data folder. A Document is known by its Linked folder and its path inside it, or as a file of its own, never by where it is on one computer, so it stays the same Document when its Linked folder moves or is on another of the User's computers. Each version of its file is known by its content. The same file in two places is two Documents.
 _Avoid_: file, doc, source
 
+**Highlight**:
+Words in a Document's viewer that the User marked, kept with their Citation so they can be searched, added to a Note and collected; on a PDF, a drawn region is a highlight too. A PDF's own highlights are the file's content and are listed as "From the file".
+_Avoid_: annotation, mark, markup
+
+**Comment**:
+The User's own words on a Highlight, opened from its small mark or the Highlights and comments list. It has no reply and no Resolve, because it is the User's note on their own source, not a conversation.
+_Avoid_: note (a Note is the notebook), annotation
+
+**Highlights and comments**:
+The pane on the right of a Document's tab, listing every Highlight and Comment in that Document. On screen the feature is never called annotations.
+
 **Web page**:
 A Document saved from a web address: a snapshot of the page's readable text, fetched from the User's computer when it is added (by the User, or by an Answer that read it in a web search), and again only when the User asks. Its Citations point at the snapshot, never at the live page, so they can always be checked.
 _Avoid_: link, bookmark, clipping

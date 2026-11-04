@@ -5,7 +5,7 @@
  * Citation check's own matcher (`findQuoteInPieces`) over the DOM's text
  * nodes, a line break between blocks, so the badge and the highlight agree.
  */
-import { findQuoteInPieces, type TextPiece } from "../../../shared/quoteMatch";
+import { findQuoteInPieces, type TextPiece, type TextRange } from "../../../shared/quoteMatch";
 
 const BLOCKS = new Set([
   "P",
@@ -91,10 +91,24 @@ export function markText(
   nodes: readonly Text[],
   quote: string,
   style: MarkStyle,
+  chosen?: TextRange,
 ): HTMLElement[] | null {
   const pieces = piecesOf(nodes);
-  const found = findQuoteInPieces(pieces, quote);
-  if (!found || found.length === 0) return null;
+  let found: { piece: number; start: number; end: number }[];
+  if (chosen) {
+    // The pieces of the occurrence the selection was made at, not another of the same words.
+    found = [];
+    let at = 0;
+    for (const [index, piece] of pieces.entries()) {
+      const start = Math.max(chosen.start, at) - at;
+      const end = Math.min(chosen.end, at + piece.text.length) - at;
+      if (start < end) found.push({ piece: index, start, end });
+      at += piece.text.length + (piece.breakAfter ? 1 : 0);
+    }
+  } else {
+    found = findQuoteInPieces(pieces, quote) ?? [];
+  }
+  if (found.length === 0) return null;
   const marks: HTMLElement[] = [];
   // From the last part back, so earlier offsets in the same text node still hold.
   for (let index = found.length - 1; index >= 0; index--) {

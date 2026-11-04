@@ -45,7 +45,7 @@ export interface PdfPage {
     appearance: string | Readonly<Record<string, string>> | null;
     parent?: string;
   }[];
-  /** Highlights and notes the file itself holds, drawn by another reader (#327). */
+  /** Highlights and comments the file itself holds, drawn by another reader (#327). */
   marks?: readonly PdfMark[];
   /** Lines of text drawn top to bottom in Helvetica: WinAnsi's characters, and the options' symbols. */
   lines?: readonly string[];

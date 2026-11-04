@@ -414,14 +414,7 @@ function track(controls: AnimationPlaybackControlsWithThen, done: () => void): v
   // A renderer short of frames advances a spring slowly, so the ceiling lands it at its end too:
   // a menu must hold still within seconds even when the screen is drawn a frame at a time.
   controls.finished.then(end, end);
-  window.setTimeout(() => {
-    try {
-      controls.complete();
-    } catch {
-      // It had already been cancelled, or replaced by a newer one: that one holds the element.
-    }
-    end();
-  }, CEILING_MS / Math.min(1, speed));
+  window.setTimeout(end, CEILING_MS / Math.min(1, speed));
 }
 
 /** Back to the elements' own styles, as if they had never moved (`opacity`: or faded). */

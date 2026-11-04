@@ -16,6 +16,7 @@ import {
 import { useNoteEditor } from "../annotationNote";
 import { useAnnotations } from "../annotations";
 import { useAppStore } from "../store";
+import { addsWithoutAsking } from "../viewer/selectionActions";
 import type { Command, CommandContext } from "./registry";
 
 const focused = (ctx: CommandContext): Annotation | null => {
@@ -48,7 +49,7 @@ const COLOUR_COMMANDS: readonly Command[] = ANNOTATION_COLOURS.map((colour) => (
 const COLLECT_COLOUR: readonly Command[] = ANNOTATION_COLOURS.map((colour) => ({
   id: `annotations.collectColour.${colour}`,
   label: (_ctx, t) =>
-    t("annotations.collect.colour", { colour: t(ANNOTATION_COLOUR_LABELS[colour]) }),
+    t("annotations.collect.colour", { colour: t(ANNOTATION_COLOUR_LABELS[colour]).toLowerCase() }),
   group: "main",
   reversible: true,
   run: () => void collectAnnotations({ colour }, null),
@@ -123,7 +124,9 @@ export const annotationCommands: readonly Command[] = [
     reversible: true,
     run: (ctx) => {
       const annotation = focused(ctx);
-      if (annotation) void addAnnotationToNote(annotation);
+      if (annotation) {
+        void addAnnotationToNote(annotation, addsWithoutAsking() ? undefined : { kind: "new" });
+      }
     },
   },
   {

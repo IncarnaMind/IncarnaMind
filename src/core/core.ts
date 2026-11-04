@@ -5412,6 +5412,10 @@ export function createCore(adapters: CoreAdapters): Core {
       const unsure = cited.check === "cant-check" && cited.checkReason === "unsure-word";
       // A region of a picture is cited as a picture: there is nothing in it to check.
       const pictured = area !== undefined && cited.checkReason === "picture";
+      // A picture's place is its page: a region on a Unit the Document doesn't have is refused.
+      if (pictured && cited.location === null) {
+        throw new InvalidInputError({ key: "error.annotation.refused" });
+      }
       if (cited.check !== "found" && !unsure && !pictured) {
         throw new InvalidInputError({
           key:

@@ -14,7 +14,13 @@ import {
 } from "react";
 import type { Annotation, Document } from "../../../core/api";
 import { readPdfPageText } from "../../../shared/pdfFormText";
-import { findQuoteInPages, lostLigatures, type TextPiece } from "../../../shared/quoteMatch";
+import {
+  findQuote,
+  findQuoteInPages,
+  findQuoteOccurrences,
+  lostLigatures,
+  type TextPiece,
+} from "../../../shared/quoteMatch";
 import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
 import { core } from "../core";
@@ -357,14 +363,39 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
           const to = Math.min(pageCount, annotation.pageTo ?? from);
           const pages: TextPiece[][] = [];
           for (let page = from; page <= to; page++) pages.push(await piecesOf(page));
-          const found = findQuoteInPages(pages, annotation.quote);
-          if (!found) continue;
-          for (const part of found) {
-            const page = from + part.page;
-            byPage.set(page, [
-              ...(byPage.get(page) ?? []),
-              { item: part.piece, start: part.start, end: part.end, annotation },
-            ]);
+          // The place its surroundings fit, out of the places its words are (#327): not the first.
+          const text = pages
+            .map((pieces) =>
+              pieces.map((piece) => piece.text + (piece.breakAfter ? "\n" : "")).join(""),
+            )
+            .join("");
+          const parts = annotation.anchor?.parts ?? [];
+          const before = parts[0]?.before ?? "";
+          const after = parts.at(-1)?.after ?? "";
+          const occurrences = findQuoteOccurrences(text, annotation.quote);
+          const matches =
+            occurrences.length > 0 ? occurrences : (findQuote(text, annotation.quote) ?? []);
+          const range =
+            matches.find(
+              (each) =>
+                (before === "" || text.slice(0, each.start).endsWith(before)) &&
+                (after === "" || text.slice(each.end).startsWith(after)),
+            ) ?? matches[0];
+          if (!range) continue;
+          let offset = 0;
+          for (const [pageIndex, pagePieces] of pages.entries()) {
+            for (const [pieceIndex, piece] of pagePieces.entries()) {
+              const start = Math.max(range.start, offset) - offset;
+              const end = Math.min(range.end, offset + piece.text.length) - offset;
+              if (start < end) {
+                const page = from + pageIndex;
+                byPage.set(page, [
+                  ...(byPage.get(page) ?? []),
+                  { item: pieceIndex, start, end, annotation },
+                ]);
+              }
+              offset += piece.text.length + (piece.breakAfter ? 1 : 0);
+            }
           }
         }
         if (!cancelled) setAnnotationRuns(byPage);

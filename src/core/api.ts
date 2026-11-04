@@ -2315,13 +2315,7 @@ export interface CitedSelection extends CitationRecheck {
 /** A colour a highlight is drawn in, in the order the colours are offered. */
 export type AnnotationColour = "yellow" | "green" | "blue" | "pink" | "purple";
 
-export const ANNOTATION_COLOURS: readonly AnnotationColour[] = [
-  "yellow",
-  "green",
-  "blue",
-  "pink",
-  "purple",
-];
+export const ANNOTATION_COLOURS: readonly AnnotationColour[] = ["yellow", "pink", "purple"];
 
 /** Where an annotation came from: the User, in the viewer, or the PDF file itself. */
 export type AnnotationSource = "user" | "file";
@@ -2382,11 +2376,6 @@ export interface CreateAnnotationInput {
   colour: AnnotationColour;
   /** The note to write with it, when "Add a note…" made it. */
   note?: string | null;
-  /**
-   * A Document's version the selection was read at: when it differs from the current one, the
-   * selection is placed in the current version, and kept as missing when it isn't there.
-   */
-  contentHash?: string | null;
   /** The region of a Unit the User marked (#118): a highlight may mark an area, not only words. */
   area?: CitedArea;
   /** The Unit the region is on, from 1. */

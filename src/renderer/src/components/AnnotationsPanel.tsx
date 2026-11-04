@@ -87,6 +87,8 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
         <span className="annotation-row-edit">
           <TypingTextarea
             value={draft}
+            // biome-ignore lint/a11y/noAutofocus: the field replaces the button the focus was on.
+            autoFocus
             aria-label={t("annotations.note.placeholder")}
             placeholder={t("annotations.note.placeholder")}
             data-testid="annotation-row-field"
@@ -97,6 +99,10 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
                 event.preventDefault();
                 setDraft(annotation.note ?? "");
                 setEditing(false);
+                event.currentTarget
+                  .closest("[data-annotation-row]")
+                  ?.querySelector<HTMLElement>("[data-row-main]")
+                  ?.focus();
               } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
                 save();
@@ -187,6 +193,7 @@ export function AnnotationsPanel({
 }) {
   const t = useT();
   const stored = useDocumentAnnotations(document.id);
+  const comments = stored?.filter((each) => each.note !== null).length ?? 0;
   const load = useAnnotations((state) => state.load);
   const [notHere, setNotHere] = useState<string | null>(null);
   useEffect(() => {
@@ -206,6 +213,12 @@ export function AnnotationsPanel({
           {stored?.length === 1
             ? t("annotations.count.one")
             : t("annotations.count", { count: stored?.length ?? 0 })}
+          {comments > 0 &&
+            ` · ${
+              comments === 1
+                ? t("annotations.count.comments.one")
+                : t("annotations.count.comments", { count: comments })
+            }`}
         </span>
         <button
           type="button"

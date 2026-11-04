@@ -6,8 +6,8 @@
  * focus (`AnnotationNoteLayer`).
  */
 import type { Annotation, AnnotationColour } from "../../../core/api";
-import { findQuote, type TextRange } from "../../../shared/quoteMatch";
-import { markText, textNodes } from "./domQuote";
+import { findQuote, findQuoteOccurrences, type TextRange } from "../../../shared/quoteMatch";
+import { markText, piecesOf, textNodes } from "./domQuote";
 
 /** The words of `text` that fall inside a highlight, with the highlight that holds them. */
 export interface AnnotationRange extends TextRange {
@@ -15,6 +15,27 @@ export interface AnnotationRange extends TextRange {
   colour: AnnotationColour;
   /** Whether the highlight has a note, which its mark opens rather than adds. */
   hasNote: boolean;
+}
+
+/**
+ * The words' own place, out of the places the same words appear: the one whose neighbours fit
+ * the selection's, so a highlight of the second "the deposit is held" isn't drawn on the first.
+ */
+export function placedRange(
+  text: string,
+  annotation: Annotation,
+  quote = annotation.quote,
+): TextRange | null {
+  const occurrences = findQuoteOccurrences(text, quote);
+  const matches = occurrences.length > 0 ? occurrences : (findQuote(text, quote) ?? []);
+  if (matches.length <= 1) return matches[0] ?? null;
+  const parts = annotation.anchor?.parts ?? [];
+  const before = parts[0]?.before ?? "";
+  const after = parts.at(-1)?.after ?? "";
+  const fits = (range: TextRange) =>
+    (before === "" || text.slice(0, range.start).endsWith(before)) &&
+    (after === "" || text.slice(range.end).startsWith(after));
+  return matches.find(fits) ?? matches[0] ?? null;
 }
 
 /** Where each highlight's quote is in `text`, in order; one whose words aren't there is left out. */
@@ -25,14 +46,14 @@ export function annotationRangesIn(
   const ranges: AnnotationRange[] = [];
   for (const annotation of annotations) {
     if (annotation.quote.trim() === "") continue;
-    for (const range of findQuote(text, annotation.quote) ?? []) {
-      ranges.push({
-        ...range,
-        id: annotation.id,
-        colour: annotation.colour,
-        hasNote: annotation.note !== null,
-      });
-    }
+    const range = placedRange(text, annotation);
+    if (!range) continue;
+    ranges.push({
+      ...range,
+      id: annotation.id,
+      colour: annotation.colour,
+      hasNote: annotation.note !== null,
+    });
   }
   return ranges.sort((a, b) => a.start - b.start);
 }
@@ -64,10 +85,20 @@ export function markAnnotationsInDom(
   const marked = new Map<string, HTMLElement[]>();
   for (const annotation of annotations) {
     if (annotation.quote.trim() === "") continue;
-    const marks = markText(textNodes(root), annotation.quote, {
-      className: `annotation-highlight annotation-highlight--${annotation.colour}`,
-      data: { annotationId: annotation.id, colour: annotation.colour },
-    });
+    const nodes = textNodes(root);
+    const text = piecesOf(nodes)
+      .map((piece) => piece.text + (piece.breakAfter ? "\n" : ""))
+      .join("");
+    const chosen = placedRange(text, annotation);
+    const marks = markText(
+      nodes,
+      annotation.quote,
+      {
+        className: `annotation-highlight annotation-highlight--${annotation.colour}`,
+        data: { annotationId: annotation.id, colour: annotation.colour },
+      },
+      chosen ?? undefined,
+    );
     if (marks && marks.length > 0) marked.set(annotation.id, marks);
   }
   for (const [id, marks] of marked) {

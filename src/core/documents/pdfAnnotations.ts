@@ -5,7 +5,6 @@
  * the file". The words a highlight covers are the page's text items under its
  * quads, so the quote is the page's own words and its check can find them.
  */
-import { findQuote } from "../../shared/quoteMatch";
 import type { AnnotationColour } from "../api";
 import { textItemOf } from "./tables";
 
@@ -20,8 +19,6 @@ export interface FileAnnotation {
   colour: AnnotationColour;
   /** Who made it, as the file says. */
   author: string | null;
-  /** Whether its quote is in the page's text, so its Citation reads "found". */
-  found: boolean;
 }
 
 /** The subtypes a highlight is saved as. A squiggle or a strike-through marks words too. */
@@ -118,11 +115,13 @@ function placedOf(items: readonly object[]): Placed[] {
     placed.push({
       str: text.str,
       size,
+      // A glyph rises 0.75 of its size above the baseline and falls 0.25 below it: a reader's
+      // quad around one line then holds that line and not the one above.
       box: {
         left: text.x,
         right: text.x + text.width,
-        top: text.baseline,
-        bottom: text.baseline - size,
+        top: text.baseline + size * 0.75,
+        bottom: text.baseline - size * 0.25,
       },
     });
   }
@@ -132,9 +131,13 @@ function placedOf(items: readonly object[]): Placed[] {
 /** The words of `items` under `boxes`, top to bottom and left to right, a space where items are apart. */
 function wordsUnder(boxes: readonly Box[], items: readonly object[]): string {
   if (boxes.length === 0) return "";
-  const covered = placedOf(items).filter((item) =>
-    boxes.some((box) => overlaps(box, item.box, item.size * 0.25)),
-  );
+  const covered = placedOf(items).filter((item) => {
+    const middle = (item.box.top + item.box.bottom) / 2;
+    return boxes.some(
+      (box) =>
+        overlaps(box, item.box, item.size * 0.25) && middle <= box.top && middle >= box.bottom,
+    );
+  });
   covered.sort((a, b) => b.box.top - a.box.top || a.box.left - b.box.left);
   const lines: Placed[][] = [];
   for (const item of covered) {
@@ -164,16 +167,14 @@ const textOf = (value: unknown): string =>
   typeof value === "string" ? value.replaceAll("\u0000", "").replace(/\r\n?/g, "\n").trim() : "";
 
 /**
- * The highlights and notes `annotations` holds, on a page whose text is
- * `pageText`, with the page's text `items` (pdf.js's text content): a quote's
- * words are those the highlight covers, and its `found` is whether the page's
- * own text has them.
+ * The highlights and notes `annotations` holds on a page, with the page's text
+ * `items` (pdf.js's text content): a quote's words are those the highlight
+ * covers. The store cites each quote against the pages it keeps.
  */
 export function readFileAnnotations(
   page: number,
   annotations: readonly object[],
   items: readonly object[],
-  pageText: string,
 ): FileAnnotation[] {
   const found: FileAnnotation[] = [];
   for (const annotation of annotations) {
@@ -202,7 +203,6 @@ export function readFileAnnotations(
         note,
         colour,
         author,
-        found: findQuote(pageText, quote) !== null,
       });
       continue;
     }
@@ -214,7 +214,6 @@ export function readFileAnnotations(
         note,
         colour,
         author,
-        found: false,
       });
     }
   }

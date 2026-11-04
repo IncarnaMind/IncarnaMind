@@ -152,8 +152,8 @@
       min-width: 0;
     }
   }
-  /* The Annotations list is in the Document's ⋯ menu too, where a busy toolbar can't hold its button. */
-  @container viewer (width < 960px) {
+  /* Fifth, after the page count and before the dividers: then it is in the ⋯ menu too. */
+  @container viewer (width < 590px) {
     .viewer-annotations-toggle {
       @apply hidden;
     }
@@ -995,7 +995,7 @@
   }
   .annotation-highlight--yellow,
   .annotation-area--yellow {
-    --annotation-wash: #fff0a3;
+    --annotation-wash: #ffe066;
   }
   .annotation-highlight--green,
   .annotation-area--green {
@@ -1007,11 +1007,11 @@
   }
   .annotation-highlight--pink,
   .annotation-area--pink {
-    --annotation-wash: #ffdfeb;
+    --annotation-wash: #ffc2da;
   }
   .annotation-highlight--purple,
   .annotation-area--purple {
-    --annotation-wash: #eadcff;
+    --annotation-wash: #d6bdff;
   }
 
   /* A region the User highlighted (#327, #118): its wash over the picture, under the words' ink. */
@@ -1120,10 +1120,15 @@
   }
 
   /* A Document tab's Annotations list, over the page's right edge. */
+  /* Beside the page, not over it: the page gives way, so no highlight lands under the list. */
   .annotations-panel {
-    @apply absolute inset-y-0 right-0 z-[4] flex w-[min(320px,92%)] flex-col border-l border-rule bg-sheet;
-    top: 36px;
-    box-shadow: -8px 0 24px rgb(0 0 0 / 6%);
+    @apply flex w-[280px] shrink-0 flex-col border-l border-rule bg-sheet;
+  }
+
+  /* An export's Saved line over the page's foot, as a Mind's is (DESIGN.md, Export). */
+  .annotation-export-line {
+    @apply absolute inset-x-0 bottom-4 z-[5] mx-auto flex w-fit max-w-[min(560px,92%)] flex-wrap items-center gap-x-4 gap-y-1 rounded-[8px] border border-rule bg-sheet px-3 py-1.5 text-[13px] leading-5 text-ink-meta;
+    box-shadow: var(--shadow-popover);
   }
   .annotations-panel-head {
     @apply flex shrink-0 items-center gap-2 border-b border-rule px-3 py-2;

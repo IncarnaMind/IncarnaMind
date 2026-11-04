@@ -1147,7 +1147,7 @@ export function createDocuments(options: DocumentsOptions) {
    */
   function record(job: ProcessingJob, result: ProcessingResult): Recorded | undefined {
     if (result.outcome === "stopped") return undefined;
-    return db.transaction(() => {
+    const recorded = db.transaction((): Recorded | undefined => {
       const row = find(job.documentId);
       if (row?.status !== "extracting") return undefined;
       indexName(row.id, row.name);
@@ -1273,9 +1273,6 @@ export function createDocuments(options: DocumentsOptions) {
           insertPassages(job.documentId, result.contentHash, result.passages);
         }
         insertPages(job.documentId, result.contentHash, result.pages, versionMomentOf(row, at));
-        if (result.fileAnnotations) {
-          options.fileAnnotations?.(job.documentId, result.contentHash, result.fileAnnotations);
-        }
         // Searchable now, by its words: while embeddings are off, that is all there is to do.
         status = unchanged
           ? (indexedStatus(row) ?? "ready")
@@ -1332,6 +1329,11 @@ export function createDocuments(options: DocumentsOptions) {
       writeFileReference(db, job.documentId, result.reference, at);
       return { status, replaced: !unchanged };
     });
+    // After the row names this version, so each quote is cited against the pages it came with.
+    if (recorded && result.outcome === "ready" && result.fileAnnotations) {
+      options.fileAnnotations?.(job.documentId, result.contentHash, result.fileAnnotations);
+    }
+    return recorded;
   }
 
   // Set below, once the library exists: works out whether an unreadable file is gone.

@@ -543,7 +543,7 @@ describe("annotations", () => {
     if (saved.status !== "saved") throw new Error("The export wasn't saved.");
     const { readFile } = await import("node:fs/promises");
     const markdown = await readFile(saved.file.path, "utf8");
-    expect(markdown).toContain("高亮与笔记");
+    expect(markdown).toContain("高亮和批注");
     expect(markdown).toContain("屋顶不包含在内。");
     expect(markdown).toContain("§ Contingency");
   });
@@ -591,7 +591,7 @@ describe("annotations", () => {
       { id: annotation.id, location: { area } },
     ]);
 
-    // A new version of the file: the region stays on its page, not lost like words can be.
+    // A new version of the file: its words are gone, so the region says so, as a highlight does.
     const changed = buildPdf([
       { lines: ["The notice period is 24 months."] },
       { lines: ["Signed at the works."] },
@@ -600,8 +600,113 @@ describe("annotations", () => {
     await core.reconcileDocuments();
     await waitForProcessing(core, [document.id]);
     const [kept] = await core.listAnnotations(document.id);
-    expect(kept).toMatchObject({ id: annotation.id, missing: false, pageFrom: 1 });
+    expect(kept).toMatchObject({
+      id: annotation.id,
+      missing: true,
+      check: "not-found",
+      pageFrom: 1,
+    });
     expect(kept?.location).toMatchObject({ area });
+  });
+
+  test("a picture region whose page is gone says it is missing", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const path = await writeSourceFile(
+      sources,
+      "Plate.pdf",
+      buildPdf([{ lines: ["A diagram of the works."] }, { lines: ["A second plate."] }]),
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The Document wasn't added.");
+    const area = { x: 0.1, y: 0.1, width: 0.5, height: 0.5 };
+    const annotation = await core.createAnnotation({
+      documentId: document.id,
+      parts: [],
+      area,
+      unit: 2,
+      colour: "purple",
+    });
+    expect(annotation).toMatchObject({ missing: false, pageFrom: 2 });
+    await writeFile(path, buildPdf([{ lines: ["A diagram of the works."] }]));
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [document.id]);
+    const [kept] = await core.listAnnotations(document.id);
+    expect(kept).toMatchObject({ id: annotation.id, missing: true });
+  });
+
+  test("a picture region on a page the Document doesn't have is refused", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(
+      core,
+      "Plate.pdf",
+      buildPdf([{ lines: ["A diagram of the works."] }]),
+    );
+    await expect(
+      core.createAnnotation({
+        documentId: document.id,
+        parts: [],
+        area: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 },
+        unit: 7,
+        colour: "yellow",
+      }),
+    ).rejects.toMatchObject({ wording: { key: "error.annotation.refused" } });
+    expect(await core.listAnnotations(document.id)).toEqual([]);
+  });
+
+  test("a region whose words aren't on its page is refused", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(
+      core,
+      "Notice.pdf",
+      buildPdf([{ lines: ["The notice period is 18 months."] }]),
+    );
+    await expect(
+      core.createAnnotation({
+        documentId: document.id,
+        parts: [{ unit: 1, text: "This sentence is not on the page at all." }],
+        area: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 },
+        unit: 1,
+        colour: "yellow",
+      }),
+    ).rejects.toMatchObject({ wording: { key: "error.annotation.refused" } });
+  });
+
+  test("search leaves out a deleted Document's highlights", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(core, "Costs.md", MARKDOWN);
+    await core.createAnnotation({
+      documentId: document.id,
+      parts: [markdownSelection],
+      colour: "yellow",
+      note: "The contingency question.",
+    });
+    expect(await core.searchAnnotations("contingency")).toHaveLength(1);
+    await core.deleteDocument(document.id);
+    expect(await core.searchAnnotations("contingency")).toEqual([]);
+  });
+
+  test("Delete permanently takes the words and the note with the Document", async () => {
+    const core = startCore(await createTempDataFolder());
+    const document = await addOne(core, "Costs.md", MARKDOWN);
+    await core.createAnnotation({
+      documentId: document.id,
+      parts: [markdownSelection],
+      colour: "yellow",
+      note: "Confidential roof figure.",
+    });
+    await core.deleteDocument(document.id);
+    // Still in Recently deleted: its rows are still there, hidden by the Document.
+    expect(await core.listAnnotations(document.id)).toHaveLength(1);
+    await core.deletePermanently([{ kind: "document", id: document.id }]);
+    expect(
+      await core.listAnnotations(document.id),
+      "the highlight, its words and its note go with the Document",
+    ).toEqual([]);
+    expect(
+      await core.searchAnnotations("confidential"),
+      "and its words leave the search index too",
+    ).toEqual([]);
   });
 
   test("a region of a picture is stored without words, cited as a picture, and not missing", async () => {

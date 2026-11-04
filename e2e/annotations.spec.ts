@@ -21,7 +21,7 @@ import {
 } from "./app";
 
 /**
- * Highlights and notes on a Document (#327): made from the viewer's selection
+ * Highlights and comments on a Document (#327): made from the viewer's selection
  * menu by the mouse and the keyboard, drawn in the page, listed in its tab and
  * counted in the Library, recoloured, noted, edited, deleted with Undo, found
  * by ⌘K in English and Chinese, added to a Mind with a Citation that is found,
@@ -179,8 +179,8 @@ test("by the mouse: a highlight is drawn in the page, noted, recoloured, listed 
   );
 
   // Its colour, from the highlight's own menu.
-  await pointAndClick(window, popover.getByTestId("annotation-colour-green"));
-  await expect(viewer.locator("[data-annotation-id]").first()).toHaveClass(/green/);
+  await pointAndClick(window, popover.getByTestId("annotation-colour-pink"));
+  await expect(viewer.locator("[data-annotation-id]").first()).toHaveClass(/pink/);
   // Esc closes the note.
   await window.keyboard.press("Escape");
   await expect(popover).toHaveCount(0);
@@ -191,7 +191,7 @@ test("by the mouse: a highlight is drawn in the page, noted, recoloured, listed 
   await expect(row).toContainText("4% is held");
   await expect(row).toContainText("Ask whether the 4% covers the roof.");
   await expect(row).toContainText("§ Contingency");
-  await expect(row.locator(".annotation-colour--green")).toBeVisible();
+  await expect(row.locator(".annotation-colour--pink")).toBeVisible();
   await expect(panel).toContainText("1 highlight");
 
   // Its menu, in the shared order, in the words the interface uses: a note, not a Mind.
@@ -220,6 +220,18 @@ test("by the mouse: a highlight is drawn in the page, noted, recoloured, listed 
   await expect(panel.getByTestId("annotation-row")).toHaveCount(1);
 });
 
+test("the list narrows the page at a narrow window, never covering it", async () => {
+  const { app, window, viewer } = await openMarkdown();
+  await highlight(window, viewer, "4% is held");
+  await setWindowSize(app, window, 900, 900);
+
+  const panel = await openPanel(window, viewer);
+  const pageBox = await viewer.getByTestId("viewer-text").boundingBox();
+  const panelBox = await panel.boundingBox();
+  if (!pageBox || !panelBox) throw new Error("The page or the list has no place on screen.");
+  expect(pageBox.x + pageBox.width).toBeLessThanOrEqual(panelBox.x + 1);
+});
+
 test("by the keyboard: ⌘K highlights the selection and finds a highlight's words and a note's words", async () => {
   const { window, viewer } = await openMarkdown();
   const words = "18 months from notice";
@@ -236,10 +248,13 @@ test("by the keyboard: ⌘K highlights the selection and finds a highlight's wor
   await runCommand(window, "viewer.selection.highlight", "Highlight the selected text");
   await expect(viewer.locator("[data-annotation-id]").first()).toContainText(words);
 
-  // A note, with the keyboard: its mark is focused and Enter opens it.
-  await pointAndClick(window, noteMark(viewer));
+  // A note, with the keyboard: its mark is focused and Enter opens it, and Enter again edits it.
+  await noteMark(viewer).focus();
+  await window.keyboard.press("Enter");
   const popover = window.getByTestId("annotation-note");
-  await pointAndClick(window, popover.getByTestId("annotation-note-start"));
+  await expect(popover).toBeVisible();
+  await popover.getByTestId("annotation-note-start").focus();
+  await window.keyboard.press("Enter");
   await window.keyboard.type("Check the notice period with the client.");
   await window.keyboard.press("ControlOrMeta+Enter");
   await window.keyboard.press("Escape");
@@ -270,11 +285,11 @@ test("in Chinese: the menu, the panel and search are in Chinese", async () => {
   await expect(viewer.locator("[data-annotation-id]").first()).toContainText("应急费");
 
   const panel = await openPanel(window, viewer);
-  await expect(panel).toContainText("高亮与笔记");
+  await expect(panel).toContainText("高亮和批注");
   const row = panel.getByTestId("annotation-row").first();
   await expect(row).toContainText("应急费");
   await row.click({ button: "right" });
-  await expect(window.getByTestId("annotation.collect")).toContainText("收进一条笔记");
+  await expect(window.getByTestId("annotation.collect")).toContainText("收进新笔记");
   await window.keyboard.press("Escape");
 
   await pointAndClick(window, noteMark(viewer));
@@ -329,6 +344,20 @@ test("Add to note and Collect into a Mind give quotes whose Citations are found"
   const collected = collectedMind.locator("blockquote").first();
   await expect(collected).toContainText("4% is held");
   await expect(collected.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
+});
+
+test("Add to note with no Note open makes one, holding the quote with a found Citation", async () => {
+  const { window, viewer } = await openMarkdown();
+  await highlight(window, viewer, "4% is held");
+
+  const panel = await openPanel(window, viewer);
+  const row = panel.getByTestId("annotation-row").first();
+  await row.click({ button: "right" });
+  await pointAndClick(window, row.locator('[data-testid="annotation.addToNote"]').first());
+
+  const quote = frontMind(window).locator("blockquote").first();
+  await expect(quote).toContainText("4% is held");
+  await expect(quote.getByTestId("citation-chip")).toHaveAttribute("data-check", "found");
 });
 
 test("a PDF highlight selected across a page break is drawn on both pages", async () => {

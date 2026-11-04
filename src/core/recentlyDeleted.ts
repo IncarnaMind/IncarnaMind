@@ -175,6 +175,8 @@ function purge(
   if (kind === "document") {
     db.run(`DELETE FROM passages WHERE document_id ${IN} AND deleted_at IS NOT NULL`, [list]);
     documentText(ids);
+    // The trigger on the table clears the keyword index as these rows go.
+    db.run(`DELETE FROM document_annotations WHERE document_id ${IN}`, [list]);
     db.run(`DELETE FROM document_tags WHERE document_id ${IN}`, [list]);
     db.run(`DELETE FROM web_pages WHERE document_id ${IN} AND deleted_at IS NOT NULL`, [list]);
     db.run(`DELETE FROM web_page_pictures WHERE document_id ${IN} AND deleted_at IS NOT NULL`, [

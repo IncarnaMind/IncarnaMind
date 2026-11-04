@@ -234,6 +234,19 @@ export function SelectionMenu({
     });
   }, [asked]);
 
+  // Its words redrawn or gone, as another file version or a PDF zoom does: the menu goes with them.
+  useEffect(() => {
+    if (!held || !section) return;
+    const range = held.range;
+    const observer = new MutationObserver(() => {
+      if (range.startContainer.isConnected && section.contains(range.startContainer)) return;
+      setOpen(false);
+      setHeld(null);
+    });
+    observer.observe(section, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [held, section]);
+
   useEffect(() => {
     drawHeld(held && away ? held.range : null);
     return () => drawHeld(null);
@@ -475,6 +488,7 @@ export function SelectionMenuBody({
           >
             <PlusLineIcon className="size-4 shrink-0 text-ink-secondary" />
             <span className="flex-1 truncate">{t("annotations.addNote")}</span>
+            <kbd className="editor-menu-shortcut">{shortcutLabel("viewer.selection.note")}</kbd>
           </button>
         </>
       )}

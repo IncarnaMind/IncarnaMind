@@ -585,7 +585,7 @@ async function extractPdf(
       try {
         // The file's own highlights and notes (#327): a damaged one is left out, not the page.
         const annotations = await page.getAnnotations();
-        fileAnnotations.push(...readFileAnnotations(number, annotations, content.items, read.text));
+        fileAnnotations.push(...readFileAnnotations(number, annotations, content.items));
       } catch (error) {
         console.error(`PDF page ${number}: its annotations couldn't be read`, error);
       }

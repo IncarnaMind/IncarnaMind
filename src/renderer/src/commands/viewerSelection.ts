@@ -107,6 +107,7 @@ export const viewerSelectionCommands: readonly Command[] = [
   {
     id: "viewer.selection.note",
     label: "command.annotations.note",
+    shortcut: { keys: "CmdOrCtrl+Alt+M" },
     group: "main",
     // Delete the highlight, with Undo, while its note is open.
     reversible: true,

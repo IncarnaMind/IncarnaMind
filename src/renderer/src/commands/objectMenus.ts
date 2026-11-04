@@ -68,8 +68,6 @@ registerMenu("document", [
 registerMenu("annotation", [
   "annotation.editNote",
   "annotation.colour.yellow",
-  "annotation.colour.green",
-  "annotation.colour.blue",
   "annotation.colour.pink",
   "annotation.colour.purple",
   "annotation.addToNote",

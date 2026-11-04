@@ -199,7 +199,17 @@ describe("⌘K's actions", () => {
 
   test("are the registry's, found by their name or keywords in English or in Chinese", () => {
     expect(actions("settings models")).toEqual([["actions", ["Settings: Models"]]]);
-    expect(actions("new note")).toEqual([["actions", ["New note"]]]);
+    expect(actions("new note")).toEqual([
+      [
+        "actions",
+        [
+          "New note",
+          "Collect the pink highlights into a new note",
+          "Collect the yellow highlights into a new note",
+          "Collect the purple highlights into a new note",
+        ],
+      ],
+    ]);
     expect(actions("设置 模型")).toEqual([["actions", ["Settings: Models"]]]);
     expect(actions("设置 模型", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
     expect(actions("settings models", "zh-CN")).toEqual([["actions", ["设置：模型"]]]);
@@ -237,9 +247,29 @@ describe("⌘K's actions", () => {
   test("a word inside another word, or one typo across two, doesn't find an action (#1372)", () => {
     expect(actions("ew note")).toEqual([]);
     expect(actions("theme")).toEqual([]);
-    expect(actions("new note")).toEqual([["actions", ["New note"]]]);
+    expect(actions("new note")).toEqual([
+      [
+        "actions",
+        [
+          "New note",
+          "Collect the pink highlights into a new note",
+          "Collect the yellow highlights into a new note",
+          "Collect the purple highlights into a new note",
+        ],
+      ],
+    ]);
     // A typo of a word's start still finds the action.
-    expect(actions("neww note")).toEqual([["actions", ["New note"]]]);
+    expect(actions("neww note")).toEqual([
+      [
+        "actions",
+        [
+          "New note",
+          "Collect the pink highlights into a new note",
+          "Collect the yellow highlights into a new note",
+          "Collect the purple highlights into a new note",
+        ],
+      ],
+    ]);
   });
 
   test("act on the selection, saying how many, or on the one thing in front, naming it", () => {

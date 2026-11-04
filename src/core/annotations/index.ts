@@ -7,7 +7,7 @@
  * same way with `source: "file"`.
  *
  * Everything here is ready to sync: UUID ids, ISO 8601 UTC times, soft deletes.
- * The words of every annotation are in the keyword index (./searching), which
+ * The words of every annotation are in the keyword index (see `search`), which
  * Search, ⌘K and the assistant read.
  */
 import { randomUUID } from "node:crypto";
@@ -29,7 +29,6 @@ import type {
   CreateAnnotationInput,
   SelectedPart,
 } from "../api";
-import { ANNOTATION_COLOURS } from "../api";
 import { keywordQuery, keywordText } from "../documents/keywords";
 import type { FileAnnotation } from "../documents/pdfAnnotations";
 import { InvalidInputError, NotFoundError } from "../errors";
@@ -87,8 +86,11 @@ const FROM = "FROM document_annotations a LEFT JOIN documents d ON d.id = a.docu
 
 const MAX_NOTE_LENGTH = 20_000;
 
+/** A PDF file's own highlight keeps any of the five colours, not only the three offered (#327). */
+const COLOURS: readonly AnnotationColour[] = ["yellow", "green", "blue", "pink", "purple"];
+
 const isColour = (value: unknown): value is AnnotationColour =>
-  typeof value === "string" && (ANNOTATION_COLOURS as readonly string[]).includes(value);
+  typeof value === "string" && (COLOURS as readonly string[]).includes(value);
 
 const colourOf = (value: unknown): AnnotationColour => {
   if (!isColour(value)) throw new InvalidInputError({ key: "error.annotation.colour" });
@@ -131,16 +133,14 @@ const aroundOf = (value: unknown): { before?: string; after?: string } | undefin
   };
 };
 
-function parseAnchor(json: string | null): AnnotationAnchor | null {
+function parseAnchor(json: string | null, id: string): AnnotationAnchor | null {
   if (json === null) return null;
   try {
     const parsed: unknown = JSON.parse(json);
-    // What the first versions of the table stored: its parts alone.
-    if (Array.isArray(parsed)) {
-      const parts = partsOf(parsed);
-      return parts.length === 0 ? null : { parts };
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      console.error(`The highlight ${id}'s anchor isn't a selection.`);
+      return null;
     }
-    if (typeof parsed !== "object" || parsed === null) return null;
     const anchor = parsed as Record<string, unknown>;
     const parts = partsOf(anchor.parts);
     const area = parseCitedArea(anchor.area);
@@ -153,7 +153,8 @@ function parseAnchor(json: string | null): AnnotationAnchor | null {
       ...(unit !== null && { unit }),
       ...(around && { around }),
     };
-  } catch {
+  } catch (error) {
+    console.error(`The highlight ${id}'s anchor couldn't be read.`, error);
     return null;
   }
 }
@@ -170,20 +171,21 @@ const toAnnotation = (row: AnnotationRow): Annotation => ({
   note: row.note,
   pageFrom: row.page_from,
   pageTo: row.page_to,
-  location: parseLocation(row.location === null ? null : safeJson(row.location)),
+  location: parseLocation(row.location === null ? null : safeJson(row.location, row.id)),
   check: row.check_state,
   checkReason: row.check_reason,
-  anchor: parseAnchor(row.anchor),
+  anchor: parseAnchor(row.anchor, row.id),
   author: row.author,
   missing: row.missing !== 0,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
 
-function safeJson(json: string): unknown {
+function safeJson(json: string, id: string): unknown {
   try {
     return JSON.parse(json);
-  } catch {
+  } catch (error) {
+    console.error(`The highlight ${id}'s Location couldn't be read.`, error);
     return null;
   }
 }
@@ -241,7 +243,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         at,
       ],
     );
-    if (!result) throw new Error("The highlight wasn't saved.");
+    if (!result) throw new InvalidInputError({ key: "error.annotation.notSaved" });
     index(result.seq, annotation.quote, annotation.note);
     return annotation;
   };
@@ -264,10 +266,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     const at = now();
     db.transaction(() => {
       for (const row of rows) {
-        const anchor = parseAnchor(row.anchor);
+        const anchor = parseAnchor(row.anchor, row.id);
         if (!anchor) {
           db.run(
-            "UPDATE document_annotations SET content_hash = ?, missing = 1, updated_at = ? WHERE id = ?",
+            `UPDATE document_annotations
+               SET content_hash = ?, passage_id = NULL, missing = 1, updated_at = ?
+             WHERE id = ?`,
             [current, at, row.id],
           );
           continue;
@@ -279,11 +283,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         const quote = follow && cited.quote !== "" ? cited.quote : row.quote;
         db.run(
           `UPDATE document_annotations
-             SET content_hash = ?, quote = ?, page_from = ?, page_to = ?, location = ?,
-               check_state = ?, check_reason = ?, missing = ?, updated_at = ?
+             SET content_hash = ?, passage_id = ?, quote = ?, page_from = ?, page_to = ?,
+               location = ?, check_state = ?, check_reason = ?, missing = ?, updated_at = ?
            WHERE id = ?`,
           [
             current,
+            found ? cited.passageId : null,
             quote,
             follow
               ? cited.pageFrom === null
@@ -306,7 +311,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               : row.location,
             follow ? cited.check : "not-found",
             follow ? cited.checkReason : "quote-not-on-pages",
-            anchor.area !== undefined ? 0 : found ? 0 : 1,
+            found ||
+            (anchor.area !== undefined &&
+              cited.checkReason === "picture" &&
+              cited.location !== null)
+              ? 0
+              : 1,
             at,
             row.id,
           ],
@@ -362,8 +372,11 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           ...(input.around && { around: input.around }),
         },
         author: null,
-        // A region is its own place: there are no words to find again and lose.
-        missing: input.area ? false : !located(input.check, input.checkReason),
+        // A region is its place only while its words are found, or a picture's Location still is.
+        missing: !(
+          located(input.check, input.checkReason) ||
+          (input.area !== undefined && input.checkReason === "picture" && input.location !== null)
+        ),
         createdAt: at,
         updatedAt: at,
       };
@@ -401,6 +414,12 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
       if (input.colour !== undefined) {
         where.push("a.colour = ?");
         params.push(colourOf(input.colour));
+      }
+      for (const each of db.all<{ document_id: string }>(
+        `SELECT DISTINCT a.document_id ${FROM} WHERE ${where.join(" AND ")}`,
+        params,
+      )) {
+        reanchor(each.document_id);
       }
       const rows = db.all<AnnotationRow>(
         `SELECT ${COLUMNS} ${FROM} WHERE ${where.join(" AND ")}
@@ -487,15 +506,20 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
       const terms = searchTerms(query);
       const match = keywordQuery(query);
       if (terms.length === 0 || match === null) return [];
-      const rows = db.all<AnnotationRow & { score: number }>(
-        `SELECT ${COLUMNS}, bm25(annotation_text_fts) AS score
-         FROM annotation_text_fts
-         JOIN document_annotations a ON a.seq = annotation_text_fts.rowid
-         LEFT JOIN documents d ON d.id = a.document_id
-         WHERE annotation_text_fts MATCH ? AND a.deleted_at IS NULL AND d.deleted_at IS NULL
-         ORDER BY score, a.created_at DESC LIMIT ?`,
-        [match, BigInt(limit)],
-      );
+      const find = () =>
+        db.all<AnnotationRow & { score: number }>(
+          `SELECT ${COLUMNS}, bm25(annotation_text_fts) AS score
+           FROM annotation_text_fts
+           JOIN document_annotations a ON a.seq = annotation_text_fts.rowid
+           LEFT JOIN documents d ON d.id = a.document_id
+           WHERE annotation_text_fts MATCH ? AND a.deleted_at IS NULL AND d.deleted_at IS NULL
+           ORDER BY score, a.created_at DESC LIMIT ?`,
+          [match, BigInt(limit)],
+        );
+      let rows = find();
+      // A Document at a new version re-anchors first: its rows are read as it says now.
+      for (const id of new Set(rows.map((row) => row.document_id))) reanchor(id);
+      rows = find();
       return rows.map((row) => {
         const annotation = toAnnotation(row);
         const text =
@@ -543,20 +567,37 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         }
       }
       return {
-        name: `${name}${t("annotations.export.suffix")}`,
+        name: `${t("annotations.export.prefix")} – ${name}.md`,
         text: `${lines.join("\n")}\n`,
       };
     },
 
     /**
-     * Stores a PDF's own highlights and notes for a version, in place of those
-     * read from an earlier one. The User's own are untouched.
+     * Stores a PDF's own highlights and notes for a version. A version already
+     * read keeps what it has, so the User's edits and deletes stay; a new one
+     * carries those edits across by page and quote. The User's own are untouched.
      */
     replaceFileAnnotations(
       documentId: string,
       contentHash: string,
       found: readonly FileAnnotation[],
     ): void {
+      const existing = db.all<AnnotationRow & { deleted_at: string | null }>(
+        `SELECT ${COLUMNS}, a.deleted_at ${FROM} WHERE a.document_id = ? AND a.source = 'file'`,
+        [documentId],
+      );
+      if (existing.some((row) => row.content_hash === contentHash)) return;
+      const edits = new Map<
+        string,
+        { note: string | null; colour: AnnotationColour; deleted: boolean }
+      >();
+      for (const row of existing) {
+        edits.set(`${row.page_from ?? ""}\u0000${row.quote}`, {
+          note: row.note,
+          colour: row.colour,
+          deleted: row.deleted_at !== null,
+        });
+      }
       const at = now();
       db.transaction(() => {
         db.run(
@@ -565,40 +606,54 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           [at, at, documentId],
         );
         for (const annotation of found) {
-          insert(
+          const edit = edits.get(`${annotation.page ?? ""}\u0000${annotation.quote}`);
+          // Cited against the pages just stored, as the User's own are: the words' own check.
+          const cited =
+            annotation.kind === "highlight" && annotation.quote.trim() !== ""
+              ? citer.cite(documentId, {
+                  parts: [{ unit: annotation.page, text: annotation.quote }],
+                })
+              : null;
+          const found = cited !== null && located(cited.check, cited.checkReason);
+          const saved = insert(
             {
               id: randomUUID(),
               documentId,
               documentName: "",
               contentHash,
-              passageId: null,
+              passageId: found && cited ? cited.passageId : null,
               source: "file",
-              colour: annotation.colour,
-              quote: annotation.quote,
-              note: annotation.note,
-              pageFrom: annotation.page,
-              pageTo: annotation.page,
-              location: { kind: "page", from: annotation.page, to: annotation.page },
-              check:
-                annotation.kind === "note"
-                  ? "cant-check"
-                  : annotation.found
-                    ? "found"
-                    : "not-found",
+              colour: edit?.colour ?? annotation.colour,
+              quote: found && cited && cited.quote !== "" ? cited.quote : annotation.quote,
+              note: edit?.note ?? annotation.note,
+              pageFrom: found && cited?.pageFrom != null ? cited.pageFrom : annotation.page,
+              pageTo: found && cited?.pageTo != null ? cited.pageTo : annotation.page,
+              location:
+                found && cited?.location
+                  ? cited.location
+                  : { kind: "page", from: annotation.page, to: annotation.page },
+              check: annotation.kind === "note" ? "cant-check" : found ? "found" : "not-found",
               checkReason:
                 annotation.kind === "note"
                   ? "no-text"
-                  : annotation.found
-                    ? null
+                  : found
+                    ? (cited?.checkReason ?? null)
                     : "quote-not-on-pages",
               anchor: null,
               author: annotation.author,
-              missing: false,
+              missing: annotation.kind === "highlight" && !found,
               createdAt: at,
               updatedAt: at,
             },
             at,
           );
+          if (edit?.deleted) {
+            db.run("UPDATE document_annotations SET deleted_at = ?, updated_at = ? WHERE id = ?", [
+              at,
+              at,
+              saved.id,
+            ]);
+          }
         }
       });
     },

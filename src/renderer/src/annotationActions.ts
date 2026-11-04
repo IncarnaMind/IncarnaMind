@@ -54,7 +54,6 @@ export async function highlightSelection(
       parts: selection.parts,
       colour,
       note,
-      contentHash: selection.document.contentHash,
     });
     remember(annotation, colour, note === null ? "annotations.highlighted" : "annotations.noted");
     return annotation;
@@ -83,7 +82,6 @@ export async function highlightArea(
       documentId: document.id,
       parts: selection.parts,
       colour,
-      contentHash: document.contentHash,
       area: selection.area,
       unit: selection.unit,
       ...(selection.around && { around: selection.around }),
@@ -121,9 +119,11 @@ export async function editAnnotation(annotation: Annotation, edit: AnnotationEdi
     colour: annotation.colour,
   };
   const said =
-    edit.note !== undefined && edit.colour === undefined
-      ? ("annotations.edited" as const)
-      : ("annotations.recoloured" as const);
+    edit.note === null && annotation.note !== null
+      ? ("annotations.commentRemoved" as const)
+      : edit.note !== undefined && edit.colour === undefined
+        ? ("annotations.edited" as const)
+        : ("annotations.recoloured" as const);
   try {
     await core.updateAnnotation(annotation.id, edit);
     pushUndo({
@@ -329,7 +329,13 @@ export async function exportAnnotations(document: Document): Promise<void> {
       return;
     }
     if (saved.status === "saved") {
-      useNotices.getState().confirm("annotations.export.saved");
+      useAnnotations.getState().showExport({
+        documentId: document.id,
+        name: saved.file.name,
+        folder: saved.file.folder,
+        inDefaultFolder: saved.file.inDefaultFolder,
+        path: saved.file.path,
+      });
       return;
     }
     if (saved.status === "not-allowed") {

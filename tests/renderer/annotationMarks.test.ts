@@ -55,6 +55,28 @@ describe("a highlight in a page", () => {
     expect(TEXT.slice(ranges[1]?.start, ranges[1]?.end)).toBe("Neap tides come a week later.");
   });
 
+  test("repeated words are drawn at the place the selection's surroundings fit", () => {
+    const twice =
+      "Rent.\nThe deposit is held by the landlord.\nReturn.\nThe deposit is held by the landlord.\n";
+    const second = annotation({
+      id: "second",
+      quote: "The deposit is held by the landlord.",
+      anchor: {
+        parts: [
+          {
+            unit: null,
+            text: "The deposit is held by the landlord.",
+            before: "Return.\n",
+            after: "\n",
+          },
+        ],
+      },
+    });
+    const [range] = annotationRangesIn(twice, [second]);
+    expect(range?.start).toBe(twice.indexOf("The deposit is held", twice.indexOf("Return.")));
+    expect(range?.start).not.toBe(twice.indexOf("The deposit is held"));
+  });
+
   test("one whose words aren't in this version has no range, and so is not drawn", () => {
     expect(annotationRangesIn(TEXT, [annotation({ quote: "This sentence isn't here." })])).toEqual(
       [],

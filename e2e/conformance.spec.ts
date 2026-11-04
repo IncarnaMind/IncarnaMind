@@ -111,6 +111,9 @@ const MAKES_A_MIND = new Set([
   "mind.aiUseStatement",
 ]);
 
+/** Commands that make a Mind and put words in it: the note's Undo takes the words back, then the Mind goes. */
+const MAKES_A_MIND_WITH_A_NOTE = new Set(["annotation.addToNote"]);
+
 let dataDir: string;
 let homeDir: string;
 let sources: string;
@@ -441,7 +444,14 @@ async function checkCommand(
     return "ran";
   }
 
-  if (MAKES_A_MIND.has(commandId)) {
+  if (MAKES_A_MIND_WITH_A_NOTE.has(commandId)) {
+    expect.soft(changed, `${commandId} makes a Mind`).toBe(true);
+    expect
+      .soft(await undoOffered(window), `${commandId} puts words in the note, so Undo is offered`)
+      .toBe(true);
+    await takeBack(window, stage);
+    await deleteMadeMinds(window, before);
+  } else if (MAKES_A_MIND.has(commandId)) {
     expect.soft(changed, `${commandId} makes a Mind`).toBe(true);
     expect
       .soft(await undoOffered(window), `${commandId} makes a Mind and says nothing`)
