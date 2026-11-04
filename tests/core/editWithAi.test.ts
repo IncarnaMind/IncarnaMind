@@ -5294,6 +5294,35 @@ describe("A rewrite names the paragraph each of its own replaces (#2356)", () =>
     expect(after).toHaveLength(each.lines.length + 1);
   });
 
+  // protects=over one selected paragraph, a reply without names that changes only its numbers rewrites that paragraph, as there is no other line it could mean: a date range, a room (#2356); English and Chinese; fails_when=the new line is added beside the paragraph; no_claim=none beyond protects.
+  test.each([
+    {
+      line: "2017.05—2017.04 at a consulting firm, analyst.",
+      reply: "2017.05—2018.09 at a consulting firm, analyst.",
+    },
+    { line: "Room 102 is booked.", reply: "Room 103 is booked." },
+    { line: "2017.05—2017.04 某咨询公司 分析师", reply: "2017.05—2018.09 某咨询公司 分析师" },
+    { line: "102房间已订。", reply: "103房间已订。" },
+  ])(
+    "over one paragraph, a reply that changes only its numbers rewrites it: $reply",
+    async (each) => {
+      const blocks = plain([each.line]);
+      const { core, mind, client, before } = await noteOf(blocks, () => each.reply);
+
+      await core.editWithAi(
+        wholeParagraph(
+          client,
+          mind.id,
+          String(blocks[0]?.attrs?.id),
+          "instruction",
+          "Change the number",
+        ),
+      );
+
+      expect(await acceptThenUndo(client, before)).toEqual([each.reply]);
+    },
+  );
+
   // protects=a line of a reply without names that says other words of one paragraph than its numbers, as a rewrite by the quarter does, still takes that paragraph's place, so the rules above add no copy beside a rewrite; a reply by names that changes only a line's amount replaces it exactly (#2356); Chinese and English; fails_when=the old line stays beside the new one; no_claim=none beyond protects.
   test.each([
     {
