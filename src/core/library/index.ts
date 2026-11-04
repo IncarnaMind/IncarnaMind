@@ -383,6 +383,11 @@ export function createLibrary(options: {
    * (#1942). Asked at each use, since the examples are made after the Library.
    */
   isExampleDocument?(id: string): boolean;
+  /**
+   * A Document's first pages, while the rest of its scan is still being read (#2308): Organize
+   * reads them as it would read the finished Document, so it sorts it once, at once.
+   */
+  head?(id: string): Pick<OrganizeSource, "pageCount" | "passages" | "units"> | null;
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -627,6 +632,15 @@ export function createLibrary(options: {
       "SELECT * FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
       [id],
     );
+  /**
+   * Organize took this version up before and let it go: an Undo took its filing back, or it was
+   * held back for the User. Reading the rest of it, or reading it again, doesn't file it (#2308).
+   */
+  const filedBefore = (doc: DocumentRow) =>
+    !!db.get(
+      "SELECT 1 FROM document_groups WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL LIMIT 1",
+      [doc.id, doc.content_hash],
+    );
   const rejected = (id: string) =>
     new Set(
       db
@@ -657,7 +671,8 @@ export function createLibrary(options: {
       (["ready", "waiting-for-model", "embedding"].includes(doc.status) &&
         !!db.get("SELECT 1 FROM passages WHERE document_id = ? AND deleted_at IS NULL LIMIT 1", [
           doc.id,
-        ]))
+        ])) ||
+      !!options.head?.(doc.id)
     );
   };
   const scanWaits = (doc: DocumentRow): ProviderError | undefined => {
@@ -672,8 +687,20 @@ export function createLibrary(options: {
         }
       : undefined;
   };
-  /** What Organize reads of the indexed version (see ./excerpt). */
-  const source = (doc: DocumentRow, withPassages = true): OrganizeSource => ({
+  /** What Organize reads of the indexed version (see ./excerpt), or of its first pages. */
+  const source = (doc: DocumentRow, withPassages = true): OrganizeSource => {
+    const head = options.head?.(doc.id);
+    if (head)
+      return {
+        name: doc.name,
+        kind: doc.kind,
+        pageCount: head.pageCount,
+        passages: withPassages ? head.passages : [],
+        units: head.units,
+      };
+    return indexedSource(doc, withPassages);
+  };
+  const indexedSource = (doc: DocumentRow, withPassages: boolean): OrganizeSource => ({
     name: doc.name,
     kind: doc.kind,
     pageCount: doc.page_count,
@@ -2015,7 +2042,7 @@ export function createLibrary(options: {
       if (
         getSettings().automatic &&
         groups().length > 0 &&
-        (!existing || existing.content_hash !== doc.content_hash)
+        (existing ? existing.content_hash !== doc.content_hash : !filedBefore(doc))
       ) {
         if (taggingStoppedFor(id)) {
           stopped(id);

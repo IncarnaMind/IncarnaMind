@@ -997,6 +997,8 @@ export function createCore(adapters: CoreAdapters): Core {
         prepareRerank();
         documentReady(documentId);
       },
+      // Tagged as soon as its text, or a scan's first pages, can be read, not once embedded (#2308).
+      onText: (documentId) => documentReady(documentId),
       // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
       // conversations. Features other than Citations retain what they need too.
       citedUnits: (documentIds) => {
@@ -3386,6 +3388,8 @@ export function createCore(adapters: CoreAdapters): Core {
     background,
     rateLimit,
     timers: paceTimers,
+    head: (id) => documents.head(id),
+    headIds: () => documents.headIds(),
   });
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
   // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
@@ -3399,6 +3403,7 @@ export function createCore(adapters: CoreAdapters): Core {
     settings,
     background,
     isExampleDocument: (documentId) => isExampleDocument(documentId),
+    head: (id) => documents.head(id),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();

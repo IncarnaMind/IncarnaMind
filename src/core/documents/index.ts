@@ -67,6 +67,7 @@ import { ownFileKinds } from "../api";
 import { EmbeddingUnavailableError, type SearchEmbedder } from "../embedding/active";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { Folders } from "../folders";
+import { ORGANIZE_PASSAGES, ROUTING_PAGES } from "../library/excerpt";
 import { referenceOf, writeFileReference } from "../referenceRecords/store";
 import { foundSourceOf } from "../sources/store";
 import type { Database, SqlValue } from "../storage";
@@ -96,6 +97,7 @@ import { joinCjkLineWraps, onlyCjkLineWrapChange } from "./lineWrap";
 import { laidOut, type PageText } from "./passages";
 import {
   CURRENT_SINCE,
+  type DocumentHead,
   HAN_CURRENT_SINCE,
   type KeywordsJob,
   METADATA_VERSION,
@@ -334,10 +336,19 @@ export function parseListOptions(options: unknown): {
   return { folderId, includeSubfolders, tagId, linkedFolderId };
 }
 
-/** Where automatic tagging is, from what is stored and the Document's processing status. */
-function taggingOf(status: string, stored: string): TaggingState {
+/**
+ * Where automatic tagging is, from what is stored and the Document's processing status.
+ * `classifiable`: its first pages are read while the rest is (`DocumentHead`).
+ */
+function taggingOf(status: string, stored: string, classifiable: boolean): TaggingState {
   if (stored === "tagged") return "tagged"; // kept while the Document is processed again
-  if (status === "ready") return stored as StoredTaggingState;
+  if (
+    status === "ready" ||
+    status === "embedding" ||
+    status === "waiting-for-model" ||
+    classifiable
+  )
+    return stored as StoredTaggingState;
   if (status === "failed" || status === "no-text") return "skipped";
   return "pending";
 }
@@ -479,6 +490,11 @@ export interface DocumentsOptions {
   linkedFoldersChanged: LibraryHooks["linkedFoldersChanged"];
   /** A Document just became ready, i.e. searchable: called before its status is pushed. */
   onReady?: (documentId: string) => void;
+  /**
+   * A Document's text can be classified: it is read, or its first pages are while the rest is
+   * (`head`). Called after its status is pushed.
+   */
+  onText?: (documentId: string) => void;
   /** A scan found a new Document, announced but not yet queued for processing. */
   onFound?: (documentId: string) => void;
   /** Asks iCloud Drive to download a file an ".icloud" stub stands for. */
@@ -547,6 +563,16 @@ export function createDocuments(options: DocumentsOptions) {
   const { textRecognition } = options;
   /** Where reading each Document's scanned pages is, while its job reads them (#397). */
   const scanProgress = new Map<string, DocumentScanProgress>();
+  /**
+   * The first pages of the version a job reads, said before its later scanned pages are read,
+   * until its text is stored (#2308). Kept in memory: after a restart the job says them again
+   * from the pages it kept.
+   */
+  const heads = new Map<string, DocumentHead>();
+  const headOf = (row: Pick<DocumentRow, "id" | "content_hash">): DocumentHead | null => {
+    const head = heads.get(row.id);
+    return head && head.contentHash === row.content_hash ? head : null;
+  };
 
   /** The scanned pages of a Document's current version that couldn't be read (see "pages-unread"). */
   const unreadPages = (row: Pick<DocumentRow, "id" | "content_hash">): number[] =>
@@ -604,7 +630,7 @@ export function createDocuments(options: DocumentsOptions) {
       loggedUnreadParts.add(row.id);
       log.warn("documents.unreadPartsUnreadable", { documentId: row.id });
     }
-    const tagging = taggingOf(row.status, row.tagging_status);
+    const tagging = taggingOf(row.status, row.tagging_status, headOf(row) !== null);
     const status = statusOf(row);
     const failed = status === "failed";
     return {
@@ -869,7 +895,11 @@ export function createDocuments(options: DocumentsOptions) {
     ...(row.read_hidden_sheets === 1 && { readHiddenSheets: true as const }),
     scan:
       textRecognition && row.kind === "pdf"
-        ? { reader: textRecognition.reader, keep: keptScans(row) }
+        ? {
+            reader: textRecognition.reader,
+            keep: keptScans(row),
+            head: { pages: ROUTING_PAGES, passages: ORGANIZE_PASSAGES },
+          }
         : textRecognition && (row.kind === "web" || row.kind === "image")
           ? { reader: textRecognition.reader, keep: null }
           : null,
@@ -1430,6 +1460,13 @@ export function createDocuments(options: DocumentsOptions) {
       // A job queued again while one before it ran keeps the pages that one read meanwhile.
       return job.scan ? { ...job, scan: { ...job.scan, keep: keptScans(row) } } : undefined;
     },
+    onHead(job, head) {
+      const row = find(job.documentId);
+      if (!row || row.content_hash !== head.contentHash || head.passages.length === 0) return;
+      heads.set(job.documentId, head);
+      announce(job.documentId);
+      options.onText?.(job.documentId);
+    },
     onWaiting(job) {
       // Queued, a quit doesn't count it as what stopped the app; its scan progress, kept, says
       // it is a scan waiting its turn.
@@ -1487,6 +1524,7 @@ export function createDocuments(options: DocumentsOptions) {
     },
     onResult(job, result) {
       const scanned = scanProgress.delete(job.documentId);
+      heads.delete(job.documentId);
       const recorded = record(job, result);
       if (recorded === undefined) return; // deleted, or queued again, while processing
       const { status, replaced } = recorded;
@@ -1517,6 +1555,13 @@ export function createDocuments(options: DocumentsOptions) {
         announce(job.documentId);
       }
       if (status === "waiting-for-model") model.ensure();
+      if (status === "embedding" || status === "waiting-for-model") {
+        try {
+          options.onText?.(job.documentId);
+        } catch (error) {
+          reportError(error);
+        }
+      }
     },
     onMetadata(job, result) {
       metadataQueued = false;
@@ -1808,6 +1853,7 @@ export function createDocuments(options: DocumentsOptions) {
       vectors.removeDocument(id);
       processor.cancel(id);
       reading.forget(id);
+      heads.delete(id);
     }
     // Pushed first, so a Citation quoting what is kept never shows "can't check" meanwhile.
     if (keep) options.emitKept?.(keptCitationTexts());
@@ -3055,6 +3101,15 @@ export function createDocuments(options: DocumentsOptions) {
         .map(toDocument);
     },
 
+    /** The first pages of a live Document whose version's rest is still being read, if they are read. */
+    head(id: string): DocumentHead | null {
+      const row = find(id);
+      return row ? headOf(row) : null;
+    },
+    /** The ids of the Documents whose first pages are read while the rest is. */
+    headIds(): string[] {
+      return [...heads.keys()];
+    },
     /** The live Documents (of these, or all of them) whose text is still being read: queued or extracting, newest first. */
     reading(documentIds?: readonly string[]): Document[] {
       const { where, params } = filterWhere(documentIds ? { ids: documentIds } : {});
