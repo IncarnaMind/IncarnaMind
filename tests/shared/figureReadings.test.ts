@@ -10,7 +10,8 @@ import { type FigureContext, figureContextOf, readFigures } from "../../src/shar
  * pass (#2510): each call the figure tests made, the text fixtures in Passage-sized paragraphs, and
  * seeded runs of digit groups with every separator. The readings are kept as digests, recorded from
  * the reader before that change. A change that means to read differently records them again with
- * `INCARNAMIND_RECORD_READINGS=1 npx vitest run tests/shared/figureReadings.test.ts`.
+ * `INCARNAMIND_RECORD_READINGS=1 npx vitest run tests/shared/figureReadings.test.ts`, then
+ * `npx biome format --write tests/fixtures/figures/readings.json`, and lists each changed reading.
  */
 const FIXTURES = join(__dirname, "../fixtures");
 const READINGS = join(FIXTURES, "figures/readings.json");
