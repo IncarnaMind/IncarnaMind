@@ -190,18 +190,18 @@ export function partsOf(blocks: readonly NodeJSON[]): Map<string, NodeJSON[]> {
   return parts;
 }
 
-const hasCitation = (node: NodeJSON): boolean =>
-  (node.type === CITATION_NODE && node.attrs?.check === "found") ||
-  (node.content ?? []).some(hasCitation);
+const hasCitation = (node: NodeJSON, check?: "found"): boolean =>
+  (node.type === CITATION_NODE && (!check || node.attrs?.check === check)) ||
+  (node.content ?? []).some((child) => hasCitation(child, check));
 
-/** What of a reply goes into the notes: only what cites the Transcript, never a line uncited. */
-export function citedOnly(blocks: readonly NodeJSON[]): NodeJSON[] {
+/** Blocks with a Citation; `check` restricts the accepted Citation status. */
+export function citedOnly(blocks: readonly NodeJSON[], check?: "found"): NodeJSON[] {
   return blocks.flatMap((block) => {
     if (block.type === "bulletList" || block.type === "orderedList") {
-      const items = (block.content ?? []).filter(hasCitation);
+      const items = (block.content ?? []).filter((item) => hasCitation(item, check));
       return items.length > 0 ? [{ ...block, content: items }] : [];
     }
-    return hasCitation(block) ? [block] : [];
+    return hasCitation(block, check) ? [block] : [];
   });
 }
 

@@ -452,7 +452,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       for (const [marker, blocks] of partsOf(answer.blocks)) {
         if (!sectionOf(marker) && !lines.some((line) => !line.heading && line.marker === marker))
           continue;
-        const cited = citedOnly(blocks);
+        const cited = citedOnly(blocks, "found");
         if (cited.length > 0) gathered.set(marker, [...(gathered.get(marker) ?? []), ...cited]);
       }
     }
