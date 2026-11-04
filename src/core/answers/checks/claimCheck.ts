@@ -1665,7 +1665,36 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
               found: true,
             },
             shown,
+            null,
           );
+        if (
+          again.absence !== "no" ||
+          again.topic !== "found" ||
+          again.roles !== "same" ||
+          !again.evidence?.length ||
+          comparesOtherWords(again, request.claim, true)
+        )
+          return notChecked("malformed");
+        if (again.coverage) {
+          const backed = again.coverage.members.filter(
+            (member) => member.verdict === "supported",
+          ).length;
+          const enough =
+            again.coverage.quantifier === "most"
+              ? backed > again.coverage.members.length / 2
+              : backed === again.coverage.members.length;
+          if (!again.coverage.complete || !enough)
+            return unsupported(
+              {
+                reason: again.says,
+                covered: again.covered,
+                uncovered: again.uncovered,
+                found: true,
+              },
+              shown,
+              null,
+            );
+        }
         return {
           verdict: "supported",
           evidence: shown,
@@ -1685,6 +1714,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             found: true,
           },
           shown,
+          null,
         );
       return notChecked("malformed");
     };
@@ -1715,11 +1745,18 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         verdict.scope === "same" &&
         verdict.roles === "same" &&
         (verdict.time === undefined || verdict.time === "same") &&
+        verdict.absence === "no" &&
+        !unstatedUnit(
+          [stated, ...retainedEvidence],
+          request.claim,
+          undefined,
+          checked.map(({ number }) => number),
+        )?.why &&
         quoteStatesDetail(request.claim, stated.quote)
       ) {
         const again = await compare(request, stated, session, signal, RECHECK_INSTRUCTIONS);
-        if ("failed" in again) return failedCheck(again.failed);
         if (signal.aborted) return notChecked("stopped");
+        if ("failed" in again) return failedCheck(again.failed);
         return rechecked(readVerdict(again.reply), stated);
       }
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
@@ -1849,7 +1886,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       // A part whose quote states it on its own, and whose own Roles, Time and Scope agree: the
       // reply's contradiction was about words outside the part, as a sentence's figure is for a
       // part about when it happened. Its fields disagree with its verdict, so it is asked once
-      // more; never upgraded by this code (#2313).
+      // more; its own second reply decides (#2313).
       const sentence = request.originalClaim;
       if (
         confirmation.kind === "states" &&
@@ -1865,8 +1902,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         quoteStatesDetail(request.claim, evidence.quote)
       ) {
         const again = await compare(request, deciding, session, signal, RECHECK_INSTRUCTIONS);
-        if ("failed" in again) return failedCheck(again.failed);
         if (signal.aborted) return notChecked("stopped");
+        if ("failed" in again) return failedCheck(again.failed);
         return rechecked(readVerdict(again.reply), evidence);
       }
       // A whole sentence keeps the card of what the quote covers, never Supported: in one word it

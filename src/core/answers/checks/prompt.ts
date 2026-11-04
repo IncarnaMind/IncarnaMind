@@ -348,7 +348,7 @@ export const CONFIRM_INSTRUCTIONS = [
 
 /** The fields-only reply of a check that disagreed with itself, asked once more (#2313). */
 export const RECHECK_INSTRUCTIONS = [
-  "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own Scope, Topic, Roles and Time lines said the claim is stated and the same.",
+  "Your last check of this sentence disagreed with itself: its verdict said contradicted or unsupported, while its own field lines said the claim is stated and the same.",
   "Check the sentence once more against the quoted words and the Passage, by those fields:",
   "- supported: the quoted words state what the sentence says;",
   "- contradicted or unsupported: name the field that differs (Roles, Time or Scope), or the value the quote gives instead.",
