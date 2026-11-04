@@ -379,17 +379,20 @@ export function interpreterRoots(options: Pick<ReadDeniedOptions, "platform" | "
 }
 
 /**
- * Where the interpreter is installed, to read even inside a denied folder: the folder above the
- * one it is in (`<prefix>` of `<prefix>/bin/python3`; the app bundle's Contents for Electron),
- * else the one it is in, for the command as it is run and as its real path (a venv's python,
- * Homebrew's links). Never a folder that holds a denied one, and never one inside a denied
- * folder but where interpreters are installed (`interpreterRoots`). Every path here is canonical.
+ * What is read back inside the denied folders for the interpreter, no wider than the interpreter:
+ * for the command as it is run, its own folder, and the venv above it where there is one (whose
+ * packages it reads); for its real path, the install it belongs to (`<prefix>` of
+ * `<prefix>/bin/python3`; the app bundle's Contents for Electron), else its own folder. Never a
+ * folder that holds a denied one, nor one inside a denied folder but where interpreters are
+ * installed (`interpreterRoots`); nothing for one outside every denied folder, readable already.
+ * Every path here is canonical.
  */
-function installFolders(
-  paths: readonly string[],
+export async function installFolders(
+  command: string,
+  real: string,
   denied: readonly string[],
   roots: readonly string[],
-): string[] {
+): Promise<string[]> {
   const reopens = (candidate: string) => {
     if (denied.some((deny) => isInside(deny, candidate))) return false;
     const around = denied.filter((deny) => isInside(candidate, deny));
@@ -397,14 +400,18 @@ function installFolders(
       (deepest, deny) => (deepest === null || deny.length > deepest.length ? deny : deepest),
       null,
     );
-    return innermost === null || roots.includes(innermost);
+    return innermost !== null && roots.includes(innermost);
   };
-  const folders = new Set<string>();
-  for (const path of paths) {
-    const folder = [dirname(dirname(path)), dirname(path)].find(reopens);
-    if (folder !== undefined) folders.add(folder);
-  }
-  return [...folders];
+  const own = dirname(command);
+  const venv = dirname(own);
+  const named = (await access(join(venv, "pyvenv.cfg")).then(
+    () => true,
+    () => false,
+  ))
+    ? [venv, own]
+    : [own];
+  const install = [dirname(dirname(real)), dirname(real)].find(reopens);
+  return [...new Set([...named.filter(reopens), ...(install === undefined ? [] : [install])])];
 }
 
 const execFileAsync = promisify(execFile);
@@ -490,6 +497,9 @@ function osConfinement(
       const command = join(await strict(dirname(found)), basename(found));
       const working = await strict(workingFolder);
       const denied = await bothSpellings(options.denyRead);
+      // Canonical, an allowed folder that is a link opens what it points at, where sandbox-runtime
+      // would open only the name: safe because every folder a request allows is one the app made
+      // (a run's folders, a Skill's own folder, the runtime's and the font's).
       const allowed = async (folders: ExecRequest["allow"]["read"]) => {
         const real = await Promise.all(folders.map((each) => strict(folderPath(each, working))));
         if (real.some((folder) => denied.some((deny) => isInside(deny, folder)))) {
@@ -505,11 +515,12 @@ function osConfinement(
           denyRead: denied,
           allowRead: [
             ...(await allowed(request.allow.read)),
-            ...installFolders(
-              [command, await strict(found)],
+            ...(await installFolders(
+              command,
+              await strict(found),
               denied,
               await bothSpellings(options.interpreterRoots ?? []),
-            ),
+            )),
             ...(await Promise.all(readable.map(strict))),
           ],
           allowWrite: await allowed(request.allow.write),

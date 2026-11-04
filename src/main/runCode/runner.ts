@@ -290,14 +290,13 @@ export function createCodeRunner(options: CodeRunnerOptions): CodeRunner {
   const timeLimitMs = options.timeLimitMs ?? RUN_CODE_TIME_LIMIT_MS;
   void removeLeftBehind(options.tempDir, options.reportError);
   const helperSha256 = sha256(`${options.helper}\n${runnerSource}`);
-  // The sandbox is given canonical paths only, and the font's is found once, before any run makes
-  // a folder that a failure here would leave behind.
-  let font: Promise<string | null> | undefined;
-  const fontPath = () =>
-    (font ??=
-      options.font === null
-        ? Promise.resolve(null)
-        : canonicalPath(options.font, { mustExist: true }));
+  // The sandbox is given canonical paths only. The font's is found once it is there, before any
+  // run makes a folder that a failure here would leave behind.
+  let font: string | null | undefined;
+  const fontPath = async () => {
+    font ??= options.font === null ? null : await canonicalPath(options.font, { mustExist: true });
+    return font;
+  };
 
   async function stage(
     run: string,
