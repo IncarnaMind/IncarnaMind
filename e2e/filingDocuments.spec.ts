@@ -699,6 +699,7 @@ for (const [language, width] of [
       await expect.poll(() => folderOfDocument(window, third)).toBe(seeded.archive);
       // Every Folder's section shows the counts once the search is cleared.
       await search.fill("");
+      await expect(search).toHaveValue("");
       await expectCounts(window, library, seeded, {
         finance: 1,
         research: 0,
