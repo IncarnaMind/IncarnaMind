@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { markGutter, placeSheetMark, scrollAcross } from "../../src/renderer/src/viewer/sheetMark";
+import {
+  markGutter,
+  measureOf,
+  placeSheetMark,
+  scrollAcross,
+} from "../../src/renderer/src/viewer/sheetMark";
 
 /** A view under a 24px header row, right of 48px of row numbers. */
 const view = { left: 48, top: 24, right: 600, bottom: 500 };
@@ -121,5 +126,23 @@ describe("how far a sheet scrolls across to cited columns", () => {
     expect(scrollAcross({ left: 0, right: 900 }, 200, 700, 104)).toBe(304);
     expect(scrollAcross({ left: 0, right: 650 }, 200, 700, 104)).toBe(0);
     expect(scrollAcross({ left: 900, right: 1000 }, 200, 700, 104)).toBe(404);
+  });
+});
+
+describe("the mark's measure, read only for the mark it was taken for", () => {
+  const nine = { full: 77, compact: 28, number: 9, label: "Trade debtors" };
+
+  test("the same number and label: the measure", () => {
+    expect(measureOf(nine, 9, "Trade debtors")).toBe(nine);
+  });
+
+  test("the next Citation of the same row, a digit wider: no measure until it is taken again", () => {
+    expect(measureOf(nine, 10, "Trade debtors")).toBeNull();
+  });
+
+  test("another label, or no measure yet: none", () => {
+    expect(measureOf(nine, 9, "Cash at bank")).toBeNull();
+    expect(measureOf(nine, 9, undefined)).toBeNull();
+    expect(measureOf(null, 9, "Trade debtors")).toBeNull();
   });
 });

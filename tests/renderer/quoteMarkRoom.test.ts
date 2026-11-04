@@ -97,7 +97,7 @@ function labelState(): string {
   return shown === "true" ? "shown" : shown === "false" ? "hidden" : "none";
 }
 
-async function showMark(room: number | undefined, label = "p. 1–2") {
+async function showMark(room: number | undefined, label = "p. 1–2", number = 2) {
   // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
   const markPath = "../../src/renderer/src/viewer/quoteMark.tsx";
   const {
@@ -116,7 +116,7 @@ async function showMark(room: number | undefined, label = "p. 1–2") {
         Profiler,
         { id: "mark", onRender: () => commits.push(labelState()) },
         createElement(CitationMark, {
-          mark: { tone: "found", number: 2, label },
+          mark: { tone: "found", number, label },
           style: { top: 0, left: 0 },
           room,
           onSize: (size: Size) => sizes.push(size),
@@ -178,6 +178,15 @@ describe("the mark's label in a margin around its width (#2459)", () => {
     await showMark(90, "p. 1–2");
     expect(sizes.length).toBeGreaterThan(0);
     for (const size of sizes) expect(size).toEqual({ full: FULL, compact: COMPACT });
+  });
+
+  test("tells its place the widths of the number it shows, never those of the number before it", async () => {
+    await showMark(120, "p. 1–2", 9);
+    expect(sizes.at(-1)).toEqual({ full: 77, compact: 28 });
+    sizes = [];
+    await showMark(120, "p. 1–2", 10);
+    expect(sizes.length).toBeGreaterThan(0);
+    for (const size of sizes) expect(size).toEqual({ full: 84, compact: 34 });
   });
 
   test("the mark and its copies stay out of the words a quote is found in and a selection reads", async () => {
