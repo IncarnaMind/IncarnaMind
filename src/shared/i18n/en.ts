@@ -1415,6 +1415,8 @@ export const en = {
   "mindCheck.alreadyChecking": "Already checking this note",
   "mindCheck.nothingToCheck": "Nothing to check",
   "mindCheck.waitingForOk": "The check starts when you confirm it on the note.",
+  "mindCheck.declined": "The check didn’t run: you chose Not now on the note.",
+  "mindCheck.closed": "The check didn’t run: the question on the note was closed.",
   "mindCheck.every": "Check every sentence again",
   "mindCheck.changed.none": "Nothing changed",
   "mindCheck.unchanged": "Nothing changed since {when}",

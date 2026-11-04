@@ -1314,6 +1314,8 @@ export interface CommandDone {
    * and goes on in the window, a Check for one; this call is updated when it ends.
    */
   window?: { changed: boolean; running?: true };
+  /** For a window's command with nothing found: the Note the Question was asked from, which it acts on. */
+  mindId?: string;
   /** It is the User's alone: nothing ran, and the card says where they change it (#1421). */
   yours?: Yours;
   /** With `yours` "wall": the Folder whose wall the request is about, which the card names (#1934). */
