@@ -414,7 +414,7 @@ const PROVIDERS = [
     // Its own effort, reasoning_effort (high by default), was measured at low on DeepSeek Flash
     // (#1631): Answers finished 1.5 to 5 s sooner, but on the everyday requests one claimed a change
     // it hadn't made and one asked instead of writing, and its comparison cells were judged right
-    // less often. So it has no `effort`: every kind thinks at the default.
+    // less often. So every kind thinks at its default.
     request: { thinkingOff: { options: { deepseek: { thinking: { type: "disabled" } } } } },
     roles: {
       answers: "deepseek-flash",

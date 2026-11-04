@@ -631,9 +631,9 @@ describe("Research", { timeout: 30_000 }, () => {
       [task.id],
     );
     expect(JSON.parse(row?.result ?? "{}").documents).toEqual(expect.arrayContaining([page?.id]));
-    // The draft thinks as a comparison cell does; the two steps at their provider's default (#1631).
-    expect(thinking.filter((each) => each === "task")).toHaveLength(1);
-    expect(thinking.filter((each) => each === "answer" || each === "careful")).toEqual([]);
+    // The two steps and the draft think at their provider's default, as no set judges them (#1631).
+    expect(thinking.filter((each) => each === "summary").length).toBeGreaterThanOrEqual(3);
+    expect(thinking.filter((each) => each !== "summary" && each !== "off")).toEqual([]);
   });
 
   test("going on after a quit in the middle of writing, it neither asks the model again nor proposes its draft twice, and a new Mind it made is made once", async () => {

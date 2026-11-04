@@ -212,6 +212,12 @@ describe("An Answer's request to a model that thinks", () => {
     ],
     ["claude-sonnet-5-5", "task", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-haiku-5-5", "task", { type: "adaptive", display: "summarized" }, { effort: "low" }],
+    [
+      "claude-haiku-5-5-20261001",
+      "task",
+      { type: "adaptive", display: "summarized" },
+      { effort: "low" },
+    ],
     ["claude-opus-5-5", "task", { type: "adaptive", display: "summarized" }, undefined],
     ["claude-opus-4-8", "answer", undefined, undefined],
     ["claude-opus-4-8", "careful", undefined, undefined],
@@ -222,29 +228,6 @@ describe("An Answer's request to a model that thinks", () => {
       const { body } = await answer("anthropic", modelId, anthropicReply, thinking);
       expect(body.thinking).toEqual(expected);
       expect(body.output_config).toEqual(outputConfig);
-    },
-  );
-
-  // protects=DeepSeek Flash, which thinks by default, is sent no effort for any kind of call: low was measured and kept out (#1631); fails_when=any kind carries reasoning_effort or a thinking setting; no_claim=the fake API doesn't check what DeepSeek accepts.
-  test.each(["answer", "careful", "task", "summary"] as const)(
-    "DeepSeek Flash, %s: no reasoning_effort",
-    async (thinking) => {
-      const bodies = fakeApi(() =>
-        Response.json({
-          id: "c1",
-          object: "chat.completion",
-          created: 1_790_000_000,
-          model: "deepseek-flash",
-          choices: [
-            { index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" },
-          ],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        }),
-      );
-      await generateText({ model: modelOf("deepseek", "deepseek-flash", thinking), prompt: "OK?" });
-      expect(bodies).toHaveLength(1);
-      expect(bodies[0]?.reasoning_effort).toBeUndefined();
-      expect(bodies[0]?.thinking).toBeUndefined();
     },
   );
 

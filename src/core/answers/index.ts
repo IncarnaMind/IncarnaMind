@@ -4704,6 +4704,8 @@ export function createAnswers(options: AnswersOptions) {
       model: ChatModelChoice;
       signal: AbortSignal;
       onText?(streamed: Pick<CellAnswer, "markdown" | "blocks">): void;
+      /** How much it thinks first, when not as a comparison cell does. */
+      thinking?: "summary";
     }): Promise<CellAnswer> {
       const answerId = randomUUID();
       return new Promise<CellAnswer>((resolve) => {
@@ -4739,6 +4741,7 @@ export function createAnswers(options: AnswersOptions) {
           toolSet: "check",
           checkScales: true,
           task: true,
+          ...(input.thinking && { thinking: input.thinking }),
         });
         const stop = () => active.get(answerId)?.finish({ status: "stopped" });
         if (input.signal.aborted) stop();
