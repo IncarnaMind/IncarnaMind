@@ -1636,8 +1636,12 @@ export function createChecks(options: ChecksOptions) {
       });
     },
 
-    planMindCheck: async (mindId: unknown, mode: unknown, allDocuments?: unknown) =>
-      mindCheck.planMindCheck(mindId, mode, allDocuments === true),
+    planMindCheck: async (
+      mindId: unknown,
+      mode: unknown,
+      allDocuments?: unknown,
+      figureIds?: unknown,
+    ) => mindCheck.planMindCheck(mindId, mode, allDocuments === true, figureIds),
 
     holdMindCheck: (input: unknown) => mindCheck.holdMindCheck(input),
     forgetCheckWindow: (clientId: unknown) => mindCheck.forgetCheckWindow(clientId),
