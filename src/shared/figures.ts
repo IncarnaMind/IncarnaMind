@@ -959,12 +959,43 @@ const CURRENCY_ANYWHERE = new RegExp(
 );
 const AMOUNT_ENDS = /[\d%亿万千]$|(?:\d|\b)(?:million|billion|trillion|thousand|bn|mn|[mkb])$/i;
 
+// Longer than any currency word CURRENCY_ANYWHERE matches ("Australian dollars" with its space is
+// 19) and the letter after it: a match that starts further back than this from where a line is cut
+// is the same in the cut line as in the whole line.
+const CURRENCY_REACH = 32;
+
+/** The last currency word in the line before `at`, if the words before `at` end in an amount. */
 function amountBefore(prepared: Prepared, at: number, settled: Settled): string[] | null {
-  const line = prepared.s.slice(lineStart(prepared, at), at).trimEnd();
-  const last = [...line.matchAll(CURRENCY_ANYWHERE)].at(-1);
-  if (!last || !(AMOUNT_ENDS.test(line) || last.index + last[0].length === line.length))
+  const { s } = prepared;
+  const end = lineEnd(prepared, at);
+  const line = lineEnding(prepared, end);
+  let cut = at;
+  while (cut > line.start && /\s/.test(s[cut - 1] as string)) cut--;
+  const lead = s.slice(line.start, cut);
+  if (!line.currencies) {
+    const found = [...s.slice(line.start, end).matchAll(CURRENCY_ANYWHERE)];
+    line.currencies = {
+      starts: found.map((match) => match.index),
+      words: found.map((match) => match[0]),
+    };
+    steps += end - line.start;
+  }
+  const { starts, words } = line.currencies;
+  const same = countBefore(starts, lead.length - CURRENCY_REACH + 1);
+  let last = same > 0 ? { at: starts[same - 1] as number, word: words[same - 1] as string } : null;
+  // Only the last few characters before the cut can read otherwise, so only they are read again.
+  const tail = new RegExp(CURRENCY_ANYWHERE.source, "g");
+  tail.lastIndex = Math.max(
+    last ? last.at + last.word.length : 0,
+    lead.length - CURRENCY_REACH + 1,
+    0,
+  );
+  steps += lead.length - tail.lastIndex + 1;
+  for (let match = tail.exec(lead); match; match = tail.exec(lead))
+    last = { at: match.index, word: match[0] };
+  if (!last || !(AMOUNT_ENDS.test(lead.slice(-16)) || last.at + last.word.length === lead.length))
     return null;
-  return currencyCodes(last[0], settled);
+  return currencyCodes(last.word, settled);
 }
 
 /**
@@ -999,6 +1030,8 @@ interface Line {
   labelEnd?: number;
   /** Where a digit, a "(" or a currency sign first comes in the line, as a count's label stops. */
   countLabelEnd?: number;
+  /** Where each currency word CURRENCY_ANYWHERE finds in it starts, and the word. */
+  currencies?: { starts: number[]; words: string[] };
   /** Whether its label, as long as it was read, makes the line prose. */
   prose: Map<number, boolean>;
 }
@@ -1204,7 +1237,7 @@ function datesIn(s: string): Span[] {
   const spans: Span[] = [];
   for (const pattern of DATES) {
     const sticky = FROM_RUN_STARTS.get(pattern);
-    if (sticky) spans.push(...fromRunStarts(s, sticky));
+    if (sticky) for (const span of fromRunStarts(s, sticky)) spans.push(span);
     else
       for (const match of s.matchAll(pattern))
         spans.push({ from: match.index, to: match.index + match[0].length });
@@ -2743,7 +2776,6 @@ const RANGE = / ?(?:-|~|〜) ?|至|到| to /y;
 const CHANGE_BEFORE =
   /(?:(?<![A-Za-z])(?:from|by|rose|risen|rises|rising|increased|increases|grew|grown|grows|fell|fallen|falls|decreased|declined|dropped|climbed|jumped|cut|reduced|raised|improved|widened|narrowed|went|moved|changed|up|down) |从|由)$/i;
 
-/** The other end of a range after `left` ("2–3%", "1.2亿至1.5亿", "$1.2–1.5bn"), merged into it; null if none. */
 // Asked of each range: looking through every span each time took time that grew with ranges × dates.
 const reaches = new WeakMap<readonly Span[], { starts: number[]; reach: number[] }>();
 
@@ -2762,6 +2794,7 @@ function covers(blocked: readonly Span[], at: number): boolean {
   return before > 0 && (known.reach[before - 1] as number) > at;
 }
 
+/** The other end of a range after `left` ("2–3%", "1.2亿至1.5亿", "$1.2–1.5bn"), merged into it; null if none. */
 function rangeAfter(
   prepared: Prepared,
   left: Draft,

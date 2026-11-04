@@ -74,7 +74,13 @@ const FIGURES_REPLY = `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringif
 async function check(
   claim: string,
   body: string,
-  options: { quote?: string; calculation?: unknown; calls?: ModelCall[] } = {},
+  options: {
+    quote?: string;
+    calculation?: unknown;
+    calls?: ModelCall[];
+    /** A second Passage the search finds after the first, in another Document's p. 3. */
+    second?: string;
+  } = {},
 ) {
   const model = scriptedModel((call) => {
     options.calls?.push(call);
@@ -128,24 +134,46 @@ async function check(
     notCited: false,
     yourNoteAt: null,
   };
-  const passage = { ...source, seq: 1, position: 0, windowFrom: 0, windowTo: 0 };
+  const second: CitationSource | null =
+    options.second === undefined
+      ? null
+      : {
+          ...source,
+          passageId: "passage-2",
+          documentId: "document-2",
+          documentName: "Garbled report",
+          contentHash: "hash-2",
+          text: options.second,
+          pageFrom: 3,
+          pageTo: 3,
+        };
+  const sources = [source, ...(second ? [second] : [])];
+  const passages = sources.map((each, index) => ({
+    ...each,
+    seq: index + 1,
+    position: 0,
+    windowFrom: 0,
+    windowTo: 0,
+  }));
   const checkClaim = createClaimCheck({
     language: () => "en",
     walledDocument: () => null,
     walledFolderName: () => null,
     engine: createAiSdkAnswerEngine(),
-    evidence: { search: async () => ({ passages: [passage], excluded: [] }) },
+    evidence: { search: async () => ({ passages, excluded: [] }) },
     documents: {
-      searchableCount: () => 1,
+      searchableCount: () => sources.length,
       searchableLanguages: () => [],
-      searchableBySize: () => [
-        { id: source.documentId, name: source.documentName, size: body.length },
-      ],
-      passagesBetween: () => [passage],
+      searchableBySize: () =>
+        sources.map((each) => ({ id: each.documentId, name: each.documentName, size: 100 })),
+      passagesBetween: (documentId) => passages.filter((each) => each.documentId === documentId),
       savedBySearch: () => false,
-      unitCounts: () => new Map([[source.documentId, 1]]),
-      citationSource: (id) => (id === source.passageId ? source : null),
-      pageTexts: () => [{ page: 14, text: body, kind: "page", label: null }],
+      unitCounts: () => new Map(sources.map((each) => [each.documentId, 1])),
+      citationSource: (id) => sources.find((each) => each.passageId === id) ?? null,
+      pageTexts: (documentId) => {
+        const each = sources.find((one) => one.documentId === documentId) ?? source;
+        return [{ page: each.pageFrom ?? 1, text: each.text, kind: "page", label: null }];
+      },
       documentDate: () => null,
     },
   });
@@ -227,4 +255,12 @@ test("a quote the reader gives up on in a calculation stops the check, unseen by
   );
   expect(says("en", result)).toBe("The figures in “Annual report”, p. 14, couldn’t be read.");
   expect(says("zh-CN", result)).toBe("无法读取“Annual report”第 14 页中的数字。");
+});
+
+test("of the Passages a search found, the card names the one whose figures couldn't be read", async () => {
+  const result = await check("Revenue in 2024 was £20.", "Revenue in 2024 was £20.", {
+    second: "Costs were GARBLED 1,2.3,4.5,1,2.3,4.5,",
+  });
+  expect(says("en", result)).toBe("The figures in “Garbled report”, p. 3, couldn’t be read.");
+  expect(says("zh-CN", result)).toBe("无法读取“Garbled report”第 3 页中的数字。");
 });

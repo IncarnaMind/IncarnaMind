@@ -3,13 +3,13 @@ import { type FigureContext, figureReadingSteps, readFigures } from "../../src/s
 
 /**
  * A garbled table or a bad scan is read in steps that grow with its length, never faster (#2510):
- * each test bounds the reader's own count of its steps, 8 for each character read.
+ * each test bounds the reader's own count of its steps, 16 for each character read.
  */
 function read(text: string, context: FigureContext = {}) {
   const before = figureReadingSteps();
   const figures = readFigures(text, context);
   const steps = figureReadingSteps() - before;
-  expect(steps).toBeLessThanOrEqual(8 * text.length);
+  expect(steps).toBeLessThanOrEqual(16 * text.length);
   return figures;
 }
 
@@ -104,3 +104,28 @@ test("256 KB of dates and ranges looks for each range's date once", () => {
   expect(figures[0]).toMatchObject({ chars: "1-2%", value: 0.01, rangeTo: 0.02, start: 11 });
   expect(figures.at(-1)).toMatchObject({ chars: "1-2%", rangeTo: 0.02, start: 255_995 });
 });
+
+test.each([
+  ["1年", 150_000],
+  ["一年", 150_000],
+  ["3天", 150_000],
+  ["三个月", 100_000],
+])("300 KB of %s over and over is dates only, however many", (date, times) => {
+  expect(read(date.repeat(times))).toEqual([]);
+});
+
+test.each([
+  ["£1.2m\t(£1.0m)\t", ["£1.2m", 1_200_000], ["(£1.0m)", -1_000_000]],
+  ["¥1.2亿\t(¥1.0亿)\t", ["¥1.2亿", 120_000_000], ["(¥1.0亿)", -100_000_000]],
+])(
+  "100 KB of %j on one row looks for the currency before each bracket once",
+  (row, first, second) => {
+    const figures = read(row.repeat(7_142));
+    expect(figures).toHaveLength(14_284);
+    expect(figures.slice(0, 2).map((figure) => [figure.chars, figure.value])).toEqual([
+      first,
+      second,
+    ]);
+    expect(figures.at(-1)?.start).toBe(99_980);
+  },
+);

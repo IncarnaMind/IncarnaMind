@@ -353,22 +353,21 @@ function figuresOfBlock(
       if (typeof blockId !== "string") continue;
       const text = textOf(element);
       try {
-        found.push(
-          ...inSentence(
-            {
-              element,
-              blockId,
-              occurrence: 0,
-              from: 0,
-              to: text.length,
-              text,
-              context: text,
-              cited: [],
-            },
-            grids,
-            note,
-          ),
+        const figures = inSentence(
+          {
+            element,
+            blockId,
+            occurrence: 0,
+            from: 0,
+            to: text.length,
+            text,
+            context: text,
+            cited: [],
+          },
+          grids,
+          note,
         );
+        for (const figure of figures) found.push(figure);
       } catch (error) {
         if (!(error instanceof FiguresNotRead)) throw error;
         // The rest of the Note is still read: the check of each sentence here reads its own
