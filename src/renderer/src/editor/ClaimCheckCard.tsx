@@ -375,7 +375,7 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
-              rewrite={!running && !editing && !rewritingAny && offersRewrite(editor, claim)}
+              rewrite={!running && !editing && !rewritingAny && offersRewrite(editor, doc, claim)}
               onRewrite={() => {
                 void rewriteWithDocuments(editor, mindId, doc, claim);
                 done();
@@ -1289,10 +1289,7 @@ export function ClaimCard({
             type="button"
             data-testid="claim-open"
             className={`citation-card-action ${
-              !sole &&
-              !use &&
-              !(rewrite && verified === null) &&
-              (decision.kind === "none" || decision.kind === "already")
+              !sole && !use && !rewrite && (decision.kind === "none" || decision.kind === "already")
                 ? "citation-card-action--primary"
                 : ""
             }`}
@@ -1333,7 +1330,7 @@ export function ClaimCard({
             type="button"
             data-testid="claim-search-all"
             className={`citation-card-action ${
-              cuttable || (rewrite && verified === null) ? "" : "citation-card-action--primary"
+              cuttable || rewrite ? "" : "citation-card-action--primary"
             }`}
             onClick={() => onCheckAgain(true)}
           >
@@ -1352,7 +1349,7 @@ export function ClaimCard({
         {notFound && verified === null && mindId && (
           <ChooseCitationAction mindId={mindId} claim={claim} onChosen={onOpen} />
         )}
-        {rewrite && verified === null && (
+        {rewrite && (
           <button
             type="button"
             data-testid="claim-rewrite"

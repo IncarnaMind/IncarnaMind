@@ -12,6 +12,7 @@ import {
   type ClaimCheckAttributes,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
   type RewriteFromDocumentsResult,
 } from "../../src/core/api";
 import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
@@ -24,6 +25,7 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { registerMindEditor } from "../../src/renderer/src/editor/openEditors";
 import { useNotices } from "../../src/renderer/src/notices";
 import { INLINE_NODE } from "../../src/shared/sentences";
+import { writeVerification } from "../../src/shared/verification";
 
 const { core } = vi.hoisted(() => ({
   core: {
@@ -214,22 +216,35 @@ const REWRITTEN: RewriteFromDocumentsResult = {
 
 describe("Rewrite with what the Documents say", () => {
   test("is offered on a sentence with no Citation whose check found a close Passage", () => {
-    const offered = editorWith([marked(SENTENCE, unsupported())]).editor;
-    expect(offersRewrite(offered, claim(offered))).toBe(true);
+    const offered = editorWith([marked(SENTENCE, unsupported())]);
+    expect(offersRewrite(offered.editor, offered.doc, claim(offered.editor))).toBe(true);
     for (const check of [
       unsupported({ evidence: null }),
       unsupported({ state: "contradicted" }),
       unsupported({ text: "Rent is 1100 dollars a month." }),
     ]) {
-      const { editor } = editorWith([marked(SENTENCE, check)]);
-      expect(offersRewrite(editor, claim(editor))).toBe(false);
+      const { editor, doc } = editorWith([marked(SENTENCE, check)]);
+      expect(offersRewrite(editor, doc, claim(editor))).toBe(false);
     }
     const cited = editorWith([
       marked("Rent is 1100 dollars", unsupported()),
       { type: CITATION_NODE, attrs: evidence },
       marked(".", unsupported()),
-    ]).editor;
-    expect(offersRewrite(cited, claim(cited))).toBe(false);
+    ]);
+    expect(offersRewrite(cited.editor, cited.doc, claim(cited.editor))).toBe(false);
+  });
+
+  test("is not offered in a Note made to verify someone else's file, whose words it keeps", () => {
+    const { editor, doc } = editorWith([marked(SENTENCE, unsupported())]);
+    expect(offersRewrite(editor, doc, claim(editor))).toBe(true);
+    writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {
+      documentId: "their-report",
+      documentName: "Their report",
+      pages: {},
+      claims: null,
+      comments: false,
+    });
+    expect(offersRewrite(editor, doc, claim(editor))).toBe(false);
   });
 
   test("writes the Passage's words as AI text, cites it before the stop and checks again, in one step of Undo", async () => {

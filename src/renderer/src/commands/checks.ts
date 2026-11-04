@@ -114,8 +114,8 @@ function withCuttable() {
 }
 
 const withRewrite = () => {
-  const at = withClaim(rewriteAt);
-  return at && verificationOf(at.doc) === null ? at : null;
+  const doc = noteHandle.current?.doc;
+  return doc ? withClaim((editor) => rewriteAt(editor, doc)) : null;
 };
 
 /**

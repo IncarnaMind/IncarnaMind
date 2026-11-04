@@ -11,6 +11,7 @@ import type * as Y from "yjs";
 import type { RewriteFromDocumentsResult } from "../../core/api";
 import { showsPartRows } from "../../shared/claimChecks";
 import { checkedCitation } from "../../shared/claimParts";
+import { verificationOf } from "../../shared/verification";
 import { checkAgain, setCheckProblem, setRewriting, useChecks } from "./checks";
 import { core } from "./core";
 import { planEdits, recordCorrections, writeCorrections } from "./correctionFixes";
@@ -25,12 +26,14 @@ import { fixesFree, restoreCheck } from "./unsupportedFixes";
 
 /**
  * Whether a sentence's card offers the rewrite: unsupported as it reads now, with no Citation,
- * beside a found Passage its check shows as saying something different.
+ * beside a found Passage its check shows as saying something different, in a Note that verifies
+ * no one else's file, whose words it keeps.
  */
-export function offersRewrite(editor: Editor, claim: ShownClaim): boolean {
+export function offersRewrite(editor: Editor, doc: Y.Doc, claim: ShownClaim): boolean {
   const { check } = claim;
   return (
     editor.isEditable &&
+    verificationOf(doc) === null &&
     claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
     checkedCitation(check.evidence ?? undefined) !== null &&
@@ -41,12 +44,12 @@ export function offersRewrite(editor: Editor, claim: ShownClaim): boolean {
 }
 
 /** The sentence the selection is in whose card offers the rewrite, for ⌘K; null for none. */
-export function rewriteAt(editor: Editor): ShownClaim | null {
+export function rewriteAt(editor: Editor, doc: Y.Doc): ShownClaim | null {
   const { from, to } = editor.state.selection;
   return (
     shownClaims(editor.state).find(
       (claim) =>
-        claim.sentence.from <= from && to <= claim.sentence.to && offersRewrite(editor, claim),
+        claim.sentence.from <= from && to <= claim.sentence.to && offersRewrite(editor, doc, claim),
     ) ?? null
   );
 }
@@ -84,7 +87,7 @@ export async function rewriteWithDocuments(
   doc: Y.Doc,
   claim: ShownClaim,
 ): Promise<boolean> {
-  if (!fixesFree(mindId) || !offersRewrite(editor, claim)) return false;
+  if (!fixesFree(mindId) || !offersRewrite(editor, doc, claim)) return false;
   const earlier = claim.check;
   setRewriting(mindId, earlier.id);
   let result: RewriteFromDocumentsResult;
@@ -107,7 +110,7 @@ export async function rewriteWithDocuments(
   }
   const now = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
   const plan =
-    now && offersRewrite(editor, now) && fixesFree(mindId)
+    now && offersRewrite(editor, doc, now) && fixesFree(mindId)
       ? planEdits(editor.state, now, [{ correction: result.correction, span: null }])
       : null;
   const tr = editor.state.tr;
