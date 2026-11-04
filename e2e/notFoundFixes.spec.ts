@@ -78,10 +78,12 @@ async function launchNote(language: "en" | "zh-CN", width = 1440, scope?: string
   return { app, window, editor };
 }
 
-/** Types `claim` as the Note's last paragraph and checks it, then opens its card. */
+/** Types `claim` as a new last paragraph of the Note and checks it, then opens its card. */
 async function checkSentence(window: Page, editor: Locator, claim: string): Promise<Locator> {
-  await pointAndClick(window, editor);
+  const written = (await noteText(editor)) !== "";
+  await pointAndClick(window, editor.locator(":scope > p").last());
   await window.keyboard.press("ControlOrMeta+End");
+  if (written) await window.keyboard.press("Enter");
   await window.keyboard.type(claim);
   const line = editor.locator(":scope > p").last();
   const words = claim.split(" ");
@@ -186,8 +188,6 @@ for (const language of ["en", "zh-CN"] as const) {
     );
 
     // Words that don't back the sentence give it the card of a cited sentence nothing backs.
-    await window.keyboard.press("ControlOrMeta+End");
-    await window.keyboard.press("Enter");
     const absent = await checkSentence(window, editor, ABSENT);
     await pointAndClick(window, absent.getByTestId("claim-choose-citation"));
     await window.getByTestId("citation-document-search").fill("Harbour");
@@ -199,11 +199,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, window.getByTestId("viewer-selection-cite"));
     const mark = window.getByTestId("claim-mark").last();
     await expect(mark).toHaveAttribute("data-check", "unsupported");
-    await setWindowSize(app, window, 900, 900);
     await motionSettled(window);
     await pointAndClick(window, mark);
     await expect(window.getByTestId("claim-card").getByTestId("claim-cited")).toBeVisible();
-    await capture(window, `after-chosen-unsupported-${language}-900`);
+    await capture(window, `after-chosen-unsupported-${language}-1440`);
+    await window.keyboard.press("Escape");
     // Selected again, the words offer no Use as Citation: nothing waits for one.
     await selectOwn(window);
     await expect(window.getByTestId("viewer-selection-menu")).toBeVisible();
@@ -211,8 +211,6 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
 
     // Cancel stops the wait, and so does Esc.
-    await window.keyboard.press("ControlOrMeta+End");
-    await window.keyboard.press("Enter");
     const third = await checkSentence(window, editor, ELSEWHERE.replace("Penguins", "Puffins"));
     await pointAndClick(window, third.getByTestId("claim-choose-citation"));
     await window.getByTestId("citation-document-search").fill("Harbour");
@@ -258,8 +256,6 @@ for (const language of ["en", "zh-CN"] as const) {
     );
 
     // A figure the Passage doesn't give stays out: the sentence is kept as written.
-    await window.keyboard.press("ControlOrMeta+End");
-    await window.keyboard.press("Enter");
     const ports = await checkSentence(window, editor, PORTS);
     await pointAndClick(window, ports.getByTestId("claim-rewrite"));
     await expect(window.getByTestId("error-notice-message")).toHaveText(t("claim.rewrite.kept"));
@@ -292,8 +288,6 @@ test("the assistant checks the sentence against a Document it names, and opens o
   await pointAndClick(window, ask.getByTestId("document-check-read"));
   await expect(window.getByTestId("claim-mark").last()).toHaveAttribute("data-check", "supported");
 
-  await window.keyboard.press("ControlOrMeta+End");
-  await window.keyboard.press("Enter");
   await checkSentence(window, editor, ABSENT);
   await window.keyboard.press("Escape");
   await pointAndClick(window, editor.getByText("deep bay"));
@@ -400,7 +394,9 @@ for (const language of ["en", "zh-CN"] as const) {
         [{ type: "paragraph", content: [{ type: "text", text: ABSENT, marks: [stopped] }] }],
       );
       await motionSettled(window);
-      await pointAndClick(window, window.getByTestId("claim-mark").first());
+      // A sentence not checked has no mark on the page: its card opens from the keyboard.
+      await pointAndClick(window, editor.getByText("deep bay"));
+      await window.keyboard.press("ControlOrMeta+Shift+K");
       const card = window.getByTestId("claim-card");
       const stop = card.getByTestId("claim-read-stopped");
       // An amount under a cent shows in cents.
