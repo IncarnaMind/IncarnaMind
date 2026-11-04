@@ -207,6 +207,30 @@ describe("Compare Documents", () => {
     }
   });
 
+  // protects=a cell is an Answer of the Task kind, at the effort the catalog gives Tasks, never an Answer's or the provider's default (#1631); fails_when=a cell's model is made for an Answer, a careful Answer or with no kind; no_claim=what effort that kind sends, which tests/core/reasoningRequests.test.ts holds.
+  test("each cell is asked for as a Task's Answer", async () => {
+    const { core, client, mind, documents, models } = await setUpWithDocuments(
+      cellModel(),
+      SUPPLIERS,
+    );
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+      apiKey: "sk-test",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    await compare(core, client, {
+      mindId: mind.id,
+      documentIds: documents.map((document) => document.id),
+      questions: QUESTIONS,
+    });
+    const kinds = models.specs.flatMap((spec) =>
+      spec.thinking === undefined || spec.thinking === "off" ? [] : [spec.thinking],
+    );
+    expect(kinds.filter((kind) => kind === "task")).toHaveLength(6);
+    expect(kinds.filter((kind) => kind !== "task" && kind !== "summary")).toEqual([]);
+  });
+
   test("filling newly added Documents asks only their cells, never an old waiting or done cell", async () => {
     const asked: ReturnType<typeof cellAsked>[] = [];
     const model = cellModel((_call, cell) => {

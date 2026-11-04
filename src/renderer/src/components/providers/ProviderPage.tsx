@@ -360,6 +360,11 @@ export function ProviderPage({
           onAnyway={() => keyCheck.agree()}
         />
         {refusedHere && refused && <KeyRefusedLine id={`${id}-refused`} refused={refused} />}
+        {provider.apiKeyUnreadable && (
+          <span data-testid="provider-key-unreadable" role="status" className={hintClass}>
+            {t("providers.form.apiKeyUnreadable")}
+          </span>
+        )}
         {notChecked && localOnly && key.text === "" && <KeyNotCheckedLine provider={name} />}
         {keyError && (
           <p

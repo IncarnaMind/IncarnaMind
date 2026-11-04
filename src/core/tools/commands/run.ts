@@ -35,7 +35,7 @@ import type {
   WindowCommandRequest,
   WindowCommandResult,
 } from "../../api";
-import { RECENTLY_DELETED_DAYS } from "../../api";
+import { EXPORT_FORMATS, RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
 import type { Language } from "../../language";
@@ -90,7 +90,7 @@ export type CommandsCore = Pick<
   | "deleteConversation"
 >;
 
-export const COMMAND_EXPORT_FORMATS = ["docx", "pdf", "markdown", "html"] as const;
+export const COMMAND_EXPORT_FORMATS = EXPORT_FORMATS;
 export type CommandExportFormat = (typeof COMMAND_EXPORT_FORMATS)[number];
 
 /**
