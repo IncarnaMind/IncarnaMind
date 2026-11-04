@@ -1963,6 +1963,123 @@ test.each([
   },
 );
 
+// protects=#2341; fails_when=a Document that gives an amount in words and then again in figures in
+// brackets, "人民币九万八千元（¥98,000）", has its bracket read as a negative, so a correct sentence that
+// gives the figures is Contradicted; or a bracket whose figures disagree with the words before it
+// backs a sentence that gives those figures.
+const bracketed = [
+  {
+    name: "Chinese words, then ¥ figures, against a Chinese sentence",
+    claim: "月租金为¥98,000。",
+    figure: "¥98,000",
+    language: "zh-CN",
+    body: "月租金调整为人民币九万八千元（¥98,000）。",
+    number: "98,000",
+    value: 98000,
+  },
+  {
+    name: "Chinese words, then ¥ figures, against an English sentence",
+    claim: "The monthly rent is RMB 98,000.",
+    figure: "RMB 98,000",
+    language: "en",
+    body: "月租金调整为人民币九万八千元（¥98,000）。",
+    number: "98,000",
+    value: 98000,
+  },
+  {
+    name: "Chinese capitals, then figures with cents",
+    claim: "合同总价为100,000元。",
+    figure: "100,000元",
+    language: "zh-CN",
+    body: "合同总价为人民币壹拾万元整（¥100,000.00）。",
+    number: "100,000.00",
+    value: 100000,
+  },
+  {
+    name: "a scale word, then the full figures",
+    claim: "The purchase price is $1,200,000.",
+    figure: "$1,200,000",
+    language: "en",
+    body: "The purchase price is USD 1.2 million ($1,200,000), payable on completion.",
+    number: "$1,200,000",
+    value: 1200000,
+  },
+  {
+    name: "a Chinese scale, then the full figures",
+    claim: "保证金为75,000元。",
+    figure: "75,000元",
+    language: "zh-CN",
+    body: "乙方应支付保证金人民币7.5万元（¥75,000）。",
+    number: "75,000",
+    value: 75000,
+  },
+  {
+    name: "English words, then figures",
+    claim: "The quarterly rent is $75,000.",
+    figure: "$75,000",
+    language: "en",
+    body: "The Tenant shall pay Seventy-Five Thousand Dollars ($75,000.00) each quarter.",
+    number: "$75,000.00",
+    value: 75000,
+  },
+] as const;
+
+test.each(bracketed)(
+  "$name: the bracket gives the same amount, and the sentence is Supported (#2341)",
+  async (each) => {
+    const { result } = await checkWith({
+      claim: each.claim,
+      figures: [target("f1", each.figure, each.claim, each.language)],
+      body: each.body,
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: each.number, reading: null, unitQuote: null },
+        },
+      ]),
+    });
+
+    expect(result.figures?.[0]?.sourceInput?.number.value).toBe(each.value);
+    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.verdict).toBe("supported");
+  },
+);
+
+test.each([
+  {
+    claim: "月租金为¥98,000。",
+    figure: "¥98,000",
+    language: "zh-CN",
+    body: "月租金调整为人民币九万五千元（¥98,000）。",
+    number: "98,000",
+  },
+  {
+    claim: "The quarterly rent is $57,000.",
+    figure: "$57,000",
+    language: "en",
+    body: "The Tenant shall pay Seventy-Five Thousand Dollars ($57,000.00) each quarter.",
+    number: "$57,000.00",
+  },
+] as const)(
+  "figures in brackets that disagree with the words before them never back $claim (#2341)",
+  async (each) => {
+    const { result } = await checkWith({
+      claim: each.claim,
+      figures: [target("f1", each.figure, each.claim, each.language)],
+      body: each.body,
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: each.number, reading: null, unitQuote: null },
+        },
+      ]),
+    });
+
+    expect(result.figures?.[0]?.result.verdict).not.toBe("supported");
+    expect(result.verdict).not.toBe("supported");
+  },
+);
+
 // The figure the Check reads its number from is backed only when every formula behind it was
 // worked out here and gave the value Excel saved (#2347).
 describe.each(["en", "zh-CN"] as const)(

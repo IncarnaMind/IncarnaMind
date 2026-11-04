@@ -1568,3 +1568,251 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ]);
   });
 });
+
+// protects=#2341; fails_when=a bracket that gives the amount just before it again in figures, as
+// contracts write "人民币九万八千元（¥98,000）" and "Seventy-Five Thousand Dollars ($75,000.00)", is read
+// as an accounting negative, so a correct sentence is Contradicted; or a bracket that is a real
+// minus, or that disagrees with the words before it, stops being one.
+describe("a bracket right after an amount (#2341)", () => {
+  const cases: [text: string, context: FigureContext, figures: Expected[]][] = [
+    [
+      "人民币九万八千元（¥98,000）",
+      ZH,
+      [f("人民币九万八千元", 98000, { unit: "CNY" }), f("¥98,000", 98000, { unit: "CNY" })],
+    ],
+    [
+      "壹拾万元整（¥100,000.00）",
+      ZH,
+      [
+        f("壹拾万元整", 100000, { unit: "CNY", scale: "万" }),
+        f("¥100,000.00", 100000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "USD 1.2 million ($1,200,000)",
+      EN,
+      [
+        f("USD 1.2 million", 1200000, { unit: "USD", scale: "million" }),
+        f("$1,200,000", 1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "首付款为人民币叁万伍仟元整（¥35,000.00）。",
+      ZH,
+      [f("人民币叁万伍仟元整", 35000, { unit: "CNY" }), f("¥35,000.00", 35000, { unit: "CNY" })],
+    ],
+    [
+      "保证金为人民币7.5万元（¥75,000）",
+      ZH,
+      [
+        f("人民币7.5万元", 75000, { unit: "CNY", scale: "万" }),
+        f("¥75,000", 75000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "保证金为人民币7.5万元 （¥75,000）",
+      ZH,
+      [
+        f("人民币7.5万元", 75000, { unit: "CNY", scale: "万" }),
+        f("¥75,000", 75000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "总价为人民币2.4亿元（¥240,000,000）",
+      ZH,
+      [
+        f("人民币2.4亿元", 240000000, { unit: "CNY", scale: "亿" }),
+        f("¥240,000,000", 240000000, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "服务费为人民币三千元（¥3,000）",
+      ZH,
+      [f("人民币三千元", 3000, { unit: "CNY" }), f("¥3,000", 3000, { unit: "CNY" })],
+    ],
+    ["租金为八千五百元（8,500）", ZH, [f("八千五百元", 8500, { unit: "CNY" }), f("8,500", 8500)]],
+    ["租金为八千五百元(8,500)", ZH, [f("八千五百元", 8500, { unit: "CNY" }), f("8,500", 8500)]],
+    ["租金为八千五百元（8500）", ZH, [f("八千五百元", 8500, { unit: "CNY" }), f("8500", 8500)]],
+    ["共计四万二千（42,000）", ZH, [f("四万二千", 42000), f("42,000", 42000)]],
+    ["共计四万二千（¥42,000）", ZH, [f("四万二千", 42000), f("¥42,000", 42000, { unit: "CNY" })]],
+    [
+      "增幅为百分之十五（15%）",
+      ZH,
+      [f("百分之十五", 0.15, { unit: "%" }), f("15%", 0.15, { unit: "%" })],
+    ],
+    [
+      "净亏损人民币三万五千元（¥35,000）",
+      ZH,
+      [f("人民币三万五千元", 35000, { unit: "CNY" }), f("¥35,000", 35000, { unit: "CNY" })],
+    ],
+    [
+      "The Tenant shall pay Seventy-Five Thousand Dollars ($75,000.00) each quarter.",
+      EN,
+      [f("$75,000.00", 75000, { unit: "USD" })],
+    ],
+    [
+      "a fee of one hundred and twenty thousand pounds (£120,000)",
+      EN,
+      [f("£120,000", 120000, { unit: "GBP" })],
+    ],
+    [
+      "Two Million Four Hundred Thousand US Dollars (US$2,400,000)",
+      EN,
+      [f("US$2,400,000", 2400000, { unit: "USD" })],
+    ],
+    [
+      "Twelve Thousand Five Hundred and 50/100 Dollars ($12,500.50)",
+      EN,
+      [f("$12,500.50", 12500.5, { unit: "USD" })],
+    ],
+    ["SIXTY-TWO THOUSAND ONE HUNDRED TEN (62,110)", EN, [f("62,110", 62110)]],
+    ["Sixty Thousand Dollars (60,000)", EN, [f("60,000", 60000)]],
+    ["the sum of Forty-Two Thousand ($42,000)", EN, [f("$42,000", 42000, { unit: "USD" })]],
+    [
+      "ninety-eight thousand yuan (¥98,000)",
+      EN,
+      [f("¥98,000", 98000, { unit: "CNY", ambiguous: ["currency"] })],
+    ],
+    ["a notice period of one hundred twenty (120) days", EN, [f("120", 120)]],
+    [
+      "£1.5m (£1,500,000)",
+      EN,
+      [f("£1.5m", 1500000, { unit: "GBP", scale: "m" }), f("£1,500,000", 1500000, { unit: "GBP" })],
+    ],
+    [
+      "$2.4 million (2,400,000)",
+      EN,
+      [f("$2.4 million", 2400000, { unit: "USD", scale: "million" }), f("2,400,000", 2400000)],
+    ],
+    [
+      "$98,000 (98,000 USD)",
+      EN,
+      [f("$98,000", 98000, { unit: "USD" }), f("98,000 USD", 98000, { unit: "USD" })],
+    ],
+  ];
+  test.each(cases)("%s gives the same amount twice", (text, context, figures) => {
+    const read = readFigures(text, context);
+    expect(read.map(shape)).toEqual(figures);
+    for (const figure of read) expect(text.slice(figure.start, figure.end)).toBe(figure.chars);
+  });
+
+  const disagreeing: [text: string, context: FigureContext, figures: Expected[]][] = [
+    [
+      "人民币三万五千元（¥53,000）",
+      ZH,
+      [f("人民币三万五千元", 35000, { unit: "CNY" }), f("（¥53,000）", -53000, { unit: "CNY" })],
+    ],
+    [
+      "人民币七千五百元（¥75,000）",
+      ZH,
+      [f("人民币七千五百元", 7500, { unit: "CNY" }), f("（¥75,000）", -75000, { unit: "CNY" })],
+    ],
+    [
+      "人民币7.5万元（¥7,500）",
+      ZH,
+      [
+        f("人民币7.5万元", 75000, { unit: "CNY", scale: "万" }),
+        f("（¥7,500）", -7500, { unit: "CNY" }),
+      ],
+    ],
+    [
+      "USD 2.4 million ($240,000)",
+      EN,
+      [
+        f("USD 2.4 million", 2400000, { unit: "USD", scale: "million" }),
+        f("($240,000)", -240000, { unit: "USD" }),
+      ],
+    ],
+    ["Seventy-Five Thousand Dollars ($57,000)", EN, [f("($57,000)", -57000, { unit: "USD" })]],
+    [
+      "人民币七万五千元（US$75,000）",
+      ZH,
+      [f("人民币七万五千元", 75000, { unit: "CNY" }), f("（US$75,000）", -75000, { unit: "USD" })],
+    ],
+    ["Seventy-Five Thousand Pounds ($75,000)", EN, [f("($75,000)", -75000, { unit: "USD" })]],
+  ];
+  test.each(disagreeing)(
+    "%s writes two amounts, and the bracket is not the words' amount",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map(shape)).toEqual(figures);
+    },
+  );
+
+  const negatives: [text: string, context: FigureContext, figures: Expected[]][] = [
+    ["Finance costs (2,750)", EN, [f("(2,750)", -2750)]],
+    ["财务费用（2,750）", ZH, [f("（2,750）", -2750)]],
+    ["Revenue\t3,000\nCost of sales\t(1,250)", EN, [f("3,000", 3000), f("(1,250)", -1250)]],
+    ["Net loss\t(4,321)", EN, [f("(4,321)", -4321)]],
+    ["净亏损\t（4,321）", ZH, [f("（4,321）", -4321)]],
+    ["Eliminations 3,600 (3,600)", EN, [f("3,600", 3600), f("(3,600)", -3600)]],
+    ["抵销\t3,600\t（3,600）", ZH, [f("3,600", 3600), f("（3,600）", -3600)]],
+    [
+      "营业收入\t1.2亿元\t（120,000,000）",
+      ZH,
+      [f("1.2亿元", 120000000, { unit: "CNY", scale: "亿" }), f("（120,000,000）", -120000000)],
+    ],
+    ["Amounts in brackets are negative.\nOperating loss (6,480)", EN, [f("(6,480)", -6480)]],
+    ["括号内金额为负数。\n营业亏损（6,480）", ZH, [f("（6,480）", -6480)]],
+    [
+      "Revenue was £1.2m and the impairment (£1,200,000)",
+      EN,
+      [
+        f("£1.2m", 1200000, { unit: "GBP", scale: "m" }),
+        f("(£1,200,000)", -1200000, { unit: "GBP" }),
+      ],
+    ],
+    [
+      "保证金人民币7.5万元\n（75,000）",
+      ZH,
+      [f("人民币7.5万元", 75000, { unit: "CNY", scale: "万" }), f("（75,000）", -75000)],
+    ],
+    ["负1,234", ZH, [f("负1,234", -1234)]],
+    [
+      "利润为负三万五千元（¥35,000）",
+      ZH,
+      [f("负三万五千元", -35000, { unit: "CNY" }), f("（¥35,000）", -35000, { unit: "CNY" })],
+    ],
+    ["净亏损1,234万元", ZH, [f("1,234万元", 12340000, { unit: "CNY", scale: "万" })]],
+  ];
+  test.each(negatives)("%s keeps its sign", (text, context, figures) => {
+    expect(readFigures(text, context).map(shape)).toEqual(figures);
+  });
+
+  const asides: [text: string, context: FigureContext, figures: Expected[]][] = [
+    [
+      "Revenue was $4.3 million (2025)",
+      EN,
+      [f("$4.3 million", 4300000, { unit: "USD", scale: "million" })],
+    ],
+    [
+      "Revenue was $4.3 million (12%)",
+      EN,
+      [
+        f("$4.3 million", 4300000, { unit: "USD", scale: "million" }),
+        f("(12%)", 0.12, { unit: "%", ambiguous: ["sign"] }),
+      ],
+    ],
+    [
+      "人民币三万五千元（1）",
+      ZH,
+      [f("人民币三万五千元（1）", 35000, { unit: "CNY", footnote: "（1）" })],
+    ],
+    ["payable within thirty (30) days", EN, []],
+    [
+      "收入为人民币4.3亿元（注释12）",
+      ZH,
+      [f("人民币4.3亿元", 430000000, { unit: "CNY", scale: "亿" }), f("12", 12)],
+    ],
+    [
+      "合同价款人民币三万五千元（合同编号35000）",
+      ZH,
+      [f("人民币三万五千元", 35000, { unit: "CNY" }), f("35000", 35000)],
+    ],
+  ];
+  test.each(asides)(
+    "%s: a year, percent, note or number of another kind is read as before",
+    (text, context, figures) => {
+      expect(readFigures(text, context).map(shape)).toEqual(figures);
+    },
+  );
+});
