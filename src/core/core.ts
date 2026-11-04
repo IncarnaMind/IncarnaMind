@@ -140,6 +140,7 @@ import {
   type ScannedQuoteInput,
   type SearchScope,
   type SelectedPart,
+  type TaggingModels,
   type TaggingRoute,
   type Task,
   type TurnPlace,
@@ -1875,7 +1876,27 @@ export function createCore(adapters: CoreAdapters): Core {
       return library.organizeAtOnce(ids, signal, allowed, permit);
     },
     proposeFolders: (ids, permit) => library.propose(ids, settings.get().language, permit),
-    allowCloudRead: (service) => consent.choose(["classification"], service),
+    allowCloudRead: async (service) => {
+      consent.choose(["classification"], service);
+      await dataFlowsChanged().catch((error: unknown) =>
+        console.error("The window couldn't be told which services may read the Documents.", error),
+      );
+    },
+    offeredOrganizeModel: async () => {
+      if (organizeModelOf(library.settings())) return null;
+      const { automatic } = await taggingModels();
+      return (
+        automatic && { classifier: automatic.classifier, route: routeOf(automatic.classifier) }
+      );
+    },
+    keepOrganizeModel: async (classifier) => {
+      const saved = library.settings();
+      if (organizeModelOf(saved)) return;
+      library.saveSettings({ ...saved, organizeWith: classifier });
+      await dataFlowsChanged();
+      await taggingChanged();
+    },
+    lendOrganizeModel: (classifier) => library.lendOrganizeModel(classifier),
     allows: async (input, touches, mindId, wallOverride) => {
       const wallId = wallOverride === undefined ? walledFolder(mindId) : wallOverride;
       const refuse = () => {
@@ -4768,6 +4789,20 @@ export function createCore(adapters: CoreAdapters): Core {
   // Everything a Task needs is up: those a quit or a crash left go on, or wait for the User.
   tasks.settleOrphans();
 
+  const routeOf = (classifier: TaggingClassifier): TaggingRoute => {
+    const service = tagging.service(classifier);
+    return service ? { where: "cloud", service } : { where: "local" };
+  };
+  const taggingModels = async (): Promise<TaggingModels> => {
+    const hadModel = tagsWith() !== null;
+    const models = await tagging.models();
+    if (!hadModel && tagsWith() !== null && !lifetime.signal.aborted) {
+      tagger.resume();
+      library.resume();
+    }
+    return models;
+  };
+
   // Async on purpose: the renderer reaches these over IPC, and a future hosted core may be remote.
   api = {
     createMind: async (input) =>
@@ -5741,9 +5776,9 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteLibraryGroup: async (id) => removeFolder(id),
     addLibraryStarterGroups: async (keys) => library.addStarters(keys),
     saveLibrarySettings: async (input) => {
-      const before = library.settings();
+      const before = library.chosenSettings();
       library.saveSettings(input);
-      const after = library.settings();
+      const after = library.chosenSettings();
       // Turning tagging on where its line says what goes is the consent for where it sends now
       // (ADR-0022, #1617). Nothing else is: a save sends the switch as shown (#2308).
       const turnedOn = isRecord(input) && input.turnOn === true;
@@ -5761,15 +5796,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (tagsAnew || organizesAnew || turnedOn) await dataFlowsChanged();
       await taggingChanged();
     },
-    getTaggingModels: async () => {
-      const hadModel = tagsWith() !== null;
-      const models = await tagging.models();
-      if (!hadModel && tagsWith() !== null && !lifetime.signal.aborted) {
-        tagger.resume();
-        library.resume();
-      }
-      return models;
-    },
+    getTaggingModels: taggingModels,
     getTaggingRoute: async (flow = "tagging"): Promise<TaggingRoute> => {
       if (flow !== "tagging" && flow !== "classification" && flow !== "scan-images")
         throw new InvalidInputError({ key: "error.library.flow" });
@@ -5788,8 +5815,7 @@ export function createCore(adapters: CoreAdapters): Core {
         if (!model) return { where: "none" };
         return model.service ? { where: "cloud", service: model.service } : { where: "local" };
       }
-      const service = tagging.service(classifier);
-      return service ? { where: "cloud", service } : { where: "local" };
+      return routeOf(classifier);
     },
     proposeFolders: async (ids) => library.propose(ids, settings.get().language),
     classifyDocuments: async (ids) => {
