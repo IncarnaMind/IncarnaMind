@@ -1775,8 +1775,34 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           ? unsupported(unit, unitProblem?.quote ?? null, null)
           : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
       }
-      // Never Supported: in one word it called the parties the other way round the same (#1668).
-      if (confirmation.kind === "doubt") return inDoubt();
+      // A part whose quote states it on its own, and whose own Roles, Time and Scope agree: the
+      // reply's contradiction was about words outside the part, as a sentence's figure is for a
+      // part about when it happened (#2313).
+      const part = request.originalClaim;
+      if (
+        confirmation.kind === "states" &&
+        !unit &&
+        !byCalculation &&
+        verdict.roles !== "differs" &&
+        verdict.time !== "differs" &&
+        verdict.scope !== "wider" &&
+        part !== undefined &&
+        isPartOf(part, request.claim) &&
+        evidence !== null &&
+        quoteStatesDetail(request.claim, evidence.quote)
+      )
+        return {
+          verdict: "supported",
+          evidence,
+          says: null,
+          unsupported: null,
+          calculation: worked?.calculation ?? null,
+          ...citedCase(evidence),
+          ...facts(),
+        };
+      // A whole sentence keeps the card of what the quote covers, never Supported: in one word it
+      // called the parties the other way round the same (#1668, #2313).
+      if (confirmation.kind === "doubt" || confirmation.kind === "states") return inDoubt();
       // A false contradiction is the worst verdict a check gives, and one judgement upheld near
       // misses (#1647): the strict one finds the quote doesn't state the sentence's detail, and
       // then the card shows the part the quote states (DESIGN.md › Checks). Its "same" doesn't
@@ -2034,13 +2060,82 @@ const isFailed = (value: unknown): value is Failed =>
 
 const notFailed = <T>(value: T | Failed): T | null => (isFailed(value) ? null : value);
 
+/**
+ * Whether `claim` is one part of `sentence`, not the whole sentence but for spaces and punctuation
+ * around it, as the part path tells a part from the sentence it fills (#2313).
+ */
+function isPartOf(sentence: string, claim: string): boolean {
+  const at = sentence.indexOf(claim);
+  return (
+    at >= 0 && !/^[\s\p{P}]*$/u.test(sentence.slice(0, at) + sentence.slice(at + claim.length))
+  );
+}
+
+/** Words that say how a part relates to its own detail, not the detail itself. */
+const DETAIL_LINKS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "been",
+  "by",
+  "for",
+  "from",
+  "had",
+  "has",
+  "have",
+  "in",
+  "is",
+  "it",
+  "its",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "their",
+  "there",
+  "these",
+  "this",
+  "those",
+  "to",
+  "was",
+  "were",
+  "will",
+  "with",
+]);
+
+/**
+ * Whether the deciding quote states the part's own detail: each of its content words (or, in
+ * Chinese, each of its characters) is there. One judgement called "every week" against "every
+ * year" the same, and the part read Supported (#2313).
+ */
+function quoteStatesDetail(claim: string, quote: string): boolean {
+  const text = quote.toLowerCase();
+  for (const word of claim.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) {
+    if (/^\p{Script=Han}+$/u.test(word)) {
+      for (const character of word) if (!text.includes(character)) return false;
+      continue;
+    }
+    // A token mixing letters and digits is a figure's notation ("1m", "1,500"): its digits are
+    // the part's own, and the figure rules compare them.
+    if (/\p{L}/u.test(word) && /\p{N}/u.test(word)) continue;
+    if (word.length < 2 || DETAIL_LINKS.has(word)) continue;
+    if (!text.includes(word)) return false;
+  }
+  return true;
+}
+
 async function confirmContradiction(
   request: ClaimCheckRequest,
   quoted: Citation | readonly Citation[],
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
 ): Promise<
-  | { kind: "unrelated" | "doubt" | "confirmed" | "malformed" | "stopped" }
+  | { kind: "unrelated" | "states" | "doubt" | "confirmed" | "malformed" | "stopped" }
   | { failed: ProviderError }
 > {
   const first = await compare(request, quoted, session, signal, CONFIRM_INSTRUCTIONS);
@@ -2048,7 +2143,7 @@ async function confirmContradiction(
   if ("failed" in first) return first;
   const judged = readJudgement(first.reply);
   if (judged === "neither") return { kind: "unrelated" };
-  if (judged === "same") return { kind: "doubt" };
+  if (judged === "same") return { kind: "states" };
   const strict = await compare(request, quoted, session, signal, STRICT_INSTRUCTIONS);
   if (signal.aborted) return { kind: "stopped" };
   if ("failed" in strict) return strict;

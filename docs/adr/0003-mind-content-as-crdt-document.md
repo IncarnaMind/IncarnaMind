@@ -235,13 +235,4 @@ A contradicted part of a sentence's `claimCheck` mark can hold a `correction`: t
 
 - **Content schema version 44** adds the attribute. An older version's editor would strip the correction and could no longer offer the same edit, so it opens these Notes read-only. Older content, including checks with no correction, is version 44 content as it is and needs no rewrite.
 - **Applying one is one edit of the Note.** The editor writes the Document's wording over the old words of one part, or of every contradicted part, as AI text, adds the Citation of each Passage the sentence doesn't already cite at its end, and writes those parts Supported on their chosen Citations through the same writer as Keep as my view, so the sentence's result stays a projection of its parts. No model request is sent.
-
-  Amended 2026-11-04 (#2313): a correction no longer writes its parts Supported; the sentence is left for a re-check, as the next amendment says. Applying one still sends no model request.
 - **No SQL table, no migration.** The correction lives in the Mind's Yjs document; applying one records its AI use as accepting an Edit with AI does.
-
-## Amendment: a fix asks for its sentence to be checked again (2026-11-04, #2313)
-
-Applying a correction no longer writes its parts Supported on their chosen Citations. The earlier check stays where it was, and the sentence reads needs re-check (需重新核对) with ↻ in the mark's meta ink, because its words changed after they were read. The card offers Check again, never Cut, and Check again reads the whole sentence and every part of it again. Applying a correction still sends no model request; the Check the User presses does.
-
-- **Why.** A part verdict from before the fix survived it and decided the sentence. In the walk of 2026-11-04, the sentence "Customer churn fell to 3.9 per cent after the onboarding redesign." was corrected to "4.2 per cent", word for word the Document's slide, and still read Unsupported because the part "after the onboarding redesign" had been found Unsupported before the fix; the card's main button offered Cut the unsupported part, which would have cut true words.
-- **No schema change, no migration.** The mark keeps the earlier check and its parts as they were; this adds no content schema version and no table.
