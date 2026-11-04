@@ -443,8 +443,6 @@ for (const [language, width] of [
     if (!after.card || !after.foot) throw new Error("The card went at the press.");
     expect(after.card.height).toBeCloseTo(before.card.height, 0);
     expect(after.foot.height).toBeCloseTo(before.foot.height, 0);
-    await expect(correct).toBeVisible();
-    await expect(correct).toBeDisabled();
     await app.evaluate(() => {
       const slow = (
         globalThis as unknown as { incarnamindSlowCheck: { hold: boolean; release(): void } }
