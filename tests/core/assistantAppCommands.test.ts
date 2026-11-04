@@ -2253,6 +2253,78 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).not.toContain("Organize filed");
   });
 
+  // protects=the app's count is added when the model's number only ends with its digits: "14 Documents couldn't be sorted." doesn't say "4 Documents couldn't be sorted.", in English and Chinese; fails_when=the longer number is read as the app's line and the true count is left out; no_claim=which Folder the classifier picks.
+  test.each([
+    {
+      language: "en" as const,
+      text: "Re organise the files",
+      reply: "13 Documents couldn't be sorted.",
+    },
+    {
+      language: "zh-CN" as const,
+      text: "重新整理一下这些文件",
+      reply: "13 个文档未能整理。",
+    },
+  ])(
+    "$language: a longer number doesn't say the app's count",
+    async ({ language, text, reply }) => {
+      const model = scriptedModel(
+        (call) => {
+          const ran = call.results.filter((each) => each.tool === "run_command");
+          return ran.length === 0
+            ? {
+                calls: [
+                  {
+                    tool: "run_command",
+                    input: {
+                      command: "documents.organize",
+                      folder: "Leases",
+                      about: "Lease papers",
+                    },
+                  },
+                ],
+              }
+            : { text: reply };
+        },
+        {
+          generate: ({ prompt }) => {
+            const data = JSON.parse(prompt) as {
+              groups?: { id: string; name: string }[];
+              document?: unknown;
+            };
+            if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+            const leases = data.groups.find((each) => each.name === "Leases");
+            const rent = /rent/i.test(JSON.stringify(data.document ?? {}));
+            return {
+              text: JSON.stringify({
+                groupId: rent || !leases ? "__unsorted__" : leases.id,
+                tags: [],
+              }),
+            };
+          },
+        },
+      );
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+      await core.createLibraryGroup({ name: "Leases", description: "" });
+      const provider = (await core.listChatProviders())[0];
+      if (!provider) throw new Error("No provider.");
+      const settings = (await core.getLibrary()).settings;
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+        automatic: settings.automatic,
+      });
+      approvals(core, "allow-once");
+
+      const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+      // The app's count follows its summary: a space in English, a full stop in Chinese.
+      const line = translate(language, "answer.commands.unsorted", { count: 3 });
+      expect(answer.text).toContain(reply);
+      expect(answer.text.endsWith(`${language === "en" ? " " : "。"}${line}`)).toBe(true);
+      core.close();
+    },
+  );
+
   // protects=a Folder named inside a longer word doesn't hide the app's summary, including a decomposed accent: "Rental" doesn't name "Rent", and "Café" (Cafe + U+0301) doesn't name "Cafe" (#2252); fails_when=the reply shows only the couldn't-be-sorted line; no_claim=which Folder the classifier picks.
   test.each([
     ["Rent", "Rental agreements are filed now."],
@@ -2310,6 +2382,61 @@ describe("Folders, Organize, styles and settings run in the core, each one Undo 
     expect(answer.text).toContain(reply);
     expect(answer.text).toContain(`Sorted 3 Documents: 3 → ${folder}.`);
     expect(answer.text).toContain("1 Document couldn’t be sorted.");
+  });
+
+  // protects=a Folder whose name is copied with a straight apostrophe counts as named, so the app adds no summary, while a name one letter different doesn't; fails_when=the apostrophe's form decides, or another name counts; no_claim=which Folder the classifier picks.
+  test.each([
+    ["Bob's deals are filed now.", true],
+    ["Rob's deals are filed now.", false],
+  ])("a Folder's name with a straight apostrophe: %s", async (reply, said) => {
+    const folder = "Bob’s deals";
+    const model = scriptedModel(
+      (call) => {
+        const ran = call.results.filter((each) => each.tool === "run_command");
+        return ran.length === 0
+          ? {
+              calls: [
+                {
+                  tool: "run_command",
+                  input: { command: "documents.organize", folder, about: "Deal papers" },
+                },
+              ],
+            }
+          : { text: reply };
+      },
+      {
+        generate: ({ prompt }) => {
+          const data = JSON.parse(prompt) as {
+            groups?: { id: string; name: string }[];
+          };
+          if (!data.groups) return { text: JSON.stringify({ tags: [] }) };
+          const into = data.groups.find((each) => each.name === folder);
+          return { text: JSON.stringify({ groupId: into?.id ?? "__unsorted__", tags: [] }) };
+        },
+      },
+    );
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    await core.createLibraryGroup({ name: folder, description: "" });
+    const provider = (await core.listChatProviders())[0];
+    if (!provider) throw new Error("No provider.");
+    const settings = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({
+      classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "local-model" } },
+      automatic: settings.automatic,
+    });
+    approvals(core, "allow-once");
+
+    const answer = await askAssistant(core, {
+      text: "Re organise the files",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const summary = translate("en", "library.review.summary", {
+      count: 4,
+      parts: translate("en", "library.review.part", { count: 4, folder }),
+    });
+    expect(answer.text).toBe(said ? reply : `${reply}\n\n${summary}.`);
   });
 
   // protects=a Tag merge that fails on the second Tag puts the first merge back, so the User is not left with half of it (#2252); fails_when=the first merge stays or the failure is swallowed; no_claim=how the error reads.
@@ -3755,6 +3882,50 @@ describe("A refusal is said, and the commands a request names are within reach (
       core.close();
     },
   );
+
+  // protects=a reply that copies the refusal's sentence with straight quotes, as a model may, is read as saying it: the app adds no second line, so the reply and the card say the refusal once; a copy with a word changed gets the app's line; fails_when=the app's line follows an exact copy; no_claim=how often a real model copies it.
+  test.each([
+    {
+      text: "Turn on Local mode, then open Harbour Street beside my note",
+      language: "en" as const,
+    },
+    { text: "打开本地模式，再在旁边打开 Harbour Street", language: "zh-CN" as const },
+  ])("“$text”: a refusal copied with straight quotes is said once", async ({ text, language }) => {
+    const said = translate(language, "commands.yours.privacy");
+    const copied = said.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    const ask = (reply: string) =>
+      callingThen(
+        reply,
+        run("settings.change", { setting: "localMode", value: "on" }, false),
+        find("Harbour Street"),
+        run("document.openBeside"),
+      );
+    const { core, mind } = await setUpWithDocuments(ask(`${copied} opened.`), DOCUMENTS);
+    windowOf(core, () => ({ ran: true, changed: false }));
+
+    const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+    expect(answer.text).toBe(`${copied} opened.`);
+    expect(answer.text.includes(said)).toBe(false);
+    core.close();
+
+    // A copy that changes a word is not the sentence, so the app says its own after it.
+    const near = copied.replace(
+      language === "en" ? "this computer" : "这台电脑",
+      language === "en" ? "your computer" : "那台电脑",
+    );
+    const second = await setUpWithDocuments(ask(`${near} opened.`), DOCUMENTS);
+    windowOf(second.core, () => ({ ran: true, changed: false }));
+
+    const nearAnswer = await askAssistant(second.core, {
+      text,
+      mindId: second.mind.id,
+      ...FROM_WINDOW,
+    });
+
+    expect(nearAnswer.text).toBe(`${near} opened.\n\n${said}`);
+    second.core.close();
+  });
 
   // protects=a refusal marked done in the same step as another call doesn't end the turn: only a step whose every call ended it does, so what the request asked for after it still runs; fails_when=the open never runs because one call of the step was marked done; no_claim=that a real model marks a refusal done early.
   test("a refusal marked done beside another call doesn't end the turn", async () => {
