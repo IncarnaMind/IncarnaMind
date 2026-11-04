@@ -130,6 +130,16 @@ const run =
 const commandCalls = (answer: ConversationAnswer) =>
   answer.toolCalls.filter((call) => call.source === "commands");
 
+/** What the Tools told the model, as text: in one of the Answer's own requests, or in every request. */
+const toolResultsIn = (model: ReturnType<typeof scriptedModel>, request?: number): string => {
+  const calls = request === undefined ? model.doStreamCalls : [answerRequests(model)[request]];
+  return calls
+    .flatMap((call) => call?.prompt ?? [])
+    .flatMap((message) => (message.role === "tool" ? message.content : []))
+    .map((part) => (part.type === "tool-result" ? JSON.stringify(part.output) : ""))
+    .join("\n");
+};
+
 /** Answers the core's window requests as the window would, those for it only, and keeps them. */
 function windowOf(core: Core, answer: (request: WindowCommandRequest) => WindowCommandResult) {
   const asked: WindowCommandRequest[] = [];
@@ -185,23 +195,28 @@ describe("The window's commands run in the window, as ⌘K runs them (#1421)", {
     expect(answer.text).toBe("");
   });
 
-  // protects="check this note" has the window run Check on the note in front, with nothing found; fails_when=it needs a list_commands first, or the window isn't asked; no_claim=what the check finds.
-  test("Check runs on the window in front", async () => {
-    const model = calling(run("mind.check", {}, false));
-    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
-    const asked = windowOf(core, () => ({ ran: true, changed: false }));
+  // protects="Run the checks on this note" and "帮我把这篇笔记核对一遍" find the window's Check in its list, which runs it on the note in front, and its card is the whole reply (#2252); fails_when=the list leaves Check out, it runs other than on the Note in front, or a reply follows the card; no_claim=what the check finds.
+  test.each(["Run the checks on this note", "帮我把这篇笔记核对一遍"])(
+    "“%s”: the window's Check runs on the Note in front, and its card is the reply",
+    async (text) => {
+      const model = calling(
+        () => ({ tool: "list_commands", input: { kind: "window" } }),
+        run("mind.check", { done: true }, false),
+      );
+      const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+      const asked = windowOf(core, () => ({ ran: true, changed: false }));
 
-    const answer = await askAssistant(core, {
-      text: "Check this Note",
-      mindId: mind.id,
-      ...FROM_WINDOW,
-    });
+      const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
 
-    expect(asked.map(({ command, targets, mindId }) => ({ command, targets, mindId }))).toEqual([
-      { command: "mind.check", targets: [], mindId: mind.id },
-    ]);
-    expect(commandCalls(answer)[0]?.command?.window).toEqual({ changed: false });
-  });
+      const listed = toolResultsIn(model, 1);
+      expect(listed).toContain("mind.check (“Check”)");
+      expect(asked.map(({ command, targets, mindId }) => ({ command, targets, mindId }))).toEqual([
+        { command: "mind.check", targets: [], mindId: mind.id },
+      ]);
+      expect(commandCalls(answer).at(-1)?.command?.window).toEqual({ changed: false });
+      expect(answer.text).toBe("");
+    },
+  );
 
   // protects=list_commands with kind "window" gives the window's own commands, not those of the User's alone as runnable; fails_when=one is missing or Local mode is listed among them; no_claim=their order.
   test("list_commands lists what acts on the window, and names what is the User's", async () => {
@@ -210,12 +225,7 @@ describe("The window's commands run in the window, as ⌘K runs them (#1421)", {
 
     await askAssistant(core, { text: "What can you do here?", mindId: mind.id, ...FROM_WINDOW });
 
-    const listed =
-      model.doStreamCalls
-        .flatMap((call) => call.prompt)
-        .flatMap((message) => (message.role === "tool" ? message.content : []))
-        .map((part) => (part.type === "tool-result" ? JSON.stringify(part.output) : ""))
-        .join("\n") ?? "";
+    const listed = toolResultsIn(model);
     const [windowLine = "", yoursLine = ""] = listed.split("The User's alone");
     expect(windowLine).toContain("mind.check");
     expect(windowLine).toContain("settings.open");
@@ -3123,6 +3133,75 @@ describe("A long window command, and two things with one name (#1421)", { timeou
     expect(commandCalls(await updated)[0]?.command?.window).toEqual({ changed: false });
   });
 
+  // protects=a Check that waits on the Note's question stays running until the User answers, then ends on its card as that answer, in English and Chinese (#2252); fails_when=the stored call keeps running after an answer, or its end is lost; no_claim=which way the User answered.
+  test.each([
+    { text: "Run the checks on this note", wording: "mindCheck.declined" as const },
+    { text: "帮我把这篇笔记核对一遍", wording: "mindCheck.closed" as const },
+  ])("“$text”: a Check left unanswered ends on its card as $wording", async ({ text, wording }) => {
+    const model = calling(run("mind.check", { done: true }, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const started: WindowCommandRequest[] = [];
+    core.on("command.windowRun", (request) => {
+      started.push(request);
+      void core.answerWindowCommand(request.requestId, { started: true });
+    });
+
+    const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
+
+    expect(answer.text).toBe("");
+    expect(commandCalls(answer)[0]?.command).toMatchObject({
+      command: "mind.check",
+      window: { changed: false, running: true },
+      mindId: mind.id,
+    });
+    const updated = new Promise<ConversationAnswer>((resolve) => {
+      core.on("conversation.message", (message) => {
+        if (message.kind === "answer" && message.id === answer.id) resolve(message);
+      });
+    });
+    const [request] = started;
+    if (!request) throw new Error("The window wasn't asked.");
+    expect(
+      await core.answerWindowCommand(request.requestId, {
+        ran: false,
+        why: "The check didn't run.",
+        wording: { key: wording },
+      }),
+    ).toBe(true);
+    const [call] = commandCalls(await updated);
+    expect(call?.status).toBe("failed");
+    expect(call?.commandProblem?.wording).toEqual({ key: wording });
+  });
+
+  // protects=a Check confirmed on the Note ends on its card with its result, after running (#2252); fails_when=the stored call keeps running, or the result is lost; no_claim=what the check found.
+  test("“Run the checks on this note”: a Check confirmed on the Note ends with its result", async () => {
+    const model = calling(run("mind.check", { done: true }, false));
+    const { core, mind } = await setUpWithDocuments(model, DOCUMENTS);
+    const started: WindowCommandRequest[] = [];
+    core.on("command.windowRun", (request) => {
+      started.push(request);
+      void core.answerWindowCommand(request.requestId, { started: true });
+    });
+
+    const answer = await askAssistant(core, {
+      text: "Run the checks on this note",
+      mindId: mind.id,
+      ...FROM_WINDOW,
+    });
+
+    const updated = new Promise<ConversationAnswer>((resolve) => {
+      core.on("conversation.message", (message) => {
+        if (message.kind === "answer" && message.id === answer.id) resolve(message);
+      });
+    });
+    const [request] = started;
+    if (!request) throw new Error("The window wasn't asked.");
+    expect(await core.answerWindowCommand(request.requestId, { ran: true, changed: false })).toBe(
+      true,
+    );
+    expect(commandCalls(await updated)[0]?.command?.window).toEqual({ changed: false });
+  });
+
   // protects="bring back the Leases I deleted", with a Folder and a Note of that name in Recently deleted, asks the User which in the tray, whatever the model picked, and brings back only the one chosen; fails_when=one comes back on the model's guess, or both do; no_claim=the tray's look.
   test("two things in Recently deleted with one name: the User says which", async () => {
     const model = calling(find("Leases", "deleted"), run("deleted.restore"));
@@ -4107,18 +4186,11 @@ describe("A refusal is said, and the commands a request names are within reach (
 
     await askAssistant(core, { text: "Turn on Local mode", mindId: mind.id, ...FROM_WINDOW });
 
-    const results =
-      answerRequests(model)[1]?.prompt.flatMap((message) =>
-        message.role === "tool"
-          ? message.content.map((part) =>
-              part.type === "tool-result" ? JSON.stringify(part.output) : "",
-            )
-          : [],
-      ) ?? [];
-    expect(results.join("\n")).toContain(
+    const results = toolResultsIn(model, 1);
+    expect(results).toContain(
       "are the User's to change, never yours. They're in Settings › Privacy.",
     );
-    expect(results.join("\n")).toContain(
+    expect(results).toContain(
       "IncarnaMind tells the User so, and where, after your reply: don't repeat it.",
     );
     core.close();
@@ -4141,16 +4213,9 @@ describe("A refusal is said, and the commands a request names are within reach (
 
     const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
 
-    const listed =
-      answerRequests(model)[1]?.prompt.flatMap((message) =>
-        message.role === "tool"
-          ? message.content.map((part) =>
-              part.type === "tool-result" ? JSON.stringify(part.output) : "",
-            )
-          : [],
-      ) ?? [];
-    expect(listed.join("\n")).toContain(`- ${deleted?.id}: “Q3 commentary” (document, deleted`);
-    expect(listed.join("\n")).toContain(
+    const listed = toolResultsIn(model, 1);
+    expect(listed).toContain(`- ${deleted?.id}: “Q3 commentary” (document, deleted`);
+    expect(listed).toContain(
       "the User's alone, run all the same to show them where: deleted.deletePermanently",
     );
     const [, refusal] = commandCalls(answer);
@@ -4166,6 +4231,8 @@ describe("A refusal is said, and the commands a request names are within reach (
 
   // protects="delete the Q3 memo for good", searched by a shorter name that a live Document also holds, lists the deleted memo beside the live one, with delete for good as the User's alone and the near match marked as another thing, so the refusal runs on the memo and is said, and the live namesake is untouched; fails_when=only the live near match is listed, or anything is deleted; no_claim=that a real model searches by the shorter name, which the live run showed it does.
   test.each([
+    { text: "Delete the Q3 memo for good", language: "en" as const },
+    { text: "把 Q3 memo 永久删除", language: "zh-CN" as const },
     { text: "Wipe the Q3 memo out completely", language: "en" as const },
     { text: "把 Q3 memo 从回收站里也清掉", language: "zh-CN" as const },
   ])("“$text”: a live near match doesn't hide the deleted memo", async ({ text, language }) => {
@@ -4189,11 +4256,7 @@ describe("A refusal is said, and the commands a request names are within reach (
 
     const answer = await askAssistant(core, { text, mindId: mind.id, ...FROM_WINDOW });
 
-    const listed =
-      model.doStreamCalls[1]?.prompt
-        .flatMap((message) => (message.role === "tool" ? message.content : []))
-        .map((part) => (part.type === "tool-result" ? JSON.stringify(part.output) : ""))
-        .join("\n") ?? "";
+    const listed = toolResultsIn(model, 1);
     expect(listed).toContain("“Q3 commentary”");
     expect(listed).toContain("one that only shares a word with it is another, so ask");
     expect(listed).toContain(`- ${deleted?.id}: “Q3 memo” (document, deleted`);
@@ -4244,11 +4307,7 @@ describe("A refusal is said, and the commands a request names are within reach (
 
       await askAssistant(core, { text, mindId: mind.id, commands: offered, clientId: WINDOW });
 
-      const listed =
-        model.doStreamCalls[1]?.prompt
-          .flatMap((message) => (message.role === "tool" ? message.content : []))
-          .map((part) => (part.type === "tool-result" ? JSON.stringify(part.output) : ""))
-          .join("\n") ?? "";
+      const listed = toolResultsIn(model, 1);
       expect(listed).toContain("“Q3 commentary” (document, deleted");
       expect(listed).toContain(
         "Change nothing of what is in Recently deleted unless the request is to bring it back",
