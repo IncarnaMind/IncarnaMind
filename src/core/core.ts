@@ -5321,7 +5321,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const scope = parseSearchScope(input.scope);
       const mindId = typeof input.mindId === "string" && input.mindId !== "" ? input.mindId : null;
       const found = await citing.findPassages(input.text, scopeDocuments(scope, mindId));
-      // A Document the User keeps as their own workings is shown, never offered to cite (#80).
+      // The User's own workings are never offered to cite: no row of theirs, no Citation.
       return found.filter((passage) => !passage.notCited);
     },
     citePassage: async (input) => {

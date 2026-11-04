@@ -1008,7 +1008,13 @@ function MindEditorView({
         {!readOnly && <BlockHandle editor={editor} />}
         {!readOnly && <SelectionMenu editor={editor} ai={aiActions} edit={editField} />}
         {!readOnly && cite && (
-          <CiteSearch place={cite} mindId={mindId} doc={doc} onDone={() => setCite(null)} />
+          <CiteSearch
+            key={`${cite.from}:${cite.to}`}
+            place={cite}
+            mindId={mindId}
+            doc={doc}
+            onDone={() => setCite(null)}
+          />
         )}
         {!readOnly && <LinkBubble editor={editor} />}
         {findShown && (

@@ -2,7 +2,7 @@ import type { Editor } from "@tiptap/core";
 import { flushSync } from "react-dom";
 import { core } from "../core";
 import { requestCite } from "../editor/citeRequest";
-import { openDocumentPicker } from "../editor/documentPicker";
+import { inNoteText, openDocumentPicker } from "../editor/documentPicker";
 import { mindEditor } from "../editor/openEditors";
 import { tidyNote } from "../editor/tidyNote";
 import { insertTableOfContents } from "../editor/tocCommands";
@@ -74,6 +74,10 @@ export const noteBasicsCommands: readonly Command[] = [
     // The Citation goes into the Note, and the Note's own undo (⌘Z) takes it back.
     reversible: true,
     when: (ctx) => onlyOne(ctx) && openNote(ctx) !== null,
+    enabled(ctx) {
+      const editor = openNote(ctx);
+      return editor !== null && inNoteText(editor) ? true : { reason: "editor.noteTextOnly" };
+    },
     run(ctx) {
       const editor = openNote(ctx);
       if (editor) requestCite(editor);
@@ -88,9 +92,13 @@ export const noteBasicsCommands: readonly Command[] = [
     // The "@" and the chip it puts in are the Note's own to undo.
     reversible: true,
     when: (ctx) => onlyOne(ctx) && openNote(ctx) !== null,
+    enabled(ctx) {
+      const editor = openNote(ctx);
+      return editor !== null && inNoteText(editor) ? true : { reason: "editor.noteTextOnly" };
+    },
     run(ctx) {
       const editor = openNote(ctx);
-      if (editor) openDocumentPicker(editor);
+      if (editor) openDocumentPicker(editor, editor.state.selection.from, { forCommand: true });
     },
   },
   {

@@ -687,6 +687,7 @@ export const zhCN = {
   "editor.picture.pastedAsText": "已粘贴文字；其中的图片没有添加。",
   "editor.slash.contents": "目录",
   "editor.cite.command": "引用一段原文…",
+  "editor.noteTextOnly": "先把光标放到笔记正文里。",
   "editor.cite.keywords": "引用 原文 段落 出处 cite citation passage",
   "editor.linkDocument.command": "链接文档…",
   "editor.linkDocument.keywords": "链接 文档 文件 link document",

@@ -29,6 +29,7 @@ import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
 import { type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
+import { takeTypedTrigger } from "./documentPicker";
 
 const DOCUMENTS_ONLY: readonly ScopeKind[] = ["document"];
 
@@ -145,6 +146,9 @@ export const ScopePicker = Extension.create({
               return renderer?.ref?.onKeyDown(event) ?? false;
             },
             onExit() {
+              // An "@" a command typed for the User goes with the picker, unless a choice
+              // already took it out for its chip.
+              takeTypedTrigger();
               unmount?.();
               renderer?.destroy();
               renderer = null;

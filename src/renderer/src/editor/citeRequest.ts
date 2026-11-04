@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { inNoteText } from "./documentPicker";
 
 /** Where Cite… is: the "/" and what was typed after it, which the Citation replaces. */
 export interface CitePlace {
@@ -18,7 +19,7 @@ export function offerCite(editor: Editor, open: (place: CitePlace) => void): () 
 /** Opens Cite… at the caret. False where no Note is open to search from. */
 export function requestCite(editor: Editor): boolean {
   const open = openers.get(editor);
-  if (!open) return false;
+  if (!open || !inNoteText(editor)) return false;
   const at = editor.state.selection.from;
   open({ editor, from: at, to: at });
   return true;
