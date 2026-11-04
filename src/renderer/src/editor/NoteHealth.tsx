@@ -434,9 +434,9 @@ export function HealthCard({
       )}
       {summarySpace && <p aria-hidden="true" className="mind-health-summary" />}
       {/* One line of note, in one place, from the moment the check starts: the sentence it is
-          on, then when it was checked. Rows above it never move as the run ends (#1312). It
-          stays once a run has started here: a run ends a moment before its record reaches the
-          Mind, and the line must not go in between. */}
+          on, then when it was checked. It stays once a run has started here: a run ends a moment
+          before its record reaches the Mind, and the line must not go in between. The card's
+          body keeps its opening height, so what is above it stays put as the run ends (#1312). */}
       {(running || checkedAll || ranHere) && (
         <div className="check-card-note">
           {running ? (

@@ -9,6 +9,7 @@ import {
 } from "../../core/api";
 import { applyFigureScheduleChange } from "../../shared/figureSchedule";
 import { fingerprintOfMind } from "../../shared/mindState";
+import { useChecks } from "./checks";
 import { core } from "./core";
 import { figurePlace } from "./editor/figurePlaces";
 import { mindEditor } from "./editor/openEditors";
@@ -110,6 +111,48 @@ export async function openFigureSchedule(mindId: string, focus = true): Promise<
   });
 }
 
+/**
+ * Whether the note's one Check waits for the User's yes (`true`) or runs or ends without one
+ * (`false`), as soon as either is known, without waiting for a run to end.
+ */
+function checkAsks(mindId: string, started: Promise<unknown>): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (asks: boolean) => {
+      if (settled) return;
+      settled = true;
+      stopAsking();
+      stopRunning();
+      resolve(asks);
+    };
+    const stopAsking = useMindCheck.subscribe((state) => {
+      if (state.asking[mindId]) done(true);
+    });
+    const stopRunning = useChecks.subscribe((state) => {
+      if (state.running[mindId]) done(false);
+    });
+    void started.then(
+      () => done(useMindCheck.getState().asking[mindId] !== undefined),
+      () => done(false),
+    );
+  });
+}
+
+/** Whether the Check it starts asks first; a start that rejects is the caller's to report. */
+async function startAsking(mindId: string): Promise<boolean> {
+  const started = startCheckAsking(mindId);
+  let failed = false;
+  let failure: unknown;
+  const watched = started.catch((error: unknown) => {
+    failed = true;
+    failure = error;
+    return undefined;
+  });
+  const asks = await checkAsks(mindId, watched);
+  if (failed) throw failure;
+  return asks;
+}
+
 /** Resolves once the note's Check no longer waits for the User's answer. */
 function answered(mindId: string): Promise<void> {
   return new Promise((resolve) => {
@@ -133,7 +176,7 @@ export async function tieOutFigures(mindId: string): Promise<void> {
   const stale = schedule.rows.some(
     (row) => row.shown.state === "not-checked" || row.shown.state === "needs-recheck",
   );
-  const asks = stale ? (await startCheckAsking(mindId))?.kind === "asked" : false;
+  const asks = stale ? await startAsking(mindId) : false;
   if (!(asks && groupsMerged())) return openFigureSchedule(mindId);
   await openFigureSchedule(mindId, false);
   await answered(mindId);

@@ -20,10 +20,17 @@ import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useContradictions } from "../contradictions";
 import { correctableCount, correctContradictions } from "../correctionFixes";
+import type { EstimateLine } from "../cost";
 import { useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
-import { startCheck, startCheckUnpriced, useMindCheck, useMindCheckRun } from "../mindCheck";
+import {
+  type Planned,
+  startCheck,
+  startCheckUnpriced,
+  useMindCheck,
+  useMindCheckRun,
+} from "../mindCheck";
 import { useFade } from "../motion";
 import { type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
@@ -34,6 +41,7 @@ import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
+import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
 import { CheckMarkIcon, ClaimMarkIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
@@ -126,6 +134,22 @@ function MindBadge({
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
+  const place = useCardPlace(mindId);
+  const open = useChecks((state) => state.cardOpen[place] === true);
+  // Planned only while the card is open: the estimate is what the card shows before a press.
+  const planned = useCheckThisMindPlan(doc, mindId, running !== undefined || !open);
+  const { line: estimate, state: estimateState } = useCheckEstimate(mindId, open ? planned : null);
+  // The card's height holds only once its content is settled: a question, a problem or an
+  // estimate on its way sizes to its content, and a run's verdicts land in the held room.
+  const askingNow = askingMind || askingContradictions || problem;
+  const ready = !askingNow && (running !== undefined || estimateState !== "pending");
+  const [heldOnce, setHeldOnce] = useState(false);
+  useEffect(() => {
+    if (!open) setHeldOnce(false);
+  }, [open]);
+  useLayoutEffect(() => {
+    if (open && ready && !heldOnce) setHeldOnce(true);
+  }, [open, ready, heldOnce]);
   const state = noteStateOf(health, unread.length, narrowUnread.length);
   const input: BadgeInput = {
     marks: {
@@ -149,6 +173,7 @@ function MindBadge({
       ask={input.asking || problem}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
+      holds={!askingNow && (ready || heldOnce)}
     >
       <p className="check-card-title">{t("health.label")}</p>
       <HealthCard
@@ -161,7 +186,15 @@ function MindBadge({
       />
       <ContradictionLine doc={doc} mindId={mindId} />
       <div className="check-card-sep" />
-      <CheckActions editor={editor} doc={doc} mindId={mindId} askingMind={askingMind} />
+      <CheckActions
+        editor={editor}
+        doc={doc}
+        mindId={mindId}
+        askingMind={askingMind}
+        planned={planned}
+        estimate={estimate}
+        estimateState={estimateState}
+      />
     </BadgeFrame>
   );
 }
@@ -171,17 +204,21 @@ function CheckActions({
   doc,
   mindId,
   askingMind,
+  planned,
+  estimate,
+  estimateState,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   askingMind: boolean;
+  planned: Planned | null;
+  estimate: EstimateLine | null;
+  estimateState: CheckEstimateView["state"];
 }) {
   const t = useT();
   const running = useChecks((state) => state.running[mindId] !== undefined);
   const editing = useEdits((state) => state.pending[mindId] !== undefined);
-  const planned = useCheckThisMindPlan(doc, mindId, running);
-  const { line: estimate, state: estimateState } = useCheckEstimate(mindId, planned);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
@@ -229,7 +266,7 @@ function CheckActions({
           title={planned === null ? undefined : checkTitle(t, planned)}
           className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
           onClick={() =>
-            void (estimateState === "pending" || estimateState === "unknown"
+            void (checkPressOf(estimateState) === "ask"
               ? startCheckUnpriced(mindId)
               : startCheck(mindId))
           }
@@ -333,6 +370,7 @@ function BadgeFrame({
   running,
   onStop,
   foot,
+  holds = true,
   children,
 }: {
   mindId: string;
@@ -343,6 +381,11 @@ function BadgeFrame({
   running: ReactNode;
   onStop(): void;
   foot?: ReactNode;
+  /**
+   * Whether the card holds its opening height. False while its content is still on its way (a
+   * question, a problem, an estimate), so the price line and the press show in full.
+   */
+  holds?: boolean;
   children: ReactNode;
 }) {
   const t = useT();
@@ -355,19 +398,20 @@ function BadgeFrame({
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  // The card keeps the height it opened with, so rows and verdicts landing do not make it jump;
-  // content that needs more room scrolls, and the next open fits the result (#2313).
+  // Once its content is settled, the card keeps the height it opened with, so rows and verdicts
+  // landing do not make it jump; content that needs more room scrolls, and the next open fits
+  // the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (!open) {
+    if (!open || !holds) {
       setHeldHeight(null);
       return;
     }
     if (heldHeight !== null) return;
     const element = body.current;
     if (element) setHeldHeight(element.offsetHeight);
-  }, [open, heldHeight]);
+  }, [open, holds, heldHeight]);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);

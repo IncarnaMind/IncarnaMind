@@ -12,6 +12,10 @@ const mindCheck = vi.hoisted(() => ({
   listeners: new Set<(state: { asking: Record<string, unknown> }) => void>(),
   asked: vi.fn(),
 }));
+const checks = vi.hoisted(() => ({
+  running: {} as Record<string, unknown>,
+  listeners: new Set<(state: { running: Record<string, unknown> }) => void>(),
+}));
 const narrow = vi.hoisted(() => ({ value: false }));
 const store = vi.hoisted(() => ({
   changeLayout: vi.fn(async (_options: { focus?: boolean }) => {}),
@@ -27,6 +31,15 @@ const store = vi.hoisted(() => ({
   },
 }));
 vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
+vi.mock("../../src/renderer/src/checks", () => ({
+  useChecks: {
+    getState: () => ({ running: checks.running }),
+    subscribe: (listener: (state: { running: Record<string, unknown> }) => void) => {
+      checks.listeners.add(listener);
+      return () => checks.listeners.delete(listener);
+    },
+  },
+}));
 vi.mock("../../src/renderer/src/mindCheck", () => ({
   startCheckAsking: mindCheck.asked,
   useMindCheck: {
@@ -53,6 +66,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mindCheck.asking = {};
   mindCheck.listeners.clear();
+  checks.running = {};
+  checks.listeners.clear();
   mindCheck.asked.mockResolvedValue(null);
   bridge.getFigureSchedule.mockResolvedValue(schedule("not-checked"));
   narrow.value = false;
@@ -84,6 +99,19 @@ describe("Tie out figures starts the Check the same way every other way in does"
 
     expect(store.changeLayout).toHaveBeenCalledTimes(2);
     expect(store.changeLayout.mock.calls[1]?.[0]).not.toHaveProperty("focus", false);
+  });
+
+  // protects=#2313: a run that starts at once no longer delays the schedule until it ends; fails_when=the schedule waits on the whole run; no_claim=the question's wait.
+  test("a run that starts at once opens the schedule without waiting for it to end", async () => {
+    mindCheck.asked.mockReturnValue(new Promise(() => {}));
+
+    const running = tieOutFigures("mind");
+    await vi.waitFor(() => expect(mindCheck.asked).toHaveBeenCalledWith("mind"));
+    checks.running = { mind: { requestId: "run" } };
+    for (const listener of checks.listeners) listener({ running: checks.running });
+    await running;
+
+    expect(store.changeLayout).toHaveBeenCalledOnce();
   });
 
   test("a start that rejects is not swallowed", async () => {

@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
@@ -38,6 +38,19 @@ const screenshot = async (window: Page, name: string) => {
   if (!SCREENSHOTS) return;
   await motionSettled(window);
   await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+};
+
+/** Whether the button's box sits inside the card's, as a clipped one would not. */
+const inside = async (inner: Locator, outer: Locator) => {
+  const a = await inner.boundingBox();
+  const b = await outer.boundingBox();
+  if (!a || !b) return false;
+  return (
+    a.x >= b.x - 1 &&
+    a.y >= b.y - 1 &&
+    a.x + a.width <= b.x + b.width + 1 &&
+    a.y + a.height <= b.y + b.height + 1
+  );
 };
 
 const TIDES = buildPdf([
@@ -275,8 +288,14 @@ test("The card's one Check: the price line first on a cloud model under a cap, t
     "20 sentences to check",
   );
   await expect(health.getByTestId("check-estimate")).toContainText("About $");
+  // The price line landing does not clip the card: its press stays inside at both widths.
+  const press = health.getByTestId("badge-check-mind");
+  expect(await inside(press, health)).toBe(true);
+  await setWindowSize(app, window, 900, 800);
+  expect(await inside(press, health)).toBe(true);
+  await setWindowSize(app, window, 1440, 900);
   await screenshot(window, "mind-check-card-en");
-  await pointAndClick(window, health.getByTestId("badge-check-mind"));
+  await pointAndClick(window, press);
   await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
   await mindCheckFinished(window, 15);
 
