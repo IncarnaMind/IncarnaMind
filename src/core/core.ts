@@ -5550,7 +5550,8 @@ export function createCore(adapters: CoreAdapters): Core {
     planContradictionCheck: (mindId) => checks.planContradictionCheck(mindId),
     checkContradictions: (input) =>
       inFlow("contradictions", () => checks.checkContradictions(input)),
-    planMindCheck: (mindId, mode, allDocuments) => checks.planMindCheck(mindId, mode, allDocuments),
+    planMindCheck: (mindId, mode, allDocuments, figureIds) =>
+      checks.planMindCheck(mindId, mode, allDocuments, figureIds),
     holdMindCheck: async (input) => checks.holdMindCheck(input),
     forgetCheckWindow: async (input) => checks.forgetCheckWindow(input.clientId),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
