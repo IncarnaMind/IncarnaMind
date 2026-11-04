@@ -22,7 +22,7 @@ import {
   CLAIM_CHECK_MARK,
   MIND_FIGURE_RUNS_FIELD,
 } from "../../src/core/api";
-import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
+import { homeReading, noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
 import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import { columnLine, differingLine, footedLine } from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -36,6 +36,7 @@ import {
   isCheckRun,
   listedSentences,
   type Plan,
+  requestedFigures,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -150,6 +151,7 @@ function writingModel(
   language: Language,
   content: string | readonly string[],
   sent: string[],
+  offered: Map<string, readonly string[]>,
   asksChart: boolean,
   again: string | null,
   rewrite: { part: string; content: string } | null,
@@ -159,8 +161,10 @@ function writingModel(
   return scriptedModel(
     (call: ModelCall) => {
       if (isCheckRun(call)) {
-        if (!call.results.some((result) => result.tool === "search_documents"))
+        if (!call.results.some((result) => result.tool === "search_documents")) {
           sent.push(sentenceOf(call));
+          offered.set(sentenceOf(call), call.tools);
+        }
         const planned = plan(sentenceOf(call));
         return checkReply(call, planned ? { [sentenceOf(call)]: planned } : {});
       }
@@ -241,7 +245,8 @@ async function walked(
   plan: (sentence: string) => Plan | undefined = () => undefined,
 ) {
   const sent: string[] = [];
-  const model = writingModel(language, content, sent, asksChart, again, rewrite, plan);
+  const offered = new Map<string, readonly string[]>();
+  const model = writingModel(language, content, sent, offered, asksChart, again, rewrite, plan);
   const printer = fakePrinter();
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -270,7 +275,7 @@ async function walked(
   const client = await connectToMind(core, madeId);
   await client.settled();
   await resolveChanges(client, "accept");
-  return { core, answer, madeId, client, sent, printer };
+  return { core, answer, madeId, client, sent, offered, printer };
 }
 
 const blocksOf = (client: MindClient): NodeJSON[] => topLevelBlocks(client.blocks).map(nodeOf);
@@ -861,7 +866,9 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
   const judgedOther =
     (others: readonly string[]) =>
     (sentence: string): Plan | undefined =>
-      others.some((each) => sentence.startsWith(each)) ? { names: "other" } : undefined;
+      others.some((each) => sentence.startsWith(each))
+        ? { names: "other", verdict: "unsupported" }
+        : undefined;
   const scheduleStates = async (core: Core, madeId: string) =>
     (await core.getFigureSchedule(madeId)).rows
       .filter((row) => !row.analysisTable)
@@ -919,6 +926,84 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     core.close();
   });
 
+  test("a sentence of only an Analysis's figures is checked with no calculate to call: IncarnaMind worked them out", async () => {
+    const { core, madeId, client, sent, offered } = await walked(
+      language,
+      lines(words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    sent.length = 0;
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    const tools = sent.map((each) => offered.get(each) ?? []);
+    expect(tools.length).toBeGreaterThan(0);
+    for (const each of tools) {
+      expect(each).toContain("search_documents");
+      expect(each).not.toContain("calculate");
+    }
+    core.close();
+  });
+
+  test("a judge's prose where an Analysis item's calculation goes doesn't make its reply unreadable", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right),
+      false,
+      null,
+      withFigures(),
+      null,
+      () => ({
+        reply: (call) =>
+          call.results.some((result) => result.tool === "search_documents")
+            ? {
+                text: `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({
+                  items: requestedFigures(call).map(({ id }) => ({
+                    id,
+                    names: "same",
+                    verdict: "supported",
+                    scope: "same",
+                    topic: "found",
+                    roles: "same",
+                    measure: null,
+                    says: null,
+                    reading: null,
+                    relation: "equals",
+                    source: null,
+                    calculation: "the sum of Central's amounts",
+                  })),
+                  remainder: null,
+                })}`,
+              }
+            : { calls: [{ tool: "search_documents", input: { query: "Central" } }] },
+      }),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)?.state).toBe("supported");
+    core.close();
+  });
+
+  test("a judge that gives supported but leaves names out has read no name: the figure is left Not checked", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right),
+      false,
+      null,
+      withFigures(),
+      null,
+      () => ({ names: null, verdict: "supported" }),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)).toMatchObject({
+      state: "not-checked",
+      reason: "analysis-unnamed",
+    });
+    core.close();
+  });
+
   test("a figure the judge can't tell is named is left Not checked", async () => {
     const { core, madeId, client } = await walked(
       language,
@@ -927,7 +1012,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       null,
       withFigures(),
       null,
-      () => ({ names: "unclear" }),
+      () => ({ names: "unclear", verdict: "unsupported" }),
     );
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
@@ -1212,13 +1297,13 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       outside.rows.filter((row) => !row.analysisTable).map((row) => row.shown.state),
     ).not.toContain("supported");
     // Home's row reads the wall as the badge does: the walled table earns no ✓ there either.
-    const home = readNoteState({
-      doc: client.doc,
-      cellFigures: [],
+    const [walled] = await core.readMindContents([madeId]);
+    if (!walled) throw new Error("No content.");
+    const home = homeReading(walled, {
       documents: await core.listDocuments(),
       keptCitationTexts: [],
+      library: await core.getLibrary(),
       folderId: null,
-      keptInside: (documentId) => (documentId === orders.id ? "Matter" : null),
     });
     expect(home.health.supported).toBe(0);
     expect(home.state?.kind).toBe("not-checked");
@@ -1228,15 +1313,17 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     expect(stateOf(client, words.right)?.state).toBe("supported");
     const inside = await core.getFigureSchedule(madeId);
     expect(inside.rows.find((row) => row.analysisTable)?.shown.state).toBe("supported");
-    // Moved out again, what was checked inside backs nothing there, before any Check.
+    // Moved out again, what was checked inside backs nothing there, before any Check: Home's row
+    // reads the wall from the Library as the badge does.
     await core.moveToFolder({ mindIds: [madeId], folderId: null });
-    const out = readNoteState({
-      doc: client.doc,
-      cellFigures: [],
+    await client.settled();
+    const [stored] = await core.readMindContents([madeId]);
+    if (!stored) throw new Error("No content.");
+    const out = homeReading(stored, {
       documents: await core.listDocuments(),
       keptCitationTexts: [],
+      library: await core.getLibrary(),
       folderId: null,
-      keptInside: (documentId) => (documentId === orders.id ? "Matter" : null),
     });
     expect(out.health.supported).toBe(0);
     expect(out.state?.kind).not.toBe("checked");

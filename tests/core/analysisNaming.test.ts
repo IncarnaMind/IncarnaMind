@@ -59,7 +59,7 @@ describe("a figure's own clause names it", () => {
   test.each([
     ["Central's total amount is 8,325.", "Total amount, Central"],
     ["The total amount for Central came to 8,325.", "Total amount, Central"],
-    ["Revenue for each region is 9,450.", "Revenue by region"],
+    ["The revenue by region came to 9,450.", "Revenue by region"],
     ["UK revenue is 9,450.", "Revenue, UK"],
     ["Q3 revenue was 9,450.", "Revenue Q3"],
     ["The total visits came to 48.", "Total visit"],
@@ -95,6 +95,8 @@ describe("a clause that can't stand as naming the figure", () => {
       "Total amount, South",
     ],
     ["a Han word inside another", "东南部金额合计为 9,450。", "东部金额合计"],
+    ["a region inside another's name", "华中部地区金额合计为 9,450。", "中部地区金额合计"],
+    ["a region inside another's name", "东北部地区金额合计为 9,450。", "北部地区金额合计"],
     ["a negation", "North's total amount is not 9,450.", "Total amount, North"],
     ["a comparison", "North's total amount is below 9,450.", "Total amount, North"],
     ["a Chinese negation", "北部地区金额合计不是 9,450。", "北部地区金额合计"],
@@ -122,6 +124,24 @@ describe("a clause that can't stand as naming the figure", () => {
       expect(holds(sentence, "9,450", { label, how: "sum" })).toBe(false);
     expect(
       holds("North's total revenue is 9,450.", "9,450", { label: "Revenue, North", how: "sum" }),
+    ).toBe(true);
+  });
+
+  test("a word that makes it another quantity than its label's", () => {
+    for (const [sentence, label] of [
+      ["West's total net amount is 9,075.", "Total amount, West"],
+      ["West's total amount per order is 9,075.", "Total amount, West"],
+      ["West's daily total amount is 9,075.", "Total amount, West"],
+      ["西部地区净金额合计为 9,075。", "西部地区金额合计"],
+      ["西部地区每笔订单的金额合计为 9,075。", "西部地区金额合计"],
+    ] as const)
+      expect(holds(sentence, "9,075", { label, how: "sum" })).toBe(false);
+    // An average is one per order: "per" says no more than its label does.
+    expect(
+      holds("West's average amount per order is 907.5.", "907.5", {
+        label: "Average amount, West",
+        how: "mean",
+      }),
     ).toBe(true);
   });
 

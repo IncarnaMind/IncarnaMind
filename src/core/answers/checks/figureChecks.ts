@@ -123,8 +123,17 @@ export function readFigureReply(
     return null;
   const ids = new Set(figures.map((figure) => figure.id));
   if (ids.size !== figures.length) return null;
+  // An Analysis's figure is judged by its name alone: a source or calculation given for it is
+  // never read, so one written as prose doesn't make the reply unreadable (#2378).
+  const analysed = new Set(
+    figures.filter((figure) => figure.calculated?.figure.analysis).map((figure) => figure.id),
+  );
   const items: FigureReplyItem[] = [];
-  for (const raw of value.items) {
+  for (const given of value.items) {
+    const raw =
+      isRecord(given) && typeof given.id === "string" && analysed.has(given.id)
+        ? { ...given, source: null, calculation: null, reading: null }
+        : given;
     const judgment = judgmentOf(raw);
     const reading = isRecord(raw) ? optionalCount(raw.reading) : undefined;
     const calculation = isRecord(raw) ? optionalCount(raw.calculation) : undefined;
@@ -351,9 +360,8 @@ function analysisJudgment(
       ...unread,
       ...known,
     };
-  // A verdict of supported is the judge's same, as its instructions ask, when it gives no names.
-  const same = item?.verdict === "supported" && (item.names ?? "same") === "same";
-  if (same && holds)
+  // Only the judge's own "same" stands: a verdict of supported alone may be a habit, not a reading.
+  if (item?.names === "same" && holds)
     return { verdict: "supported", evidence, says: null, unsupported: null, ...unread, ...known };
   return { verdict: "not-checked", reason: "analysis-unnamed", detail: label, ...known };
 }

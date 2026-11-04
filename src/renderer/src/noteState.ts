@@ -9,12 +9,13 @@
 
 import { getSchema } from "@tiptap/core";
 import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   type CellFigurePlace,
   type KeptCitationText,
   MIND_CONTENT_FIELD,
+  type MindContentSnapshot,
   type UnreadFile,
 } from "../../core/api";
 import type { Language } from "../../core/language";
@@ -32,6 +33,7 @@ import { claimsOf, figurePlacesOf, type ShownClaim } from "./editor/claimChecks"
 import { type NoteHealth, noteHealth } from "./editor/healthCounts";
 import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
 import { opinionSentenceRanges } from "./editor/opinionLocations";
+import { keptInsideName } from "./walls";
 
 export type NoteStateKind = "not-checked" | "needs-look" | "checked";
 
@@ -417,3 +419,37 @@ export const nothingLeft = (state: NoteState | null): boolean =>
     state.cantCheck === 0 &&
     state.notRecalculated === 0 &&
     state.needsCheck === 0);
+
+/**
+ * One Note's reading as Home's rows show it, from its stored content: behind a walled Folder the
+ * Note is outside, what a Document inside it backs counts for nothing (#2378).
+ */
+export function homeReading(
+  snapshot: Pick<MindContentSnapshot, "state" | "cellFigures">,
+  {
+    documents,
+    keptCitationTexts,
+    library,
+    folderId,
+  }: {
+    documents: Parameters<typeof readNoteState>[0]["documents"];
+    keptCitationTexts: Parameters<typeof readNoteState>[0]["keptCitationTexts"];
+    library: Parameters<typeof keptInsideName>[0];
+    folderId: string | null;
+  },
+): NoteReading {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, snapshot.state);
+    return readNoteState({
+      doc,
+      cellFigures: snapshot.cellFigures,
+      documents,
+      keptCitationTexts,
+      folderId,
+      keptInside: (documentId) => keptInsideName(library, documentId, folderId),
+    });
+  } finally {
+    doc.destroy();
+  }
+}

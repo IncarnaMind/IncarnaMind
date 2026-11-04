@@ -235,7 +235,7 @@ function probesIn(language: "en" | "zh-CN"): NamingCase[] {
   for (const region of REGIONS) {
     const code = region.slice(0, 1);
     const swapped = nextOf(region).slice(0, 1);
-    const label = `Total amount, region ${code}`;
+    const label = language === "en" ? `Total amount, region ${code}` : `${code} 区金额合计`;
     const say = (named: string) =>
       language === "en"
         ? `Region ${named}'s total amount is [=1].`

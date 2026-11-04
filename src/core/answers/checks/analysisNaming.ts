@@ -68,6 +68,56 @@ const HAN_NEGATIONS = [
   "落后",
 ];
 
+/**
+ * Words that make a figure another quantity than its label's: a net or a gross one, one per day or
+ * after tax, a forecast. "Per" and "each" only make an average, so a mean's clause may hold them.
+ */
+const QUALIFIERS = [
+  "net",
+  "gross",
+  "median",
+  "adjusted",
+  "excluding",
+  "minus",
+  "plus",
+  "after",
+  "before",
+  "daily",
+  "weekly",
+  "monthly",
+  "annual",
+  "yearly",
+  "cumulative",
+  "projected",
+  "forecast",
+  "estimated",
+  "expected",
+  "target",
+  "budget",
+  "budgeted",
+];
+const HAN_QUALIFIERS = [
+  "净",
+  "毛",
+  "中位",
+  "扣除",
+  "除去",
+  "不含",
+  "税后",
+  "税前",
+  "预计",
+  "预测",
+  "估计",
+  "目标",
+  "预算",
+  "累计",
+  "日均",
+  "月均",
+  "年均",
+];
+const PER = ["per", "each", "every"];
+const HAN_PER = ["每"];
+
 /** The words that name each way a figure is worked out, so a sum called an average is told apart. */
 const AGGREGATES: Record<string, readonly string[]> = {
   sum: ["total", "sum", "合计", "总计", "总额"],
@@ -108,13 +158,19 @@ const plurals = (word: string) => [word, `${word}s`, `${word}es`, word.replace(/
 const sameWord = (word: string, token: string) =>
   plurals(word).includes(token) || plurals(token).includes(word);
 
+/** Characters that make a region's name another region's just before it: 东北部 is not 北部. */
+const COMPASS = /[东南西北中华]/u;
+
 function holdsTerm(
   clause: string,
   tokens: readonly string[],
   term: string,
   exact = false,
 ): boolean {
-  if (HAN.test(term)) return clause.includes(term);
+  if (HAN.test(term))
+    return [...clause.matchAll(new RegExp(term, "gu"))].some(
+      (found) => found.index === 0 || !COMPASS.test(clause[found.index - 1] ?? ""),
+    );
   if (exact) return tokens.includes(term);
   const lower = term.toLowerCase();
   return tokens.some((token) =>
@@ -171,8 +227,9 @@ function clausesOf(claim: string, figures: readonly CheckFigure[]): Map<string, 
 /**
  * Whether `figure`'s own clause in `claim` can stand as naming it: it holds every word of its label
  * (in a table, its cell's row and column headings count), and none that only another of its run's
- * figures, or another figure of the sentence, is named by, no negation, no comparison, and no word
- * for another way of working it out than its own. False also when its clause can't be found.
+ * figures, or another figure of the sentence, is named by, no negation, no comparison, no word
+ * that makes it another quantity (net, per day, a forecast), and no word for another way of working
+ * it out than its own. False also when its clause can't be found.
  */
 export function namingHolds(
   claim: string,
@@ -205,6 +262,11 @@ export function namingHolds(
   if (NEGATIONS.some((word) => lowered.includes(word))) return false;
   if (HAN_NEGATIONS.some((word) => found.includes(word))) return false;
   const how = record?.of?.how ?? null;
+  const unlabelled = (word: string) => !mine.has(word) && !label.toLowerCase().includes(word);
+  const qualifiers = [...QUALIFIERS, ...(how === "mean" ? [] : PER)].filter(unlabelled);
+  if (qualifiers.some((word) => lowered.includes(word))) return false;
+  const hanQualifiers = [...HAN_QUALIFIERS, ...(how === "mean" ? [] : HAN_PER)].filter(unlabelled);
+  if (hanQualifiers.some((word) => found.includes(word))) return false;
   const elsewhere = Object.entries(AGGREGATES)
     .filter(([each]) => how !== null && each !== how)
     .flatMap(([, words]) => words)

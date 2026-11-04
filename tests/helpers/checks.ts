@@ -27,8 +27,8 @@ export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
   /** What else the sentence asserts beside its Analysis's figures, as a model gives it, and its verdict. */
   remainder?: { text: string; verdict: "supported" | "unsupported" };
-  /** Whether the sentence names each Analysis figure as its label and rule say: same when absent. */
-  names?: "same" | "other" | "unclear";
+  /** Whether the sentence names each Analysis figure as its label and rule say: same when absent; null leaves it out. */
+  names?: "same" | "other" | "unclear" | null;
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   /** The number of `quote` that backs the sentence's figure, as written: its first of a kind when absent. */
@@ -219,7 +219,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   // An Analysis's figure is never looked for in the Passages, as the check's instructions say.
   const analysed = ({ id, reading }: { id: string; reading: number | null }) => ({
     id,
-    names: plan.names ?? "same",
+    ...(plan.names !== null && { names: plan.names ?? "same" }),
     verdict: (plan.names ?? "same") === "same" ? "supported" : "unsupported",
     scope: "same",
     topic: "found",

@@ -536,8 +536,17 @@ const asPassage = (source: CitationSource): WindowedPassage => ({
   windowTo: 0,
 });
 
-const calculatesIn = (model: Pick<PreparedChatModel, "support" | "capabilities">): boolean =>
-  model.support === "tools" && checkCalculates(model.capabilities);
+const calculatesIn = (
+  model: Pick<PreparedChatModel, "support" | "capabilities">,
+  request: Pick<ClaimCheckRequest, "figures">,
+): boolean =>
+  model.support === "tools" &&
+  checkCalculates(model.capabilities) &&
+  // An Analysis's figures are worked out by IncarnaMind already: a sentence of only those has
+  // nothing to calculate, and a calculation of one would only fail its check (#2378).
+  !(
+    request.figures?.length && request.figures.every((figure) => figure.calculated?.figure.analysis)
+  );
 
 /** What a check Run starts from: its sentence, read in its paragraph, beside what it cites. */
 export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
@@ -571,7 +580,7 @@ export function checkRunStart(
   request: CheckStart & { scope: EvidenceScope },
   model: Pick<PreparedChatModel, "support" | "capabilities">,
 ): { instructions: string; prompt: string; tools: string } {
-  const calculating = calculatesIn(model);
+  const calculating = calculatesIn(model, request);
   const start = runStart(request, deps.language(), calculating);
   const cited = citedSources(request.cited ?? [], request.scope, deps.documents);
   const { documents } = deps;
@@ -703,7 +712,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     const looked = () => searches > 0 || citedShown !== null;
     const { model } = request;
-    const calculating = calculatesIn(model);
+    const calculating = calculatesIn(model, request);
     const recorded = new Set<number>();
     let attempts = 0;
     let invalidInput = false;
