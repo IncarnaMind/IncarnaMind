@@ -1281,6 +1281,10 @@ export const en = {
     "It uses a formula IncarnaMind can’t work out, so this figure can’t be checked.",
   "claim.reason.workbook-changed":
     "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
+  "claim.reason.figures-not-read": "The figures in “{document}”, {location}, couldn’t be read.",
+  "claim.reason.figures-not-read.whole": "The figures in “{document}” couldn’t be read.",
+  "claim.reason.figures-not-read.unknown": "The figures in a Document couldn’t be read.",
+  "claim.reason.sentence-figures-not-read": "The figures in this sentence couldn’t be read.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
