@@ -539,7 +539,7 @@ export function writeParagraph(
   // A comment made here writes its words again, for its range; the file's own comment
   // stays on text copied as it was (#328). It isn't a format, so it asks for no `w:rPrChange`.
   const sameAsFile = (was: TextMarks, now: TextMarks) =>
-    sameFormat(was, now) && !(now.comment !== null && context.review.addsComment(now.comment));
+    sameFormat(was, now) && !(now.comment !== null && context.review.renewsComment(now.comment));
   const element = base?.element ?? null;
   const children = element ? elements(element).filter((each) => each.name !== "w:pPr") : [];
   const childIndex = new Map(children.map((each, index) => [each, index]));

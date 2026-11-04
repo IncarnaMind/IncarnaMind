@@ -9789,6 +9789,14 @@ export interface WordExportPreferences {
   trackChanges: boolean;
   markAiText: MarkAiTextChoice | null;
   commentFailedChecks: boolean;
+  /**
+   * In someone else's file, whether the User's own comments and replies go into the Word
+   * file (#328). Chosen in Export options and kept for the Note named by `myCommentsFile`
+   * only, so another file starts off. Absent: off there, and always on in the User's own Note.
+   */
+  includeMyComments?: boolean;
+  /** The Note `includeMyComments` was chosen for (#328): no other Note's export takes it. */
+  myCommentsFile?: string;
 }
 
 export interface ExportMindOptions {
@@ -9830,6 +9838,11 @@ export interface ExportMindOptions {
    * else's file keeps its own choice instead (`setCheckComments`).
    */
   commentFailedChecks?: boolean;
+  /**
+   * Word only (#328): whether the User's own comments and replies go into the file. The file's
+   * own imported comments always do. Absent: on in the User's own Note, off in someone else's.
+   */
+  includeMyComments?: boolean;
   /**
    * A web page to share only: each Citation's marker opens a card with
    * its quote, the part of its Document around it, and its check. Off, the
@@ -9879,6 +9892,12 @@ export interface MindExportPreview {
   othersFile: boolean;
   /** For someone else's file: whether its Word export gets check comments (`setCheckComments`); false otherwise. */
   othersComments: boolean;
+  /** The User's own comments and replies in the Note (#328): what a Word file includes, or leaves out. */
+  myComments: number;
+  /** Whether the Word file includes them; true for a format that writes no comments. */
+  myCommentsShown: boolean;
+  /** Whether a Word export offers "Include my comments": the file came from someone else (#328). */
+  myCommentsOptional: boolean;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */

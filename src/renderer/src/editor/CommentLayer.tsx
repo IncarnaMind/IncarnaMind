@@ -5,7 +5,15 @@
  * corner, which opens the list.
  */
 import type { Editor } from "@tiptap/core";
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type * as Y from "yjs";
 import { type CommentMessage, MIND_COMMENTS_FIELD, type MindComment } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
@@ -33,32 +41,54 @@ import { Popover } from "./Popover";
 
 /**
  * The room a card beside the text takes, as `styles.css` › `.comment-card-place`
- * lays it out: the 56px past the Citation checks' gutter, its 240px, and 8px
- * left to the page's edge. Without that room the cards fold into the count, so
- * a card is never cut by the page: at 1440px with the assistant folded there
- * are about 220px, and the cards fold.
+ * lays it out: 16px past the Citation checks' 48px gutter, its 264px, and 16px
+ * inside the page's right edge. When the column leaves less, the text column
+ * moves left, up to the card's width, so the card sits beside it; only when that
+ * still isn't enough do the cards fold into the count (#328). The shift is set
+ * before the first paint, so a Note opened with comments is laid out at once.
  */
-const COMMENT_GAP = 56;
-const COMMENT_WIDTH = 240;
-const COMMENT_EDGE = 8;
+const COMMENT_GAP = 64;
+const COMMENT_WIDTH = 264;
+const COMMENT_EDGE = 16;
+const COMMENT_MOST_SHIFT = 264;
 
-function useRoomBeside(editor: Editor): boolean {
+function useRoomBeside(editor: Editor, wanted: boolean): boolean {
   const [room, setRoom] = useState(true);
-  useEffect(() => {
-    const column = editor.view.dom.closest(".mind-column");
-    const frame = editor.view.dom.closest(".mind-editor-frame");
+  useLayoutEffect(() => {
+    const column = editor.view.dom.closest<HTMLElement>(".mind-column");
+    const frame = editor.view.dom.closest<HTMLElement>(".mind-editor-frame");
     if (!column || !frame) return;
-    const measure = () =>
-      setRoom(
-        column.getBoundingClientRect().right - frame.getBoundingClientRect().right >=
-          COMMENT_GAP + COMMENT_WIDTH + COMMENT_EDGE,
-      );
+    const reset = () => column.style.setProperty("--comment-shift", "0px");
+    if (!wanted) {
+      reset();
+      setRoom(false);
+      return reset;
+    }
+    const needed = COMMENT_GAP + COMMENT_WIDTH + COMMENT_EDGE;
+    // The page keeps its left edge: the text never moves past this gutter.
+    const LEFT_EDGE = 40;
+    const measure = () => {
+      // The shift already applied is part of the room and the margin measured: take it out first.
+      const applied =
+        Number.parseFloat(column.style.getPropertyValue("--comment-shift") || "0") || 0;
+      const columnRect = column.getBoundingClientRect();
+      const frameRect = frame.getBoundingClientRect();
+      const natural = columnRect.right - frameRect.right - applied;
+      const room = Math.max(0, frameRect.left - columnRect.left + applied - LEFT_EDGE);
+      const shift = Math.max(0, Math.min(COMMENT_MOST_SHIFT, room, needed - natural));
+      const fits = natural + shift >= needed - 0.5;
+      column.style.setProperty("--comment-shift", `${fits ? shift : 0}px`);
+      setRoom(fits);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(column);
     observer.observe(frame);
-    return () => observer.disconnect();
-  }, [editor]);
+    return () => {
+      observer.disconnect();
+      reset();
+    };
+  }, [editor, wanted]);
   return room;
 }
 
@@ -111,7 +141,6 @@ export function CommentLayer({
 }) {
   const comments = useLiveComments(editor, doc);
   const draft = useCommentsUi((state) => (state.draft?.mindId === mindId ? state.draft : null));
-  const beside = useRoomBeside(editor);
   const layer = useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = useState<{ id: string; top: number }[]>([]);
   // Read each render: a text change moves a comment's words without changing the comment map.
@@ -122,6 +151,7 @@ export function CommentLayer({
     (comment) => comment.id !== draft?.id && places.has(comment.id) && comment.resolvedAt === null,
   );
   const shownKey = shown.map((comment) => comment.id).join("|");
+  const beside = useRoomBeside(editor, shown.length > 0);
 
   const measure = useCallback(() => {
     const element = layer.current;
@@ -223,7 +253,20 @@ export function DraftComment({
   const draft = useCommentsUi((state) => (state.draft?.mindId === mindId ? state.draft : null));
   const comments = useLiveComments(editor, doc);
   const endDraft = useCommentsUi((state) => state.endDraft);
-  const comment = draft ? comments.find((each) => each.id === draft.id) : undefined;
+  const found = draft ? comments.find((each) => each.id === draft.id) : undefined;
+  // The draft isn't in the Mind yet: it is saved only when it says something (#328).
+  const comment: MindComment | undefined =
+    found ??
+    (draft
+      ? {
+          id: draft.id,
+          author: null,
+          createdAt: draft.createdAt,
+          text: "",
+          resolvedAt: null,
+          replies: [],
+        }
+      : undefined);
   if (!draft || !comment || readOnly) return null;
   const place = placeOf(editor, comment.id) ?? draft.place;
   if (!place) return null;
@@ -309,7 +352,7 @@ export function CommentCard({
     const words = draftText.trim();
     if (editing?.kind === "new") {
       if (words === "") return cancelComment(editor, doc, comment.id, place);
-      saveComment(doc, comment.id, draftText);
+      saveComment(editor, doc, comment.id, draftText, comment.createdAt, place);
       endDraft();
     } else if (editing?.kind === "root") {
       if (words !== "") editComment(doc, comment.id, null, draftText);
@@ -348,8 +391,9 @@ export function CommentCard({
         comment: comment.text,
         quote: quoteAt(editor, place),
       });
-      const started = await requestEdit(editor, mindId, doc, "instruction", instruction, place);
-      if (started) {
+      // The reply says the text changed only once it has: a change still to accept has none yet.
+      const applied = await requestEdit(editor, mindId, doc, "instruction", instruction, place);
+      if (applied) {
         replyToComment(doc, comment.id, t("comments.assistant.replied"), ASSISTANT_AUTHOR);
       }
     } finally {
@@ -555,7 +599,7 @@ export function CommentCard({
                     <button
                       type="button"
                       role="menuitem"
-                      className="comment-menu-item comment-menu-danger"
+                      className="comment-menu-item"
                       onClick={() => {
                         setMenuOpen(false);
                         deleteComment(doc, comment.id);

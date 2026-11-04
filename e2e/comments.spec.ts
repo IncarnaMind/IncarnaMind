@@ -1,11 +1,13 @@
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import {
+  closeSettings,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
   newMind,
+  openSettings,
   pointAndClick,
   removeDataFolder,
   runFromPalette,
@@ -64,6 +66,16 @@ async function foldAssistant(window: Page) {
   await expect(assistant).toHaveAttribute("data-folded", "true");
 }
 
+/** The User's name, in Settings, so the screenshots don't show the account the build machine runs as. */
+async function nameYourself(window: Page, name: string) {
+  const settings = await openSettings(window, "general");
+  const field = settings.getByTestId("author-name");
+  await field.fill(name);
+  await field.press("Enter");
+  await expect(field).toHaveValue(name);
+  await closeSettings(window);
+}
+
 async function mindWith(window: Page, text: string) {
   await dismissChatSetup(window);
   await foldAssistant(window);
@@ -81,6 +93,7 @@ async function selectLine(window: Page) {
 test("a comment is added, answered, resolved, reopened and deleted, each with Undo, and stays through a restart", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1800, 900);
+  await nameYourself(window, "Priya Raman");
   await mindWith(window, "The tides here are strong.");
   const editor = window.getByTestId("mind-editor");
 
@@ -120,8 +133,9 @@ test("a comment is added, answered, resolved, reopened and deleted, each with Un
   const page = await window.locator(".mind-column").boundingBox();
   const place = await window.locator("[data-comment-card]").boundingBox();
   if (!frame || !page || !place) throw new Error("The card isn't visible.");
-  expect(place.x).toBeGreaterThanOrEqual(frame.x + frame.width + 48);
-  expect(place.x + place.width).toBeLessThanOrEqual(page.x + page.width - 8);
+  expect(place.width).toBeCloseTo(264, 0);
+  expect(place.x).toBeGreaterThanOrEqual(frame.x + frame.width + 63.5);
+  expect(place.x + place.width).toBeLessThanOrEqual(page.x + page.width - 15.5);
 
   // Reply, then resolve: the card leaves the margin, and the list says it is resolved.
   await pointAndClick(window, window.locator('[data-testid^="comment-reply-"]').first());
@@ -208,6 +222,7 @@ test("after a comment is deleted, Comment on its words makes a new one", async (
 test("the keys add a comment, a narrow Mind folds the cards into a count, and deleted words say Text removed with Undo", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1800, 900);
+  await nameYourself(window, "Priya Raman");
   await mindWith(window, "Margins recovered this quarter.");
   const editor = window.getByTestId("mind-editor");
   await pointAndClick(window, editor.locator("p").first());
@@ -242,10 +257,14 @@ test("the keys add a comment, a narrow Mind folds the cards into a count, and de
   await window.keyboard.press("Escape");
   await expect(card(window)).toHaveCount(1);
 
-  // A Mind without the room folds the cards into the count: at 1440 as well as at 900.
+  // At 1440 with the assistant folded the text column moves left and the card sits beside it;
+  // only at 900, where even that isn't enough, do the cards fold into the count (#328).
   await setWindowSize(app, window, 1440, 900);
-  await expect(window.locator("[data-comment-card]")).toHaveCount(0);
-  await expect(window.getByTestId("comments-count")).toBeVisible();
+  await expect(window.locator("[data-comment-card]")).toHaveCount(1);
+  const frame = await window.locator(".mind-editor-frame").boundingBox();
+  const page = await window.locator(".mind-column").boundingBox();
+  if (!frame || !page) throw new Error("The page isn't visible.");
+  expect(page.x + page.width - (frame.x + frame.width)).toBeGreaterThanOrEqual(343);
   await screenshot(window, "comments-en-1440");
   await setWindowSize(app, window, 900, 900);
   await screenshot(window, "comments-en-narrow");
@@ -274,6 +293,7 @@ test("the keys add a comment, a narrow Mind folds the cards into a count, and de
 test("the interface is Chinese: 批注, 回复, 解决 and 原文已删除", async () => {
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1800, 900);
+  await nameYourself(window, "林安");
   await mindWith(window, "本季度的利润率回升了。");
   await setLanguage(window, "zh-CN");
   const editor = window.getByTestId("mind-editor");
@@ -292,11 +312,19 @@ test("the interface is Chinese: 批注, 回复, 解决 and 原文已删除", asy
   await expect(window.getByTestId("comments-list")).toContainText("批注");
   await window.keyboard.press("Escape");
   await setWindowSize(app, window, 1440, 900);
-  await expect(window.locator("[data-comment-card]")).toHaveCount(0);
+  await expect(window.locator("[data-comment-card]")).toHaveCount(1);
   await screenshot(window, "comments-zh-1440");
   await setWindowSize(app, window, 900, 900);
   await screenshot(window, "comments-zh-narrow");
   await expect(window.locator("[data-comment-card]")).toHaveCount(0);
+
+  // All the words deleted: the list says 原文已删除.
+  await setWindowSize(app, window, 1800, 900);
+  await pointAndClick(window, editor.locator("p").first());
+  await selectLine(window);
+  await window.keyboard.press("Backspace");
+  await pointAndClick(window, window.getByTestId("comments-count"));
+  await expect(window.getByTestId("comments-list")).toContainText("原文已删除");
   await app.close();
 });
 

@@ -416,7 +416,8 @@ describe("a Word file becomes a Mind", () => {
     expect(comments).toHaveLength(1);
     expect(comments[0]).toMatchObject({
       author: "Marcus Hale",
-      createdAt: "2026-10-02T09:00:00Z",
+      // Word's date, normalized to UTC (#328).
+      createdAt: "2026-10-02T09:00:00.000Z",
       text: "We can't accept this.",
       resolvedAt: null,
     });

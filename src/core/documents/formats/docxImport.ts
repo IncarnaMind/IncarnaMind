@@ -425,8 +425,13 @@ function commentThreads(comments: Map<string, Comment>): {
   const byWord = new Map<string, MindComment>();
   const byParaId = new Map<string, MindComment>();
   for (const [wordId, comment] of comments) {
-    const id = newId();
-    const date = Number.isNaN(Date.parse(comment.date)) ? new Date().toISOString() : comment.date;
+    // Derived from the file's id, so reading the package again gives the same marks: a commented
+    // paragraph read for its look isn't taken for one the User edited (#328).
+    const id = `word-comment-${wordId}`;
+    // Word's dates are UTC: a file that leaves its zone off is read as one, never as this computer's time.
+    const zone = /(?:Z|[+-]\d{2}:?\d{2})$/iu.test(comment.date.trim());
+    const parsed = Date.parse(zone ? comment.date : `${comment.date}Z`);
+    const date = Number.isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString();
     const record: MindComment = {
       id,
       author: comment.author,
@@ -450,6 +455,8 @@ function commentThreads(comments: Map<string, Comment>): {
         ? { word: { id: idNumber, paraId: comment.paraId } }
         : {};
     if (parent && parent !== record) {
+      // Word gives a reply its own range around its parent's words: the mark names the thread.
+      idOfWord.set(wordId, parent.id);
       parent.replies.push({
         id: record.id,
         author: record.author,
@@ -1763,7 +1770,7 @@ class Reader {
       if ((element.name === "w:ins" || element.name === "w:del") && readableChange(element)) {
         const author = element.attrs["w:author"]?.trim() || null;
         const joined = element.name === "w:ins" && deleted?.author === author ? deleted.ref : null;
-        const ref = this.trackedChange(element, marks, out, joined);
+        const ref = this.trackedChange(element, this.withComments(marks), out, joined);
         deleted = element.name === "w:del" ? { ref, author } : null;
         continue;
       }
@@ -1955,12 +1962,14 @@ class Reader {
   /** Marks with the comment of each range the text is inside (#328). */
   private withComments(marks: MarkJSON[]): MarkJSON[] {
     if (this.openComments.size === 0) return marks;
-    const added: MarkJSON[] = [];
+    // A reply's range meets its parent's: one mark for the thread, not two.
+    const added = new Set<string>();
     for (const wordId of this.openComments) {
       const id = this.commentIds.get(wordId);
-      if (id) added.push({ type: COMMENT_MARK, attrs: { id } });
+      if (id) added.add(id);
     }
-    return added.length === 0 ? marks : [...marks, ...added];
+    if (added.size === 0) return marks;
+    return [...marks, ...[...added].map((id) => ({ type: COMMENT_MARK, attrs: { id } }))];
   }
 
   /** A range's start or end between paragraphs: the text that follows takes it, or stops taking it. */

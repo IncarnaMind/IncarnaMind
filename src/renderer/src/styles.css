@@ -1120,7 +1120,7 @@
   }
   .mind-measure {
     width: 680px;
-    margin-left: calc((100% - 784px) / 2 + 56px);
+    margin-left: calc((100% - 784px) / 2 + 56px - var(--comment-shift, 0px));
   }
 
   /* How far a Word import has got (#104), at the top of the page while it goes on. */
@@ -1489,10 +1489,6 @@
   }
   .review-card-what {
     color: var(--color-ink-meta);
-  }
-  .review-card-comment {
-    color: var(--color-ink-secondary);
-    white-space: pre-line;
   }
   /* "Changes (3)" at the page's top right, while the pane is folded or over the page. */
   .review-fold {
@@ -6901,7 +6897,7 @@
   /* The margins narrow, from 56px and 48px to 40px each at 760px, with the measure kept at 680px. */
   @container mind (width < 784px) {
     .mind-measure {
-      margin-left: calc(40px + (100% - 760px) * 2 / 3);
+      margin-left: calc(40px + (100% - 760px) * 2 / 3 - var(--comment-shift, 0px));
     }
     .margin-checks {
       width: 40px;
@@ -11434,8 +11430,8 @@ body.assistant-dragging * {
 
 .comment-card-place {
   position: absolute;
-  left: calc(100% + 56px);
-  width: 240px;
+  left: calc(100% + 64px);
+  width: 264px;
   pointer-events: auto;
 }
 
@@ -11565,10 +11561,6 @@ body.assistant-dragging * {
 
 .comment-menu-item:disabled {
   color: var(--color-ink-meta);
-}
-
-.comment-menu-danger {
-  color: var(--color-danger);
 }
 
 .comments-count {

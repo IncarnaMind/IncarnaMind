@@ -468,6 +468,16 @@ export class Review {
     return this.addedComments.has(id);
   }
 
+  /** Whether this comment's thread gains a comment or a reply here, so its paragraph is written again (#328). */
+  renewsComment(id: string): boolean {
+    const root = this.mindComments.find(
+      (each) => each.id === id || each.replies.some((reply) => reply.id === id),
+    );
+    return (
+      root !== undefined && [root, ...root.replies].some((each) => this.addedComments.has(each.id))
+    );
+  }
+
   /** The Word XML of each new comment and reply (#328): a comment of the file's own is already in its part. */
   private userComments(): string[] {
     const out: string[] = [];
@@ -502,10 +512,14 @@ export class Review {
     if (this.choices.commentFailedChecks) this.sentences = sentencePassagesOf(all);
     for (const piece of all) {
       for (const id of piece.comments ?? []) {
-        if (this.intoWordFile && !this.addedComments.has(id)) continue;
-        const range = this.commentRanges.get(id);
-        if (range) range.end = piece.key;
-        else this.commentRanges.set(id, { start: piece.key, end: piece.key });
+        const root = this.mindComments.find((each) => each.id === id);
+        // A reply goes around the words its comment is on (#328).
+        for (const each of [id, ...(root?.replies.map((reply) => reply.id) ?? [])]) {
+          if (!this.addedComments.has(each)) continue;
+          const range = this.commentRanges.get(each);
+          if (range) range.end = piece.key;
+          else this.commentRanges.set(each, { start: piece.key, end: piece.key });
+        }
       }
     }
   }
@@ -553,10 +567,8 @@ export class Review {
       this.dropComment(id);
     }
     this.openComments.clear();
-    // A new comment whose words were never written (all of them deleted) has no range to keep.
-    // A reply has no range of its own: it belongs to its comment's thread.
+    // A new comment or reply whose words were never written (all of them deleted) has no range to keep.
     for (const id of [...this.addedComments]) {
-      if (!this.mindComments.some((root) => root.id === id)) continue;
       if (this.commentRanges.has(id)) continue;
       this.dropComment(id);
     }

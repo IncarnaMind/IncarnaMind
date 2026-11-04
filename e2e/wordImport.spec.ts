@@ -829,3 +829,97 @@ test("unticked, the Word file is imported as a Mind alone", async () => {
   expect(documents).toEqual([]);
   await app.close();
 });
+
+test("the User's own comments in someone else's Word file are off in Export options by default, and the Saved line counts them or says they were left out", async () => {
+  const kept = paragraph("Keep this paragraph as it is.", { paraId: "0A0B0C0E" });
+  const comment = commented(0, "Marcus Hale", "Is spring realistic?", run("spring 2027"));
+  const path = join(files, "Memo.docx");
+  await writeFile(
+    path,
+    wordFile({
+      body: [
+        kept,
+        paragraph(`${run("First sales in ")}${comment.inline}${run(".")}`),
+        paragraph("The end."),
+      ].join(""),
+      comments: comment.comment,
+    }),
+  );
+  const { app, window } = await launchApp(dataDir, { home });
+  await setWindowSize(app, window, 1800, 900);
+  await dismissChatSetup(window);
+  const output = join(files, "Exports");
+  await mkdir(output);
+  await useOutputLocation(window, output);
+  await interceptOpenDialog(app, path);
+  const dialog = await importWordFromMenu(window);
+  await expect(dialog.getByTestId("word-import-origin-someone-else")).toBeChecked();
+  await dialog.getByTestId("word-import-confirm").click();
+  await expect(dialog).toBeHidden();
+
+  // The User's own comment on the file's first paragraph, which the file's own comment doesn't touch.
+  const editor = window.getByTestId("mind-editor");
+  await pointAndClick(window, editor.locator("p", { hasText: "Keep this paragraph" }));
+  await window.keyboard.press("Home");
+  await window.keyboard.press("Shift+End");
+  await pointAndClick(window, window.getByTestId("selection-comment"));
+  await expect(window.locator(".comment-field").first()).toBeFocused();
+  await window.keyboard.type("Our note on this clause.");
+  await pointAndClick(window, window.getByTestId("comment-save"));
+  await expect(
+    window.locator('[data-testid^="comment-card-"]', { hasText: "Our note on this clause." }),
+  ).toHaveCount(1);
+
+  // Export options: in someone else's file they are off, behind "Include my comments", and on once asked.
+  await openExportOptions(window);
+  const sheet = window.getByTestId("export-dialog");
+  const include = sheet.getByTestId("export-include-my-comments");
+  await expect(include).toBeVisible();
+  await expect(include).not.toBeChecked();
+  await motionSettled(window);
+  await screenshot(window, "word-export-my-comments-off");
+  await include.check();
+  await motionSettled(window);
+  await screenshot(window, "word-export-my-comments-on");
+  await sheet.getByTestId("export-save").click();
+  await expect(sheet).toBeHidden();
+
+  // Saved with them: the line counts them, and the file holds them beside the file's own.
+  await exportFromMenu(window);
+  const result = window.getByTestId("export-result");
+  await expect(result.getByTestId("export-done")).toContainText(savedLine("Memo.docx", output));
+  await expect(result.getByTestId("export-my-comments")).toHaveText("with 1 comment");
+  const withMine =
+    unzip(await readFile(join(output, "Memo.docx")))
+      .get("word/comments.xml")
+      ?.toString("utf8") ?? "";
+  expect(withMine).toContain("Our note on this clause.");
+  expect(withMine).toContain("Is spring realistic?");
+  await pointAndClick(window, result.getByTestId("export-dismiss"));
+
+  // The choice is this file's own; turned off, the Saved line says they were left out, and
+  // Include them writes the same file again without asking again.
+  await openExportOptions(window);
+  await window.getByTestId("export-include-my-comments").uncheck();
+  await window.getByTestId("export-save").click();
+  await expect(window.getByTestId("export-dialog")).toBeHidden();
+  await exportFromMenu(window);
+  await expect(result.getByTestId("export-my-comments")).toContainText("Your comment was left out");
+  await expect(result.getByTestId("export-my-comments-include")).toBeVisible();
+  const written = async () => {
+    const saved = await result.getByTestId("export-done").getAttribute("title");
+    if (!saved) throw new Error("The Saved line names no file.");
+    return (
+      unzip(await readFile(saved))
+        .get("word/comments.xml")
+        ?.toString("utf8") ?? ""
+    );
+  };
+  const without = await written();
+  expect(without).not.toContain("Our note on this clause.");
+  expect(without).toContain("Is spring realistic?");
+  await pointAndClick(window, result.getByTestId("export-my-comments-include"));
+  await expect(result.getByTestId("export-my-comments")).toHaveText("with 1 comment");
+  expect(await written()).toContain("Our note on this clause.");
+  await app.close();
+});

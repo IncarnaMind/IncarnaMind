@@ -93,41 +93,40 @@ function withReply(comment: MindComment, reply: CommentMessage): MindComment {
   return { ...comment, replies: [...comment.replies, reply] };
 }
 
-/**
- * The comment a new one starts as: no text yet, beside the words it is on.
- * It isn't an Undo step until it is saved: cancelling takes it away whole.
- */
-export function startComment(doc: Y.Doc, id = crypto.randomUUID()): MindComment {
-  const comment: MindComment = {
-    id,
-    author: null,
-    createdAt: now(),
-    text: "",
-    resolvedAt: null,
-    replies: [],
-  };
-  write(doc, id, comment);
-  return comment;
-}
-
 export function unmarkSelection(editor: Editor, place: CommentPlace): void {
   if (editor.isDestroyed) return;
   editor.chain().focus().setTextSelection(place).unsetMark(COMMENT_MARK).run();
 }
 
-/** Saves a new comment's text: one Undo step takes the whole comment away. */
-export function saveComment(doc: Y.Doc, id: string, text: string): void {
+/**
+ * Saves a new comment: it enters the Mind only now, so a draft left open when
+ * the app quits leaves no empty comment behind (#328). One Undo step takes the
+ * whole comment away.
+ */
+export function saveComment(
+  editor: Editor,
+  doc: Y.Doc,
+  id: string,
+  text: string,
+  createdAt: string,
+  place: CommentPlace | null,
+): void {
+  if (text.trim() === "") return;
   const before = commentById(doc, id);
-  if (!before) return;
-  const after = { ...before, text };
+  const after: MindComment = before
+    ? { ...before, text }
+    : { id, author: null, createdAt, text, resolvedAt: null, replies: [] };
+  if (!before && place && !editor.isDestroyed) {
+    editor.chain().focus().setTextSelection(place).setMark(COMMENT_MARK, { id }).run();
+  }
   write(doc, id, after);
-  pushCommentChange((t) => t("undo.addedComment"), doc, id, null, after);
+  pushCommentChange((t) => t("undo.addedComment"), doc, id, before, after);
 }
 
 /**
- * Starts a comment on the selection: its record, its mark, and its card open
- * to type. Words already commented on open that comment's thread instead: one
- * mark holds one comment, as the text can carry.
+ * Starts a comment on the selection, its card open to type. The mark and the
+ * record enter the Mind when it is saved. Words already commented on open that
+ * comment's thread instead: one mark holds one comment, as the text can carry.
  */
 export function commentOnSelection(editor: Editor, mindId: string, doc: Y.Doc): void {
   const { from, to, empty } = editor.state.selection;
@@ -140,10 +139,12 @@ export function commentOnSelection(editor: Editor, mindId: string, doc: Y.Doc): 
     useCommentsUi.getState().ask(mindId, existing.id);
     return;
   }
-  const id = crypto.randomUUID();
-  startComment(doc, id);
-  editor.chain().focus().setMark(COMMENT_MARK, { id }).run();
-  useCommentsUi.getState().startDraft({ mindId, id, place: { from, to } });
+  useCommentsUi.getState().startDraft({
+    mindId,
+    id: crypto.randomUUID(),
+    place: { from, to },
+    createdAt: now(),
+  });
 }
 
 /** Cancels a comment that was never saved, with its mark. */
@@ -222,7 +223,7 @@ export function quoteAt(editor: Editor, place: CommentPlace): string {
 
 interface CommentsUi {
   /** The comment being typed, opened beside its words. */
-  draft: { mindId: string; id: string; place: CommentPlace | null } | null;
+  draft: { mindId: string; id: string; place: CommentPlace | null; createdAt: string } | null;
   /** The card asked for by a click in the list: scrolled to, and focused. */
   asked: { mindId: string; id: string } | null;
   listOpen: string | null;

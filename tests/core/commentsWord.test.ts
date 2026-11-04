@@ -31,10 +31,14 @@ const OPEN_PARA = "1A2B3C4F";
 
 /** A Word file whose first paragraph carries a resolved comment with a reply, its second an open one. */
 function commentedFile(): Buffer {
+  // Word's own layout for a reply: its range and reference wrap its parent's, on the same words.
   const root = commented(0, "Dana Kim", "Check this number.", run("Revenue grew 12%."));
+  const replyRange =
+    `<w:commentRangeStart w:id="1"/>${root.inline}<w:commentRangeEnd w:id="1"/>` +
+    '<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="1"/></w:r>';
   const open = commented(2, "Luis Ortega", "Looks right.", run("Costs fell 3%."));
   const comments = [
-    `<w:comment w:id="0" w:author="Dana Kim" w:date="2026-10-02T09:00:00Z"><w:p w14:paraId="${ROOT_PARA}"><w:r><w:annotationRef/></w:r>${run("Check this number.")}</w:p></w:comment>`,
+    `<w:comment w:id="0" w:author="Dana Kim" w:date="2026-10-02T09:00:00"><w:p w14:paraId="${ROOT_PARA}"><w:r><w:annotationRef/></w:r>${run("Check this number.")}</w:p></w:comment>`,
     `<w:comment w:id="1" w:author="Dana Kim" w:date="2026-10-02T10:00:00Z"><w:p w14:paraId="${REPLY_PARA}"><w:r><w:annotationRef/></w:r>${run("Fixed it.")}</w:p></w:comment>`,
     `<w:comment w:id="2" w:author="Luis Ortega" w:date="2026-10-02T11:00:00Z"><w:p w14:paraId="${OPEN_PARA}"><w:r><w:annotationRef/></w:r>${run("Looks right.")}</w:p></w:comment>`,
   ].join("");
@@ -45,7 +49,7 @@ function commentedFile(): Buffer {
     `<w15:commentEx w15:paraId="${OPEN_PARA}"/>` +
     "</w15:commentsEx>";
   const input: WordFileInput = {
-    body: `${paragraph(`${root.inline}${run(" The rest.")}`)}${paragraph(open.inline)}`,
+    body: `${paragraph(`${replyRange}${run(" The rest.")}`)}${paragraph(open.inline)}`,
     comments,
     rels: `<Relationship Id="rIdCommentsExtended" Type="${EXTENDED_REL}" Target="commentsExtended.xml"/>`,
     parts: [{ name: "word/commentsExtended.xml", data: extended }],
@@ -105,14 +109,15 @@ describe("comments in Word, in and out (#328)", () => {
     ).toEqual([
       {
         author: "Dana Kim",
-        createdAt: "2026-10-02T09:00:00Z",
+        // No zone in the file: read as UTC, not as this computer's time.
+        createdAt: "2026-10-02T09:00:00.000Z",
         text: "Check this number.",
         resolved: true,
         replies: [["Dana Kim", "Fixed it."]],
       },
       {
         author: "Luis Ortega",
-        createdAt: "2026-10-02T11:00:00Z",
+        createdAt: "2026-10-02T11:00:00.000Z",
         text: "Looks right.",
         resolved: false,
         replies: [],
@@ -120,6 +125,9 @@ describe("comments in Word, in and out (#328)", () => {
     ]);
     expect(wordsOf(client, comments[0]?.id as string)).toBe("Revenue grew 12%.");
     expect(wordsOf(client, comments[1]?.id as string)).toBe("Costs fell 3%.");
+    // A reply's range names the thread, not a second mark on the same words.
+    expect(wordsOf(client, comments[0]?.replies[0]?.id as string)).toBe("");
+    expect(comments[0]?.replies).toHaveLength(1);
     core.close();
   });
 
@@ -201,7 +209,12 @@ describe("comments in Word, in and out (#328)", () => {
       replies: [],
     });
     await client.settled();
-    const result = await core.exportMind(mindId, { format: "docx", trackChanges: true });
+    // The file is someone else's: the User asks for their comment to go into it.
+    const result = await core.exportMind(mindId, {
+      format: "docx",
+      trackChanges: true,
+      includeMyComments: true,
+    });
     expect(result.word?.notKept).toEqual([]);
     const files = unzip(result.data);
     const comments = files.get("word/comments.xml")?.toString("utf8") ?? "";
@@ -218,6 +231,176 @@ describe("comments in Word, in and out (#328)", () => {
     expect(document).toMatch(/<w:commentRangeEnd w:id="\d+"\/>/);
     expect(comments).toContain("Make this clearer.");
     expect([...extended.matchAll(/<w15:commentEx /g)]).toHaveLength(4);
+    core.close();
+  });
+
+  test("someone else's file leaves the User's comments out unless asked, and keeps the file's own", async () => {
+    const core = startCore(await createTempDataFolder());
+    const { mindId, client } = await importFile(core, commentedFile());
+    const id = "my-comment";
+    const blocks = (readMind(client).toJSON().content ?? []) as JSONContent[];
+    writeMind(
+      client,
+      blocks.map((block, at) =>
+        at === 0
+          ? {
+              ...block,
+              content: (block.content ?? []).map((node) =>
+                node.type === "text" && node.text === " The rest."
+                  ? { ...node, marks: [...(node.marks ?? []), { type: "comment", attrs: { id } }] }
+                  : node,
+              ),
+            }
+          : block,
+      ),
+    );
+    const map = client.doc.getMap(MIND_COMMENTS_FIELD);
+    map.set(id, {
+      id,
+      author: null,
+      createdAt: "2026-10-03T09:00:00Z",
+      text: "My own note to self.",
+      resolvedAt: null,
+      replies: [],
+    });
+    const root = mindCommentsOf(client.doc)[0];
+    const held = root ? (map.get(root.id) as Record<string, unknown>) : undefined;
+    map.set(root?.id as string, {
+      ...held,
+      replies: [
+        ...((held?.replies as unknown[]) ?? []),
+        {
+          id: "my-reply",
+          author: null,
+          createdAt: "2026-10-03T10:00:00Z",
+          text: "My reply to Dana.",
+        },
+        {
+          id: "assistant-reply",
+          author: "IncarnaMind",
+          createdAt: "2026-10-03T10:01:00Z",
+          text: "Answered in the text.",
+        },
+      ],
+    });
+    await client.settled();
+
+    const left = await core.exportMind(mindId, { format: "docx" });
+    expect(left.myComments).toBe(2);
+    expect(left.myCommentsShown).toBe(false);
+    expect(left.myCommentsOptional).toBe(true);
+    const without = unzip(left.data).get("word/comments.xml")?.toString("utf8") ?? "";
+    expect(without).not.toContain("My own note to self.");
+    expect(without).not.toContain("My reply to Dana.");
+    expect(without).not.toContain("Answered in the text.");
+    // The file's own comments and replies always go back.
+    expect(without).toContain("Check this number.");
+    expect(without).toContain("Fixed it.");
+
+    const asked = await core.exportMind(mindId, { format: "docx", includeMyComments: true });
+    expect(asked.myComments).toBe(2);
+    expect(asked.myCommentsShown).toBe(true);
+    const with_ = unzip(asked.data).get("word/comments.xml")?.toString("utf8") ?? "";
+    expect(with_).toContain("My own note to self.");
+    expect(with_).toContain("My reply to Dana.");
+    expect(with_).toContain("Answered in the text.");
+    core.close();
+  });
+
+  test("a reply made here on a file's comment goes back with its own range beside the comment's", async () => {
+    const core = startCore(await createTempDataFolder());
+    const { mindId, client } = await importFile(core, commentedFile());
+    const root = mindCommentsOf(client.doc)[0];
+    const reply = {
+      id: "reply-made-here",
+      author: null,
+      createdAt: "2026-10-03T12:00:00Z",
+      text: "Confirmed against the ledger.",
+    };
+    const map = client.doc.getMap(MIND_COMMENTS_FIELD);
+    const held = root ? (map.get(root.id) as Record<string, unknown>) : undefined;
+    expect(held).toBeDefined();
+    map.set(root?.id as string, {
+      ...held,
+      replies: [...((held?.replies as unknown[]) ?? []), reply],
+    });
+    await client.settled();
+    const result = await core.exportMind(mindId, {
+      format: "docx",
+      trackChanges: true,
+      includeMyComments: true,
+    });
+    expect(result.word?.notKept).toEqual([]);
+    const files = unzip(result.data);
+    const comments = files.get("word/comments.xml")?.toString("utf8") ?? "";
+    const document = files.get("word/document.xml")?.toString("utf8") ?? "";
+    const extended = files.get("word/commentsExtended.xml")?.toString("utf8") ?? "";
+    checkWellFormed(document);
+    checkWellFormed(comments);
+    checkWellFormed(extended);
+    expect(comments).toContain("Confirmed against the ledger.");
+    // The file's own comments and their reply keep their ids; the new reply gets its own range and mark.
+    const replyId = [
+      ...comments.matchAll(/<w:comment w:id="(\d+)"[^>]*>([\s\S]*?)<\/w:comment>/g),
+    ].find((each) => (each[2] ?? "").includes("Confirmed against the ledger."))?.[1];
+    if (replyId === undefined) throw new Error("The new reply has no comment in the file.");
+    expect(replyId).not.toMatch(/^[012]$/);
+    expect(document).toContain(`<w:commentRangeStart w:id="${replyId}"/>`);
+    expect(document).toContain(`<w:commentRangeEnd w:id="${replyId}"/>`);
+    expect(document).toContain(`<w:commentReference w:id="${replyId}"/>`);
+    // Its range is on the parent's words, and its paragraph says which comment it answers.
+    const start = document.indexOf("Revenue grew 12%.");
+    expect(document.slice(0, start)).toContain(`<w:commentRangeStart w:id="${replyId}"/>`);
+    expect(extended).toContain(`w15:paraIdParent="${ROOT_PARA}"`);
+    core.close();
+  });
+
+  test("a comment made here whose words are deleted is reported, even when tracking keeps the deleted paragraph", async () => {
+    const core = startCore(await createTempDataFolder());
+    const { mindId, client } = await importFile(core, commentedFile());
+    const id = "comment-on-later-words";
+    const blocks = (readMind(client).toJSON().content ?? []) as JSONContent[];
+    const marked = blocks.map((block, at) =>
+      at === 0
+        ? {
+            ...block,
+            content: (block.content ?? []).map((node) =>
+              node.type === "text" && node.text === " The rest."
+                ? { ...node, marks: [...(node.marks ?? []), { type: "comment", attrs: { id } }] }
+                : node,
+            ),
+          }
+        : block,
+    );
+    writeMind(client, marked);
+    client.doc.getMap(MIND_COMMENTS_FIELD).set(id, {
+      id,
+      author: null,
+      createdAt: "2026-10-03T09:00:00Z",
+      text: "Cut this.",
+      resolvedAt: null,
+      replies: [],
+    });
+    await client.settled();
+    // Then the words go altogether, as deleting them with tracking off would leave the Mind.
+    writeMind(
+      client,
+      marked.map((block, at) =>
+        at === 0
+          ? {
+              ...block,
+              content: (block.content ?? []).filter((node) => node.text !== " The rest."),
+            }
+          : block,
+      ),
+    );
+    await client.settled();
+    const result = await core.exportMind(mindId, {
+      format: "docx",
+      trackChanges: true,
+      includeMyComments: true,
+    });
+    expect(result.word?.notKept).toMatchObject([{ kind: "comment", text: "Cut this." }]);
     core.close();
   });
 
@@ -264,6 +447,10 @@ describe("comments in Word, in and out (#328)", () => {
     await client.settled();
 
     const result = await core.exportMind(mind.id, { format: "docx" });
+    // The User's own Note always includes their comments and replies, and offers no choice.
+    expect(result.myComments).toBe(2);
+    expect(result.myCommentsShown).toBe(true);
+    expect(result.myCommentsOptional).toBe(false);
     // The comment with no words left is said before saving, as an imported file's is.
     expect(result.word?.notKept).toMatchObject([
       { kind: "comment", author: null, text: "This comment has no words." },
@@ -283,6 +470,14 @@ describe("comments in Word, in and out (#328)", () => {
     expect(comments).toContain("Is this the audited figure?");
     expect(comments).toContain("Yes, audited.");
     expect(comments).not.toContain("This comment has no words.");
+    // The reply has a range and reference of its own around the comment's words (#328).
+    const replyId = [
+      ...comments.matchAll(/<w:comment w:id="(\d+)"[^>]*>([\s\S]*?)<\/w:comment>/g),
+    ].find((each) => (each[2] ?? "").includes("Yes, audited."))?.[1];
+    if (replyId === undefined) throw new Error("The reply has no comment in the file.");
+    expect(document).toContain(`<w:commentRangeStart w:id="${replyId}"/>`);
+    expect(document).toContain(`<w:commentRangeEnd w:id="${replyId}"/>`);
+    expect(document).toContain(`<w:commentReference w:id="${replyId}"/>`);
     const types = files.get("[Content_Types].xml")?.toString("utf8") ?? "";
     expect(types).toContain("wordprocessingml.comments+xml");
     expect(types).toContain("wordprocessingml.commentsExtended+xml");

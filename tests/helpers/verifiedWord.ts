@@ -7,7 +7,6 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Core, VerifyClaimsInput } from "../../src/core";
 import { COMMENTS_CONTENT_TYPE } from "../../src/core/exports/wordml";
-import { INLINE_NODE } from "../../src/shared/sentences";
 import { checkingModel, type Plan } from "./checks";
 import { createTempDataFolder, startCore } from "./core";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "./documents";
@@ -23,7 +22,7 @@ export const CONTRADICTED = "Harbours publish the times of high water every week
 export const DIFFERS = "The harbour wall was raised in 1990.";
 export const NOT_FOUND = "Penguins nest on the cliffs above the harbour.";
 /** Their comment's end and its mark follow the full stop: the sentence holds them, as it would a Citation's marker. */
-export const COMMENTED = `${NOT_FOUND}${INLINE_NODE}${INLINE_NODE}`;
+export const COMMENTED = NOT_FOUND;
 export const THANKS = "Thank you for reading this report.";
 export const THEIRS_ADDED = " and closes at dusk";
 
@@ -40,7 +39,6 @@ export const PLANS: Record<string, Plan> = {
   },
   [DIFFERS]: { verdict: "unsupported", quote: "The harbour wall was raised in 1984." },
   [NOT_FOUND]: { verdict: "unsupported" },
-  [COMMENTED]: { verdict: "unsupported" },
 };
 
 /** The User's evidence: a PDF of two pages. */

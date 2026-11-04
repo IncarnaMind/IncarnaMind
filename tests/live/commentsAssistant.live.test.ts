@@ -137,6 +137,8 @@ describe("Address with the assistant, live", () => {
         "Spring tides happen at new moon and at full moon⟨found⟩, when their pull adds up.",
       );
       expect(edited).toContain("⟨found⟩");
+      // The comment asks for a height the source doesn't state: the edit says what it can without inventing one.
+      expect(edited).not.toMatch(/\d/u);
       expect(citationChecks(client)).toEqual(["found"]);
       core.close();
     },
