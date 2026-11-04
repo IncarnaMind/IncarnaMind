@@ -7,6 +7,7 @@
  * with INCARNAMIND_LIVE_ANTHROPIC_KEY (the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku 5.5 by
  * default); INCARNAMIND_LIVE_REPORT keeps each case's reading, verdict and the spend.
  */
+import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
@@ -146,7 +147,11 @@ test.skipIf(KEY === undefined)(
       const mind = await core.createMind({ title: each.name });
       const client = await connectToMind(core, mind.id);
       writeMind(client, [
-        { type: "paragraph", content: [{ type: "text", text: `${each.unit}${each.sentence}` }] },
+        {
+          type: "paragraph",
+          attrs: { id: randomUUID() },
+          content: [{ type: "text", text: `${each.unit}${each.sentence}` }],
+        },
       ]);
       await client.settled();
       await core.checkMind({ requestId: each.name, mindId: mind.id, mode: "all" });
