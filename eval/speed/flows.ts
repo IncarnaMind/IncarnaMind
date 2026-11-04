@@ -107,6 +107,9 @@ export async function timed(
 
 const inLanguage = <T>(language: Language, words: Record<Language, T>): T => words[language];
 
+/** A Research Task of one step that takes longer than this is stopped and counted as failed. */
+const TASK_LIMIT_MS = 5 * 60_000;
+
 /** A Mind with these paragraphs, settled, and the ids of its paragraphs. */
 async function mindWith(core: Core, language: Language, paragraphs: readonly string[]) {
   const mind = await core.createMind({ title: inLanguage(language, BRIEFING) });
@@ -324,12 +327,11 @@ export const FLOWS: readonly Flow[] = [
           "zh-CN": "Vantrell 报告如何为融资排放设定目标",
         });
         let taskId: string | null = null;
-        const ended = new Promise<void>((resolve, reject) => {
+        const ended = new Promise<string>((resolve) => {
           const stop = core.on("task.changed", (task) => {
             if (task.id !== taskId || task.status === "running") return;
             stop();
-            if (task.status === "done") resolve();
-            else reject(new Error(`The Task ended ${task.status}: ${task.problem ?? ""}`));
+            resolve(task.status === "done" ? "done" : `${task.status}: ${task.problem ?? ""}`);
           });
         });
         const started = await core.startResearch({
@@ -349,8 +351,19 @@ export const FLOWS: readonly Flow[] = [
           scope: { folderIds: [], tagIds: [], documentIds: [] },
         });
         if (!started.started) throw new Error(`Not started: ${JSON.stringify(started)}`);
-        taskId = started.task.id;
-        await ended;
+        const id = started.task.id;
+        taskId = id;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const late = new Promise<"late">((resolve) => {
+          timer = setTimeout(() => resolve("late"), TASK_LIMIT_MS);
+        });
+        const end = await Promise.race([ended, late]).finally(() => clearTimeout(timer));
+        if (end === "late") {
+          // Stopped, so a stream left open doesn't hold the run and its report back.
+          await core.stopTask(id);
+          throw new Error("The Research Task took too long.");
+        }
+        if (end !== "done") throw new Error(`The Task ended ${end}`);
       });
     },
   },

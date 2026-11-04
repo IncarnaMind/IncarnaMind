@@ -5350,6 +5350,11 @@ export interface ChatProvider {
   baseUrl: string | null;
   /** Whether an API key is stored for it. Keys live in the keychain, never in the database. */
   hasApiKey: boolean;
+  /**
+   * True when a key is saved for it but this device can't open it, as after the
+   * keyring that saved it changed. Absent when a key is readable or none is saved.
+   */
+  apiKeyUnreadable?: boolean;
   /** Where Questions go, or null when the server runs on this computer and nothing leaves it. */
   service: ExternalService | null;
 }
@@ -5397,6 +5402,8 @@ export interface TestChatConnectionInput {
 /** Why a request to a model provider failed, so the UI can say what to fix. */
 export type ProviderErrorKind =
   | "auth"
+  /** A saved key this device can't open (e.g. the keyring changed): the User enters it again. */
+  | "api-key-unreadable"
   | "model"
   | "rate-limit"
   | "network"
@@ -6064,6 +6071,8 @@ export type ChatReadiness =
       ready: false;
       /**
        * "missing-api-key": the provider needs a key and none is stored.
+       * "api-key-unreadable": the provider's saved key can't be opened on this
+       * device (e.g. the keyring changed), so it is asked for again.
        * "consent-declined": the User declined sending data to its service.
        * "sign-in-required": the provider uses a sign-in (the ChatGPT plan) and
        * this device has none, e.g. the User signed out or it expired.
@@ -6071,7 +6080,12 @@ export type ChatReadiness =
        * on this computer, so no Question is sent to it (each other flow checks
        * local mode itself).
        */
-      reason: "missing-api-key" | "consent-declined" | "sign-in-required" | "local-mode";
+      reason:
+        | "missing-api-key"
+        | "api-key-unreadable"
+        | "consent-declined"
+        | "sign-in-required"
+        | "local-mode";
       provider: ChatProvider;
       modelId: string;
     };

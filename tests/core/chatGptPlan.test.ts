@@ -32,7 +32,7 @@ import {
   RESOURCE,
   startFakeOpenAI,
 } from "../helpers/chatgpt";
-import { createFakeCipher } from "../helpers/cipher";
+import { createFakeCipher, createLegacyCipher } from "../helpers/cipher";
 import { answerEnded } from "../helpers/citations";
 import {
   createMemoryKeychain,
@@ -998,7 +998,7 @@ describe("A ChatGPT profile whose sign-in can't be read", () => {
     const profile = await createTempDataFolder();
     const file = join(profile, SECRETS_FILE);
     if (record !== null) {
-      const encrypted = createFakeCipher().encrypt(record).toString("base64");
+      const encrypted = createLegacyCipher().encrypt(record).toString("base64");
       await writeFile(file, JSON.stringify({ [ACCOUNT_SECRET]: encrypted }), { mode: 0o600 });
     }
     const core = startCore(await createTempDataFolder(), {
@@ -1047,7 +1047,7 @@ describe("A ChatGPT profile whose sign-in can't be read", () => {
   async function readRecord(file: string) {
     const entries = JSON.parse(await readFile(file, "utf8")) as Record<string, string>;
     return JSON.parse(
-      createFakeCipher().decrypt(Buffer.from(entries[ACCOUNT_SECRET] ?? "", "base64")),
+      await createFakeCipher().decrypt(Buffer.from(entries[ACCOUNT_SECRET] ?? "", "base64")),
     );
   }
 
