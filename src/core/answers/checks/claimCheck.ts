@@ -126,6 +126,7 @@ import {
   PRESENCE_INSTRUCTIONS,
   partInstructions,
   presencePrompt,
+  RECHECK_INSTRUCTIONS,
   type ReadCorrection,
   type ReadVerdict,
   readEvidence,
@@ -1633,6 +1634,47 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         excluded: nearest ? left.excluded : [...left.excluded, ...workingsSayingIt()],
       };
     };
+    // The fields-only second look (#2313): a judge's own reply that said it could not state the
+    // sentence, and then said the claim is stated and the same, is asked once more; a still
+    // inconsistent reply is Not checked rather than Supported or cut.
+    const rechecked = async (
+      again: ReadVerdict | null,
+      shown: Citation | null,
+    ): Promise<ClaimCheckResult> => {
+      if (!again) return notChecked("malformed");
+      if (again.verdict === "supported") {
+        if (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+          return unsupported(
+            {
+              reason: again.says,
+              covered: again.covered,
+              uncovered: again.uncovered,
+              found: true,
+            },
+            shown,
+          );
+        return {
+          verdict: "supported",
+          evidence: shown,
+          says: null,
+          unsupported: null,
+          calculation: worked?.calculation ?? null,
+          ...citedCase(shown),
+          ...facts(),
+        };
+      }
+      if (again.roles === "differs" || again.time === "differs" || again.scope === "wider")
+        return unsupported(
+          {
+            reason: again.says,
+            covered: again.covered,
+            uncovered: again.uncovered,
+            found: true,
+          },
+          shown,
+        );
+      return notChecked("malformed");
+    };
     session.check();
     if (verdict.reasonKind) {
       return unsupported(
@@ -1651,6 +1693,22 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       );
     }
     if (verdict.verdict === "unsupported" && !byCalculation) {
+      // Its fields say the claim is stated and the same, while its verdict says otherwise: ask
+      // once more, and a still inconsistent reply is Not checked (#2313).
+      const stated = namedEvidence[0] ?? null;
+      if (
+        stated !== null &&
+        verdict.topic === "found" &&
+        verdict.scope === "same" &&
+        verdict.roles === "same" &&
+        (verdict.time === undefined || verdict.time === "same") &&
+        quoteStatesDetail(request.claim, stated.quote)
+      ) {
+        const again = await compare(request, stated, session, signal, RECHECK_INSTRUCTIONS);
+        if ("failed" in again) return failedCheck(again.failed);
+        if (signal.aborted) return notChecked("stopped");
+        return rechecked(readVerdict(again.reply), stated);
+      }
       // A part covered stands only for a claim whose own topic a Passage is about: the reply's own
       // field says so, so a neighbouring topic's line is never shown as part of the claim.
       const onTopic = verdict.topic !== "not found";
@@ -1777,7 +1835,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
       }
       // A part whose quote states it on its own, and whose own Roles, Time and Scope agree: the
       // reply's contradiction was about words outside the part, as a sentence's figure is for a
-      // part about when it happened (#2313).
+      // part about when it happened. Its fields disagree with its verdict, so it is asked once
+      // more; never upgraded by this code (#2313).
       const sentence = request.originalClaim;
       if (
         confirmation.kind === "states" &&
@@ -1791,16 +1850,12 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         isPartOf(sentence, request.claim) &&
         evidence !== null &&
         quoteStatesDetail(request.claim, evidence.quote)
-      )
-        return {
-          verdict: "supported",
-          evidence,
-          says: null,
-          unsupported: null,
-          calculation: worked?.calculation ?? null,
-          ...citedCase(evidence),
-          ...facts(),
-        };
+      ) {
+        const again = await compare(request, deciding, session, signal, RECHECK_INSTRUCTIONS);
+        if ("failed" in again) return failedCheck(again.failed);
+        if (signal.aborted) return notChecked("stopped");
+        return rechecked(readVerdict(again.reply), evidence);
+      }
       // A whole sentence keeps the card of what the quote covers, never Supported: in one word it
       // called the parties the other way round the same (#1668, #2313).
       if (confirmation.kind === "doubt" || confirmation.kind === "states") return inDoubt();
@@ -2111,8 +2166,9 @@ const DETAIL_LINKS = new Set([
 
 /**
  * Whether the deciding quote states the part's own detail in its own order: its content words
- * stand consecutively, and in Chinese a run's characters stand in adjacent pairs. One judgement
- * called "every week" against "every year" the same, and the part read Supported (#2313).
+ * stand consecutively, its numbers whole, and in Chinese a run stands whole. One judgement called
+ * a part's own detail the same when the quote had another there, and the part read Supported
+ * (#2313).
  */
 export function quoteStatesDetail(claim: string, quote: string): boolean {
   const normalize = (text: string) =>
@@ -2130,9 +2186,15 @@ export function quoteStatesDetail(claim: string, quote: string): boolean {
   const negations = (each: string) =>
     [...each.matchAll(/\b(?:not|no|never|without|nor|cannot)\b|[不未没无非]/gu)].length;
   if (negations(text) > negations(own)) return false;
+  // A number is its whole digits, so "3.9" is compared with "3.9" and never split into "3" and
+  // "9", which the word tokenizer would drop; a comma is a thousands mark.
+  const numbers = (each: string) =>
+    (each.match(/\d+(?:[.,]\d+)*/g) ?? []).map((number) => number.replace(/,/g, ""));
+  const quoteNumbers = new Set(numbers(text));
+  for (const number of numbers(own)) if (!quoteNumbers.has(number)) return false;
   const content = (word: string) =>
+    !/\d/.test(word) &&
     !/^\p{Script=Han}+$/u.test(word) &&
-    !/^\d+(?:\.\d+)?[a-z]{1,2}$/u.test(word) &&
     word.length >= 2 &&
     !DETAIL_LINKS.has(word);
   const quoteWords = words(text);
@@ -2144,18 +2206,8 @@ export function quoteStatesDetail(claim: string, quote: string): boolean {
       ownContent.every((word, offset) => quoteContent[start + offset] === word),
     );
   if (!consecutive) return false;
-  const pairs = new Set<string>();
-  for (const run of quoteWords.filter((word) => /^\p{Script=Han}+$/u.test(word)))
-    for (let at = 0; at + 1 < run.length; at++) pairs.add(run.slice(at, at + 2));
-  for (const word of words(own)) {
-    if (!/^\p{Script=Han}+$/u.test(word)) continue;
-    if (word.length === 1) {
-      if (!text.includes(word)) return false;
-      continue;
-    }
-    for (let at = 0; at + 1 < word.length; at++)
-      if (!pairs.has(word.slice(at, at + 2))) return false;
-  }
+  for (const word of words(own))
+    if (/^\p{Script=Han}+$/u.test(word) && !text.includes(word)) return false;
   return true;
 }
 
