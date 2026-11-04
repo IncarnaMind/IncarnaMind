@@ -208,6 +208,18 @@ describe("literal sentence parts", () => {
       ];
       const quote = fact.startsWith("costs") ? "In 2025, costs rose 40%." : "2025年成本上涨了40%。";
       const { result, calls } = await check(claim, parts, { [fact]: { quotes: [quote] } });
+      if (result.verdict === "not-checked")
+        console.log(
+          "DBG",
+          JSON.stringify(
+            calls.map((call) => [
+              call.system.slice(0, 40),
+              sentenceOf(call),
+              call.results.map((r) => r.tool),
+            ]),
+          ),
+          JSON.stringify(result.parts?.map((part) => [part.verdict, part.reason])),
+        );
       expect(
         result.verdict,
         result.verdict === "not-checked"
@@ -234,6 +246,62 @@ describe("literal sentence parts", () => {
       ).toHaveLength(1);
       expect([...new Set(calls.filter(sent).slice(1).map(sentenceOf))]).toEqual([fact]);
       expect(result.parts?.[1]?.coverage).toBeUndefined();
+    },
+  );
+
+  test.each([
+    {
+      language: "en" as const,
+      claim: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      first: "Customer churn fell to 3.9 per cent",
+      timing: "after the onboarding redesign",
+      quote: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+      reason:
+        "The Document says churn fell to 4.2 per cent, not 3.9 per cent. The sentence's onboarding-redesign link is otherwise as stated in that Document.",
+    },
+    {
+      language: "zh-CN" as const,
+      claim: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
+      first: "客户流失率降至 3.9%",
+      timing: "时点在引导流程重新设计之后",
+      quote: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
+      reason: "文件写的是 4.2%，不是 3.9%；引导流程重新设计的时点在文件中已有说明。",
+    },
+  ])(
+    "a part the quote states on its own is Supported, though the reply called the sentence contradicted ($language)",
+    async ({ language, claim, first, timing, quote, reason }) => {
+      const { result } = await check(
+        claim,
+        [
+          { kind: "fact", text: first },
+          { kind: "fact", text: timing },
+        ],
+        {
+          [first]: {
+            quotes: [quote],
+            reply: `Verdict: contradicted\nThe Document gives another figure.\nEvidence: [1]`,
+            judgement: "conflict",
+          },
+          [timing]: {
+            quotes: [quote],
+            reply: `Verdict: contradicted\n${reason}\nEvidence: [1]`,
+            judgement: "same",
+          },
+        },
+        language,
+      );
+
+      // The figure's part is contradicted; the part that says when it happened is stated by the
+      // very quote, so it isn't drawn as a card of what the Documents cover and don't (#2313).
+      expect(
+        result.verdict,
+        result.verdict === "not-checked" ? `${result.reason}: ${result.detail}` : undefined,
+      ).toBe("contradicted");
+      expect(result.parts?.map((part) => part.verdict)).toEqual(["contradicted", "supported"]);
+      const judged = result.parts?.[1];
+      expect(judged?.says).toBeNull();
+      expect(judged?.unsupported).toBeNull();
+      expect(judged?.evidence.map((citation) => citation.quote)).toEqual([quote]);
     },
   );
 

@@ -1,0 +1,206 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
+import type { CitationAttributes, CoreBridge } from "../src/core/api";
+import {
+  addDocuments,
+  createDataFolder,
+  dismissChatSetup,
+  launchApp,
+  motionSettled,
+  newMind,
+  pointAndClick,
+  removeDataFolder,
+  setLanguage,
+  setWindowSize,
+  useLocalChatModel,
+} from "./app";
+
+/*
+ * A one-click fix's own sentence (#2313). The check is written into the page, so the card's
+ * fix, its re-check and the Check again after it run without a model until the Check again,
+ * which the scripted model answers.
+ */
+
+const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+const screenshot = async (window: Page, name: string) => {
+  if (!SCREENSHOTS) return;
+  await motionSettled(window);
+  await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+};
+
+let dataDir: string;
+let sources: string;
+test.beforeEach(async () => {
+  dataDir = await createDataFolder();
+  sources = await createDataFolder();
+});
+test.afterEach(async () => {
+  await removeDataFolder(dataDir);
+  await removeDataFolder(sources);
+});
+
+const TEXT = {
+  en: {
+    sentence: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+    first: "Customer churn fell to 3.9 per cent",
+    timing: "after the onboarding redesign",
+    from: "3.9 per cent",
+    to: "4.2 per cent",
+    deck: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+    document: "Quarterly Research Update",
+    fix: "Change to 4.2 per cent",
+    checkAgain: "Check again",
+  },
+  "zh-CN": {
+    sentence: "客户流失率在 2025 年第 2 季度降至 3.9%，时点在引导流程重新设计之后。",
+    first: "客户流失率在 2025 年第 2 季度降至 3.9%",
+    timing: "时点在引导流程重新设计之后",
+    from: "3.9%",
+    to: "4.2%",
+    deck: "客户流失率在 2025 年第 2 季度降至 4.2%，时点在引导流程重新设计之后。",
+    document: "季度研究更新",
+    fix: "改为 4.2%",
+    checkAgain: "重新核对",
+  },
+} as const;
+
+for (const [language, width] of [
+  ["en", 1440],
+  ["en", 900],
+  ["zh-CN", 1440],
+  ["zh-CN", 900],
+] as const) {
+  test(`a fix leaves its own sentence for a check, never a Cut, and the Check again reads it Supported (${language}, ${width}px)`, async () => {
+    test.setTimeout(240_000);
+    const words = TEXT[language];
+    await writeFile(
+      join(sources, `${words.document}.md`),
+      `# ${words.document}\n\n${words.deck}\n`,
+    );
+    const running = await launchApp(dataDir, { fakeChat: true });
+    const { app, window } = running;
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, width, 900);
+    await addDocuments(window, [join(sources, `${words.document}.md`)]);
+    const [document] = await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
+    );
+    if (!document) throw new Error("The deck isn't among the Documents.");
+    await newMind(window);
+
+    const evidence: CitationAttributes = {
+      passageId: "passage-deck",
+      documentId: document.id,
+      documentName: words.document,
+      contentHash: document.contentHash,
+      pageFrom: null,
+      pageTo: null,
+      location: null,
+      quote: words.deck,
+      check: "found",
+      checkReason: null,
+    };
+    const result = (found: CitationAttributes[]) => ({
+      reason: null,
+      detail: null,
+      evidence: found[0] ?? null,
+      says: null,
+      unsupported: null,
+      calculation: null,
+      citedCaseUnchecked: false,
+      citedCaseFound: false,
+      versions: [],
+      excluded: [],
+    });
+    const timingAt = words.sentence.indexOf(words.timing);
+    const check = {
+      type: "claimCheck",
+      attrs: {
+        id: "churn",
+        request: "request-churn",
+        action: "check-against-documents",
+        state: "contradicted",
+        providerId: "anthropic",
+        modelId: "claude-haiku-5-5",
+        text: words.sentence,
+        ...result([evidence]),
+        scope: { folderId: null, widened: false },
+        checkedAt: new Date(Date.now() + 60_000).toISOString(),
+        parts: [
+          {
+            ...result([evidence]),
+            span: { start: 0, end: words.first.length },
+            kind: "fact",
+            verdict: "contradicted",
+            evidence: [evidence],
+            decidingEvidence: 0,
+            correction: {
+              from: words.from,
+              choices: [{ wording: words.to, evidence }],
+            },
+          },
+          {
+            ...result([]),
+            span: { start: timingAt, end: timingAt + words.timing.length },
+            kind: "fact",
+            verdict: "unsupported",
+            evidence: [],
+            decidingEvidence: null,
+            says: "The sentence's onboarding-redesign link is otherwise as stated in that Document.",
+            unsupported: {
+              reason:
+                "The sentence's onboarding-redesign link is otherwise as stated in that Document.",
+              covered: words.timing,
+              uncovered: words.first,
+              found: true,
+            },
+          },
+        ],
+      },
+    };
+    await window.getByTestId("mind-editor").evaluate(
+      (dom, content) => {
+        (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
+      },
+      [{ type: "paragraph", content: [{ type: "text", text: words.sentence, marks: [check] }] }],
+    );
+
+    const editor = window.getByTestId("mind-editor");
+    const line = editor.locator(":scope > p").first();
+    const mark = window.getByTestId("claim-mark");
+    const card = window.getByTestId("claim-card");
+
+    // Before the fix: the card says what the deck says, and offers the change on its row.
+    await pointAndClick(window, mark);
+    const contradicting = card.getByTestId("claim-part").first();
+    await expect(contradicting.getByTestId("claim-part-correct")).toHaveText(words.fix);
+    await expect(card.getByTestId("claim-cut")).toHaveCount(0);
+    await screenshot(window, `fix-recheck-before-${language}-${width}`);
+
+    await pointAndClick(window, contradicting.getByTestId("claim-part-correct"));
+    await expect(line).toContainText(words.to);
+    await expect(line).not.toContainText(words.from);
+    await expect(line.getByTestId("citation")).toHaveCount(1);
+    // The earlier check was made on the old words: the sentence says it needs a re-check, and
+    // the card offers to check it instead of cutting words the fix made exact.
+    await expect(mark).toHaveAttribute("data-check", "needs-recheck");
+    await pointAndClick(window, mark);
+    await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "needs-recheck");
+    await expect(card.getByTestId("claim-cut")).toHaveCount(0);
+    await expect(card.getByTestId("claim-check-again")).toHaveText(words.checkAgain);
+    await screenshot(window, `fix-recheck-after-${language}-${width}`);
+
+    // The card's Check again reads the whole sentence as it is now.
+    await pointAndClick(window, card.getByTestId("claim-check-again"));
+    await expect(mark).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
+    await pointAndClick(window, mark);
+    await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "supported");
+    await expect(card.getByTestId("claim-cut")).toHaveCount(0);
+    await screenshot(window, `fix-recheck-checked-${language}-${width}`);
+    await app.close();
+  });
+}

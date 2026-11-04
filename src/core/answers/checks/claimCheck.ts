@@ -1775,8 +1775,26 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           ? unsupported(unit, unitProblem?.quote ?? null, null)
           : (byCalculation ?? unsupported(verdict.topic === "not found" ? undefined : UNBACKED));
       }
+      // A part whose quote states it on its own: the reply's contradiction was about words
+      // outside the part, as a sentence's figure is for a part about when it happened (#2313).
+      if (
+        confirmation.kind === "states" &&
+        !unit &&
+        !byCalculation &&
+        request.originalClaim !== undefined &&
+        request.originalClaim !== request.claim
+      )
+        return {
+          verdict: "supported",
+          evidence,
+          says: null,
+          unsupported: null,
+          calculation: worked?.calculation ?? null,
+          ...citedCase(evidence),
+          ...facts(),
+        };
       // Never Supported: in one word it called the parties the other way round the same (#1668).
-      if (confirmation.kind === "doubt") return inDoubt();
+      if (confirmation.kind === "doubt" || confirmation.kind === "states") return inDoubt();
       // A false contradiction is the worst verdict a check gives, and one judgement upheld near
       // misses (#1647): the strict one finds the quote doesn't state the sentence's detail, and
       // then the card shows the part the quote states (DESIGN.md › Checks). Its "same" doesn't
@@ -2040,7 +2058,7 @@ async function confirmContradiction(
   session: ReturnType<typeof createCitationSession>,
   signal: AbortSignal,
 ): Promise<
-  | { kind: "unrelated" | "doubt" | "confirmed" | "malformed" | "stopped" }
+  | { kind: "unrelated" | "states" | "doubt" | "confirmed" | "malformed" | "stopped" }
   | { failed: ProviderError }
 > {
   const first = await compare(request, quoted, session, signal, CONFIRM_INSTRUCTIONS);
@@ -2048,7 +2066,7 @@ async function confirmContradiction(
   if ("failed" in first) return first;
   const judged = readJudgement(first.reply);
   if (judged === "neither") return { kind: "unrelated" };
-  if (judged === "same") return { kind: "doubt" };
+  if (judged === "same") return { kind: "states" };
   const strict = await compare(request, quoted, session, signal, STRICT_INSTRUCTIONS);
   if (signal.aborted) return { kind: "stopped" };
   if ("failed" in strict) return strict;
