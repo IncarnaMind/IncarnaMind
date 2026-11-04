@@ -15,6 +15,7 @@ import {
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
 } from "../core/api";
+import { diffSteps, splitWords } from "../core/proposals/diff";
 import { proposalRequestOf, readProposalAttribute, readProposalRef } from "./proposals";
 
 const MOST_OF_YOUR_TEXT = 0.5;
@@ -50,20 +51,52 @@ interface OwnTextMeasurement {
   removed: number;
 }
 
+/** A word, a number or a Han character: what a change writes back, unlike a space or a mark. */
+const WORD = /[\p{L}\p{N}]/u;
+
+/** How many characters of `out` the words of `back` don't write again, in order. */
+function notWrittenBack(out: string, back: string): number {
+  if (back === "") return out.length;
+  const old = splitWords(out);
+  let at = 0;
+  let kept = 0;
+  for (const step of diffSteps(old, splitWords(back))) {
+    if (step === "insert") continue;
+    const token = old[at++] ?? "";
+    if (step === "equal" && WORD.test(token)) kept += token.length;
+  }
+  return out.length - kept;
+}
+
+/**
+ * What the User's own text loses: the words each change strikes and doesn't write back. A
+ * paragraph written anew is struck whole and written again (#1028), so counted by its strike, the
+ * words it keeps would count as taken out, and the same change would wait or apply by how it
+ * reads (#2356).
+ */
 function measureOwnText(
   blocks: Y.XmlFragment | Y.XmlElement,
   requests: ReadonlySet<string>,
 ): OwnTextMeasurement {
   let own = 0;
   let removed = 0;
+  const changes = new Map<string, { out: string; back: string }>();
+  const changeOf = (id: string) => {
+    const change = changes.get(id) ?? { out: "", back: "" };
+    changes.set(id, change);
+    return change;
+  };
   const visit = (parent: Y.XmlFragment | Y.XmlElement, goes: boolean) => {
     for (const child of parent.toArray()) {
       if (child instanceof Y.XmlText) {
         for (const run of runsOf(child)) {
+          const added = readProposalRef(run.attributes[PROPOSAL_INSERT_MARK]);
+          if (added && requests.has(added.request)) changeOf(added.id).back += run.insert;
           if (marked(run, GENERATED_MARK) || marked(run, PROPOSAL_INSERT_MARK)) continue;
           own += run.insert.length;
           const deleted = readProposalRef(run.attributes[PROPOSAL_DELETE_MARK]);
-          if (goes || (deleted && requests.has(deleted.request))) removed += run.insert.length;
+          if (goes) removed += run.insert.length;
+          else if (deleted && requests.has(deleted.request)) changeOf(deleted.id).out += run.insert;
         }
       } else if (child instanceof Y.XmlElement) {
         const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
@@ -73,6 +106,7 @@ function measureOwnText(
     }
   };
   visit(blocks, false);
+  for (const { out, back } of changes.values()) removed += notWrittenBack(out, back);
   return { own, removed };
 }
 
