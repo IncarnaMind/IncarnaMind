@@ -252,7 +252,7 @@ export function SelectionMenu({
         ? () => {
             close();
             const now = heldNow() ?? held;
-            void citeChosenWords(pick, document, () => citedSelection(now.selection, pick.mindId));
+            void citeChosenWords(pick, document, (mindId) => citedSelection(now.selection, mindId));
           }
         : null,
     [held, pick, close, heldNow, document],
@@ -465,7 +465,7 @@ export const citeRangeAction = (
     ? {
         cite: () => {
           then?.();
-          void citeChosenWords(pick, selection.document, () => citeRange(selection, pick.mindId));
+          void citeChosenWords(pick, selection.document, (mindId) => citeRange(selection, mindId));
         },
       }
     : {};

@@ -396,7 +396,7 @@ describe("A rewrite changes only the value that differs", () => {
   });
 });
 
-const SENTENCE = "Rent is 1100 dollars.";
+const SENTENCE = "Rent is 1100 dollars monthly.";
 const LINE = "Rent is 1250 dollars monthly.";
 
 /** A Note whose one sentence carries a check that found `LINE` saying something different. */

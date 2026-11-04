@@ -74,36 +74,56 @@ const isFigure = (tokens: readonly string[]): boolean =>
   tokens.some((token) => NUMERAL.test(token)) && tokens.every((token) => FIGURE_PART.test(token));
 
 const CONNECTORS = new Set(["of", "and", "the", "de", "du", "van", "von", "der", "la", "le"]);
+/** The words in capitals a company's name may end in; any other is a word, such as UNLESS. */
+const COMPANY_SUFFIXES = new Set([
+  "LLC",
+  "LLP",
+  "LP",
+  "PLC",
+  "LTD",
+  "INC",
+  "AG",
+  "SA",
+  "NV",
+  "BV",
+  "GMBH",
+  "KG",
+  "PTE",
+  "PTY",
+  "CO",
+]);
 const CAPITALISED = /^\p{Lu}[\p{L}\p{M}]*$/u;
+const capitalised = (word: string): boolean =>
+  CAPITALISED.test(word) &&
+  (word.length === 1 || word !== word.toUpperCase() || COMPANY_SUFFIXES.has(word));
 
 /** A name of at most 8 capitalised words: "Westmarch Commercial Property Investments Limited". */
 function isName(words: string): boolean {
   const tokens = tokensOf(words);
   const first = tokens[0];
   const last = tokens.findLast((token) => token !== ".");
-  const named = tokens.filter((token) => CAPITALISED.test(token)).length;
+  const named = tokens.filter(capitalised).length;
   return (
     first !== undefined &&
     last !== undefined &&
-    CAPITALISED.test(first) &&
-    CAPITALISED.test(last) &&
+    capitalised(first) &&
+    capitalised(last) &&
     named <= 8 &&
-    tokens.every(
-      (token) => CAPITALISED.test(token) || CONNECTORS.has(token) || /^[.&'’-]$/u.test(token),
-    )
+    tokens.every((token) => capitalised(token) || CONNECTORS.has(token) || /^[.&'’-]$/u.test(token))
   );
 }
 
 /**
  * Surnames that rarely begin another word in an agreement, so two or three characters starting
  * with one are a person's name. A name with any other surname, a compound surname, four or more
- * characters, or a character of the words below is refused: 王芳但须经董事会批准, 董事, 经理.
+ * characters, or a character of the words below is refused: 王芳但须经董事会批准, 董事, 经理, 王总,
+ * 王芳等.
  */
 const SURNAMES = new Set([
   ..."王李张刘陈杨赵黄吴孙胡郭林罗郑梁谢韩冯邓曹彭肖袁潘蒋蔡魏吕沈姚卢崔谭汪廖邹熊邱薛侯郝龚邵",
 ]);
 const NEVER_IN_NAMES = new Set([
-  ..."不未非无但须应可得经如若除及和或与的之由向对在于将已会事长理员人方部司公期内外前后上下",
+  ..."不未非无但须应可得经如若除及和或与的之由向对在于将已会事长理员人方部司公期内外前后上下等总",
 ]);
 
 function isChineseName(words: string): boolean {
@@ -167,16 +187,81 @@ const figuresIn = (quote: string): number =>
     .replace(/^\s*\p{Nd}+[.)]\s+/u, "")
     .match(FIGURES)?.length ?? 0;
 
+/** Where a clause ends: "," ";" or ":" before a space, a sentence's stop, or their Chinese forms. */
+const CLAUSE_MARKS = /[,;:](?=\s)|\.(?=\s|$)|[，；：。！？!?]/gu;
+
+/** The words of `text`'s clause before `at`, and after `end`. */
+function clauseAround(text: string, at: number, end: number): { before: string; after: string } {
+  let start = 0;
+  let stop = text.length;
+  for (const mark of text.matchAll(CLAUSE_MARKS)) {
+    const place = mark.index ?? 0;
+    if (place < at) start = place + mark[0].length;
+    else if (place >= end) {
+      stop = place;
+      break;
+    }
+  }
+  return { before: text.slice(start, at), after: text.slice(end, stop) };
+}
+
+const sameWords = (one: string, other: string): boolean =>
+  tokensOf(one).join(" ") === tokensOf(other).join(" ");
+
+/** Which way a figure goes, or what it is: a rise or a fall, a loss or a profit. */
+const DIRECTIONS: readonly [string, RegExp][] = [
+  [
+    "up",
+    /\b(?:rose|rise[ns]?|rising|increas\w*|grew|grow\w*|gain\w*|up)\b|增长|上升|增加|提高|上涨/iu,
+  ],
+  ["down", /\b(?:fell|fall\w*|decreas\w*|declin\w*|drop\w*|down)\b|下降|减少|降低|下跌|下滑/iu],
+  ["loss", /\bloss\w*|亏损/iu],
+  ["profit", /\bprofit\w*|盈利|利润/iu],
+];
+const directionsIn = (text: string): string[] =>
+  DIRECTIONS.flatMap(([direction, words]) => (words.test(text) ? [direction] : []));
+
+/** The characters a Chinese sentence says a time or a rate with: 年租金, 按月, 每晚. */
+const TIME_CHARACTERS = /[年月周日天晚]/gu;
+
+/** What comes just before a Chinese name: 负责人为李明, 由李明, 王芳和李明. */
+const BEFORE_A_NAME = /(?:^|[为是由与和及给向、，：:])\s*$/u;
+
 /**
- * Whether the change writes only the value that differs: a figure for a figure, from a quote that
- * gives that one figure, so it can't be another thing's; or a name for a name. Anything more,
- * such as a condition, a negation or another thing's name, keeps the sentence.
+ * Whether the change writes only the value that differs, at `at` in `sentence`: a figure for a
+ * figure from a quote that gives that one figure, so it can't be another thing's, with the words
+ * that say what it measures (its unit, its way, its rate) as the quote has them; or a name for a
+ * name, in the words that say whose name it is in the quote, which doesn't name the old one.
+ * Anything more, such as a condition, a negation or another thing's name, keeps the sentence.
  */
-function changesOnlyTheValue(from: string, to: string, quote: string): boolean {
+function changesOnlyTheValue(
+  sentence: string,
+  at: number,
+  from: string,
+  to: string,
+  quote: string,
+): boolean {
   const [old, next] = differing(from, to);
-  if (old.length === 0 || next.length === 0) return false;
-  if (isFigure(old) && isFigure(next)) return figuresIn(quote) === 1;
-  return (isName(from) && isName(to)) || (isChineseName(from) && isChineseName(to));
+  const quotedAt = quote.indexOf(to);
+  if (old.length === 0 || next.length === 0 || quotedAt < 0) return false;
+  const rewritten = sentence.slice(0, at) + to + sentence.slice(at + from.length);
+  const mine = clauseAround(rewritten, at, at + to.length);
+  const quoted = clauseAround(quote, quotedAt, quotedAt + to.length);
+  if (isFigure(old) && isFigure(next)) {
+    const quotedDirections = directionsIn(quote);
+    const quotedTimes = new Set(quote.match(TIME_CHARACTERS));
+    const outside = sentence.slice(0, at) + sentence.slice(at + from.length);
+    return (
+      figuresIn(quote) === 1 &&
+      sameWords(mine.after, quoted.after) &&
+      directionsIn(rewritten).every((direction) => quotedDirections.includes(direction)) &&
+      (outside.match(TIME_CHARACTERS) ?? []).every((each) => quotedTimes.has(each))
+    );
+  }
+  const named =
+    (isName(from) && isName(to)) ||
+    (isChineseName(from) && isChineseName(to) && BEFORE_A_NAME.test(sentence.slice(0, at)));
+  return named && !quote.includes(from) && sameWords(mine.before, quoted.before);
 }
 
 export type RewriteOutcome =
@@ -213,7 +298,7 @@ export function rewriteOf(
   const at = sentence.indexOf(from);
   const rewritten = sentence.slice(0, at) + choice.wording + sentence.slice(at + from.length);
   const quotedRates = ratesIn(evidence.quote);
-  return changesOnlyTheValue(from, choice.wording, evidence.quote) &&
+  return changesOnlyTheValue(sentence, at, from, choice.wording, evidence.quote) &&
     [...ratesIn(rewritten)].every((rate) => quotedRates.has(rate)) &&
     figuresAllQuoted(rewritten, evidence.quote)
     ? { kind: "rewritten", correction: found.correction }

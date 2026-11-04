@@ -34,7 +34,7 @@ import {
 const OWN = "Harbours publish the times of high water every 12 months.";
 const ELSEWHERE = "Penguins nest on the harbour cliffs every spring.";
 const ABSENT = "Whales sing in the deep bay.";
-const DIFFERENT = "Harbours publish forecasts (6).";
+const DIFFERENT = "Harbours forecast tides for 6 months.";
 const PORTS = "Harbours publish (6) for (3) ports.";
 const TIDE_TABLES = "北码头潮汐时刻表";
 
@@ -326,7 +326,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // ⌘K's one Check against a Document… opens the picker with the Document open beside the
     // Note chosen, so Enter reads it.
-    await pointAndClick(window, editor.getByText("publish forecasts"));
+    await pointAndClick(window, editor.getByText("forecast tides"));
     await runCommand(window, "check.againstDocument", t("claim.checkAgainstDocument"));
     const documents = window.getByTestId("document-or-folder-picker");
     await expect(documents).toBeVisible();
@@ -362,7 +362,7 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       expect(await noteText(editor)).toBe(DIFFERENT);
       await holdModel(app, false);
-      await expect.poll(() => noteText(editor)).toBe("Harbours publish forecasts (12￼).");
+      await expect.poll(() => noteText(editor)).toBe("Harbours forecast tides for 12 months￼.");
       // Checked again on its Citation: the scripted model judges no cited sentence it doesn't
       // list, so the verdict a real model gives is in the live test.
       await expect(window.getByTestId("claim-mark").last()).toHaveAttribute(
@@ -413,9 +413,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await capture(window, `after-rewrite-offer-${language}-900`);
     // ⌘K reaches it, for the sentence at the caret.
     await window.keyboard.press("Escape");
-    await pointAndClick(window, editor.getByText("publish forecasts"));
+    await pointAndClick(window, editor.getByText("forecast tides"));
     await runCommand(window, "check.rewrite", t("claim.rewrite"));
-    await expect.poll(() => noteText(editor)).toBe("Harbours publish forecasts (12￼).");
+    await expect.poll(() => noteText(editor)).toBe("Harbours forecast tides for 12 months￼.");
     await app.close();
   });
 }
@@ -469,7 +469,7 @@ test("a Document filed behind a Folder wall the Note is outside is never cited o
   await expect(line).toHaveCount(0);
 
   // Asked again, Choose the Citation… opens the picker, where that Document can't be chosen.
-  await pointAndClick(window, editor.getByText("publish forecasts"));
+  await pointAndClick(window, editor.getByText("forecast tides"));
   await window.keyboard.press("ControlOrMeta+Shift+K");
   await pointAndClick(
     window,

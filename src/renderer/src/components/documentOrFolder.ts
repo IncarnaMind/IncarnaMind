@@ -1,4 +1,4 @@
-import type { SearchScope } from "../../../core/api";
+import type { Document, SearchScope } from "../../../core/api";
 import { NO_SCOPE } from "../../../shared/searchScope";
 import { folderWallOf, isInsideFolder } from "../folders";
 import { type ScopeChoice, type ScopeLibrary, scopeChoices } from "../scope";
@@ -18,13 +18,18 @@ export function documentOrFolderChoices(
   );
 }
 
+/** What `readableFrom` reads of the Library: its Folders, where Documents are filed, and their status. */
+export interface ReadableLibrary extends Pick<ScopeLibrary, "groups" | "assignments"> {
+  documents: readonly Pick<Document, "id" | "status">[];
+}
+
 /**
  * Whether a Note in the in-app Folder `folderId` (null: in none) may read a Document or Folder
  * whole, as the shared picker offers them: on the Note's side of a Folder wall, and a Document
  * with text.
  */
 export function readableFrom(
-  library: ScopeLibrary,
+  library: ReadableLibrary,
   folderId: string | null,
   choice: Pick<DocumentOrFolderChoice, "kind" | "id">,
 ): boolean {
@@ -41,7 +46,7 @@ export function readableFrom(
  * the wall's Folder and the Documents the User filed in it is outside. Null when it can.
  */
 export function keptFrom(
-  library: ScopeLibrary,
+  library: Pick<ScopeLibrary, "groups" | "assignments">,
   choice: Pick<DocumentOrFolderChoice, "kind" | "id">,
   wall: string | null,
 ): { inside: string } | "outside" | null {

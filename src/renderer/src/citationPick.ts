@@ -82,18 +82,19 @@ function waitingSentence(pick: CitationPick): { editor: Editor; claim: ShownClai
 }
 
 /**
- * Use as Citation: cites the selection as `cite` finds it, at the end of the sentence the pick
- * waits for, and checks the sentence again, in every Document, as the User pointed outside the
- * scope it searched. Says whether the Citation went in.
+ * Use as Citation: cites the selection as `cite` finds it for the Note the pick waits in, which
+ * a Folder wall may refuse, at the end of the sentence the pick waits for, and checks the
+ * sentence again, in every Document, as the User pointed outside the scope it searched. Says
+ * whether the Citation went in.
  */
 export async function citeChosenWords(
   pick: CitationPick,
   document: Pick<Document, "id" | "name">,
-  cite: () => Promise<CitedSelection>,
+  cite: (mindId: string) => Promise<CitedSelection>,
 ): Promise<boolean> {
   let cited: CitedSelection;
   try {
-    cited = await cite();
+    cited = await cite(pick.mindId);
   } catch (error) {
     useAppStore.getState().reportError(error);
     return false;
