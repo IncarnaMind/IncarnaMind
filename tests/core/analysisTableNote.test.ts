@@ -646,7 +646,12 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     expect(sources.places.map((place) => place.citation.documentName)).toEqual(["Orders"]);
     expect(drawn.data.rows[0]?.values[0]?.inputs?.[0]?.documentName).toBe("Orders");
     expect(translate(language, `chart.source.byAnalysis.other`, { count: sources.analysis })).toBe(
-      language === "en" ? "4 values, calculated by the Analysis" : "4 个数值，由数据分析计算得出",
+      language === "en"
+        ? "4 values, each calculated by the Analysis"
+        : "4 个数值，均由数据分析计算得出",
+    );
+    expect(translate(language, "chart.source.byAnalysis.one")).toBe(
+      language === "en" ? "1 value, calculated by the Analysis" : "1 个数值，由数据分析计算得出",
     );
     core.close();
   });
@@ -912,7 +917,7 @@ const NAMED = {
     reworded: "南部地区金额合计为 ",
     gone: "它所来自的数据分析已不可用",
     misnamed: (label: string) => `句中没有写明这个数字是${label}`,
-    unnamed: (label: string) => `句中没有明确写出这个数字是${label}`,
+    unnamed: (label: string) => `句中没有写明这个数字是${label}`,
     rests: "1 个数字未重新计算",
     two: "2 个数字未重新计算",
     whole: "North地区合计为 [=3]，全部合计为 [=6]。",
