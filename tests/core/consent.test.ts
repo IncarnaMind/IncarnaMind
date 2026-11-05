@@ -88,7 +88,7 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
     expect(await core.listDataFlows()).toEqual([
       allowed("chat", [...CHAT_FLOW_SENDS]),
       allowed("suggestions", ["writing", "writing-passages"]),
-      allowed("edits", ["selection"]),
+      allowed("edits", ["selection", "source-quotes"]),
       allowed("checks", ["selection", "passages", "verified-document", "blocks"]),
       {
         flow: {
@@ -140,6 +140,8 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
       "other-minds",
       "live-transcript",
       "pictures",
+      "skill-files",
+      "analysis-results",
     ]);
     await core.respondToConsent(first.request.requestId, true);
     expect(await first.result).toMatchObject({ modelId: "gpt-5.4-mini" });
@@ -356,7 +358,7 @@ describe("Data-flow consent", () => {
       },
       // Suggestions, Edit with AI, the checks (#96, #97) and tagging go there too.
       notAsked("suggestions", ["writing", "writing-passages"]),
-      notAsked("edits", ["selection"]),
+      notAsked("edits", ["selection", "source-quotes"]),
       notAsked("checks", ["selection", "passages", "verified-document", "blocks"]),
       notAsked("document-check", ["selection", "whole-document"]),
       notAsked("tagging", ["tags", "document-excerpts"]),

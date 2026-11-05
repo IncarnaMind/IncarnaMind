@@ -2331,11 +2331,12 @@ export const en = {
   "status.retry": "Retry",
   "webPages.add.title": "Add web pages",
   "webPages.add.note": "Paste an address, or several, one per line.",
-  "webPages.add.fetch": "Fetched once from this computer, kept as a Document.",
+  "webPages.add.fetch":
+    "Fetched once from this computer and kept as a Document; the request names your interface language.",
   "webPages.add.fetch.details":
     "The article’s pictures come with it, and may come from the site’s image servers. Nothing else on the page is loaded.",
   "webPages.add.fetch.details.keepLook":
-    "The article’s pictures come with it, and may come from the site’s image servers.",
+    "The article’s pictures come with it, and may come from the site’s image servers; keeping the look also loads the page’s scripts and the sites they contact.",
   "webPages.add.label": "Addresses",
   "webPages.add.invalid": "Not a web address: {line}",
   "webPages.add.cancel": "Cancel",
@@ -2350,7 +2351,8 @@ export const en = {
   "webPages.fetchAgainFailed": "Couldn’t fetch “{name}” again: {reason}",
   "webPages.tryAgain": "Try again",
   "webPages.add.keepLook": "Keep the page as it looks",
-  "webPages.keepLook.body": "Also keeps a PDF; the site sees a second visit.",
+  "webPages.keepLook.body":
+    "Also keeps a PDF, loading the page once more as a browser would; every site its scripts and pictures load from sees that visit.",
   "webPages.reason.invalid-address": "it isn’t a web address",
   "webPages.reason.unreachable": "the site can’t be reached",
   "webPages.reason.timed-out": "the site took too long to answer",
@@ -2864,10 +2866,12 @@ export const en = {
   "providers.form.save": "Use this service",
   "providers.sendsLine": "Sends your questions and document text to {provider}.",
   "providers.sends.chat":
-    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
+    "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs",
   "providers.sends.checks": "each sentence you check",
-  "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
-  "providers.sends.edits": "the text you ask the assistant to change",
+  "providers.sends.suggestions":
+    "the paragraph you pause on and up to 8 matching passages, each with its Document name and location, for writing suggestions",
+  "providers.sends.edits":
+    "the text you ask the assistant to change, the paragraphs it is in and, when the change rewrites or removes cited text, that Citation’s quote",
   "providers.sends.onRequest":
     "Tagging and sorting your Documents send each Document’s name and an excerpt, with your Folder and Tag names, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   "providers.form.saving": "Saving…",
@@ -3140,12 +3144,17 @@ export const en = {
     "This note’s text, your text and earlier Questions and Answers, minus excluded text",
   "consent.data.document-names":
     "The names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50 Documents)",
-  "consent.data.other-minds": "Part of another note, when a Question names it",
+  "consent.data.other-minds":
+    "The names of up to 30 of your most recently changed notes, noting which an Answer wrote, and part of another note when a Question names it",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":
     "passages from your Documents that match the Question, with their Documents’ names and pages",
-  "consent.data.tool-results": "Results of Connectors, Skill scripts and Analyses an Answer uses",
+  "consent.data.tool-results": "Results of Connectors and Skill scripts an Answer uses",
+  "consent.data.skill-files":
+    "The instructions and files of the Skills an Answer loads, including Skills you imported",
+  "consent.data.analysis-results":
+    "The capped report of each Analysis an Answer runs: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, printed results and text-file excerpts",
   "consent.flow.tagging": "Automatic Tags",
   "consent.flow.tagging.purpose": "tag your Documents automatically",
   "consent.data.tags": "The names and descriptions of your Tags",
@@ -3165,7 +3174,8 @@ export const en = {
   "consent.flow.suggestions": "Writing suggestions",
   "consent.flow.suggestions.purpose": "suggest how your writing goes on",
   "consent.data.writing": "The paragraph you’re writing, each time you pause at its end",
-  "consent.data.writing-passages": "Up to 8 passages from your Documents that match it",
+  "consent.data.writing-passages":
+    "Up to 8 matching passages from your Documents, each with its Document’s name and location",
   "consent.flow.rerank": "Reranking",
   "consent.flow.rerank.purpose": "put the best search results first",
   "consent.flow.connectors": "Connectors",
@@ -3179,19 +3189,23 @@ export const en = {
   "consent.data.references": "Each reference as written (authors, title, year, DOI), nothing else",
   "consent.flow.connector-registry": "Connector search",
   "consent.flow.connector-registry.purpose": "find community connectors in the MCP Registry",
-  "consent.data.connector-search": "What you type in the Connectors search, and nothing else",
+  "consent.data.connector-search":
+    "What you type in the Connectors search, sent on every search; IncarnaMind asks before the first one",
   "consent.flow.transcription": "Meeting transcription",
   "consent.flow.transcription.purpose": "turn what’s said in your meetings into text",
   "consent.data.meeting-audio": "Meeting audio while you record, other people’s voices included",
   "consent.flow.find-sources": "Find sources",
   "consent.flow.find-sources.purpose": "find papers and other sources, and add the ones you choose",
-  "consent.data.search-terms": "What you search for: the words and filters, such as years",
+  "consent.data.search-terms":
+    "What you or an Answer search for: the words and filters, such as years. An Answer’s words are written by the model from your Question and what it read.",
   "consent.data.work-ids":
     "The ID of each work you add: DOI, arXiv, PubMed, label set, NCT or citation",
   "consent.data.provider-key": "Your own key for this service, which it needs to answer",
   "consent.flow.edits": "Edit with AI",
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
+  "consent.data.source-quotes":
+    "The quotes from your Documents that the selected text’s Citations name, when a change rewrites or removes cited text",
 
   "reference.citeAs": "Cite as",
   "reference.citeAs.label": "Cite as: {name}",
@@ -3389,7 +3403,7 @@ export const en = {
   "privacy.crashReports.toggle": "Send crash reports",
   "privacy.crashReports.body": "Off until you turn it on. Never includes your text.",
   "privacy.crashReports.body.details":
-    "The report holds the error, where in IncarnaMind’s code it happened, the app version and your operating system. File paths, your Documents’ text, your notes, Questions and Answers are removed first, and no IP address is stored with it.",
+    "The report holds the error, where in IncarnaMind’s code it happened and when, the app version and build, your operating system and its version, your computer’s chip type and model family, its processor count and memory size, and the versions of Electron, Chrome and Node that IncarnaMind runs on. File paths, your Documents’ text, your notes, Questions and Answers are removed first, and no IP address is stored with it.",
   "privacy.intro.usageData": "IncarnaMind collects usage data only if you agree.",
   "privacy.traffic.usage-data": "Usage data",
   "privacy.traffic.usage-data.tip":
@@ -3495,7 +3509,7 @@ export const en = {
     "A note or conversation with no model of its own uses the one you last chose; until then, this one.",
   "models.defaults.quickTasks": "Quick tasks",
   "models.defaults.quickTasks.tip":
-    "Rewrites searches and suggests Tags. A small, cheap model is enough.",
+    "Rewrites searches, suggests Tags, and finds the quote behind each of an Answer’s Citations, so it receives the Answer and its passages. A small, cheap model is enough.",
   "models.defaults.images": "Reading images",
   "models.defaults.images.tip": "Reads scans and areas you select when the Answers model can’t.",
   "models.defaults.automatic": "Automatic · {model}",
@@ -6975,8 +6989,9 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, as the agent reads them",
-  "consent.data.scoped-minds": "Your notes in those Folders, when the agent reads them",
+    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location, and internal ids for it and the passages next to it",
+  "consent.data.scoped-minds":
+    "The shared Folders’ names, internal ids and Document counts, the names, internal ids and last-change times of the notes in them when the agent lists them, and a note’s text when the agent reads it",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
   "consent.flow.web-search": "Web search",
   "consent.flow.web-search.purpose": "search the web for your Questions",
@@ -7116,7 +7131,7 @@ export const en = {
   "agents.reason.waiting": "a paragraph had changes waiting",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders and the notes in them. What it reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders and the notes in them. Listing them sends each Folder’s name, internal id and Document count, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",
