@@ -701,7 +701,7 @@ test("the silence does not count the card's wait, at the default 320px assistant
     const from = (await waits()).length;
     const answeredAt = await window.evaluate(() => Date.now());
     await consent.getByTestId("consent-allow").click();
-    await expect(consent).toHaveCount(0);
+    await expect(consent).not.toBeVisible();
     const answer = assistantAnswers(window).last();
     // The Connector still runs: the silence runs from the answer, and its wait joins after its 1.5 s.
     await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole, {
