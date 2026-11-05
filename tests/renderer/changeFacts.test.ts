@@ -39,8 +39,8 @@ describe("The panel's line after the assistant applied a change (#1559)", () => 
     ],
     [
       { ...row({ wrote: 2 }), filled: false },
-      "Wrote 2 paragraphs in “Q3”",
-      "在“Q3”中已写入 2 个段落",
+      "Added 2 paragraphs to “Q3”",
+      "在“Q3”中添加了 2 个段落",
     ],
   ])("%o", (counts, english, chinese) => {
     expect(appliedFact(t("en"), counts, "Q3")).toBe(english);
@@ -57,7 +57,19 @@ describe("What an Answer did in a Mind, in words (#880), counted by paragraph (#
       "修改了 12 个段落",
     ],
     [row({ changed: 1 }), "Changed 1 paragraph in “Q3”", "Changed 1 paragraph", "修改了 1 个段落"],
-    [row({ wrote: 1 }), "Wrote 1 paragraph in “Q3”", "Wrote 1 paragraph", "写入了 1 个段落"],
+    [row({ wrote: 1 }), "Added 1 paragraph to “Q3”", "Added 1 paragraph", "添加了 1 个段落"],
+    [
+      row({ wrote: 3, filled: true }),
+      "Wrote 3 paragraphs in “Q3”",
+      "Wrote 3 paragraphs",
+      "写入了 3 个段落",
+    ],
+    [
+      row({ wrote: 3, tables: 1 }),
+      "Added 3 paragraphs and a table to “Q3”",
+      "Added 3 paragraphs and a table",
+      "添加了 3 个段落和 1 个表格",
+    ],
     [
       row({ created: true, wrote: 3 }),
       "Created “Q3” and wrote 3 paragraphs",

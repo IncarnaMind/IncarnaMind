@@ -124,7 +124,7 @@ test("a change in a Mind not in front names it, with Open and Undo, beside the l
   );
   const titles = answer.getByTestId("mind-changes-title");
   await expect(titles).toHaveText([
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
     "Wrote “Fieldwork plan”",
   ]);
   await expect(window.getByTestId("proposals-count")).toHaveCount(0);

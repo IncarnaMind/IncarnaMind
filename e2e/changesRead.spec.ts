@@ -245,7 +245,7 @@ async function changeAll(window: Page, instruction: string) {
 
 for (const language of ["en", "zh-CN"] as const) {
   // A reply without names doesn't say the old item goes, and the new one says none of its words: it is added, and the old one stays as left out (#2356).
-  test(`a résumé's list item replaced by one about something else, the reply not quoting the old one: the new item comes once, the old one stays as left out, and the line says a paragraph was written (${language})`, async () => {
+  test(`a résumé's list item replaced by one about something else, the reply not quoting the old one: the new item comes once, the old one stays as left out, and the line says a paragraph was added (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -262,16 +262,16 @@ for (const language of ["en", "zh-CN"] as const) {
             ],
             "Led quarterly forecasting for a team of twelve analysts",
             "Ran the forecast cycle each quarter",
-            "Wrote 1 paragraph",
-            "Wrote 1 paragraph",
+            "Added 1 paragraph",
+            "Added 1 paragraph",
           ]
         : [
             "教育经历",
             ["2016.09—2018.06 上海财经大学 会计学 硕士", "2012.09—2016.06 复旦大学 金融学 学士"],
             "2016.09—2018.06 上海财经大学 会计学 硕士",
             "2018.10—至今 Quillmere Hart Advisory, Senior Manager",
-            "写入了 1 个段落",
-            "写入了 1 个段落",
+            "添加了 1 个段落",
+            "添加了 1 个段落",
           ];
     const editor = await listWith(window, heading, items);
 
@@ -309,10 +309,10 @@ for (const language of ["en", "zh-CN"] as const) {
         ? [
             "Spring tides are strongest at new moon.",
             "add a table",
-            "Changed 1 table",
-            "1 table changed by Edit with AI",
+            "Added a table",
+            "Added a table",
           ]
-        : ["新月时大潮最强。", "加一个表格", "修改了 1 个表格", "用 AI 编辑修改的 1 个表格"];
+        : ["新月时大潮最强。", "加一个表格", "添加了 1 个表格", "添加了 1 个表格"];
     const editor = await mindWith(window, [line]);
 
     await changeAll(window, instruction);

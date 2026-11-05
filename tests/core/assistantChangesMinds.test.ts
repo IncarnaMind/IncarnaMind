@@ -2546,7 +2546,7 @@ describe("A line a reply without names adds beside one of the User's is said to 
   ];
   const FEES = ["房租每月1200元。", "停车每月100元。", "水费每月30元。"];
 
-  // protects=a reply without names that changes only a line's numbers adds the new line beside the User's, which stays, and everything said of it says a paragraph was written, never changed: the tool's result the model reads, the line on the Answer's card and the one over the Note, in English and Chinese; a line with words added to it changes that line and says so; fails_when=an added line is told or shown as a change, edit or replacement, or the User's line is written over; no_claim=how a real model words its reply.
+  // protects=a reply without names that changes only a line's numbers adds the new line beside the User's, which stays, and everything said of it says a paragraph was added, never changed: the tool's result the model reads, the line on the Answer's card and the one over the Note, in English and Chinese; a line with words added to it changes that line and says so; fails_when=an added line is told or shown as a change, edit, replacement or a whole Note written, or the User's line is written over; no_claim=how a real model words its reply.
   test.each([
     {
       case: "en, a room number",
@@ -2555,8 +2555,8 @@ describe("A line a reply without names adds beside one of the User's is said to 
       reply: [ROOMS[0], "Room 103 is booked for Tuesday.", ROOMS[2]],
       after: [ROOMS[0], "Room 103 is booked for Tuesday.", ROOMS[1], ROOMS[2]],
       told: "Added 1 paragraph to “Q3 review”",
-      card: "Wrote 1 paragraph in “Q3 review”",
-      line: "Wrote 1 paragraph",
+      card: "Added 1 paragraph to “Q3 review”",
+      line: "Added 1 paragraph",
     },
     {
       case: "zh, a parking fee",
@@ -2565,8 +2565,8 @@ describe("A line a reply without names adds beside one of the User's is said to 
       reply: [FEES[0], "停车每月120元。", FEES[2]],
       after: [FEES[0], "停车每月120元。", FEES[1], FEES[2]],
       told: "Added 1 paragraph to “Q3 review”",
-      card: "在“Q3 review”中已写入 1 个段落",
-      line: "写入了 1 个段落",
+      card: "在“Q3 review”中添加了 1 个段落",
+      line: "添加了 1 个段落",
     },
     {
       case: "en, words added to the room line",
