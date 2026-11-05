@@ -442,6 +442,7 @@ export const CALL_TAGS: readonly PromptTag[] = [
   "selected",
   "document-text",
   "document-skims",
+  "tool-record",
 ];
 
 /**
