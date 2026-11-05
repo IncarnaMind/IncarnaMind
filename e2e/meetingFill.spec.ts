@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { join, resolve } from "node:path";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
@@ -9,6 +9,7 @@ import {
   dismissChatSetup,
   focusSettled,
   launchApp,
+  motionSettled,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
@@ -16,13 +17,35 @@ import {
   setWindowSize,
   startRecording,
 } from "./app";
+import { encode, film } from "./feel";
 
-/** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there. */
+/** Set INCARNAMIND_SCREENSHOTS to keep stills and post-startup videos there. */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
+
+async function recordOnClose(app: ElectronApplication, window: Page, name: string): Promise<void> {
+  if (!SCREENSHOTS) return;
+  const frames = resolve(SCREENSHOTS, `${name}-frames`);
+  const video = resolve(SCREENSHOTS, `${name}.mp4`);
+  const stop = await film(window, frames);
+  const close = app.close.bind(app);
+  let closing: Promise<void> | undefined;
+  app.close = () => {
+    closing ??= (async () => {
+      try {
+        await stop();
+        await encode(frames, video);
+      } finally {
+        await close();
+      }
+    })();
+    return closing;
+  };
+}
 
 async function shot(window: Page, name: string): Promise<void> {
   if (!SCREENSHOTS) return;
   await mkdir(SCREENSHOTS, { recursive: true });
+  await motionSettled(window);
   await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 }
 
@@ -211,6 +234,7 @@ async function ownTranscriptRoundTrip(
   words: (typeof LINES)[keyof typeof LINES],
   speech: readonly string[],
   open: (panel: Locator) => Promise<void>,
+  name: string,
 ): Promise<void> {
   const noteTab = window.locator(`[data-testid="mind-tab"][data-mind-id="${meeting.mindId}"]`);
   await expect(noteTab).toHaveAttribute("aria-selected", "true");
@@ -263,6 +287,7 @@ async function ownTranscriptRoundTrip(
         `[data-testid="document-tab"][data-document-id="${meeting.transcript.documentId}"]`,
       ),
     ).toHaveCount(0);
+    await shot(window, `${name}-transcript`);
     await chooseMeetingView(window, panel, words, "notes");
     await expect(notes).toBeVisible();
     await expect(transcript).toBeHidden();
@@ -297,6 +322,7 @@ async function ownTranscriptRoundTrip(
     await expect(window.getByTestId("meeting-view-notes")).toBeHidden();
     await expect(chip).toBeFocused();
     await expect(chip).toHaveText(words.recordedChip);
+    await shot(window, `${name}-notes-restored`);
   } finally {
     await retained.dispose();
   }
@@ -308,6 +334,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const words = LINES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await setWindowSize(app, window, language === "en" ? 1440 : 900, 900);
+    await recordOnClose(app, window, `meeting-fill-sections-${language}`);
     await dismissChatSetup(window);
     await selectLocalChatModel(window);
 
@@ -378,6 +405,7 @@ for (const language of ["en", "zh-CN"] as const) {
       words,
       [...FAKE_LINES, ...FAKE_THEIR_LINES],
       (panel) => chooseMeetingView(window, panel, words, "transcript"),
+      `meeting-fill-sections-${language}`,
     );
     await expectFillPlace(notes, addedBlockIds);
     await expectActionsFit(line, 1);
@@ -409,6 +437,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const width =
           outcome === "partial" ? (language === "en" ? 900 : 1440) : language === "en" ? 1440 : 900;
         await setWindowSize(app, window, width, 900);
+        await recordOnClose(app, window, `meeting-fill-${outcome}-${language}`);
         await dismissChatSetup(window);
         await selectLocalChatModel(window);
         const bar = await startRecording(window, await recordMeeting(window), { notice: true });
@@ -497,8 +526,15 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(line.getByTestId("meeting-fill-undo")).toHaveCount(0);
           await expect(line.getByTestId("meeting-fill-again")).toHaveText(words.retry);
         }
-        await ownTranscriptRoundTrip(window, notes, meeting, words, words.speech, () =>
-          pointAndClick(window, transcript),
+        await shot(window, `meeting-fill-${outcome}-${language}`);
+        await ownTranscriptRoundTrip(
+          window,
+          notes,
+          meeting,
+          words,
+          words.speech,
+          () => pointAndClick(window, transcript),
+          `meeting-fill-${outcome}-${language}`,
         );
         await expect(controlNote).toHaveText(control);
         await expectFillPlace(notes, addedBlockIds ?? []);

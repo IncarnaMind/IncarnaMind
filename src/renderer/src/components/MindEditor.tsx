@@ -157,7 +157,7 @@ import { translateNow, useT } from "../i18n";
 import { useKeptScope, useMindScope } from "../keptScope";
 import { markSelectionAsMine } from "../markAsMine";
 import { useMeetingOf, useMeetings } from "../meetings";
-import { showMeetingNoteView, useMeetingNoteView } from "../meetingViews";
+import { meetingNoteViewFor, showMeetingNoteView, useMeetingNoteView } from "../meetingViews";
 import { type OpenedCopy, openMindCopy } from "../mindCopies";
 import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
@@ -697,10 +697,12 @@ function MindEditorView({
       cursorPlaced: () => cursorPlaced.current,
       returnToNote() {
         if (editor.isDestroyed) return;
+        const returningFromTranscript =
+          meetingKind === "meeting" && meetingNoteViewFor(tabId, mindId) === "transcript";
         revealEditor();
         // Where the cursor was, or at the end, at once: what is typed next goes there.
         // (Tiptap's `focus` waits a frame, and the first keys would go elsewhere.)
-        if (!cursorInMind.current) {
+        if (!cursorInMind.current && !returningFromTranscript) {
           editor.commands.command(({ tr }) => {
             tr.setSelection(Selection.atEnd(tr.doc));
             return true;
@@ -714,7 +716,7 @@ function MindEditorView({
     return () => {
       if (readMindHandle.current === handle) readMindHandle.current = null;
     };
-  }, [reads, editor, mindId, doc, revealEditor]);
+  }, [reads, editor, mindId, doc, meetingKind, tabId, revealEditor]);
 
   // The selection menu's AI section: each applies at once (#880), as Mark as mine does.
   const hasDocuments = useAppStore((state) => state.documents.length > 0);
