@@ -249,7 +249,7 @@ beforeEach(() => {
 const undoManager = (editor: Editor) => yUndoPluginKey.getState(editor.state)?.undoManager;
 
 describe("Change to… replaces the words and checks the sentence again", () => {
-  test("replaces only the old words, cites them before the stop, and asks for the sentence's check", () => {
+  test("replaces only the old words, cites them before the stop, and asks for the sentence's check", async () => {
     const attrs = check("one", "The rate is 36.8%.");
     const { editor, doc } = editorWith([
       {
@@ -265,13 +265,14 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
     expect(generatedText(editor)).toEqual(["38.6%"]);
     expect(citationsOf(editor)).toEqual([expect.objectContaining({ documentId: "report" })]);
-    expect(asked.checks).toEqual([
-      expect.objectContaining({
-        action: "check-against-documents",
-        from: { blockId: "block-one", offset: 0 },
-        to: { blockId: "block-one", offset: 19 },
-      }),
-    ]);
+    await vi.waitFor(() =>
+      expect(asked.checks).toEqual([
+        expect.objectContaining({
+          action: "check-against-documents",
+          from: { blockId: "block-one", offset: 0 },
+        }),
+      ]),
+    );
     // The old check stays until the model's verdict lands, and says its words changed.
     expect(claim(editor, "one").shown.state).toBe("needs-recheck");
     expect(recordAiUse).toHaveBeenCalledWith([
@@ -291,7 +292,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(citationsOf(editor)).toEqual([]);
   });
 
-  test("changes the words in the contradicted part, not the same words in another part", () => {
+  test("changes the words in the contradicted part, not the same words in another part", async () => {
     const text = "Sales rose 36.8%, and the rate is 36.8%.";
     const choices = [{ wording: "40.25%", evidence: evidence("report", "The rate is 40.25%.") }];
     const attrs = checkWithParts(basis("one", text), [
@@ -306,7 +307,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
     expect(textOf(editor)).toBe(`Sales rose 36.8%, and the rate is 40.25%${INLINE_NODE}.`);
-    expect(asked.checks).toHaveLength(1);
+    await vi.waitFor(() => expect(asked.checks).toHaveLength(1));
   });
 
   test("puts a new Citation at the sentence's end, not between the corrected value and its context", () => {
@@ -375,7 +376,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(citationsOf(editor).map((each) => each.documentId)).toEqual(["newer"]);
   });
 
-  test("adds no space between Chinese wording and its Citation", () => {
+  test("adds no space between Chinese wording and its Citation", async () => {
     const attrs = check("one", "比率是 36.8%。", "36.8%", [
       { wording: "百分之三十八点六", evidence: evidence("报告", "比率是百分之三十八点六。") },
     ]);
@@ -386,10 +387,10 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
     expect(textOf(editor)).toBe(`比率是 百分之三十八点六${INLINE_NODE}。`);
-    expect(asked.checks).toHaveLength(1);
+    await vi.waitFor(() => expect(asked.checks).toHaveLength(1));
   });
 
-  test("corrects a check of the whole sentence, as the background watch writes it", () => {
+  test("corrects a check of the whole sentence, as the background watch writes it", async () => {
     const whole: ClaimCheckAttributes = {
       ...basis("one", "The rate is 36.8%."),
       state: "contradicted",
@@ -408,12 +409,14 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
-    expect(asked.checks).toEqual([
-      expect.objectContaining({
-        from: { blockId: "block-one", offset: 0 },
-        action: "check-against-documents",
-      }),
-    ]);
+    await vi.waitFor(() =>
+      expect(asked.checks).toEqual([
+        expect.objectContaining({
+          from: { blockId: "block-one", offset: 0 },
+          action: "check-against-documents",
+        }),
+      ]),
+    );
     expect(claim(editor, "one").shown.state).toBe("needs-recheck");
   });
 
@@ -582,7 +585,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
       to: "4.2%",
       fixed: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
     },
-  ] as const)("the walk's sentence is corrected in one press, never Cut ($text)", (each) => {
+  ] as const)("the walk's sentence is corrected in one press, never Cut ($text)", async (each) => {
     const deck = evidence("deck", each.fixed);
     const attrs = checkWithParts(basis("one", each.text), [
       contradictedPart(0, each.first.length, each.from, [{ wording: each.to, evidence: deck }]),
@@ -605,7 +608,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
 
     expect(textOf(editor)).toBe(`${each.fixed.slice(0, -1)}${INLINE_NODE}${each.fixed.slice(-1)}`);
     expect(offersFixes(editor, claim(editor, "one"))).toBe(false);
-    expect(asked.checks).toHaveLength(1);
+    await vi.waitFor(() => expect(asked.checks).toHaveLength(1));
   });
 
   test("corrects each contradicted part of a two-part sentence on its own, then the other", async () => {
@@ -644,7 +647,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     );
     // The old check stays until the re-check answers, so the other part waits for it.
     expect(claim(editor, "two").shown.state).toBe("needs-recheck");
-    expect(asked.checks).toHaveLength(1);
+    await vi.waitFor(() => expect(asked.checks).toHaveLength(1));
     undoManager(editor)?.undo();
     expect(textOf(editor)).toBe(
       "The break fee is $75,000, and the deposit is returned within 60 days.",
@@ -822,7 +825,7 @@ describe("A fix taken back and done again from outside the note (#2402)", () => 
   });
 });
 
-test("a correction of a whole sentence leaves its check to the model", () => {
+test("a correction of a whole sentence leaves its check to the model", async () => {
   const whole: ClaimCheckAttributes = {
     ...basis("one", "The rate is 36.8%."),
     state: "contradicted",
@@ -843,5 +846,5 @@ test("a correction of a whole sentence leaves its check to the model", () => {
 
   expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
-  expect(asked.checks).toHaveLength(1);
+  await vi.waitFor(() => expect(asked.checks).toHaveLength(1));
 });

@@ -32,6 +32,7 @@ import { citationsOf } from "./editor/alreadyCited";
 import { claimSpans, placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { translateNow } from "./i18n";
+import { flushMindUpdates } from "./mindCopies";
 import { useNotices } from "./notices";
 
 /** One part's old words and the Document's wording for them. */
@@ -233,6 +234,7 @@ function apply(
   // One sentence at a time: a check of the next waits for the last to end, as a Mind checks one.
   const recheck = () => {
     void (async () => {
+      await flushMindUpdates(mindId);
       for (const plan of corrected) {
         const again = shownClaims(editor.state).find(
           (each) => each.check.id === plan.claim.check.id,

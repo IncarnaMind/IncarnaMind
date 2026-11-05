@@ -35,6 +35,7 @@ import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { sentenceFigureContext, writeSentenceCheck } from "./editor/figurePlaces";
 import { requestEdit } from "./editWithAi";
 import { translateNow } from "./i18n";
+import { flushMindUpdates } from "./mindCopies";
 import { useNotices } from "./notices";
 
 /**
@@ -324,8 +325,11 @@ export function applyFigure(
     editor.view.dispatch(editor.state.tr.insertText(fix.shown, place.from, place.to));
   });
   const recheck = () => {
-    const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
-    if (again) void checkAgain(editor, mindId, doc, again, undefined, showCard);
+    void (async () => {
+      await flushMindUpdates(mindId);
+      const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
+      if (again) await checkAgain(editor, mindId, doc, again, undefined, showCard);
+    })();
   };
   offerEditorUndo(
     editor,

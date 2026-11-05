@@ -296,7 +296,7 @@ describe("Use {figure} asks the model for the verdict (#2313)", () => {
 
       // The number is the figure's at once, and the one request is the sentence's ordinary check.
       expect(textOf(editor)).toBe(each.after);
-      expect(bridge.checks).toHaveLength(1);
+      await vi.waitFor(() => expect(bridge.checks).toHaveLength(1));
       expect(bridge.checks[0]).toMatchObject({
         from: { blockId: "point", offset: 0 },
         to: { blockId: "point", offset: each.after.length },
@@ -476,7 +476,7 @@ describe("Change to… asks the model for the verdict (#2563)", () => {
       expect(applied).toBe(true);
 
       expect(textOf(editor)).toContain(each.wording);
-      expect(bridge.checks).toHaveLength(1);
+      await vi.waitFor(() => expect(bridge.checks).toHaveLength(1));
       await vi.waitFor(
         () => {
           const state = shown(editor)?.shown.state;

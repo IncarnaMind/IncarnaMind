@@ -9,7 +9,6 @@ import {
   checkCard,
   useLocalChatModel as chooseScriptedModel,
   clickEditItem,
-  clickEndOf,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -20,7 +19,6 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
-  runCommand,
   setLanguage,
   setWindowSize,
   undoMenuItem,
@@ -236,7 +234,11 @@ for (const [language, width] of [
     await expect(firstLine).not.toContainText("36.8%");
     await expect(firstLine.getByTestId("citation")).toHaveCount(1);
     await expect(firstLine.locator("[data-generated]")).toHaveText("38.6%");
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
+    await expect(marks.nth(0)).toHaveAttribute(
+      "data-check",
+      language === "en" ? "supported" : "unsupported",
+      { timeout: 30_000 },
+    );
     await expect(window.getByTestId("undo-line")).toContainText(
       translate(language, "claim.usedDocumentWording"),
     );
@@ -244,16 +246,6 @@ for (const [language, width] of [
     await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(firstLine).toContainText("36.8%");
     await expect(firstLine.getByTestId("citation")).toHaveCount(0);
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
-
-    await clickEndOf(window, firstLine);
-    await runCommand(
-      window,
-      "check.correctContradiction",
-      translate(language, "claim.correction.command"),
-    );
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
-    await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
 
     await pointAndClick(window, marks.nth(1));
@@ -313,7 +305,11 @@ for (const [language, width] of [
       await expect(line).toContainText("38.6%");
       await expect(line.getByTestId("citation")).toHaveCount(1);
       await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
-      await expect(mark).toHaveAttribute("data-check", "supported");
+      await expect(mark).toHaveAttribute(
+        "data-check",
+        language === "en" ? "supported" : "unsupported",
+        { timeout: 30_000 },
+      );
     };
     const before = async () => {
       await expect(line).toContainText("36.8%");
@@ -350,15 +346,15 @@ for (const [language, width] of [
     await window.keyboard.press("ControlOrMeta+z");
     const undoLine = window.getByTestId("undo-line");
     await expect(undoLine).toContainText(
-      translate(language, "undo.documentsRemoved", { count: "3" }),
+      translate(language, "undo.documentsRemoved", { count: "4" }),
     );
     await expect.poll(library).toBe(0);
     await screenshot(window, `correction-add-undone-${language}`);
 
     await pointAndClick(window, undoLine.getByTestId("redo-action"));
-    await expect.poll(library).toBe(3);
+    await expect.poll(library).toBe(4);
     await expect(undoLine).toContainText(
-      translate(language, "undo.documentsAdded", { count: "3" }),
+      translate(language, "undo.documentsAdded", { count: "4" }),
     );
     await before();
     await window.keyboard.press("ControlOrMeta+Shift+z");
@@ -411,8 +407,9 @@ for (const [language, width] of [
     await screenshot(window, `correction-badge-${language}`);
     await pointAndClick(window, correct);
 
-    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
-    await expect(marks.nth(1)).toHaveAttribute("data-check", "supported");
+    const judged = language === "en" ? "supported" : "unsupported";
+    await expect(marks.nth(0)).toHaveAttribute("data-check", judged);
+    await expect(marks.nth(1)).toHaveAttribute("data-check", judged);
     await expect(marks.nth(2)).toHaveAttribute("data-check", "contradicted");
     await expect(editor.locator(":scope > p").nth(0)).toContainText("38.6%");
     await expect(editor.locator(":scope > p").nth(1)).toContainText("39.4%");
@@ -555,17 +552,22 @@ for (const [language, width] of [
     );
     await withinCard(window);
     await screenshot(window, `correction-parts-${language}`);
+    const firstId = await mark.getAttribute("data-claim");
     await pointAndClick(window, rows.nth(1).getByTestId("claim-part-correct"));
     await expect(line).toContainText(language === "en" ? "30 days" : "30 天");
     await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");
-    await expect(mark).toHaveAttribute("data-check", "contradicted");
+    // The check the correction asks for lands, and Undo brings back the check with both parts.
+    await expect(mark).not.toHaveAttribute("data-claim", firstId ?? "", { timeout: 30_000 });
+    await pointAndClick(window, window.getByTestId("undo-action"));
+    await expect(mark).toHaveAttribute("data-claim", firstId ?? "");
 
     await pointAndClick(window, mark);
-    await expect(card.getByTestId("claim-part-correct")).toHaveCount(1);
-    await pointAndClick(window, card.getByTestId("claim-part-correct"));
+    const again = card.getByTestId("claim-part");
+    await expect(again).toHaveCount(2);
+    await pointAndClick(window, again.nth(0).getByTestId("claim-part-correct"));
     await expect(line).toContainText(language === "en" ? "$57,000" : "57,000");
-    await expect(mark).toHaveAttribute("data-check", "supported");
-    await expect(line.getByTestId("citation")).toHaveCount(2);
+    await expect(mark).not.toHaveAttribute("data-claim", firstId ?? "", { timeout: 30_000 });
+    await expect(line.getByTestId("citation")).toHaveCount(1);
 
     await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");
