@@ -78,7 +78,7 @@ import { addSources, listCitations, styleCitations, withFigureNotes } from "./ci
 import { piecesOf, renderDocx } from "./docx";
 import { bodyFamily, renderHtml } from "./html";
 import { exportLabels } from "./labels";
-import { renderMarkdown } from "./markdown";
+import { picturesBeside, renderMarkdown } from "./markdown";
 import { printedPdf } from "./printedPdf";
 import { renderPrintHtml } from "./printHtml";
 import { failedSentences } from "./sentenceChecks";
@@ -358,6 +358,7 @@ export function createExports(deps: ExportsDependencies) {
         : null;
     const preview: MindExportPreview = {
       fileName: `${format === "source-pack" ? translate(language, "export.pack.fileName", { name: fileStem }) : fileStem}.${EXTENSIONS[format]}`,
+      pictures: format === "markdown" ? picturesBeside(blocks) : 0,
       citations: footnotes.length,
       citedDocuments: sourcesOf(
         footnotes.map((each) => attributesOf.get(each) ?? {}),

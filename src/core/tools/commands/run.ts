@@ -755,7 +755,9 @@ export const LIBRARY_CHECKERS = {
         run,
       };
     }
-    const { fileName } = await host.core.previewMindExport(mind.id, { format: input.format });
+    const { fileName, pictures } = await host.core.previewMindExport(mind.id, {
+      format: input.format,
+    });
     return {
       command: "mind.export",
       effects: [{ action: "write", scope: { kind: "folder", path: given } }],
@@ -767,6 +769,7 @@ export const LIBRARY_CHECKERS = {
         format: input.format,
         folder: given,
         fileName,
+        pictures,
       },
       ...OUTSIDE_IT,
       run,

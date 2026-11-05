@@ -9788,6 +9788,8 @@ export type CommandAsk =
       folder: string;
       /** The name it would be saved under; the next free one if that is taken. */
       fileName: string;
+      /** The picture files it saves beside that one, each once; 0 unless the format writes them. */
+      pictures: number;
     }
   | { kind: "add"; folder: string; files: string[] }
   | { kind: "final"; command: CommandId; items: CommandItem[] }
@@ -10158,6 +10160,8 @@ export interface ExportMindOptions {
 export interface MindExportPreview {
   /** A file name for the export, from the Mind's title, e.g. "Tides.docx". */
   fileName: string;
+  /** The picture files a Markdown export writes beside it, each once; 0 for every other format. */
+  pictures: number;
   /**
    * The Citations in the exported text. Each becomes its own footnote, even
    * when several cite the same page.

@@ -923,6 +923,42 @@ describe("exporting a Mind", () => {
     expect(document).toContain('<wp:extent cx="9525" cy="9525"/>');
   });
 
+  test("a Markdown preview counts the pictures it writes beside the file, each once", async () => {
+    const { core, mind, client } = await setUp("");
+    client.doc.transact(() => {
+      client.blocks.push([
+        element("image", { src: PIXEL, alt: "A chart" }, []),
+        element("image", { src: PIXEL, alt: "The same chart again" }, []),
+      ]);
+    });
+    await client.settled();
+    expect(await core.previewMindExport(mind.id, { format: "markdown" })).toMatchObject({
+      pictures: 1,
+    });
+
+    client.doc.transact(() => {
+      client.blocks.push([
+        element(
+          "image",
+          {
+            src: "https://example.test/chart.png",
+            alt: "A chart from the web",
+          },
+          [],
+        ),
+      ]);
+    });
+    await client.settled();
+    expect(await core.previewMindExport(mind.id, { format: "markdown" })).toMatchObject({
+      pictures: 1,
+    });
+
+    // A format that keeps its pictures inside its one file writes none beside it.
+    expect(await core.previewMindExport(mind.id, { format: "docx" })).toMatchObject({
+      pictures: 0,
+    });
+  });
+
   test("a WebP picture is embedded as a WebP, its type listed, at the size the Note shows it at", async () => {
     const { core, mind, client } = await setUp("");
     const webp = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";

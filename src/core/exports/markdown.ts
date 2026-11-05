@@ -119,11 +119,63 @@ function pictureFile(
   if (!image.src.startsWith("data:")) return image.src ? { src: image.src } : null;
   const decoded = decodeDataUrl(image.src);
   if (!decoded) return null;
-  const name = `picture-${createHash("sha256").update(decoded.data).digest("hex").slice(0, 12)}.${decoded.extension}`;
+  const name = pictureName(decoded);
   if (!pictures.some((each) => each.name === name)) {
     pictures.push({ name, mediaType: decoded.mediaType, data: decoded.data });
   }
   return { src: name, alt: image.alt };
+}
+
+/**
+ * How many picture files a Markdown export writes beside it: the same pictures the text links,
+ * each once (#1937), counted without writing the text.
+ */
+export function picturesBeside(blocks: readonly Block[]): number {
+  const names = new Set<string>();
+  const inline = (items: readonly Inline[]) => {
+    for (const item of items) {
+      if (item.kind === "image") countPicture(item.image, names);
+      else if (item.kind === "footnote") inline(item.content);
+    }
+  };
+  const block = (each: Block) => {
+    switch (each.kind) {
+      case "paragraph":
+      case "heading":
+      case "question":
+        inline(each.content);
+        break;
+      case "list":
+        for (const item of each.items) item.forEach(block);
+        break;
+      case "quote":
+        each.content.forEach(block);
+        break;
+      case "table":
+        for (const row of each.rows) for (const cell of row) cell.content.forEach(block);
+        break;
+      case "image":
+        countPicture(each.image, names);
+        break;
+      case "chart":
+        for (const row of each.table) for (const cell of row) cell.content.forEach(block);
+        break;
+      default:
+        break;
+    }
+  };
+  blocks.forEach(block);
+  return names.size;
+}
+
+function countPicture(image: Image, names: Set<string>): void {
+  if (!image.src.startsWith("data:")) return;
+  const decoded = decodeDataUrl(image.src);
+  if (decoded) names.add(pictureName(decoded));
+}
+
+function pictureName(decoded: { data: Uint8Array; extension: string }): string {
+  return `picture-${createHash("sha256").update(decoded.data).digest("hex").slice(0, 12)}.${decoded.extension}`;
 }
 
 /** A `data:` URL's bytes and media type, and the extension Outlook and Word use for them. */
