@@ -398,6 +398,14 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       expect.objectContaining({ route: "openai", key: "provider", hasKey: false }),
       expect.objectContaining({ route: "soniox", key: "own", hasKey: false, liveSpeakers: true }),
       expect.objectContaining({ route: "qwen", key: "provider", hasKey: false }),
+      expect.objectContaining({ route: "deepgram", key: "own", hasKey: false, liveSpeakers: true }),
+      expect.objectContaining({
+        route: "assemblyai",
+        key: "own",
+        hasKey: false,
+        liveSpeakers: true,
+      }),
+      expect.objectContaining({ route: "gemini", key: "provider", hasKey: false }),
     ]);
 
     await chooseSoniox(core);

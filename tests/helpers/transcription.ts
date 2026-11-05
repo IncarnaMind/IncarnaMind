@@ -20,6 +20,7 @@ import {
   type TranscriberRequest,
   type TranscriberResponse,
 } from "../../src/core/transcription/channel";
+import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import {
   createFakeSpeechEngine,
   type FakeTranscriberOptions,
@@ -86,6 +87,8 @@ export function inProcessTranscriber(
   options: FakeTranscriberOptions = {},
   engine: (model: TranscriptionModelFiles) => Promise<SpeechEngine> = async () =>
     createFakeSpeechEngine(options),
+  /** The cloud's connections, to watch them: the pretend service as `options.cloud` says by default. */
+  connect: CloudConnect = createFakeCloud(options.cloud),
 ) {
   let kill: (() => void) | null = null;
   let started = 0;
@@ -105,7 +108,7 @@ export function inProcessTranscriber(
         }),
     };
     serveTranscriber(engine, options.failover ? failingOver(port, options.failover) : port, {
-      connect: createFakeCloud(options.cloud),
+      connect,
       detectors: async () => createFakeSpeechEngine(options).detector,
     });
     kill = () => {
@@ -153,8 +156,14 @@ export async function transcribingCore(
     keychain,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
+    cloud,
+    systemLanguages,
   }: {
     engine?: FakeTranscriberOptions;
+    /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
+    cloud?: CloudConnect;
+    /** The computer's languages, "en-US" by default. */
+    systemLanguages?: readonly string[];
     /** What the fake capture does, e.g. the computer's sound denied. */
     capture?: FakeCaptureOptions;
     /** A capture instead of the fake one, for a start that fails after it heard audio. */
@@ -174,10 +183,14 @@ export async function transcribingCore(
 ) {
   const clock = manualClock();
   const capture = createFakeCapture({ now: () => clock.now().getTime(), ...captureOptions });
-  const engineHost = inProcessTranscriber(engine, async () => {
-    await loads;
-    return createFakeSpeechEngine(engine);
-  });
+  const engineHost = inProcessTranscriber(
+    engine,
+    async () => {
+      await loads;
+      return createFakeSpeechEngine(engine);
+    },
+    cloud ?? createFakeCloud(engine.cloud),
+  );
   const models = model ? scriptedModels(model) : undefined;
   const core = startCore(dataDir, {
     audioCapture: audioCapture ?? capture,
@@ -190,6 +203,7 @@ export async function transcribingCore(
     ...(log && { log }),
     ...(keychain && { keychain }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
+    ...(systemLanguages && { systemLanguages: () => systemLanguages }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
