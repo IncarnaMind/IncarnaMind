@@ -268,7 +268,7 @@ for (const language of ["en", "zh-CN"] as const) {
             "教育经历",
             ["2016.09—2018.06 上海财经大学 会计学 硕士", "2012.09—2016.06 复旦大学 金融学 学士"],
             "2016.09—2018.06 上海财经大学 会计学 硕士",
-            "2018.10—至今 Deloitte Touche Tohmatsu, Senior Manager",
+            "2018.10—至今 Quillmere Hart Advisory, Senior Manager",
             "修改了 1 个段落",
             "用 AI 编辑修改的 1 个段落",
           ];
