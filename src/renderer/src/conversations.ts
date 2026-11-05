@@ -25,7 +25,7 @@ import { core } from "./core";
 import { describeError } from "./errors";
 import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
-import { documentsOnScreenOf, groupsMerged, WINDOW_ID } from "./layoutSlice";
+import { currentTabOf, documentsOnScreenOf, groupsMerged, WINDOW_ID } from "./layoutSlice";
 import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
@@ -444,6 +444,8 @@ export async function regenerateAnswer(
 ): Promise<void> {
   const conversationId = useConversations.getState().openId;
   if (!conversationId) return;
+  const { layout, libraryFolderId } = useAppStore.getState();
+  const folderInFrontId = currentTabOf(layout)?.item.kind === "library" ? libraryFolderId : null;
   settleAsk(answerId, null);
   try {
     watchMindsMadeBy(answerId);
@@ -455,6 +457,7 @@ export async function regenerateAnswer(
       ...(clearScope && { clearScope }),
       ...(model && { model }),
       onScreen: documentsOnScreen(),
+      ...(folderInFrontId !== null && { folderInFrontId }),
       commands: offeredCommands(askedFrom(answerId)),
       clientId,
     });

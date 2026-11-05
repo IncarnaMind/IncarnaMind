@@ -40,6 +40,21 @@ const documentsOf = (count: number) => `${count} Document${count === 1 ? "" : "s
 const quoted = (name: string) => `"${listedName(name).replace(/"/g, "'")}"`;
 const counted = ({ name, documents }: Named) => `${quoted(name)} (${documentsOf(documents)})`;
 
+/**
+ * Whether a scope is exactly one wall's Folders, picked alone: the search then
+ * reads inside that wall, and the line names those Folders rather than leaving them out.
+ */
+export function explicitWalledFolderScope(
+  scope: SearchScope,
+  mindId: string | null,
+  walledFolderId: (folderId: string | null) => string | null,
+): boolean {
+  if (mindId !== null || scope.tagIds.length > 0 || scope.documentIds.length > 0) return false;
+  if (scope.folderIds.length === 0) return false;
+  const walls = new Set(scope.folderIds.map((id) => walledFolderId(id)));
+  return walls.size === 1 && !walls.has(null);
+}
+
 /** The lines before the Question that name the scope and the Folder in front; "" when nothing is known. */
 export function scopeLines(naming: ScopeNaming): string {
   const lines: string[] = [];
@@ -128,17 +143,13 @@ export function nameScope(
   { scope, mindId, wallId, documentIds, folderInFront }: AskedScope,
   source: ScopeSource,
 ): ScopeNaming {
-  const effective = wallId ? folderScope(wallId) : (scope ?? NO_SCOPE);
+  const fromLibrary = folderInFront !== null && mindId === null;
+  const effective = wallId !== null && !fromLibrary ? folderScope(wallId) : (scope ?? NO_SCOPE);
   const countIn = (part: Partial<SearchScope>) =>
     source.searchableCount(source.resolveScope({ ...NO_SCOPE, ...part }, mindId));
-  const explicitFolderScope =
-    wallId === null &&
-    mindId === null &&
-    effective.folderIds.length > 0 &&
-    effective.folderIds.every((id) => source.walledFolderId(id) !== null) &&
-    new Set(effective.folderIds.map((id) => source.walledFolderId(id))).size === 1 &&
-    effective.tagIds.length === 0 &&
-    effective.documentIds.length === 0;
+  const explicitFolderScope = explicitWalledFolderScope(scope ?? NO_SCOPE, mindId, (id) =>
+    source.walledFolderId(id),
+  );
   const named = (kind: "folder" | "tag", ids: readonly string[]) =>
     ids.flatMap((id) => {
       if (
@@ -171,8 +182,9 @@ export function nameScope(
       ? { id: own, name: ownName, kind: mindId !== null ? ("note" as const) : ("library" as const) }
       : null;
   const frontIds = front ? source.resolveScope(folderScope(front.id), mindId) : null;
+  const frontWalled = own !== null && source.walledFolderId(own) !== null;
   const choices =
-    limited || allFolders.length > 0 || front || wallId !== null
+    limited || allFolders.length > 0 || front || wallId !== null || frontWalled
       ? []
       : source
           .folders()

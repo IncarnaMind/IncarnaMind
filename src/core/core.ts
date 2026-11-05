@@ -91,6 +91,7 @@ import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
+import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type AddDocumentsResult,
   type AnswerPlace,
@@ -1509,18 +1510,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const walled = library.folders().filter((folder) => folder.keepInside);
     const own = mindId !== null && mindExists(mindId) ? minds.get(mindId).folderId : null;
     const ownWall = own === null ? null : library.wallOf(own);
-    const wallIds = new Set(
-      wanted.folderIds.flatMap((id) => {
-        const wall = library.wallOf(id);
-        return wall === null ? [] : [wall];
-      }),
+    const explicitFolderScope = explicitWalledFolderScope(wanted, mindId, (id) =>
+      id === null ? null : library.wallOf(id),
     );
-    const explicitFolderScope =
-      mindId === null &&
-      wallIds.size === 1 &&
-      wanted.folderIds.every((id) => library.wallOf(id) !== null) &&
-      wanted.tagIds.length === 0 &&
-      wanted.documentIds.length === 0;
     if (ownWall !== null || explicitFolderScope) {
       return resolveSearchScope(ownWall !== null ? constrainedScope(wanted, mindId) : wanted, {
         folderTree: (folderId) => folders.subtree(folderId),

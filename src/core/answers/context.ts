@@ -64,6 +64,10 @@ export const MIND_TOKEN_LIMIT = 50_000;
  */
 const SEARCH_QUERY_CONTEXT_TOKEN_BUDGET = 2_000;
 
+/** The lines that go just before a Question about its Search scope and the Folder in front (#2529). */
+const SCOPE_LINE =
+  /^(?:Search scope: |The Note in front is in the Folder |The Library is open in the Folder |The User's Folders: )/;
+
 /** A Block's share of the budget that is too small to be worth keeping the tail of. */
 const MIN_TAIL_TOKENS = 64;
 
@@ -1024,6 +1028,13 @@ export function earlierContext(
   const last = pieces.at(-1);
   if (last?.role === "user" && last.text.endsWith(question)) {
     last.text = last.text.slice(0, last.text.length - question.length).trim();
+  }
+  // The scope lines go just before the Question: not context a rewrite may use, or the
+  // quick-tasks model gets them and the request is never empty (#2529).
+  if (last?.role === "user") {
+    const parts = last.text.split("\n\n");
+    while (parts.length > 0 && SCOPE_LINE.test((parts.at(-1) ?? "").trim())) parts.pop();
+    last.text = parts.join("\n\n").trim();
   }
   const kept: string[] = [];
   let remaining = budget;

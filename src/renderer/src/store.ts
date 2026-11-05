@@ -1016,6 +1016,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         !library.groups.some((g) => g.id === get().libraryFilter)
           ? { libraryFilter: "all" }
           : {}),
+        ...(get().libraryFolderId !== null &&
+        !library.groups.some((g) => g.id === get().libraryFolderId)
+          ? { libraryFolderId: null }
+          : {}),
       });
     },
     openHome: async (options) => {

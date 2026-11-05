@@ -7963,6 +7963,11 @@ export interface ConversationAnswerInput {
   /** Regenerating: the Documents open on screen now, as `AskInConversationInput.onScreen`. */
   onScreen?: string[] | null;
   /**
+   * Regenerating: the Folder the Library is open on, as `AskInConversationInput.folderInFrontId`,
+   * so Try again means the same Folder as the first Answer did (#2529).
+   */
+  folderInFrontId?: string | null;
+  /**
    * Regenerating: write it with this model, and keep the Question on it, as when the model it was
    * asked with failed and the User chose another (#1848). Absent: the Question's own.
    */

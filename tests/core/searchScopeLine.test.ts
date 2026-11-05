@@ -286,8 +286,8 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
     expect(sent).not.toContain("The User's Folders");
   });
 
-  // protects=a walled Folder the Library is open on is not named while the search outside the wall reads none of it; fails_when=its name or Documents appear; no_claim=none beyond protects.
-  test("never names a walled Folder the Library is open on", async () => {
+  // protects=a walled Folder the Library is open on is the whole scope, read inside its wall, and named with its count; fails_when=its name or count is left out, or other Folders join it; no_claim=what a real model makes of it.
+  test("makes a walled Folder the Library is open on the whole scope", async () => {
     const { core, model, clientB } = await setUp();
     await core.updateLibraryGroup(clientB.id, {
       name: clientB.name,
@@ -298,9 +298,10 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
     await ask(core, { text: "Summarise this folder.", folderInFrontId: clientB.id });
 
     const sent = lastSent(model, 0);
-    expect(sent).not.toContain("The Library is open");
-    expect(sent).not.toContain("Client B");
-    expect(sent).toContain("Search scope: All Documents · 1 Folder left out (7)");
+    expect(sent).toContain('Search scope: the Folder "Client B" (1 Document)');
+    expect(sent).not.toContain("All Documents");
+    expect(sent).not.toContain("left out");
+    expect(sent).not.toContain("The User's Folders");
   });
 
   // protects=a Folder name cannot pose as a second scope entry: its quotes become apostrophes and its line breaks a space; fails_when=a quote in a name closes the line's quoting; no_claim=none beyond protects.
@@ -429,7 +430,7 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
   // protects=the instructions and the Note's message do not change with the scope, so a provider's prompt cache keeps its start; fails_when=a scope line goes into the instructions or the Note's message; no_claim=none beyond protects.
   test("leaves the instructions and the Note's message as they were", async () => {
     const { core, model, client, mind, reports, contracts } = await setUp();
-    writeMind(client, [note("Call with Harbour Logistics on Friday.")]);
+    writeMind(client, [note("Call with Quillwood Freight on Friday.")]);
     await client.settled();
 
     await ask(core, { text: "What is here?", mindId: mind.id, scope: folderScope(reports.id) });
@@ -441,7 +442,7 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
       )?.[0];
     for (const call of [0, 1]) {
       expect(instructionsOf(model, call)).not.toContain('Search scope: the Folder "');
-      expect(mindOf(call)).toContain("Call with Harbour Logistics on Friday.");
+      expect(mindOf(call)).toContain("Call with Quillwood Freight on Friday.");
       expect(mindOf(call)).not.toContain("Search scope");
     }
     expect(mindOf(1)).toBe(mindOf(0));

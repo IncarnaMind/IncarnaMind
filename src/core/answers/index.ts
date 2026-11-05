@@ -3987,7 +3987,12 @@ export function createAnswers(options: AnswersOptions) {
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
     const callOnly = help !== null && HELP_DOCUMENTS[help] === null;
     // Each press of a help button stands alone: an earlier suggestion would only steer this one.
-    const wallId = mind ? options.walledFolder(mind.mindId) : wallOfTurn(turn.question);
+    // With no Note, the Folder in front (the Library's) is the turn's Folder: its wall is the one read.
+    const wallId = mind
+      ? options.walledFolder(mind.mindId)
+      : folderInFront !== null
+        ? options.walledFolderId(folderInFront)
+        : wallOfTurn(turn.question);
     // Earlier turns are judged by the wall alone: one outside this turn's Search scope still counts.
     const readable = readableAcrossWalls(mind?.mindId ?? null, wallId);
     const permitted = readable === null ? null : new Set(readable);
@@ -4481,7 +4486,16 @@ export function createAnswers(options: AnswersOptions) {
      * model or Skill can't be asked is discarded without being published.
      */
     async askInConversation(question: QuestionInput): Promise<ConversationAskResult> {
-      const scope = options.searchedScope(question.scope, question.mind?.id ?? null);
+      // A walled Folder the Library is open on, with no Note, is that Folder alone: the scope
+      // the chip shows, read inside its wall (#2529).
+      const frontWall =
+        question.mind === null && question.folderInFront !== null
+          ? options.walledFolderId(question.folderInFront)
+          : null;
+      const scope =
+        frontWall !== null && question.folderInFront !== null
+          ? folderScope(question.folderInFront)
+          : options.searchedScope(question.scope, question.mind?.id ?? null);
       const answerModel =
         question.model && options.providerExists(question.model.providerId)
           ? question.model
@@ -4500,6 +4514,7 @@ export function createAnswers(options: AnswersOptions) {
         false,
         (folderId) => {
           if (mind) return options.mindFolder(mind.mindId) ?? "";
+          if (frontWall !== null) return question.folderInFront ?? "";
           if (scope === null) return folderId ?? "";
           return scope.folderIds.length === 1 &&
             scope.tagIds.length === 0 &&
@@ -4560,6 +4575,14 @@ export function createAnswers(options: AnswersOptions) {
 
     /** Writes an Answer of a conversation again, in place (see `CoreApi.regenerateConversationAnswer`). */
     async regenerateInConversation(input: unknown): Promise<ConversationAskResult> {
+      const folderInFrontId = isRecord(input) ? input.folderInFrontId : undefined;
+      if (
+        folderInFrontId !== undefined &&
+        folderInFrontId !== null &&
+        (typeof folderInFrontId !== "string" || folderInFrontId === "")
+      ) {
+        throw new InvalidInputError({ key: "error.question.folderInFront" });
+      }
       const asked = options.conversations.questionOf(input);
       const everyDocument = isRecord(input) && input.clearScope === true;
       if (everyDocument) options.conversations.clearScope(asked.question.id);
@@ -4584,10 +4607,13 @@ export function createAnswers(options: AnswersOptions) {
           ? null
           : mindToRead(from.mindId, question.focus, question.text, ready.model);
       const turn = options.conversations.restartAnswer(answerId, ready.model, readOf(mind));
+      const frontWall =
+        typeof folderInFrontId === "string" ? options.walledFolderId(folderInFrontId) : null;
+      const wall = mind ? null : (frontWall ?? wallOfTurn(question));
       const { documentIds, emptyScope } = scopeNow(
         question.scope,
         from && !from.deleted ? from.mindId : null,
-        mind ? null : wallOfTurn(question),
+        wall,
       );
       return startInConversation(
         turn,
@@ -4596,9 +4622,9 @@ export function createAnswers(options: AnswersOptions) {
         emptyScope,
         mind,
         onScreen,
-        checkQuotes(question.quotes, from?.mindId ?? null, mind ? null : wallOfTurn(question)),
+        checkQuotes(question.quotes, from?.mindId ?? null, wall),
         commands,
-        null,
+        typeof folderInFrontId === "string" ? folderInFrontId : null,
         remake,
       );
     },

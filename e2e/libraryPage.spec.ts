@@ -795,6 +795,12 @@ test("a Folder opened from the sidebar brings its section into view, open, with 
     // The page still shows every Folder.
     await expect(sections(library)).toHaveCount(FOLDERS.length + 1);
     await expect(tagFilter).toHaveCount(0);
+    // The Folder the Library shows is the composer's own scope chip; its × searches everything.
+    await window.keyboard.press("ControlOrMeta+j");
+    const composer = window.getByTestId("composer");
+    await expect(composer.getByTestId("scope-chip")).toContainText(last.name);
+    await pointAndClick(window, composer.getByTestId("scope-chip-remove"));
+    await expect(composer.getByTestId("composer-scope-all")).toHaveText("All Documents");
   } finally {
     await app.close();
   }
