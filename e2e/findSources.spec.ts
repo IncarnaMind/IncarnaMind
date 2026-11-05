@@ -69,7 +69,11 @@ async function allowProviders(
 }
 
 test("Add Documents ▾ → Find sources… asks each provider once, then adds an open-access paper as a Document in the Folder, a paywalled one as a reference and one open as a web page as a web page", async () => {
-  const { app, window } = await launchApp(dataDir, { sources: services.url });
+  // The source stand-in serves the open copy as the site's page too, so it is the web stand-in.
+  const { app, window } = await launchApp(dataDir, {
+    sources: services.url,
+    web: Number(new URL(services.url).port),
+  });
   try {
     await dismissChatSetup(window);
     await interceptOpenExternal(app);
