@@ -1052,13 +1052,15 @@ test("a deleted sticky note does not hide a new note on its page", async () => {
 
 test("a copied page in front does not hide the note the copy repeats", async () => {
   const { document, store, read, db } = await harness();
-  read("version-a", [fileNote(1, "Same remark.")]);
+  const same = { before: "Page words.", after: "Page words." };
+  read("version-a", [fileNote(1, "Same remark.", 10, same)]);
   const [old] = store.list(document.id);
   if (!old) throw new Error("The note wasn't read.");
   store.remove(old.id);
 
-  // The page is copied in front, so the same note is on pages 1 and 2.
-  read("version-b", [fileNote(1, "Same remark."), fileNote(2, "Same remark.")]);
+  // The page is copied in front, so the same note is on pages 1 and 2, with the same
+  // words around it as the deleted row.
+  read("version-b", [fileNote(1, "Same remark.", 10, same), fileNote(2, "Same remark.", 10, same)]);
   const live = store.list(document.id);
   expect(live).toHaveLength(2);
   expect(live.map((row) => row.pageFrom).sort()).toEqual([1, 2]);
@@ -1206,4 +1208,124 @@ test("a PDF mark carries the page's words around it and its place", () => {
   expect(lower?.quote).toBe("Lower words.");
   expect(lower?.before).toContain("Middle line.");
   expect(upper?.order).toBeLessThan(lower?.order ?? 0);
+});
+
+test("identical forms with one removed do not move their comments", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const same = { before: "Form words.", after: "Form words." };
+  const form = (page: number) => highlight(quote, page, null, 10, same);
+  read("version-a", [form(1), form(2), form(3)]);
+  const ids = new Map<number, string>();
+  for (const [page, said] of [
+    [1, "Form 1."],
+    [2, "Form 2."],
+    [3, "Form 3."],
+  ] as const) {
+    const row = store.list(document.id).find((each) => each.pageFrom === page);
+    if (!row) throw new Error(`The page-${page} form wasn't read.`);
+    store.update(row.id, { note: said });
+    ids.set(page, row.id);
+  }
+
+  // The middle form is removed: copies whose words fit the same rows keep their comments
+  // on missing rows rather than landing on another form.
+  read("version-b", [form(1), form(2)]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === ids.get(1))).toMatchObject({
+    note: "Form 1.",
+    missing: true,
+  });
+  expect(rows.find((row) => row.id === ids.get(2))).toMatchObject({
+    note: "Form 2.",
+    missing: true,
+  });
+  expect(rows.find((row) => row.id === ids.get(3))).toMatchObject({
+    note: "Form 3.",
+    missing: true,
+  });
+  expect(
+    rows.filter((row) => !row.missing && row.note !== null && row.note.startsWith("Form ")),
+  ).toHaveLength(0);
+
+  // The next save reuses the untouched new rows and does not grow.
+  read("version-c", [form(1), form(2)]);
+  expect(store.list(document.id)).toHaveLength(5);
+  db.close();
+});
+
+test("a newer untouched row is taken before an older missing one at the same place", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const same = { before: "Page words.", after: "Page words." };
+  const mark = (page: number) => highlight(quote, page, null, 10, same);
+  read("version-a", [mark(1)]);
+  const [older] = store.list(document.id);
+  if (!older) throw new Error("The highlight wasn't read.");
+  store.update(older.id, { note: "Mine" });
+
+  read("version-b", []);
+  read("version-c", [mark(1), mark(2)]);
+  read("version-d", [mark(1), mark(2)]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === older.id)).toMatchObject({
+    note: "Mine",
+    missing: true,
+  });
+  const pageOne = rows.filter((row) => row.pageFrom === 1 && !row.missing);
+  expect(pageOne).toHaveLength(1);
+  expect(pageOne[0]?.note).not.toBe("Mine");
+  db.close();
+});
+
+test("an untouched row the User recoloured is not reused for a new copy", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const same = { before: "Page words.", after: "Page words." };
+  const mark = (page: number) => highlight(quote, page, null, 10, same);
+  read("version-a", [mark(1)]);
+  const [row] = store.list(document.id);
+  if (!row) throw new Error("The highlight wasn't read.");
+  store.update(row.id, { colour: "pink" });
+
+  read("version-b", []);
+  read("version-c", [mark(1), mark(2)]);
+  const rows = store.list(document.id);
+  expect(rows.find((each) => each.id === row.id)).toMatchObject({
+    colour: "pink",
+    missing: true,
+  });
+  expect(rows.filter((each) => !each.missing)).toHaveLength(2);
+  expect(rows.find((each) => each.id === row.id)?.missing).toBe(true);
+  db.close();
+});
+
+test("a note row a version left missing does not take a new note on its page", async () => {
+  const { document, store, read, db } = await harness();
+  read("version-a", [fileNote(1, "Old remark.")]);
+  const [old] = store.list(document.id);
+  if (!old) throw new Error("The note wasn't read.");
+
+  read("version-b", []);
+  read("version-c", [fileNote(1, "A new remark.")]);
+  const rows = store.list(document.id);
+  expect(rows.find((each) => each.id === old.id)).toMatchObject({
+    note: "Old remark.",
+    missing: true,
+  });
+  const live = rows.find((each) => !each.missing);
+  expect(live).toMatchObject({ note: "A new remark." });
+  expect(live?.id).not.toBe(old.id);
+  db.close();
+});
+
+test("one fitting row is not taken by two marks", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const same = { before: "Page words.", after: "Page words." };
+  read("version-a", [highlight(quote, 1, null, 10, same)]);
+  // Two copies now fit the one row by their words; neither mark may vanish.
+  read("version-b", [highlight(quote, 1, null, 10, same), highlight(quote, 2, null, 20, same)]);
+  expect(store.list(document.id).filter((row) => !row.missing)).toHaveLength(2);
+  db.close();
 });

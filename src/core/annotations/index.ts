@@ -695,7 +695,8 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             const byRowPlace = (a: Row, b: Row) =>
               rowPage(a) - rowPage(b) ||
               (a.file_order ?? 0) - (b.file_order ?? 0) ||
-              a.created_at.localeCompare(b.created_at) ||
+              a.missing - b.missing ||
+              (a.paired_hash ?? "").localeCompare(b.paired_hash ?? "") ||
               a.id.localeCompare(b.id);
             const byMarkPlace = (a: Mark, b: Mark) =>
               markPage(a) - markPage(b) || a.annotation.order - b.annotation.order;
@@ -768,19 +769,40 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             // order tells them apart when the places agree.
             const ambiguous = openMarks().some((mark) => fits(mark).length > 0);
             if (!oneShift(untaken(), openMarks(), ambiguous)) {
-              // A fitting row kept at the mark's own page and place is that copy, even when the
-              // words around it fit another row too.
+              // A count that changed means a copy was added or dropped. Among copies whose words
+              // fit the same rows, a row holding the User's words, colour or delete is not
+              // guessed at; only a place that still matches may take it.
+              if (untaken().length === openMarks().length) {
+                for (const mark of openMarks()) {
+                  const row = untaken().find(
+                    (each) =>
+                      each.deleted_at === null &&
+                      sameSurroundings(each, mark) &&
+                      rowPage(each) === markPage(mark) &&
+                      each.file_order === mark.annotation.order,
+                  );
+                  if (row) pair(mark, row);
+                }
+              }
+              // The exact version paired this row on its page before: a re-read pairs as the
+              // last read did, before any untouched row is taken.
+              const carried = [...all]
+                .filter((row) => !taken.has(row.id) && row.paired_hash === contentHash)
+                .sort(byRowPlace);
               for (const mark of openMarks()) {
-                const row = untaken().find(
-                  (each) =>
-                    sameSurroundings(each, mark) &&
-                    rowPage(each) === markPage(mark) &&
-                    each.file_order === mark.annotation.order,
-                );
+                const row =
+                  carried.find(
+                    (each) =>
+                      !taken.has(each.id) &&
+                      rowPage(each) === markPage(mark) &&
+                      each.file_order === mark.annotation.order,
+                  ) ??
+                  carried.find((each) => !taken.has(each.id) && rowPage(each) === markPage(mark));
                 if (row) pair(mark, row);
               }
               // Nothing left fits by words or place: an untouched row is this mark's better than
-              // a new one, so a repeated save stops adding rows.
+              // a new one, so a repeated save stops adding rows. A row the User wrote on,
+              // recoloured or deleted is never taken.
               for (const mark of openMarks()) {
                 const row = untaken().find(
                   (each) =>
@@ -791,20 +813,6 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                 );
                 if (row) pair(mark, row);
               }
-            }
-            const carried = [...all]
-              .filter((row) => !taken.has(row.id) && row.paired_hash === contentHash)
-              .sort(byRowPlace);
-            for (const mark of openMarks()) {
-              const row =
-                carried.find(
-                  (each) =>
-                    !taken.has(each.id) &&
-                    rowPage(each) === markPage(mark) &&
-                    each.file_order === mark.annotation.order,
-                ) ??
-                carried.find((each) => !taken.has(each.id) && rowPage(each) === markPage(mark));
-              if (row) pair(mark, row);
             }
           }
         };
