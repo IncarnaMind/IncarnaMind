@@ -153,10 +153,10 @@ for (const { language, first, second, made, question, open } of MADE_NOTE_CASES)
     await expect(frontMindName(window)).toHaveText(first);
     await screenshot(window, `made-note-stays-behind-chosen-${language}`);
     const answer = await asking;
+    await screenshot(window, `made-note-stays-behind-answered-${language}`);
 
     await expect(frontMindName(window)).toHaveText(first);
     await expect(window.getByTestId("mind-tab").filter({ hasText: made })).toBeVisible();
-    await screenshot(window, `made-note-stays-behind-answered-${language}`);
     const openMade = answer.getByTestId("mind-changes-open");
     await expect(openMade).toHaveText(open);
     await pointAndClick(window, openMade);
