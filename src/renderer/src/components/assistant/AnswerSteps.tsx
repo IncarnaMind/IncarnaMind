@@ -281,7 +281,9 @@ export function LiveLine({
           {t("steps.live.seconds", { seconds: waitingSeconds })}
         </span>
       )}
-      {!waiting && wait && <WaitPart usual={wait.usual} model={wait.model} line={line} />}
+      {!waiting && wait && (
+        <WaitPart key={label} usual={wait.usual} model={wait.model} line={line} />
+      )}
       {toggle && (
         <button
           type="button"
