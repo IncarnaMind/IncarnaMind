@@ -13,7 +13,7 @@ On an Anthropic key, a run of sentence checks (Check this Note, Verify and the w
 - **Cells,** each a model, language, flow and Library:
   - Claude Haiku 5.5, three runs per arm: Check this Note on the timing's Library; Check this Note on the mixed Library (`INCARNAMIND_EVAL_SPEED_LIBRARY=mixed`); the write of 30 cited paragraphs. That is 6 cells.
   - Claude Sonnet 5.5, two runs per arm: Check this Note on the timing's Library, and the write. That is 4 cells.
-- **Cost:** about $4 in all. The run stops before the lane's spend passes $15.
+- **Cost:** about $4 in all. The run stops before the spend on #2532 passes its $15 cap.
 
 ## The bars, per cell
 

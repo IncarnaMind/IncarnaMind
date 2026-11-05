@@ -49,6 +49,9 @@ const FAILING = "The harbour floods at every spring tide";
 const RECORD_SOURCE = "ECF No. 41 at 3 states the deadline";
 const RECORD_NEXT = "Id. at 2 states another deadline";
 const RECORD_CUT = `${RECORD_SOURCE}, and the harbour floods`;
+const RECORD_SOURCE_ZH = "ECF No. 41 at 3 载明了截止日期";
+const RECORD_NEXT_ZH = "Id. at 2 载明了另一个截止日期";
+const RECORD_CUT_ZH = `${RECORD_SOURCE_ZH}，并且港口被淹没`;
 const YEARLY = "Every year the harbour floods, and spring tides come at new and full moon";
 const OVERSTATED_ZH = "大潮出现在新月和满月时，并且每年都会淹没港口";
 const TWO_CITED =
@@ -132,6 +135,11 @@ const RAW_PLANS: Record<string, Plan> = {
   [asChecked(RECORD_CUT)]: partly("the deadline", "the harbour floods"),
   [`${RECORD_SOURCE}.`]: { verdict: "unsupported", judgement: "same" },
   [`${RECORD_NEXT}.`]: { verdict: "unsupported", judgement: "same" },
+  [asCheckedZh(RECORD_SOURCE_ZH)]: { verdict: "unsupported", judgement: "same" },
+  [asCheckedZh(RECORD_NEXT_ZH)]: { verdict: "unsupported", judgement: "same" },
+  [asCheckedZh(RECORD_CUT_ZH)]: partly("截止日期", "港口被淹没"),
+  [`${RECORD_SOURCE_ZH}。`]: { verdict: "unsupported", judgement: "same" },
+  [`${RECORD_NEXT_ZH}。`]: { verdict: "unsupported", judgement: "same" },
 };
 
 const PLANS: Record<string, Plan> = Object.fromEntries(
@@ -152,8 +160,8 @@ interface Writing {
   cloud?: { kind: "anthropic"; modelId: string } | { kind: "ollama"; modelId: string };
   /** How the Answer ends: a spending cap reached during the check stops it too. */
   ends?: "finished" | "failed";
-  /** The model's cut of a sentence, in place of its first clause and its marker. */
-  cut?: string;
+  /** The model's cut of a sentence, in place of its first clause and its marker, or given the cut's prompt. */
+  cut?: string | ((prompt: string) => string);
   record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
 }
 
@@ -198,7 +206,8 @@ function writingModel(
         return { ...reply, pause: { after: 0, until: waited } };
       }
       if (CUT.test(call.prompt)) {
-        return { text: `${cut}\n<why>Only what the source says.</why>` };
+        const words = typeof cut === "string" ? cut : cut(call.prompt);
+        return { text: `${words}\n<why>Only what the source says.</why>` };
       }
       const { results } = call;
       const search = results.find((result) => result.tool === "search_documents");
@@ -926,6 +935,93 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(change?.selfCheck).toBeUndefined();
   });
 
+  // protects=the cuts listed for the model are in the Note's order whichever check ends first (#2532); fails_when=they are listed in the order their checks ended; no_claim=what each cut keeps.
+  test("the cuts listed for the model are in the Note's order", async () => {
+    let seen: readonly ModelCall[] = [];
+    let page: MindClient | null = null;
+    const tailChecked = () =>
+      seen.some(
+        (call) =>
+          isCheckRun(call) &&
+          sentenceOf(call) === "The harbour floods in spring." &&
+          call.results.length > 0,
+      );
+    const { model } = await write(
+      {
+        content: `${OVERSTATED} [^1].\n\n${COMMA_TAIL}`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        cut: (prompt) =>
+          prompt.includes("every region")
+            ? "The harbour floods in spring [1],"
+            : "Spring tides come at new and full moon [1].",
+        check: (call) => {
+          if (sentenceOf(call) !== `${OVERSTATED} .` || call.results.length > 0) return null;
+          // The later sentence's cut is checked again before the earlier sentence is answered.
+          const ended = vi
+            .waitFor(() => expect(tailChecked()).toBe(true), { timeout: 20_000, interval: 5 })
+            .then(() => page?.settled());
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: ended } };
+        },
+      },
+      ({ client, calls }) => {
+        page = client;
+        seen = calls;
+      },
+    );
+
+    expect(lastResult(model)).toContain(
+      "What their Citations don't support was taken out: “the yearly floods”, “every region”.",
+    );
+  });
+
+  // protects=a landing that fails on a Note that still takes edits leaves the table's marks to land after every check before the check fails (#2532); fails_when=the check fails before the last edit, and the table's sentence lands unmarked; no_claim=what makes an edit fail.
+  test("a failed landing still lets a table's marks land before the check fails", async () => {
+    let page: MindClient | null = null;
+    let armed = false;
+    const transact = Y.Doc.prototype.transact;
+    const edits = vi.spyOn(Y.Doc.prototype, "transact").mockImplementation(function (
+      this: Y.Doc,
+      ...args: Parameters<Y.Doc["transact"]>
+    ) {
+      if (armed && this !== page?.doc) {
+        armed = false;
+        throw new Error("The edit broke.");
+      }
+      return transact.apply(this, args);
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { core, client } = await write(
+        {
+          content: `${MOON.slice(0, -1)} [^1].\n\n| Region | Note |\n| --- | --- |\n| North | ${UNBACKED} [^1] |`,
+          into: true,
+          check: (call) => {
+            if (call.results.length === 0 && sentenceOf(call) !== `${UNBACKED} .`) armed = true;
+            return null;
+          },
+        },
+        ({ client: connected }) => {
+          page = connected;
+        },
+      );
+      edits.mockRestore();
+
+      const marks = await marksIn(core, client);
+      expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
+        ["Neap tides are twice as strong .", "unsupported"],
+      ]);
+      expect(
+        errors.mock.calls.filter(([line]) =>
+          String(line).includes("couldn't be checked before it landed"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      edits.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
   // protects=words the User types into what the assistant wrote while the check runs stay: only the sentences cut or marked are written, each only while unchanged (one with no cut too); fails_when=the User's words vanish, or a sentence they changed is cut over; no_claim=none beyond protects.
   test("words the User types while the check runs stay, and a sentence they changed is only marked", async () => {
     let client: MindClient | null = null;
@@ -1059,6 +1155,50 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       outcome: "supported",
       location: { kind: "page", from: 2, to: 2 },
     });
+  });
+
+  // protects=a cut lands after every check, so a later sentence's Id. reads the Note as written and resolves as it did before marks landed as each check ends (#2532), in English and Chinese, with the Id. sentence twice; fails_when=the cut lands mid-run and the Id. sentences land with no record cite, unchecked; no_claim=how a cut sentence's own cite resolves.
+  test.each([
+    {
+      language: "en",
+      content: `> ${RECORD_CUT} [^1].\n> ${RECORD_NEXT} [^2].\n> ${RECORD_NEXT} [^2].`,
+      cut: `${RECORD_SOURCE} [1].`,
+      next: RECORD_NEXT,
+    },
+    {
+      language: "zh-CN",
+      content: `> ${RECORD_CUT_ZH}[^1]。\n> ${RECORD_NEXT_ZH}[^2]。\n> ${RECORD_NEXT_ZH}[^2]。`,
+      cut: `${RECORD_SOURCE_ZH}[1]。`,
+      next: RECORD_NEXT_ZH,
+    },
+  ])(
+    "an Id. after a cut sentence resolves as written ($language)",
+    async ({ content, cut, next }) => {
+      const { core, client } = await write({ into: true, record: RECORD_FILE, cut, content });
+
+      const marks = (await marksIn(core, client)).filter(({ sentence }) => sentence.includes(next));
+      expect(marks).toHaveLength(2);
+      for (const { check } of marks) {
+        expect(check.recordCites?.[0]).toMatchObject({
+          raw: "Id. at 2",
+          outcome: "supported",
+          location: { kind: "page", from: 2, to: 2 },
+        });
+      }
+    },
+  );
+
+  // protects=two identical sentences after a cut sentence in one paragraph each get their own mark, as a cut lands after every check; fails_when=the cut lands first and both marks go on the second sentence, the first left unmarked; no_claim=what the cut keeps.
+  test("two identical sentences after a cut sentence each get their own mark", async () => {
+    const { client } = await write({
+      content: `${OVERSTATED} [^1]. ${UNBACKED} [^1]. ${UNBACKED} [^1].`,
+    });
+
+    const spans = claimSpans(readMind(client)).filter((span) =>
+      span.sentence.text.startsWith(UNBACKED),
+    );
+    expect(spans.map((span) => span.check.state)).toEqual(["unsupported", "unsupported"]);
+    expect(new Set(spans.map((span) => span.sentence.from)).size).toBe(2);
   });
 
   test("an uncited unresolved cite between proposed sentences clears Id.'s referent", async () => {

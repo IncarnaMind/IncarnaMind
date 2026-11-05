@@ -867,13 +867,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         `What the assistant wrote in Mind ${mindId} was checked, but marks couldn't land:`,
         error,
       );
-    // A sentence lands as its check ends, so its verdict shows while the others are checked. A
-    // table's marks are footed against each other as they land (a total against its cells), so a
-    // sentence in a table waits, and those land together after every check, in their order.
+    // A sentence lands as its check ends, so its verdict shows while the others are checked. Two
+    // wait, and land together after every check, in their order: a table's, as its marks are
+    // footed against each other as they land (a total against its cells), and a cut, as it
+    // changes the Note's words, which a later sentence's `Id.` reads and every place was found in.
     const waiting: { index: number; landing: Landing }[] = [];
     const landNow = (landing: Landing) => {
       const { sentence } = landing;
-      if (sentence.inCell) waiting.push({ index: sending.indexOf(sentence), landing });
+      if (sentence.inCell || ("nodes" in landing && landing.nodes !== null))
+        waiting.push({ index: sending.indexOf(sentence), landing });
       else landAll([landing]);
     };
     const cuts: { index: number; uncovered: string }[] = [];
