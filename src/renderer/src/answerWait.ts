@@ -24,12 +24,15 @@ export function useAnswerWait(
   // The Answer's silence starts with its Question, or again when the User's answer lets it go on.
   const since = useRef(Number.isNaN(sentAt) ? 0 : sentAt);
   const wasWaiting = useRef(waitingForUser);
-  if (wasWaiting.current && !waitingForUser) since.current = Date.now();
-  wasWaiting.current = waitingForUser;
-  if (!Number.isNaN(sentAt) && sentAt > since.current) since.current = sentAt;
   const silentNow = streaming && !words && !waitingForUser && !Number.isNaN(sentAt);
 
   useEffect(() => {
+    if (wasWaiting.current && !waitingForUser) since.current = Date.now();
+    wasWaiting.current = waitingForUser;
+  }, [waitingForUser]);
+
+  useEffect(() => {
+    if (!Number.isNaN(sentAt) && sentAt > since.current) since.current = sentAt;
     if (!silentNow) {
       setSilent(false);
       return;
@@ -42,7 +45,7 @@ export function useAnswerWait(
     setSilent(false);
     const timer = setTimeout(() => setSilent(true), left);
     return () => clearTimeout(timer);
-  }, [silentNow]);
+  }, [silentNow, sentAt]);
 
   useEffect(() => {
     if (!streaming) return;

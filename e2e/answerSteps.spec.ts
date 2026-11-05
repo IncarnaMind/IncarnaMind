@@ -288,7 +288,7 @@ test("a slow Answer's step line takes the wait after 15 seconds, in English, and
   const answer = assistantAnswers(window).last();
   const wait = answer.getByTestId("answer-steps-wait");
   // The wait joins the line itself: no second Stop, and no "Still working".
-  await expect(wait).toContainText(`usually about a minute with ${MODEL_NAME}`);
+  await expect(wait).toHaveText(`· usually about a minute with ${MODEL_NAME}`);
   await expect(answer.getByTestId("answer-steps-live")).toBeVisible();
   await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
   await expect(answer).not.toContainText("Still working");
@@ -331,8 +331,8 @@ test("in Chinese, the wait joins the step line in Chinese", async () => {
 
   await askSlowly(window, "春潮什么时候出现？Answer slowly，不用搜索。");
   const answer = assistantAnswers(window).last();
-  await expect(answer.getByTestId("answer-steps-wait")).toContainText(
-    `用 ${MODEL_NAME} 通常要 1 分钟左右`,
+  await expect(answer.getByTestId("answer-steps-wait")).toHaveText(
+    `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
   );
   await screenshot(window, "wait-joined-zh");
   await pointAndClick(window, window.getByTestId("composer-stop"));

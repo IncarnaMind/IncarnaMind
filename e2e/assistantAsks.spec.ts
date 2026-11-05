@@ -105,7 +105,7 @@ test("asked which Documents to summarise, the User ticks one more and goes on", 
   await expect(answer.getByTestId("answer-asked-question")).toHaveText(
     "Which Documents should I summarise?",
   );
-  await expect(answer.getByTestId("answer-asked-answer")).toContainText(
+  await expect(answer.getByTestId("answer-asked-answer")).toHaveText(
     "Board minutes, Lease Mill Lane, Lease Harbour Street",
   );
   const editor = window.locator('[data-testid="mind-editor"]:visible');
@@ -148,7 +148,7 @@ for (const [how, act, said] of [
     await expect(card).toHaveCount(0);
     const answer = assistantAnswers(window).last();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-    await expect(answer.getByTestId("answer-asked-answer")).toContainText(said);
+    await expect(answer.getByTestId("answer-asked-answer")).toHaveText(said);
     await expect(window.getByRole("alert")).toHaveCount(0);
     await app.close();
   });
@@ -516,7 +516,7 @@ test("in Chinese, the question and its rows, at a narrow window", async () => {
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(answer.getByTestId("answer-asked-question")).toHaveText("要总结哪几份文档？");
-  await expect(answer.getByTestId("answer-asked-answer")).toContainText(
+  await expect(answer.getByTestId("answer-asked-answer")).toHaveText(
     "Board minutes、Lease Mill Lane、还有那份锅炉的",
   );
   await app.close();
