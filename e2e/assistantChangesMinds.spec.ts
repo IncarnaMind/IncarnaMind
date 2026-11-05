@@ -109,7 +109,16 @@ test("a request for a new note makes a Mind beside the one in focus, its text ap
   await screenshot(window, "assistant-made-mind-zh");
 });
 
-test.each([
+interface MadeNoteCase {
+  language: "en" | "zh-CN";
+  first: string;
+  second: string;
+  made: string;
+  question: string;
+  open: string;
+}
+
+const MADE_NOTE_CASES: readonly MadeNoteCase[] = [
   {
     language: "en",
     first: "Overview",
@@ -126,9 +135,10 @@ test.each([
     question: "新建一篇叫“田野计划”的笔记 slowly",
     open: "打开",
   },
-] as const)(
-  "a made Note stays behind when the User opens another Note during the Answer ($language)",
-  async ({ language, first, second, made, question, open }) => {
+];
+
+for (const { language, first, second, made, question, open } of MADE_NOTE_CASES) {
+  test(`a made Note stays behind when the User opens another Note during the Answer (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -151,8 +161,8 @@ test.each([
     await expect(openMade).toHaveText(open);
     await pointAndClick(window, openMade);
     await expect(frontMindName(window)).toHaveText(made);
-  },
-);
+  });
+}
 
 test("a change in a Mind not in front names it, with Open and Undo, beside the line of the Mind the turn made", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
