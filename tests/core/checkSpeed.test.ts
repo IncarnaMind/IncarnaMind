@@ -5,7 +5,7 @@
  */
 import { expect, test } from "vitest";
 import type { CoreAdapters, SaveChatProviderInput } from "../../src/core";
-import { claimsAtOnce } from "../../src/core/answers/checks/runChecks";
+import { claimsAtOnce, sentencesAtOnce } from "../../src/core/answers/checks/runChecks";
 import type { PreparedChatModel } from "../../src/core/providers/chat";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
@@ -126,8 +126,8 @@ test("each sentence's check sends the same requests and lands the same mark at s
   expect(atTwelve.marks.every((mark) => mark.state !== "checking")).toBe(true);
 });
 
-// protects=a plan signed in with the User's own account keeps six at once, though it reads its provider's facts (#2532); fails_when=the Claude sign-in gets Anthropic's twelve; no_claim=the plan's own limits, which no run measured.
-test("a check sends six sentences at once on a Claude sign-in, though Anthropic's keys take twelve", () => {
+// protects=a plan signed in with the User's own account keeps six sentences at once, though it reads its provider's facts, and what has no per-sentence backoff (the sorting, an Answer's batches, the background watch) keeps six on any service (#2532); fails_when=the Claude sign-in gets Anthropic's twelve, or the sorting gets them; no_claim=the plan's own limits, which no run measured.
+test("six at once on a Claude sign-in, and for what isn't a run of sentence checks", () => {
   const facts = { checksAtOnce: 12 };
   const on = (kind: "anthropic" | "claude-account") =>
     ({
@@ -135,6 +135,7 @@ test("a check sends six sentences at once on a Claude sign-in, though Anthropic'
       capabilities: { known: true, facts },
     }) as unknown as PreparedChatModel;
 
-  expect(claimsAtOnce(on("anthropic"))).toBe(12);
-  expect(claimsAtOnce(on("claude-account"))).toBe(6);
+  expect(sentencesAtOnce(on("anthropic"))).toBe(12);
+  expect(sentencesAtOnce(on("claude-account"))).toBe(6);
+  expect(claimsAtOnce(on("anthropic"))).toBe(6);
 });

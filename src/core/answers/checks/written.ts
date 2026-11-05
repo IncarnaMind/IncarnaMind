@@ -78,7 +78,7 @@ import {
 } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { recordOpinions } from "./opinions";
-import { claimsAtOnce } from "./runChecks";
+import { sentencesAtOnce } from "./runChecks";
 import { checkText, citedQuoteOf, figuresByBlock, markSentence, sentenceOf } from "./sentences";
 import type { CheckScope } from "./verify";
 
@@ -816,7 +816,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
-    const limit = slots(claimsAtOnce(prepared));
+    const limit = slots(sentencesAtOnce(prepared));
     const quick = await options.quickModel(prepared).catch((error: unknown) => {
       console.warn(
         `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -1006,7 +1006,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           : null;
         return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
       },
-      { concurrency: claimsAtOnce(prepared), signal, onOutcome: landed },
+      { concurrency: sentencesAtOnce(prepared), signal, onOutcome: landed },
     );
     if (signal.aborted) return null;
     done.stop = stop;

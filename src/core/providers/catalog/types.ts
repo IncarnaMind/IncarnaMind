@@ -317,8 +317,8 @@ export interface ModelFacts {
   /** Offered `calculate` in a claim check, whose verdict rests on its own calculation (#707). */
   checkCalculates: boolean;
   /**
-   * How many sentences a check sends it at once on a service, measured for its provider; unset,
-   * six (#1618). A rate limit still lowers the number for the run.
+   * How many sentences a run of checks sends it at once on a service, measured for its provider;
+   * unset, six (#1618, #2532). A rate limit lowers it for the run.
    */
   checksAtOnce: number;
 }
