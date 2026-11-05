@@ -6990,7 +6990,7 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a Passage, the internal ids of the Passages next to it; and, for a search, which page of results it is and whether more follow",
+    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; and, for a search, which page of results it is and whether more follow",
   "consent.data.scoped-minds":
     "The shared Folders’ names, internal ids and Document counts, the names, internal ids and last-change times of the notes in them when the agent lists them, and the part of a note it reads, with where the next part starts",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
