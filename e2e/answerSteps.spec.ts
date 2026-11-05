@@ -4,6 +4,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
+  type AnswerWaitForm,
   acceptPlainTextKeys,
   addDocuments,
   addTideConnector,
@@ -24,6 +25,7 @@ import {
   sidebarFolder,
   sizeAssistant,
   slideToHandle,
+  watchAnswerWaits,
 } from "./app";
 
 /**
@@ -278,6 +280,16 @@ async function askSlowly(window: Page, question: string): Promise<void> {
   await window.keyboard.press("Enter");
 }
 
+/** After the wait gave up the line, a shorter step brought it back onto the first row, joined. */
+async function expectComeback(waits: () => Promise<AnswerWaitForm[]>, from: number): Promise<void> {
+  const seen = (await waits()).slice(from);
+  const row = seen.findIndex((each) => each.form === "row");
+  expect(row).toBeGreaterThanOrEqual(0);
+  const back = seen.slice(row + 1).find((each) => each.form === "joined");
+  expect(back).toBeDefined();
+  expect(back?.text.startsWith("· ")).toBe(true);
+}
+
 test("a slow Answer's step line takes the wait after 15 seconds, in English, and the composer's ■ is its one Stop", async () => {
   test.setTimeout(180_000);
   const { app, window } = await startWithMinuteHistory();
@@ -389,8 +401,10 @@ test("at the default 320px assistant the wait joins in its first fitting form, i
       `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
     ],
   ] as const;
+  const waits = await watchAnswerWaits(window);
 
   for (const [index, [language, question, searching, short, whole]] of languages.entries()) {
+    const from = (await waits()).length;
     await core(window).language(language);
     await askSlowly(window, question);
     if (index === 0) {
@@ -414,6 +428,8 @@ test("at the default 320px assistant the wait joins in its first fitting form, i
     expect(await live.evaluate((line) => line.scrollWidth <= line.clientWidth + 1)).toBe(true);
     await screenshot(window, `wait-320-${language}`);
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    // A shorter step frees the line: the short wait comes back onto the first row.
+    await expectComeback(waits, from);
   }
   await app.close();
 });
@@ -438,8 +454,10 @@ test("the wait keeps the form that fits as the steps change, and the summary kee
       `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
     ],
   ] as const;
+  const waits = await watchAnswerWaits(window);
 
   for (const [index, [language, width, question, short, whole]] of languages.entries()) {
+    const from = (await waits()).length;
     await core(window).language(language);
     await sizeAssistant(window, width);
     await setSilentWaitMs(window, 300);
@@ -483,6 +501,8 @@ test("the wait keeps the form that fits as the steps change, and the summary kee
     await expect(wait).toBeVisible();
     await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    // After the summary, a shorter step frees the line: the joined wait comes back onto the first row.
+    await expectComeback(waits, from);
   }
   await app.close();
 });

@@ -76,6 +76,9 @@ import { mindCallText } from "./MindCall";
 /** Sources shown under a search before "+N more". */
 const SHOWN_SOURCES = 3;
 
+/** The wait's forms, from the one that takes the most of the line to the one that takes the least. */
+const WAIT_FORM_ORDER = { whole: 0, short: 1, row: 2 } as const;
+
 /**
  * An Answer's steps in the assistant (#391): while it is written, the step it
  * is on; once written, one folded line, as Claude's and ChatGPT's "Thought for
@@ -230,6 +233,8 @@ export function LiveLine({
   const shortMeasure = useRef<HTMLSpanElement | null>(null);
   const [rowWidth, setRowWidth] = useState(0);
   const [waitForm, setWaitForm] = useState<"whole" | "short" | "row">("whole");
+  const formShown = useRef<"whole" | "short" | "row" | null>(null);
+  const measuredAs = useRef<{ label: string; summary: string; width: number } | null>(null);
   const minds = useAppStore((state) => state.minds);
   // A Minds' Tool's call names its Mind once it has changed it; before, by its input, else the one asked from.
   const mindOf = (call: AnswerToolCall) => {
@@ -287,8 +292,12 @@ export function LiveLine({
     const kept = [...element.querySelectorAll<HTMLElement>("[data-row-keeps]")].reduce(
       (sum, each) => {
         const style = getComputedStyle(each);
-        const margin =
-          (Number.parseFloat(style.marginLeft) || 0) + (Number.parseFloat(style.marginRight) || 0);
+        // The chevron's left margin is auto: the browser reports the row's free
+        // space, which the row doesn't keep.
+        const margin = each.matches("button")
+          ? 0
+          : (Number.parseFloat(style.marginLeft) || 0) +
+            (Number.parseFloat(style.marginRight) || 0);
         return sum + each.scrollWidth + margin;
       },
       0,
@@ -300,13 +309,30 @@ export function LiveLine({
       1 + // the wait
       (hasToggle ? 1 : 0);
     const room = width - kept - (items - 1) * gap;
-    setWaitForm(
+    const target =
       wholeElement.getBoundingClientRect().width <= room + 1
         ? "whole"
         : shortElement.getBoundingClientRect().width <= room + 1
           ? "short"
-          : "row",
-    );
+          : "row";
+    const before = measuredAs.current;
+    measuredAs.current = { label, summary, width };
+    const current = formShown.current;
+    if (current === null) {
+      formShown.current = target;
+      setWaitForm(target);
+      return;
+    }
+    // The summary streams a word at a time: the wait gives up the line as it
+    // grows, but takes it back only when the step's own words change, so it
+    // never bounces between rows while the summary streams (#2531).
+    const narrower = WAIT_FORM_ORDER[target] > WAIT_FORM_ORDER[current];
+    const stepChanged = before !== null && before.label !== label;
+    const resized = before !== null && before.width !== width;
+    if (narrower || stepChanged || resized) {
+      formShown.current = target;
+      setWaitForm(target);
+    }
   }, [whole, short, label, summary, waiting, waitingSeconds, rowWidth, hasToggle]);
 
   return (

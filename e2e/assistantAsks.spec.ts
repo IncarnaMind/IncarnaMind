@@ -15,6 +15,7 @@ import {
   setSilentWaitMs,
   setWindowSize,
   useLocalChatModel,
+  watchAnswerWaits,
 } from "./app";
 
 const connectLocalChatModel = useLocalChatModel;
@@ -670,24 +671,31 @@ test("the silence does not count the card's wait, at the default 320px assistant
   test.setTimeout(240_000);
   const { app, window } = await startWithMinuteHistory();
   const languages = [
-    ["en", "Summarise the main documents slowly"],
-    ["zh-CN", "总结主要的文档 slowly"],
+    ["en", "Summarise the main documents slowly", "· usually about a minute with fake-model"],
+    ["zh-CN", "总结主要的文档 slowly", "· 用 fake-model 通常要 1 分钟左右"],
   ] as const;
+  const waits = await watchAnswerWaits(window);
 
-  for (const [language, question] of languages) {
+  for (const [language, question, whole] of languages) {
     await setLanguage(window, language);
     await setSilentWaitMs(window, 2_000);
     const card = await ask(window, question);
-    // The card stays open past the 2 s silence, so the Question's clock is older than it.
+    // The card sits open past the 2 s silence: that is the case under test, not a wait for the app.
     await window.waitForTimeout(2_500);
+    const from = (await waits()).length;
+    const answeredAt = await window.evaluate(() => Date.now());
     await window.keyboard.press("ControlOrMeta+Enter");
     await expect(card).toHaveCount(0);
     const answer = assistantAnswers(window).last();
-    const wait = answer.getByTestId("answer-steps-wait");
-    // A second after the answer the 2 s silence has not run out: it starts at the answer.
-    await window.waitForTimeout(1_000);
-    await expect(wait).toHaveCount(0);
+    // The wait joins after its 2 s, whole in the spoken line: the silence did run, from the answer.
+    await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole, {
+      timeout: 15_000,
+    });
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    // And it never showed before its 2 s: the card's wait is not the Answer's silence.
+    const seen = (await waits()).slice(from);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]?.at).toBeGreaterThanOrEqual(answeredAt + 1_500);
   }
   await app.close();
 });

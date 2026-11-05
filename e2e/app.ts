@@ -1940,6 +1940,43 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
   );
 }
 
+/** How the latest Answer's wait showed as it ran: joined on its step's row, or alone on the second. */
+export type AnswerWaitForm = { at: number; form: "joined" | "row"; text: string };
+
+/** Watches the wait of the latest Answer as it runs, with when each form first showed, for a test that must not miss a brief one. */
+export async function watchAnswerWaits(window: Page): Promise<() => Promise<AnswerWaitForm[]>> {
+  await window.evaluate(() => {
+    const seen: AnswerWaitForm[] = [];
+    (globalThis as unknown as { seenAnswerWaits: AnswerWaitForm[] }).seenAnswerWaits = seen;
+    let last: string | null = null;
+    const record = () => {
+      const assistant = document.querySelector('[data-testid="assistant"]');
+      const answer = [
+        ...(assistant?.querySelectorAll('[data-testid="assistant-answer"]') ?? []),
+      ].at(-1);
+      const row = answer?.querySelector('[data-testid="answer-steps-wait-row"]');
+      const joined = answer?.querySelector(
+        '.answer-steps-live-row:not(.answer-steps-live-row--second) [data-testid="answer-steps-wait"]',
+      );
+      const form: AnswerWaitForm["form"] | null = row ? "row" : joined ? "joined" : null;
+      const text = (row ?? joined)?.textContent ?? "";
+      const key = form === null ? null : `${form}\u0000${text}`;
+      if (key === last) return;
+      last = key;
+      if (form !== null) seen.push({ at: Date.now(), form, text });
+    };
+    new MutationObserver(record).observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
+  return () =>
+    window.evaluate(
+      () => (globalThis as unknown as { seenAnswerWaits: AnswerWaitForm[] }).seenAnswerWaits,
+    );
+}
+
 /** Records the Answers already in `dataDir` as taking `ms` to their first word, so the line knows a usual wait. */
 export async function answersTookAboutAMinute(dataDir: string, ms = 62_000): Promise<void> {
   const db = openDatabase(join(dataDir, "incarnamind.db"));
