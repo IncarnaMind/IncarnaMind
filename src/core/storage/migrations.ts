@@ -2300,6 +2300,33 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE minds ADD COLUMN duplicated_from_mind_id TEXT;
     `,
   },
+  {
+    version: 129,
+    description:
+      "A saved DeepSeek model id the API no longer serves moves to deepseek-flash (#2567)",
+    sql: `
+      -- DeepSeek's API serves deepseek-flash and deepseek-v4-pro only. A choice saved before the
+      -- old ids went would fail at its first request.
+      UPDATE user_settings
+        SET value = json_set(value, '$.modelId', 'deepseek-flash'),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL
+          AND key IN ('chatModel', 'quickTasksModel', 'imageModel')
+          AND json_extract(value, '$.modelId') IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND json_extract(value, '$.providerId') IN (
+            SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
+          );
+      UPDATE device_settings
+        SET value = json_set(value, '$.modelId', 'deepseek-flash'),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL
+          AND key = 'lastChatModel'
+          AND json_extract(value, '$.modelId') IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND json_extract(value, '$.providerId') IN (
+            SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
+          );
+    `,
+  },
 ];
 
 /**

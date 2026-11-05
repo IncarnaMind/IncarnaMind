@@ -456,3 +456,61 @@ describe("Folders inside Folders (#246)", () => {
     db.close();
   });
 });
+
+describe("DeepSeek model ids (#2567)", () => {
+  test("a saved old id moves to deepseek-flash, and another provider's choice stays", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 129),
+    );
+    const at = "2026-11-05T09:00:00.000Z";
+    const deepseek = "00000000-0000-4000-8000-0000000000d5";
+    const openai = "00000000-0000-4000-8000-0000000000a1";
+    db.run(
+      "INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at) VALUES (?, 'deepseek', NULL, 'deepseek', NULL, ?, ?)",
+      [deepseek, at, at],
+    );
+    db.run(
+      "INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at) VALUES (?, 'openai', NULL, 'openai', NULL, ?, ?)",
+      [openai, at, at],
+    );
+    const setting = (id: string, key: string, providerId: string, modelId: string) =>
+      db.run(
+        "INSERT INTO user_settings (id, key, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        [id, key, JSON.stringify({ providerId, modelId }), at, at],
+      );
+    setting("s1", "chatModel", deepseek, "deepseek-v4-flash");
+    setting("s2", "quickTasksModel", deepseek, "deepseek-v4-flash-vision-exp");
+    setting("s3", "imageModel", openai, "deepseek-v4-flash");
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES (?, 'lastChatModel', ?, ?, ?)",
+      ["d1", JSON.stringify({ providerId: deepseek, modelId: "deepseek-v4-flash" }), at, at],
+    );
+
+    migrate(db);
+
+    const value = (table: "user_settings" | "device_settings", key: string) =>
+      JSON.parse(
+        db.get<{ value: string }>(`SELECT value FROM ${table} WHERE key = ?`, [key])?.value ??
+          "null",
+      );
+    expect(value("user_settings", "chatModel")).toEqual({
+      providerId: deepseek,
+      modelId: "deepseek-flash",
+    });
+    expect(value("user_settings", "quickTasksModel")).toEqual({
+      providerId: deepseek,
+      modelId: "deepseek-flash",
+    });
+    expect(value("user_settings", "imageModel")).toEqual({
+      providerId: openai,
+      modelId: "deepseek-v4-flash",
+    });
+    expect(value("device_settings", "lastChatModel")).toEqual({
+      providerId: deepseek,
+      modelId: "deepseek-flash",
+    });
+    db.close();
+  });
+});
