@@ -456,9 +456,15 @@ test("the wait keeps the form that fits as the steps change, and the summary kee
     await expect(live).toHaveAttribute("data-step", "thinking", { timeout: 30_000 });
     const summary = live.getByTestId("answer-steps-summary");
     await expect(summary).toBeVisible({ timeout: 30_000 });
-    expect(
-      await summary.evaluate((element) => element.getBoundingClientRect().width),
-    ).toBeGreaterThan(60);
+    // It keeps more than five of the dot's own widths: never cut to its dot.
+    const dotWidth = await live
+      .locator(".answer-steps-dot")
+      .evaluate((element) => element.getBoundingClientRect().width);
+    await expect
+      .poll(() => summary.evaluate((element) => element.getBoundingClientRect().width), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(dotWidth * 5);
     const alone = short.replace(/^· /, "").replace(/^./, (letter) => letter.toUpperCase());
     await expect(wait).toHaveText(alone, { timeout: 30_000 });
     expect(await wait.evaluate((element) => element.textContent)).toBe(alone);
