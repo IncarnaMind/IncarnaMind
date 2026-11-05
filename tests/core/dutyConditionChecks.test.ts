@@ -73,10 +73,15 @@ interface Case {
   lastLines?: readonly string[];
   /** Its reply when the check looks again at a reply that disagreed with itself. */
   look?: string;
+  /** With `split`, the lines its last turn writes once asked for its Roles in its own words. */
+  rolesAgain?: readonly string[];
 }
 
-/** How the check's ask for the Duty and Condition lines starts. */
-const ASKED = "Your reply has no Duty or Condition line";
+/** What every ask for the Duty and Condition lines says. */
+const ASKED = "its Duty line gives each side as one of must, should, may, must not or none";
+
+/** How the check's ask for a Roles line in the sentence's own words starts. */
+const ROLES_ASKED = "Your Roles line's first side";
 
 /** How the check's second look at a reply that disagreed with itself starts. */
 const LOOKS_AGAIN = "Your last check of this sentence";
@@ -140,7 +145,9 @@ function replying(each: Case, calls: ModelCall[], looks: string[]) {
           ? [
               `Verdict: ${each.verdict}`,
               "Absence: no",
-              ...(each.lastLines ?? []),
+              ...((call.prompt.includes(ROLES_ASKED) ? each.rolesAgain : undefined) ??
+                each.lastLines ??
+                []),
               "The rules say so [^1].",
               "Evidence: [1]",
             ]
@@ -497,6 +504,36 @@ describe("a Supported reply without its Duty or Condition line is asked once, an
     expect(checked?.state).toBe(state);
     expect(asks(calls)).toHaveLength(asked);
     if (each.number) expect(checked?.figures).toHaveLength(1);
+  });
+
+  test.each<[string, Case, string]>([
+    [
+      "a line that calls a condition on one side and none on the other the same",
+      {
+        sentence: "Berth holders may run a generator.",
+        quote: "Berth holders may run a generator only if the harbour master agrees.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / only if the harbour master agrees, same",
+      },
+      "says same while its two sides differ",
+    ],
+    [
+      "a reply with no Condition line",
+      {
+        sentence: "The marina office can store spare sails for berth holders.",
+        quote: "The marina office can store spare sails for berth holders.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: null,
+      },
+      "has no Duty or Condition line that can be read",
+    ],
+  ])("the ask for %s says what is wrong", async (_, each, says) => {
+    const calls: ModelCall[] = [];
+    await check(each, BERTHS, calls);
+    expect(asks(calls)).toHaveLength(1);
+    expect(asks(calls)[0]?.prompt).toContain(says);
   });
 
   test("the ask names the words each side of the Duty line takes", async () => {
@@ -1070,6 +1107,79 @@ describe("a Duty or Condition line is read only by its own closing word (#1766, 
       1,
     ],
     [
+      "a Condition side that is none with a gloss, beside a condition, called the same",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition:
+          "none (unconditional) / provided that both hirers are of the same age group, same",
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a Condition line with none on both sides, one glossed",
+      {
+        sentence: "Members must sign the hire book before they launch.",
+        quote: "Members must sign the hire book before they launch.",
+        verdict: "supported",
+        duty: "must / must, same",
+        condition: "none (unconditional) / none, same",
+      },
+      "supported",
+      0,
+    ],
+    [
+      "a 'differs' beside cite, then a reply asked for its Roles in the sentence's own words",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / provided that both hirers are of the same age group, differs",
+        split: true,
+        lastLines: [
+          "Roles: hirers of the same age group may hire / hirers may hire, same",
+          "Duty: may / may, same",
+          `Condition: ${SAME}`,
+        ],
+        rolesAgain: [
+          "Roles: Members may hire / Members may hire, same",
+          "Duty: may / may, same",
+          `Condition: ${SAME}`,
+        ],
+      },
+      "unsupported",
+      0,
+    ],
+    [
+      "lines all the same beside cite, then a reply asked for its Roles in the sentence's own words",
+      {
+        sentence: "Members must sign the hire book before they launch.",
+        quote: "Members must sign the hire book before they launch.",
+        verdict: "supported",
+        duty: "must / must, same",
+        condition: SAME,
+        split: true,
+        lastLines: [
+          "Roles: every member must sign / Members must sign, same",
+          "Duty: must / must, same",
+          `Condition: ${SAME}`,
+        ],
+        rolesAgain: [
+          "Roles: Members must sign / Members must sign, same",
+          "Duty: must / must, same",
+          `Condition: ${SAME}`,
+        ],
+      },
+      "supported",
+      0,
+    ],
+    [
       "lines beside cite and in the last turn, all the same",
       {
         sentence: "Members must sign the hire book before they launch.",
@@ -1146,6 +1256,18 @@ describe("a Duty or Condition line is read only by its own closing word (#1766, 
         verdict: "supported",
         duty: "应该 / 须, same",
         condition: SAME,
+      },
+      "unsupported",
+    ],
+    [
+      "zh, a 条件 side that is none with a gloss, beside a condition, called the same",
+      {
+        sentence: "泊位持有人可以使用发电机。",
+        quote: "只有经港务长同意，泊位持有人才可以使用发电机。",
+        verdict: "supported",
+        duty: null,
+        condition: null,
+        lines: ["义务：may / may, same", "条件：无（未提条件）/ 只有经港务长同意，same"],
       },
       "unsupported",
     ],
