@@ -54,7 +54,7 @@ import type { ExecRequest, Executor, Logger, ProcessLauncher } from "../core";
 import type { SandboxProblem } from "../core/api";
 import { engineModule } from "../core/engineModules";
 import { type Confinement, createLocalExecutor, folderPath } from "../core/execution";
-import { programMeter } from "./programMeter";
+import { createMeters, type Meters } from "./programMeter";
 import {
   createRunSweeper,
   type RunSweeper,
@@ -505,6 +505,7 @@ function osConfinement(
   readable: readonly string[],
   sweeper: RunSweeper,
   sizedMasks: boolean,
+  meters: Meters,
 ): Confinement {
   return {
     level: "os",
@@ -571,7 +572,7 @@ function osConfinement(
         const metered = request.limits?.memoryBytes !== undefined;
         const program = await wrap(sandbox, script, config, run, metered);
         const { sweep, adopted } = await sweeper.begin(run, working);
-        return { ...program, env: request.env, sweep, adopted };
+        return { ...program, env: request.env, sweep, meter: meters.meter(adopted) };
       } catch (error) {
         throw startFailed(error);
       }
@@ -713,7 +714,6 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
     createExecutor: (options) =>
       createLocalExecutor({
         ...options,
-        meter: programMeter,
         confinement: osConfinement(
           sandbox,
           options,
@@ -725,6 +725,7 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
             ...options.sweep,
           }),
           sizedMasks,
+          createMeters(),
         ),
       }),
   };

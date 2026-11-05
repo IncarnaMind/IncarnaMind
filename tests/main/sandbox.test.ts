@@ -82,9 +82,10 @@ function environment(): Record<string, string> {
  */
 /** An Executor in the OS sandbox with this file's run records and sweep, as the app makes one. */
 function osExecutor(
-  options: Pick<OsExecutorOptions, "tempDir" | "denyRead" | "interpreterRoots"> & {
-    env: Record<string, string>;
-  },
+  options: Pick<OsExecutorOptions, "tempDir" | "denyRead" | "interpreterRoots"> &
+    Partial<Pick<OsExecutorOptions, "reportError">> & {
+      env: Record<string, string>;
+    },
 ) {
   if (!sandbox.available) throw new Error(sandbox.reason);
   const { env, ...rest } = options;
@@ -1281,7 +1282,16 @@ console.log(JSON.stringify(results));
     });
 
     test("a daemon's memory, and files a daemon or the program holds open with no name left, count against its limits while it runs, run after run", async () => {
-      const { executor } = await setUp();
+      const { tempDir, home, data } = await setUp();
+      // Whatever the meter couldn't read, which a case that passes only because a count was
+      // dropped would hide.
+      const reports: string[] = [];
+      const executor = osExecutor({
+        tempDir,
+        denyRead: [home, data],
+        env: environment(),
+        reportError: (error) => reports.push(String(error)),
+      });
       const run = (script: string) =>
         executor.run({
           ...shell(script),
@@ -1319,6 +1329,7 @@ console.log(JSON.stringify(results));
         expect([round, under]).toMatchObject([round, { exitCode: 0, stdout: "held\n" }]);
         expect(under.limit).toBeUndefined();
       }
+      expect(reports).toEqual([]);
       const { execFileSync } = await import("node:child_process");
       await expect
         .poll(() =>

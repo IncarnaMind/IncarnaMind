@@ -47,15 +47,21 @@ const PER_CALL = 500;
  * For each question, 0 where the profile allows it (or the process has none), 1 where it
  * denies it, -1 where the check failed (the process is gone). Rejects where osascript can't run.
  */
-export async function sandboxCheck(questions: readonly SandboxQuestion[]): Promise<number[]> {
+export async function sandboxCheck(
+  questions: readonly SandboxQuestion[],
+  { timeoutMs }: { timeoutMs?: number } = {},
+): Promise<number[]> {
   const answers: number[] = [];
   for (let at = 0; at < questions.length; at += PER_CALL) {
-    answers.push(...(await checkSome(questions.slice(at, at + PER_CALL))));
+    answers.push(...(await checkSome(questions.slice(at, at + PER_CALL), timeoutMs)));
   }
   return answers;
 }
 
-async function checkSome(questions: readonly SandboxQuestion[]): Promise<number[]> {
+async function checkSome(
+  questions: readonly SandboxQuestion[],
+  timeoutMs: number | undefined,
+): Promise<number[]> {
   if (questions.length === 0) return [];
   const asked = questions.map((question) => ({
     pid: question.pid,
@@ -67,7 +73,7 @@ async function checkSome(questions: readonly SandboxQuestion[]): Promise<number[
   const { stdout } = await execFileAsync(
     "/usr/bin/osascript",
     ["-l", "JavaScript", "-e", SCRIPT, process.arch, JSON.stringify(asked)],
-    { maxBuffer: 16 * 1024 * 1024 },
+    { maxBuffer: 16 * 1024 * 1024, ...(timeoutMs !== undefined && { timeout: timeoutMs }) },
   );
   const answers: unknown = JSON.parse(stdout.trim());
   if (

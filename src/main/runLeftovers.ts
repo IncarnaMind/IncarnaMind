@@ -29,6 +29,7 @@ import { execFile } from "node:child_process";
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { COMMAND_MS, type ListedProcess, runCommand } from "./programMeter";
 import { type SandboxQuestion, sandboxCheck } from "./sandboxCheck";
 
 const execFileAsync = promisify(execFile);
@@ -100,7 +101,10 @@ export interface SweepContext {
   group: number;
 }
 
-export type ProfileCheck = (questions: readonly SandboxQuestion[]) => Promise<number[]>;
+export type ProfileCheck = (
+  questions: readonly SandboxQuestion[],
+  options?: { timeoutMs?: number },
+) => Promise<number[]>;
 
 /** The answers only a process carrying `run`'s profile gives, to `questionsFor`. */
 const MEMBER_ANSWERS = [0, 1, 1];
@@ -197,6 +201,11 @@ export function procRow(
   };
 }
 
+/** How ps prints when a process started, in the C locale. */
+const PS_START = String.raw`\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4}`;
+const PS_ROW = new RegExp(String.raw`^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(${PS_START}) (.*)$`);
+const PS_STARTED = new RegExp(String.raw`^\s*(\d+)\s+(${PS_START})\s*$`);
+
 /** Every process of the computer and when each started; on Linux from /proc, elsewhere from ps. */
 export async function listProcesses(): Promise<ProcessRow[]> {
   if (process.platform === "linux") {
@@ -221,10 +230,7 @@ export async function listProcesses(): Promise<ProcessRow[]> {
   );
   const rows: ProcessRow[] = [];
   for (const line of stdout.split("\n")) {
-    const parts =
-      /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4}) (.*)$/.exec(
-        line.trimEnd(),
-      );
+    const parts = PS_ROW.exec(line.trimEnd());
     if (!parts) continue;
     rows.push({
       pid: Number(parts[1]),
@@ -243,6 +249,24 @@ export type Stopper = (
   pid: number,
   signal: "SIGSTOP" | "SIGKILL" | "SIGCONT",
 ) => boolean | Promise<boolean>;
+
+/** When each of `pids` started, from ps; one that has ended is left out. */
+export async function startTimes(pids: readonly number[]): Promise<Map<number, number>> {
+  const started = new Map<number, number>();
+  if (pids.length === 0) return started;
+  const stdout = await runCommand("ps", ["-o", "pid=,lstart=", "-p", pids.join(",")]).catch(
+    (error: { code?: unknown; stdout?: unknown }) => {
+      // ps's exit status when a pid it was given has ended.
+      if (error.code === 1 && typeof error.stdout === "string") return error.stdout;
+      throw error;
+    },
+  );
+  for (const line of stdout.split("\n")) {
+    const parts = PS_STARTED.exec(line);
+    if (parts) started.set(Number(parts[1]), Date.parse(parts[2] ?? ""));
+  }
+  return started;
+}
 
 /** The stopper the app uses. */
 export const killProcess: Stopper = (pid, signal) => {
@@ -265,6 +289,8 @@ export type SignalLog = (fields: { pid: number; signal: string; reason: string }
 /** What a sweep reads the computer with and signals through: the real ones, or a test's. */
 export interface SweepDeps {
   list(): Promise<ProcessRow[]>;
+  /** When each of these processes started (`startTimes`). */
+  started(pids: readonly number[]): Promise<Map<number, number>>;
   check: ProfileCheck;
   stopper: Stopper;
   log: SignalLog;
@@ -331,24 +357,38 @@ export async function sweepRun(run: RunRecord, group: number, deps: SweepDeps): 
 
 /**
  * The run's processes launchd took over when their parents ended (a daemon), which the program's
- * tree no longer holds: each orphan is asked once, as the sweep asks of a member, and `known` keeps
- * the answer. On Linux none: bubblewrap's PID namespace keeps them under the program.
+ * tree no longer holds, from a tick's listing: each of this User's orphans is asked once, as the
+ * sweep asks of a member, and `known` keeps an answer sandbox_check gave in full. On Linux none:
+ * bubblewrap's PID namespace keeps them under the program.
  */
 export async function adoptedMembers(
   run: RunRecord,
   group: number,
-  deps: SweepDeps,
-  known: Map<string, boolean>,
+  listed: readonly ListedProcess[],
+  deps: Pick<SweepDeps, "started" | "check" | "platform" | "uid" | "app">,
+  known: Map<number, boolean>,
 ): Promise<number[]> {
   if (deps.platform !== "darwin") return [];
-  const key = (each: { pid: number; startedMs: number }) => `${each.pid}@${each.startedMs}`;
-  const orphans = (await deps.list()).filter((each) => each.ppid === 1);
-  const context = { platform: deps.platform, uid: deps.uid, app: deps.app, group };
-  const unasked = orphans.filter((each) => !known.has(key(each)));
-  for (const each of await classify(unasked, run, context, deps.check)) {
-    known.set(key(each), each.verdict === "member");
+  // A pid goes to another process only once the system has been through all the others, never
+  // between two listings a tick apart: one gone from this listing is forgotten.
+  const present = new Set(listed.map((each) => each.pid));
+  for (const pid of known.keys()) if (!present.has(pid)) known.delete(pid);
+  const orphans = listed.filter((each) => each.ppid === 1 && each.uid === deps.uid);
+  const unasked = orphans.filter((each) => !known.has(each.pid));
+  if (unasked.length > 0) {
+    const started = await deps.started(unasked.map((each) => each.pid));
+    const rows = unasked.flatMap((each) => {
+      const startedMs = started.get(each.pid);
+      return startedMs === undefined ? [] : [{ ...each, startedMs, command: "" }];
+    });
+    const context = { platform: deps.platform, uid: deps.uid, app: deps.app, group };
+    const check: ProfileCheck = (questions) => deps.check(questions, { timeoutMs: COMMAND_MS });
+    for (const each of await classify(rows, run, context, check)) {
+      if (each.answers?.some((answer) => answer !== 0 && answer !== 1)) continue;
+      known.set(each.pid, each.verdict === "member");
+    }
   }
-  return orphans.filter((each) => known.get(key(each)) === true).map((each) => each.pid);
+  return orphans.filter((each) => known.get(each.pid) === true).map((each) => each.pid);
 }
 
 /** Where runs are recorded until their sweep is done: a folder of this User's own. */
@@ -372,8 +412,8 @@ function runFolder(folder: string): string | null {
 export interface SweptRun {
   /** Stops what the run left; never rejects. */
   sweep(group: number): Promise<void>;
-  /** Its processes launchd adopted (`adoptedMembers`), while the program runs. */
-  adopted(group: number): Promise<number[]>;
+  /** Its processes launchd adopted, from a tick's listing (`adoptedMembers`). */
+  adopted(group: number, listed: readonly ListedProcess[]): Promise<number[]>;
 }
 
 export interface RunSweeper {
@@ -392,7 +432,7 @@ export interface RunSweeperOptions {
   /** Where runs are recorded. */
   records: string;
   /** A test's listing, profile check and system; this computer's otherwise. */
-  computer?: Pick<SweepDeps, "list" | "check" | "platform">;
+  computer?: Pick<SweepDeps, "list" | "check" | "platform"> & Partial<Pick<SweepDeps, "started">>;
 }
 
 /** A record as `begin` writes it; anything else in the folder is no run's. */
@@ -422,6 +462,7 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
   const uid = process.getuid?.();
   const deps: SweepDeps = {
     list: options.computer?.list ?? listProcesses,
+    started: options.computer?.started ?? startTimes,
     check: options.computer?.check ?? sandboxCheck,
     stopper: options.stopper ?? killProcess,
     log: options.log ?? (() => {}),
@@ -502,10 +543,10 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
       await writeFile(join(await records, `${run.id}.json`), JSON.stringify(run), {
         mode: 0o600,
       });
-      const known = new Map<string, boolean>();
+      const known = new Map<number, boolean>();
       return {
         sweep: (group) => sweepAndForget(run, group).catch(report),
-        adopted: (group) => adoptedMembers(run, group, deps, known),
+        adopted: (group, listed) => adoptedMembers(run, group, listed, deps, known),
       };
     },
     async stuck() {
