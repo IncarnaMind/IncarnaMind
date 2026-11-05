@@ -7,7 +7,8 @@
  * when its size and SHA-256 are the manifest's (../embedding/download). It
  * is unpacked there and imports every package once in the OS sandbox, which
  * also takes the time macOS spends on a native library it loads for the
- * first time, before the first run waits on it.
+ * first time, before the first run waits on it. Skill scripts run on it too,
+ * once it is here, but never download it.
  *
  * Network traffic that carries no User content (the Privacy page lists it):
  * one GET for the archive, from the host its manifest names.
@@ -20,20 +21,13 @@ import type { EmbeddingModelError, EmbeddingModelStatus } from "../../core/api";
 import { downloadModel, ModelDownloadError, progressReporter } from "../../core/embedding/download";
 import { STALL_MS } from "../../core/embedding/modelSources";
 import { WORKING_FOLDER } from "../../core/execution";
-import type { PythonRuntimeManifest } from "../../core/runCode";
+import type { InstalledPython, PythonRuntimeManifest } from "../../core/runCode";
 import { canonicalPath } from "../sandbox";
 import { unpackTarZst } from "./tar";
 
 export type { PythonRuntimeManifest };
 
-export interface ReadyPython {
-  /** The interpreter: …/python/bin/python3. */
-  command: string;
-  /**
-   * Where it is installed, …/python, which each of its runs names in its request: the one folder
-   * in the data folder the sandbox lets a program read for being where its interpreter is.
-   */
-  prefix: string;
+export interface ReadyPython extends InstalledPython {
   /** matplotlib's font cache, built by the first import, which each run starts from. */
   fontCache: string;
   manifest: PythonRuntimeManifest;
@@ -216,6 +210,9 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
     update({ downloadedBytes: manifest.size });
     const partial = `${files}.partial`;
     try {
+      // A mark left from before would count these files ready once they are in place, before
+      // their first import, and after one that fails.
+      await rm(join(folder, READY_FILE), { force: true });
       await rm(partial, { recursive: true, force: true });
       await rm(files, { recursive: true, force: true });
       await mkdir(partial, { recursive: true });
@@ -285,6 +282,7 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
   return {
     manifest,
     status: (): EmbeddingModelStatus => status,
+    installed: (): InstalledPython | null => (ready() ? { command, prefix } : null),
     /**
      * The runtime, downloaded, unpacked and imported first if it isn't yet. Every call waits on the
      * same preparation, which stops when every call waiting on it was stopped: what was downloaded
