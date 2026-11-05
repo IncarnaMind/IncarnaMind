@@ -518,6 +518,19 @@ export function countChanged(kinds: Iterable<ChangeKind>): number {
 }
 
 /**
+ * Every paragraph a change came to it added whole, the User's kept as they were: it wrote them and
+ * changed none, as everything said of it must say (#2356).
+ */
+export function addsOnly(kinds: Iterable<ChangeKind>): boolean {
+  let added = false;
+  for (const kind of kinds) {
+    if (kind === "added" || kind === "title-added") added = true;
+    else if (kind !== "kept") return false;
+  }
+  return added;
+}
+
+/**
  * How many paragraphs the Proposals that `belongs` takes change (`countChanged`): those whose
  * words they change, and those they add or remove whole, but for the cells of a table they add
  * or remove. What a change's count counts.
@@ -526,6 +539,14 @@ export function changedParagraphs(
   blocks: Y.XmlFragment,
   belongs: (ref: ProposalRef) => boolean,
 ): number {
+  return countChanged(changeKinds(blocks, belongs));
+}
+
+/** What each paragraph and heading came to in the Proposals that `belongs` takes, in order. */
+export function changeKinds(
+  blocks: Y.XmlFragment,
+  belongs: (ref: ProposalRef) => boolean,
+): ChangeKind[] {
   const ours = (ref: ProposalRef | null) => ref !== null && belongs(ref);
   const wordsChanged = (element: Y.XmlElement) =>
     element
@@ -556,7 +577,7 @@ export function changedParagraphs(
     }
   };
   visit(blocks, null);
-  return countChanged(kinds);
+  return kinds;
 }
 
 const requestsOf = (doc: Y.Doc) => doc.getMap<unknown>(MIND_PROPOSAL_REQUESTS_FIELD);

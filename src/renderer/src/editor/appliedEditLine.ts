@@ -24,7 +24,7 @@ import * as Y from "yjs";
 import { BLOCK_ID_ATTRIBUTE, type EditPart } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
-import { type ChangeKind, countChanged } from "../../../shared/proposals";
+import { addsOnly, type ChangeKind, countChanged } from "../../../shared/proposals";
 import { type ChangeCounts, changeFact } from "../changeFacts";
 import { SPARK_PATH } from "../components/iconPaths";
 import type { EstimateLine } from "../cost";
@@ -476,6 +476,8 @@ const COUNTED: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 export interface ChangedBlocks {
   paragraphs: number;
   tables: number;
+  /** Every paragraph counted was added whole, the User's kept: written, not changed (`addsOnly`). */
+  added?: true;
 }
 
 /** Whether a paragraph or heading lies wholly between two positions. */
@@ -544,7 +546,11 @@ export function changedBlocksOf(
       return !node.isTextblock;
     });
   }
-  return { paragraphs: countChanged(kinds), tables: tables.size + removedTables };
+  return {
+    paragraphs: countChanged(kinds),
+    tables: tables.size + removedTables,
+    ...(addsOnly(kinds) && { added: true }),
+  };
 }
 
 const changesIn = (t: Translate, { paragraphs, tables }: ChangedBlocks): string => {
@@ -563,12 +569,18 @@ const changesIn = (t: Translate, { paragraphs, tables }: ChangedBlocks): string 
 /** What the applied line and its Undo notice say an edit changed: "Changed 3 paragraphs and 1 table". */
 export function appliedText(t: Translate, blocks: ChangedBlocks): string {
   if (blocks.tables > 0) return t("edit.applied.changes", { changes: changesIn(t, blocks) });
+  if (blocks.added) {
+    return blocks.paragraphs === 1
+      ? t("edit.wrote.one")
+      : t("edit.wrote", { count: blocks.paragraphs });
+  }
   return blocks.paragraphs === 1
     ? t("edit.applied.one")
     : t("edit.applied", { count: blocks.paragraphs });
 }
 
 function reviewText(t: Translate, blocks: ChangedBlocks, byAssistant: boolean): string {
+  if (blocks.added && blocks.tables === 0) return appliedText(t, blocks);
   if (blocks.tables > 0) {
     const changes = changesIn(t, blocks);
     return byAssistant

@@ -54,7 +54,10 @@ import { translate } from "../../../shared/i18n";
 import { holdsNothing } from "../../../shared/madeMind";
 import { looksLikeTable } from "../../../shared/markdownTables";
 import {
+  addsOnly,
   changedParagraphs,
+  changeKinds,
+  countChanged,
   pendingProposals,
   readProposalAttribute,
   recordProposalRequest,
@@ -760,6 +763,7 @@ function takenOut(before: string, after: string, leftOut = "", unnamed = ""): st
 }
 
 const changes = (count: number) => (count === 1 ? "1 change" : `${count} changes`);
+const paragraphsSaid = (count: number) => (count === 1 ? "1 paragraph" : `${count} paragraphs`);
 
 function tableNotes(change: MindChange, unmatchedMarkers = 0): string[] {
   const { tables = 0, unlinkedSources = 0, droppedSources = 0, extraCells = 0 } = change;
@@ -2075,15 +2079,18 @@ export function mindTools(options: MindToolsOptions): {
     return `${outcome === APPLIES ? "Wrote" : "Proposed"} your new text in place of your own in “${mind.name}”${went}. ${outcome}`;
   };
 
-  const editedText = (
-    mind: ChangeableMind,
-    request: string,
-    proposals: number,
-    went: string,
-  ): string => {
-    const outcome = outcomeOf(mind, request);
-    // "Changed", never "Made": a reply that copies it would read as making a Mind (./claimedChanges).
-    return `${outcome === APPLIES ? `Changed ${proposals === 1 ? "1 place" : `${proposals} places`}` : `Proposed ${changes(proposals)}`} in “${mind.name}”${went}. ${outcome}`;
+  const editedText = (mind: ChangeableMind, change: MindChange, went: string): string => {
+    const outcome = outcomeOf(mind, change.request);
+    const { proposals } = change;
+    const done =
+      outcome !== APPLIES
+        ? `Proposed ${changes(proposals)} in`
+        : change.added
+          ? // Lines added beside the User's, which stay, are no change to them (#2356).
+            `Added ${paragraphsSaid(change.changed ?? proposals)} to`
+          : // "Changed", never "Made": a reply that copies it would read as making a Mind (./claimedChanges).
+            `Changed ${proposals === 1 ? "1 place" : `${proposals} places`} in`;
+    return `${done} “${mind.name}”${went}. ${outcome}`;
   };
 
   const revisedText = (mind: ChangeableMind, change: MindChange, went: string): string => {
@@ -2389,10 +2396,12 @@ export function mindTools(options: MindToolsOptions): {
         throw why;
       }
       ownRequests.add(result.request);
-      const { tables, changed } = minds.read(mind.id, (note) => ({
+      const { tables, kinds } = minds.read(mind.id, (note) => ({
         tables: writtenBy(note, new Set([result.request])).tables,
-        changed: changedParagraphs(note, (ref) => ref.request === result.request),
+        kinds: changeKinds(note, (ref) => ref.request === result.request),
       }));
+      const changed = countChanged(kinds);
+      const added = changed > 0 && addsOnly(kinds);
       const notes = someTableNotes({
         unlinkedSources: result.unlinkedSources ?? 0,
         extraCells: result.extraCells ?? 0,
@@ -2405,6 +2414,7 @@ export function mindTools(options: MindToolsOptions): {
             request: result.request,
             proposals: result.proposals,
             ...(changed > 0 && { changed }),
+            ...(added && { added: true }),
             ...(tables > 0 && { tables }),
             ...notes,
           };
@@ -2430,9 +2440,7 @@ export function mindTools(options: MindToolsOptions): {
       const span = around ?? length;
       const went = span ? ` (${lengthSaid(span.before, span.after, times)})` : "";
       return [
-        revised
-          ? revisedText(mind, change, went)
-          : editedText(mind, result.request, result.proposals, went),
+        revised ? revisedText(mind, change, went) : editedText(mind, change, went),
         ...tableNotes(change, result.unmatchedMarkers),
         ...(gone ? [gone] : []),
         ...(reason ? [`Why, as the rewrite says: ${reason}`] : []),
