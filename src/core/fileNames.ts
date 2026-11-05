@@ -9,8 +9,15 @@ const MAX_NAME_LENGTH = 120;
 /** Names Windows keeps for devices, with or without an extension. */
 const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
 
-/** How many names `writeNewFile` tries ("Tides 2.docx", "Tides 3.docx"…) before giving up. */
+/** How many names a save tries ("Tides 2.docx", "Tides 3.docx"…) before giving up. */
 const MAX_TRIES = 1000;
+
+/** The names a save of `name` tries, as `writeNewFile` and `freeFileName` pick them. */
+function* nameCandidates(name: string): Generator<string> {
+  const extension = extname(name);
+  const stem = name.slice(0, name.length - extension.length);
+  for (let n = 1; n <= MAX_TRIES; n++) yield n === 1 ? name : `${stem} ${n}${extension}`;
+}
 
 /**
  * A file name (without its extension) from a title, e.g. a Mind's or a
@@ -84,8 +91,6 @@ export async function writeNewFile(
   data: Uint8Array,
 ): Promise<string> {
   await removeStalePartials(folder);
-  const extension = extname(name);
-  const stem = name.slice(0, name.length - extension.length);
   const temporary = join(folder, `.${randomUUID()}.partial`);
   try {
     const file = await open(temporary, "wx");
@@ -96,8 +101,7 @@ export async function writeNewFile(
       await file.close();
     }
     let linking = true;
-    for (let n = 1; n <= MAX_TRIES; n++) {
-      const candidate = n === 1 ? name : `${stem} ${n}${extension}`;
+    for (const candidate of nameCandidates(name)) {
       const path = join(folder, candidate);
       if (linking) {
         try {
@@ -142,10 +146,7 @@ export async function freeFileName(
   name: string,
   taken: ReadonlySet<string> = new Set(),
 ): Promise<string> {
-  const extension = extname(name);
-  const stem = name.slice(0, name.length - extension.length);
-  for (let n = 1; n <= MAX_TRIES; n++) {
-    const candidate = n === 1 ? name : `${stem} ${n}${extension}`;
+  for (const candidate of nameCandidates(name)) {
     if (taken.has(candidate)) continue;
     try {
       await lstat(join(folder, candidate));
