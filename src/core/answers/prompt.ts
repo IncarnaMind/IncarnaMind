@@ -232,7 +232,7 @@ const selected = (
   quote: { documentName: string; quote: string; table?: AskedTable },
   place: string | null,
 ) =>
-  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${quote.table ? tableText(quote.table) : quote.quote}\n</selected>`;
+  `<selected document="${inAttribute(quote.documentName)}"${place ? ` location="${inAttribute(place)}"` : ""}>\n${asData(quote.table ? tableText(quote.table) : quote.quote, CALL_TAGS)}\n</selected>`;
 
 /** A selected block's entry: the words (or a range's cells), and the picture of an area (#118) when there is one. */
 export interface SelectedBlockQuote {
@@ -429,7 +429,20 @@ export const CALL_SCOPE_NOTE = [
  * not the app's markup: shown as Passages they could close the transcript early or forge the note
  * that says what the call is, so every Passage the Question shows may open or close none of them.
  */
-export const CALL_TAGS: readonly PromptTag[] = ["live-transcript", "call", "found-in-documents"];
+export const CALL_TAGS: readonly PromptTag[] = [
+  "live-transcript",
+  "found-in-documents",
+  "call",
+  "help",
+  "mind",
+  "selection",
+  "question",
+  "answer",
+  "selected-text",
+  "selected",
+  "document-text",
+  "document-skims",
+];
 
 /**
  * Connectors that are on but can't be used until the User signs in to them
