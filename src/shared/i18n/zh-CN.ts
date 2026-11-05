@@ -3039,7 +3039,7 @@ export const zhCN = {
   "consent.flow.find-sources": "查找资料",
   "consent.flow.find-sources.purpose": "查找论文等资料，并添加你选中的",
   "consent.data.search-terms":
-    "你或回答要搜索的内容：关键词和筛选条件，例如年份。回答的搜索词由模型根据问题和它读过的内容写出。",
+    "你或回答要搜索的内容：关键词和筛选条件，例如年份。回答的搜索词由模型根据问题和它读过的内容写出，因此可能包含其中的文字。",
   "consent.data.work-ids":
     "你添加的每项资料的标识：DOI、arXiv、PubMed、说明书 ID、NCT 编号或法规引用",
   "consent.data.provider-key": "你为此服务添加的密钥，它需要密钥才能使用",
@@ -3237,7 +3237,7 @@ export const zhCN = {
   "privacy.crashReports.toggle": "发送崩溃报告",
   "privacy.crashReports.body": "开启前不会发送，也绝不含你的文字。",
   "privacy.crashReports.body.details":
-    "报告包含错误内容、出错的代码位置和时间、应用版本和构建号、操作系统及其版本、电脑的芯片类型和型号系列、处理器数量和内存大小，以及 IncarnaMind 运行所用的 Electron、Chrome 和 Node 版本。文件路径、文档文本、笔记、问题和回答都会先移除，也不会保存 IP 地址。",
+    "报告包含错误内容、出错的代码位置和时间、应用版本、操作系统及其版本、电脑的芯片类型和型号系列、处理器数量和内存大小，以及 IncarnaMind 运行所用的 Electron、Chrome 和 Node 版本。文件路径、文档文本、笔记、问题和回答都会先移除，也不会保存 IP 地址。",
   "privacy.intro.usageData": "只有在你同意后，IncarnaMind 才会收集使用数据。",
   "privacy.traffic.usage-data": "使用数据",
   "privacy.traffic.usage-data.tip":
@@ -3335,8 +3335,7 @@ export const zhCN = {
   "models.defaults.answers": "回答",
   "models.defaults.answers.tip": "没有自选模型的笔记和对话，用你上次选的模型；还没选过，就用这个。",
   "models.defaults.quickTasks": "快速任务",
-  "models.defaults.quickTasks.tip":
-    "改写搜索词、推荐标签，并为回答中的每个引用找出对应引文，因此会收到回答及其段落。小而便宜的模型就够用。",
+  "models.defaults.quickTasks.tip": "改写搜索、推荐标签。小而便宜的模型就够用。",
   "models.defaults.images": "读取图片",
   "models.defaults.images.tip": "回答所用的模型不能读图时，用它读取扫描件和你选中的区域。",
   "models.defaults.automatic": "自动 · {model}",
@@ -6611,7 +6610,7 @@ export const zhCN = {
   "consent.flow.agents": "你的 AI 智能体",
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
   "consent.data.scoped-passages":
-    "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置，以及该段和相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多",
+    "所选文件夹中文档的段落，每段连同文档名称、内部 ID 和位置；读取某段前后内容时，还会发送该段和相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多",
   "consent.data.scoped-minds":
     "共享文件夹的名称、内部 ID 和文档数；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的部分内容，以及下一部分的起始位置",
   "consent.data.answers": "IncarnaMind 对智能体所提问题的回答，以及其中的引文",

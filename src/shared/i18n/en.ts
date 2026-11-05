@@ -3197,7 +3197,7 @@ export const en = {
   "consent.flow.find-sources": "Find sources",
   "consent.flow.find-sources.purpose": "find papers and other sources, and add the ones you choose",
   "consent.data.search-terms":
-    "What you or an Answer search for: the words and filters, such as years. An Answer’s words are written by the model from your Question and what it read.",
+    "What you or an Answer search for: the words and filters, such as years. An Answer’s words are written by the model from your Question and what it read, so they can include its text.",
   "consent.data.work-ids":
     "The ID of each work you add: DOI, arXiv, PubMed, label set, NCT or citation",
   "consent.data.provider-key": "Your own key for this service, which it needs to answer",
@@ -3403,7 +3403,7 @@ export const en = {
   "privacy.crashReports.toggle": "Send crash reports",
   "privacy.crashReports.body": "Off until you turn it on. Never includes your text.",
   "privacy.crashReports.body.details":
-    "The report holds the error, where in IncarnaMind’s code it happened and when, the app version and build, your operating system and its version, your computer’s chip type and model family, its processor count and memory size, and the versions of Electron, Chrome and Node that IncarnaMind runs on. File paths, your Documents’ text, your notes, Questions and Answers are removed first, and no IP address is stored with it.",
+    "The report holds the error, where in IncarnaMind’s code it happened and when, the app version, your operating system and its version, your computer’s chip type and model family, its processor count and memory size, and the versions of Electron, Chrome and Node that IncarnaMind runs on. File paths, your Documents’ text, your notes, Questions and Answers are removed first, and no IP address is stored with it.",
   "privacy.intro.usageData": "IncarnaMind collects usage data only if you agree.",
   "privacy.traffic.usage-data": "Usage data",
   "privacy.traffic.usage-data.tip":
@@ -3509,7 +3509,7 @@ export const en = {
     "A note or conversation with no model of its own uses the one you last chose; until then, this one.",
   "models.defaults.quickTasks": "Quick tasks",
   "models.defaults.quickTasks.tip":
-    "Rewrites searches, suggests Tags, and finds the quote behind each of an Answer’s Citations, so it receives the Answer and its passages. A small, cheap model is enough.",
+    "Rewrites searches and suggests Tags. A small, cheap model is enough.",
   "models.defaults.images": "Reading images",
   "models.defaults.images.tip": "Reads scans and areas you select when the Answers model can’t.",
   "models.defaults.automatic": "Automatic · {model}",
@@ -6989,7 +6989,7 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location, internal ids for it and the passages next to it, and, for a search, which page of results it is and whether more follow",
+    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id and its location; when it reads around a Passage, internal ids for it and the Passages next to it; and, for a search, which page of results it is and whether more follow",
   "consent.data.scoped-minds":
     "The shared Folders’ names, internal ids and Document counts, the names, internal ids and last-change times of the notes in them when the agent lists them, and the part of a note it reads, with where the next part starts",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
