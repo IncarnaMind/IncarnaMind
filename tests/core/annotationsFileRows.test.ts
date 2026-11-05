@@ -990,18 +990,19 @@ test("both readings fit, so neither comment moves to the other copy", async () =
   store.update(first.id, { note: "first" });
   store.update(second.id, { note: "second" });
 
-  // One copy dropped, another added: the words around each fit both rows, but the copy
-  // still at its own place keeps its comment, and the dropped one's stays with its row.
+  // One copy dropped, another added: the words around each fit both rows, so neither comment
+  // is guessed onto another copy; the new copies show without them.
   read("version-b", [copy(20), copy(30)]);
   const rows = store.list(document.id);
   expect(rows.find((row) => row.id === first.id)).toMatchObject({ note: "first", missing: true });
   expect(rows.find((row) => row.id === second.id)).toMatchObject({
     note: "second",
-    missing: false,
+    missing: true,
   });
-  const fresh = rows.find((row) => !row.missing && row.id !== second.id);
-  expect(fresh?.note).not.toBe("first");
-  expect(fresh?.note).not.toBe("second");
+  expect(rows.filter((row) => !row.missing)).toHaveLength(2);
+  expect(rows.filter((row) => !row.missing && row.note !== null && row.note !== "")).toHaveLength(
+    0,
+  );
   db.close();
 });
 

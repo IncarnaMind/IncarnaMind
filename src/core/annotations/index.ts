@@ -769,21 +769,6 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             // order tells them apart when the places agree.
             const ambiguous = openMarks().some((mark) => fits(mark).length > 0);
             if (!oneShift(untaken(), openMarks(), ambiguous)) {
-              // A count that changed means a copy was added or dropped. Among copies whose words
-              // fit the same rows, a row holding the User's words, colour or delete is not
-              // guessed at; only a place that still matches may take it.
-              if (untaken().length === openMarks().length) {
-                for (const mark of openMarks()) {
-                  const row = untaken().find(
-                    (each) =>
-                      each.deleted_at === null &&
-                      sameSurroundings(each, mark) &&
-                      rowPage(each) === markPage(mark) &&
-                      each.file_order === mark.annotation.order,
-                  );
-                  if (row) pair(mark, row);
-                }
-              }
               // The exact version paired this row on its page before: a re-read pairs as the
               // last read did, before any untouched row is taken.
               const carried = [...all]
@@ -800,9 +785,23 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                   carried.find((each) => !taken.has(each.id) && rowPage(each) === markPage(mark));
                 if (row) pair(mark, row);
               }
-              // Nothing left fits by words or place: an untouched row is this mark's better than
-              // a new one, so a repeated save stops adding rows. A row the User wrote on,
-              // recoloured or deleted is never taken.
+              // Copies whose words fit several rows are not guessed at when a row holds the
+              // User's comment, colour or delete: only an untouched row at the mark's own page
+              // and place may be taken.
+              for (const mark of openMarks()) {
+                const row = untaken().find(
+                  (each) =>
+                    each.deleted_at === null &&
+                    each.note === each.file_note &&
+                    each.colour === each.file_colour &&
+                    sameSurroundings(each, mark) &&
+                    rowPage(each) === markPage(mark) &&
+                    each.file_order === mark.annotation.order,
+                );
+                if (row) pair(mark, row);
+              }
+              // Nothing left fits by place: an untouched row whose words fit is this mark's
+              // better than a new one, so a repeated save stops adding rows.
               for (const mark of openMarks()) {
                 const row = untaken().find(
                   (each) =>
