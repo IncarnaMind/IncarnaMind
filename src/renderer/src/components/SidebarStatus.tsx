@@ -431,13 +431,11 @@ function useStatuses(): Status[] {
   const organizing = organizes(library);
   const reviewedAttention = useAppStore((state) => state.reviewedAttention);
   const needingAttention = attentionIds(ownDocuments, library?.assignments ?? []);
-  const needingAttentionNow = useRef<readonly string[]>([]);
-  needingAttentionNow.current = needingAttention;
   const needingAttentionKey = needingAttention.join("\n");
   // A Document that stops needing attention is forgotten, so a later failure shows again.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for what the ref holds.
   useEffect(() => {
-    useAppStore.getState().keepReviewedAttention(new Set(needingAttentionNow.current));
+    const live = needingAttentionKey === "" ? [] : needingAttentionKey.split("\n");
+    useAppStore.getState().keepReviewedAttention(new Set(live));
   }, [needingAttentionKey]);
   const organizesNew = organizesNewDocuments(library);
   const capturing = useCapturing();

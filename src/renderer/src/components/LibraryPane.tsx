@@ -344,7 +344,7 @@ export function LibraryPane() {
     if (waitsInReview) {
       // Already open, To review needn't be shown again: that would take the focus off the row.
       if (!folds.reviewOpen) folds.showReview();
-      if (group ? group.documents.length > FIRST_ROWS : notSorted.length > FIRST_ROWS) {
+      if (group ? group.documents.length > FIRST_ROWS : unsortedIds.size > FIRST_ROWS) {
         folds.showAll(group ? `${TO_REVIEW}:${group.folder.id}` : UNSORTED_KEY);
       }
     } else {
@@ -391,7 +391,7 @@ export function LibraryPane() {
       if (frames++ < 120) requestAnimationFrame(reveal);
     };
     requestAnimationFrame(reveal);
-  }, [reviewTarget, documents, folders, snapshot, unsortedIds, folderOf, notSorted.length]);
+  }, [reviewTarget, documents, folders, snapshot, unsortedIds, folderOf]);
   const selectingMany = useSelection(
     (state) => state.surface === "library" && state.items.length > 1,
   );

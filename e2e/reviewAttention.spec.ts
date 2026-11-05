@@ -292,3 +292,69 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await app.close();
   }
 });
+
+test("Review opens To review past its first rows when a search hides them", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await leaveFirstOpen(window);
+    await acceptPlainTextKeys(window);
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const provider = await core.saveChatProvider({
+        kind: "openai",
+        apiKey: "sk-test",
+        modelId: "fake-model",
+      });
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+        automatic: false,
+      });
+      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+      if (flow) await core.allowDataFlow("classification", flow.flow.service.id);
+      await core.createLibraryGroup({ name: "Invoice", description: "Invoices" });
+    });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, "en");
+
+    const files: string[] = [];
+    for (let at = 1; at <= 9; at++) {
+      const path = join(sources, `Invoice ${at}.txt`);
+      await writeFile(path, `Invoice ${at} for consulting. The account is out of credit.`);
+      files.push(path);
+    }
+    await addDocuments(window, files);
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    await pointAndClick(window, library.getByTestId("library-organize"));
+    const notSorted = library.getByTestId("library-review-not-sorted");
+    await expect(notSorted).toBeVisible({ timeout: 60_000 });
+    await pointAndClick(window, notSorted);
+
+    // To review draws the first 8; the ninth is the Document the page doesn't draw yet.
+    await expect(unsortedRows(window)).toHaveCount(8);
+    const listed = await unsortedIds(window);
+    expect(listed).toHaveLength(8);
+    const last = await window.evaluate(async (shown) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const documents = await core.listDocuments();
+      return (
+        documents.find(
+          (document) => /^Invoice \d/.test(document.name) && !shown.includes(document.id),
+        )?.id ?? null
+      );
+    }, listed);
+    if (last === null) throw new Error("The ninth Document isn't in the Library.");
+
+    // A search on before each press hides every row it lists; with more than a fold's worth
+    // not sorted, Review still opens the list and lands on the ninth.
+    for (const id of [...listed, last]) {
+      await library.getByTestId("library-search").fill("Nothing matches this");
+      await pressReview(window, id);
+    }
+    await expect(attentionOf(window)).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
