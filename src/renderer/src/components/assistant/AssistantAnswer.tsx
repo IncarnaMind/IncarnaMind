@@ -129,7 +129,6 @@ export function AssistantAnswer({
       aria-label={t("answer.label")}
       className="assistant-answer"
     >
-      {!streaming && <WrittenFromLine answer={answer} />}
       <AskedLines answer={answer} />
       <AnswerSteps
         answer={answer}
@@ -147,6 +146,7 @@ export function AssistantAnswer({
         />
       )}
       <CoverageLine answer={answer} question={question} />
+      {!streaming && <WrittenFromLine answer={answer} />}
       {(written || streaming) && (
         <AnswerText
           answerId={answer.id}

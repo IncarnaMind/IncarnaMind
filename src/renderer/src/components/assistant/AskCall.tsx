@@ -71,23 +71,27 @@ export function AskedLines({ answer }: { answer: ConversationAnswer }) {
       {asked.map((call) => {
         const question = call.asked;
         if (!question?.answer) return null;
-        if (question.answer.skipped) {
-          return (
-            <p key={call.id} data-testid="answer-asked" className="answer-asked-line">
-              {askCallText(t, call)}
-            </p>
-          );
-        }
         return (
           <div key={call.id} data-testid="answer-asked-turn" className="answer-asked-turn">
             <p data-testid="answer-asked-question" className="answer-asked-question">
               {question.question}
             </p>
-            <div data-testid="answer-asked-answer" className="assistant-question">
-              <p className="assistant-question-bubble">
-                {answeredWords(t, question.answer, false)}
+            {question.answer.skipped ? (
+              <p data-testid="answer-asked" className="answer-asked-line">
+                {askCallText(t, call)}
               </p>
-            </div>
+            ) : (
+              <div data-testid="answer-asked-answer" className="assistant-question">
+                <p className="assistant-question-bubble">
+                  <span className="sr-only" data-testid="answer-asked-chose">
+                    {t("asks.call.chose", { choice: answeredWords(t, question.answer, true) })}
+                  </span>
+                  <span data-testid="answer-asked-words">
+                    {answeredWords(t, question.answer, false)}
+                  </span>
+                </p>
+              </div>
+            )}
           </div>
         );
       })}

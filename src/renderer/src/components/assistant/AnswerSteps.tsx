@@ -42,7 +42,7 @@ import {
   mindStepText,
 } from "../../answerStepWords";
 import { useAnswers } from "../../answers";
-import { waitText } from "../../answerWaitWords";
+import { waitText, waitTextShort } from "../../answerWaitWords";
 import { stepsScope } from "../../assistantContext";
 import { namedMind } from "../../changeProblems";
 import { commandCallText } from "../../commandFacts";
@@ -225,7 +225,11 @@ export function LiveLine({
 }) {
   const t = useT();
   const shown = useHeldStep(step);
-  const line = useRef<HTMLParagraphElement | null>(null);
+  const row = useRef<HTMLSpanElement | null>(null);
+  const wholeMeasure = useRef<HTMLSpanElement | null>(null);
+  const shortMeasure = useRef<HTMLSpanElement | null>(null);
+  const [rowWidth, setRowWidth] = useState(0);
+  const [waitForm, setWaitForm] = useState<"whole" | "short" | "row">("whole");
   const minds = useAppStore((state) => state.minds);
   // A Minds' Tool's call names its Mind once it has changed it; before, by its input, else the one asked from.
   const mindOf = (call: AnswerToolCall) => {
@@ -242,125 +246,161 @@ export function LiveLine({
   const summary = shown.kind === "thinking" ? shown.summary : "";
   const label = liveText(t, shown, scope, mindOf, python);
   const waiting = shown.kind === "waiting" || shown.kind === "consent";
+  const nameOf = useModelNames();
+  const modelName = wait?.model ? nameOf(wait.model.modelId, wait.model.providerId).name : null;
+  const whole = wait ? waitText(t, wait.usual, modelName) : null;
+  const short = wait ? waitTextShort(t, wait.usual) : null;
+  const waitNow = !waiting && whole !== null && short !== null ? { whole, short } : null;
+  const hasToggle = toggle !== undefined;
+  const spoken =
+    waitNow === null
+      ? summary
+        ? `${label} · ${summary}`
+        : label
+      : [label, summary && `· ${summary}`, `· ${waitNow.whole}`].filter(Boolean).join(" ");
+
+  useLayoutEffect(() => {
+    const element = row.current;
+    if (!element) return;
+    const measure = () => setRowWidth(element.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  /*
+   * The wait takes the first form that fits (#2531): whole, short without the
+   * model, then the short part on a second row. Measured before paint, so the
+   * step's own words are never cut and the wait is never dropped.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the step's words and the row's width change what fits, though only the measured elements are read here.
+  useLayoutEffect(() => {
+    if (whole === null || short === null) return;
+    const element = row.current;
+    const wholeElement = wholeMeasure.current;
+    const shortElement = shortMeasure.current;
+    if (!element || !wholeElement || !shortElement) return;
+    const width = element.clientWidth;
+    if (width === 0) return;
+    const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0;
+    const kept = [...element.querySelectorAll<HTMLElement>("[data-row-keeps]")].reduce(
+      (sum, each) => {
+        const style = getComputedStyle(each);
+        const margin =
+          (Number.parseFloat(style.marginLeft) || 0) + (Number.parseFloat(style.marginRight) || 0);
+        return sum + each.scrollWidth + margin;
+      },
+      0,
+    );
+    const items =
+      2 + // the dot and the step's words
+      (summary ? 1 : 0) +
+      (!waiting && waitingSeconds >= 2 ? 1 : 0) +
+      1 + // the wait
+      (hasToggle ? 1 : 0);
+    const room = width - kept - (items - 1) * gap;
+    setWaitForm(
+      wholeElement.getBoundingClientRect().width <= room + 1
+        ? "whole"
+        : shortElement.getBoundingClientRect().width <= room + 1
+          ? "short"
+          : "row",
+    );
+  }, [whole, short, label, summary, waiting, waitingSeconds, rowWidth, hasToggle]);
+
   return (
     <p
-      ref={line}
       role="status"
       data-testid="answer-steps-live"
       data-step={shown.kind}
+      title={spoken}
       className="answer-steps-line answer-steps-live"
     >
-      <span
-        aria-hidden="true"
-        className={`answer-steps-dot ${waiting ? "answer-steps-dot--waiting" : ""}`}
-      />
-      <span
-        data-testid="answer-writing"
-        title={summary ? `${label} · ${summary}` : label}
-        className={summary ? "answer-steps-label" : "answer-steps-text"}
-      >
-        {label}
-      </span>
-      {/* Not read out: it changes with every word, and the steps hold it whole. */}
-      {summary && (
+      <span ref={row} className="answer-steps-live-row">
         <span
           aria-hidden="true"
-          data-testid="answer-steps-summary"
-          className="answer-steps-text answer-steps-summary"
-        >
-          {`· ${summary}`}
-        </span>
-      )}
-      {/* A step that takes over two seconds counts them, so the line is never still while it works. */}
-      {!waiting && waitingSeconds >= 2 && (
-        <span
-          aria-hidden="true"
-          data-testid="answer-steps-elapsed"
-          className="answer-steps-elapsed"
-        >
-          {t("steps.live.seconds", { seconds: waitingSeconds })}
-        </span>
-      )}
-      {!waiting && wait && (
-        <WaitPart
-          usual={wait.usual}
-          model={wait.model}
-          line={line}
-          content={`${label}\u0000${summary}`}
+          className={`answer-steps-dot ${waiting ? "answer-steps-dot--waiting" : ""}`}
         />
-      )}
-      {toggle && (
-        <button
-          type="button"
-          data-testid="answer-steps"
-          aria-expanded={toggle.open}
-          aria-label={t("steps.label")}
-          ref={toggle.ref}
-          onClick={toggle.onToggle}
-          onFocus={toggle.onFocus}
-          onBlur={toggle.onBlur}
-          className="answer-steps-live-toggle"
+        <span
+          data-testid="answer-writing"
+          data-row-keeps
+          className={summary ? "answer-steps-label" : "answer-steps-text"}
         >
-          <ChevronRightLineIcon aria-hidden="true" className="answer-steps-chevron" />
-        </button>
+          {label}
+        </span>
+        {/* Not read out: it changes with every word, and the steps hold it whole. */}
+        {summary && (
+          <span
+            aria-hidden="true"
+            data-testid="answer-steps-summary"
+            className="answer-steps-text answer-steps-summary"
+          >
+            {`· ${summary}`}
+          </span>
+        )}
+        {/* A step that takes over two seconds counts them, so the line is never still while it works. */}
+        {!waiting && waitingSeconds >= 2 && (
+          <span
+            aria-hidden="true"
+            data-testid="answer-steps-elapsed"
+            data-row-keeps
+            className="answer-steps-elapsed"
+          >
+            {t("steps.live.seconds", { seconds: waitingSeconds })}
+          </span>
+        )}
+        {waitNow !== null && waitForm !== "row" && (
+          <WaitPart text={waitForm === "whole" ? waitNow.whole : waitNow.short} />
+        )}
+        {toggle && (
+          <button
+            type="button"
+            data-testid="answer-steps"
+            aria-expanded={toggle.open}
+            aria-label={t("steps.label")}
+            ref={toggle.ref}
+            onClick={toggle.onToggle}
+            onFocus={toggle.onFocus}
+            onBlur={toggle.onBlur}
+            className="answer-steps-live-toggle"
+          >
+            <ChevronRightLineIcon aria-hidden="true" className="answer-steps-chevron" />
+          </button>
+        )}
+      </span>
+      {waitNow !== null && waitForm === "row" && (
+        <span
+          data-testid="answer-steps-wait-row"
+          className="answer-steps-live-row answer-steps-live-row--second"
+        >
+          <WaitPart text={waitNow.short} />
+        </span>
+      )}
+      {waitNow !== null && (
+        <>
+          <span aria-hidden="true" className="answer-steps-wait-measures">
+            <span ref={wholeMeasure} className="answer-steps-wait-measure">
+              {`· ${waitNow.whole}`}
+            </span>
+            <span ref={shortMeasure} className="answer-steps-wait-measure">
+              {`· ${waitNow.short}`}
+            </span>
+          </span>
+          <span className="sr-only" data-testid="answer-steps-wait-spoken">
+            {`· ${waitNow.whole}`}
+          </span>
+        </>
       )}
     </p>
   );
 }
 
-/**
- * The wait part of the live line (#2530): how long the model usually takes, joined
- * after the step's words and seconds. A line that cannot hold it whole leaves it
- * out first, so the step's own words always show.
- */
-function WaitPart({
-  usual,
-  model,
-  line,
-  content,
-}: {
-  usual: number | null;
-  model: ChatModelChoice | null;
-  line: { current: HTMLParagraphElement | null };
-  content: string;
-}) {
-  const t = useT();
-  const nameOf = useModelNames();
-  const text = waitText(t, usual, model ? nameOf(model.modelId, model.providerId).name : null);
-  const part = useRef<HTMLSpanElement | null>(null);
-  const [shown, setShown] = useState(true);
-  const measured = useRef(`${text}\u0000${content}`);
-  // A new wait, or a line whose words changed, gets a new chance to show.
-  useLayoutEffect(() => {
-    const now = `${text}\u0000${content}`;
-    if (now === measured.current) return;
-    measured.current = now;
-    setShown(true);
-  }, [text, content]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: it is measured when its words or its showing change, and while it is squeezed.
-  useLayoutEffect(() => {
-    const element = part.current;
-    if (!element) return;
-    const clipped = () => element.scrollWidth > element.clientWidth + 1;
-    if (clipped()) setShown(false);
-    const observer = new ResizeObserver(() => {
-      if (clipped()) setShown(false);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [text, shown]);
-  // A line with room again shows the wait again.
-  useEffect(() => {
-    const element = line.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => setShown(true));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [line]);
-  if (text === null || !shown) return null;
+/** The wait part of the live line (#2530, #2531): the sentence after the step's own words. */
+function WaitPart({ text }: { text: string }) {
   return (
-    <span ref={part} data-testid="answer-steps-wait" className="answer-steps-wait">
-      <span aria-hidden="true">{"\u00a0·\u00a0"}</span>
+    <span aria-hidden="true" data-testid="answer-steps-wait" className="answer-steps-wait">
+      <span aria-hidden="true">{"· "}</span>
       {text}
     </span>
   );

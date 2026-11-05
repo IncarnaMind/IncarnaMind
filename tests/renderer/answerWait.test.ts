@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { setSilentWaitMs, waitText } from "../../src/renderer/src/answerWaitWords";
+import { setSilentWaitMs, waitText, waitTextShort } from "../../src/renderer/src/answerWaitWords";
 import { translate } from "../../src/shared/i18n";
 
 /*
@@ -59,5 +59,20 @@ describe("The wait part of an Answer's step line", () => {
   test("counts the wait so far as the test build sets it", () => {
     setSilentWaitMs(1_000);
     expect(waitText(en, 10, SONNET)).toBe("usually about 10 seconds with Claude Sonnet 5.5");
+  });
+
+  // protects=the short wait part says the same measure without the model, for a line too narrow for the whole (#2531); fails_when=the short part keeps the model, the whole part loses it, or the rounding differs; no_claim=none beyond protects.
+  test("says the same measure without the model", () => {
+    expect(waitTextShort(en, 25)).toBe("usually about 30 seconds");
+    expect(waitTextShort(zh, 25)).toBe("通常要 30 秒左右");
+    expect(waitTextShort(en, 60)).toBe("usually about a minute");
+    expect(waitTextShort(zh, 89)).toBe("通常要 1 分钟左右");
+    expect(waitTextShort(en, 90)).toBe("usually about 2 minutes");
+    expect(waitTextShort(zh, 150)).toBe("通常要 3 分钟左右");
+    expect(waitTextShort(en, null)).toBeNull();
+    expect(waitTextShort(en, 10)).toBeNull();
+    setSilentWaitMs(1_000);
+    expect(waitTextShort(en, 10)).toBe("usually about 10 seconds");
+    expect(waitText(en, 60, SONNET)).toBe("usually about a minute with Claude Sonnet 5.5");
   });
 });

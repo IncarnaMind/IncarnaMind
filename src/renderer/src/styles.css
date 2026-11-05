@@ -8626,8 +8626,43 @@
    * change (a layout shift the feel check counts).
    */
   .answer-steps-live {
+    /* The wait takes the first form that fits (#2531): its own row when it cannot. */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
     position: relative;
     align-self: stretch;
+  }
+  .answer-steps-live-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  /* A wait on a second row sits under the step's words, in the smaller ink of a note. */
+  .answer-steps-live-row--second {
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .answer-steps-wait-measures {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .answer-steps-wait-measure {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    white-space: nowrap;
   }
   .answer-steps-live-toggle {
     display: inline-flex;
@@ -8680,12 +8715,11 @@
     animation: none;
   }
   /*
-   * The wait that joins the live line after 15 seconds (#2530): it gives way
-   * first, so a narrow line keeps the step's own words and seconds.
+   * The wait that joins the live line after 15 seconds (#2530, #2531): never
+   * dropped; the form is measured so the step's own words stay whole.
    */
   .answer-steps-wait {
-    min-width: 0;
-    overflow: hidden;
+    flex: none;
     white-space: nowrap;
   }
   .answer-timeline {

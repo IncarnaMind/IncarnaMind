@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import { openDatabase } from "../src/core/storage";
 import {
   addDocuments,
   assistantAnswers,
@@ -11,9 +12,12 @@ import {
   pointAndClick,
   removeDataFolder,
   setLanguage,
+  setSilentWaitMs,
   setWindowSize,
   useLocalChatModel,
 } from "./app";
+
+const connectLocalChatModel = useLocalChatModel;
 
 let dataDir: string;
 let sources: string;
@@ -105,9 +109,25 @@ test("asked which Documents to summarise, the User ticks one more and goes on", 
   await expect(answer.getByTestId("answer-asked-question")).toHaveText(
     "Which Documents should I summarise?",
   );
-  await expect(answer.getByTestId("answer-asked-answer")).toHaveText(
+  await expect(answer.getByTestId("answer-asked-words")).toHaveText(
     "Board minutes, Lease Mill Lane, Lease Harbour Street",
   );
+  await expect(answer.getByTestId("answer-asked-chose")).toHaveText(
+    "You chose: Board minutes, Lease Mill Lane, Lease Harbour Street",
+  );
+  const order = await answer.evaluate((node) =>
+    [
+      ...node.querySelectorAll(
+        '[data-testid="answer-asked-question"], [data-testid="answer-asked-answer"], [data-testid="answer-steps"], [data-testid="assistant-answer-text"]',
+      ),
+    ].map((each) => each.getAttribute("data-testid")),
+  );
+  expect(order).toEqual([
+    "answer-asked-question",
+    "answer-asked-answer",
+    "answer-steps",
+    "assistant-answer-text",
+  ]);
   const editor = window.locator('[data-testid="mind-editor"]:visible');
   await expect(editor).toContainText("The main points of “Lease Harbour Street”.");
   await app.close();
@@ -148,7 +168,8 @@ for (const [how, act, said] of [
     await expect(card).toHaveCount(0);
     const answer = assistantAnswers(window).last();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-    await expect(answer.getByTestId("answer-asked-answer")).toHaveText(said);
+    await expect(answer.getByTestId("answer-asked-words")).toHaveText(said);
+    await expect(answer.getByTestId("answer-asked-chose")).toContainText(said);
     await expect(window.getByRole("alert")).toHaveCount(0);
     await app.close();
   });
@@ -487,7 +508,23 @@ test("Esc skips: the Answer goes on with the two newest and says so", async () =
   await expect(card).toHaveCount(0);
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+  await expect(answer.getByTestId("answer-asked-question")).toHaveText(
+    "Which Documents should I summarise?",
+  );
   await expect(answer.getByTestId("answer-asked")).toHaveText("Skipped; went with Board minutes");
+  const order = await answer.evaluate((node) =>
+    [
+      ...node.querySelectorAll(
+        '[data-testid="answer-asked-question"], [data-testid="answer-asked"], [data-testid="answer-steps"], [data-testid="assistant-answer-text"]',
+      ),
+    ].map((each) => each.getAttribute("data-testid")),
+  );
+  expect(order).toEqual([
+    "answer-asked-question",
+    "answer-asked",
+    "answer-steps",
+    "assistant-answer-text",
+  ]);
   await expect(answer).toContainText("Summarised the two newest Documents, as you didn't choose.");
   await app.close();
 });
@@ -516,8 +553,99 @@ test("in Chinese, the question and its rows, at a narrow window", async () => {
   const answer = assistantAnswers(window).last();
   await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
   await expect(answer.getByTestId("answer-asked-question")).toHaveText("要总结哪几份文档？");
-  await expect(answer.getByTestId("answer-asked-answer")).toHaveText(
+  await expect(answer.getByTestId("answer-asked-words")).toHaveText(
     "Board minutes、Lease Mill Lane、还有那份锅炉的",
   );
+  await expect(answer.getByTestId("answer-asked-chose")).toHaveText(
+    "你选择了：Board minutes、Lease Mill Lane、“还有那份锅炉的”",
+  );
+  await app.close();
+});
+
+/** Three Answers by the local model that each took about a minute to their first word, then the app again. */
+async function startWithMinuteHistory() {
+  const first = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(first.window);
+  await connectLocalChatModel(first.window);
+  await setUp(first.app, first.window);
+  const answers = assistantAnswers(first.window);
+  for (const question of [
+    "What do the leases say?",
+    "What does the board minute say?",
+    "What does the boiler report say?",
+  ]) {
+    const before = await answers.count();
+    await first.window.keyboard.press("ControlOrMeta+j");
+    await first.window.keyboard.type(question);
+    await first.window.keyboard.press("Enter");
+    await expect(answers).toHaveCount(before + 1, { timeout: 15_000 });
+    await expect(answers.last()).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  }
+  await first.app.close();
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    db.run(
+      "UPDATE conversation_messages SET steps = json_set(steps, '$.firstWordMs', 62000) WHERE kind = 'answer'",
+    );
+  } finally {
+    db.close();
+  }
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, 1440, 900);
+  await setSilentWaitMs(window, 300);
+  await pointAndClick(window, window.getByTestId("mind-list-item").first());
+  return { app, window };
+}
+
+test("the silence counts from the User's answer, at the default 320px assistant, in English and Chinese", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await startWithMinuteHistory();
+  const languages = [
+    [
+      "en",
+      "Summarise the main documents slowly",
+      "You chose: Board minutes, Lease Mill Lane",
+      "usually about a minute",
+      "· usually about a minute with fake-model",
+    ],
+    [
+      "zh-CN",
+      "总结主要的文档 slowly",
+      "你选择了：Board minutes、Lease Mill Lane",
+      "通常要 1 分钟左右",
+      "· 用 fake-model 通常要 1 分钟左右",
+    ],
+  ] as const;
+
+  for (const [language, question, chose, short, whole] of languages) {
+    await setLanguage(window, language);
+    const card = await ask(window, question);
+    await window.keyboard.press("ControlOrMeta+Enter");
+    await expect(card).toHaveCount(0);
+    const answer = assistantAnswers(window).last();
+    const wait = answer.getByTestId("answer-steps-wait");
+    // The silence starts at the User's answer, not at the Question: no wait right after it.
+    await expect(wait).toHaveCount(0);
+    await expect(answer.getByTestId("answer-asked-chose")).toHaveText(chose);
+    // After the held step, the wait joins with its whole sentence.
+    await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole, {
+      timeout: 15_000,
+    });
+    await expect(wait).toContainText(short);
+    const order = await answer.evaluate((node) =>
+      [
+        ...node.querySelectorAll(
+          '[data-testid="answer-asked-question"], [data-testid="answer-asked-answer"], [data-testid="answer-steps"], [data-testid="assistant-answer-text"]',
+        ),
+      ].map((each) => each.getAttribute("data-testid")),
+    );
+    expect(order).toEqual([
+      "answer-asked-question",
+      "answer-asked-answer",
+      "answer-steps",
+      "assistant-answer-text",
+    ]);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  }
   await app.close();
 });
