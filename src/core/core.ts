@@ -4993,6 +4993,7 @@ export function createCore(adapters: CoreAdapters): Core {
           mind: { id: mindId, folderId: minds.get(mindId).folderId },
           focus: null,
           scope: null,
+          folderInFront: null,
           model: null,
           forcedSkill: null,
           analyse: false,

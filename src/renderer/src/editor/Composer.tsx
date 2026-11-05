@@ -54,6 +54,7 @@ import { describeError, errorMessage } from "../errors";
 import { cancelExplain, takeExplain, useExplainQueue } from "../explainQueue";
 import { useT } from "../i18n";
 import { useCitedScopeDocument, useScopeBefore } from "../keptScope";
+import { currentTabOf } from "../layoutSlice";
 import { modelInUseOf, useModelInUse } from "../modelInUse";
 import { newNoteTitle } from "../newNoteRequest";
 import { useCitedSource } from "../openCited";
@@ -152,6 +153,10 @@ export function Composer({
 }) {
   const t = useT();
   const mindId = mind?.mindId ?? null;
+  // With no Note, the Folder the Library is open on is the Folder in front (#2529).
+  const libraryFolderId = useAppStore((state) =>
+    currentTabOf(state.layout)?.item.kind === "library" ? state.libraryFolderId : null,
+  );
   const key = mindId ?? NO_MIND;
   const citedSource = useCitedSource();
   const source = mind === null ? citedSource : null;
@@ -628,6 +633,7 @@ export function Composer({
       text,
       focus: selection.focus(),
       scope,
+      ...(mindId === null && libraryFolderId !== null && { folderInFrontId: libraryFolderId }),
       model: modelInUseOf(mind?.doc ?? null),
       forcedSkill: draft.skill,
       ...(draft.analyse && { analyse: true }),

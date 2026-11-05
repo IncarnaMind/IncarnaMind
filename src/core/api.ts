@@ -7930,6 +7930,12 @@ export interface AskInConversationInput {
   quotes?: AskedQuote[] | null;
   /** Its Search scope; none or null: every Document. */
   scope?: SearchScope | null;
+  /**
+   * The Folder the Library is open on, when the Question comes from the Library with no Note:
+   * what "this folder" means there (#2529). Checked against the walls as a Note's Folder is,
+   * and not kept with the Question.
+   */
+  folderInFrontId?: string | null;
   /** The model to answer with; none or null: the default. */
   model?: ChatModelChoice | null;
   /** A Skill to load up front, by name. */

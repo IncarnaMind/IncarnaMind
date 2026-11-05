@@ -3980,6 +3980,7 @@ export function createAnswers(options: AnswersOptions) {
       leftOut,
     }: { quoted: Quoted[]; pictured: AskedQuote[]; leftOut: AskedQuote[] },
     commands: CommandWindow | null,
+    folderInFront: string | null,
     remake: string | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
@@ -4041,18 +4042,17 @@ export function createAnswers(options: AnswersOptions) {
     const shown = callOnly ? [] : namesOnScreen(onScreen, documentIds);
     const ids = (callOnly ? null : mind?.ids) ?? contextCitationsFor(mind?.mindId ?? null, wallId);
     const named = help ? [] : namedMinds(mind?.mindId ?? null, wallId);
-    // What the scope chip shows, and the Folder behind it, go just before the Question (#2529).
     const scopeText =
-      callOnly || help
+      callOnly || help || wallId === UNKNOWN_WALL
         ? ""
         : scopeLines(
             nameScope(
               {
                 scope: question.scope,
                 mindId: mind?.mindId ?? null,
-                // An unknown side of a wall is none to name: name as from outside every wall.
-                wallId: wallId === UNKNOWN_WALL ? null : wallId,
+                wallId,
                 documentIds,
+                folderInFront,
               },
               {
                 itemName: options.scopeItemName,
@@ -4550,6 +4550,7 @@ export function createAnswers(options: AnswersOptions) {
           question.onScreen,
           checked,
           question.commands,
+          question.folderInFront,
         );
       } catch (error) {
         if (!published) options.conversations.discard(added);
@@ -4597,6 +4598,7 @@ export function createAnswers(options: AnswersOptions) {
         onScreen,
         checkQuotes(question.quotes, from?.mindId ?? null, mind ? null : wallOfTurn(question)),
         commands,
+        null,
         remake,
       );
     },

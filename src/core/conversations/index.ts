@@ -90,6 +90,8 @@ export interface QuestionInput {
   commands: CommandWindow | null;
   quotes: AskedQuote[];
   scope: SearchScope | null;
+  /** The Folder the Library is open on when there is no Note (#2529); not kept with the Question. */
+  folderInFront: string | null;
   model: ChatModelChoice | null;
   forcedSkill: string | null;
   /** Asked with "Analyse data…": its Answer may run an Analysis whatever its scope holds (#447). */
@@ -1006,7 +1008,8 @@ export function createConversations(db: Database, now: () => string) {
      */
     parseQuestion(input: unknown): QuestionInput {
       if (!isRecord(input)) throw new InvalidInputError("askInConversation expects an object.");
-      const { text, conversationId, mindId, model, forcedSkill, focus, analyse } = input;
+      const { text, conversationId, mindId, model, forcedSkill, focus, analyse, folderInFrontId } =
+        input;
       if (typeof text !== "string" || text.trim() === "") {
         throw new InvalidInputError({ key: "error.question.empty" });
       }
@@ -1039,6 +1042,13 @@ export function createConversations(db: Database, now: () => string) {
       if (analyse !== undefined && typeof analyse !== "boolean") {
         throw new InvalidInputError({ key: "error.question.analyseChoice" });
       }
+      if (
+        folderInFrontId !== undefined &&
+        folderInFrontId !== null &&
+        (typeof folderInFrontId !== "string" || folderInFrontId === "")
+      ) {
+        throw new InvalidInputError("The Folder in front must be a Folder's id, or null for none.");
+      }
       return {
         conversationId:
           conversationId === undefined || conversationId === null
@@ -1051,6 +1061,7 @@ export function createConversations(db: Database, now: () => string) {
         commands: parseCommandWindow(input.clientId, input.commands),
         quotes: parseQuotes(input.quotes),
         scope: parseSearchScope(input.scope),
+        folderInFront: typeof folderInFrontId === "string" ? folderInFrontId : null,
         model: model ?? null,
         forcedSkill: typeof forcedSkill === "string" ? forcedSkill : null,
         analyse: analyse === true,

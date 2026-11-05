@@ -1,9 +1,10 @@
 /**
- * "This folder" in the assistant (#2529) against a real model: with a Folder in scope, or the
- * Note in front in one, a request that points at it without naming it is carried out on that
- * Folder and asks nothing; with nothing to tell which of several Folders, it asks, naming them.
- * Through the core as the composer asks, English and Chinese, one scope to a request. The
- * requests are held-out: none is among the prompt's own examples.
+ * "This folder" in the assistant (#2529) against a real model: with a Folder in scope, the
+ * Library open on one, or the Note in front in one, a request that points at it without naming
+ * it is carried out on that Folder and asks nothing; with nothing to tell which of several
+ * Folders, it asks, naming them. Through the core as the composer asks, English and Chinese,
+ * one scope to a request. The paraphrases are held out: none is among the prompt's own
+ * examples.
  *
  *   INCARNAMIND_LIVE_ANTHROPIC_KEY      the key; the test is skipped without it
  *   INCARNAMIND_LIVE_ANTHROPIC_MODEL    Claude Haiku 5.5 by default
@@ -51,7 +52,7 @@ const LIBRARIES: Record<
         files: [
           {
             name: "Quarterly sales report",
-            text: "Quarterly sales report. Sales of the Pinewood range rose 12 percent in the third quarter, led by the northern shops. Returns stayed under 2 percent. The team expects a similar rise in the fourth quarter.",
+            text: "Quarterly sales report. Sales of the Quillwood range rose 12 percent in the third quarter, led by the northern shops. Returns stayed under 2 percent. The team expects a similar rise in the fourth quarter.",
           },
           {
             name: "Customer survey results",
@@ -149,8 +150,8 @@ const LIBRARIES: Record<
   },
 };
 
-/** Where the Question is asked from: with a Folder in scope, from a Note in a Folder with every Document in scope, or with nothing to tell which. */
-type Situation = "scope" | "note" | "none";
+/** Where the Question is asked from: a Folder in scope, a Note in a Folder with every Document or its own Folder in scope, the Library open on a Folder, or with nothing to tell which. */
+type Situation = "scope" | "note" | "note-default" | "library" | "none";
 
 interface Request {
   id: string;
@@ -246,6 +247,90 @@ const REQUESTS: readonly Request[] = [
     folder: null,
     text: "总结一下这个文件夹。",
   },
+  {
+    id: "en-scope-whats-here",
+    language: "en",
+    situation: "scope",
+    folder: 2,
+    text: "What's in here?",
+  },
+  {
+    id: "en-note-whats-here",
+    language: "en",
+    situation: "note",
+    folder: 2,
+    text: "Tell me what's in here.",
+  },
+  {
+    id: "en-library-summarise",
+    language: "en",
+    situation: "library",
+    folder: 1,
+    text: "Summarise this folder.",
+  },
+  {
+    id: "en-library-whats-here",
+    language: "en",
+    situation: "library",
+    folder: 0,
+    text: "What's in here?",
+  },
+  {
+    id: "en-note-default-summarise",
+    language: "en",
+    situation: "note-default",
+    folder: 1,
+    text: "Summarise this folder.",
+  },
+  {
+    id: "en-note-default-whats-here",
+    language: "en",
+    situation: "note-default",
+    folder: 2,
+    text: "What's in here?",
+  },
+  {
+    id: "zh-scope-whats-here",
+    language: "zh-CN",
+    situation: "scope",
+    folder: 2,
+    text: "这里面的资料讲了什么？",
+  },
+  {
+    id: "zh-note-whats-here",
+    language: "zh-CN",
+    situation: "note",
+    folder: 2,
+    text: "告诉我这里面有什么。",
+  },
+  {
+    id: "zh-library-summarise",
+    language: "zh-CN",
+    situation: "library",
+    folder: 1,
+    text: "总结一下这个文件夹。",
+  },
+  {
+    id: "zh-library-whats-here",
+    language: "zh-CN",
+    situation: "library",
+    folder: 0,
+    text: "这里面有什么？",
+  },
+  {
+    id: "zh-note-default-summarise",
+    language: "zh-CN",
+    situation: "note-default",
+    folder: 1,
+    text: "总结一下这个文件夹。",
+  },
+  {
+    id: "zh-note-default-whats-here",
+    language: "zh-CN",
+    situation: "note-default",
+    folder: 2,
+    text: "这里面有什么？",
+  },
 ];
 
 interface Billed {
@@ -329,7 +414,7 @@ if (limited && !PRICE)
 
 describe("'This folder' in the assistant, live", () => {
   test.skipIf(KEY === undefined)(
-    `${MODEL}: a Folder in scope or in front is carried out and asks nothing; with none it asks, naming them`,
+    `${MODEL}: a Folder in scope, the Library, or a Note in front is carried out and asks nothing; with none it asks, naming them`,
     { timeout: 3 * 60 * 60_000 },
     async () => {
       const tokens = watchTokens();
@@ -404,15 +489,17 @@ describe("'This folder' in the assistant, live", () => {
         pages: { text: string; cited: string[] }[];
       }> {
         const target = request.folder === null ? null : (folders[request.folder] ?? null);
+        const withNote = request.situation === "note" || request.situation === "note-default";
         const mind =
-          request.situation === "note" && target
+          withNote && target
             ? await core.createMind({
                 title: request.language === "en" ? "Plan" : "计划",
                 folderId: target.id,
               })
             : null;
+        const withScope = request.situation === "scope" || request.situation === "note-default";
         const scope =
-          request.situation === "scope" && target
+          withScope && target
             ? { folderIds: [target.id], tagIds: [], documentIds: [] }
             : { folderIds: [], tagIds: [], documentIds: [] };
         let question: string | null = null;
@@ -432,6 +519,7 @@ describe("'This folder' in the assistant, live", () => {
         const result = await core.askInConversation({
           text: request.text,
           ...(mind && { mindId: mind.id }),
+          ...(request.situation === "library" && target && { folderInFrontId: target.id }),
           scope,
         });
         if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
