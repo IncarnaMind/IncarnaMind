@@ -5,6 +5,8 @@
  */
 import { expect, test } from "vitest";
 import type { CoreAdapters, SaveChatProviderInput } from "../../src/core";
+import { claimsAtOnce } from "../../src/core/answers/checks/runChecks";
+import type { PreparedChatModel } from "../../src/core/providers/chat";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -122,4 +124,17 @@ test("each sentence's check sends the same requests and lands the same mark at s
   expect(atTwelve.marks).toHaveLength(9);
   expect(atTwelve.marks).toEqual(atSix.marks);
   expect(atTwelve.marks.every((mark) => mark.state !== "checking")).toBe(true);
+});
+
+// protects=a plan signed in with the User's own account keeps six at once, though it reads its provider's facts (#2532); fails_when=the Claude sign-in gets Anthropic's twelve; no_claim=the plan's own limits, which no run measured.
+test("a check sends six sentences at once on a Claude sign-in, though Anthropic's keys take twelve", () => {
+  const facts = { checksAtOnce: 12 };
+  const on = (kind: "anthropic" | "claude-account") =>
+    ({
+      provider: { kind, service: { id: "anthropic" } },
+      capabilities: { known: true, facts },
+    }) as unknown as PreparedChatModel;
+
+  expect(claimsAtOnce(on("anthropic"))).toBe(12);
+  expect(claimsAtOnce(on("claude-account"))).toBe(6);
 });

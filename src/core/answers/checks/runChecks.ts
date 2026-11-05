@@ -20,6 +20,7 @@ import type {
 } from "../../api";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
+import { isSignInRoute } from "../../providers/signInRoutes";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { RunItemError, runItems, slots } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
@@ -48,10 +49,15 @@ export function pendingParts(
 const CLOUD_CLAIMS_AT_ONCE = 6;
 
 /** How many claims a check sends to `prepared` at once; a model on this computer takes one at a time. */
-export const claimsAtOnce = (prepared: PreparedChatModel): number =>
-  prepared.provider.service
-    ? (prepared.capabilities.facts.checksAtOnce ?? CLOUD_CLAIMS_AT_ONCE)
-    : 1;
+export function claimsAtOnce(
+  prepared: Pick<PreparedChatModel, "provider" | "capabilities">,
+): number {
+  if (!prepared.provider.service) return 1;
+  // A sign-in with the User's own plan reads its provider's facts, but its limits are the plan's,
+  // which no run measured (#2532).
+  if (isSignInRoute(prepared.provider.kind)) return CLOUD_CLAIMS_AT_ONCE;
+  return prepared.capabilities.facts.checksAtOnce ?? CLOUD_CLAIMS_AT_ONCE;
+}
 
 /** A claim marked "checking", and what its check sends. */
 export interface QueuedClaim {
