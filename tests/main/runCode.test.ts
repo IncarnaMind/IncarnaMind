@@ -37,6 +37,7 @@ import type { CitationSource } from "../../src/core/documents";
 import { WORKING_FOLDER } from "../../src/core/execution";
 import type { CodeDocument } from "../../src/core/runCode";
 import { runCodeTool } from "../../src/core/runCode/tool";
+import { createScriptRunner } from "../../src/core/skills/scripts";
 import { createProcessLauncher } from "../../src/main/processes";
 import { readPythonManifest, runtimePlatform } from "../../src/main/runCode/manifest";
 import {
@@ -99,12 +100,14 @@ let pythonPrepared = 0;
 /** The data and temporary folders the runs here use, unless a test gives its own. */
 const folders = () => ({ data, temp: join(root, "temp") });
 
-function executor(where = folders()) {
+/** The app's OS sandbox Executor; `login`: more of the login environment than the tests' own. */
+function executor(where = folders(), login: Record<string, string> = {}) {
   if (!sandbox.available) throw new Error(sandbox.reason);
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
     GITHUB_TOKEN: "ghp_made_up_secret",
     PLAIN_SETTING: "kept",
+    ...login,
   };
   return sandbox.createExecutor({
     processes: createProcessLauncher(async () => env),
@@ -825,5 +828,91 @@ print(json.dumps(seen))
       );
       expect(roomy.analyses[0]?.end).toEqual({ kind: "out-of-memory" });
     }, 240_000);
+  },
+);
+
+describe.skipIf(unavailable !== undefined || !runtimeFolder)(
+  `A Skill's Python script on run_code's Python in the OS sandbox${unavailable ? ` (skipped: ${unavailable})` : runtimeFolder ? "" : " (skipped: no INCARNAMIND_TEST_PYTHON_RUNTIME)"}`,
+  () => {
+    test("runs on it, with its packages and none of the PATH's, and still can't read the home canary", async () => {
+      const own = python?.installed() ?? null;
+      if (!own) throw new Error("The runtime is ready, so it is installed.");
+      const skillDir = join(data, "skills", "toolbox-id");
+      await mkdir(join(skillDir, "scripts"), { recursive: true });
+      await writeFile(
+        join(skillDir, "scripts", "where.py"),
+        [
+          "import sys, numpy",
+          "print(sys.executable)",
+          "print(numpy.__version__)",
+          "print(sys.flags.ignore_environment)",
+          "try:",
+          "    open(sys.argv[1]).read()",
+          "    print('home: allowed')",
+          "except OSError:",
+          "    print('home: denied')",
+          "",
+        ].join("\n"),
+      );
+      // macOS's CPython reads PYTHONEXECUTABLE even with -E: the User's own is never handed on.
+      const scripts = createScriptRunner({
+        executor: executor(folders(), {
+          PYTHONEXECUTABLE: "/bin/echo",
+          PYTHONPATH: join(home, "site-packages"),
+        }),
+        python: () => own,
+      });
+
+      const run = await scripts.run({
+        skillDir,
+        script: "scripts/where.py",
+        args: [homeCanary],
+        timeoutMs: 60_000,
+        signal: new AbortController().signal,
+        language: "en",
+      });
+
+      expect(run).toMatchObject({ exitCode: 0, error: null });
+      expect(run.stdout.trim().split("\n")).toEqual([
+        join(await realpath(dirname(own.command)), "python3"),
+        python?.manifest.packages.numpy,
+        "1",
+        "home: denied",
+      ]);
+
+      await writeFile(
+        join(skillDir, "scripts", "forecast.py"),
+        "import numpy\nprint('Read 12 rows.')\nimport zorblax_quant.models\n",
+      );
+      await expect(
+        scripts.run({
+          skillDir,
+          script: "scripts/forecast.py",
+          args: [],
+          timeoutMs: 60_000,
+          signal: new AbortController().signal,
+          language: "en",
+        }),
+      ).rejects.toMatchObject({
+        message:
+          "This Skill needs the Python package “zorblax_quant”, which isn’t included in IncarnaMind.",
+      });
+
+      // A line about a package the runtime has, which the script wrote itself, is the script's own.
+      await writeFile(
+        join(skillDir, "scripts", "wrote_itself.py"),
+        "import sys\nprint('rows: 0')\nsys.stderr.write(\"ModuleNotFoundError: No module named 'numpy'\\n\")\nsys.exit(1)\n",
+      );
+      expect(
+        await scripts.run({
+          skillDir,
+          script: "scripts/wrote_itself.py",
+          args: [],
+          timeoutMs: 60_000,
+          signal: new AbortController().signal,
+          language: "en",
+        }),
+      ).toMatchObject({ exitCode: 1, stdout: "rows: 0\n", error: null });
+    }, 120_000);
   },
 );
