@@ -972,7 +972,7 @@ test("asking during the call: the assistant listens to the live transcript, its 
   await app.close();
 });
 
-test("a stopped Transcript is kept in the Library: Get info says so, with no .vtt path and no file actions, in English and Chinese (#763)", async () => {
+test("a stopped Transcript has no row of its own: from its Note, Get info says IncarnaMind keeps it, with no .vtt path and no file actions, in English and Chinese (#763, #2528)", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await setWindowSize(app, window, 1440, 900);
@@ -989,13 +989,20 @@ test("a stopped Transcript is kept in the Library: Get info says so, with no .vt
   await expect(line).toContainText("Transcript saved", { timeout: 30_000 });
   await expect(line).not.toContainText(/vtt|Documents › IncarnaMind|Change folder/i);
 
-  // In the Library, the Transcript is a Document of the Library, not a .vtt file of the User's.
+  // The Library has no row for it: the meeting is its Note, where its Transcript is reached.
   await pointAndClick(window, window.getByTestId("open-library"));
   const library = window.getByTestId("library");
-  const row = library.getByTestId("library-document").filter({ hasText: "Transcript" });
-  await expect(row).toHaveCount(1);
-  await row.locator('[data-object-menu^="document:"]').click();
-  const menu = window.getByTestId("document-file-actions");
+  await expect(library).toBeVisible();
+  await expect(library.getByTestId("library-document")).toHaveCount(0);
+  await pointAndClick(window, window.getByTestId("mind-tab").first());
+  await pointAndClick(window, line.getByTestId("meeting-transcript-open"));
+  await expect(window.getByTestId("viewer")).toBeVisible();
+  // Opened, it has no "Open in default app": its file is IncarnaMind's, not the User's.
+  await expect(window.getByTestId("viewer-open-externally")).toHaveCount(0);
+  const header = window.getByTestId("viewer-header");
+  await pointAndClick(window, window.getByTestId("document-tab"));
+  await pointAndClick(window, header.getByTestId("document-file-menu"));
+  const menu = header.getByTestId("document-file-actions");
   await expect(menu.getByTestId("file.info")).toBeVisible();
   // It has no file of the User's to show, copy or open in its app.
   await expect(menu.getByTestId("file.copyPath")).toHaveCount(0);
@@ -1008,15 +1015,10 @@ test("a stopped Transcript is kept in the Library: Get info says so, with no .vt
   await expect(panel.getByTestId("info-show")).toHaveCount(0);
   await expect(panel.getByTestId("info-copy-path")).toHaveCount(0);
   await window.keyboard.press("Escape");
-  // Opened, it has no "Open in default app" either: its file is IncarnaMind's, not the User's.
-  await pointAndClick(window, row.getByTestId("library-document-name"));
-  await expect(window.getByTestId("viewer")).toBeVisible();
-  await expect(window.getByTestId("viewer-open-externally")).toHaveCount(0);
-  await pointAndClick(window, window.getByTestId("document-tab").getByTestId("tab-close"));
 
   await setLanguage(window, "zh-CN");
-  await row.locator('[data-object-menu^="document:"]').click();
-  await pointAndClick(window, window.getByTestId("document-file-actions").getByTestId("file.info"));
+  await pointAndClick(window, header.getByTestId("document-file-menu"));
+  await pointAndClick(window, menu.getByTestId("file.info"));
   await expect(panel.getByTestId("info-path")).toHaveText("在资料库中");
   await expect(panel).not.toContainText(".vtt");
   await app.close();
