@@ -251,7 +251,7 @@ async function shownChecks(
   }));
 }
 
-// protects=a check sends six claims at once to a model on a service and one at a time to a model on this computer (#1618); fails_when=the number changes, or a model on this computer is sent several at once; no_claim=a real provider's rate limits, which the run's backoff answers.
+// protects=a check sends six claims at once to a model on a service measured at no other number, and one at a time to a model on this computer (#1618); fails_when=the number changes, or a model on this computer is sent several at once; no_claim=a provider measured to take more (./checkSpeed.test.ts), and a real provider's rate limits, which the run's backoff answers.
 test.each([
   [6, "a model on a service", true],
   [1, "a model on this computer", false],
@@ -285,9 +285,9 @@ test.each([
   if (onService) {
     core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
     const provider = await core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-ant-test",
-      modelId: "claude-haiku-5-5",
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
     });
     if (provider.service) await core.allowDataFlow("checks", provider.service.id);
   } else await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });

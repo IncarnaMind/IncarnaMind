@@ -49,7 +49,9 @@ const CLOUD_CLAIMS_AT_ONCE = 6;
 
 /** How many claims a check sends to `prepared` at once; a model on this computer takes one at a time. */
 export const claimsAtOnce = (prepared: PreparedChatModel): number =>
-  prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1;
+  prepared.provider.service
+    ? (prepared.capabilities.facts.checksAtOnce ?? CLOUD_CLAIMS_AT_ONCE)
+    : 1;
 
 /** A claim marked "checking", and what its check sends. */
 export interface QueuedClaim {
