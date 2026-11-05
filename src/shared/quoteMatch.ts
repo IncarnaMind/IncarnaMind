@@ -295,18 +295,25 @@ function normaliseNumbers(units: NormalisedUnit[], text: string, spaces: GroupSp
 
 /**
  * Whether a typographic double mark is a measure's or a prime's, not a quotation mark: a ” after a
- * number when another ” comes before the next opening mark (“Use a 6” pipe,”), a ” between a Latin
- * letter and a Latin letter, digit or "(" (f”(x)), and a “ alone after a number and a space, as
- * Word types inches ("a 12 “ gap").
+ * number when the next double mark would close the quote `open` (“Use a 6” pipe,”, „ein 6” Rohr“),
+ * a ” between a Latin letter and a Latin letter, digit or "(" (f”(x)), and a “ alone after a number
+ * and a space, as Word types inches ("a 12 “ gap").
  */
-function isMeasure(text: string, start: number, end: number, mark: string): boolean {
+function isMeasure(
+  text: string,
+  start: number,
+  end: number,
+  mark: string,
+  open: string | undefined,
+): boolean {
   const before = text.slice(Math.max(0, start - 2), start);
   if (mark === "“") return AFTER_A_NUMBER_AND_SPACE.test(before) && !/\S/u.test(text.charAt(end));
   if (mark !== "”") return false;
   if (LATIN.test(text.charAt(start - 1)) && BEFORE_A_PRIME_ENDS.test(text.charAt(end))) return true;
   if (!AFTER_A_NUMBER.test(before)) return false;
   NEXT_DOUBLE_MARK.lastIndex = end;
-  return NEXT_DOUBLE_MARK.exec(text)?.[0] === "”";
+  const next = NEXT_DOUBLE_MARK.exec(text)?.[0];
+  return next !== undefined && open !== undefined && (CLOSED_BY.get(open)?.includes(next) ?? false);
 }
 
 /**
@@ -319,8 +326,8 @@ function markQuotationMarks(text: string, units: NormalisedUnit[]): void {
   for (const unit of units) {
     if (unit.char !== '"') continue;
     const mark = text.slice(unit.start, unit.end);
-    if (isMeasure(text, unit.start, unit.end, mark)) continue;
     const top = opened.at(-1);
+    if (isMeasure(text, unit.start, unit.end, mark, top)) continue;
     if (top !== undefined && CLOSED_BY.get(top)?.includes(mark)) opened.pop();
     else if (CLOSED_BY.has(mark)) opened.push(mark);
     else if (!CORNER_CLOSERS.has(mark)) continue;

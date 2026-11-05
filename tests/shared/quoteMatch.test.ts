@@ -422,6 +422,9 @@ describe("which double marks are quotation marks (#2504)", () => {
       findQuote("“The lap took 9’58” in all,” he said.", "the lap took 9’58’ in all"),
     ).toBeNull();
     expect(findQuote("他说：“管道直径为6”。”", "管道直径为6’")).toBeNull();
+    const german = "„Benutze ein 6” Rohr“, sagte er.";
+    expect(findQuote(german, "benutze ein 6’ rohr")).toBeNull();
+    expect(covered(german, "‘benutze ein 6” rohr’")).toBe("„Benutze ein 6” Rohr“");
     expect(findQuote("师傅说：“车道下面要用6”的管子。”", "车道下面要用6’的管子")).toBeNull();
     expect(covered(fitter, "use a 6” pipe under the drive")).toBe("Use a 6” pipe under the drive");
     expect(covered(fitter, "‘use a 6” pipe under the drive,’ the fitter said")).toBe(
