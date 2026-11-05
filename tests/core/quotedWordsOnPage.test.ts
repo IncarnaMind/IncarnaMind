@@ -225,9 +225,38 @@ const INCHES = {
     answer: "师傅说车道下面用六英寸的管子[^1]。",
     quoted: "师傅说“车道下面要用6’的管子”[^1]。",
   },
+  "en after a quote ending in a number": {
+    file: {
+      name: "Drive.md",
+      contents: "# Drive\n\nSee “Table 3” for the parts. Use a 6” pipe under the drive.\n",
+    },
+    query: "pipe under the drive",
+    question: "Which pipe goes under the drive?",
+    quote: "Use a 6” pipe under the drive",
+    feet: "Use a 6’ pipe under the drive",
+    answer: "Use a six-inch pipe [^1].",
+    quoted: "It says “use a 6’ pipe under the drive” [^1].",
+  },
+  "zh after a quote ending in a number": {
+    file: {
+      name: "车道说明.md",
+      contents: "# 车道说明\n\n见“表3”中的零件。车道下面要用6”的管子。\n",
+    },
+    query: "车道下面",
+    question: "车道下面用什么管子？",
+    quote: "车道下面要用6”的管子",
+    feet: "车道下面要用6’的管子",
+    answer: "车道下面用六英寸的管子[^1]。",
+    quoted: "文中写道“车道下面要用6’的管子”[^1]。",
+  },
 } as const;
 
-describe.each(["en", "zh"] as const)("Inches inside quoted speech (%s)", (language) => {
+describe.each([
+  "en",
+  "zh",
+  "en after a quote ending in a number",
+  "zh after a quote ending in a number",
+] as const)("Inches inside quoted speech (%s)", (language) => {
   const inches = INCHES[language];
 
   test("the record's quote with the page's inches: found", async () => {

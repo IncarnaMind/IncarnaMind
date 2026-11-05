@@ -401,17 +401,20 @@ describe("which double marks are quotation marks (#2504)", () => {
     expect(findQuote("报告说 2024 “增长”放缓了。", "报告说 2025 ‘增长’放缓了")).toBeNull();
   });
 
-  test("a ” after a digit that closes a quote opened before it is a quote's", () => {
-    expect(covered("The “Top 10” list is out.", "the ‘Top 10’ list is out")).toBe(
+  test("a mark against a digit matches only itself, so a quote ending in a number isn't found in the other kind", () => {
+    expect(findQuote("The “Top 10” list is out.", "the ‘Top 10’ list is out")).toBeNull();
+    expect(findQuote("这是“愿景2030”计划的一部分。", "这是‘愿景2030’计划的一部分")).toBeNull();
+    expect(findQuote("他称之为「方案3」。", "他称之为‘方案3’")).toBeNull();
+    expect(findQuote("See “Table 3”. Use a 6” pipe.", "use a 6’ pipe")).toBeNull();
+    expect(findQuote("见“表3”。用6”的管子。", "用6’的管子")).toBeNull();
+    expect(findQuote("“Use a 6½” pipe,” he said.", "use a 6½’ pipe")).toBeNull();
+    expect(findQuote("Use a 6” pipe under the road.", "use a 6’ pipe under the road")).toBeNull();
+    expect(covered("The “Top 10” list is out.", "the “top 10” list is out")).toBe(
       "The “Top 10” list is out",
     );
-    expect(covered("这是“愿景2030”计划的一部分。", "这是‘愿景2030’计划的一部分")).toBe(
-      "这是“愿景2030”计划的一部分",
+    expect(covered("See “Appendix”. Use a 6” pipe.", "see ‘appendix’. use a 6” pipe")).toBe(
+      "See “Appendix”. Use a 6” pipe",
     );
-    expect(covered("他称之为「方案3」。", "他称之为‘方案3’")).toBe("他称之为「方案3」");
-    expect(findQuote("The “Top 10” list is out.", "the ‘Top 11’ list is out")).toBeNull();
-    expect(findQuote("这是“愿景2030”计划的一部分。", "这是‘愿景2035’计划的一部分")).toBeNull();
-    expect(findQuote("Use a 6” pipe under the road.", "use a 6’ pipe under the road")).toBeNull();
   });
 
   test("a ” after a number inside quoted speech is inches or seconds, not the quote's end", () => {
@@ -489,5 +492,75 @@ describe("which double marks are quotation marks (#2504)", () => {
       "“soft weights” property holds",
     );
     expect(covered("这是“软权重”特性。", "‘软权重’特性")).toBe("“软权重”特性");
+  });
+
+  test("an inner closing mark closes the innermost open quote", () => {
+    const wrote = "“He said ‘no’ twice,” she wrote.";
+    expect(covered(wrote, "‘he said “no” twice,’ she wrote")).toBe(wrote.slice(0, -1));
+    expect(findQuote(wrote, "‘he said “yes” twice,’ she wrote")).toBeNull();
+    expect(covered("他说「她写了『不行』两次」。", "她写了“不行”两次")).toBe("她写了『不行』两次");
+  });
+
+  test("a corner bracket with nothing open is no quotation mark", () => {
+    expect(findQuote("他说」方案「不行。", "他说’方案‘不行")).toBeNull();
+    expect(findQuote("」だけ「", "’だけ‘")).toBeNull();
+    expect(covered("他说「方案」不行。", "他说‘方案’不行")).toBe("他说「方案」不行");
+  });
+
+  test("a closing mark after one letter, a short name in capitals or a word with a number may be a prime", () => {
+    const image = "“Point A” is the image of A’,” he said.";
+    expect(findQuote(image, "‘point a’ is the image of a’")).toBeNull();
+    expect(
+      findQuote("“Segment AB” is longer than AB’,” he said.", "‘segment ab’ is longer than ab’"),
+    ).toBeNull();
+    expect(findQuote("The “4K” screen is 6” wide.", "the ‘4k’ screen is 6’ wide")).toBeNull();
+    expect(
+      findQuote("“The value cos”(x) is small,” he said.", "‘the value cos’(x) is small"),
+    ).toBeNull();
+    expect(covered(image, "point a” is the image of a’")).toBe("Point A” is the image of A’");
+  });
+
+  test("a single mark after an s closes a quote only when no clearer closing mark follows", () => {
+    expect(covered("The “soft weights” property holds.", "the ‘soft weights’ property holds")).toBe(
+      "The “soft weights” property holds",
+    );
+    const notes = "He read ‘the girls’ notes’ aloud.";
+    expect(findQuote(notes, "he read “the girls” notes")).toBeNull();
+    expect(covered(notes, "he read “the girls’ notes” aloud")).toBe(notes.slice(0, -1));
+    expect(
+      covered("“He said ‘the experts’ disagree” today.", "‘he said “the experts” disagree’ today"),
+    ).toBe("“He said ‘the experts’ disagree” today");
+  });
+
+  test("a pair around code, or set in code, matches only itself", () => {
+    expect(
+      findQuote("Run echo ‘hello $USER’ in the shell.", "run echo “hello $USER” in the shell"),
+    ).toBeNull();
+    expect(findQuote("Type ‘ls -la’ to list.", "type “ls -la” to list")).toBeNull();
+    expect(findQuote("Write print(‘hi’) here.", "write print(“hi”) here")).toBeNull();
+    expect(findQuote("Set x = ‘a’; then run it.", "set x = “a”; then run it")).toBeNull();
+    expect(covered("The value is ‘null’ here.", "the value is “null” here")).toBe(
+      "The value is ‘null’ here",
+    );
+  });
+
+  test("straight marks of a clear pair are quotation marks too", () => {
+    expect(covered('He said "go" twice.', "he said ‘go’ twice")).toBe('He said "go" twice');
+    expect(covered("He said 'go' twice.", "he said “go” twice")).toBe("He said 'go' twice");
+    expect(findQuote("It's 6\" long.", "it's 6’ long")).toBeNull();
+    expect(findQuote("f'(x) is positive.", "f”(x) is positive")).toBeNull();
+    expect(covered('Write print("go") here.', "“go”")).toBe('"go"');
+    expect(covered("He said “go” twice.", 'said "go')).toBe("said “go");
+    expect(covered("He said “go” twice.", '"go” twice')).toBe("“go” twice");
+    expect(covered("He said ‘go’ twice.", "'go’ twice")).toBe("‘go’ twice");
+  });
+
+  test("punctuation inside a closing mark and an opening mark against CJK text", () => {
+    expect(covered("He said, “Go home.” Then he left.", "he said, ‘go home.’ then he left")).toBe(
+      "He said, “Go home.” Then he left",
+    );
+    expect(covered("他问：“真的吗？”她点头。", "他问：‘真的吗？’她点头")).toBe(
+      "他问：“真的吗？”她点头",
+    );
   });
 });

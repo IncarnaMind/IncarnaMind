@@ -16,14 +16,12 @@
  *   quote that starts mid-sentence is often given a capital;
  * - the quote marks and dashes the shared normaliser leaves alone ("‹", "›",
  *   "ʼ", "⸺", "⸻") are unified too;
- * - a typographic double quotation mark matches a single one as well as a
- *   double one, as a quote nested in a quote is written in the other kind of
- *   mark ("the ‘soft weights’ property" for the page's “soft weights”,
- *   #2504). Opening marks and corner closers count, and a closing ” counts
- *   only when it closes a “ or „ (`markQuotationMarks`). An ASCII ", a ” that
- *   closes nothing, and a mark that reads as inches, seconds or a prime
- *   (`isMeasure`) match only a double mark: "6\"", "f”(x)", "echo \"$HOME\"",
- *   “Use a 6” pipe,”;
+ * - a quotation mark matches a quotation mark of either kind, as a quote
+ *   nested in a quote is written in the other kind of mark ("the ‘soft
+ *   weights’ property" for the page's “soft weights”, #2504). Only the marks
+ *   of a clear pair around plain words are quotation marks; an inch, a second,
+ *   a prime, an apostrophe or a mark in code matches only itself
+ *   (./quotationMarks);
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
@@ -94,6 +92,7 @@
  */
 import { numberFormatting } from "./figures";
 import { SIMPLIFIED } from "./hanVariants";
+import { markQuotationMarks, matchesOf, sameChar } from "./quotationMarks";
 import { type NormalisedUnit, normaliseWithOffsets } from "./text";
 
 /** A span of the original text, in UTF-16 offsets; `end` is exclusive. */
@@ -138,37 +137,6 @@ const SOFT_HYPHEN_AT_LINE_END =
 const ELLIPSIS = / ?\.{3,} ?/;
 
 const DIGIT = /^[0-9]$/;
-/**
- * A typographic double quotation mark, as matching reads it: it matches a double mark or a single
- * one (see `sameChar`). A noncharacter, so no text has it of its own.
- */
-const QUOTATION_MARK = "\uFDD0";
-
-/** Whether a text's character and a quote's match: equal, or a quotation mark against either mark. */
-const sameChar = (text: string, quote: string | undefined): boolean =>
-  text === quote ||
-  (text === QUOTATION_MARK && (quote === '"' || quote === "'")) ||
-  (quote === QUOTATION_MARK && (text === '"' || text === "'"));
-
-/**
- * Each typographic double mark that opens a quote, with the marks that close it: „ closes with ”,
- * or with “ in German, and guillemets point either way («…», »…«).
- */
-const CLOSED_BY: ReadonlyMap<string, readonly string[]> = new Map([
-  ["“", ["”"]],
-  ["„", ["”", "“"]],
-  ["«", ["»"]],
-  ["»", ["«"]],
-  ["「", ["」"]],
-  ["『", ["』"]],
-]);
-/** Closing marks that are never a measure's, so they are quotation marks with nothing open. */
-const CORNER_CLOSERS = new Set(["」", "』"]);
-const NEXT_DOUBLE_MARK = /[”“„«»「『]/gu;
-const AFTER_A_NUMBER = /\p{Nd}\s?$/u;
-const AFTER_A_NUMBER_AND_SPACE = /\p{Nd}\s$/u;
-const LATIN = /\p{Script=Latin}/u;
-const BEFORE_A_PRIME_ENDS = /[\p{Script=Latin}\p{Nd}(]/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/gu;
 
 /**
@@ -294,48 +262,6 @@ function normaliseNumbers(units: NormalisedUnit[], text: string, spaces: GroupSp
 }
 
 /**
- * Whether a typographic double mark is a measure's or a prime's, not a quotation mark: a ” after a
- * number when the next double mark would close the quote `open` (“Use a 6” pipe,”, „ein 6” Rohr“),
- * a ” between a Latin letter and a Latin letter, digit or "(" (f”(x)), and a “ alone after a number
- * and a space, as Word types inches ("a 12 “ gap").
- */
-function isMeasure(
-  text: string,
-  start: number,
-  end: number,
-  mark: string,
-  open: string | undefined,
-): boolean {
-  const before = text.slice(Math.max(0, start - 2), start);
-  if (mark === "“") return AFTER_A_NUMBER_AND_SPACE.test(before) && !/\S/u.test(text.charAt(end));
-  if (mark !== "”") return false;
-  if (LATIN.test(text.charAt(start - 1)) && BEFORE_A_PRIME_ENDS.test(text.charAt(end))) return true;
-  if (!AFTER_A_NUMBER.test(before)) return false;
-  NEXT_DOUBLE_MARK.lastIndex = end;
-  const next = NEXT_DOUBLE_MARK.exec(text)?.[0];
-  return next !== undefined && open !== undefined && (CLOSED_BY.get(open)?.includes(next) ?? false);
-}
-
-/**
- * Marks the units of `text`'s typographic quotation marks as `QUOTATION_MARK`: the normaliser made
- * every double mark '"', and the text's own character says which were quotes. A closing mark
- * closes only its own kind of opening mark, so a ” after a closed 「…」 or «…» closes nothing.
- */
-function markQuotationMarks(text: string, units: NormalisedUnit[]): void {
-  const opened: string[] = [];
-  for (const unit of units) {
-    if (unit.char !== '"') continue;
-    const mark = text.slice(unit.start, unit.end);
-    const top = opened.at(-1);
-    if (isMeasure(text, unit.start, unit.end, mark, top)) continue;
-    if (top !== undefined && CLOSED_BY.get(top)?.includes(mark)) opened.pop();
-    else if (CLOSED_BY.has(mark)) opened.push(mark);
-    else if (!CORNER_CLOSERS.has(mark)) continue;
-    unit.char = QUOTATION_MARK;
-  }
-}
-
-/**
  * The text normalised for matching: the shared normaliser's units, folded,
  * with the caret of each "[^N]" marked `removed`, and with `numbers`, number
  * formatting too.
@@ -421,7 +347,8 @@ function matchAt(units: readonly NormalisedUnit[], needle: string, first: number
     at++;
     if (unit.optional && needle[index] !== "-") continue; // skip a line-end hyphen
     if (!unit.optional && unit.removed) continue;
-    if (!sameChar(unit.char, needle[index])) return -1;
+    const want = needle[index];
+    if (unit.char !== want && !sameChar(unit.char, want)) return -1;
     last = at - 1;
     index++;
     // The line break after a line-end hyphen, copied as a space ("inter- national").
@@ -437,9 +364,11 @@ function findFrom(
   from: number,
   accept?: Accept,
 ): { first: number; last: number } | null {
+  const [one, two, three] = matchesOf(needle[0] ?? "");
   for (let first = from; first < units.length; first++) {
     const unit = units[first] as NormalisedUnit;
-    if (unit.removed || !sameChar(unit.char, needle[0])) continue;
+    const char = unit.char;
+    if (unit.removed || (char !== one && char !== two && char !== three)) continue;
     const last = matchAt(units, needle, first);
     if (last >= 0 && (!accept || accept(needle, first, last))) return { first, last };
   }

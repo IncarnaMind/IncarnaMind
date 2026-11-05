@@ -1,501 +1,501 @@
 [
- {
-  "kind": "trailing-punct",
-  "lang": "en",
-  "page": "He said, “Go home.” Then he left.",
-  "quote": "he said, ‘go home.’ then he left",
-  "truth": "in"
- },
- {
-  "kind": "trailing-punct",
-  "lang": "en",
-  "page": "“Are you sure?” she asked.",
-  "quote": "‘are you sure?’ she asked",
-  "truth": "in"
- },
- {
-  "kind": "trailing-punct",
-  "lang": "en",
-  "page": "“Stop!” he cried, and ran.",
-  "quote": "‘stop!’ he cried",
-  "truth": "in"
- },
- {
-  "kind": "trailing-punct",
-  "lang": "en",
-  "page": "The memo read “approved, with changes,” and was filed.",
-  "quote": "the memo read ‘approved, with changes,’ and was filed",
-  "truth": "in"
- },
- {
-  "kind": "trailing-punct",
-  "lang": "en",
-  "page": "The memo read “approved, with changes,” and was filed.",
-  "quote": "the memo read ‘rejected, with changes,’ and was filed",
-  "truth": "out"
- },
- {
-  "kind": "trailing-punct",
-  "lang": "zh",
-  "page": "他说：“好。”然后走了。",
-  "quote": "他说：‘好。’然后走了",
-  "truth": "in"
- },
- {
-  "kind": "trailing-punct",
-  "lang": "zh",
-  "page": "他问：“真的吗？”她点头。",
-  "quote": "他问：‘真的吗？’她点头",
-  "truth": "in"
- },
- {
-  "kind": "trailing-punct",
-  "lang": "ja",
-  "page": "彼は「はい。」と答えた。",
-  "quote": "彼は‘はい。’と答えた",
-  "truth": "in"
- },
- {
-  "kind": "trailing-punct",
-  "lang": "de",
-  "page": "Er rief: „Halt!“ und lief.",
-  "quote": "er rief: ‚halt!‘ und lief",
-  "truth": "in"
- },
- {
-  "kind": "apostrophe",
-  "lang": "en",
-  "page": "It’s fine to wait.",
-  "quote": "it”s fine to wait",
-  "truth": "out"
- },
- {
-  "kind": "apostrophe",
-  "lang": "en",
-  "page": "Meet at five o’clock.",
-  "quote": "meet at five o”clock",
-  "truth": "out"
- },
- {
-  "kind": "apostrophe",
-  "lang": "en",
-  "page": "They can’t agree.",
-  "quote": "they can”t agree",
-  "truth": "out"
- },
- {
-  "kind": "apostrophe",
-  "lang": "en",
-  "page": "Music of the ’90s returned.",
-  "quote": "music of the “90s returned",
-  "truth": "out"
- },
- {
-  "kind": "apostrophe",
-  "lang": "en",
-  "page": "It’s the “best” plan.",
-  "quote": "it’s the ‘best’ plan",
-  "truth": "in"
- },
- {
-  "kind": "apostrophe",
-  "lang": "fr",
-  "page": "C’est l’homme du jour.",
-  "quote": "c”est l”homme du jour",
-  "truth": "out"
- },
- {
-  "kind": "possessive",
-  "lang": "en",
-  "page": "The boys’ room is ready.",
-  "quote": "the boys” room is ready",
-  "truth": "out"
- },
- {
-  "kind": "possessive",
-  "lang": "en",
-  "page": "James’ book was lost.",
-  "quote": "james” book was lost",
-  "truth": "out"
- },
- {
-  "kind": "possessive",
-  "lang": "en",
-  "page": "The “Joneses” car is red.",
-  "quote": "the joneses’ car is red",
-  "truth": "out"
- },
- {
-  "kind": "possessive",
-  "lang": "en",
-  "page": "The Smiths’ “house” is old.",
-  "quote": "the smiths’ ‘house’ is old",
-  "truth": "in"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "The site is at 40°26’46” N.",
-  "quote": "the site is at 40°26’46’ n",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "She ran a 3’30” mile.",
-  "quote": "she ran a 3’30’ mile",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "He is 5’ 10” tall.",
-  "quote": "he is 5’ 10’ tall",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "The door is 6’-8” high.",
-  "quote": "the door is 6’-8’ high",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "“She ran a 3’30” mile,” he said.",
-  "quote": "she ran a 3’30’ mile",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "Use a 12”×18” sheet.",
-  "quote": "use a 12’×18’ sheet",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "“Cut it 6.5” long,” he said.",
-  "quote": "cut it 6.5’ long",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "“Use a ３” pipe,” he said.",
-  "quote": "use a ３’ pipe",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "ar",
-  "page": "“استخدم أنبوب ٣” هنا،” قال.",
-  "quote": "استخدم أنبوب ٣’ هنا",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "“Leave 10 ” at the edge,” he said.",
-  "quote": "leave 10 ’ at the edge",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "en",
-  "page": "The “Model 6” has a 6” screen.",
-  "quote": "has a 6’ screen",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "zh",
-  "page": "他说：“门高6’8”。”",
-  "quote": "门高6’8’",
-  "truth": "out"
- },
- {
-  "kind": "measure",
-  "lang": "ja",
-  "page": "「管は6”です」と彼は言った。",
-  "quote": "管は6’です",
-  "truth": "out"
- },
- {
-  "kind": "prime",
-  "lang": "en",
-  "page": "Let x’ = 2x.",
-  "quote": "let x” = 2x",
-  "truth": "out"
- },
- {
-  "kind": "prime",
-  "lang": "en",
-  "page": "A’B’ is parallel to AB.",
-  "quote": "a”b” is parallel to ab",
-  "truth": "out"
- },
- {
-  "kind": "prime",
-  "lang": "en",
-  "page": "‘f”(x) < 0’ she wrote.",
-  "quote": "“f’(x) < 0” she wrote",
-  "truth": "out"
- },
- {
-  "kind": "prime",
-  "lang": "en",
-  "page": "Then y’ + y = 0 holds.",
-  "quote": "then y” + y = 0 holds",
-  "truth": "out"
- },
- {
-  "kind": "prime",
-  "lang": "en",
-  "page": "“Let x’ be the image,” he said.",
-  "quote": "let x” be the image",
-  "truth": "out"
- },
- {
-  "kind": "code",
-  "lang": "en",
-  "page": "Run echo ‘hello $USER’ in the shell.",
-  "quote": "run echo “hello $USER” in the shell",
-  "truth": "out"
- },
- {
-  "kind": "code",
-  "lang": "en",
-  "page": "Write print(‘hi’) here.",
-  "quote": "write print(“hi”) here",
-  "truth": "out"
- },
- {
-  "kind": "code",
-  "lang": "en",
-  "page": "Set x = ‘a’; then run it.",
-  "quote": "set x = “a”; then run it",
-  "truth": "out"
- },
- {
-  "kind": "code",
-  "lang": "en",
-  "page": "The step sed ‘s/a/b/’ file runs first.",
-  "quote": "the step sed “s/a/b/” file runs first",
-  "truth": "out"
- },
- {
-  "kind": "nested",
-  "lang": "en",
-  "page": "She wrote, “He told me ‘never again’ last week.”",
-  "quote": "he told me “never again” last week",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "en",
-  "page": "The so-called “experts” disagreed.",
-  "quote": "the so-called ‘experts’ disagreed",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "en",
-  "page": "Both “alpha” and “beta” passed.",
-  "quote": "both ‘alpha’ and ‘beta’ passed",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "en",
-  "page": "Both “alpha” and “beta” passed.",
-  "quote": "both ‘alpha’ and ‘gamma’ passed",
-  "truth": "out"
- },
- {
-  "kind": "nested",
-  "lang": "zh",
-  "page": "他说「她写了『不行』两次」。",
-  "quote": "她写了“不行”两次",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "zh",
-  "page": "他说「她写了『不行』两次」。",
-  "quote": "她写了“可以”两次",
-  "truth": "out"
- },
- {
-  "kind": "nested",
-  "lang": "ja",
-  "page": "彼は「『はい』と言った」。",
-  "quote": "‘はい’と言った",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "ko",
-  "page": "그는 “좋다”라고 말했다.",
-  "quote": "그는 ‘좋다’라고 말했다",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "ko",
-  "page": "그는 “좋다”라고 말했다.",
-  "quote": "그는 ‘나쁘다’라고 말했다",
-  "truth": "out"
- },
- {
-  "kind": "nested",
-  "lang": "ru",
-  "page": "Он сказал: «Я прочитал „Войну“ вчера».",
-  "quote": "я прочитал «войну» вчера",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "ru",
-  "page": "Он сказал: «Я прочитал „Войну“ вчера».",
-  "quote": "я прочитал «мир» вчера",
-  "truth": "out"
- },
- {
-  "kind": "nested",
-  "lang": "fr",
-  "page": "Il a dit «Je reviens» hier.",
-  "quote": "il a dit ‘je reviens’ hier",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "de",
-  "page": "Er sagte: „Ich habe ‚Krieg‘ gelesen.“",
-  "quote": "ich habe „krieg“ gelesen",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "de",
-  "page": "Er sagte: „Ich habe ‚Krieg‘ gelesen.“",
-  "quote": "ich habe „frieden“ gelesen",
-  "truth": "out"
- },
- {
-  "kind": "nested",
-  "lang": "sv",
-  "page": "Han sa ”nej” igen.",
-  "quote": "han sa ‘nej’ igen",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "ar",
-  "page": "قال «نعم» أمس.",
-  "quote": "قال ‘نعم’ أمس",
-  "truth": "in"
- },
- {
-  "kind": "nested",
-  "lang": "ar",
-  "page": "قال «لا» أمس.",
-  "quote": "قال ‘نعم’ أمس",
-  "truth": "out"
- },
- {
-  "kind": "changed",
-  "lang": "en",
-  "page": "The “annual fee” is waived.",
-  "quote": "the ‘monthly fee’ is waived",
-  "truth": "out"
- },
- {
-  "kind": "changed",
-  "lang": "en",
-  "page": "The “cap is 5%” rule applies.",
-  "quote": "the ‘cap is 6%’ rule applies",
-  "truth": "out"
- },
- {
-  "kind": "changed",
-  "lang": "en",
-  "page": "“Not approved,” the memo says.",
-  "quote": "‘approved,’ the memo says",
-  "truth": "out"
- },
- {
-  "kind": "changed",
-  "lang": "zh",
-  "page": "报告称“利润增长”。",
-  "quote": "报告称‘利润下降’",
-  "truth": "out"
- },
- {
-  "kind": "changed",
-  "lang": "ja",
-  "page": "彼は「承認しない」と言った。",
-  "quote": "彼は‘承認する’と言った",
-  "truth": "out"
- },
- {
-  "kind": "fragment",
-  "lang": "en",
-  "page": "The “cooling-off period” lasts 14 days.",
-  "quote": "cooling-off period’ lasts 14 days",
-  "truth": "in"
- },
- {
-  "kind": "fragment",
-  "lang": "en",
-  "page": "The “cooling-off period” lasts 14 days.",
-  "quote": "the ‘cooling-off",
-  "truth": "in"
- },
- {
-  "kind": "fragment",
-  "lang": "zh",
-  "page": "它的“软权重”特性很重要。",
-  "quote": "软权重’特性很重要",
-  "truth": "in"
- },
- {
-  "kind": "straight",
-  "lang": "en",
-  "page": "He said \"go\" twice.",
-  "quote": "he said ‘go’ twice",
-  "truth": "in"
- },
- {
-  "kind": "straight",
-  "lang": "en",
-  "page": "It's 6\" long.",
-  "quote": "it's 6’ long",
-  "truth": "out"
- },
- {
-  "kind": "straight",
-  "lang": "en",
-  "page": "The \"Top 10\" list is out.",
-  "quote": "the “top 10” list is out",
-  "truth": "in"
- },
- {
-  "kind": "place",
-  "lang": "en",
-  "page": "He said “go” and ‘go’ again, then “go” once.",
-  "quote": "‘go’ once",
-  "truth": "in",
-  "at": "“go” once"
- },
- {
-  "kind": "place",
-  "lang": "zh",
-  "page": "先说“好”，再说‘好’吧。",
-  "quote": "‘好’，再说",
-  "truth": "in",
-  "at": "“好”，再说"
- }
+  {
+    "kind": "trailing-punct",
+    "lang": "en",
+    "page": "He said, “Go home.” Then he left.",
+    "quote": "he said, ‘go home.’ then he left",
+    "truth": "in"
+  },
+  {
+    "kind": "trailing-punct",
+    "lang": "en",
+    "page": "“Are you sure?” she asked.",
+    "quote": "‘are you sure?’ she asked",
+    "truth": "in"
+  },
+  {
+    "kind": "trailing-punct",
+    "lang": "en",
+    "page": "“Stop!” he cried, and ran.",
+    "quote": "‘stop!’ he cried",
+    "truth": "in"
+  },
+  {
+    "kind": "trailing-punct",
+    "lang": "en",
+    "page": "The memo read “approved, with changes,” and was filed.",
+    "quote": "the memo read ‘approved, with changes,’ and was filed",
+    "truth": "in"
+  },
+  {
+    "kind": "trailing-punct",
+    "lang": "en",
+    "page": "The memo read “approved, with changes,” and was filed.",
+    "quote": "the memo read ‘rejected, with changes,’ and was filed",
+    "truth": "out"
+  },
+  {
+    "kind": "trailing-punct",
+    "lang": "zh",
+    "page": "他说：“好。”然后走了。",
+    "quote": "他说：‘好。’然后走了",
+    "truth": "in"
+  },
+  {
+    "kind": "trailing-punct",
+    "lang": "zh",
+    "page": "他问：“真的吗？”她点头。",
+    "quote": "他问：‘真的吗？’她点头",
+    "truth": "in"
+  },
+  {
+    "kind": "trailing-punct",
+    "lang": "ja",
+    "page": "彼は「はい。」と答えた。",
+    "quote": "彼は‘はい。’と答えた",
+    "truth": "in"
+  },
+  {
+    "kind": "trailing-punct",
+    "lang": "de",
+    "page": "Er rief: „Halt!“ und lief.",
+    "quote": "er rief: ‚halt!‘ und lief",
+    "truth": "in"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "en",
+    "page": "It’s fine to wait.",
+    "quote": "it”s fine to wait",
+    "truth": "out"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "en",
+    "page": "Meet at five o’clock.",
+    "quote": "meet at five o”clock",
+    "truth": "out"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "en",
+    "page": "They can’t agree.",
+    "quote": "they can”t agree",
+    "truth": "out"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "en",
+    "page": "Music of the ’90s returned.",
+    "quote": "music of the “90s returned",
+    "truth": "out"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "en",
+    "page": "It’s the “best” plan.",
+    "quote": "it’s the ‘best’ plan",
+    "truth": "in"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "fr",
+    "page": "C’est l’homme du jour.",
+    "quote": "c”est l”homme du jour",
+    "truth": "out"
+  },
+  {
+    "kind": "possessive",
+    "lang": "en",
+    "page": "The boys’ room is ready.",
+    "quote": "the boys” room is ready",
+    "truth": "out"
+  },
+  {
+    "kind": "possessive",
+    "lang": "en",
+    "page": "James’ book was lost.",
+    "quote": "james” book was lost",
+    "truth": "out"
+  },
+  {
+    "kind": "possessive",
+    "lang": "en",
+    "page": "The “Joneses” car is red.",
+    "quote": "the joneses’ car is red",
+    "truth": "out"
+  },
+  {
+    "kind": "possessive",
+    "lang": "en",
+    "page": "The Smiths’ “house” is old.",
+    "quote": "the smiths’ ‘house’ is old",
+    "truth": "in"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "The site is at 40°26’46” N.",
+    "quote": "the site is at 40°26’46’ n",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "She ran a 3’30” mile.",
+    "quote": "she ran a 3’30’ mile",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "He is 5’ 10” tall.",
+    "quote": "he is 5’ 10’ tall",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "The door is 6’-8” high.",
+    "quote": "the door is 6’-8’ high",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“She ran a 3’30” mile,” he said.",
+    "quote": "she ran a 3’30’ mile",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "Use a 12”×18” sheet.",
+    "quote": "use a 12’×18’ sheet",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“Cut it 6.5” long,” he said.",
+    "quote": "cut it 6.5’ long",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“Use a ３” pipe,” he said.",
+    "quote": "use a ３’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "ar",
+    "page": "“استخدم أنبوب ٣” هنا،” قال.",
+    "quote": "استخدم أنبوب ٣’ هنا",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“Leave 10 ” at the edge,” he said.",
+    "quote": "leave 10 ’ at the edge",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "The “Model 6” has a 6” screen.",
+    "quote": "has a 6’ screen",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "zh",
+    "page": "他说：“门高6’8”。”",
+    "quote": "门高6’8’",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "ja",
+    "page": "「管は6”です」と彼は言った。",
+    "quote": "管は6’です",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "Let x’ = 2x.",
+    "quote": "let x” = 2x",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "A’B’ is parallel to AB.",
+    "quote": "a”b” is parallel to ab",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "‘f”(x) < 0’ she wrote.",
+    "quote": "“f’(x) < 0” she wrote",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "Then y’ + y = 0 holds.",
+    "quote": "then y” + y = 0 holds",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "“Let x’ be the image,” he said.",
+    "quote": "let x” be the image",
+    "truth": "out"
+  },
+  {
+    "kind": "code",
+    "lang": "en",
+    "page": "Run echo ‘hello $USER’ in the shell.",
+    "quote": "run echo “hello $USER” in the shell",
+    "truth": "out"
+  },
+  {
+    "kind": "code",
+    "lang": "en",
+    "page": "Write print(‘hi’) here.",
+    "quote": "write print(“hi”) here",
+    "truth": "out"
+  },
+  {
+    "kind": "code",
+    "lang": "en",
+    "page": "Set x = ‘a’; then run it.",
+    "quote": "set x = “a”; then run it",
+    "truth": "out"
+  },
+  {
+    "kind": "code",
+    "lang": "en",
+    "page": "The step sed ‘s/a/b/’ file runs first.",
+    "quote": "the step sed “s/a/b/” file runs first",
+    "truth": "out"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "She wrote, “He told me ‘never again’ last week.”",
+    "quote": "he told me “never again” last week",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The so-called “experts” disagreed.",
+    "quote": "the so-called ‘experts’ disagreed",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "Both “alpha” and “beta” passed.",
+    "quote": "both ‘alpha’ and ‘beta’ passed",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "Both “alpha” and “beta” passed.",
+    "quote": "both ‘alpha’ and ‘gamma’ passed",
+    "truth": "out"
+  },
+  {
+    "kind": "nested",
+    "lang": "zh",
+    "page": "他说「她写了『不行』两次」。",
+    "quote": "她写了“不行”两次",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "zh",
+    "page": "他说「她写了『不行』两次」。",
+    "quote": "她写了“可以”两次",
+    "truth": "out"
+  },
+  {
+    "kind": "nested",
+    "lang": "ja",
+    "page": "彼は「『はい』と言った」。",
+    "quote": "‘はい’と言った",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ko",
+    "page": "그는 “좋다”라고 말했다.",
+    "quote": "그는 ‘좋다’라고 말했다",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ko",
+    "page": "그는 “좋다”라고 말했다.",
+    "quote": "그는 ‘나쁘다’라고 말했다",
+    "truth": "out"
+  },
+  {
+    "kind": "nested",
+    "lang": "ru",
+    "page": "Он сказал: «Я прочитал „Войну“ вчера».",
+    "quote": "я прочитал «войну» вчера",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ru",
+    "page": "Он сказал: «Я прочитал „Войну“ вчера».",
+    "quote": "я прочитал «мир» вчера",
+    "truth": "out"
+  },
+  {
+    "kind": "nested",
+    "lang": "fr",
+    "page": "Il a dit «Je reviens» hier.",
+    "quote": "il a dit ‘je reviens’ hier",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "Er sagte: „Ich habe ‚Krieg‘ gelesen.“",
+    "quote": "ich habe „krieg“ gelesen",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "Er sagte: „Ich habe ‚Krieg‘ gelesen.“",
+    "quote": "ich habe „frieden“ gelesen",
+    "truth": "out"
+  },
+  {
+    "kind": "nested",
+    "lang": "sv",
+    "page": "Han sa ”nej” igen.",
+    "quote": "han sa ‘nej’ igen",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ar",
+    "page": "قال «نعم» أمس.",
+    "quote": "قال ‘نعم’ أمس",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ar",
+    "page": "قال «لا» أمس.",
+    "quote": "قال ‘نعم’ أمس",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "The “annual fee” is waived.",
+    "quote": "the ‘monthly fee’ is waived",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "The “cap is 5%” rule applies.",
+    "quote": "the ‘cap is 6%’ rule applies",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "“Not approved,” the memo says.",
+    "quote": "‘approved,’ the memo says",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "zh",
+    "page": "报告称“利润增长”。",
+    "quote": "报告称‘利润下降’",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "ja",
+    "page": "彼は「承認しない」と言った。",
+    "quote": "彼は‘承認する’と言った",
+    "truth": "out"
+  },
+  {
+    "kind": "fragment",
+    "lang": "en",
+    "page": "The “cooling-off period” lasts 14 days.",
+    "quote": "cooling-off period’ lasts 14 days",
+    "truth": "in"
+  },
+  {
+    "kind": "fragment",
+    "lang": "en",
+    "page": "The “cooling-off period” lasts 14 days.",
+    "quote": "the ‘cooling-off",
+    "truth": "in"
+  },
+  {
+    "kind": "fragment",
+    "lang": "zh",
+    "page": "它的“软权重”特性很重要。",
+    "quote": "软权重’特性很重要",
+    "truth": "in"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "He said \"go\" twice.",
+    "quote": "he said ‘go’ twice",
+    "truth": "in"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "It's 6\" long.",
+    "quote": "it's 6’ long",
+    "truth": "out"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "The \"Top 10\" list is out.",
+    "quote": "the “top 10” list is out",
+    "truth": "in"
+  },
+  {
+    "kind": "place",
+    "lang": "en",
+    "page": "He said “go” and ‘go’ again, then “go” once.",
+    "quote": "‘go’ once",
+    "truth": "in",
+    "at": "“go” once"
+  },
+  {
+    "kind": "place",
+    "lang": "zh",
+    "page": "先说“好”，再说‘好’吧。",
+    "quote": "‘好’，再说",
+    "truth": "in",
+    "at": "“好”，再说"
+  }
 ]
