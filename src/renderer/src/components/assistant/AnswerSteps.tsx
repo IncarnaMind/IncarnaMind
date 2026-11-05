@@ -282,7 +282,12 @@ export function LiveLine({
         </span>
       )}
       {!waiting && wait && (
-        <WaitPart key={label} usual={wait.usual} model={wait.model} line={line} />
+        <WaitPart
+          usual={wait.usual}
+          model={wait.model}
+          line={line}
+          content={`${label}\u0000${summary}`}
+        />
       )}
       {toggle && (
         <button
@@ -312,20 +317,26 @@ function WaitPart({
   usual,
   model,
   line,
+  content,
 }: {
   usual: number | null;
   model: ChatModelChoice | null;
   line: { current: HTMLParagraphElement | null };
+  content: string;
 }) {
   const t = useT();
   const nameOf = useModelNames();
   const text = waitText(t, usual, model ? nameOf(model.modelId, model.providerId).name : null);
   const part = useRef<HTMLSpanElement | null>(null);
   const [shown, setShown] = useState(true);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new wait gets a new chance to show.
+  const measured = useRef(`${text}\u0000${content}`);
+  // A new wait, or a line whose words changed, gets a new chance to show.
   useLayoutEffect(() => {
+    const now = `${text}\u0000${content}`;
+    if (now === measured.current) return;
+    measured.current = now;
     setShown(true);
-  }, [text]);
+  }, [text, content]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: it is measured when its words or its showing change, and while it is squeezed.
   useLayoutEffect(() => {
     const element = part.current;
