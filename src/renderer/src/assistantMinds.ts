@@ -4,21 +4,28 @@
  * as soon as the call that makes it has made it. Other windows showing the same
  * conversation leave their tabs as they are.
  */
+import type { TabItem } from "../../core/api";
 import { core } from "./core";
-import { currentMindIdOf } from "./layoutSlice";
+import { currentTabOf, sameTabItem } from "./layoutSlice";
 import { useAppStore } from "./store";
 
 /** Answers to Questions asked in this window, still being written. */
 const askedHere = new Set<string>();
-/** By Answer: the Mind in front when this window asked for it, or null for Home (#2572). */
-const askedFrom = new Map<string, string | null>();
+/** By Answer: the place in front when this window asked for it (#2572). */
+const askedFrom = new Map<string, TabItem | null>();
 /** Minds already opened for the Answer that made them. */
 const opened = new Set<string>();
 
 /** An Answer this window asked for: a Mind it makes opens here, unless the User goes elsewhere. */
-export function watchMindsMadeBy(answerId: string, askedFromMind: string | null): void {
+export function watchMindsMadeBy(answerId: string, askedFromItem: TabItem | null): void {
   askedHere.add(answerId);
-  askedFrom.set(answerId, askedFromMind);
+  askedFrom.set(answerId, askedFromItem);
+}
+
+/** An Answer nothing will be written for: forget where it was asked. */
+export function forgetMindsMadeBy(answerId: string): void {
+  askedHere.delete(answerId);
+  askedFrom.delete(answerId);
 }
 
 core.on("conversation.message", (message) => {
@@ -30,8 +37,10 @@ core.on("conversation.message", (message) => {
     if (!made || opened.has(made)) continue;
     opened.add(made);
     // A made Note stays behind when the User has gone elsewhere since they asked (#2572).
-    const stillThere =
-      currentMindIdOf(useAppStore.getState().layout) === (askedFrom.get(message.id) ?? null);
+    const stillThere = sameTabItem(
+      currentTabOf(useAppStore.getState().layout)?.item ?? null,
+      askedFrom.get(message.id) ?? null,
+    );
     useAppStore
       .getState()
       .changeLayout({

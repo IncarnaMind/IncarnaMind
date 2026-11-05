@@ -12,6 +12,7 @@ import type {
   ReadyQuestion,
   RunEstimate,
   SearchScope,
+  TabItem,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
@@ -25,7 +26,7 @@ import { core } from "./core";
 import { describeError } from "./errors";
 import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
-import { documentsOnScreenOf, groupsMerged, WINDOW_ID } from "./layoutSlice";
+import { currentTabOf, documentsOnScreenOf, groupsMerged, WINDOW_ID } from "./layoutSlice";
 import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
@@ -333,6 +334,11 @@ export async function askInAssistant(
     sought: null,
   });
   try {
+    // Where the User is when they ask: the Note, Document, Library or Home in front (#2572).
+    const askedFromItem: TabItem | null =
+      input.mindId === null
+        ? (currentTabOf(useAppStore.getState().layout)?.item ?? null)
+        : { kind: "mind", mindId: input.mindId };
     const result = await core.askInConversation({
       ...input,
       conversationId: useConversations.getState().openId,
@@ -353,9 +359,9 @@ export async function askInAssistant(
     settleAsk(key, result);
     sayLeftOut(result);
     if (!result.asked) return false;
-    watchMindsMadeBy(result.answerId, input.mindId);
+    watchMindsMadeBy(result.answerId, askedFromItem);
     // A new Answer has nothing to make way for, and it may end before an Undo running now does.
-    applyWhatIsAsked(result.answerId, input.mindId);
+    applyWhatIsAsked(result.answerId, askedFromItem);
     watchCommands(result.answerId);
     const id = result.conversation.id;
     if (stayed() && useConversations.getState().openId !== id) {
@@ -446,10 +452,11 @@ export async function regenerateAnswer(
   if (!conversationId) return;
   settleAsk(answerId, null);
   try {
-    watchMindsMadeBy(answerId, askedFrom(answerId));
+    const askedFromItem = currentTabOf(useAppStore.getState().layout)?.item ?? null;
+    watchMindsMadeBy(answerId, askedFromItem);
     await applyWhatWasAsked(answerId, {
       keepWritten: clearScope,
-      askedFromMind: askedFrom(answerId),
+      askedFromItem,
     });
     watchCommands(answerId);
     const result = await core.regenerateConversationAnswer({

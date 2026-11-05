@@ -112,15 +112,15 @@ test("a request for a new note makes a Mind beside the one in focus, its text ap
 test.each([
   {
     language: "en",
-    first: "Plan",
+    first: "Overview",
     second: "Other",
     made: "Fieldwork plan",
-    question: "Make a new note called Fieldwork plan slowly",
+    question: "Slowly make a new note called Fieldwork plan",
     open: "Open",
   },
   {
     language: "zh-CN",
-    first: "计划",
+    first: "概览",
     second: "其他",
     made: "田野计划",
     question: "新建一篇叫“田野计划”的笔记 slowly",
