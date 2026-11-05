@@ -3138,6 +3138,7 @@ export const zhCN = {
   "export.citation.separator": "，",
   "export.citation.accessed": "访问于 {date}",
   "share.page.shared": "分享自 IncarnaMind · {date}",
+  "share.page.notes": "注释",
   "share.page.about": "每处引用的卡片都会显示引文、所在位置和核对结果。",
   "share.page.made": "由 IncarnaMind 制作",
   "share.page.found.all": "{date}对照原页面核对，所有引文都已找到。",

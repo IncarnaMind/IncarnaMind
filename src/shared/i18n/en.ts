@@ -3281,6 +3281,7 @@ export const en = {
   "export.citation.separator": ", ",
   "export.citation.accessed": "accessed {date}",
   "share.page.shared": "Shared from IncarnaMind · {date}",
+  "share.page.notes": "Notes",
   "share.page.about":
     "Each Citation's card shows its quote, where it is, and what the check found.",
   "share.page.made": "Made with IncarnaMind",

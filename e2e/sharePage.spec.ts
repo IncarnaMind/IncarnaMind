@@ -245,6 +245,9 @@ test("a web page to share: the sheet offers it, and the file loads nothing and o
   await expect(first).toBeHidden();
 
   await resize(app, page, 375, 720);
+  const notes = page.locator(".notes");
+  await expect(notes).toBeVisible();
+  expect(await notes.evaluate((section) => section.scrollWidth <= section.clientWidth)).toBe(true);
   await pointAndClick(page, markers.nth(1));
   const second = page.locator("#card-2");
   await expect(second).toBeVisible();

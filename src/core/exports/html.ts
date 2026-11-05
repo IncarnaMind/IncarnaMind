@@ -67,15 +67,20 @@ img{max-width:100%;height:auto}
 export const withTableBodies = (body: string) =>
   body.replaceAll("<table>", "<table><tbody>").replaceAll("</table>", "</tbody></table>");
 
-export function notesSection(notes: readonly string[], labels: ExportLabels): string {
+export function notesSection(
+  notes: readonly string[],
+  labels: ExportLabels,
+  { compact = false, title = labels.notes }: { compact?: boolean; title?: string } = {},
+): string {
   if (notes.length === 0) return "";
   const list = notes
-    .map(
-      (note, index) =>
-        `<li id="note-${index + 1}">${note}<a class="backref" href="#ref-${index + 1}" aria-label="${escapeText(labels.backToText)}" title="${escapeText(labels.backToText)}">↩\ufe0e</a></li>`,
-    )
+    .map((note, index) => {
+      const number = index + 1;
+      const shown = compact ? `<span class="note-number">${number}</span> · ` : "";
+      return `<li id="note-${number}">${shown}${note}<a class="backref" href="#ref-${number}" aria-label="${escapeText(labels.backToText)}" title="${escapeText(labels.backToText)}">↩\ufe0e</a></li>`;
+    })
     .join("");
-  return `<section class="notes" aria-labelledby="notes-title"><h2 id="notes-title">${escapeText(labels.notes)}</h2><ol>${list}</ol></section>`;
+  return `<section class="notes${compact ? " notes-compact" : ""}" aria-labelledby="notes-title"><h2 id="notes-title">${escapeText(title)}</h2><ol>${list}</ol></section>`;
 }
 
 export function htmlFile({
