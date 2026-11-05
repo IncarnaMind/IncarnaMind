@@ -10,6 +10,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  leaveText,
   motionSettled,
   newMind,
   pointAndClick,
@@ -75,8 +76,6 @@ const SENTENCES = [
 /** Where each sentence's Citation marker stands in it: after the clause it quotes, inside the sentence. */
 const CITED_UP_TO = ["at full moon", "every 12 months", "in summer", "by a metre", "on the Earth."];
 
-const QUOTES = SENTENCES;
-
 /** The new line the scripted model writes in place of each of the four paragraphs it changes. */
 const REWRITTEN = [
   "Gulls wheel over the quay at dawn.",
@@ -113,33 +112,29 @@ const settle = async (window: Page) => {
   );
 };
 
-/** The line boxes of a paragraph's visible text: a hidden run a change left draws none. */
-const lineBoxes = (paragraph: Locator) =>
-  paragraph.evaluate((element) => {
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    return [...range.getClientRects()]
-      .filter((rect) => rect.width > 1 && rect.height > 1)
-      .map((rect) => ({ top: rect.top, bottom: rect.bottom }));
-  });
-
 const paragraphsOf = (editor: Locator) => editor.locator(":scope > p");
 
 /** The check id of the mark a paragraph's sentence carries, from its marked span. */
 const claimOf = (paragraph: Locator) =>
   paragraph.locator("[data-claim-check]").first().getAttribute("data-claim-check");
 
-/** The line boxes of the paragraph holding a check's marked sentence. */
-const sentenceLines = (editor: Locator, id: string) =>
-  editor.evaluate((dom, claim) => {
-    const paragraph = dom.querySelector(`[data-claim-check="${CSS.escape(claim)}"]`)?.closest("p");
+/**
+ * The line boxes of a paragraph's visible text: the one holding a check's marked sentence, or the
+ * one given. A run a waiting change hid draws none.
+ */
+const textLines = (target: Locator, claim: string | null) =>
+  target.evaluate((element, id) => {
+    const paragraph =
+      id === null
+        ? element
+        : element.querySelector(`[data-claim-check="${CSS.escape(id)}"]`)?.closest("p");
     if (!paragraph) return [];
     const range = document.createRange();
     range.selectNodeContents(paragraph);
     return [...range.getClientRects()]
       .filter((rect) => rect.width > 1 && rect.height > 1)
       .map((rect) => ({ top: rect.top, bottom: rect.bottom }));
-  }, id);
+  }, claim);
 
 /**
  * Every mark in the check gutter stands level with a line of the sentence it
@@ -153,7 +148,7 @@ async function expectMarksBesideLines(window: Page, editor: Locator) {
   for (const [at, mark] of found.entries()) {
     const rect = await box(mark);
     const id = await mark.getAttribute("data-claim");
-    const lines = id === null ? [] : await sentenceLines(editor, id);
+    const lines = id === null ? [] : await textLines(editor, id);
     expect
       .soft(rect.y, `mark ${at + 1} sits above the first block`)
       .toBeGreaterThanOrEqual(first.y - 2);
@@ -174,7 +169,7 @@ async function expectControlMark(window: Page, editor: Locator) {
   const mark = window.getByTestId("margin-checks").locator(`[data-claim="${id}"]`);
   await expect(mark, "the unchanged sentence keeps its mark").toHaveCount(1);
   const rect = await box(mark);
-  const lines = await lineBoxes(paragraph);
+  const lines = await textLines(paragraph, null);
   expect
     .soft(
       lines.some((line) => rect.y >= line.top - 2 && rect.y <= line.bottom + 2),
@@ -218,7 +213,7 @@ for (const language of ["en", "zh-CN"] as const) {
       if (end < upTo.length) throw new Error(`“${upTo}” isn't in “${sentence}”.`);
       const content: object[] = [
         { type: "text", text: sentence.slice(0, end) },
-        cite(page, QUOTES[page - 1] ?? ""),
+        cite(page, SENTENCES[page - 1] ?? ""),
       ];
       const rest = sentence.slice(end);
       if (rest !== "") content.push({ type: "text", text: rest });
@@ -270,35 +265,70 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(paragraphs.nth(0).locator("ins.proposal-insert")).toHaveText(REWRITTEN[0] ?? "");
     await settle(window);
 
-    // While it waits, at both widths: every mark beside a line, none above the first block.
+    // While it waits, at both widths: every checked sentence keeps its mark, each beside a line
+    // of its own sentence, and none above the first block.
+    const rechecks = window.locator('[data-testid="claim-mark"][data-check="needs-recheck"]');
     await screenshot(window, `marks-during-edit-${language}-1440`);
-    await expect(
-      window.getByTestId("margin-checks").getByTestId("claim-mark"),
-      "only the unchanged fifth sentence keeps a mark while the edit waits",
-    ).toHaveCount(1);
+    await expect(marks, "every checked sentence keeps a mark while the edit waits").toHaveCount(5);
     await expectMarksBesideLines(window, editor);
     await expectControlMark(window, editor);
 
     await setWindowSize(app, window, 900, 900);
     await settle(window);
     await screenshot(window, `marks-during-edit-${language}-900`);
+    await expect(marks).toHaveCount(5);
     await expectMarksBesideLines(window, editor);
     await expectControlMark(window, editor);
 
-    // Once it lands, the new words carry each replaced sentence's check, beside them; the fifth
-    // keeps its own.
+    // Discard takes the waiting change away: the old sentences return with their five checks.
+    await pointAndClick(window, line.getByTestId("applied-discard"));
+    await expect(editor.getByTestId("change-was-line")).toHaveCount(0, { timeout: 60_000 });
+    await settle(window);
+    await expect(marks).toHaveCount(5);
+    await expect(rechecks).toHaveCount(0);
+    await expectMarksBesideLines(window, editor);
+    await expectControlMark(window, editor);
+
+    // Asked again and applied: each new line carries its replaced sentence's check, four needing a
+    // re-check, beside the new words.
+    await slideSelect(window, paragraphs.first(), "Spring tides", {
+      line: paragraphs.nth(3),
+      words: "harbour wall.",
+    });
+    await askToChange(window, language === "en" ? "rewrite it to be clearer" : "写清楚");
+    await expect(editor.getByTestId("change-was-line")).toHaveCount(4, { timeout: 60_000 });
+    await expect(line.getByTestId("applied-apply")).toBeVisible();
+    await settle(window);
     await pointAndClick(window, line.getByTestId("applied-apply"));
     await expect(paragraphs.nth(0)).toHaveText(REWRITTEN[0] ?? "", { timeout: 60_000 });
     await expect(paragraphs.nth(4)).toContainText(SENTENCES[4] ?? "");
     await expect(editor.getByTestId("change-was-line")).toHaveCount(0);
     await settle(window);
     await screenshot(window, `marks-after-edit-${language}-900`);
+    await expect(marks, "every check keeps a mark after Apply").toHaveCount(5);
+    await expect(rechecks, "four checks need a re-check after Apply").toHaveCount(4);
     await expectMarksBesideLines(window, editor);
     await expectControlMark(window, editor);
 
     await setWindowSize(app, window, 1440, 900);
     await settle(window);
     await screenshot(window, `marks-after-edit-${language}-1440`);
+    await expect(marks).toHaveCount(5);
+    await expect(rechecks).toHaveCount(4);
+    await expectMarksBesideLines(window, editor);
+    await expectControlMark(window, editor);
+
+    // Undo takes the applied change away too: the old sentences return with their five checks.
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(paragraphs.nth(0)).toContainText(
+      "Spring tides happen at new moon and at full moon",
+      { timeout: 60_000 },
+    );
+    await expect(paragraphs.nth(0)).not.toContainText(REWRITTEN[0] ?? "");
+    await settle(window);
+    await expect(marks).toHaveCount(5);
+    await expect(rechecks).toHaveCount(0);
     await expectMarksBesideLines(window, editor);
     await expectControlMark(window, editor);
     await app.close();

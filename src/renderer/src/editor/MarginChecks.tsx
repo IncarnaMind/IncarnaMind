@@ -48,9 +48,19 @@ function drawnBox(top: number, bottom: number, at: number): SentenceBox | null {
 }
 
 /** The first line's box at a position, from the editor's DOM; null when the sentence isn't drawn. */
-function startOfSentence(editor: Editor, from: number): SentenceBox | null {
+function startOfSentence(editor: Editor, from: number, to: number): SentenceBox | null {
   const coords = editor.view.coordsAtPos(from, 1);
-  return drawnBox(coords.top, coords.bottom, coords.left);
+  const drawn = drawnBox(coords.top, coords.bottom, coords.left);
+  if (drawn) return drawn;
+  // The words a waiting change replaces are drawn as none: the sentence's first drawn box is the
+  // line its new words stand on, where the mark stands as it does in a folded margin (#2313).
+  const start = editor.view.domAtPos(from);
+  const end = editor.view.domAtPos(to);
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  const [first] = [...range.getClientRects()].filter((rect) => rect.width > 1 && rect.height > 1);
+  return first ? { top: first.top, bottom: first.bottom, at: first.left } : null;
 }
 
 /** The last character's own box, after which a folded Mind's mark stands (its reserved room follows it). */
@@ -330,7 +340,7 @@ export function MarginChecks({
         try {
           coords = folded
             ? endOfSentence(editor, claim.sentence.to)
-            : startOfSentence(editor, claim.sentence.from);
+            : startOfSentence(editor, claim.sentence.from, claim.sentence.to);
         } catch {
           continue;
         }
