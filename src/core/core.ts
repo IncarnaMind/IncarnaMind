@@ -1402,8 +1402,6 @@ export function createCore(adapters: CoreAdapters): Core {
       tempDir: adapters.paths.tempDir ?? tmpdir(),
       reportError: (error) => console.error(error),
     });
-  // Running Skill scripts (#41), each in its own temporary folder.
-  const scriptRunner = createScriptRunner({ executor, runtimes: adapters.scriptRuntimes });
   // Code on whole Documents, in the OS sandbox only (ADR-0025): Python is IncarnaMind's own,
   // downloaded the first time code needs it.
   const codeHost =
@@ -1419,6 +1417,12 @@ export function createCore(adapters: CoreAdapters): Core {
       : undefined;
   const pythonRuntime = codeHost?.python ?? null;
   const codeRunner = codeHost?.runner;
+  // Running Skill scripts (#41), each in its own temporary folder.
+  const scriptRunner = createScriptRunner({
+    executor,
+    runtimes: adapters.scriptRuntimes,
+    python: () => pythonRuntime?.installed() ?? null,
+  });
 
   // Asking the User before a Connector Tool that may change something runs (#38).
   const approvals = createApprovals({

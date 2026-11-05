@@ -194,6 +194,7 @@ import {
   type ScriptToRun,
   scriptNotRun,
   scriptResultText,
+  toldTheModel,
 } from "../skills/scripts";
 import { scriptCallInput, skillTools } from "../skills/tools";
 import { asksForSources } from "../sources/intent";
@@ -2032,7 +2033,7 @@ export function createAnswers(options: AnswersOptions) {
     const cantRun = (toolCallId: string, error: unknown): never => {
       const message = messageOf(error);
       setScriptRun(toolCallId, scriptNotRun(message));
-      throw new Error(message);
+      throw new Error(toldTheModel(error) ?? message);
     };
 
     /** Skill scripts the gate checked and let through, by call: their call runs what was checked. */
@@ -2291,6 +2292,7 @@ export function createAnswers(options: AnswersOptions) {
           args,
           timeoutMs: timeoutSeconds * 1000,
           signal: AbortSignal.any([signal, controller.signal]),
+          language: options.interfaceLanguage(),
         });
       } catch (error) {
         return cantRun(toolCallId, error);
