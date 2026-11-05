@@ -784,9 +784,14 @@ export function analysisFigureShown(
       return { state: "needs-recheck", why: "new-version" };
   }
   if (shown.state === "needs-recheck" || shown.state === "checking") return shown;
-  if (figure.check?.state === "supported" && figure.check.named) return { state: "supported" };
   if (figure.check?.state === "unsupported" && figure.check.unsupported?.kind === "analysis-name")
     return { state: "unsupported" };
+  // Its own check's total that doesn't add up is Unsupported whoever named it; a verdict on the
+  // sentence's words, or an earlier check's on a source, never stood for an Analysis's figure.
+  if (shown.state === "unsupported" && figure.check && figure.check.state !== "unsupported")
+    return shown;
+  if (shown.state === "supported" && figure.check?.state === "supported" && figure.check.named)
+    return shown;
   return shown.state === "not-checked" ? shown : { state: "not-checked", reason: "unread" };
 }
 

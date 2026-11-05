@@ -8,7 +8,7 @@
  */
 import type { CheckFigure } from "../../api";
 
-/** Where a figure's own clause ends: a figure beside it, a comma, colon, semicolon or bracket. */
+/** Where the words between two figures part: a comma, colon, semicolon or bracket. */
 const BREAK = /[,;:，；：、()（）[\]【】]/u;
 const HAN = /\p{Script=Han}/u;
 const HAN_RUN = /\p{Script=Han}+/gu;
@@ -94,6 +94,12 @@ const HAN_LINKING = [
   "该",
 ];
 
+/** A table's headings that say only that a cell holds a figure: "Metric | Value", "指标 | 结果". */
+const HEADING_WORDS = ["value", "result", "figure", "数值", "结果"].map((term) => ({
+  term,
+  exact: false,
+}));
+
 /** The words for each way a figure is worked out: a sum's own clause may call it a total. */
 const AGGREGATES: Record<string, readonly string[]> = {
   sum: ["total", "sum", "合计", "总计", "总额"],
@@ -157,41 +163,65 @@ function holds(clause: string, term: string, exact: boolean): boolean {
   return tokensOf(clause).some((token) => isTerm(token, term, exact));
 }
 
+/** Where a figure is in `claim`: from the start of its words to their end. */
+interface Place {
+  id: string;
+  from: number;
+  to: number;
+}
+
+const blockOf = (figure: CheckFigure) =>
+  figure.locator.kind === "text" ? figure.locator.from.blockId : figure.locator.blockId;
+const offsetOf = (figure: CheckFigure) =>
+  figure.locator.kind === "text" ? figure.locator.from.offset : 0;
+
 /**
- * Each figure's own clause of `claim`, by id: from the figure before it, or a break, to the next,
- * with the figure's own number taken out, so its digits never name it.
+ * Where each of the sentence's figures in `target`'s Block is in `claim`, each one's words in turn.
+ * A number Check doesn't read that has the same digits can take a figure's place, but then the
+ * figure's own digits are left in its clause, which no word accounts for.
  */
-function clausesOf(claim: string, figures: readonly CheckFigure[]): Map<string, string> {
-  const placed: { id: string; from: number; to: number }[] = [];
+function placesOf(claim: string, target: CheckFigure, figures: readonly CheckFigure[]): Place[] {
+  const ordered = [...figures, ...(figures.includes(target) ? [] : [target])]
+    .filter((each) => blockOf(each) === blockOf(target))
+    .sort((a, b) => offsetOf(a) - offsetOf(b));
+  const places: Place[] = [];
   let after = 0;
-  const ordered = [...figures].sort(
-    (a, b) =>
-      (a.locator.kind === "text" ? a.locator.from.offset : 0) -
-      (b.locator.kind === "text" ? b.locator.from.offset : 0),
-  );
   for (const figure of ordered) {
-    const at = claim.indexOf(figure.reading.chars, after);
-    if (at < 0) continue;
-    placed.push({ id: figure.id, from: at, to: at + figure.reading.chars.length });
-    after = at + figure.reading.chars.length;
+    const shown = figure.calculated?.figure.shown;
+    const words =
+      shown !== undefined && claim.indexOf(shown, after) >= 0 ? shown : figure.reading.chars;
+    const from = claim.indexOf(words, after);
+    if (from < 0) continue;
+    places.push({ id: figure.id, from, to: from + words.length });
+    after = from + words.length;
   }
-  const clauses = new Map<string, string>();
-  placed.forEach((figure, index) => {
-    let from = placed[index - 1]?.to ?? 0;
-    for (let at = figure.from - 1; at >= from; at--)
-      if (BREAK.test(claim[at] ?? "")) {
-        from = at + 1;
-        break;
-      }
-    let to = placed[index + 1]?.from ?? claim.length;
-    for (let at = figure.to; at < to; at++)
-      if (BREAK.test(claim[at] ?? "")) {
-        to = at;
-        break;
-      }
-    clauses.set(figure.id, `${claim.slice(from, figure.from)} ${claim.slice(figure.to, to)}`);
-  });
-  return clauses;
+  return places;
+}
+
+/**
+ * `target`'s own clause of `claim`: the sentence before its first figure and after its last, and
+ * between two figures up to the first break after the one before, with the figure's own number
+ * taken out, so its digits never name it. A qualifier set off by a comma is still the figure's.
+ */
+function clauseOf(
+  claim: string,
+  target: CheckFigure,
+  figures: readonly CheckFigure[],
+): string | undefined {
+  const places = placesOf(claim, target, figures);
+  const index = places.findIndex((place) => place.id === target.id);
+  const place = places[index];
+  if (!place) return undefined;
+  const breakAfter = (from: number, to: number) => {
+    for (let at = from; at < to; at++) if (BREAK.test(claim[at] ?? "")) return at;
+    return to;
+  };
+  const before = places[index - 1];
+  const next = places[index + 1];
+  const cut = before ? breakAfter(before.to, place.from) : 0;
+  const from = before ? (cut < place.from ? cut + 1 : before.to) : 0;
+  const to = next ? breakAfter(place.to, next.from) : claim.length;
+  return `${claim.slice(from, place.from)} ${claim.slice(place.to, to)}`;
 }
 
 /** What of `clause` no label word, word of the Analysis's or linking word accounts for. */
@@ -214,7 +244,9 @@ function unaccounted(clause: string, known: readonly { term: string; exact: bool
  * Whether `figure`'s own clause in `claim` can stand as naming it: it holds every word of its label
  * (in a table, its cell's row and column headings count), none that only another of its run's
  * figures, or another figure of the sentence, is named by, and no word but those, the Analysis's
- * own words for its input and columns, and linking words. False also when its clause can't be found.
+ * own words for its input, columns and unit, and linking words; a cell's headings are read the same
+ * way. `figures` are all of the sentence's, so each is placed among them. False also when its
+ * clause can't be found.
  */
 export function namingHolds(
   claim: string,
@@ -225,9 +257,10 @@ export function namingHolds(
   const label = record?.label ?? figure.calculated?.figure.label ?? "";
   const terms = allTerms(termsOf(label));
   if (terms.length === 0) return false;
-  const found = clausesOf(claim, figures).get(figure.id);
+  const found = clauseOf(claim, figure, figures);
   if (found === undefined) return false;
-  const clause = `${found} ${figure.label ?? ""}`;
+  const headings = figure.label ?? "";
+  const clause = `${found} ${headings}`;
   if (!terms.every(({ term, exact }) => holds(clause, term, exact))) return false;
   const mine = new Set(terms.map(({ term }) => term.toLowerCase()));
   const others = [
@@ -239,16 +272,20 @@ export function namingHolds(
   const sibling = others
     .flatMap((each) => allTerms(termsOf(each)))
     .filter(({ term }) => !mine.has(term.toLowerCase()));
-  if (sibling.some(({ term, exact }) => holds(found, term, exact))) return false;
+  if (sibling.some(({ term, exact }) => holds(clause, term, exact))) return false;
   const how = record?.of?.how;
-  const vocabulary = [
+  const known = [
+    ...terms,
     ...(record?.vocabulary ?? []).flatMap((each) => allTerms(termsOf(each))),
     ...(how ? (AGGREGATES[how] ?? []) : []).map((term) => ({ term, exact: false })),
-    // A cell's own words beside its number, a unit such as 次, are its headings' to say.
-    ...[...(figure.label ?? "").matchAll(/\p{Script=Han}/gu)].map(([term]) => ({
-      term,
-      exact: false,
-    })),
   ];
-  return unaccounted(found, [...terms, ...vocabulary]).length === 0;
+  // A cell's own words beside its number, a unit such as 次, are its headings' to say.
+  const besideItsNumber = [...headings.matchAll(/\p{Script=Han}/gu)].map(([term]) => ({
+    term,
+    exact: false,
+  }));
+  return (
+    unaccounted(found, [...known, ...besideItsNumber]).length === 0 &&
+    unaccounted(headings, [...known, ...HEADING_WORDS]).length === 0
+  );
 }

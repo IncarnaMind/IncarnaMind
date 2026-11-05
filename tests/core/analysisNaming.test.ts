@@ -72,7 +72,76 @@ describe("a figure's own clause names it", () => {
 
   test("in a table, its cell's row and column headings count", () => {
     expect(holds("48 次", "48", { label: "就诊次数", headings: "就诊次数 · 结果" })).toBe(true);
+    expect(
+      holds("8,325", "8,325", { label: "Total amount", headings: "Total amount · Value" }),
+    ).toBe(true);
     expect(holds("48 次", "48", { label: "就诊次数" })).toBe(false);
+  });
+
+  test("a group set off by a comma before its figure is still the figure's own", () => {
+    expect(
+      holds("For Central, the total amount is 8,325.", "8,325", { label: "Total amount, Central" }),
+    ).toBe(true);
+    expect(holds("中部地区，金额合计为 8,325。", "8,325", { label: "中部地区金额合计" })).toBe(
+      true,
+    );
+  });
+});
+
+describe("words set off from the figure by a comma are read as its own", () => {
+  test.each([
+    ["This quarter, the total amount from Central is 8,325.", "Total amount, Central", [], null],
+    ["In North, the total amount was 8,325.", "Total amount", ["North"], null],
+    ["After discounts, West's average amount is 8,325.", "Average amount, West", [], "mean"],
+    ["Central's total amount is 8,325, after refunds.", "Total amount, Central", [], null],
+    ["本季度，中部地区金额合计达到 8,325。", "中部地区金额合计", [], null],
+    ["北部地区，金额合计为 8,325。", "金额合计", ["北部地区"], null],
+  ] as const)("%s", (sentence, label, siblings, how) => {
+    expect(holds(sentence, "8,325", { label, siblings: [...siblings], ...(how && { how }) })).toBe(
+      false,
+    );
+  });
+
+  test("between two figures, the words after the first one's break are the second one's", () => {
+    const sentence =
+      "Central's total amount is 9,450; after refunds, North's total amount is 8,700.";
+    const central = figureIn(sentence, "9,450", { label: "Total amount, Central" }, "c");
+    const north = figureIn(sentence, "8,700", { label: "Total amount, North" }, "n");
+    expect(namingHolds(sentence, central, [central, north])).toBe(true);
+    expect(namingHolds(sentence, north, [central, north])).toBe(false);
+  });
+});
+
+describe("a cell's headings are read as its words are", () => {
+  test("a row heading that names another figure of the run, or a word its label lacks", () => {
+    const total = { label: "Total amount", siblings: ["North", "South"] };
+    expect(holds("8,325", "8,325", { ...total, headings: "North · Total amount" })).toBe(false);
+    expect(holds("8,325", "8,325", { ...total, headings: "Change · Total amount" })).toBe(false);
+    expect(holds("8,325", "8,325", { ...total, headings: "Total amount" })).toBe(true);
+    expect(holds("8,325", "8,325", { label: "金额合计", headings: "变化 · 金额合计" })).toBe(false);
+    expect(holds("8,325", "8,325", { label: "金额合计", headings: "金额合计 · 数值" })).toBe(true);
+  });
+});
+
+describe("a figure is placed among all of its sentence's figures", () => {
+  const sentence = "Central's total amount is 600, North's total amount is 600.";
+  const label = { label: "Total amount, Central" };
+
+  test("a typed number with the same digits before it never takes its place", () => {
+    const typed = { ...figureIn(sentence, "600", label, "typed"), analysisRecord: undefined };
+    const analysed = figureIn(sentence, "600", label, "f1", sentence.indexOf("North"));
+    expect(namingHolds(sentence, analysed, [typed, analysed])).toBe(false);
+    const first = figureIn(sentence, "600", label, "f1");
+    const second = {
+      ...figureIn(sentence, "600", label, "typed", sentence.indexOf("North")),
+      analysisRecord: undefined,
+    };
+    expect(namingHolds(sentence, first, [first, second])).toBe(true);
+  });
+
+  test("a number before it Check doesn't read leaves the figure's own digits in its clause", () => {
+    const analysed = figureIn(sentence, "600", label, "f1", sentence.indexOf("North"));
+    expect(namingHolds(sentence, analysed, [analysed])).toBe(false);
   });
 });
 

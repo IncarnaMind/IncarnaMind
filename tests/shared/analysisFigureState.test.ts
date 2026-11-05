@@ -130,6 +130,19 @@ test("a check stands for the figure only as the claim judge read its naming", ()
   ).toEqual(notRecalculated);
 });
 
+test("a total that doesn't add up, or a wall the Note is outside, stands whatever the judge read", () => {
+  const named = { state: "supported" as const, unsupported: null, named: true as const };
+  expect(
+    analysisFigureShown({ state: "unsupported" }, { run, result: "total", versions, check: named }),
+  ).toEqual({ state: "unsupported" });
+  expect(
+    analysisFigureShown(
+      { state: "not-checked", reason: "kept-inside" },
+      { run, result: "total", versions, check: named },
+    ),
+  ).toEqual({ state: "not-checked", reason: "kept-inside" });
+});
+
 test("a figure whose Document changed or went needs a re-check, as a calculated figure does", () => {
   expect(
     analysisFigureShown(unchecked, {

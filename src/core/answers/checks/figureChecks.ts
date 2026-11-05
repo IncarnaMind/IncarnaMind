@@ -576,7 +576,6 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
   calculations.check();
   const items = new Map(parsed.items.map((item) => [item.id, item]));
   const rows: FigureCheckResult[] = [];
-  const analysed = requested.filter((each) => each.calculated?.figure.analysis);
   for (const original of requested) {
     let target = original;
     if (target.calculated?.figure.analysis) {
@@ -585,7 +584,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         options.facts(),
         options,
         items.get(target.id),
-        namingHolds(options.claim, target, analysed),
+        namingHolds(options.claim, target, requested),
       );
       rows.push({
         ...finding(target),
