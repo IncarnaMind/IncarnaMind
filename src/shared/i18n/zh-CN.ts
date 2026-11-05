@@ -4583,6 +4583,7 @@ export const zhCN = {
     "需重新核对：核对它时，其中的数字尚未逐个对照各自的来源。",
   "export.comment.sentence.needs-recheck.referent":
     "需重新核对：其中 Id. 或 supra 所指的记录引用已改动。",
+  "export.comment.sentence.needs-recheck.library": "需重新核对：核对之后，资料库有了变动。",
   "export.comment.recordCite.result": "{raw}：{outcome}",
   "export.comment.recordCite.passage": "段落：{passage}",
   "export.comment.recordCite.candidates": "可选文档：{candidates}",

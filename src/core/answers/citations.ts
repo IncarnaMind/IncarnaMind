@@ -2073,6 +2073,12 @@ export function createCitationSession(
 
     hasRecord: (marker) => records.has(marker),
 
+    recordedQuotes: () =>
+      [...records.values()].map((record) => ({
+        passageId: record.source.passageId,
+        quote: record.quote,
+      })),
+
     owed(text, figured) {
       const unrecorded = markersIn(text).filter((marker) => !records.has(marker));
       const figures = [...text.matchAll(FIGURE_MARKER)].map((match) => Number(match[1]));

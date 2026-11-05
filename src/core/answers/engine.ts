@@ -277,6 +277,8 @@ export interface AnswerTools {
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
   hasRecord?(marker: number): boolean;
+  /** The records taken so far, each by the Passage it quotes and its quote as taken. */
+  recordedQuotes?(): readonly { passageId: string; quote: string }[];
   /**
    * What the Run still owes with `text` written so far: each marker whose last record from a
    * `cite` call was refused or came back with a problem to fix, written or not, until a record

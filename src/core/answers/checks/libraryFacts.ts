@@ -10,6 +10,8 @@
  * - A fact decides only a sentence whose Library line names it, and a sentence whose line names
  *   one is Supported or Contradicted only with that fact's Citation: a Document's "22 files"
  *   never decides it.
+ * - A verdict its reply's own Library line and Citations don't bear out is asked about once, and
+ *   is Not checked if it still isn't: code never makes a verdict the model didn't give (#2313).
  * - A sentence whose line says the facts can't settle it ("covering business material", a
  *   reading of the names) is Not checked, with why: no check can change that.
  * - A fact's words are never a correction of the sentence's.
@@ -46,7 +48,7 @@ import type {
   ClaimCheckDependencies,
   ClaimCheckRequest,
 } from "./claimCheck";
-import { type CitationLike, type Decided, lineQuoted, UNDECIDED, unbacked } from "./fileProperties";
+import { type CitationLike, lineQuoted, UNDECIDED, writtenAsSize } from "./fileProperties";
 import { LIBRARY_LINE_FIELD, readVerdict, replyAcrossTurns } from "./prompt";
 
 /** What a check's scope sees of the Library, Folder walls applied: the facts are made from it. */
@@ -68,8 +70,12 @@ export interface LibraryFactSearch {
   add(query: string): WindowedPassage[];
   /** A search's result with what the model is told of the facts it shows. */
   told(result: SearchResultForModel): SearchResultForModel;
-  /** Asks once for the Library line, of a reply after the facts were shown that has none. */
-  turnCheck: TurnCheck;
+  /**
+   * Asks once, of a reply after the facts were shown, for its Library line when it has none, or
+   * for the line its verdict rests on when the facts its quotes cite (`recorded`) don't bear out
+   * its Library line.
+   */
+  turnCheck(recorded: () => readonly { passageId: string; quote: string }[]): TurnCheck;
   /** The Run's last reply, which names the facts its sentence states. */
   replied(text: string): void;
 }
@@ -114,6 +120,16 @@ export const LIBRARY_NOTE = [
 
 const LIBRARY_ASK =
   'Your reply has no Library line. Write your whole reply again, with a line after the Verdict line: "Library: " and the facts the sentence states (documents, folder, unfiled, kind, name, folders, tags, tag, notes or note), "Library: description" for a description of the Library the facts can\'t settle, or "Library: none" when it is about what a Document says.';
+
+const WORD_OF = Object.fromEntries(
+  Object.entries(NAMED).map(([word, kind]) => [kind, word]),
+) as Readonly<Record<LibraryFact["kind"], string>>;
+
+const unstated = (words: readonly string[]) =>
+  `Your Library line names ${words.join(", ")}, but no line of the Library facts you recorded with cite states ${words.length === 1 ? "it" : "them"}. Record with cite the one line of the Library facts that decides each, or give the Library line and Verdict the facts bear out; then write your whole reply again.`;
+
+const NOT_ABOUT =
+  "Your Library line says none, but you recorded a line of the Library facts, which decide only a sentence about the Library itself. Give the Library line the sentence calls for, and record what decides it; then write your whole reply again.";
 
 /** What a reply's Library line says of its sentence; null when it has none that can be read. */
 export type DeclaredLibrary =
@@ -189,7 +205,8 @@ function factsOf(listing: LibraryListing): LibraryFact[] {
 function lineOf(fact: LibraryFact, listing: LibraryListing): string {
   switch (fact.kind) {
     case "documents":
-      return `Documents: ${fact.count}`;
+      // No other line holds these words: a quote of the total is of its line alone.
+      return `Documents in all: ${fact.count}`;
     case "folder":
       return `Documents in the Folder “${fact.name}”: ${fact.count}`;
     case "unfiled":
@@ -301,6 +318,8 @@ function libraryRun(
 ) {
   const shown = new Map<string, Shown>();
   let reply = "";
+  const byPassage = (passageId: string) =>
+    [...shown.values()].find((each) => each.passage.passageId === passageId);
 
   const search: LibraryFactSearch = {
     add(query) {
@@ -339,22 +358,35 @@ function libraryRun(
         },
       };
     },
-    turnCheck: {
+    turnCheck: (recorded) => ({
       name: "library-facts",
       check(last, setAside = []) {
         if (shown.size === 0) return null;
         const text = replyAcrossTurns(last, setAside);
-        if (readVerdict(text) === null || declaredLibrary(text) !== null) return null;
-        return { claims: [], note: LIBRARY_ASK };
+        const verdict = readVerdict(text)?.verdict;
+        if (verdict === undefined) return null;
+        const declared = declaredLibrary(text);
+        if (declared === null) return { claims: [], note: LIBRARY_ASK };
+        if (verdict === "unsupported" || declared.kind === "description") return null;
+        const cited = new Set(
+          recorded().flatMap(({ passageId, quote }) => {
+            const source = byPassage(passageId);
+            const line = source ? lineQuoted(source.unit, source.lines, quote) : null;
+            return line ? [line.fact.kind] : [];
+          }),
+        );
+        if (declared.kind === "none")
+          return cited.size > 0 ? { claims: [], note: NOT_ABOUT } : null;
+        const missing = [...declared.facts].filter((kind) => !cited.has(kind));
+        const short =
+          verdict === "supported" ? missing.length > 0 : missing.length === declared.facts.size;
+        return short ? { claims: [], note: unstated(missing.map((kind) => WORD_OF[kind])) } : null;
       },
-    },
+    }),
     replied(text) {
       reply = text;
     },
   };
-
-  const byPassage = (passageId: string) =>
-    [...shown.values()].find((each) => each.passage.passageId === passageId);
 
   const documents: ClaimCheckDependencies["documents"] = {
     ...deps.documents,
@@ -420,7 +452,7 @@ function libraryRun(
     if (unsupported) keys.add(LISTING_KEY);
     const now = libraryNow(listing(), [...keys, SOURCE_KEY]);
     return [
-      ...versions.filter((each) => each.documentId !== LIBRARY_FACTS),
+      ...ownVersions(versions),
       ...(keys.size === 0 ? [] : [...now].map(([key, value]) => factVersion(searched, key, value))),
     ];
   }
@@ -429,19 +461,21 @@ function libraryRun(
     if (shown.size === 0) return raw;
     const declared = declaredLibrary(reply);
     const result = asFacts(raw) as AtomicClaimCheckResult;
-    const versions = result.versions.filter((each) => each.documentId !== LIBRARY_FACTS);
-    if (declared?.kind === "description") return unsettled(result, versions);
+    const versions = ownVersions(result.versions);
+    if (declared?.kind === "description")
+      return notCheckedAll(result, versions, "library-unsettled");
     const facts = declared?.kind === "facts" ? declared.facts : null;
     const mayDecide = (citation: CitationLike | null | undefined) => {
       const fact = factOf(citation);
       if (fact === undefined) return true;
       return fact !== null && facts?.has(fact.kind) === true;
     };
+    /** `judgment` held to the rules; null when its own Library line and Citations don't bear it out. */
     const held = <J extends ClaimJudgment>(
       judgment: J,
       deciding: readonly (CitationLike | null | undefined)[],
       sentence: boolean,
-    ): J => {
+    ): J | null => {
       if (judgment.verdict === "not-checked") return judgment;
       if (judgment.verdict === "unsupported") {
         const why = judgment.unsupported;
@@ -465,7 +499,7 @@ function libraryRun(
         (judgment.verdict === "supported"
           ? [...facts].some((kind) => !cited.has(kind))
           : !decidedBy || !facts.has(decidedBy.kind));
-      if (!all.every(mayDecide) || unbackedFact) return unbacked(judgment as Decided) as J;
+      if (!all.every(mayDecide) || unbackedFact) return null;
       if (!correction.some((each) => factOf(each.evidence) !== undefined)) return judgment;
       const { correction: _correction, ...kept } = judgment;
       return kept as J;
@@ -489,39 +523,62 @@ function libraryRun(
     const heldPart = <J extends ClaimJudgment>(
       judgment: J,
       deciding: readonly (CitationLike | null | undefined)[],
-    ): J => {
+    ): J | null => {
       const judged = held(judgment, deciding, false);
-      return partsUnbacked && (judged.verdict === "supported" || judged.verdict === "contradicted")
-        ? (unbacked(judged as Decided) as J)
+      return judged === null ||
+        (partsUnbacked && (judged.verdict === "supported" || judged.verdict === "contradicted"))
+        ? null
         : judged;
     };
-    const figures = result.figures?.map((figure): FigureCheckResult => {
-      const judged = heldPart(figure.result, [figure.source, figure.sourceInput?.citation]);
+    // Its one ask is spent (`turnCheck`): a verdict its reply doesn't bear out is no verdict.
+    const unread = () => notCheckedAll(result, versions, "malformed");
+    const figures: FigureCheckResult[] = [];
+    for (const figure of result.figures ?? []) {
+      const checked = heldPart(figure.result, [figure.source, figure.sourceInput?.citation]);
+      if (checked === null) return unread();
+      // A count of things has no scale word, share, price or size: "22 thousand" or "22 GB" is
+      // never "Documents in all: 22", whatever the reply says.
+      if (
+        checked.verdict === "supported" &&
+        factOf(checked.evidence) !== undefined &&
+        !readsAsCount(figure)
+      )
+        return unread();
+      const judged = { ...checked, versions: ownVersions(checked.versions) };
       // A figure's source is a number in a Document's text, which the Note may cite or change the
       // figure to; a fact it was compared with is only its result's evidence.
       const fromFact = [figure.source, figure.sourceInput?.citation].some(
         (citation) => factOf(citation) !== undefined,
       );
-      return fromFact
-        ? {
-            ...figure,
-            source: null,
-            sourceInput: null,
-            difference: null,
-            roundedFrom: null,
-            result: judged,
-          }
-        : { ...figure, result: judged };
-    });
-    const remainder = result.remainder && heldPart(result.remainder, []);
+      figures.push(
+        fromFact
+          ? {
+              ...figure,
+              source: null,
+              sourceInput: null,
+              difference: null,
+              roundedFrom: null,
+              result: judged,
+            }
+          : { ...figure, result: judged },
+      );
+    }
+    const heldRemainder = result.remainder ? heldPart(result.remainder, []) : result.remainder;
+    if (result.remainder && heldRemainder === null) return unread();
+    const remainder = heldRemainder && {
+      ...heldRemainder,
+      versions: ownVersions(heldRemainder.versions),
+    };
     const listed = [
       ...(result.checkedEvidence ?? []),
       ...(result.coverage?.members.flatMap((member) => member.evidence) ?? []),
       ...(result.coverage?.domainEvidence ?? []),
     ];
+    const whole = held(result, listed, true);
+    if (whole === null) return unread();
     const judged: AtomicClaimCheckResult = {
-      ...held(result, listed, true),
-      ...(figures && { figures }),
+      ...whole,
+      ...(result.figures && { figures }),
       ...(result.remainder !== undefined && { remainder }),
       ...(result.checkedEvidence && { checkedEvidence: result.checkedEvidence.filter(mayDecide) }),
       ...(result.coverage && {
@@ -541,22 +598,45 @@ function libraryRun(
       evidenceOf(judged.remainder),
     ];
     const unsupported = facts !== null && judged.verdict === "unsupported";
-    return { ...judged, versions: versionsOf(versions, rests, unsupported) };
+    const kept = versionsOf(versions, rests, unsupported);
+    // A sentence with figures is marked with its figures' versions: each keeps the facts too.
+    const factVersions = kept.filter((each) => each.documentId.startsWith(VERSION));
+    const withFacts = <J extends ClaimJudgment>(judgment: J): J => ({
+      ...judgment,
+      versions: [...judgment.versions, ...factVersions],
+    });
+    return {
+      ...judged,
+      versions: kept,
+      ...(judged.figures && {
+        figures: judged.figures.map((figure) => ({ ...figure, result: withFacts(figure.result) })),
+      }),
+      ...(judged.remainder && { remainder: withFacts(judged.remainder) }),
+    };
   }
 
   return { search, documents, settle };
 }
 
-/** A sentence the facts can't settle: Not checked, with why, its figures and its other words too. */
-function unsettled(
+/**
+ * The versions a result keeps of what it read, the facts' text left out: a window that sees no
+ * Document of that id would take it for one deleted. The facts it rests on are kept apart.
+ */
+const ownVersions = (versions: readonly CheckedVersion[]): CheckedVersion[] =>
+  versions.filter((each) => each.documentId !== LIBRARY_FACTS);
+
+const readsAsCount = (figure: FigureCheckResult): boolean =>
+  figure.reading.scale === 1 &&
+  (figure.reading.unit.kind === "plain" || figure.reading.unit.kind === "other") &&
+  !writtenAsSize(figure);
+
+/** Not checked for `why`, its figures and its other words too. */
+function notCheckedAll(
   result: AtomicClaimCheckResult,
   versions: CheckedVersion[],
+  why: "library-unsettled" | "malformed",
 ): AtomicClaimCheckResult {
-  const reason = {
-    verdict: "not-checked" as const,
-    reason: "library-unsettled" as const,
-    detail: null,
-  };
+  const reason = { verdict: "not-checked" as const, reason: why, detail: null };
   return {
     ...reason,
     versions,
@@ -568,13 +648,17 @@ function unsettled(
         sourceInput: null,
         difference: null,
         roundedFrom: null,
-        result: { ...reason, versions: figure.result.versions, excluded: figure.result.excluded },
+        result: {
+          ...reason,
+          versions: ownVersions(figure.result.versions),
+          excluded: figure.result.excluded,
+        },
       })),
     }),
     ...(result.remainder !== undefined && {
       remainder: result.remainder && {
         ...reason,
-        versions: result.remainder.versions,
+        versions: ownVersions(result.remainder.versions),
         excluded: result.remainder.excluded,
       },
     }),

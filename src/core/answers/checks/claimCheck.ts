@@ -1153,7 +1153,9 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         // In a window of a whole read every search returns that window: the read is the search.
         ...(request.window ? [] : [searchAgain(() => searches, readsWhole)]),
         ...(deps.fileProperties ? [deps.fileProperties.turnCheck] : []),
-        ...(deps.libraryFacts ? [deps.libraryFacts.turnCheck] : []),
+        ...(deps.libraryFacts
+          ? [deps.libraryFacts.turnCheck(() => session.tools.recordedQuotes?.() ?? [])]
+          : []),
         ...figuresReplied(
           request,
           figures,

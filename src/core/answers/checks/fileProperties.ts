@@ -230,12 +230,11 @@ export function lineQuoted<L extends { start: number; end: number }>(
   return lines.find((line) => start >= line.start && end <= line.end) ?? null;
 }
 
-export type Decided = Extract<ClaimJudgment, { verdict: ClaimVerdict }>;
+type Decided = Extract<ClaimJudgment, { verdict: ClaimVerdict }>;
 
 export const UNDECIDED = { reason: null, covered: null, uncovered: null };
 
-/** A verdict no evidence it may use decides: Unsupported, with nothing it rests on. */
-export function unbacked<J extends Decided>(judgment: J): J {
+function unbacked<J extends Decided>(judgment: J): J {
   const { correction: _correction, ...rest } = judgment;
   return {
     ...rest,
@@ -292,6 +291,12 @@ function afterFigure(figure: FigureCheckResult): string | undefined {
   return found.length === 1 && one
     ? (figure.context ?? "").slice(one.index + chars.length)
     : undefined;
+}
+
+/** Whether the sentence writes a size unit after the figure ("22 GB"), which no count of things states. */
+export function writtenAsSize(figure: FigureCheckResult): boolean {
+  const after = afterFigure(figure)?.trimStart();
+  return after !== undefined && SIZE_UNITS.some(([unit]) => unit.test(after));
 }
 
 /**

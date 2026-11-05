@@ -4797,6 +4797,8 @@ export const en = {
     "Needs re-check: checked before each of its figures was checked with its own source.",
   "export.comment.sentence.needs-recheck.referent":
     "Needs re-check: the record cite its Id. or supra refers back to has changed.",
+  "export.comment.sentence.needs-recheck.library":
+    "Needs re-check: your Library has changed since this was checked.",
   "export.comment.recordCite.result": "{raw}: {outcome}",
   "export.comment.recordCite.passage": "Passage: {passage}",
   "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
