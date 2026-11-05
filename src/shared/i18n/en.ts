@@ -6252,6 +6252,13 @@ export const en = {
   "meetings.fill.filling": "Filling in the note…",
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
   "meetings.fill.filled": "Note filled in",
+  "meetings.fill.partial": "Notes partly filled in",
+  "meetings.fill.noAdditions": "No notes added",
+  "meetings.fill.omitted.one": "{count} item couldn’t be added",
+  "meetings.fill.omitted": "{count} items couldn’t be added",
+  "meetings.fill.unfinishedParts.one": "{count} Transcript part couldn’t be finished",
+  "meetings.fill.unfinishedParts": "{count} Transcript parts couldn’t be finished",
+  "meetings.fill.viewTranscript": "View Transcript",
   "meetings.fill.undo": "Undo",
   "meetings.fill.show": "Show",
   "meetings.fill.undone": "Fill-in undone",
@@ -6261,14 +6268,8 @@ export const en = {
   "meetings.fill.problem.noTranscript": "the transcript has no lines.",
   "meetings.fill.problem.model": "the model couldn’t fill in the notes.",
   "meetings.fill.problem.empty": "the model found nothing to add.",
-  "meetings.fill.problem.citations":
-    "A Citation could not be found in the Transcript. Nothing was added. Check the Transcript or try again.",
-  "meetings.fill.problem.uncited":
-    "Part of the notes had no Citation. Nothing was added. Try again.",
-  "meetings.fill.problem.headings":
-    "The model could not match the note headings. Nothing was added. Try again.",
-  "meetings.fill.problem.repeated":
-    "The model repeated the notes instead of completing their sections. Nothing was added. Try again.",
+  "meetings.fill.reference.above": "{topic} — see above",
+  "meetings.fill.reference.below": "{topic} — see below",
   "meetings.fill.problem.stopped": "IncarnaMind closed before they were done.",
   "meetings.fill.problem.localMode":
     "“Keep everything on this computer” is on, and this note’s model isn’t on this computer.",
@@ -6277,6 +6278,7 @@ export const en = {
   "meetings.fill.problem.noModel": "choose an AI model first.",
   "meetings.fill.undoName": "Fill in the note",
   "meetings.fill.notify": "Note filled in: {meeting}",
+  "meetings.fill.notify.partial": "Notes partly filled in for {meeting}",
   "memos.record": "Record a voice memo",
   "memos.record.menu": "Voice memo",
   "memos.record.keywords":

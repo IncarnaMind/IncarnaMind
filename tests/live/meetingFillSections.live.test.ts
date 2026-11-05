@@ -13,28 +13,45 @@
 import { appendFile, readFile } from "node:fs/promises";
 import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import { evalOllamaModels } from "../../eval/lib/citations";
 import type { Core, Meeting, MeetingFill } from "../../src/core";
 import { CITATION_NODE, GENERATED_MARK } from "../../src/core/api";
-import { costOf } from "../../src/core/cost/price";
 import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import type { Language } from "../../src/core/language";
 import { catalogModel } from "../../src/core/providers/catalog";
-import { createAiSdkChatModel } from "../../src/core/providers/models";
+import * as chatModels from "../../src/core/providers/models";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder } from "../helpers/core";
+import { checkStructuredMeetingLoader } from "../helpers/meetingFillLoader";
+import {
+  createRequestLedger,
+  startObservation,
+  structuredControls,
+  type V5Check,
+} from "../helpers/meetingFillObservation";
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, readMind, writeMind } from "../helpers/minds";
 import { transcribingCore } from "../helpers/transcription";
 
+const LOADER_PREFLIGHT = process.env.INCARNAMIND_STRUCTURED_LOADER_PREFLIGHT === "1";
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const LOCAL_MODEL = process.env.INCARNAMIND_LIVE_OLLAMA_MODEL;
 const MODEL = LOCAL_MODEL ?? process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ?? "claude-haiku-5-5";
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const PICKED = process.env.INCARNAMIND_LIVE_CALLS?.split(",").map((each) => each.trim());
+if (
+  LOADER_PREFLIGHT &&
+  [
+    KEY,
+    process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL,
+    LOCAL_MODEL,
+    process.env.INCARNAMIND_STRUCTURED_RECEIPT,
+  ].some((value) => value !== undefined)
+)
+  throw new Error("Keyless structured loader preflight cannot use paid observation controls.");
+const STRUCTURED = structuredControls(process.env);
 
 interface Fact {
   name: string;
@@ -1544,15 +1561,19 @@ function reservedRegex(source: string | string[]): RegExp | RegExp[] {
 
 async function loadReservedCalls(
   picked: readonly string[] | undefined,
-  read: () => Promise<string> = () =>
-    readFile(
-      new URL("fill-reserved.json", new URL("../fixtures/meetings/", import.meta.url)),
-      "utf8",
-    ),
+  read: (file: "fill-reserved.json" | "fill-structured-reserved.json") => Promise<string> = (
+    file,
+  ) => readFile(new URL(file, new URL("../fixtures/meetings/", import.meta.url)), "utf8"),
 ): Promise<Call[]> {
   const selected = picked?.filter((id) => id.startsWith("reserved-")) ?? [];
   if (selected.length === 0) return [];
-  const input: unknown = JSON.parse(await read());
+  const structured = selected.filter((id) => /^reserved-(?:en|zh)-structured-/.test(id));
+  if (structured.length > 0 && structured.length !== selected.length) {
+    throw new Error("Select structured or historical reserved calls, not both.");
+  }
+  const input: unknown = JSON.parse(
+    await read(structured.length > 0 ? "fill-structured-reserved.json" : "fill-reserved.json"),
+  );
   if (!isArray(input) || !input.every(isReservedCall)) {
     throw new Error("Invalid reserved meeting fixture.");
   }
@@ -1572,71 +1593,8 @@ async function loadReservedCalls(
     }));
 }
 
-interface Usage {
-  /** Each request's reply: its text, how much it reasoned, and the Tools it called. */
-  replies: { text: string; reasoning: number; tools: string[]; output: number }[];
-  calls: number;
-  input: number;
-  cached: number;
-  written: number;
-  output: number;
-  dollars: number;
-}
-
-/** Real Anthropic models, each request's tokens counted and priced at its prompt's tier. */
-function countedModels(usage: Usage) {
-  const price = catalogModel("anthropic", MODEL)?.price;
-  if (!price && !LOCAL_MODEL) throw new Error(`The catalog has no price for ${MODEL}.`);
-  const add = (counted: {
-    inputTokens: { total?: number; cacheRead?: number; cacheWrite?: number };
-    outputTokens: { total?: number; reasoning?: number };
-  }) => {
-    const tokens = {
-      inputTokens: counted.inputTokens.total ?? 0,
-      cachedInputTokens: counted.inputTokens.cacheRead ?? 0,
-      cacheWriteTokens: counted.inputTokens.cacheWrite ?? 0,
-      outputTokens: counted.outputTokens.total ?? 0,
-    };
-    usage.calls++;
-    usage.input += tokens.inputTokens;
-    usage.cached += tokens.cachedInputTokens;
-    usage.written += tokens.cacheWriteTokens;
-    usage.output += tokens.outputTokens;
-    if (price) usage.dollars += costOf(tokens, price, new Date(), { cacheWrites: true });
-  };
-  return (spec: Parameters<typeof createAiSdkChatModel>[0]) =>
-    wrapLanguageModel({
-      model: createAiSdkChatModel(spec),
-      middleware: {
-        specificationVersion: "v4",
-        wrapStream: async ({ doStream }) => {
-          const result = await doStream();
-          const reply = { text: "", reasoning: 0, tools: [] as string[], output: 0 };
-          const stream = result.stream.pipeThrough(
-            new TransformStream({
-              transform(part, controller) {
-                if (part.type === "text-delta") reply.text += part.delta;
-                if (part.type === "tool-call") reply.tools.push(part.toolName);
-                if (part.type === "finish") {
-                  add(part.usage);
-                  reply.reasoning = part.usage.outputTokens.reasoning ?? 0;
-                  reply.output = part.usage.outputTokens.total ?? 0;
-                  usage.replies.push(reply);
-                }
-                controller.enqueue(part);
-              },
-            }),
-          );
-          return { ...result, stream };
-        },
-        wrapGenerate: async ({ doGenerate }) => {
-          const result = await doGenerate();
-          add(result.usage);
-          return result;
-        },
-      },
-    });
-}
+type RequestLedger = ReturnType<typeof createRequestLedger>;
+type Observation = Awaited<ReturnType<typeof startObservation>>;
 
 /** A part of the note a fact can be in: a paragraph, or a list's item. */
 interface Unit {
@@ -1706,7 +1664,7 @@ const namesSubject = (fact: Fact, text: string) => {
 };
 
 const machineAddresses = (text: string) =>
-  [...text.matchAll(/(?<![A-Za-z0-9_])[LH]\d+(?![A-Za-z0-9_])/gi)].length;
+  [...text.matchAll(/(?<![A-Za-z0-9_])(?:P\d+_F\d+|F\d+|[LH]\d+)(?![A-Za-z0-9_])/gi)].length;
 
 function machineAddressLeaks(doc: ProseMirrorNode): number {
   let count = 0;
@@ -1800,14 +1758,14 @@ test.each(["en", "zh-CN"] as const)(
   (language) => {
     const leaked =
       language === "en"
-        ? "Launch: see L1 and H2. Fee: [L12], (H34), L1+, l3/h4."
-        : "上线见L1和H2。费用：[L12]、（H34）、L1+、l3/h4。";
-    expect(machineAddresses(leaked)).toBe(7);
+        ? "Launch: see L1 and H2. Fee: [L12], (H34), L1+, l3/h4. Facts: F1, P1_F1, [P2_F10], f3/p4_f5."
+        : "上线见L1和H2。费用：[L12]、（H34）、L1+、l3/h4。事实：F1、P1_F1、[P2_F10]、f3/p4_f5。";
+    expect(machineAddresses(leaked)).toBe(12);
     expect(
       machineAddresses(
         language === "en"
-          ? "Launch details above. XL1, H2O, LH2, L12plan, x_H2, 40 cm."
-          : "上线详情见上文。XL1、H2O、LH2、L12plan、x_H2、四十厘米。",
+          ? "Launch details above. XL1, H2O, LH2, L12plan, x_H2, XF1, F1score, P1_F1plan, x_P1_F1, 40 cm."
+          : "上线详情见上文。XL1、H2O、LH2、L12plan、x_H2、XF1、F1score、P1_F1plan、x_P1_F1、四十厘米。",
       ),
     ).toBe(0);
   },
@@ -1824,7 +1782,7 @@ test.each(["en", "zh-CN"] as const)(
     const doc = getSchema(noteExtensions()).nodeFromJSON({
       type: "doc",
       content: [
-        note("L99 H99"),
+        note("L99 H99 F99 P99_F99"),
         heading(2, "H88"),
         {
           type: "heading",
@@ -1836,7 +1794,18 @@ test.each(["en", "zh-CN"] as const)(
           content: [
             generated(language === "en" ? "See L" : "见L"),
             generated("12", true),
-            { type: CITATION_NODE, attrs: { quote: "L77 H77", check: "found" } },
+            {
+              type: CITATION_NODE,
+              attrs: { quote: "L77 H77 F77 P77_F77", check: "found" },
+            },
+          ],
+        },
+        {
+          type: "paragraph",
+          content: [
+            generated(language === "en" ? "See P1_" : "见P1_"),
+            generated("F2", true),
+            generated(" F3"),
           ],
         },
         {
@@ -1844,13 +1813,13 @@ test.each(["en", "zh-CN"] as const)(
           content: [
             {
               type: "listItem",
-              content: [{ type: "paragraph", content: [generated("H3")] }],
+              content: [{ type: "paragraph", content: [generated("H3 P2_F1")] }],
             },
           ],
         },
       ],
     });
-    expect(machineAddressLeaks(doc)).toBe(3);
+    expect(machineAddressLeaks(doc)).toBe(6);
   },
 );
 
@@ -1868,25 +1837,85 @@ const plain = (text: string) =>
 
 function hasGeneratedOverview(summary: readonly Unit[], replies: readonly string[]): boolean {
   const overviewText = (text: string) => {
-    const normalized = plain(text.replace(/\[\^\d+\]/g, ""));
+    const body = text.replace(/\[\^\d+\]/g, "").trim();
+    if (/^(?:`|~{3}|\{|\[|"(?:[^"\\]|\\.)*"$)/.test(body)) return null;
+    const normalized = plain(body);
     return /[\p{L}\p{N}]/u.test(normalized) ? normalized : null;
   };
-  const overviews = replies.flatMap((reply) =>
-    reply.split(/^### /m).flatMap((part) => {
-      const [marker, ...lines] = part.split("\n");
-      if (!/^(?:SUMMARY(?: H\d+)?|H\d+ SUMMARY)$/i.test(marker?.trim() ?? "")) return [];
-      const first = lines.find((line) => line.trim() !== "");
-      const text = first === undefined ? null : overviewText(first);
+  const overviews = replies.flatMap((reply) => {
+    const lines = reply.split(/\r?\n/);
+    const visible = unfencedLines(lines);
+    const markers = visible.flatMap((line, index) =>
+      line?.startsWith("### ") ? [{ marker: line.slice(4).trim(), index }] : [],
+    );
+    return markers.flatMap(({ marker, index }, position) => {
+      const next = markers[position + 1];
+      if (/^(?:SUMMARY(?: H\d+)?|H\d+ SUMMARY)$/i.test(marker)) {
+        const first = visible
+          .slice(index + 1, next?.index)
+          .find((line) => line !== null && line.trim() !== "");
+        const text = first === undefined || first === null ? null : overviewText(first);
+        return text === null ? [] : [text];
+      }
+      if (marker !== "OVERVIEW" || next?.marker !== "END OVERVIEW") return [];
+      const block = lines.slice(index + 1, next.index).join("\n");
+      const framed = /^\s*```json[ \t]*\n([\s\S]*?)\n```[ \t]*\n([\s\S]*)$/.exec(block);
+      if (!framed) return [];
+      let metadata: unknown;
+      try {
+        metadata = JSON.parse(framed[1] ?? "");
+      } catch {
+        return [];
+      }
+      if (
+        !isRecord(metadata) ||
+        !onlyKeys(metadata, ["citations"]) ||
+        !isArray(metadata.citations) ||
+        metadata.citations.length === 0 ||
+        !metadata.citations.every(
+          (citation) => typeof citation === "number" && Number.isInteger(citation) && citation > 0,
+        )
+      )
+        return [];
+      const body = (framed[2] ?? "").trim();
+      if (/^ {0,3}(?:`{3,}|~{3,})/m.test(body)) return [];
+      const paragraph = body.split(/\n\s*\n/)[0] ?? "";
+      if (!metadata.citations.some((citation) => paragraph.includes(`[^${citation}]`))) return [];
+      const text = overviewText(paragraph);
       return text === null ? [] : [text];
-    }),
-  );
+    });
+  });
   return summary.some((unit) => {
     const text = overviewText(unit.text);
     return (
+      unit.ai &&
       text !== null &&
       overviews.includes(text) &&
       unit.citations.some((citation) => citation.check === "found")
     );
+  });
+}
+
+function unfencedLines(lines: readonly string[]): (string | null)[] {
+  let fence: string | null = null;
+  return lines.map((line) => {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const delimiter = marker?.[1];
+    if (fence !== null) {
+      if (
+        delimiter !== undefined &&
+        delimiter[0] === fence[0] &&
+        delimiter.length >= fence.length &&
+        marker?.[2]?.trim() === ""
+      )
+        fence = null;
+      return null;
+    }
+    if (delimiter) {
+      fence = delimiter;
+      return null;
+    }
+    return line;
   });
 }
 
@@ -2029,6 +2058,7 @@ test.each(["en", "zh-CN"] as const)(
       expect(namesSubject(fact, reference.text)).toBe(true);
       expect(says(fact, reference.text)).toBe(false);
       expect(occurrences(fact, reference.text)).toBe(0);
+      expect(machineAddresses(reference.text)).toBe(0);
     }
     const counts = (extra: Unit[]) =>
       actionSectionCounts([...inPlace, ...extra], title, call, cues);
@@ -2166,6 +2196,122 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+test("meeting scores accept the literal production OVERVIEW frame", () => {
+  const reply = [
+    "### OVERVIEW",
+    "```json",
+    '{"citations":[2]}',
+    "```",
+    "The call covered review planning. [^2]",
+    "### END OVERVIEW",
+  ].join("\n");
+  const unit: Unit = {
+    text: "The call covered review planning.",
+    ai: true,
+    section: "Summary",
+    afterLine: null,
+    citations: [
+      {
+        quote: "The call covered review planning.",
+        from: 0,
+        to: 1_000,
+        speaker: "Me",
+        check: "found",
+      },
+    ],
+  };
+  expect(hasGeneratedOverview([unit], [reply])).toBe(true);
+});
+
+test.each(["en", "zh-CN"] as const)(
+  "meeting scores require cited prose outside closed OVERVIEW metadata and framing (%s)",
+  (language) => {
+    const text =
+      language === "en"
+        ? "The call settled staffing and the next steps."
+        : "会议敲定了人手安排和后续工作。";
+    const unit: Unit = {
+      text,
+      ai: true,
+      section: language === "en" ? "Summary" : "摘要",
+      afterLine: null,
+      citations: [{ quote: text, from: 0, to: 1_000, speaker: "Me", check: "found" }],
+    };
+    const metadata = '```json\n{"citations":[7]}\n```';
+    const frame = (body: string) => `### OVERVIEW\n${metadata}\n${body}\n### END OVERVIEW`;
+    const reply = frame(`${text} [^7]`);
+    expect(hasGeneratedOverview([unit], [reply])).toBe(true);
+    expect(hasGeneratedOverview([unit], [reply.replaceAll("\n", "\r\n")])).toBe(true);
+    expect(machineAddresses(unit.text)).toBe(0);
+    const wrapped = text.replace(language === "en" ? "staffing" : "人手", "$&\n");
+    expect(hasGeneratedOverview([unit], [frame(`${wrapped} [^7]`)])).toBe(true);
+    for (const empty of ["", "[^7]", "[^7] [^8]", "—。! [^7]", "\u200b [^7]"]) {
+      const raw = frame(empty);
+      expect(hasGeneratedOverview([{ ...unit, text: empty }], [raw])).toBe(false);
+      expect(hasGeneratedOverview([unit], [raw])).toBe(false);
+    }
+    for (const invalid of [
+      frame(`${text} [^8]`),
+      frame(text),
+      frame(`\`${text}\` [^7]`),
+      frame(`${JSON.stringify(text)} [^7]`),
+      frame(`\`\`\`text\n${text} [^7]\n\`\`\``),
+      frame(`[^7]\n\n${text} [^7]`),
+      reply.replace("### END OVERVIEW", ""),
+      reply.replace("### END OVERVIEW", "### ENDOVERVIEW"),
+      reply.replace("### END OVERVIEW", "### END P1_F1"),
+      reply.replace(metadata, '```json\n{"citations":[]}\n```'),
+      reply.replace(metadata, '```json\n{"citations":["7"]}\n```'),
+      reply.replace(metadata, '```json\n{"citations":[0]}\n```'),
+      reply.replace(metadata, '```json\n{"citations":[7]\n```'),
+      `### OVERVIEW\n\`\`\`json\n{"citations":[7]}\n### END OVERVIEW\n\`\`\`\n${text} [^7]`,
+      `### OVERVIEW\n${metadata}\n\`\`\`text\n${text} [^7]\n### END OVERVIEW\n\`\`\``,
+      `### OVERVIEW\n${metadata}\n\`\`\`text\n${text} [^7]\n### END OVERVIEW\n\`\`\`\n### END OVERVIEW`,
+    ]) {
+      expect(hasGeneratedOverview([unit], [invalid])).toBe(false);
+    }
+    for (const candidate of [
+      { ...unit, text: "" },
+      { ...unit, text: language === "en" ? "Details are above." : "详情见上文。" },
+      { ...unit, ai: false },
+      { ...unit, citations: [] },
+      {
+        ...unit,
+        citations: unit.citations.map((citation) => ({ ...citation, check: "not-found" })),
+      },
+    ]) {
+      expect(hasGeneratedOverview([candidate], [reply])).toBe(false);
+    }
+    const fact = [
+      "### FACT P1_F1",
+      "```json",
+      JSON.stringify({
+        topic: text,
+        citations: [7],
+        lines: ["L1"],
+        sections: ["actions"],
+        claim: false,
+        supersedes: [],
+      }),
+      "```",
+      `${text} [^7]`,
+      "### END P1_F1",
+    ].join("\n");
+    expect(hasGeneratedOverview([unit], [fact])).toBe(false);
+    expect(hasGeneratedOverview([unit], [fact, reply])).toBe(true);
+    expect(
+      hasGeneratedOverview([unit], [frame(JSON.stringify({ purpose: text, citations: [7] }))]),
+    ).toBe(false);
+    for (const marker of ["SUMMARY", "OVERVIEW"]) {
+      const fenced = `\`\`\`text\n### ${marker}\n${metadata}\n${text} [^7]\n### END OVERVIEW\n\`\`\``;
+      expect(hasGeneratedOverview([unit], [fenced])).toBe(false);
+      expect(
+        hasGeneratedOverview([unit], [`### SUMMARY\n\`\`\`json\n${JSON.stringify(text)}\n\`\`\``]),
+      ).toBe(false);
+    }
+  },
+);
+
 test.each(["en", "zh-CN"] as const)(
   "meeting scores require a decision topic as well as its saved cue (%s)",
   (language) => {
@@ -2207,6 +2353,7 @@ test.each(["en", "zh-CN"] as const)(
       expect(accepted(unit)).toBe(true);
       expect(says(fact, reference)).toBe(false);
       expect(occurrences(fact, reference)).toBe(0);
+      expect(machineAddresses(reference)).toBe(0);
       for (const text of [
         "",
         " ",
@@ -2372,6 +2519,7 @@ test.each(["en", "zh-CN"] as const)(
     const read = vi.fn(async () => JSON.stringify(raw));
     const calls = await loadReservedCalls(["sections-en-museum", sample.id], read);
     expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith("fill-reserved.json");
     expect(raw).toEqual(before);
     expect(calls).toHaveLength(1);
     const call = calls[0];
@@ -2399,6 +2547,39 @@ test.each(["en", "zh-CN"] as const)(
     }
   },
 );
+
+test("meeting scores route all selected synthetic structured calls to the fixed fresh fixture", async () => {
+  const samples = (["en", "zh-CN"] as const).flatMap((language) =>
+    [1, 2, 3].map((index) => ({
+      ...reservedSample(language),
+      id: `reserved-${language === "en" ? "en" : "zh"}-structured-scorer-only-${index}`,
+    })),
+  );
+  const read = vi.fn(async () => JSON.stringify(samples));
+  const calls = await loadReservedCalls(
+    samples.map((sample) => sample.id),
+    read,
+  );
+  expect(read).toHaveBeenCalledExactlyOnceWith("fill-structured-reserved.json");
+  expect(calls.map((call) => call.id)).toEqual(samples.map((sample) => sample.id));
+  for (const sample of samples) {
+    read.mockClear();
+    expect(await loadReservedCalls([sample.id], read)).toHaveLength(1);
+    expect(read).toHaveBeenCalledExactlyOnceWith("fill-structured-reserved.json");
+  }
+});
+
+test("meeting scores reject mixed historical and structured selections before any read", async () => {
+  const historical = reservedSample("en");
+  const read = vi.fn(async () => JSON.stringify([historical]));
+  for (const selected of [
+    [historical.id, "reserved-zh-structured-scorer-only"],
+    ["reserved-en-structured-scorer-only", historical.id],
+  ]) {
+    await expect(loadReservedCalls(selected, read)).rejects.toThrow("not both");
+  }
+  expect(read).not.toHaveBeenCalled();
+});
 
 test.each<{ name: string; invalid: (sample: ReservedCallInput) => unknown }>([
   { name: "non-array root", invalid: () => ({}) },
@@ -2523,6 +2704,28 @@ test("meeting scores reject duplicate or absent selected reserved ids and malfor
   await expect(loadReservedCalls([sample.id], async () => "[")).rejects.toThrow();
 });
 
+test.skipIf(!LOADER_PREFLIGHT)("structured meeting loader source-freeze preflight", async () => {
+  const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+    throw new Error("The keyless structured loader attempted a network request.");
+  });
+  try {
+    const provider = vi.spyOn(chatModels, "createAiSdkChatModel").mockImplementation(() => {
+      throw new Error("The keyless structured loader attempted provider construction.");
+    });
+    try {
+      await checkStructuredMeetingLoader({
+        environment: process.env,
+        load: (picked) => loadReservedCalls(picked),
+        attempts: () => ({ fetch: fetch.mock.calls.length, provider: provider.mock.calls.length }),
+      });
+    } finally {
+      provider.mockRestore();
+    }
+  } finally {
+    fetch.mockRestore();
+  }
+});
+
 async function settled(core: Core, meeting: Meeting): Promise<MeetingFill> {
   return vi.waitFor(
     async () => {
@@ -2536,17 +2739,33 @@ async function settled(core: Core, meeting: Meeting): Promise<MeetingFill> {
   );
 }
 
-async function run(call: Call) {
-  const usage: Usage = {
-    replies: [],
-    calls: 0,
-    input: 0,
-    cached: 0,
-    written: 0,
-    output: 0,
-    dollars: 0,
+function expectCompleteFill(fill: MeetingFill): void {
+  expect(fill.problem, "A partial fill is not a model-quality pass").toBeNull();
+  expect(fill.omitted ?? 0, "No facts were omitted").toBe(0);
+  expect(fill.unfinishedParts ?? 0, "No transcript parts were left unfinished").toBe(0);
+}
+
+test("meeting scores reject honest partial fills even when their state is filled", () => {
+  const complete: MeetingFill = {
+    state: "filled",
+    mode: "notes",
+    local: false,
+    problem: null,
   };
-  const dataDir = await createTempDataFolder();
+  expect(() => expectCompleteFill(complete)).not.toThrow();
+  expect(() => expectCompleteFill({ ...complete, omitted: 0, unfinishedParts: 0 })).not.toThrow();
+  for (const partial of [
+    { omitted: 1 },
+    { unfinishedParts: 1 },
+    { omitted: 2, unfinishedParts: 1 },
+    { problem: { kind: "model" as const, message: "Some facts could not be filled." } },
+  ]) {
+    expect(() => expectCompleteFill({ ...complete, ...partial })).toThrow();
+  }
+});
+
+async function run(call: Call, ledger: RequestLedger, observation: Observation | null) {
+  const dataDir = STRUCTURED?.dataDir ?? (await createTempDataFolder());
   // The first line of each side goes with the moment both sources start, so they share a clock.
   const { core, record } = await transcribingCore(dataDir, {
     engine: {
@@ -2561,7 +2780,7 @@ async function run(call: Call) {
         ...call.turns.filter((turn) => turn.side === "them").map((turn) => turn.text),
       ],
     },
-    createChatModel: countedModels(usage),
+    createChatModel: (spec) => ledger.model(spec, () => chatModels.createAiSdkChatModel(spec)),
     ...(LOCAL_MODEL && {
       ollamaModels:
         evalOllamaModels({
@@ -2575,65 +2794,97 @@ async function run(call: Call) {
         }) ?? undefined,
     }),
   });
-  await core.updateSettings({
-    user: { language: call.language, monthlyCap: { amount: 0.25, currency: "USD" } },
-  });
-  if (LOCAL_MODEL) {
-    await core.saveChatProvider({ kind: "ollama", modelId: MODEL });
-    await core.setLocalOnly(true);
-  } else await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
-  const meeting = await core.createMeeting();
-  const client = await connectToMind(core, meeting.mindId);
-  if (call.notes.length > 0) writeMind(client, call.notes);
-  await client.settled();
-  const typed = unitsOf(readMind(client)).map((each) => each.text);
-  const typedNote = readMind(client).toJSON();
-  await core.startMeeting({ meetingId: meeting.id, systemAudio: !call.microphoneOnly });
-  record(20);
-  for (const turn of call.turns) {
-    record(2_000, [call.microphoneOnly || turn.side === "me" ? "microphone" : "system"]);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  const stoppedAt = performance.now();
-  await core.stopMeeting(meeting.id);
-  const fill = await settled(core, meeting);
-  const fillMs = performance.now() - stoppedAt;
-  if (fill.state === "filled") {
-    await vi.waitFor(() => expect(unitsOf(readMind(client)).some((each) => each.ai)).toBe(true), {
-      timeout: 10_000,
+  try {
+    if (STRUCTURED)
+      await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
+    await core.updateSettings({
+      user: { language: call.language, monthlyCap: { amount: 0.25, currency: "USD" } },
     });
-  }
-  const doc = readMind(client);
-  const units = unitsOf(doc);
-  const transcript = (await core.listMeetings()).find((each) => each.id === meeting.id)?.transcript;
-  const cues = transcript?.savedPath
-    ? readVtt(await readFile(transcript.savedPath, "utf8")).cues
-    : [];
-  const claimsTitles = (["en", "zh-CN"] as const).map((language) =>
-    translate(language, "meetings.fill.section.claims"),
-  );
-  const outside = units.filter((each) => each.ai && !claimsTitles.includes(each.section ?? ""));
-  const inClaims = units.filter((each) => each.ai && claimsTitles.includes(each.section ?? ""));
-  const scored = call.facts.map((fact) => {
-    const found = outside.filter((each) => says(fact, each.text));
+    if (LOCAL_MODEL) {
+      await core.saveChatProvider({ kind: "ollama", modelId: MODEL });
+      await core.setLocalOnly(true);
+    } else await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
+    const meeting = await core.createMeeting();
+    const client = await connectToMind(core, meeting.mindId);
+    if (call.notes.length > 0) writeMind(client, call.notes);
+    await client.settled();
+    const typed = unitsOf(readMind(client)).map((each) => each.text);
+    const typedNote = readMind(client).toJSON();
+    observation?.capture({ original_note_json: typedNote, data_dir: dataDir });
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: !call.microphoneOnly });
+    record(20);
+    for (const turn of call.turns) {
+      record(2_000, [call.microphoneOnly || turn.side === "me" ? "microphone" : "system"]);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    const stoppedAt = performance.now();
+    await core.stopMeeting(meeting.id);
+    const fill = await settled(core, meeting);
+    const fillMs = performance.now() - stoppedAt;
+    observation?.capture({ fill, fill_ms: fillMs });
+    if (fill.state === "filled") {
+      await vi.waitFor(() => expect(unitsOf(readMind(client)).some((each) => each.ai)).toBe(true), {
+        timeout: 10_000,
+      });
+    }
+    const doc = readMind(client);
+    const filledNote = doc.toJSON();
+    observation?.capture({ filled_note_json: filledNote });
+    const units = unitsOf(doc);
+    const transcript = (await core.listMeetings()).find(
+      (each) => each.id === meeting.id,
+    )?.transcript;
+    const cues = transcript?.savedPath
+      ? readVtt(await readFile(transcript.savedPath, "utf8")).cues
+      : [];
+    observation?.capture({ saved_cues: cues });
+    const claimsTitles = (["en", "zh-CN"] as const).map((language) =>
+      translate(language, "meetings.fill.section.claims"),
+    );
+    const outside = units.filter((each) => each.ai && !claimsTitles.includes(each.section ?? ""));
+    const inClaims = units.filter((each) => each.ai && claimsTitles.includes(each.section ?? ""));
+    const scored = call.facts.map((fact) => {
+      const found = outside.filter((each) => says(fact, each.text));
+      return {
+        fact,
+        count: found.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
+        inClaims: inClaims.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
+        inPlace:
+          fact.underLine === undefined || found.some((unit) => unit.afterLine === fact.underLine),
+        cited: found.length > 0 && found.every((each) => citesRightly(each, fact, call, cues)),
+      };
+    });
+    const uncited = units.filter((each) => each.ai && each.citations.length === 0).length;
+    let undone = false;
+    let undoNote: unknown = null;
+    if (fill.state === "filled" && call.requireSections) {
+      await core.undoMeetingFill(meeting.id);
+      undoNote = readMind(client).toJSON();
+      observation?.capture({ undo_note_json: undoNote });
+      await vi.waitFor(() => expect(readMind(client).toJSON()).toEqual(typedNote));
+      undoNote = readMind(client).toJSON();
+      observation?.capture({ undo_note_json: undoNote });
+      undone = true;
+    }
     return {
-      fact,
-      count: found.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
-      inClaims: inClaims.reduce((sum, each) => sum + occurrences(fact, each.text), 0),
-      inPlace:
-        fact.underLine === undefined || found.some((unit) => unit.afterLine === fact.underLine),
-      cited: found.length > 0 && found.every((each) => citesRightly(each, fact, call, cues)),
+      fill,
+      doc,
+      typed,
+      units,
+      scored,
+      uncited,
+      transcript,
+      cues,
+      undone,
+      fillMs,
+      dataDir,
+      originalNote: typedNote,
+      filledNote,
+      undoNote,
     };
-  });
-  const uncited = units.filter((each) => each.ai && each.citations.length === 0).length;
-  let undone = false;
-  if (fill.state === "filled" && call.requireSections) {
-    await core.undoMeetingFill(meeting.id);
-    await vi.waitFor(() => expect(readMind(client).toJSON()).toEqual(typedNote));
-    undone = true;
+  } finally {
+    core.close();
   }
-  core.close();
-  return { fill, doc, typed, units, scored, uncited, usage, transcript, cues, undone, fillMs };
 }
 
 const shownNote = (doc: ProseMirrorNode) => {
@@ -2671,146 +2922,218 @@ const UNTYPED = CALLS.filter((call) => call.id.startsWith("walk-")).map((call) =
   notes: [],
 }));
 
-const reserved = KEY || LOCAL_MODEL ? await loadReservedCalls(PICKED) : [];
+const reserved = !LOADER_PREFLIGHT && (KEY || LOCAL_MODEL) ? await loadReservedCalls(PICKED) : [];
 const chosen = [...CALLS, ...FINAL_CALLS, ...UNTYPED, ...reserved].filter(
   (call) => !PICKED || PICKED.includes(call.id),
 );
+if (
+  STRUCTURED &&
+  (chosen.length !== 1 || chosen[0]?.id !== STRUCTURED.call || chosen[0]?.requireSections !== true)
+) {
+  throw new Error(
+    "Strict structured observation requires exactly one section-gated selected call.",
+  );
+}
+let structuredStarted = false;
 
-describe.skipIf(!KEY && !LOCAL_MODEL)(
+describe.skipIf(LOADER_PREFLIGHT || (!KEY && !LOCAL_MODEL))(
   "Notes typed in a call, filled in on a real model (#2306)",
   {
     timeout: 900_000,
   },
   () => {
     test.each(chosen)("$id", async (call) => {
-      const { fill, doc, typed, units, scored, uncited, usage, cues, undone, fillMs } =
-        await run(call);
-      const once = scored.filter((each) => each.count === 1 && each.cited).length;
-      const title = (section: "summary" | "decisions" | "actions") =>
-        call.sectionHeadings?.[section] ??
-        translate(call.language, `meetings.fill.section.${section}`);
-      const summary = units.filter((each) => each.ai && each.section === title("summary"));
-      const overview = hasGeneratedOverview(
-        summary,
-        usage.replies.map((reply) => reply.text),
-      );
-      const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
-      const questions = units.filter(
-        (each) =>
-          each.ai && each.section === translate(call.language, "meetings.fill.section.questions"),
-      );
-      const counts = {
-        decisions: scored.filter((each) => each.fact.kind === "decision" && each.count > 0).length,
-        actions: scored.filter((each) => each.fact.kind === "action" && each.count > 0).length,
-        duplicates: scored.reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
-        invented: decisions.filter(
+      const price = catalogModel("anthropic", MODEL)?.price;
+      if (!price && !LOCAL_MODEL) throw new Error("The selected model has no catalog price.");
+      const ledger = createRequestLedger({ model: MODEL, price, strict: STRUCTURED });
+      let observation: Observation | null = null;
+      let restoreTransport: (() => void) | null = null;
+      let assertionsPassed = false;
+      const check = (name: V5Check, assertion: () => void) =>
+        observation ? observation.check(name, assertion) : assertion();
+      try {
+        if (STRUCTURED) {
+          if (structuredStarted) throw new Error("A structured observation cannot run twice.");
+          structuredStarted = true;
+          observation = await startObservation(STRUCTURED, ledger);
+          restoreTransport = ledger.installTransportGuard();
+        }
+        const { fill, doc, typed, units, scored, uncited, cues, undone, fillMs } = await run(
+          call,
+          ledger,
+          observation,
+        );
+        const usage = ledger.usage;
+        const once = scored.filter((each) => each.count === 1 && each.cited).length;
+        const title = (section: "summary" | "decisions" | "actions") =>
+          call.sectionHeadings?.[section] ??
+          translate(call.language, `meetings.fill.section.${section}`);
+        const summary = units.filter((each) => each.ai && each.section === title("summary"));
+        const overview = hasGeneratedOverview(
+          summary,
+          usage.replies.map((reply) => reply.text),
+        );
+        const decisions = units.filter((each) => each.ai && each.section === title("decisions"));
+        const questions = units.filter(
           (each) =>
-            call.notDecided?.some((pattern) => pattern.test(each.text)) &&
-            !call.facts.some((fact) => fact.kind === "decision" && says(fact, each.text)),
-        ).length,
-        summary: summary.length,
-        overview,
-        decisionsSection: decisions.length,
-        ...actionSectionCounts(units, title("actions"), call, cues),
-        machineAddresses: machineAddressLeaks(doc),
-        undone,
-        decisionsInSection: call.facts.filter(
-          (fact) =>
-            fact.kind === "decision" &&
-            decisions.some(
-              (unit) => namesSubject(fact, unit.text) && citesRightly(unit, fact, call, cues),
-            ),
-        ).length,
-        inPlace: scored.filter((each) => each.fact.underLine && each.inPlace).length,
-        questions: questions.length,
-      };
-      if (REPORT) {
-        const rows = scored
-          .map(
-            ({ fact, count, inClaims, cited, inPlace }) =>
-              `| ${fact.kind} | ${fact.name} | ${count} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} |`,
-          )
-          .join("\n");
-        await appendFile(
-          REPORT,
-          [
-            `## ${call.id} · ${MODEL}`,
-            "",
-            `Once and cited rightly: ${once} of ${call.facts.length}. AI parts without a Citation: ${uncited}. Fill: ${fill.state}${fill.problem ? ` (${fill.problem.message})` : ""}.`,
-            `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
-            `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
-            `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-v4", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
-            "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including action references without declared subjects.",
-            `Transcript cues: ${JSON.stringify(cues)}`,
-            "",
-            "| Kind | Fact | Times in the note | Cited rightly | In the claims list | In place |",
-            "|---|---|---|---|---|---|",
-            rows,
-            "",
-            "```",
-            shownNote(doc),
-            "```",
-            ...(fill.state === "filled" && once === call.facts.length
-              ? []
-              : [
-                  `Citation details: ${JSON.stringify(units.map((unit) => ({ text: unit.text, citations: unit.citations })))}`,
-                ]),
-            "",
-            ...(fill.state === "filled" && !process.env.INCARNAMIND_LIVE_REPLIES
-              ? []
-              : usage.replies.flatMap((reply, index) => [
-                  `Reply ${index + 1}: ${reply.output} tokens out, ${reply.reasoning} reasoning, Tools: ${reply.tools.join(", ") || "none"}.`,
-                  "```",
-                  reply.text,
-                  "```",
-                  "",
-                ])),
-          ].join("\n"),
+            each.ai && each.section === translate(call.language, "meetings.fill.section.questions"),
         );
-      }
-      expect(fill.state).toBe("filled");
-      // The User's own lines, as typed, in their order.
-      expect(units.filter((each) => !each.ai).map((each) => each.text)).toEqual(typed);
-      expect(scored.filter((each) => each.count === 0).map((each) => each.fact.name)).toEqual([]);
-      expect(
-        scored.filter((each) => !each.inPlace).map((each) => each.fact.name),
-        "Agreed facts fill out their typed lines in place",
-      ).toEqual([]);
-      if (call.requireSections) {
-        expect(counts.machineAddresses, "No machine L/H addresses in generated prose").toBe(0);
-        expect(undone).toBe(true);
-        expect(summary.length, "Summary is present").toBeGreaterThan(0);
-        expect(
+        const counts = {
+          decisions: scored.filter((each) => each.fact.kind === "decision" && each.count > 0)
+            .length,
+          actions: scored.filter((each) => each.fact.kind === "action" && each.count > 0).length,
+          duplicates: scored.reduce((sum, each) => sum + Math.max(0, each.count - 1), 0),
+          invented: decisions.filter(
+            (each) =>
+              call.notDecided?.some((pattern) => pattern.test(each.text)) &&
+              !call.facts.some((fact) => fact.kind === "decision" && says(fact, each.text)),
+          ).length,
+          summary: summary.length,
           overview,
-          "The generated overview was placed, not just details under a Summary heading",
-        ).toBe(true);
-        const expected = call.facts.filter((fact) => fact.kind === "decision").length;
-        expect(decisions.length > 0, "Decisions only when the call decided something").toBe(
-          expected > 0,
+          decisionsSection: decisions.length,
+          ...actionSectionCounts(units, title("actions"), call, cues),
+          machineAddresses: machineAddressLeaks(doc),
+          undone,
+          decisionsInSection: call.facts.filter(
+            (fact) =>
+              fact.kind === "decision" &&
+              decisions.some(
+                (unit) => namesSubject(fact, unit.text) && citesRightly(unit, fact, call, cues),
+              ),
+          ).length,
+          inPlace: scored.filter((each) => each.fact.underLine && each.inPlace).length,
+          questions: questions.length,
+          omitted: fill.omitted ?? 0,
+          unfinishedParts: fill.unfinishedParts ?? 0,
+        };
+        if (REPORT) {
+          const rows = scored
+            .map(
+              ({ fact, count, inClaims, cited, inPlace }) =>
+                `| ${fact.kind} | ${fact.name} | ${count} | ${cited ? "yes" : "no"} | ${inClaims} | ${fact.underLine ? (inPlace ? "yes" : "no") : "—"} |`,
+            )
+            .join("\n");
+          await appendFile(
+            REPORT,
+            ledger.sanitize(
+              [
+                `## ${call.id} · ${MODEL}`,
+                "",
+                `Once and cited rightly: ${once} of ${call.facts.length}. AI parts without a Citation: ${uncited}. Fill: ${fill.state}${fill.problem ? ` (${fill.problem.message})` : ""}.`,
+                `Tokens: ${usage.calls} requests, ${usage.input} in (${usage.cached} cached, ${usage.written} written to the cache), ${usage.output} out: $${usage.dollars.toFixed(4)}.`,
+                `Request settlement: ${ledger.snapshot().unsettled_requests} unsettled; amounts above are known subtotals, not free unknown usage.`,
+                `Replies: ${usage.replies.map((reply) => `${reply.output} out (${reply.reasoning} thinking), Tools: ${reply.tools.join(", ") || "none"}`).join("; ")}.`,
+                `Counts: ${JSON.stringify({ call: call.id, model: MODEL, scoring: "cue-owner-subject-placement-v5", dollars: usage.dollars, fillMs, once, total: call.facts.length, ...counts })}`,
+                "Occurrence counts use component-match minima and can miss partial or anaphoric repeats. Subject-only matches do not add to these counts. An independent raw duplicate and topic audit is still required, including redundant deadline restatements and action references without declared subjects.",
+                `Transcript cues: ${JSON.stringify(cues)}`,
+                "",
+                "| Kind | Fact | Times in the note | Cited rightly | In the claims list | In place |",
+                "|---|---|---|---|---|---|",
+                rows,
+                "",
+                "```",
+                shownNote(doc),
+                "```",
+                ...(fill.state === "filled" && once === call.facts.length
+                  ? []
+                  : [
+                      `Citation details: ${JSON.stringify(units.map((unit) => ({ text: unit.text, citations: unit.citations })))}`,
+                    ]),
+                "",
+                ...(fill.state === "filled" && !process.env.INCARNAMIND_LIVE_REPLIES
+                  ? []
+                  : usage.replies.flatMap((reply, index) => [
+                      `Reply ${index + 1}: ${reply.output} tokens out, ${reply.reasoning} reasoning, Tools: ${reply.tools.join(", ") || "none"}.`,
+                      "```",
+                      reply.raw,
+                      "```",
+                      "",
+                    ])),
+              ].join("\n"),
+            ),
+          );
+        }
+        expect(fill.state).toBe("filled");
+        // The User's own lines, as typed, in their order.
+        check("original_preserved", () =>
+          expect(units.filter((each) => !each.ai).map((each) => each.text)).toEqual(typed),
         );
-        expect(counts.decisionsInSection).toBe(expected);
-        const expectedActions = call.facts.filter((fact) => fact.kind === "action").length;
-        expect(counts.actionsSection > 0, "Actions only when the call has commitments").toBe(
-          expectedActions > 0,
+        check("all_facts_present", () =>
+          expect(scored.filter((each) => each.count === 0).map((each) => each.fact.name)).toEqual(
+            [],
+          ),
         );
-        expect(counts.actionsInSection, "Every action has a cited task reference in Actions").toBe(
-          expectedActions,
-        );
-        expect(counts.invented).toBe(0);
-        if (call.openQuestions !== undefined)
+        check("in_place", () => {
           expect(
-            questions.length > 0,
-            "Open questions only when the call explicitly left one unanswered",
-          ).toBe(call.openQuestions);
-        expect(once, "Every fact occurs once with the right Citation").toBe(call.facts.length);
-        expect(uncited).toBe(0);
-        const headings: string[] = [];
-        doc.forEach((block) => {
-          if (block.type.name === "heading") headings.push(block.textContent);
+            scored.filter((each) => !each.inPlace).map((each) => each.fact.name),
+            "Agreed facts fill out their typed lines in place",
+          ).toEqual([]);
         });
-        for (const text of Object.values(call.sectionHeadings ?? {})) {
-          expect(headings.filter((heading) => heading === text)).toHaveLength(1);
-          expect(units.some((unit) => unit.ai && unit.section === text)).toBe(true);
+        if (call.requireSections) {
+          expectCompleteFill(fill);
+          check("machine_addresses", () =>
+            expect(counts.machineAddresses, "No machine L/H/F addresses in generated prose").toBe(
+              0,
+            ),
+          );
+          check("undo", () => expect(undone).toBe(true));
+          check("overview", () => {
+            expect(summary.length, "Summary is present").toBeGreaterThan(0);
+            expect(
+              overview,
+              "The generated overview was placed, not just details under a Summary heading",
+            ).toBe(true);
+          });
+          const expected = call.facts.filter((fact) => fact.kind === "decision").length;
+          check("decisions", () => {
+            expect(decisions.length > 0, "Decisions only when the call decided something").toBe(
+              expected > 0,
+            );
+            expect(counts.decisionsInSection).toBe(expected);
+            expect(counts.invented).toBe(0);
+          });
+          const expectedActions = call.facts.filter((fact) => fact.kind === "action").length;
+          check("actions", () => {
+            expect(counts.actionsSection > 0, "Actions only when the call has commitments").toBe(
+              expectedActions > 0,
+            );
+            expect(
+              counts.actionsInSection,
+              "Every action has a cited task reference in Actions",
+            ).toBe(expectedActions);
+          });
+          check("questions", () => {
+            if (call.openQuestions !== undefined)
+              expect(
+                questions.length > 0,
+                "Open questions only when the call explicitly left one unanswered",
+              ).toBe(call.openQuestions);
+          });
+          check("once", () =>
+            expect(once, "Every fact occurs once with the right Citation").toBe(call.facts.length),
+          );
+          check("citations", () => {
+            expect(uncited).toBe(0);
+            expect(scored.every((each) => each.cited)).toBe(true);
+          });
+          const headings: string[] = [];
+          doc.forEach((block) => {
+            if (block.type.name === "heading") headings.push(block.textContent);
+          });
+          check("headings", () => {
+            for (const text of Object.values(call.sectionHeadings ?? {})) {
+              expect(headings.filter((heading) => heading === text)).toHaveLength(1);
+              expect(units.some((unit) => unit.ai && unit.section === text)).toBe(true);
+            }
+          });
+        }
+        if (STRUCTURED) ledger.assertSettled();
+        assertionsPassed = true;
+      } finally {
+        try {
+          await observation?.finish(assertionsPassed);
+        } finally {
+          restoreTransport?.();
         }
       }
     });

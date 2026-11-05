@@ -34,6 +34,32 @@ describe("Meeting heading routes (#2306)", () => {
     ).toEqual(new Map([["actions", "H1"]]));
   });
 
+  test.each([
+    "HEADINGS: H1=ACTIONS H2=NONE.",
+    "HEADINGS：H1=ACTIONS H2=NONE。",
+    "hEaDiNgS: h1=actions h2=none",
+    "HEADINGS: H1=ACTIONS,H2=NONE",
+    "HEADINGS: H1=ACTIONS, H2=NONE",
+    "HEADINGS: H1=ACTIONS，H2=NONE",
+    "HEADINGS: H1=ACTIONS | H2=NONE",
+    "HEADINGS: `H1=ACTIONS` `H2=NONE`",
+    "HEADINGS: `H1=ACTIONS H2=NONE`",
+    "`HEADINGS: H1=ACTIONS H2=NONE`",
+    "**HEADINGS:** H1=ACTIONS H2=NONE",
+    "**HEADINGS**: H1=ACTIONS H2=NONE",
+    "**HEADINGS: H1=ACTIONS H2=NONE**",
+    "- HEADINGS: H1=ACTIONS H2=NONE",
+    "HEADINGS: H1＝ACTIONS H2＝NONE",
+    "HEADINGS: H1 = ACTIONS H2 = NONE",
+    "HEADINGS: H1=ACTIONS\u3000H2=NONE",
+    "HEADINGS: H1\u00a0=\u00a0ACTIONS H2=NONE",
+    "- **hEaDiNgS：** `h1 ＝ actions` | `h2 = none`.",
+  ])("preserves the exact assignments with harmless formatting: %s", (preamble) => {
+    expect(headingRoutes(reply(preamble, ["ACTIONS"]), ["ACTIONS"], twoHeadings)).toEqual(
+      new Map([["actions", "H1"]]),
+    );
+  });
+
   test("explicit section targets work without metadata when every heading is assigned", () => {
     expect(
       headingRoutes(
@@ -65,6 +91,16 @@ describe("Meeting heading routes (#2306)", () => {
     ).toEqual(new Map([["actions", "H1"]]));
   });
 
+  test("formatted metadata and explicit targets can together account for all headings", () => {
+    expect(
+      headingRoutes(
+        reply("- **Headings：** `H2 = NONE`.", ["ACTIONS H1"]),
+        ["ACTIONS H1"],
+        twoHeadings,
+      ),
+    ).toEqual(new Map([["actions", "H1"]]));
+  });
+
   test("every heading may be a grouping heading while sections use their default places", () => {
     expect(
       headingRoutes(
@@ -85,6 +121,19 @@ describe("Meeting heading routes (#2306)", () => {
       headingRoutes(reply("HEADINGS: h9=none h3=actions", ["ACTIONS"]), ["ACTIONS"], lines),
     ).toEqual(new Map([["actions", "H3"]]));
   });
+
+  test.each(["Call with Acme", "通话记录", "Action items", "待办事项"])(
+    "never guesses a section or NONE from an unassigned heading: %s",
+    (text) => {
+      expect(
+        headingRoutes(
+          reply("", ["ACTIONS", "SUMMARY"]),
+          ["ACTIONS", "SUMMARY"],
+          [{ marker: "H1", text, heading: true }],
+        ),
+      ).toBeNull();
+    },
+  );
 
   test.each([
     {
@@ -216,6 +265,46 @@ describe("Meeting heading routes (#2306)", () => {
   });
 
   test.each([
+    "H1=待办事项 H2=NONE",
+    "H1=ACTIONS, H1=ACTIONS, H2=NONE",
+    "H1=ACTIONS | H1=DECISIONS | H2=NONE",
+    "H1=ACTIONS,H2=ACTIONS",
+    "H1=ACTIONS,H99=NONE,H2=NONE",
+    "H1=ACTIONS, H2=NONE extra",
+    "H1=NONE | H2=NONE",
+    "`H1=ACT`IONS H2=NONE",
+    "H1=AC TIONS H2=NONE",
+    "H1=ACTIONS,,H2=NONE",
+    "H1=ACTIONS | | H2=NONE",
+    "H1=ACTIONS H2=NONE..",
+    "`H1=ACTIONS H2=NONE",
+    "H1=ACTIONS` H2=NONE`",
+  ])("formatting does not hide invalid or conflicting assignments: %s", (entries) => {
+    expect(
+      headingRoutes(
+        reply(`- **Headings：** ${entries}`, ["ACTIONS H1"]),
+        ["ACTIONS H1"],
+        twoHeadings,
+      ),
+    ).toBeNull();
+  });
+
+  test.each([
+    "headings: H1=ACTIONS H2=NONE",
+    "**HEADINGS:** H1=NONE H2=DECISIONS",
+    "- HEADINGS：H1=ACTIONS,H2=NONE",
+    "`HEADINGS: H1=ACTIONS H2=NONE`",
+  ])("rejects a second control line regardless of formatting: %s", (second) => {
+    expect(
+      headingRoutes(
+        reply(`HEADINGS: H1=ACTIONS H2=NONE\n${second}`, ["ACTIONS"]),
+        ["ACTIONS"],
+        twoHeadings,
+      ),
+    ).toBeNull();
+  });
+
+  test.each([
     { firstHeading: "### ACTIONS", markers: ["ACTIONS", "SUMMARY"] },
     { firstHeading: "### L1", markers: ["L1", "SUMMARY"] },
     { firstHeading: "### Other content", markers: ["SUMMARY"] },
@@ -244,6 +333,29 @@ describe("Meeting heading routes (#2306)", () => {
       headingRoutes("### ACTIONS H1\nContent.\nHEADINGS: H1=DECISIONS", ["ACTIONS H1"], oneHeading),
     ).toEqual(new Map([["actions", "H1"]]));
   });
+
+  test.each(["```", "~~~"])("accepts a control line enclosed in a %s fence", (fence) => {
+    expect(
+      headingRoutes(
+        reply(`${fence}\nHEADINGS: H1=ACTIONS H2=NONE\n${fence}`, ["ACTIONS"]),
+        ["ACTIONS"],
+        twoHeadings,
+      ),
+    ).toEqual(new Map([["actions", "H1"]]));
+  });
+
+  test.each(["```", "~~~"])(
+    "a %s fence never reopens metadata after a content heading",
+    (fence) => {
+      expect(
+        headingRoutes(
+          `${fence}\n### ACTIONS\nContent.\nHEADINGS: H1=ACTIONS\n${fence}`,
+          ["ACTIONS"],
+          oneHeading,
+        ),
+      ).toBeNull();
+    },
+  );
 
   test.each([{ lines: [] }, { lines: ordinaryLines }])(
     "without structural headings, legacy explicit H targets keep the default section placement",

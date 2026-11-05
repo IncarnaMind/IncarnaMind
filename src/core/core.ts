@@ -15,6 +15,7 @@ import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
 import { parseCitedArea, parseLocation } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
+import { isPartialMeetingFill } from "../shared/meetingFill";
 import {
   HEARD_FROM,
   helpKindsFor,
@@ -4714,7 +4715,13 @@ export function createCore(adapters: CoreAdapters): Core {
           title:
             meeting.kind === "memo"
               ? translate(language, "memos.fill.notify", { memo: name })
-              : translate(language, "meetings.fill.notify", { meeting: name }),
+              : translate(
+                  language,
+                  isPartialMeetingFill(meeting.fill)
+                    ? "meetings.fill.notify.partial"
+                    : "meetings.fill.notify",
+                  { meeting: name },
+                ),
           body: "",
         },
         (windowIds) => mindShown(meeting.mindId, windowIds),

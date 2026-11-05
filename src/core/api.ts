@@ -10892,6 +10892,10 @@ export interface MeetingFill {
   /** The model that wrote it runs on this computer. */
   local: boolean;
   problem: MeetingFillProblem | null;
+  /** Known rejected additions, including an unavailable overview; absent on older fills. */
+  omitted?: number;
+  /** Transcript parts not finished when a request failed; absent on older fills. */
+  unfinishedParts?: number;
 }
 
 /**

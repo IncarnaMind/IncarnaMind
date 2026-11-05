@@ -191,6 +191,7 @@ export interface QuestionContext {
   messages: AnswerMessage[];
   /** The Question's own text. */
   question: string;
+  meetingFacts?: true;
 }
 /** A Question context, and where the third-party text it holds came from. */
 export interface QuestionContextWithOrigins {

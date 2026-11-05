@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import type { AudioSource, Meeting, Settings } from "../../core/api";
 import { meetingTimeAt } from "../../shared/blockTimes";
+import { isPartialMeetingFill } from "../../shared/meetingFill";
 import { mindName } from "../../shared/naming";
 import { core, files } from "./core";
 import { errorMessage } from "./errors";
@@ -305,7 +306,14 @@ function offerUndoOfFill(before: readonly Meeting[], after: readonly Meeting[]):
     if (was === undefined || was === "filled") continue;
     const memo = meeting.kind === "memo";
     useUndo.getState().push({
-      said: (t) => t(memo ? "memos.fill.filled" : "meetings.fill.filled"),
+      said: (t) =>
+        t(
+          memo
+            ? "memos.fill.filled"
+            : isPartialMeetingFill(meeting.fill)
+              ? "meetings.fill.partial"
+              : "meetings.fill.filled",
+        ),
       name: (t) => t(memo ? "memos.fill.undoName" : "meetings.fill.undoName"),
       undo: () => core.undoMeetingFill(meeting.id).then(() => undefined),
       also: {

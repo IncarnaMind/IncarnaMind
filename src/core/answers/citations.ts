@@ -321,18 +321,49 @@ function quoteInCues(
   time: RowsOrLines & { speaker?: string },
   matching: Matching & { unique?: boolean },
 ): TextRange[] | null {
-  const { text, starts } = joinUnits(units);
-  const spans: TextRange[] = [];
   // Cue marks round down, so a named second includes cues that start within it.
   const until = time.from === time.to ? time.from + 1000 : time.to;
+  return quoteInCueWindow(
+    units,
+    quote,
+    (cue, speaker) =>
+      (!time.speaker || speaker === time.speaker) && cue.startMs < until && cue.endMs > time.from,
+    matching,
+  );
+}
+
+function quoteInStoredCues(
+  units: readonly PageText[],
+  quote: string,
+  time: RowsOrLines,
+  matching: Matching & { unique?: boolean },
+  accepted?: (ranges: readonly TextRange[]) => boolean,
+): TextRange[] | null {
+  // A stored speaker names the first cue, not every cue in its interval.
+  return quoteInCueWindow(
+    units,
+    quote,
+    (cue) => cue.startMs >= time.from && cue.endMs <= time.to,
+    matching,
+    accepted,
+  );
+}
+
+function quoteInCueWindow(
+  units: readonly PageText[],
+  quote: string,
+  selected: (cue: { startMs: number; endMs: number }, speaker: string | null) => boolean,
+  matching: Matching & { unique?: boolean },
+  accepted?: (ranges: readonly TextRange[]) => boolean,
+): TextRange[] | null {
+  const { text, starts } = joinUnits(units);
+  const spans: TextRange[] = [];
   units.forEach((unit, index) => {
     if (unit.kind !== "cues") return;
     for (const [at, anchor] of (unit.anchors ?? []).entries()) {
       const cue = parseCueTarget(anchor.target);
       if (!cue) continue;
-      if (time.speaker && unit.label?.speakers?.[at] !== time.speaker) continue;
-      const selected = cue.startMs < until && cue.endMs > time.from;
-      if (!selected) continue;
+      if (!selected(cue, unit.label?.speakers?.[at] ?? null)) continue;
       const start = (starts[index] ?? 0) + anchor.start;
       const end = (starts[index] ?? 0) + anchor.end;
       const previous = spans.at(-1);
@@ -343,15 +374,20 @@ function quoteInCues(
   let found: TextRange[] | null = null;
   for (const span of spans) {
     const part = text.slice(span.start, span.end);
-    const ranges = findQuote(part, quote, { ...matching, unique: false });
+    const absolute = (ranges: readonly TextRange[]) =>
+      ranges.map((range) => ({ start: span.start + range.start, end: span.start + range.end }));
+    const options = {
+      ...matching,
+      ...(accepted && {
+        acceptMatch: (ranges: readonly TextRange[]) => accepted(absolute(ranges)),
+      }),
+    };
+    const ranges = findQuote(part, quote, { ...options, unique: false });
     if (!ranges) continue;
-    if (matching.unique && (found || !findQuote(part, quote, { ...matching, unique: true }))) {
+    if (matching.unique && (found || !findQuote(part, quote, { ...options, unique: true }))) {
       return null;
     }
-    found = ranges.map((range) => ({
-      start: span.start + range.start,
-      end: span.start + range.end,
-    }));
+    found = absolute(ranges);
     if (!matching.unique) return found;
   }
   return found;
@@ -593,14 +629,15 @@ function quoteForRecheck(
     return quoteInUnits(units, quote, matching);
   }
   if (location.kind !== "time") return null;
-  const found = quoteInCues(units, quote, location, { ...matching, unique: true });
-  const at = found ? locationOf(units, found) : null;
-  return at?.kind === "time" &&
-    at.from === location.from &&
-    at.to === location.to &&
-    (!location.speaker || at.speaker === location.speaker)
-    ? found
-    : null;
+  return quoteInStoredCues(units, quote, location, { ...matching, unique: true }, (ranges) => {
+    const at = locationOf(units, ranges);
+    return (
+      at?.kind === "time" &&
+      at.from === location.from &&
+      at.to === location.to &&
+      (!location.speaker || at.speaker === location.speaker)
+    );
+  });
 }
 
 /**
@@ -622,7 +659,7 @@ function withQuotedWords(
   const cited = documents.pageTexts(documentId, contentHash, range.pageFrom, range.pageTo);
   const found =
     location?.kind === "time"
-      ? quoteInCues(cited, words, location, matchingOf(units))
+      ? quoteInStoredCues(cited, words, location, matchingOf(units))
       : quoteInUnits(cited, words, matchingOf(units));
   return found ? check : { check: "not-found", checkReason: "quoted-words-not-on-pages" };
 }

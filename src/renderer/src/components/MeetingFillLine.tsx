@@ -1,8 +1,11 @@
 import type { Meeting, MeetingFillProblem } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
+import { isPartialMeetingFill } from "../../../shared/meetingFill";
 import { useT } from "../i18n";
 import { useMeetings } from "../meetings";
+import { showTranscript } from "../transcripts";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
+import { useTabPlace } from "./tabs/tabItems";
 
 const REASONS = {
   model: "meetings.fill.problem.model",
@@ -44,6 +47,7 @@ const WORDS = {
  */
 export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
   const t = useT();
+  const place = useTabPlace();
   const { fill } = meeting;
   if (!fill) return null;
   const words = WORDS[meeting.kind];
@@ -52,6 +56,11 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
     testId: "meeting-fill-again",
     onClick: () => void useMeetings.getState().fillNotes(meeting.id),
   });
+  const undo: ProblemAction = {
+    label: t("meetings.fill.undo"),
+    testId: "meeting-fill-undo",
+    onClick: () => void useMeetings.getState().undoFill(meeting.id),
+  };
   // Said in the interface's words now; a model's own words show on hover.
   const reasonOf = (problem: MeetingFillProblem | null) =>
     t(
@@ -72,18 +81,57 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
       </ProblemLine>
     );
   }
-  if (fill.state === "filled") {
+  const omitted = fill.omitted ?? 0;
+  const unfinishedParts = fill.unfinishedParts ?? 0;
+  if (
+    meeting.kind === "meeting" &&
+    ((fill.state === "filled" && isPartialMeetingFill(fill)) ||
+      (fill.state === "failed" && (omitted > 0 || unfinishedParts > 0)))
+  ) {
+    const filled = fill.state === "filled";
+    const documentId = meeting.transcript?.documentId;
     return (
       <ProblemLine
         testId="meeting-fill-line"
-        role="status"
-        className=""
-        action={{
-          label: t("meetings.fill.undo"),
-          testId: "meeting-fill-undo",
-          onClick: () => void useMeetings.getState().undoFill(meeting.id),
-        }}
+        role={filled ? "status" : "alert"}
+        title={!filled && fill.problem?.kind === "model" ? fill.problem.message : undefined}
+        details={[
+          ...(omitted > 0
+            ? [
+                t(omitted === 1 ? "meetings.fill.omitted.one" : "meetings.fill.omitted", {
+                  count: omitted,
+                }),
+              ]
+            : []),
+          ...(unfinishedParts > 0
+            ? [
+                t(
+                  unfinishedParts === 1
+                    ? "meetings.fill.unfinishedParts.one"
+                    : "meetings.fill.unfinishedParts",
+                  { count: unfinishedParts },
+                ),
+              ]
+            : []),
+        ]}
+        action={
+          documentId
+            ? {
+                label: t("meetings.fill.viewTranscript"),
+                testId: "meeting-fill-transcript",
+                onClick: () => showTranscript(documentId, place?.groupId),
+              }
+            : undefined
+        }
+        also={filled ? undo : again(t("meetings.fill.tryAgain"))}
       >
+        {t(filled ? "meetings.fill.partial" : "meetings.fill.noAdditions")}
+      </ProblemLine>
+    );
+  }
+  if (fill.state === "filled") {
+    return (
+      <ProblemLine testId="meeting-fill-line" role="status" className="" action={undo}>
         {fill.mode === "transcript"
           ? t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
           : t(words.filled)}
