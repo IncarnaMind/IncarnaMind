@@ -30,9 +30,9 @@ export const zhCN = {
   "library.toSort.other": "{count} 个待整理",
   "library.toSort.allow": "允许 {service}",
   "library.toSort.sends.one":
-    "1 个文档等待整理：尚未允许 {service} 读取。允许后，会把这个文档的名称和简短摘录发送给 {service}，包括这个文档和以后添加的文档。",
+    "1 个文档等待整理：尚未允许 {service} 读取。允许后，会把这个文档的名称、类型和简短摘录，以及你的文件夹和标签的名称与说明，发送给 {service}，包括这个文档和以后添加的文档。",
   "library.toSort.sends.other":
-    "{count} 个文档等待整理：尚未允许 {service} 读取。允许后，会把每个文档的名称和简短摘录发送给 {service}，包括这些文档和以后添加的文档。",
+    "{count} 个文档等待整理：尚未允许 {service} 读取。允许后，会把每个文档的名称、类型和简短摘录，以及你的文件夹和标签的名称与说明，发送给 {service}，包括这些文档和以后添加的文档。",
   "library.organize.sends": "会把文档名称和摘录发送给 {company}。",
   "library.organize.sends.details":
     "每个文档的名称和开头的文字（扫描件则是前几页的图片），以及文件夹和标签的名称与描述，会发送给 {company}。",

@@ -78,7 +78,7 @@ async function setup(language: keyof typeof TEXTS = "en") {
   if (language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
   const anthropic = await core.saveChatProvider({
     kind: "anthropic",
-    apiKey: "sk-ant-a-made-up-key",
+    apiKey: "sk-ant-test",
     modelId: "claude-haiku-5-5",
   });
   const harbour = await core.createLibraryGroup({
@@ -180,7 +180,7 @@ describe("Dropped Documents wait for the User's Allow (#2308)", { timeout: 120_0
     await sorted(core, [first], harbour.id);
     const openai = await core.saveChatProvider({
       kind: "openai",
-      apiKey: "sk-a-made-up-key",
+      apiKey: "sk-test",
       modelId: "gpt-6-luna",
     });
     await core.saveLibrarySettings({
@@ -275,24 +275,29 @@ describe("The row's words (#2308)", () => {
   test.each([
     [
       "en",
-      "4 to sort",
-      "1 to sort",
+      "4 to organize",
+      "1 to organize",
       "Allow Anthropic",
-      "4 Documents wait to be sorted: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name and short excerpts to Anthropic, for these and for Documents you add later.",
+      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, type and short excerpts, and your Folders’ and Tags’ names and descriptions, to Anthropic, for these and for Documents you add later.",
+      "1 Document waits to be organized: Anthropic isn’t allowed to read it. Allowing it sends the Document’s name, type and short excerpts, and your Folders’ and Tags’ names and descriptions, to Anthropic, for this one and for Documents you add later.",
     ],
     [
       "zh-CN",
       "4 个待整理",
       "1 个待整理",
       "允许 Anthropic",
-      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称和简短摘录发送给 Anthropic，包括这些文档和以后添加的文档。",
+      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和简短摘录，以及你的文件夹和标签的名称与说明，发送给 Anthropic，包括这些文档和以后添加的文档。",
+      "1 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把这个文档的名称、类型和简短摘录，以及你的文件夹和标签的名称与说明，发送给 Anthropic，包括这个文档和以后添加的文档。",
     ],
-  ] as const)("%s", (language, many, one, allowLabel, sends) => {
+  ] as const)("%s", (language, many, one, allowLabel, sends, sendsOne) => {
     expect(translate(language, "library.toSort.other", { count: 4 })).toBe(many);
     expect(translate(language, "library.toSort.one")).toBe(one);
     expect(translate(language, "library.toSort.allow", { service: "Anthropic" })).toBe(allowLabel);
     expect(
       translate(language, "library.toSort.sends.other", { count: 4, service: "Anthropic" }),
     ).toBe(sends);
+    expect(translate(language, "library.toSort.sends.one", { service: "Anthropic" })).toBe(
+      sendsOne,
+    );
   });
 });

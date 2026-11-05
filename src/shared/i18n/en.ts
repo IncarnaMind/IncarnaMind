@@ -29,13 +29,13 @@ export const en = {
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
   "library.organize.needsModel": "Organize needs an AI model",
   "library.organize.use": "Use {company}",
-  "library.toSort.one": "1 to sort",
-  "library.toSort.other": "{count} to sort",
+  "library.toSort.one": "1 to organize",
+  "library.toSort.other": "{count} to organize",
   "library.toSort.allow": "Allow {service}",
   "library.toSort.sends.one":
-    "1 Document waits to be sorted: {service} isn’t allowed to read it. Allowing it sends the Document’s name and short excerpts to {service}, for this one and for Documents you add later.",
+    "1 Document waits to be organized: {service} isn’t allowed to read it. Allowing it sends the Document’s name, type and short excerpts, and your Folders’ and Tags’ names and descriptions, to {service}, for this one and for Documents you add later.",
   "library.toSort.sends.other":
-    "{count} Documents wait to be sorted: {service} isn’t allowed to read them. Allowing it sends each Document’s name and short excerpts to {service}, for these and for Documents you add later.",
+    "{count} Documents wait to be organized: {service} isn’t allowed to read them. Allowing it sends each Document’s name, type and short excerpts, and your Folders’ and Tags’ names and descriptions, to {service}, for these and for Documents you add later.",
   "library.organize.sends": "Sends document names and excerpts to {company}.",
   "library.organize.sends.details":
     "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to {company}.",
