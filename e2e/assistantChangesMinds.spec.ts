@@ -157,6 +157,10 @@ for (const { language, first, second, made, question, open } of MADE_NOTE_CASES)
 
     await expect(frontMindName(window)).toHaveText(first);
     await expect(window.getByTestId("mind-tab").filter({ hasText: made })).toBeVisible();
+    await setWindowSize(app, window, 900, 760);
+    await expect(frontMindName(window)).toHaveText(first);
+    await screenshot(window, `made-note-stays-behind-answered-narrow-${language}`);
+    await setWindowSize(app, window, 1440, 900);
     const openMade = answer.getByTestId("mind-changes-open");
     await expect(openMade).toHaveText(open);
     await pointAndClick(window, openMade);
