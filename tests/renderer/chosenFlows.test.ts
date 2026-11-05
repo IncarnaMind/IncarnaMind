@@ -34,6 +34,7 @@ const NAMED_BY: Record<string, readonly DataKind[]> = {
     "passages",
     "document-names",
     "other-minds",
+    "note-catalogue",
     "live-transcript",
     "pictures",
     "skill-files",

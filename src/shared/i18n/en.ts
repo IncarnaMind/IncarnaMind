@@ -2336,7 +2336,7 @@ export const en = {
   "webPages.add.fetch.details":
     "The article’s pictures come with it, and may come from the site’s image servers. Nothing else on the page is loaded.",
   "webPages.add.fetch.details.keepLook":
-    "The article’s pictures come with it, and may come from the site’s image servers; keeping the look also loads the page’s scripts and the sites they contact.",
+    "The article’s pictures come with it, and may come from the site’s image servers; keeping the look also loads the page’s scripts, stylesheets, fonts, frames and media, which may come from other sites.",
   "webPages.add.label": "Addresses",
   "webPages.add.invalid": "Not a web address: {line}",
   "webPages.add.cancel": "Cancel",
@@ -2352,7 +2352,7 @@ export const en = {
   "webPages.tryAgain": "Try again",
   "webPages.add.keepLook": "Keep the page as it looks",
   "webPages.keepLook.body":
-    "Also keeps a PDF, loading the page once more as a browser would; every site its scripts and pictures load from sees that visit.",
+    "Also keeps a PDF, loading the page once more as a browser would; every site it loads anything from sees that visit.",
   "webPages.reason.invalid-address": "it isn’t a web address",
   "webPages.reason.unreachable": "the site can’t be reached",
   "webPages.reason.timed-out": "the site took too long to answer",
@@ -3144,8 +3144,9 @@ export const en = {
     "This note’s text, your text and earlier Questions and Answers, minus excluded text",
   "consent.data.document-names":
     "The names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50 Documents)",
-  "consent.data.other-minds":
-    "The names of up to 30 of your most recently changed notes, noting which an Answer wrote, and part of another note when a Question names it",
+  "consent.data.other-minds": "Part of another note, when a Question names it",
+  "consent.data.note-catalogue":
+    "The names of up to 30 of your most recently changed notes, noting which an Answer wrote",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":
@@ -6989,7 +6990,7 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id and its location; when it reads around a Passage, internal ids for it and the Passages next to it; and, for a search, which page of results it is and whether more follow",
+    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a Passage, the internal ids of the Passages next to it; and, for a search, which page of results it is and whether more follow",
   "consent.data.scoped-minds":
     "The shared Folders’ names, internal ids and Document counts, the names, internal ids and last-change times of the notes in them when the agent lists them, and the part of a note it reads, with where the next part starts",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",

@@ -110,6 +110,7 @@ export const CHAT_FLOW_SENDS = [
   "passages",
   "document-names",
   "other-minds",
+  "note-catalogue",
   "live-transcript",
   // A picture the User selects in a Note to ask about (#1937): it goes only when they ask, never
   // as part of the note's text.

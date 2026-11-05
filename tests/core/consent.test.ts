@@ -138,6 +138,7 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
     expect(first.request.newKinds).toEqual([
       "document-names",
       "other-minds",
+      "note-catalogue",
       "live-transcript",
       "pictures",
       "skill-files",

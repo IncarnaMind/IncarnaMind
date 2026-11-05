@@ -2225,7 +2225,7 @@ export const zhCN = {
   "webPages.add.fetch.details":
     "正文中的图片会一并抓取，可能来自网站的图片服务器。网页上的其他内容一概不加载。",
   "webPages.add.fetch.details.keepLook":
-    "正文中的图片会一并抓取，可能来自网站的图片服务器；保留网页外观还会加载网页的脚本及其连接的网站。",
+    "正文中的图片会一并抓取，可能来自网站的图片服务器；保留网页外观还会加载网页的脚本、样式表、字体、框架和媒体，它们可能来自其他网站。",
   "webPages.add.label": "网址",
   "webPages.add.invalid": "不是网址：{line}",
   "webPages.add.cancel": "取消",
@@ -2241,7 +2241,7 @@ export const zhCN = {
   "webPages.tryAgain": "重试",
   "webPages.add.keepLook": "保留网页原貌",
   "webPages.keepLook.body":
-    "同时保存 PDF；网页会像在浏览器中一样再加载一次，其脚本和图片所连接的网站都会看到这次访问。",
+    "同时保存 PDF；网页会像在浏览器中一样再加载一次，它加载任何内容的网站都会看到这次访问。",
   "webPages.reason.invalid-address": "这不是网址",
   "webPages.reason.unreachable": "无法连接到网站",
   "webPages.reason.timed-out": "网站响应超时",
@@ -2991,8 +2991,8 @@ export const zhCN = {
   "consent.flow.chat.purpose": "回答你的问题",
   "consent.data.blocks": "这篇笔记的正文、你写的内容和之前的问题和回答，不含已排除的内容",
   "consent.data.document-names": "问题或命令找到的文档和笔记：名称、文件夹和标签（最多 50 个文档）",
-  "consent.data.other-minds":
-    "最近修改的最多 30 篇笔记的名称（标出由回答写成的），以及问题指定另一篇笔记时该笔记的一部分",
+  "consent.data.other-minds": "问题中提到的另一篇笔记的部分内容",
+  "consent.data.note-catalogue": "最近修改的最多 30 篇笔记的名称（标出由回答写成的）",
   "consent.data.live-transcript": "会议转写稿：录制时的实时部分，停止录制后整份用于填写笔记",
   "consent.data.passages": "文档中与问题相关的段落，连同所属文档的名称和页码",
   "consent.data.tool-results": "回答所用连接器和技能脚本返回的结果",
@@ -6610,7 +6610,7 @@ export const zhCN = {
   "consent.flow.agents": "你的 AI 智能体",
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
   "consent.data.scoped-passages":
-    "所选文件夹中文档的段落，每段连同文档名称、内部 ID 和位置；读取某段前后内容时，还会发送该段和相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多",
+    "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多",
   "consent.data.scoped-minds":
     "共享文件夹的名称、内部 ID 和文档数；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的部分内容，以及下一部分的起始位置",
   "consent.data.answers": "IncarnaMind 对智能体所提问题的回答，以及其中的引文",

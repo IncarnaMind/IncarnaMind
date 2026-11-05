@@ -8645,6 +8645,7 @@ export const dataKinds = [
   "skill-files",
   "analysis-results",
   "source-quotes",
+  "note-catalogue",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
