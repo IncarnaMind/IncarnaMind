@@ -34,7 +34,6 @@ function markerOf(state: EditorState): number | null {
   if (!table || !binding) return null;
   let found: number | null = null;
   state.doc.descendants((node, pos) => {
-    if (pos >= table.pos) return false;
     const named =
       node.type.name === ANALYSIS_TABLE_NODE
         ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE])
@@ -204,7 +203,7 @@ function convertMarked(editor: Editor): boolean {
   editor.state.doc.forEach((node, pos) => {
     const named =
       node.type.name === "table" ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) : null;
-    if (table === null && pos > selection.from && named && sameBinding(named, binding)) table = pos;
+    if (table === null && named && sameBinding(named, binding)) table = pos;
   });
   const at = table;
   return editor.commands.command(({ tr }) => {

@@ -326,6 +326,50 @@ test("the cells and caption are never claims; a table needing a look counts once
   expect(twoUnearned.supported).toBe(0);
 });
 
+test("a sentence typed into the caption line is counted as the core checks it; a caption with “vs.” still names its table", () => {
+  const editor = editorOf(NOTE);
+  const toCheck = () =>
+    noteHealth(editor.state.doc, {
+      claims: [],
+      citationCheck: () => "found",
+      tableShown: () => ({ state: { kind: "recalculated" }, missing: 0, columns: [] }),
+    }).toCheck;
+  const captionStart = editor.state.doc.child(0).nodeSize + 1;
+  const typeIntoCaption = (words: string) =>
+    editor.commands.command(({ tr }) => {
+      tr.insertText(words, captionStart);
+      return true;
+    });
+  typeIntoCaption("Sales vs. budget, 1.5x: ");
+  expect(toCheck()).toHaveLength(1);
+  typeIntoCaption("North's total amount grew 40% to 12,000. ");
+  expect(toCheck()).toContain(captionStart);
+});
+
+/** The Note with its caption line moved below its table, as an edit elsewhere can leave it. */
+const CAPTION_BELOW: JSONContent = {
+  ...NOTE,
+  content: [NOTE.content?.[0], NOTE.content?.[2], NOTE.content?.[1]].filter(
+    (each): each is JSONContent => each !== undefined,
+  ),
+};
+
+test("a caption below its table is still its table's: Convert to text from either takes both", () => {
+  const fromTable = editorOf(CAPTION_BELOW);
+  intoTable(fromTable);
+  expect(convertAnalysisTable(fromTable)).toBe(true);
+  expect(markers(fromTable)).toBe(0);
+  intoTable(fromTable);
+  expect(inAnalysisTable(fromTable.state)).toBe(false);
+  const fromMarker = editorOf(CAPTION_BELOW);
+  fromMarker.commands.setTextSelection(markerAt(fromMarker) + 1);
+  press(fromMarker, "Backspace");
+  press(fromMarker, "Backspace");
+  expect(markers(fromMarker)).toBe(0);
+  intoTable(fromMarker);
+  expect(inAnalysisTable(fromMarker.state)).toBe(false);
+});
+
 test("the table's menu opens with Open calculation card, and keeps it and Convert to text whatever the table can do", () => {
   expect(tableMenuGroups(true, false)[0]).toEqual(["openCalculation"]);
   expect(tableMenuGroups(true, false).flat()).toContain("convertToText");

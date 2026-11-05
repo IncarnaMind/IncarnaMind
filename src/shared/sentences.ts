@@ -108,6 +108,20 @@ export function sentenceSpans(text: string, figures: readonly number[] = []): Se
   }, []);
 }
 
+const SENTENCE_END = new RegExp(`[.!?。！？]["'”’)）\\]】${INLINE_NODE}\\s]*$`, "u");
+
+/**
+ * Whether the text of an Analysis table's caption line only names its table, as a heading does
+ * (#2378): one sentence at most, and none ended ("Sales vs. budget" and "1.5x" end none). A sentence
+ * the User types into the line is read, checked and counted as any is.
+ */
+export function onlyNamesItsTable(text: string): boolean {
+  const spans = sentenceSpans(text);
+  return (
+    spans.length <= 1 && !spans.some((span) => SENTENCE_END.test(text.slice(span.from, span.to)))
+  );
+}
+
 /** The text of a sentence as checks compare it: without inline nodes, spaces collapsed. */
 export const comparableSentence = (text: string): string =>
   text.replaceAll(INLINE_NODE, "").replace(/\s+/gu, " ").trim();

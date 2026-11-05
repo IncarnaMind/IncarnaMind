@@ -51,7 +51,7 @@ import { readFigures } from "../../../shared/figures";
 import { memoized } from "../../../shared/memo";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
-import { isClaim } from "../../../shared/sentences";
+import { INLINE_NODE, isClaim, onlyNamesItsTable } from "../../../shared/sentences";
 import { claimPlaces, keptSpans, markOf, type ShownClaim, shownClaims } from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
@@ -199,6 +199,12 @@ function inValueCell(doc: ProseMirrorNode, pos: number): boolean {
   return false;
 }
 
+/** A line's text as the core's check reads it: an inline node as U+FFFC, a line break as "\n". */
+const lineText = (paragraph: ProseMirrorNode): string =>
+  paragraph.textBetween(0, paragraph.content.size, "\n", (leaf) =>
+    leaf.type.name === "hardBreak" ? "\n" : INLINE_NODE,
+  );
+
 const holdsTableMarker = (paragraph: ProseMirrorNode): boolean => {
   let holds = false;
   paragraph.forEach((child) => {
@@ -226,7 +232,12 @@ function eachSentence(
       visitTable?.(node, pos);
       return false;
     }
-    if (node.type.name === "paragraph" && holdsTableMarker(node)) return false;
+    if (
+      node.type.name === "paragraph" &&
+      holdsTableMarker(node) &&
+      onlyNamesItsTable(lineText(node))
+    )
+      return false;
     if (node.type.name === CHART_NODE) {
       const chart = readChart(node.attrs);
       if (chartPoints(chart).length === 0 || fromAnalysisOnly(chart)) return false;

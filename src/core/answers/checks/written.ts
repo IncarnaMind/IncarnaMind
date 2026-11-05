@@ -49,7 +49,7 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
-import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
+import { INLINE_NODE, isClaim, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
@@ -254,7 +254,11 @@ export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
       }
       // A header cell names its column or row, and a caption its table: they state nothing a check
       // could support (#2378).
-      if (inHeader || content.some((inline) => inline.type === ANALYSIS_TABLE_NODE)) {
+      if (
+        inHeader ||
+        (content.some((inline) => inline.type === ANALYSIS_TABLE_NODE) &&
+          onlyNamesItsTable(paragraphText(content)))
+      ) {
         after = { kind: "paragraph" };
         return;
       }
