@@ -466,8 +466,9 @@ export function ClaimMark({
               }}
               use={offersUseFigure(editor, claim)}
               onUse={() => {
-                applyFigure(editor, claim);
-                done(true);
+                applyFigure(editor, mindId, doc, claim);
+                // A whole read is asked again in this card, which stays open for it.
+                if (claim.check.action !== "check-against-document") done(true);
               }}
             />
           </Popover>,

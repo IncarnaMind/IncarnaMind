@@ -29,7 +29,7 @@ import { checkedCitation, checkWithParts } from "../../shared/claimParts";
 import { readFigures } from "../../shared/figures";
 import { readProposalAttribute, targetHash } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
-import { citationClosingLength, fixesFree } from "./checks";
+import { citationClosingLength } from "./checks";
 import { core } from "./core";
 import { citationsOf } from "./editor/alreadyCited";
 import {
@@ -41,9 +41,10 @@ import {
   shownClaims,
 } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
-import { figurePlace, sentenceFigureContext, writeSentenceCheck } from "./editor/figurePlaces";
+import { figurePlace, writeSentenceCheck } from "./editor/figurePlaces";
 import { translateNow } from "./i18n";
 import { useNotices } from "./notices";
+import { fixesFree, sentenceFigureContext } from "./unsupportedFixes";
 
 /** One part's old words and the Document's wording for them. */
 interface Edit {
@@ -67,22 +68,6 @@ interface CorrectionPlan {
   edits: Edit[];
   /** The Passages to cite at the sentence's end: those it doesn't already cite. */
   cites: ClaimCorrectionChoice["evidence"][];
-}
-
-/** A number a figure's use writes over, as the one edit that settles the sentence's check. */
-export interface FigureEdit {
-  /** The part the number is in; null for a check of the whole sentence. */
-  span: ClaimPartSpan | null;
-  /** The number as the sentence writes it. */
-  old: string;
-  /** Where the number starts in the sentence. */
-  at: number;
-  /** Its place in the document. */
-  from: number;
-  to: number;
-  /** The figure as the sentence writes it now. */
-  wording: string;
-  evidence: Citation;
 }
 
 const sameSpan = (a: ClaimPartSpan | null, b: ClaimPartSpan | null) =>
@@ -420,31 +405,6 @@ function checkedAfter(
           : { ...remainder, text }),
     }),
   };
-}
-
-/**
- * The sentence's check once a figure's number is written in: its part Supported on the figure's
- * Citation, each figure moved with the number, and the model and time the check had (#2313).
- */
-export function checkAfterFigure(
-  before: ProseMirrorNode,
-  tr: Transaction,
-  claim: ShownClaim,
-  after: ClaimSpan,
-  edit: FigureEdit,
-): ClaimCheckAttributes | null {
-  const choice = { wording: edit.wording, evidence: edit.evidence };
-  const settled: Edit = {
-    correction: { from: edit.old, choices: [choice] },
-    choice,
-    evidence: edit.evidence,
-    span: edit.span,
-    at: edit.at,
-    old: edit.old,
-    from: edit.from,
-    to: edit.to,
-  };
-  return checkedAfter(before, tr, { claim, edits: [settled], cites: [] }, after);
 }
 
 /** The sentence's words once its edits are made, as its check reads them. */

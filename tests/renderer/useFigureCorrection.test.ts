@@ -2,7 +2,8 @@ import { Editor } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import { DOMParser } from "linkedom";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
-import * as Y from "yjs";
+import type * as Y from "yjs";
+import type { Core } from "../../src/core";
 import { MIND_CONTENT_FIELD } from "../../src/core/api";
 import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
 import {
@@ -12,33 +13,45 @@ import {
 } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { applyFigure } from "../../src/renderer/src/unsupportedFixes";
-import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { checkingModel, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
-import { manualClock } from "../helpers/core";
 import { readMind, writeMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
 
 /*
- * Use {figure} sets a sentence's number to the figure the check worked out and
- * settles its check as Supported on the Passage the figure came from (#2313).
- * As Change to… does, it asks no model: the scripted model records no request,
- * and the check line keeps the model and time the check already named. English
- * and Chinese.
+ * Use {figure} writes the figure's number at once, with no request of its own,
+ * and then the sentence is checked again like any edit (#2313): the model reads
+ * the new sentence, and its verdict is the one shown, never a Supported written
+ * by code. A misnamed figure ends Unsupported or Not checked, never Supported.
+ * Undo brings back the old number and the check it had. English and Chinese.
  */
 
-const bridge = vi.hoisted(() => ({ checksAsked: [] as unknown[] }));
+const bridge = vi.hoisted(() => ({
+  core: null as Core | null,
+  checks: [] as unknown[],
+}));
 
 vi.mock("../../src/renderer/src/core", () => ({
-  core: {
-    checkSentences: async (input: unknown) => {
-      bridge.checksAsked.push(input);
-      return { kind: "checked", sentences: 1, checked: 1, smallModel: false };
+  core: new Proxy(
+    {},
+    {
+      get: (_target, key) => {
+        const core = bridge.core as unknown as Record<string | symbol, unknown> | null;
+        const value = core?.[key];
+        if (typeof value !== "function") return value;
+        return key === "checkSentences"
+          ? (input: unknown) => {
+              bridge.checks.push(input);
+              return value.apply(core, [input]);
+            }
+          : value.bind(core);
+      },
     },
-  },
+  ),
 }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({
   resolveProposalsIn: vi.fn(),
+  requestEdit: vi.fn(),
   useEdits: { getState: () => ({ pending: {} }) },
 }));
 vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: vi.fn() }));
@@ -66,11 +79,11 @@ Object.assign(globalThis, {
 
 const { ClaimChecks } = await import("../../src/renderer/src/editor/claimChecks");
 
-const CHECKED_AT = "2026-10-12T09:00:00.000Z";
-
 interface Case {
   language: "en" | "zh-CN";
+  /** A sentence that names the figure another name than the one it was worked out from. */
   sentence: string;
+  after: string;
   document: { name: string; contents: string };
   calculation: {
     inputs: { name: string; label: string; quote: string; number: string }[];
@@ -78,15 +91,13 @@ interface Case {
     as: string;
     stated: string;
   };
-  /** The quote of the Passage the figure was worked out from, which the check settles on. */
-  evidence: string;
-  after: string;
 }
 
 const CASES: Case[] = [
   {
     language: "en",
-    sentence: "Net debt to EBITDA was 1.1x at the end of 2025.",
+    sentence: "Revenue to EBITDA was 1.1x at the end of 2025.",
+    after: "Revenue to EBITDA was 1.31x at the end of 2025.",
     document: {
       name: "Board update.md",
       contents: [
@@ -106,12 +117,11 @@ const CASES: Case[] = [
       as: "times",
       stated: "1.1x",
     },
-    evidence: "Net debt was £1,234m",
-    after: "Net debt to EBITDA was 1.31x at the end of 2025.",
   },
   {
     language: "zh-CN",
-    sentence: "净负债与 EBITDA 之比为 1.1 倍。",
+    sentence: "收入与 EBITDA 之比为 1.1 倍。",
+    after: "收入与 EBITDA 之比为 1.31倍。",
     document: {
       name: "董事会报告.md",
       contents: "# 董事会报告\n\n截至2026年9月30日，净负债为12,340万元。全年EBITDA为9,420万元。\n",
@@ -125,32 +135,31 @@ const CASES: Case[] = [
       as: "times",
       stated: "1.1 倍",
     },
-    evidence: "净负债为12,340万元",
-    after: "净负债与 EBITDA 之比为 1.31倍。",
   },
 ];
 
-/** A checked Mind in a real core, and the model's requests, which no fix may add to. */
+/** A checked Mind in a real core, and the model's requests. */
 async function checked(each: Case) {
   const calls: ModelCall[] = [];
   const plans: Record<string, Plan> = {
     [each.sentence]: { verdict: "supported", calculation: each.calculation },
+    // The model reads the new sentence, and the figure's name isn't the one the working used.
+    [each.after]: { verdict: "unsupported" },
   };
-  const setup = await setUpWithDocuments(checkingModel(plans, calls), [each.document], {
-    now: manualClock(CHECKED_AT).now,
-  });
+  const setup = await setUpWithDocuments(checkingModel(plans, calls), [each.document]);
   const provider = await setup.core.saveChatProvider({
     kind: "anthropic",
     apiKey: "sk-test",
     modelId: "claude-haiku-5-5",
   });
   if (provider.service) await setup.core.allowDataFlow("checks", provider.service.id);
-  const block = {
-    type: "paragraph",
-    attrs: { id: "point" },
-    content: [{ type: "text", text: each.sentence }],
-  };
-  writeMind(setup.client, [block]);
+  writeMind(setup.client, [
+    {
+      type: "paragraph",
+      attrs: { id: "point" },
+      content: [{ type: "text", text: each.sentence }],
+    },
+  ]);
   await setup.client.settled();
   await setup.core.checkSentences({
     requestId: "check",
@@ -160,10 +169,9 @@ async function checked(each: Case) {
     to: { blockId: "point", offset: each.sentence.length },
   });
   await vi.waitFor(() => expect(claimSpans(readMind(setup.client))).toHaveLength(1));
-  return { ...setup, provider, calls };
+  return { ...setup, calls };
 }
 
-/** The Mind's words as its editor holds them, with the check's own reader. */
 function openEditor(doc: Y.Doc) {
   const editor = new Editor({
     element: document.createElement("div"),
@@ -189,55 +197,47 @@ const textOf = (editor: Editor) => {
   return blocks.join("\n");
 };
 
-describe("Use {figure} asks no model (#2313)", () => {
+describe("Use {figure} asks the model for the verdict (#2313)", () => {
   test.each(CASES)(
-    "the number becomes the figure and the sentence reads Supported, its line's model and time kept ($language)",
+    "the number changes at once, then the model's verdict shows, never Supported, and Undo restores the old check ($language)",
     async (each) => {
-      const { core, client, mind, provider, calls } = await checked(each);
+      const { core, client, mind, calls } = await checked(each);
+      bridge.core = core;
       const editor = openEditor(client.doc);
       const before = shownClaims(editor.state)[0];
       if (!before) throw new Error("The sentence has no check.");
       expect(before.shown.state).toBe("contradicted");
-      const line = {
-        models: [{ providerId: provider.id, modelId: "claude-haiku-5-5" }],
-        checkedAt: CHECKED_AT,
-      };
-      expect(checkedWith(before.check)).toEqual(line);
-      expect(textOf(editor)).toBe(each.sentence);
 
-      bridge.checksAsked.length = 0;
+      bridge.checks.length = 0;
       const asked = calls.length;
-      applyFigure(editor, before);
+      const started = performance.now();
+      applyFigure(editor, mind.id, client.doc, before);
 
-      expect(bridge.checksAsked).toEqual([]);
-      expect(calls).toHaveLength(asked);
+      // The number is the figure's at once, and the ordinary edit check is the request that follows.
       expect(textOf(editor)).toBe(each.after);
-      const [after] = shownClaims(editor.state);
-      if (!after) throw new Error("The sentence lost its check.");
-      expect(after.shown.state).toBe("supported");
-      expect(checkedWith(after.check)).toEqual(line);
-      expect(after.check.id).toBe(before.check.id);
-      expect(after.check.evidence).toMatchObject({
-        documentId: before.check.evidence?.documentId,
-        quote: each.evidence,
-      });
-      expect(after.check.calculation).toBeNull();
+      expect(bridge.checks).toHaveLength(1);
 
-      await client.settled();
-      const stored = new Y.Doc();
-      Y.applyUpdate(stored, (await core.openMind(mind.id)).state);
-      const [span] = claimSpans(readMind({ blocks: stored.getXmlFragment(MIND_CONTENT_FIELD) }));
-      if (!span) throw new Error("The core kept no checked sentence.");
-      expect(
-        claimCheckShown(span.check, {
-          text: span.sentence.text,
-          versions: null,
-          folderId: null,
-          scope: null,
-        }).state,
-      ).toBe("supported");
-      expect(checkedWith(span.check)).toEqual(line);
-      stored.destroy();
+      await vi.waitFor(
+        () => {
+          const state = shownClaims(editor.state)[0]?.shown.state;
+          expect(state === "unsupported" || state === "not-checked").toBe(true);
+        },
+        { timeout: 15_000 },
+      );
+      const took = Math.round(performance.now() - started);
+      const after = shownClaims(editor.state)[0];
+      if (!after) throw new Error("The sentence lost its check.");
+      expect(after.shown.state).not.toBe("supported");
+      expect(after.check.id).not.toBe(before.check.id);
+      expect(calls.length).toBeGreaterThan(asked);
+      console.log(`Use {figure} (${each.language}): press to new mark ${took} ms`);
+
+      editor.commands.undo();
+      expect(textOf(editor)).toBe(each.sentence);
+      const restored = shownClaims(editor.state)[0];
+      if (!restored) throw new Error("Undo left no check.");
+      expect(restored.shown.state).toBe("contradicted");
+      expect(restored.check.id).toBe(before.check.id);
     },
   );
 });

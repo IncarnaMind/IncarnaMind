@@ -3,7 +3,6 @@ import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
   checkSentences,
-  fixesFree,
   requestDocumentPicker,
   setCheckCardOpen,
   setClaimFocus,
@@ -25,6 +24,7 @@ import {
   documentWordingAt,
   figureAt,
   findSourcesAt,
+  fixesFree,
   keepAsView,
   notFoundAt,
   searchAllDocuments,
@@ -299,7 +299,7 @@ export const checkCommands: readonly Command[] = [
     when: () => withClaim(figureAt) !== null,
     run() {
       const at = withClaim(figureAt);
-      if (at) applyFigure(at.editor, at.claim);
+      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim, () => showClaimCard(at));
     },
   },
 ];

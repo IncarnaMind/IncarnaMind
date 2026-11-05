@@ -31,7 +31,7 @@ import { claimSpans, placeInSentence, type ShownClaim } from "./editor/claimChec
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
-import { resolveProposalsIn, useEdits } from "./editWithAi";
+import { resolveProposalsIn } from "./editWithAi";
 import { modelInUseOf } from "./modelInUse";
 
 /** Why a check gave no marks, or what it left out, for the check badge's card. */
@@ -376,10 +376,6 @@ export function acceptAndCheck(
     part: leftOut.part,
   });
 }
-
-/** Whether no edit or check is running in the Mind, so one of its fixes can change it. */
-export const fixesFree = (mindId: string): boolean =>
-  !useEdits.getState().pending[mindId] && !useChecks.getState().running[mindId];
 
 /** Stops the Mind's check: the sentences not checked yet say "stopped". */
 export function stopCheck(mindId: string): void {

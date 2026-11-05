@@ -21,10 +21,10 @@ import {
 /*
  * A sentence whose stated number doesn't match the figure the check worked
  * out offers Use {figure} (#1247): it changes only that number, keeps the
- * sentence's Citation and settles its check on the figure's Passage, asking no
- * model (#2313). The undo line and ⌘Z bring back the number and the check it
- * had. The button isn't offered when the figure agrees or when two numbers are
- * written alike. English and Chinese.
+ * sentence's Citation and checks the sentence again. The undo line and ⌘Z
+ * bring back the number and the check it had. The button isn't offered when
+ * the figure agrees or when two numbers are written alike. English and
+ * Chinese.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -155,24 +155,42 @@ for (const [language, width] of [
       const use = card.getByTestId("claim-use-figure");
       await expect(use).toHaveText(WORDS[language].use);
       await expect(card.getByTestId("claim-keep")).toBeVisible();
-      const checkedLine = await card.getByTestId("claim-checked-by").textContent();
-      expect(checkedLine).toBeTruthy();
       await screenshot(window, `use-figure-offered-${language}`);
 
-      // Use changes only the number, keeps the Citation and settles the check, asking no model.
-      await pointAndClick(window, use);
+      // Use changes only the number, then the ordinary check runs: time the press to the new mark.
+      // The mark is read again on every poll: the check's new id may replace its element.
+      const measured = await window.evaluate(async () => {
+        const button = document.querySelector<HTMLElement>('[data-testid="claim-use-figure"]');
+        const first = document.querySelector('[data-testid="claim-mark"]');
+        if (!button || !first) return null;
+        const earlierId = first.getAttribute("data-claim");
+        const states: string[] = [];
+        const started = performance.now();
+        button.click();
+        while (performance.now() - started < 60_000) {
+          const mark = document.querySelector('[data-testid="claim-mark"]');
+          const state = mark?.getAttribute("data-check") ?? "";
+          if (states.at(-1) !== state) states.push(state);
+          if (
+            mark?.getAttribute("data-claim") !== earlierId &&
+            (state === "supported" || state === "unsupported" || state === "not-checked")
+          )
+            return { ms: Math.round(performance.now() - started), states };
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        return { ms: -1, states };
+      });
+      console.log(
+        `Use {figure} (${language}): press to new mark ${measured?.ms} ms; states ${measured?.states.join(" -> ")}`,
+      );
+      expect(measured?.ms, `Use {figure} (${language}) to a new mark`).toBeGreaterThanOrEqual(0);
       await expect(card).toBeHidden();
       await expect(line).toContainText("was 1.31x at the end of 2025");
       await expect(line).not.toContainText("was 1.1x at");
       await expect(citation).toHaveAttribute("data-check", "found");
       await expect(window.getByTestId("undo-line")).toContainText(WORDS[language].done);
-      await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
-      await expect(marks.nth(0)).toHaveAttribute("data-claim", earlier ?? "");
-      // The card's line still names the model and time of the check that found the figure.
-      await pointAndClick(window, marks.nth(0));
-      await expect(card.getByTestId("claim-checked-by")).toHaveText(checkedLine ?? "");
-      await window.keyboard.press("Escape");
-      await expect(card).toBeHidden();
+      await expect(marks.nth(0)).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
+      await expect(marks.nth(0)).not.toHaveAttribute("data-claim", earlier ?? "");
       await screenshot(window, `use-figure-used-${language}`);
 
       // The undo line brings back the number and the check it had.
@@ -189,7 +207,7 @@ for (const [language, width] of [
       await expect(line).toContainText("was 1.1x at the end of 2025");
       await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
       await expect(marks.nth(0)).toHaveAttribute("data-claim", earlier ?? "");
-      // ⇧⌘Z brings it back as Use left it (#2402); ⌘Z takes it back.
+      // ⇧⌘Z does it again, and checks the sentence again as Use did (#2402); ⌘Z takes it back.
       await window.keyboard.press("ControlOrMeta+Shift+z");
       await expect(line).toContainText("was 1.31x at the end of 2025");
       await expect(marks.nth(0)).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
