@@ -9,7 +9,9 @@
  * Written and committed before any run of the check on them. None is a sentence of another set, of
  * a test's fixture or of an example in the check's instructions, and none is to be used as one.
  * This file is not edited after its commit: a further case goes in a file of its own, committed
- * before the run that first reads it.
+ * before the run that first reads it. Edited once, on 2026-11-05, only to rename two Documents
+ * whose invented names were a real school's and close to a real allotment society's; nothing else
+ * changed, and their English cases are measured on `main` again first.
  *
  * The bars, fixed before the first run (`nearCopyHeldout.live.test.ts` runs them):
  * - Decoys: no check of a decoy is Supported, on Claude Haiku 5.5 and on Claude Sonnet 5.5, in
@@ -112,8 +114,8 @@ const ENGLISH: NearCopySet = {
     },
     {
       key: "school",
-      file: "Larchwood Primary handbook.md",
-      title: "Larchwood Primary School: parents' handbook",
+      file: "Quenmarrow Primary handbook.md",
+      title: "Quenmarrow Primary School: parents' handbook",
       clauses: [
         "The school sends a newsletter home every week.",
         "Parents must tell the school office on the morning of any absence.",
@@ -156,8 +158,8 @@ const ENGLISH: NearCopySet = {
     },
     {
       key: "allotments",
-      file: "Fallowfield Allotment Society rules.md",
-      title: "Fallowfield Allotment Society: plot holders' rules",
+      file: "Thrennick Allotment Society rules.md",
+      title: "Thrennick Allotment Society: plot holders' rules",
       clauses: [
         "Plot holders pay a water charge of 40 pounds per annum.",
         "The committee inspects every plot each month.",

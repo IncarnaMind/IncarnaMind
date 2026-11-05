@@ -13,7 +13,8 @@
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY; the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
  * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the checks of each case (1),
  * INCARNAMIND_LIVE_LANGUAGES the languages (`en,zh-CN`), INCARNAMIND_LIVE_CASES the files to run,
- * by origin (`held-out,two-part,reported,amended,beyond,second-look`; all of them when unset), and
+ * by origin (`held-out,two-part,reported,amended,beyond,second-look`; all of them when unset),
+ * INCARNAMIND_LIVE_DOCUMENTS the Documents whose cases run, by key (all when unset), and
  * INCARNAMIND_LIVE_BUDGET the dollars after which no further
  * case starts (3), at the app's own count. The report, every check with its path and each part's
  * verdict and quote, is written to INCARNAMIND_LIVE_REPORT when it is set.
@@ -41,6 +42,7 @@ const LANGUAGES = process.env.INCARNAMIND_LIVE_LANGUAGES?.split(",") ?? ["en", "
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 type Origin = "held-out" | "two-part" | "reported" | "amended" | "beyond" | "second-look";
 const ORIGINS = process.env.INCARNAMIND_LIVE_CASES?.split(",") ?? null;
+const DOCUMENTS = process.env.INCARNAMIND_LIVE_DOCUMENTS?.split(",") ?? null;
 const BUDGET = Number(process.env.INCARNAMIND_LIVE_BUDGET ?? 3) || 3;
 /** Libraries checked at once; within one, its cases are checked one after another. */
 const AT_ONCE = 3;
@@ -381,7 +383,9 @@ describe("held-out near copies on the judge", () => {
           decoy: each.decoy,
         }));
         const cases = [...earlier, ...added, ...beyondCases, ...lookCases].filter(
-          (each) => !ORIGINS || ORIGINS.includes(each.origin),
+          (each) =>
+            (!ORIGINS || ORIGINS.includes(each.origin)) &&
+            (!DOCUMENTS || DOCUMENTS.includes(each.document)),
         );
         for (const each of cases) {
           expect(each.parts.every((part) => each.sentence.includes(part))).toBe(true);
