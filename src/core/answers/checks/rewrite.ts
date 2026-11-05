@@ -16,6 +16,7 @@ import {
   figuresIn,
   isFigure,
   measuredAsQuoted,
+  NUMBERS,
   namedAsQuoted,
   ratesIn,
 } from "../../../shared/rewriteWords";
@@ -26,7 +27,7 @@ import { classifyProviderError } from "../../providers/providerErrors";
 import { documentFigureContext } from "../calculations";
 import type { AnswerDocuments } from "../citations";
 import { answerTemperature } from "../engine";
-import { correctionFor, NUMBERS, sameNumber } from "./claimCheck";
+import { correctionFor, sameNumber } from "./claimCheck";
 import { confirmPrompt, readChangeLines } from "./prompt";
 
 /** The request: the sentence's words that differ, and the quote's own words for that same thing. */

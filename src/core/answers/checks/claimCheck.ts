@@ -35,6 +35,7 @@ import { type MessageKey, type MessageParams, translate } from "../../../shared/
 import type { InlineTextProjection } from "../../../shared/inlineText";
 import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { isPeriod } from "../../../shared/periods";
+import { NUMBERS } from "../../../shared/rewriteWords";
 import { sentenceSpans } from "../../../shared/sentences";
 import { type UnreadFigures, unreadFiguresDetail } from "../../../shared/unreadFigures";
 import type {
@@ -2633,10 +2634,6 @@ function numberAround(text: string, start: number, end: number): string {
   }
   return text.slice(from, to);
 }
-
-/** Written numbers: digits with their separators, or Chinese numerals but a lone 一, a part of many words. */
-export const NUMBERS =
-  /\p{Nd}+(?:[.,]\p{Nd}+)*|[〇零一二两三四五六七八九十百千万亿]{2,}|[〇零二两三四五六七八九十百千万亿]/gu;
 
 /** Where a clause ends: "," or ";" before a space, a sentence's stop, or their Chinese forms. */
 const CLAUSE_END = /[,;](?=\s)|\.(?=\s|$)|[，；。！？!?]/gu;

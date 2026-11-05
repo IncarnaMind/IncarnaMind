@@ -45,6 +45,7 @@ import { type SentencePlace, sentencesToCheck } from "./editor/healthCounts";
 import { mindEditor, whenMindEditor } from "./editor/openEditors";
 import { opinionSentenceRanges } from "./editor/opinionLocations";
 import { editorDoc } from "./editor/proposalReview";
+import { noteBusy } from "./editWithAi";
 import { languageNow, translateNow } from "./i18n";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
 import { modelInUseOf } from "./modelInUse";
@@ -338,6 +339,11 @@ async function start(
   const { openMind } = useAppStore.getState();
   await openMind(mindId);
   if (useChecks.getState().running[mindId]) return { kind: "running" };
+  // A rewrite writes its reply only into a Note nothing else started on meanwhile.
+  if (useChecks.getState().rewriting[mindId]) {
+    noteBusy(mindId);
+    return { kind: "running" };
+  }
   // An earlier question about this Note, and the Note with it, gives way first.
   await freeAskedNote(mindId);
   const requestId = crypto.randomUUID();

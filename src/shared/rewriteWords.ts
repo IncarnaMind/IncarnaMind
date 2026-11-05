@@ -104,6 +104,10 @@ function isChineseName(words: string): boolean {
   );
 }
 
+/** Written numbers: digits with their separators, or Chinese numerals but a lone 一, a part of many words. */
+export const NUMBERS =
+  /\p{Nd}+(?:[.,]\p{Nd}+)*|[〇零一二两三四五六七八九十百千万亿]{2,}|[〇零二两三四五六七八九十百千万亿]/gu;
+
 /** One figure: a number with its scale (1.5亿 is one), or a run of Chinese numerals. */
 export const FIGURES =
   /\p{Nd}+(?:[.,]\p{Nd}+)*\s*[万亿千百]?|[〇零一二两三四五六七八九十百千万亿]{2,}|[〇零二两三四五六七八九十百千万亿]/gu;
@@ -310,16 +314,23 @@ export function namedAsQuoted(
 }
 
 /**
- * Where each figure starts in `text`, its list number left out, and whether it is a named period
+ * Where each figure is in `text`, its list number left out, and whether it is a named period
  * ("2026"), which a correction always keeps, so no rewrite changes it.
  */
-const figureStarts = (text: string): { at: number; period: boolean }[] => {
+const figuresAt = (text: string): { at: number; end: number; period: boolean }[] => {
   const skip = LIST_NUMBER.exec(text)?.[0].length ?? 0;
-  return [...text.slice(skip).matchAll(FIGURES)].map((figure) => ({
-    at: skip + (figure.index ?? 0),
-    period: isPeriod(figure[0].trim()),
-  }));
+  return [...text.slice(skip).matchAll(FIGURES)].map((figure) => {
+    const at = skip + (figure.index ?? 0);
+    const written = figure[0].trimEnd();
+    return { at, end: at + written.length, period: isPeriod(written) };
+  });
 };
+
+/** The numbers `text` writes outside `at` to `end`, which a rewrite there leaves as they are. */
+const numbersOutside = (text: string, at: number, end: number): string[] =>
+  [...text.matchAll(NUMBERS)]
+    .filter((number) => (number.index ?? 0) + number[0].length <= at || (number.index ?? 0) >= end)
+    .map((number) => number[0].normalize("NFKC"));
 
 /** The token spans `text` and `other` differ in, once those they share at each end are set aside. */
 function differingSpans(
@@ -359,19 +370,24 @@ function differingSpans(
 /**
  * Whether a rewrite of `sentence` to what `quote` says could keep to these rules, as far as they
  * can be told before the model names the words: a figure of the sentence said as the quote's one
- * figure is, or the sentence and the quote alike but for a name.
+ * figure is, with the same words after it and only numbers the quote writes besides, or the
+ * sentence and the quote alike but for a name.
  */
 export function mayRewrite(sentence: string, quote: string): boolean {
-  const [quoted, ...more] = figureStarts(quote);
+  const [quoted, ...more] = figuresAt(quote);
   const periods = periodsOfBoth(sentence, quote);
+  const written = new Set((quote.match(NUMBERS) ?? []).map((number) => number.normalize("NFKC")));
   const aFigure =
     quoted !== undefined &&
     !quoted.period &&
     more.length === 0 &&
     sameSet(directionsIn(sentence), directionsIn(quote)) &&
-    figureStarts(sentence).some(
-      ({ at, period }) =>
-        !period && saidBeforeAlike(sentence.slice(0, at), quote.slice(0, quoted.at), periods),
+    figuresAt(sentence).some(
+      ({ at, end, period }) =>
+        !period &&
+        saidBeforeAlike(sentence.slice(0, at), quote.slice(0, quoted.at), periods) &&
+        sameWords(clauseAfter(sentence, end), clauseAfter(quote, quoted.end)) &&
+        numbersOutside(sentence, at, end).every((number) => written.has(number)),
     );
   if (aFigure) return true;
   const mine = withoutListNumber(sentence.normalize("NFKC"));
