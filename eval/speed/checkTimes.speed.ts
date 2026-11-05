@@ -9,9 +9,8 @@
  * - `answer`: an Answer of 30 cited sentences, scripted, judged once it ends (#2311).
  *
  * The writing and the Answer are scripted, so only the checks' requests reach the model under test.
- * INCARNAMIND_EVAL_SPEED_CHECKS_AT_ONCE sends that many sentences at once in place of the catalog's
- * number, so one run can time today's number and another a step's; INCARNAMIND_EVAL_SPEED_THINKING
- * ("summary" or "off") sets how every model thinks, which only an Answer's batches feel; and
+ * INCARNAMIND_EVAL_SPEED_THINKING ("summary" or "off") sets how every model thinks, which only an
+ * Answer's batches feel; and
  * INCARNAMIND_EVAL_SPEED_LIBRARY=mixed adds the mixed sample set to the Library, so a search
  * reranks as many Passages as it would in a real one.
  * The 30 sentences are the second held-out set's (./writtenHeldOut), over its membership rules.
@@ -347,8 +346,6 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "2");
   const stopUsd = Number(env("STOP_USD") ?? "3");
-  // How many sentences a check sends at once, in place of the catalog's: today's number on one arm.
-  const atOnce = env("CHECKS_AT_ONCE") === null ? null : Number(env("CHECKS_AT_ONCE"));
   const recorder = checkRecorder();
   let current: { flow: string; items: ReturnType<typeof CITED> } | null = null;
   const results: FlowTimes[] = [];
@@ -379,7 +376,6 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       log,
       chatModels: scripted(recorder.chatModels, () => current),
       examples: join(ROOT, "resources", "examples"),
-      ...(atOnce !== null && { modelFacts: () => ({ checksAtOnce: atOnce }) }),
     });
     try {
       const { core, dataDir } = library;

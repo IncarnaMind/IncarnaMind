@@ -20,7 +20,6 @@ import type {
 } from "../../api";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
-import { isSignInRoute } from "../../providers/signInRoutes";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { RunItemError, runItems, slots } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
@@ -49,23 +48,8 @@ export function pendingParts(
 const CLOUD_CLAIMS_AT_ONCE = 6;
 
 /** How many claims a check sends to `prepared` at once; a model on this computer takes one at a time. */
-export const claimsAtOnce = (prepared: Pick<PreparedChatModel, "provider">): number =>
+export const claimsAtOnce = (prepared: PreparedChatModel): number =>
   prepared.provider.service ? CLOUD_CLAIMS_AT_ONCE : 1;
-
-/**
- * How many sentences a run of checks sends at once, each its own Run, behind the run's backoff:
- * as many as the provider was measured to take (#2532). The sorting and an Answer's batches,
- * which have no such backoff, and the background watch keep `claimsAtOnce`.
- */
-export function sentencesAtOnce(
-  prepared: Pick<PreparedChatModel, "provider" | "capabilities">,
-): number {
-  const atOnce = claimsAtOnce(prepared);
-  // A sign-in with the User's own plan reads its provider's facts, but its limits are the plan's,
-  // which no run measured.
-  if (atOnce === 1 || isSignInRoute(prepared.provider.kind)) return atOnce;
-  return prepared.capabilities.facts.checksAtOnce ?? atOnce;
-}
 
 /** A claim marked "checking", and what its check sends. */
 export interface QueuedClaim {
@@ -147,7 +131,7 @@ export async function runChecks(
     };
 
   let checked = 0;
-  const limit = slots(sentencesAtOnce(prepared));
+  const limit = slots(claimsAtOnce(prepared));
   const { stop } = await runItems(
     run.queued,
     async (claim) => {
@@ -176,7 +160,7 @@ export async function runChecks(
       return result;
     },
     {
-      concurrency: sentencesAtOnce(prepared),
+      concurrency: claimsAtOnce(prepared),
       signal,
       onOutcome(claim, outcome) {
         if (outcome.status === "done") {

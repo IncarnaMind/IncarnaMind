@@ -25,3 +25,24 @@ On an Anthropic key, a run of sentence checks (Check this Note, Verify and the w
 ## What decides
 
 A flow (Check this Note, or the written check) takes twelve only if every one of its cells holds every bar. A flow with a cell that fails keeps six, and the failing cell is named in the pull request.
+
+## Result, 2026-11-05: not met, so both flows keep six
+
+The runs were made at commit 47c376aaa, in the order above, on a direct Anthropic key. They spent $2.97. Medians are given today → step, with the cell's spread (today's runs, largest minus smallest first verdict):
+
+| Cell | First verdict | Spread | Done | Holds |
+|---|---|--:|---|---|
+| Haiku, Note, timing Library, en | 7.8 → 6.3 s | 1.3 s | 17.1 → 10.6 s | yes |
+| Haiku, Note, timing Library, zh-CN | 6.1 → 5.7 s | 2.2 s | 13.6 → 11.2 s | yes |
+| Haiku, Note, mixed Library, en | 9.4 → 9.5 s | 4.4 s | 20.5 → 18.0 s | yes |
+| Haiku, Note, mixed Library, zh-CN | 6.0 → 7.7 s | 2.5 s | 16.5 → 14.9 s | **no:** 1.8 s later, past the 1.0 s cap |
+| Haiku, write, en | 3.1 → 2.9 s | 0.3 s | 12.1 → 8.2 s | yes |
+| Haiku, write, zh-CN | 2.6 → 2.6 s | 0.1 s | 13.0 → 10.2 s | yes |
+| Sonnet, Note, timing Library, en | 9.7 → 9.6 s | 0.5 s | 21.0 → 15.5 s | yes |
+| Sonnet, Note, timing Library, zh-CN | 10.5 → 9.1 s | 0.3 s | 19.4 → 16.1 s | yes |
+| Sonnet, write, en | 5.5 → 5.6 s | 0.2 s | 22.2 → 14.1 s | yes |
+| Sonnet, write, zh-CN | 5.9 → 6.6 s | 0.3 s | 23.9 → 16.1 s | **no:** 0.6 s later, past its 0.3 s spread |
+
+No request failed and no rate limit was met. Cached input was 61–91% on today's arm and 67–93% on the step's. The cost of a run was the same or lower at twelve.
+
+Each flow has one cell that fails the first-verdict bar, so neither Check this Note nor the written check takes twelve. Twelve ended sooner in all 10 cells, by 1.6 to 8.1 s. But on the mixed Library its searches queue at the one built-in reranker, and in a write twelve requests go to the key at once, and in one cell each that delays the first verdict past the bar. The catalog fact that carried the number, and its tests, were taken out with the step.

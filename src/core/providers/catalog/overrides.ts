@@ -64,9 +64,7 @@ export const OVERRIDES: CatalogOverrides = {
   providers: {
     // Measured using the calculate Tool well (#438: Claude Haiku 5.5, GPT-6 Luna); the ChatGPT plan
     // serves OpenAI's models. Every other provider stays off until the evaluation (#441) measures it.
-    // Twelve sentences checked at once start every sentence of a ten-sentence Note together:
-    // measured on Claude Haiku 5.5 and Sonnet 5.5 with no rate limit met (#2532).
-    anthropic: { ...CALCULATES_EVERYWHERE, toolsEveryRequest: true, checksAtOnce: 12 },
+    anthropic: { ...CALCULATES_EVERYWHERE, toolsEveryRequest: true },
     openai: CALCULATES_EVERYWHERE,
     // Google asks for its Gemini 3 models to run at their default temperature: lower makes
     // them loop or reason worse.
