@@ -2728,7 +2728,7 @@ export const zhCN = {
   "providers.form.save": "使用此服务",
   "providers.sendsLine": "会把你的问题和文档内容发送给 {provider}。",
   "providers.sends.chat":
-    "你的问题、此前的问答、当前笔记或你指定的笔记、最近修改的最多 30 篇笔记的名称（标出由回答写成的）、匹配的段落及其文档名称和页码、问题或命令找到的文档（最多 50 个）的名称、文件夹和标签、会议的转写稿、你在笔记中选中提问的图片、回答加载的技能说明和文件，以及回答运行的数据分析报告（有上限）",
+    "你的问题、此前的问答、当前笔记或你指定的笔记、最近修改的最多 30 篇笔记的名称（标出由回答写成的）、匹配的段落及其文档名称和页码、问题或命令找到的文档和笔记（最多 50 个）的名称、文件夹和标签、会议的转写稿、你在笔记中选中提问的图片、已开启技能的名称和描述、回答加载的技能的说明和文件，以及回答运行的数据分析报告（有上限）",
   "providers.sends.checks": "你核对的每一句话",
   "providers.sends.suggestions":
     "写作建议时你停下的那一段，以及最多 8 个匹配的段落（含文档名称和位置）",
@@ -2996,9 +2996,9 @@ export const zhCN = {
   "consent.data.live-transcript": "会议转写稿：录制时的实时部分，停止录制后整份用于填写笔记",
   "consent.data.passages": "文档中与问题相关的段落，连同所属文档的名称和页码",
   "consent.data.tool-results": "回答所用连接器和技能脚本返回的结果",
-  "consent.data.skill-files": "回答加载的技能说明和文件，包括你导入的技能",
+  "consent.data.skill-files": "已开启技能的名称和描述，以及回答加载的技能的说明和文件",
   "consent.data.analysis-results":
-    "回答每次运行数据分析的报告（有上限）：输入的名称和大小、行数和列数、警告和错误（含读不成数字的单元格文字）、打印的结果，以及文本文件的摘录",
+    "回答每次运行的数据分析的报告（有上限）：输入的名称和大小、行数和列数、警告和错误（含读不成数字的单元格文字）、它算出的数字和表格行、图表和图片的标题、代码中写出的数字、打印的结果，以及文本文件的摘录",
   "consent.flow.tagging": "自动打标签",
   "consent.flow.tagging.purpose": "自动为你的文档打标签",
   "consent.data.tags": "你的标签的名称和描述",
@@ -6611,9 +6611,9 @@ export const zhCN = {
   "consent.flow.agents": "你的 AI 智能体",
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
   "consent.data.scoped-passages":
-    "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置，以及该段和相邻段落的内部 ID",
+    "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置，以及该段和相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多",
   "consent.data.scoped-minds":
-    "共享文件夹的名称、内部 ID 和文档数；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的内容",
+    "共享文件夹的名称、内部 ID 和文档数；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的部分内容，以及下一部分的起始位置",
   "consent.data.answers": "IncarnaMind 对智能体所提问题的回答，以及其中的引文",
   "consent.flow.web-search": "联网搜索",
   "consent.flow.web-search.purpose": "为你的问题联网搜索",

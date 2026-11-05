@@ -2866,7 +2866,7 @@ export const en = {
   "providers.form.save": "Use this service",
   "providers.sendsLine": "Sends your questions and document text to {provider}.",
   "providers.sends.chat":
-    "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs",
+    "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs",
   "providers.sends.checks": "each sentence you check",
   "providers.sends.suggestions":
     "the paragraph you pause on and up to 8 matching passages, each with its Document name and location, for writing suggestions",
@@ -3152,9 +3152,9 @@ export const en = {
     "passages from your Documents that match the Question, with their Documents’ names and pages",
   "consent.data.tool-results": "Results of Connectors and Skill scripts an Answer uses",
   "consent.data.skill-files":
-    "The instructions and files of the Skills an Answer loads, including Skills you imported",
+    "The names and descriptions of the Skills that are on, and the instructions and files of the Skills an Answer loads",
   "consent.data.analysis-results":
-    "The capped report of each Analysis an Answer runs: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, printed results and text-file excerpts",
+    "The capped report of each Analysis an Answer runs: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, the figures and table rows it works out, its chart and picture titles, the numbers written in its code, printed results and text-file excerpts",
   "consent.flow.tagging": "Automatic Tags",
   "consent.flow.tagging.purpose": "tag your Documents automatically",
   "consent.data.tags": "The names and descriptions of your Tags",
@@ -6989,9 +6989,9 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location, and internal ids for it and the passages next to it",
+    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location, internal ids for it and the passages next to it, and, for a search, which page of results it is and whether more follow",
   "consent.data.scoped-minds":
-    "The shared Folders’ names, internal ids and Document counts, the names, internal ids and last-change times of the notes in them when the agent lists them, and a note’s text when the agent reads it",
+    "The shared Folders’ names, internal ids and Document counts, the names, internal ids and last-change times of the notes in them when the agent lists them, and the part of a note it reads, with where the next part starts",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
   "consent.flow.web-search": "Web search",
   "consent.flow.web-search.purpose": "search the web for your Questions",
