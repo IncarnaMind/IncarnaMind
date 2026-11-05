@@ -392,7 +392,11 @@ test("choosing the eCFR finds a regulation marked as an unofficial compilation; 
     // A citation is looked up at the eCFR; GovInfo, with no key, is off and says why.
     await panel.getByTestId("find-sources-query").fill("17 CFR 240.10b-5");
     await panel.getByTestId("find-sources-query").press("Enter");
-    await allowProviders(window, ["eCFR"], "What you or an Answer search for: the words and filters");
+    await allowProviders(
+      window,
+      ["eCFR"],
+      "What you or an Answer search for: the words and filters",
+    );
     const rule = result(panel, "17 CFR 240.10b-5 Employment of manipulative and deceptive devices");
     await expect(rule.getByTestId("find-sources-result-facts")).toHaveText(
       "Open access · full text · Public domain · Unofficial compilation, not the official edition · Found on eCFR",
