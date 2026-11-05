@@ -17,6 +17,7 @@ import {
   isFigure,
   measuredAsQuoted,
   namedAsQuoted,
+  ratesIn,
 } from "../../../shared/rewriteWords";
 import type { Citation, ClaimCorrection, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
@@ -53,44 +54,6 @@ export function figuresAllQuoted(sentence: string, quote: string): boolean {
   );
 }
 
-/** A day, a week, a month or a year that an amount is given per. */
-type Rate = "day" | "week" | "month" | "year";
-const RATE_WORDS: Record<string, Rate> = {
-  day: "day",
-  night: "day",
-  daily: "day",
-  nightly: "day",
-  week: "week",
-  weekly: "week",
-  month: "month",
-  monthly: "month",
-  year: "year",
-  annum: "year",
-  yearly: "year",
-  annual: "year",
-  annually: "year",
-  天: "day",
-  日: "day",
-  晚: "day",
-  周: "week",
-  星期: "week",
-  月: "month",
-  月度: "month",
-  年: "year",
-  年度: "year",
-};
-const RATES =
-  /\b(?:per|a|an|each|every)\s+(day|night|week|month|year|annum)\b|\b(daily|nightly|weekly|monthly|yearly|annual|annually)\b|每个?(天|日|晚|周|星期|月|年)|(月度|年度)/giu;
-
-const ratesIn = (text: string): Set<Rate> =>
-  new Set(
-    [...text.matchAll(RATES)].flatMap((match) => {
-      const word = (match[1] ?? match[2] ?? match[3] ?? match[4] ?? "").toLowerCase();
-      const rate = RATE_WORDS[word];
-      return rate ? [rate] : [];
-    }),
-  );
-
 /**
  * Whether the change writes only the value that differs, at `at` in `sentence`: a figure for a
  * figure from a quote that gives that one figure, so it can't be another thing's, of what the
@@ -119,7 +82,8 @@ function changesOnlyTheValue(
 
 /**
  * Whether `sentence` already gives the one figure `quote` gives, of what the quote gives it for,
- * as a rewrite to that figure would have to: then the Documents give the same value.
+ * as a rewrite to that figure would have to: then the Documents give the same value. No check
+ * follows this, so a quote of two figures, which may be two things', never gives it.
  */
 function givesTheQuotedValue(sentence: string, quote: string): boolean {
   const figures = [...sentence.matchAll(FIGURES)];
@@ -132,6 +96,7 @@ function givesTheQuotedValue(sentence: string, quote: string): boolean {
   const quotedRates = ratesIn(quote);
   return (
     quotedAt >= 0 &&
+    figuresIn(quote) === 1 &&
     measuredAsQuoted(sentence, at, written.length, outside, quote, quotedAt) &&
     [...ratesIn(sentence)].every((rate) => quotedRates.has(rate)) &&
     figuresAllQuoted(sentence, quote)

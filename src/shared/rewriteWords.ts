@@ -3,6 +3,8 @@
  * rewrite to them, and a sentence's card offers Rewrite only where one could keep to them.
  */
 
+import { isPeriod } from "./periods";
+
 /** A word of the old or new words: a number, a Chinese character, a Latin word, or one other character. */
 const TOKENS = /\p{Nd}+(?:[.,]\p{Nd}+)*|\p{Script=Han}|[^\s\p{Nd}\p{Script=Han}\p{P}\p{S}]+|\S/gu;
 const tokensOf = (text: string): string[] => text.normalize("NFKC").match(TOKENS) ?? [];
@@ -83,10 +85,10 @@ const SURNAMES = new Set([
 const NEVER_IN_NAMES = new Set([
   ..."不未非无但须应可得经如若除及和或与的之由向对在于将已会事长理员人方部司公期内外前后上下等总府",
 ]);
-/** What follows a surname to address someone, in place of their given name: 王先生, 王博士, 王某. */
+/** What follows a surname to address someone, in place of their given name: 王先生, 王博士, 王某某. */
 const TITLES = new Set([
-  ..."先生 女士 小姐 太太 老师 律师 医生 博士 教授 主任".split(" "),
-  ..."董工某",
+  ..."先生 女士 小姐 太太 阿姨 老师 律师 医生 博士 教授 主任 师傅 同学 某某".split(" "),
+  ..."董工某姐哥叔伯老律",
 ]);
 
 function isChineseName(words: string): boolean {
@@ -110,14 +112,12 @@ export const FIGURES =
 const LIST_NUMBER = /^\s*\p{Nd}+[.)]\s+/u;
 const withoutListNumber = (text: string): string => text.replace(LIST_NUMBER, "");
 
-/** How many figures a quote gives, its list number left out. */
 export const figuresIn = (quote: string): number =>
   withoutListNumber(quote.normalize("NFKC")).match(FIGURES)?.length ?? 0;
 
 /** Where a clause ends: "," ";" or ":" before a space, a sentence's stop, or their Chinese forms. */
 const CLAUSE_MARKS = /[,;:](?=\s)|\.(?=\s|$)|[，；：。！？!?]/gu;
 
-/** The words of `text`'s clause after `end`. */
 function clauseAfter(text: string, end: number): string {
   for (const mark of text.matchAll(CLAUSE_MARKS)) {
     const place = mark.index ?? 0;
@@ -134,46 +134,89 @@ const FUNCTION_WORDS = new Set(
   "a an the of is are was were be been by with to for in on at as and or its this that".split(" "),
 );
 const FUNCTION_CHARACTERS = new Set([..."的为是与和"]);
+/** Words either side may say where the other doesn't, without changing what a figure is of. */
+const ADDABLE = new Set([..."shall must each every any all".split(" "), ..."应当须本每位"]);
 
 /** A word without the "s" of "pays" or "costs", so "pay" in the quote is the same word. */
 const stem = (word: string): string =>
   word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
 
-/** The words of `text` that say what a figure is of: Latin words and Chinese characters. */
-function contentWords(text: string): Set<string> {
-  return new Set(
-    tokensOf(text).flatMap((token) => {
-      if (/^\p{Script=Han}$/u.test(token)) return FUNCTION_CHARACTERS.has(token) ? [] : [token];
-      const word = token.toLowerCase();
-      return /^\p{L}{2,}$/u.test(word) && !FUNCTION_WORDS.has(word) ? [stem(word)] : [];
+/** A day, a week, a month or a year that an amount is given per. */
+export type Rate = "day" | "week" | "month" | "year";
+const RATE_WORDS: Record<string, Rate> = {
+  day: "day",
+  night: "day",
+  daily: "day",
+  nightly: "day",
+  week: "week",
+  weekly: "week",
+  month: "month",
+  monthly: "month",
+  year: "year",
+  annum: "year",
+  yearly: "year",
+  annual: "year",
+  annually: "year",
+  天: "day",
+  日: "day",
+  晚: "day",
+  周: "week",
+  星期: "week",
+  月: "month",
+  月度: "month",
+  年: "year",
+  年度: "year",
+};
+const RATES =
+  /\b(?:per|a|an|each|every)\s+(day|night|week|month|year|annum)\b|\b(daily|nightly|weekly|monthly|yearly|annual|annually)\b|每个?(天|日|晚|周|星期|月|年)|(月度|年度)/giu;
+
+export const ratesIn = (text: string): Set<Rate> =>
+  new Set(
+    [...text.matchAll(RATES)].flatMap((match) => {
+      const word = (match[1] ?? match[2] ?? match[3] ?? match[4] ?? "").toLowerCase();
+      const rate = RATE_WORDS[word];
+      return rate ? [rate] : [];
     }),
   );
-}
-
-/** Whether every word of `mine` that says what a figure is of is one `quoted` has too. */
-function wordsWithin(mine: string, quoted: string): boolean {
-  const theirs = contentWords(quoted);
-  return [...contentWords(mine)].every((word) => theirs.has(word));
-}
 
 /**
- * The words that bound, negate or qualify a figure, or say when it holds: "at most", "not",
- * "expected", "before", 不超过, 预计, 原, 前. The longer Chinese ones come first, so 不超过 is one.
+ * The words before a figure that say what it is of, each once, in their order: Latin words by
+ * their stems, a lone capital too (Party A is not Party B), and Chinese characters one by one.
+ * Left out are the words either side may add, a verb right after "by" ("by giving 90 days"), and
+ * a rate word ("annual") whose period both sides name.
  */
-const QUALIFIERS =
-  /\b(?:not|no|never|without|least|most|up to|under|over|below|above|more|less|fewer|maximum|minimum|max|min|within|exceed(?:s|ed|ing)?|cap(?:s|ped)?|approximately|approx|about|around|nearly|roughly|estimated|expected|forecast|projected|proposed|budgeted|target(?:s|ed)?|planned|original(?:ly)?|former|previous|prior|last|next|old|new|before|after|until|unless|if|except|only)\b|n['’]t\b|不超过|不少于|不低于|不高于|不多于|超过|低于|高于|至少|至多|最多|最少|最高|最低|最长|最短|以上|以下|以内|大约|约|预计|计划|拟|原|前|后|不|未|非|无|如|若|除/giu;
+function figureWords(text: string, periods: ReadonlySet<Rate>): string[] {
+  const words: string[] = [];
+  let previous = "";
+  for (const token of tokensOf(text)) {
+    const word = /^\p{Lu}$/u.test(token) ? token : token.toLowerCase();
+    const afterBy = previous === "by";
+    previous = word;
+    if (/^\p{Script=Han}$/u.test(token)) {
+      if (!FUNCTION_CHARACTERS.has(token) && !ADDABLE.has(token)) words.push(token);
+      continue;
+    }
+    const rate = RATE_WORDS[word];
+    if (
+      !/^(?:\p{L}{2,}|\p{Lu})$/u.test(word) ||
+      FUNCTION_WORDS.has(word) ||
+      ADDABLE.has(word) ||
+      (afterBy && word.endsWith("ing")) ||
+      (rate !== undefined && periods.has(rate))
+    )
+      continue;
+    words.push(stem(word));
+  }
+  return [...new Set(words)];
+}
 
-const qualifiersIn = (text: string): string[] =>
-  [
-    ...new Set(
-      [...text.normalize("NFKC").matchAll(QUALIFIERS)].map(([word]) =>
-        /n['’]t$/iu.test(word) ? "not" : word.toLowerCase(),
-      ),
-    ),
-  ].sort();
-
-const sameQualifiers = (one: string, other: string): boolean =>
-  qualifiersIn(one).join(" ") === qualifiersIn(other).join(" ");
+/** "by" or "to" just before a figure: a change ("rose by 8%") or a level ("rose to 12%"). */
+const changeOrLevel = (text: string): string | null => {
+  const word = tokensOf(text)
+    .findLast((token) => /^\p{L}+$/u.test(token))
+    ?.toLowerCase();
+  return word === "by" || word === "to" ? word : null;
+};
 
 /** Which way a figure goes, or what it is: a rise or a fall, a loss or a profit. */
 const DIRECTIONS: readonly [string, RegExp][] = [
@@ -196,17 +239,33 @@ const BEFORE_A_NAME = /(?:^|[为是由与和及给向、，：:])\s*$/u;
 /** The word before an English name; one in capitals after "The" (the Deposit) is a defined term. */
 const BEFORE_AN_ENGLISH_NAME = /\b(?:is|by|to|from|with|of|and|named|between)\s+$/iu;
 
-/** Whether the words before a figure say what the quote's words before its figure say of it. */
-const saidBeforeAlike = (mine: string, quoted: string): boolean =>
-  wordsWithin(mine, quoted) && sameQualifiers(mine, quoted);
+const sameSet = (one: readonly string[], other: readonly string[]): boolean =>
+  [...new Set(one)].sort().join(" ") === [...new Set(other)].sort().join(" ");
+
+/**
+ * Whether the words before a figure, from the sentence's start, say what the quote's words
+ * before its figure say: the same words in the same order on either side, but those either side
+ * may add, so a narrower thing, a bound, a hedge, a condition or another party only one says, or
+ * the parties the other way round, keep the sentence.
+ */
+function saidBeforeAlike(mine: string, quoted: string, periods: ReadonlySet<Rate>): boolean {
+  return (
+    figureWords(mine, periods).join(" ") === figureWords(quoted, periods).join(" ") &&
+    changeOrLevel(mine) === changeOrLevel(quoted)
+  );
+}
+
+/** The periods both `text` and `quote` name, which a rate word on either side may say again. */
+const periodsOfBoth = (text: string, quote: string): Set<Rate> => {
+  const quoted = ratesIn(quote);
+  return new Set([...ratesIn(text)].filter((rate) => quoted.has(rate)));
+};
 
 /**
  * Whether the figure `length` long at `at` in `text` is of what the quote's figure at `quotedAt`
- * is of, `outside` being the rest of the sentence. Every word before it that says what it is of is
- * one the quote has before its figure, a label or an earlier clause included; the words that bound,
- * negate or qualify it, or say when it holds, are the quote's, on both sides; the words after it to
- * its clause's end are the quote's (its unit); and its way and time words are the quote's. Another
- * thing a word only the quote has names ("Asia revenue" for "revenue") is left to the check again.
+ * is of, `outside` being the rest of the sentence: said alike before it (`saidBeforeAlike`), with
+ * the quote's words after it to its clause's end (its unit), the same rises, falls, losses or
+ * profits on both sides, and only time words the quote has.
  */
 export function measuredAsQuoted(
   text: string,
@@ -216,12 +275,11 @@ export function measuredAsQuoted(
   quote: string,
   quotedAt: number,
 ): boolean {
-  const quotedDirections = directionsIn(quote);
   const quotedTimes = new Set(quote.match(TIME_CHARACTERS));
   return (
-    saidBeforeAlike(text.slice(0, at), quote.slice(0, quotedAt)) &&
+    saidBeforeAlike(text.slice(0, at), quote.slice(0, quotedAt), periodsOfBoth(text, quote)) &&
     sameWords(clauseAfter(text, at + length), clauseAfter(quote, quotedAt + length)) &&
-    directionsIn(text).every((direction) => quotedDirections.includes(direction)) &&
+    sameSet(directionsIn(text), directionsIn(quote)) &&
     (outside.match(TIME_CHARACTERS) ?? []).every((each) => quotedTimes.has(each))
   );
 }
@@ -251,10 +309,16 @@ export function namedAsQuoted(
   );
 }
 
-/** Where each figure starts in `text`, its list number left out. */
-const figureStarts = (text: string): number[] => {
+/**
+ * Where each figure starts in `text`, its list number left out, and whether it is a named period
+ * ("2026"), which a correction always keeps, so no rewrite changes it.
+ */
+const figureStarts = (text: string): { at: number; period: boolean }[] => {
   const skip = LIST_NUMBER.exec(text)?.[0].length ?? 0;
-  return [...text.slice(skip).matchAll(FIGURES)].map((figure) => skip + (figure.index ?? 0));
+  return [...text.slice(skip).matchAll(FIGURES)].map((figure) => ({
+    at: skip + (figure.index ?? 0),
+    period: isPeriod(figure[0].trim()),
+  }));
 };
 
 /** The token spans `text` and `other` differ in, once those they share at each end are set aside. */
@@ -298,14 +362,16 @@ function differingSpans(
  * figure is, or the sentence and the quote alike but for a name.
  */
 export function mayRewrite(sentence: string, quote: string): boolean {
-  const [quotedAt, ...more] = figureStarts(quote);
-  const quotedDirections = directionsIn(quote);
+  const [quoted, ...more] = figureStarts(quote);
+  const periods = periodsOfBoth(sentence, quote);
   const aFigure =
-    quotedAt !== undefined &&
+    quoted !== undefined &&
+    !quoted.period &&
     more.length === 0 &&
-    directionsIn(sentence).every((direction) => quotedDirections.includes(direction)) &&
-    figureStarts(sentence).some((at) =>
-      saidBeforeAlike(sentence.slice(0, at), quote.slice(0, quotedAt)),
+    sameSet(directionsIn(sentence), directionsIn(quote)) &&
+    figureStarts(sentence).some(
+      ({ at, period }) =>
+        !period && saidBeforeAlike(sentence.slice(0, at), quote.slice(0, quoted.at), periods),
     );
   if (aFigure) return true;
   const mine = withoutListNumber(sentence.normalize("NFKC"));
