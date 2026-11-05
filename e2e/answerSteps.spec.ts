@@ -452,25 +452,24 @@ test("the wait keeps the form that fits as the steps change, and the summary kee
     const answer = assistantAnswers(window).last();
     const live = answer.getByTestId("answer-steps-live");
     const wait = answer.getByTestId("answer-steps-wait");
-    // Before the reasoning streams, the short part fits on the first row, joined with "· ".
+    // Thinking: the summary keeps the first row, and the wait takes the second in its own form.
     await expect(live).toHaveAttribute("data-step", "thinking", { timeout: 30_000 });
-    await expect(wait).toHaveText(short, { timeout: 30_000 });
-    expect(await wait.evaluate((element) => element.textContent)).toBe(short);
-    await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(0);
-    expect(
-      await live
-        .getByTestId("answer-writing")
-        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
-    ).toBe(true);
-    // The summary then keeps the first row, and the wait gives way but keeps the whole sentence.
     const summary = live.getByTestId("answer-steps-summary");
     await expect(summary).toBeVisible({ timeout: 30_000 });
     expect(
       await summary.evaluate((element) => element.getBoundingClientRect().width),
     ).toBeGreaterThan(60);
-    await expect(wait).toBeVisible();
+    const alone = short.replace(/^· /, "").replace(/^./, (letter) => letter.toUpperCase());
+    await expect(wait).toHaveText(alone, { timeout: 30_000 });
+    expect(await wait.evaluate((element) => element.textContent)).toBe(alone);
+    await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(1);
     await expect(wait).not.toContainText(MODEL_NAME);
     await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
+    expect(
+      await live
+        .getByTestId("answer-writing")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    ).toBe(true);
     // A longer step: the wait stays, whole in the tooltip and spoken line.
     await expect
       .poll(async () => (await live.getAttribute("data-step")) ?? "", { timeout: 30_000 })
