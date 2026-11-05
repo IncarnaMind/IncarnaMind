@@ -15,8 +15,8 @@
  * it is shown when it finds claims, however often it is asked. A key with "refused" in it is refused,
  * as a provider refuses a wrong key (HTTP 401); one with "no-credit" in it
  * as a provider refuses an account with nothing left (HTTP 402). A model whose id ends "-no-tools" refuses
- * Tools and structured output, as a small server model does, so its Answers have no Citations; one
- * ending "-slow-check" holds its judgement until a test releases it.
+ * Tools and structured output, as a small server model does, so its Answers have no Citations;
+ * a test's hold stops every sentence judgement until it releases it.
  * A Document whose text says "slowly" takes a moment to tag or organize; one whose text says "unreachable"
  * can't reach the model the first time it is tagged or organized (nor on the retry that follows; one that
  * says "stays unreachable" never can), one that says
@@ -29,7 +29,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory } from "../../core";
 import { searchParts } from "./answers";
 import { isCell } from "./cells";
-import { fakeAbsence, fakePresence, fakeSentenceBatch } from "./checks";
+import { CHECK_RUN, fakeAbsence, fakePresence, fakeSentenceBatch } from "./checks";
 import { fakeClaims, findsClaims } from "./claims";
 import { fakeConfirm } from "./confirm";
 import { editParts, fakeEdit } from "./edit";
@@ -40,6 +40,7 @@ import {
   lastUserText,
   SLOWLY,
   type StreamPart,
+  systemOf,
   USAGE,
 } from "./prompt";
 import { fakeResearchTags } from "./researchTags";
@@ -208,13 +209,9 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
           warnings: [],
         };
       }
-      // A model id ending "-slow-check" holds its judgement of an Answer's sentences until a test
-      // releases it, so the test can open a Citation whose card is still Checking (#2375).
-      if (
-        spec.modelId.endsWith("-slow-check") &&
-        slowCheck.hold &&
-        fakeSentenceBatch(options) !== null
-      ) {
+      // A test's hold stops the judgement of a batch of sentences until it releases it, so the
+      // test opens a Citation whose card is still Checking (#2375), or sees a run mid-flight.
+      if (slowCheck.hold && fakeSentenceBatch(options) !== null) {
         await new Promise<void>((go) => slowCheck.waiting.push(go));
       }
       return {
@@ -233,6 +230,11 @@ export const createFakeChatModel: ChatModelFactory = (spec) =>
       };
     },
     doStream: async ({ prompt, tools, abortSignal, responseFormat }) => {
+      // A test's hold stops a check Run's judgement of a claim until it releases it, so a window
+      // test sees the run mid-flight (#2313).
+      if (slowCheck.hold && CHECK_RUN.test(systemOf(prompt))) {
+        await new Promise<void>((go) => slowCheck.waiting.push(go));
+      }
       const refused = refusal(spec, {
         ...(tools && { tools }),
         ...(responseFormat && { responseFormat }),
