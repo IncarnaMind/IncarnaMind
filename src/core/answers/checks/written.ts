@@ -865,17 +865,15 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         error,
       );
     // A sentence lands as its check ends, so its verdict shows while the others are checked. A
-    // table's marks are footed against each other as they land (a total against its cells) and its
-    // chart is drawn from them, so a sentence in a table or with figures waits, and those land
-    // together after every check, in their order.
+    // table's marks are footed against each other as they land (a total against its cells), so a
+    // sentence in a table waits, and those land together after every check, in their order.
     const waiting: { index: number; landing: Landing }[] = [];
     const landNow = (landing: Landing) => {
-      if (signal.aborted) return;
       const { sentence } = landing;
-      if (sentence.inCell || (reads.get(sentence)?.figures?.length ?? 0) > 0)
-        waiting.push({ index: sending.indexOf(sentence), landing });
+      if (sentence.inCell) waiting.push({ index: sending.indexOf(sentence), landing });
       else landAll([landing]);
     };
+    let landingFailed: unknown = null;
     const cuts: { index: number; uncovered: string }[] = [];
     const markOf = (
       sentence: Sentence,
@@ -932,7 +930,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       });
     };
     const landed = (sentence: Sentence, outcome: ItemOutcome<Checked>) => {
-      if (outcome.status === "stopped") return;
+      if (signal.aborted || outcome.status === "stopped") return;
       if (outcome.status === "not-checked") {
         failed(sentence, outcome.stop.reason, null);
         return;
@@ -1029,34 +1027,33 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         concurrency: claimsAtOnce(prepared),
         signal,
         // runItems hears an outcome inside its own try: a throw here would be filed as the
-        // sentence's failure and heard again.
+        // sentence's failure and heard again. It fails the check once every sentence is heard,
+        // as one edit of all the marks did.
         onOutcome(sentence, outcome) {
           try {
             landed(sentence, outcome);
           } catch (error) {
             couldNotLand(error);
+            landingFailed ??= error;
           }
         },
       },
     );
     if (signal.aborted) return null;
+    if (landingFailed !== null) throw landingFailed;
     done.stop = stop;
     done.cut = cuts.sort((a, b) => a.index - b.index).map(({ uncovered }) => uncovered);
     const at = options.now().toISOString();
-    try {
-      landAll([
-        ...waiting.sort((a, b) => a.index - b.index).map(({ landing }) => landing),
-        ...sentences.slice(SENTENCES_CHECKED_AT_MOST).map(
-          (sentence): Landing => ({
-            sentence,
-            nodes: null,
-            mark: () => notChecked(markOf(sentence), "too-many", null, at),
-          }),
-        ),
-      ]);
-    } catch (error) {
-      couldNotLand(error);
-    }
+    landAll([
+      ...waiting.sort((a, b) => a.index - b.index).map(({ landing }) => landing),
+      ...sentences.slice(SENTENCES_CHECKED_AT_MOST).map(
+        (sentence): Landing => ({
+          sentence,
+          nodes: null,
+          mark: () => notChecked(markOf(sentence), "too-many", null, at),
+        }),
+      ),
+    ]);
     return done;
   }
 }
