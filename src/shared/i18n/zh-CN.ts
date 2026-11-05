@@ -7,7 +7,6 @@ export const zhCN = {
   "library.open": "打开资料库",
   "library.sections": "按文件夹列出的文档",
   "library.search.label": "搜索资料库",
-  "library.found.meetings": "会议",
   "library.search.clear": "清除搜索",
   "library.search.hint": "按 / 搜索",
   "library.filter.add": "筛选",
@@ -5185,6 +5184,7 @@ export const zhCN = {
   "error.transcription.localMode": "会议音频无法发送给云服务：已开启“所有内容都留在这台电脑上”。",
   "error.transcription.noKey": "请先添加 {service} 密钥。",
   "error.transcript.withNote": "会议的转写稿随笔记一起移动和删除。请移动或删除笔记。",
+  "error.transcript.tagWithNote": "请改为给会议的笔记加标签。",
   "error.meeting.joinMoved": "这场会议之后已移动，无法撤销。",
   "error.transcription.keyMissing": "请先粘贴密钥。",
   "error.transcription.unreachable": "无法连接 {service}。请检查网络后重试。",
@@ -5746,6 +5746,7 @@ export const zhCN = {
   "meetings.transcript.inNote": "{meeting} · 转写稿",
   "meetings.transcript.inNoteAt": "{meeting} · 转写稿 {time}",
   "meetings.joined": "“{meeting}”已随转写稿移到“{folder}”",
+  "meetings.joined.transcript": "“{meeting}”的转写稿已移到“{folder}”，与笔记放在一起",
   "meetings.joined.undo": "撤销",
   "meetings.leftApart.one": "1 场会议未与转写稿合并：笔记和转写稿所在的文件夹都只在本文件夹内工作",
   "meetings.leftApart.other":

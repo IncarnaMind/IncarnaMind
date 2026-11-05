@@ -508,9 +508,11 @@ describe("A database from before, opened by this version (#2528)", () => {
 
     // The Note in Recently deleted isn't said until it is back.
     const joined = await core.listJoinedMeetings();
-    expect(joined.map(({ mindId, folderId }) => ({ mindId, folderId }))).toEqual([
-      { mindId: "n1", folderId: "S" },
-      { mindId: "n2", folderId: "W" },
+    expect(
+      joined.map(({ mindId, folderId, noteMoved }) => ({ mindId, folderId, noteMoved })),
+    ).toEqual([
+      { mindId: "n1", folderId: "S", noteMoved: true },
+      { mindId: "n2", folderId: "W", noteMoved: false },
     ]);
     const left = await core.listMeetingsLeftApart();
     expect(left.map((each) => each.mindId)).toEqual(["n10", "n4", "n8"]);

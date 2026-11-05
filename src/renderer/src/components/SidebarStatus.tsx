@@ -829,7 +829,7 @@ function useStatuses(): Status[] {
     const mind = minds.find((each) => each.id === join.mindId);
     const folder = library?.groups.find((each) => each.id === join.folderId);
     if (!mind || !folder || mind.folderId !== join.folderId) continue;
-    const text = t("meetings.joined", {
+    const text = t(join.noteMoved ? "meetings.joined" : "meetings.joined.transcript", {
       meeting: mindName(mind) || t("mind.untitled"),
       folder: folder.name,
     });

@@ -3300,7 +3300,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const taggable = (documentId: unknown): Document => {
     const document = documents.get(documentId);
     if (document.meetingMindId !== null) {
-      throw new InvalidInputError({ key: "error.transcript.withNote" });
+      throw new InvalidInputError({ key: "error.transcript.tagWithNote" });
     }
     return document;
   };

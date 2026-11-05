@@ -77,14 +77,20 @@ export function transcriptsApart(db: Database, now: string): TranscriptsApart {
  */
 export function joinedMeetings(db: Database): JoinedMeeting[] {
   return db
-    .all<{ id: string; mind_id: string; folder_id: string }>(
-      `SELECT j.id, j.mind_id, j.folder_id FROM meeting_joins j
+    .all<{ id: string; mind_id: string; folder_id: string; note_moved: number }>(
+      `SELECT j.id, j.mind_id, j.folder_id, j.from_folder_id IS NOT j.folder_id AS note_moved
+       FROM meeting_joins j
        JOIN minds n ON n.id = j.mind_id AND n.deleted_at IS NULL AND n.folder_id IS j.folder_id
        JOIN library_groups g ON g.id = j.folder_id AND g.deleted_at IS NULL
        WHERE j.said_at IS NULL AND j.deleted_at IS NULL
        ORDER BY j.created_at, j.mind_id`,
     )
-    .map((row) => ({ id: row.id, mindId: row.mind_id, folderId: row.folder_id }));
+    .map((row) => ({
+      id: row.id,
+      mindId: row.mind_id,
+      folderId: row.folder_id,
+      noteMoved: row.note_moved === 1,
+    }));
 }
 
 /** Records that the sidebar said these joins, so it never says them again. */

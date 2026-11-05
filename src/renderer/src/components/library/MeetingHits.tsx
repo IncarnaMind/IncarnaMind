@@ -9,8 +9,8 @@ import { pageRowClass } from "./LibraryRow";
 import { sectionNameClass } from "./SectionHead";
 
 /**
- * The meetings the Library's search finds by words said in them, as their Notes' hits (#2528): a
- * meeting is a Note, so it is never a Document row. Each opens its Transcript beside its Note, at
+ * The meetings the Library's search finds by words said in them, as their Notes' hits under
+ * Notes, as the sidebar lists them (#2528): a meeting is a Note, so it is never a Document row. Each opens its Transcript beside its Note, at
  * the words, as ⌘K does.
  */
 export function MeetingHits({
@@ -23,7 +23,7 @@ export function MeetingHits({
   const minds = useAppStore((state) => state.minds);
   const hits = meetingHitsOf(matches, documents, minds);
   if (hits.length === 0) return null;
-  const label = t("library.found.meetings");
+  const label = t("sidebar.notes");
   return (
     <section data-testid="library-meetings" aria-label={label} className="mt-6">
       <h3 className={`${sectionNameClass} mb-1 px-2`}>{label}</h3>

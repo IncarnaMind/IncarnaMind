@@ -214,6 +214,17 @@ describe("The lines about meetings an earlier version filed apart", () => {
     expect(translate("zh-CN", "meetings.joined", { meeting: "周会", folder: "Vault" })).toBe(
       "“周会”已随转写稿移到“Vault”",
     );
+    expect(
+      translate("en", "meetings.joined.transcript", { meeting: "Weekly call", folder: "Vault" }),
+    ).toBe("The Transcript of “Weekly call” moved to “Vault”, beside its note");
+    expect(
+      translate("zh-CN", "meetings.joined.transcript", { meeting: "周会", folder: "Vault" }),
+    ).toBe("“周会”的转写稿已移到“Vault”，与笔记放在一起");
+    expect(translate("en", "error.transcript.tagWithNote")).toBe("Tag the meeting’s note instead.");
+    expect(translate("zh-CN", "error.transcript.tagWithNote")).toBe("请改为给会议的笔记加标签。");
+    // The Library's search lists meetings under Notes, as the sidebar does.
+    expect(translate("en", "sidebar.notes")).toBe("Notes");
+    expect(translate("zh-CN", "sidebar.notes")).toBe("笔记");
   });
 
   test("Don't cite the Transcript, and back, on the meeting Note's menus", () => {

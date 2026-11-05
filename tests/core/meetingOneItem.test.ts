@@ -135,10 +135,10 @@ describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () 
       wording: { key: "error.transcript.withNote" },
     });
     await expect(core.addDocumentTag(document.id, tag.id)).rejects.toMatchObject({
-      wording: { key: "error.transcript.withNote" },
+      wording: { key: "error.transcript.tagWithNote" },
     });
     await expect(core.addTagToDocuments([own.id, document.id], tag.id)).rejects.toMatchObject({
-      wording: { key: "error.transcript.withNote" },
+      wording: { key: "error.transcript.tagWithNote" },
     });
     expect(await filedTranscripts(core, document.id)).toEqual([]);
     expect((await core.listDocuments()).find((each) => each.id === document.id)?.tags).toEqual([]);
@@ -267,9 +267,9 @@ describe("A database from before (#2528)", { timeout: 60_000 }, () => {
     // The Note went in, behind the wall: nothing walled came out.
     expect(await folderOf(meeting.mindId)).toBe(vault.id);
     const joined = await again.listJoinedMeetings();
-    expect(joined.map(({ mindId, folderId }) => ({ mindId, folderId }))).toEqual([
-      { mindId: meeting.mindId, folderId: vault.id },
-    ]);
+    expect(
+      joined.map(({ mindId, folderId, noteMoved }) => ({ mindId, folderId, noteMoved })),
+    ).toEqual([{ mindId: meeting.mindId, folderId: vault.id, noteMoved: true }]);
     expect(await filedTranscripts(again, document.id)).toEqual([]);
     expect((await again.listDocuments()).find((each) => each.id === document.id)).toMatchObject({
       meetingMindId: meeting.mindId,
@@ -332,9 +332,9 @@ describe("A database from before (#2528)", { timeout: 60_000 }, () => {
     ).toBe(meeting.mindId);
     expect(await foundFrom(again, outside.id)).toEqual([]);
     const joined = await again.listJoinedMeetings();
-    expect(joined.map(({ mindId, folderId }) => ({ mindId, folderId }))).toEqual([
-      { mindId: meeting.mindId, folderId: vault.id },
-    ]);
+    expect(
+      joined.map(({ mindId, folderId, noteMoved }) => ({ mindId, folderId, noteMoved })),
+    ).toEqual([{ mindId: meeting.mindId, folderId: vault.id, noteMoved: false }]);
 
     await again.undoMeetingJoin(joined[0]?.id as string);
     expect((await again.listMinds()).find((mind) => mind.id === meeting.mindId)?.folderId).toBe(

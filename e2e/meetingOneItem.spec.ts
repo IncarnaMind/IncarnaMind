@@ -100,6 +100,16 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(library.getByTestId("library-document").first()).toContainText("tide-tables");
   await expect(library).not.toContainText("Transcript");
   await shot(window, "one-item-library-en");
+  // The Library's search finds the words said in the meeting as its Note's, under Notes.
+  const librarySearch = window.getByTestId("library-search");
+  await librarySearch.fill("eighteenth");
+  const meetingsFound = library.getByTestId("library-meetings");
+  await expect(meetingsFound.getByRole("heading")).toHaveText("Notes");
+  await expect(meetingsFound.getByTestId("library-meeting-hit")).toHaveCount(1);
+  await expect(meetingsFound.getByTestId("library-meeting-hit")).toContainText(
+    new RegExp(`^${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
+  );
+  await librarySearch.fill("");
 
   // ⌘K: the words said in the meeting are the Note's hit, with when they were said.
   await window.keyboard.press("ControlOrMeta+k");
@@ -142,6 +152,8 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(menu.getByTestId("document.moveTo")).toHaveCount(0);
   await expect(menu.getByTestId("document.tags")).toHaveCount(0);
   await expect(menu.getByTestId("document.delete")).toHaveCount(0);
+  await expect(menu.getByTestId("document.rename")).toHaveCount(0);
+  await expect(menu.getByTestId("document.dontCite")).toHaveCount(0);
   await window.keyboard.press("Escape");
 
   await setLanguage(window, "zh-CN");
@@ -150,6 +162,12 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(hits.first()).toContainText(new RegExp(`^${escaped(title)} · 转写稿 \\d{2}:\\d{2}`));
   await shot(window, "one-item-palette-zh");
   await window.keyboard.press("Escape");
+  await pointAndClick(window, window.getByTestId("open-library"));
+  await librarySearch.fill("eighteenth");
+  await expect(meetingsFound.getByRole("heading")).toHaveText("笔记");
+  await expect(meetingsFound.getByTestId("library-meeting-hit")).toContainText(
+    new RegExp(`^${escaped(title)} · 转写稿 \\d{2}:\\d{2}`),
+  );
   await app.close();
 });
 

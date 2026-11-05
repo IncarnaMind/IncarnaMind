@@ -10572,6 +10572,8 @@ export interface JoinedMeeting {
   mindId: string;
   /** The Folder the meeting is in now. */
   folderId: string;
+  /** Its Note went in to its Transcript's Folder; false: its Transcript went in to its Note's. */
+  noteMoved: boolean;
 }
 
 /**

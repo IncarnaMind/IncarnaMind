@@ -10,7 +10,6 @@ export const en = {
   "library.sections": "Documents by Folder",
   "library.search.label": "Search the Library",
   "library.search.clear": "Clear the search",
-  "library.found.meetings": "Meetings",
   "library.search.hint": "Press / to search",
   "library.filter.add": "Filter",
   "library.filter.addLabel": "Add a filter",
@@ -5460,6 +5459,7 @@ export const en = {
   "error.transcription.noKey": "Add a {service} key first.",
   "error.transcript.withNote":
     "A meeting’s Transcript goes with its note. Move or delete the note instead.",
+  "error.transcript.tagWithNote": "Tag the meeting’s note instead.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
   "error.transcription.keyMissing": "Paste the key first.",
   "error.transcription.unreachable":
@@ -6071,6 +6071,8 @@ export const en = {
   "meetings.transcript.inNote": "{meeting} · Transcript",
   "meetings.transcript.inNoteAt": "{meeting} · Transcript, {time}",
   "meetings.joined": "“{meeting}” moved to “{folder}” with its Transcript",
+  "meetings.joined.transcript":
+    "The Transcript of “{meeting}” moved to “{folder}”, beside its note",
   "meetings.joined.undo": "Undo",
   "meetings.leftApart.one":
     "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
