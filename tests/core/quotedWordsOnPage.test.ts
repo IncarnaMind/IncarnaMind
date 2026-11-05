@@ -197,6 +197,54 @@ describe("Quoted words that run on to the next slide", () => {
   });
 });
 
+const QUOTE_NOT_FOUND = { check: "not-found", checkReason: "quote-not-on-pages" };
+
+const INCHES = {
+  en: {
+    file: {
+      name: "Driveway.md",
+      contents:
+        "# Driveway\n\n“Use a 6” pipe under the drive,” the fitter said, “and gravel on top.”\n",
+    },
+    query: "pipe under the drive",
+    question: "Which pipe goes under the drive?",
+    quote: "Use a 6” pipe under the drive",
+    feet: "Use a 6’ pipe under the drive",
+    answer: "The fitter says to use a six-inch pipe [^1].",
+    quoted: "The fitter says “use a 6’ pipe under the drive” [^1].",
+  },
+  zh: {
+    file: {
+      name: "车道.md",
+      contents: "# 车道\n\n师傅说：“车道下面要用6”的管子，上面铺碎石。”\n",
+    },
+    query: "车道下面",
+    question: "车道下面用什么管子？",
+    quote: "车道下面要用6”的管子",
+    feet: "车道下面要用6’的管子",
+    answer: "师傅说车道下面用六英寸的管子[^1]。",
+    quoted: "师傅说“车道下面要用6’的管子”[^1]。",
+  },
+} as const;
+
+describe.each(["en", "zh"] as const)("Inches inside quoted speech (%s)", (language) => {
+  const inches = INCHES[language];
+
+  test("the record's quote with the page's inches: found", async () => {
+    expect(await checkOf(inches, inches.answer)).toEqual(FOUND);
+  });
+
+  test("the record's quote with feet for the page's inches: not found", async () => {
+    expect(await checkOf({ ...inches, quote: inches.feet }, inches.answer)).toEqual(
+      QUOTE_NOT_FOUND,
+    );
+  });
+
+  test("the Answer's quoted words with feet for the page's inches: not found", async () => {
+    expect(await checkOf(inches, inches.quoted)).toEqual(NOT_FOUND);
+  });
+});
+
 describe("Changed words in Chinese stay not found", () => {
   const governance = {
     file: {

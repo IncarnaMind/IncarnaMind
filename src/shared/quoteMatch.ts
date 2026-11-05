@@ -19,11 +19,11 @@
  * - a typographic double quotation mark matches a single one as well as a
  *   double one, as a quote nested in a quote is written in the other kind of
  *   mark ("the ‘soft weights’ property" for the page's “soft weights”,
- *   #2504): an opening one (“ „ « 「 『) always, a closing corner or
- *   guillemet (」 』 ») always, and a closing ” only when it closes one opened
- *   before it. An ASCII " and a double prime ″ match only a double mark, and
- *   so does a ” that closes nothing: they are inches, seconds, a second
- *   derivative or code ("6\"", "f\"(x)", "echo \"$HOME\"", "6”");
+ *   #2504). Opening marks and corner closers count, and a closing ” counts
+ *   only when it closes a “ or „ (`markQuotationMarks`). An ASCII ", a ” that
+ *   closes nothing, and a mark that reads as inches, seconds or a prime
+ *   (`isMeasure`) match only a double mark: "6\"", "f”(x)", "echo \"$HOME\"",
+ *   “Use a 6” pipe,”;
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
@@ -150,9 +150,25 @@ const sameChar = (text: string, quote: string | undefined): boolean =>
   (text === QUOTATION_MARK && (quote === '"' || quote === "'")) ||
   (quote === QUOTATION_MARK && (text === '"' || text === "'"));
 
-/** Typographic double quotation marks that open a quote, and closers that are never a measure's mark. */
-const OPENING_DOUBLE = new Set(["“", "„", "«", "「", "『"]);
-const CLOSING_DOUBLE = new Set(["»", "」", "』"]);
+/**
+ * Each typographic double mark that opens a quote, with the marks that close it: „ closes with ”,
+ * or with “ in German, and guillemets point either way («…», »…«).
+ */
+const CLOSED_BY: ReadonlyMap<string, readonly string[]> = new Map([
+  ["“", ["”"]],
+  ["„", ["”", "“"]],
+  ["«", ["»"]],
+  ["»", ["«"]],
+  ["「", ["」"]],
+  ["『", ["』"]],
+]);
+/** Closing marks that are never a measure's, so they are quotation marks with nothing open. */
+const CORNER_CLOSERS = new Set(["」", "』"]);
+const NEXT_DOUBLE_MARK = /[”“„«»「『]/gu;
+const AFTER_A_NUMBER = /\p{Nd}\s?$/u;
+const AFTER_A_NUMBER_AND_SPACE = /\p{Nd}\s$/u;
+const LATIN = /\p{Script=Latin}/u;
+const BEFORE_A_PRIME_ENDS = /[\p{Script=Latin}\p{Nd}(]/u;
 const LETTER_OR_DIGIT = /[\p{L}\p{N}]/gu;
 
 /**
@@ -278,6 +294,41 @@ function normaliseNumbers(units: NormalisedUnit[], text: string, spaces: GroupSp
 }
 
 /**
+ * Whether a typographic double mark is a measure's or a prime's, not a quotation mark: a ” after a
+ * number when another ” comes before the next opening mark (“Use a 6” pipe,”), a ” between a Latin
+ * letter and a Latin letter, digit or "(" (f”(x)), and a “ alone after a number and a space, as
+ * Word types inches ("a 12 “ gap").
+ */
+function isMeasure(text: string, start: number, end: number, mark: string): boolean {
+  const before = text.slice(Math.max(0, start - 2), start);
+  if (mark === "“") return AFTER_A_NUMBER_AND_SPACE.test(before) && !/\S/u.test(text.charAt(end));
+  if (mark !== "”") return false;
+  if (LATIN.test(text.charAt(start - 1)) && BEFORE_A_PRIME_ENDS.test(text.charAt(end))) return true;
+  if (!AFTER_A_NUMBER.test(before)) return false;
+  NEXT_DOUBLE_MARK.lastIndex = end;
+  return NEXT_DOUBLE_MARK.exec(text)?.[0] === "”";
+}
+
+/**
+ * Marks the units of `text`'s typographic quotation marks as `QUOTATION_MARK`: the normaliser made
+ * every double mark '"', and the text's own character says which were quotes. A closing mark
+ * closes only its own kind of opening mark, so a ” after a closed 「…」 or «…» closes nothing.
+ */
+function markQuotationMarks(text: string, units: NormalisedUnit[]): void {
+  const opened: string[] = [];
+  for (const unit of units) {
+    if (unit.char !== '"') continue;
+    const mark = text.slice(unit.start, unit.end);
+    if (isMeasure(text, unit.start, unit.end, mark)) continue;
+    const top = opened.at(-1);
+    if (top !== undefined && CLOSED_BY.get(top)?.includes(mark)) opened.pop();
+    else if (CLOSED_BY.has(mark)) opened.push(mark);
+    else if (!CORNER_CLOSERS.has(mark)) continue;
+    unit.char = QUOTATION_MARK;
+  }
+}
+
+/**
  * The text normalised for matching: the shared normaliser's units, folded,
  * with the caret of each "[^N]" marked `removed`, and with `numbers`, number
  * formatting too.
@@ -288,16 +339,7 @@ function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
     cellBreaksAsSpaces(text.replace(SOFT_HYPHEN_AT_LINE_END, "-")),
   );
   const folded = units.map((unit) => ({ ...unit, char: fold(unit.char) }));
-  // The normaliser made every double mark '"': the text's own character says which were quotes.
-  let open = 0;
-  for (const unit of folded) {
-    if (unit.char !== '"') continue;
-    const mark = text.slice(unit.start, unit.end);
-    if (OPENING_DOUBLE.has(mark)) open++;
-    else if (mark === "”" && open > 0) open--;
-    else if (!CLOSING_DOUBLE.has(mark)) continue;
-    unit.char = QUOTATION_MARK;
-  }
+  markQuotationMarks(text, folded);
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
     let end = at + 2;

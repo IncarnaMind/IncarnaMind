@@ -413,4 +413,78 @@ describe("which double marks are quotation marks (#2504)", () => {
     expect(findQuote("这是“愿景2030”计划的一部分。", "这是‘愿景2035’计划的一部分")).toBeNull();
     expect(findQuote("Use a 6” pipe under the road.", "use a 6’ pipe under the road")).toBeNull();
   });
+
+  test("a ” after a number inside quoted speech is inches or seconds, not the quote's end", () => {
+    const fitter = "“Use a 6” pipe under the drive,” the fitter said.";
+    expect(findQuote(fitter, "use a 6’ pipe under the drive")).toBeNull();
+    expect(findQuote("“He is 5’10” tall,” she said.", "he is 5’10’ tall")).toBeNull();
+    expect(
+      findQuote("“The lap took 9’58” in all,” he said.", "the lap took 9’58’ in all"),
+    ).toBeNull();
+    expect(findQuote("他说：“管道直径为6”。”", "管道直径为6’")).toBeNull();
+    expect(findQuote("师傅说：“车道下面要用6”的管子。”", "车道下面要用6’的管子")).toBeNull();
+    expect(covered(fitter, "use a 6” pipe under the drive")).toBe("Use a 6” pipe under the drive");
+    expect(covered(fitter, "‘use a 6” pipe under the drive,’ the fitter said")).toBe(
+      "“Use a 6” pipe under the drive,” the fitter said",
+    );
+    expect(covered("他说：“管道直径为6”。”", "管道直径为6”")).toBe("管道直径为6”");
+    expect(findQuote('“Use a 6" pipe,” he said.', "use a 6' pipe")).toBeNull();
+    expect(findQuote('他说：“用6"的管子。”', "用6'的管子")).toBeNull();
+  });
+
+  test("a ” between a Latin letter and a letter, digit or ( is a prime", () => {
+    const derivative = "“The second derivative f”(x) is positive,” he said.";
+    expect(findQuote(derivative, "the second derivative f’(x) is positive")).toBeNull();
+    expect(covered(derivative, "the second derivative f”(x) is positive")).toBe(
+      "The second derivative f”(x) is positive",
+    );
+  });
+
+  test("a “ alone after a number and a space is inches", () => {
+    expect(findQuote("Leave a 12 “ gap at the edge.", "leave a 12 ’ gap at the edge")).toBeNull();
+    expect(covered("Leave a 12 “ gap at the edge.", "leave a 12 “ gap at the edge")).toBe(
+      "Leave a 12 “ gap at the edge",
+    );
+  });
+
+  test("a closing mark closes only its own kind of opening mark", () => {
+    expect(findQuote("他称之为「方案」。管道直径为6”。", "管道直径为6’")).toBeNull();
+    expect(findQuote("Il a dit «non». Un tuyau de 6” ici.", "un tuyau de 6’ ici")).toBeNull();
+    expect(findQuote("「安い」と言った。管は6”である。", "管は6’である")).toBeNull();
+    expect(
+      findQuote("Er nannte es „Plan“. Das Rohr ist 6” breit.", "das rohr ist 6’ breit"),
+    ).toBeNull();
+    expect(
+      findQuote("Er sagte »ja« dazu. Das Rohr ist 6” breit.", "das rohr ist 6’ breit"),
+    ).toBeNull();
+    expect(covered("他称之为「方案」。管道直径为6”。", "管道直径为6”")).toBe("管道直径为6”");
+    expect(covered("Er nannte es „Plan“ dort.", "er nannte es ‘plan’ dort")).toBe(
+      "Er nannte es „Plan“ dort",
+    );
+    expect(covered("Er sagte »ja« dazu.", "er sagte ‘ja’ dazu")).toBe("Er sagte »ja« dazu");
+    expect(covered("Powiedział „tak” wczoraj.", "powiedział ‘tak’ wczoraj")).toBe(
+      "Powiedział „tak” wczoraj",
+    );
+    expect(covered("他称之为「方案」和“愿景”。", "和‘愿景’")).toBe("和“愿景”");
+    expect(findQuote("他说「方案未定。管道直径为6”。", "管道直径为6’")).toBeNull();
+    expect(findQuote("Il a dit « peut-être. Un tuyau de 6” ici.", "un tuyau de 6’ ici")).toBeNull();
+    expect(
+      covered(
+        "“He called it «Plan B» and left,” she said.",
+        "‘he called it «plan b» and left,’ she said",
+      ),
+    ).toBe("“He called it «Plan B» and left,” she said");
+  });
+
+  test("a quote's typographic marks match the page's straight ones, guillemets and a leading mark", () => {
+    expect(covered('The first "quoted" word is here.', "the first “quoted” word")).toBe(
+      'The first "quoted" word',
+    );
+    expect(covered("Il a dit «non» hier.", "il a dit ‘non’ hier")).toBe("Il a dit «non» hier");
+    expect(covered("Il a dit «non» hier.", 'il a dit "non" hier')).toBe("Il a dit «non» hier");
+    expect(covered("The “soft weights” property holds.", "‘soft weights’ property holds")).toBe(
+      "“soft weights” property holds",
+    );
+    expect(covered("这是“软权重”特性。", "‘软权重’特性")).toBe("“软权重”特性");
+  });
 });
