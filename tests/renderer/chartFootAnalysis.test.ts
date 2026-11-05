@@ -30,6 +30,18 @@ vi.mock("../../src/renderer/src/i18n", () => ({
     translate(state.language, key, values),
 }));
 
+/** The rows the Analysis read, which each of its values cites as an Input. */
+const ROWS = {
+  passageId: "p",
+  documentId: "orders",
+  documentName: "Orders",
+  pageFrom: 1,
+  pageTo: 1,
+  location: { kind: "rows", sheet: "Orders", from: 1, to: 41 },
+  quote: "region\tamount",
+  check: "found",
+};
+
 /** A bar chart of `totals`, each value the Analysis's own, as a chart of its table draws them. */
 const chartOf = (totals: number[]): ChartAttributes =>
   readChart({
@@ -47,6 +59,7 @@ const chartOf = (totals: number[]): ChartAttributes =>
             shown: String(total),
             value: total,
             fromAnalysis: true,
+            inputs: [ROWS],
             from: { kind: "cell", row: index + 1, column: 1 },
           },
         ],
@@ -121,10 +134,8 @@ test.each([
   "%s: a chart's foot says its values were calculated by the Analysis",
   async (language, one, four) => {
     state.language = language;
-    const single = await foot(chartOf([8325]));
-    expect(single).toContain(one);
-    const several = await foot(chartOf([8325, 9450, 7210, 6105]));
-    expect(several).toContain(four);
-    expect(several).not.toContain(translate(language, "chart.source.uncited", { count: 1 }));
+    // The whole line: never "each quoted from" the rows they were worked out from beside it.
+    expect(await foot(chartOf([8325]))).toBe(one);
+    expect(await foot(chartOf([8325, 9450, 7210, 6105]))).toBe(four);
   },
 );

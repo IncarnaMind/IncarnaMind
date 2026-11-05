@@ -11,10 +11,10 @@ import {
   type ChartKind,
   type ChartValue,
   canSwitch,
-  chartCells,
   chartPoints,
   chartSources,
   drawnSeries,
+  footCitations,
   inputsOf,
   kindFits,
   listedRows,
@@ -263,12 +263,7 @@ export function ChartView({
     of: string;
   } | null>(null);
   const findButton = useRef<HTMLButtonElement>(null);
-  // An Analysis's values are its run's: the rows its inputs cite are found or not, never them.
-  const checks = checksOf(
-    chartCells(chart).flatMap(({ value }) =>
-      value.value === null || value.fromAnalysis ? [] : valueCitations(value).map(stateOfCitation),
-    ),
-  );
+  const checks = checksOf(footCitations(chart).map(stateOfCitation));
 
   const change = (
     attributes: Partial<Pick<ChartAttributes, "kind" | "title" | "drawn" | "data" | "source">>,

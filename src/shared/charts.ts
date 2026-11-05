@@ -544,6 +544,15 @@ export function valueCitations(value: ChartValue): CitationAttributes[] {
   });
 }
 
+/**
+ * The Citations a chart's foot weighs for its check mark: each drawn value's, but not an Analysis's
+ * values, which are its run's; the rows its inputs cite are found or not, never them (#2378).
+ */
+export const footCitations = (chart: Pick<ChartAttributes, "kind" | "drawn" | "data">) =>
+  chartCells(chart).flatMap(({ value }) =>
+    value.value === null || value.fromAnalysis ? [] : valueCitations(value),
+  );
+
 class Places {
   private readonly byKey = new Map<string, ChartSourcePlace>();
   private readonly documentKeys = new Set<string>();

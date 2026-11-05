@@ -340,7 +340,7 @@ test("a sentence typed into the caption line is counted as the core checks it; a
       tr.insertText(words, captionStart);
       return true;
     });
-  typeIntoCaption("Sales vs. budget, 1.5x: ");
+  typeIntoCaption("Sales vs. budget: ");
   expect(toCheck()).toHaveLength(1);
   typeIntoCaption("North's total amount grew 40% to 12,000. ");
   expect(toCheck()).toContain(captionStart);
@@ -408,6 +408,9 @@ test("⌘K reaches the table at the cursor of the Note in front, its calculation
     if (!open || !remove) throw new Error("Missing commands.");
     expect(offered(open, palette)).toBe(true);
     expect(offered(remove, palette)).toBe(true);
+    // Another Note in focus isn't the one in front; a context with no focus at all is the Note's own.
+    expect(offered(open, { ...palette, focus: { kind: "mind", id: "mind-2" } })).toBe(false);
+    expect(offered(open, { selection: [], focus: null, surface: "mind" })).toBe(true);
     convertAnalysisTable(editor);
     intoTable(editor);
     expect(offered(open, palette)).toBe(false);

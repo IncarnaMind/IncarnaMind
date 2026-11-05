@@ -13,6 +13,7 @@ import {
   chartSources,
   chosenSeries,
   drawnSeries,
+  footCitations,
   gridOfTable,
   isNumericSeries,
   listedRows,
@@ -295,6 +296,26 @@ describe("what a chart draws", () => {
     const sources = chartSources(analysed);
     expect([sources.values, sources.uncited, sources.analysis]).toEqual([8, 0, 1]);
     expect(sources.uncitedCells).toEqual([]);
+  });
+
+  test("the foot's check mark weighs quoted values' Citations, never an Analysis's values'", () => {
+    const quoted = footCitations(chart);
+    expect(quoted).toHaveLength(7);
+    const fromAnalysis: ChartAttributes = {
+      ...chart,
+      data: {
+        ...chart.data,
+        rows: chart.data.rows.map((row, index) => ({
+          ...row,
+          values: row.values.map((value) =>
+            value && index === 0 ? { ...value, fromAnalysis: true as const } : value,
+          ),
+        })),
+      },
+    };
+    const cited = chart.data.rows[0]?.values.filter((value) => value?.citation).length ?? 0;
+    expect(cited).toBeGreaterThan(0);
+    expect(footCitations(fromAnalysis)).toHaveLength(quoted.length - cited);
   });
 
   test("its sources count every chosen cell for bars, lines and scatter, and a pie's one column", () => {

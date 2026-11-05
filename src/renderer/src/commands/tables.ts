@@ -39,18 +39,26 @@ export const tableCommands: readonly Command[] = [
       // The note's own undo (⌘Z) takes it back.
       reversible: true,
       when: (ctx) => {
+        // The caption's marker gives its own table's, wherever the cursor is (#2378).
+        if (ctx.here?.[action.command]) return true;
         const editor = tableNote(ctx);
         // Only an Analysis's own table has a calculation to convert to text (#2378).
         const analysisOnly = action.id === "convertToText" || action.id === "openCalculation";
         return editor !== null && (!analysisOnly || inAnalysisTable(editor.state));
       },
       enabled(ctx) {
+        if (ctx.here?.[action.command]) return true;
         const editor = tableNote(ctx);
         const spot = editor && tableSpot(editor.state);
         const reason = spot && unavailable(action.id, spot);
         return reason ? { reason } : true;
       },
       run(ctx) {
+        const here = ctx.here?.[action.command];
+        if (here) {
+          here();
+          return;
+        }
         const editor = tableNote(ctx);
         if (editor) runTableAction(editor, action);
       },

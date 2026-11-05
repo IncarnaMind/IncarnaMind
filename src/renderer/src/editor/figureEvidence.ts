@@ -3,13 +3,18 @@ import { Slice } from "@tiptap/pm/model";
 import { Plugin, type Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
-import { MIND_FIGURE_RUNS_FIELD, type RetainedFigureAnalysis } from "../../../core/api";
+import {
+  type AnalysisTableBinding,
+  MIND_FIGURE_RUNS_FIELD,
+  type RetainedFigureAnalysis,
+} from "../../../core/api";
 import { InvalidInputError } from "../../../core/errors";
 import {
   boundTablesIn,
   calculatedFiguresIn,
   installFigureRuns,
   readFigureRunClosure,
+  sameBinding,
   withoutChecks,
 } from "../../../shared/figureRuns";
 import { useAppStore } from "../store";
@@ -65,6 +70,17 @@ export const FigureEvidence = Extension.create<{ doc: Y.Doc | null }>({
                   slice.openStart,
                   slice.openEnd,
                 );
+              } else {
+                // One run's table stands once in a Note: a copy of one it holds comes in typed.
+                const held = boundTablesIn(view.state.doc.toJSON().content ?? []);
+                const repeated = (binding: AnalysisTableBinding) =>
+                  held.some((each) => sameBinding(each, binding));
+                if (boundTablesIn(blocks).some(repeated))
+                  slice = new Slice(
+                    withoutTableBindings(slice.content, repeated),
+                    slice.openStart,
+                    slice.openEnd,
+                  );
               }
               const preview = new Y.Doc();
               try {

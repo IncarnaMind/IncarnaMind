@@ -1058,7 +1058,7 @@ test("a write's figure keeps its record though the editor deletes another Analys
   expect(firstRun?.values.map((value) => value.name)).toEqual(["total"]);
 });
 
-test("cells copied from an Analysis's own table go as that table with its run, and paste back bound (#2378)", () => {
+test("cells copied from an Analysis's own table go as that table with its run, paste bound into another Note and typed into their own (#2378)", () => {
   const source = setup({ empty: true });
   const binding = { id: "run", table: { result: "totals" } };
   const cell = (type: "tableHeader" | "tableCell", text: string): NodeJSON => ({
@@ -1114,6 +1114,7 @@ test("cells copied from an Analysis's own table go as that table with its run, a
           })),
         ],
       }),
+      createElement({ type: "paragraph", attrs: { id: "after" }, content: [] }),
     ]);
   });
   const cells: number[] = [];
@@ -1139,4 +1140,15 @@ test("cells copied from an Analysis's own table go as that table with its run, a
   });
   expect(bound).toBe(1);
   expect(target.doc.getMap(MIND_FIGURE_RUNS_FIELD).has(JSON.stringify(["run"]))).toBe(true);
+
+  // Pasted back into the Note that holds the table, the copy is a table the User typed.
+  source.editor.commands.setTextSelection(source.editor.state.doc.content.size - 1);
+  pasteHtml(source.editor, html, "region\tamount");
+  const tables = { bound: 0, typed: 0, markers: 0 };
+  source.editor.state.doc.descendants((node) => {
+    if (node.type.name === "table") tables[node.attrs.analysisTable ? "bound" : "typed"]++;
+    if (node.type.name === "analysisTable") tables.markers++;
+    return true;
+  });
+  expect(tables).toEqual({ bound: 1, typed: 1, markers: 1 });
 });

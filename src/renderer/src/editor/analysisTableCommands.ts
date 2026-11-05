@@ -54,38 +54,68 @@ export function openAnalysisTableCard(editor: Editor): boolean {
 }
 
 /**
- * Convert to text, in the table's menu (#2378): the table at the cursor becomes a table the User
- * typed, its cells then checked as any are, and its caption's marker goes; its caption's words stay.
+ * Convert to text for the Analysis table `binding` names (#2378): the table becomes a table the User
+ * typed, its cells then checked as any are, and its caption's marker goes; the caption's words stay.
+ * The table and its marker are found by their binding, wherever each one is.
  */
-export function convertAnalysisTable(editor: Editor): boolean {
-  const table = tableAround(editor.state);
-  const binding = table && readTableBinding(table.node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
-  if (!table || !binding) return false;
-  const marker = markerOf(editor.state);
+export function convertBoundTable(editor: Editor, binding: AnalysisTableBinding): boolean {
+  let table: number | null = null;
+  let marker: number | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    const named =
+      node.type.name === "table" || node.type.name === ANALYSIS_TABLE_NODE
+        ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE])
+        : null;
+    if (named && sameBinding(named, binding)) {
+      if (node.type.name === "table") table ??= pos;
+      else marker ??= pos;
+    }
+    return true;
+  });
+  const [at, mark] = [table, marker];
+  if (at === null && mark === null) return false;
   return editor.commands.command(({ tr }) => {
-    tr.setNodeAttribute(table.pos, ANALYSIS_TABLE_ATTRIBUTE, null);
-    if (marker !== null) tr.delete(marker, marker + 1);
+    if (at !== null) tr.setNodeAttribute(at, ANALYSIS_TABLE_ATTRIBUTE, null);
+    if (mark !== null) tr.delete(tr.mapping.map(mark), tr.mapping.map(mark) + 1);
     return true;
   });
 }
 
+/** Convert to text, in the table's menu: for the Analysis table the cursor is in. */
+export function convertAnalysisTable(editor: Editor): boolean {
+  const table = tableAround(editor.state);
+  const binding = table && readTableBinding(table.node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
+  return binding ? convertBoundTable(editor, binding) : false;
+}
+
 /**
- * `fragment` with every Analysis table's binding and caption marker taken off (#2378): pasted with
- * no record of its run, a table is the typed table its cells read as, and is checked as one.
+ * `fragment` with the Analysis tables' bindings and caption markers that `drop` names taken off
+ * (#2378), every one by default: pasted with no record of its run, or into a Note that already holds
+ * its table, a table is the typed table its cells read as, and is checked as one.
  */
-export function withoutTableBindings(fragment: Fragment): Fragment {
+export function withoutTableBindings(
+  fragment: Fragment,
+  drop: (binding: AnalysisTableBinding) => boolean = () => true,
+): Fragment {
   const nodes: ProseMirrorNode[] = [];
   fragment.forEach((node) => {
-    if (node.type.name === ANALYSIS_TABLE_NODE) return;
+    const binding =
+      node.type.name === "table" || node.type.name === ANALYSIS_TABLE_NODE
+        ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE])
+        : null;
+    const dropped = binding !== null && drop(binding);
+    if (node.type.name === ANALYSIS_TABLE_NODE && (dropped || binding === null)) return;
     if (node.isText) {
       nodes.push(node);
       return;
     }
     const attrs =
-      node.type.name === "table" && node.attrs[ANALYSIS_TABLE_ATTRIBUTE] != null
+      node.type.name === "table" &&
+      node.attrs[ANALYSIS_TABLE_ATTRIBUTE] != null &&
+      (dropped || binding === null)
         ? { ...node.attrs, [ANALYSIS_TABLE_ATTRIBUTE]: null }
         : node.attrs;
-    nodes.push(node.type.create(attrs, withoutTableBindings(node.content), node.marks));
+    nodes.push(node.type.create(attrs, withoutTableBindings(node.content, drop), node.marks));
   });
   return Fragment.fromArray(nodes);
 }
@@ -198,19 +228,7 @@ function convertMarked(editor: Editor): boolean {
   if (!(selection instanceof NodeSelection) || selection.node.type.name !== ANALYSIS_TABLE_NODE)
     return false;
   const binding = readTableBinding(selection.node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
-  if (!binding) return false;
-  let table: number | null = null;
-  editor.state.doc.forEach((node, pos) => {
-    const named =
-      node.type.name === "table" ? readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) : null;
-    if (table === null && named && sameBinding(named, binding)) table = pos;
-  });
-  const at = table;
-  return editor.commands.command(({ tr }) => {
-    if (at !== null) tr.setNodeAttribute(at, ANALYSIS_TABLE_ATTRIBUTE, null);
-    tr.delete(selection.from, selection.to);
-    return true;
-  });
+  return binding ? convertBoundTable(editor, binding) : false;
 }
 
 /**

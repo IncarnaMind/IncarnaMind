@@ -19,21 +19,27 @@ import {
   tableShownIn,
 } from "../../../shared/analysisTables";
 import { readTableBinding, sameBinding } from "../../../shared/figureRuns";
+import { registerMenu } from "../commands/menus";
+import type { CommandContext } from "../commands/registry";
+import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
-import { TABLE_DATA_STATE, TABLE_STATE_WORDS } from "./analysisTableCommands";
+import { convertBoundTable, TABLE_DATA_STATE, TABLE_STATE_WORDS } from "./analysisTableCommands";
 import { tableNumberOf } from "./citationNumbers";
 import { Popover } from "./Popover";
 import { useCitationPeek } from "./peek";
-import { focusQuietly } from "./quietFocus";
+import { focusQuietly, isQuietFocus } from "./quietFocus";
 import "./calculatedFigure.css";
 
-/** The table a caption's marker names: the next Block holding the same binding, and where it is. */
-function boundTable(doc: ProseMirrorNode, from: number, binding: AnalysisTableBinding) {
+// The marker's own menu, as a figure's marker has one: its card first, then Convert to text.
+registerMenu("check", ["table.openCalculation", "table.convertToText"]);
+
+/** The table a caption's marker names, above or below it: the Block holding the same binding. */
+function boundTable(doc: ProseMirrorNode, binding: AnalysisTableBinding) {
   let found: { node: ProseMirrorNode; pos: number } | null = null;
   doc.forEach((node, offset) => {
-    if (found || offset < from || node.type.name !== "table") return;
+    if (found || node.type.name !== "table") return;
     const named = readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]);
     if (named && sameBinding(named, binding)) found = { node, pos: offset };
   });
@@ -95,10 +101,7 @@ export function AnalysisTableView({
   }, [doc]);
   const table = useEditorState({
     editor,
-    selector: ({ editor: current }) => {
-      const at = getPos();
-      return binding && typeof at === "number" ? boundTable(current.state.doc, at, binding) : null;
-    },
+    selector: ({ editor: current }) => (binding ? boundTable(current.state.doc, binding) : null),
     equalityFn: (a, b) => a?.node === b?.node && a?.pos === b?.pos,
   });
   // biome-ignore lint/correctness/useExhaustiveDependencies: revision observes the kept runs.
@@ -121,6 +124,13 @@ export function AnalysisTableView({
     },
   });
   const label = t("figures.table.label", { number, title });
+  const target = { kind: "check" as const, id: binding ? `table:${JSON.stringify(binding)}` : "" };
+  const menu = useObjectMenu(target);
+  const here: CommandContext["here"] = {
+    "table.openCalculation": () => setPinned(true),
+    ...(binding &&
+      editor.isEditable && { "table.convertToText": () => convertBoundTable(editor, binding) }),
+  };
   const dismiss = () => {
     clear();
     setPinned(false);
@@ -132,6 +142,7 @@ export function AnalysisTableView({
       contentEditable={false}
       data-testid="analysis-table-marker"
       data-state={TABLE_DATA_STATE[shown.state.kind]}
+      {...menu.rowProps}
     >
       <button
         ref={marker}
@@ -141,6 +152,10 @@ export function AnalysisTableView({
         aria-expanded={open}
         onPointerEnter={() => hold("marker", true)}
         onPointerLeave={() => hold("marker", false)}
+        onFocus={(event) => {
+          if (!isQuietFocus(event.currentTarget)) hold("focus", true);
+        }}
+        onBlur={() => hold("focus", false)}
         onClick={() => setPinned(true)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
@@ -156,6 +171,13 @@ export function AnalysisTableView({
       >
         {`=${number || ""}`}
       </button>
+      <ObjectMenu
+        target={target}
+        label={label}
+        here={here}
+        without={["check.anyway", "check.useDocumentWording", "check.findSources"]}
+        className="calculated-figure-more"
+      />
       {open &&
         marker.current &&
         createPortal(
@@ -170,6 +192,8 @@ export function AnalysisTableView({
             className="calculated-figure-card"
             onPointerEnter={() => hold("card", true)}
             onPointerLeave={() => hold("card", false)}
+            onFocus={() => hold("card-focus", true)}
+            onBlur={() => hold("card-focus", false)}
           >
             <AnalysisTableCard
               title={title}
