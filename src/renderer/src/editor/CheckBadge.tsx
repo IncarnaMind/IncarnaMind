@@ -264,7 +264,7 @@ export function CheckActions({
             disabled={running || editing}
             className={buttonStyle("primary", "sm")}
             onClick={() => {
-              if (correctContradictions(editor, mindId) === 0) return;
+              if (correctContradictions(editor, mindId, doc) === 0) return;
               setCheckCardOpen(place, false);
               requestAnimationFrame(() => {
                 if (!editor.isDestroyed) editor.view.focus();

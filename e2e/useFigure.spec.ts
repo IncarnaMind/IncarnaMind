@@ -184,6 +184,9 @@ for (const [language, width] of [
         `Use {figure} (${language}): press to new mark ${measured?.ms} ms; states ${measured?.states.join(" -> ")}`,
       );
       expect(measured?.ms, `Use {figure} (${language}) to a new mark`).toBeGreaterThanOrEqual(0);
+      // The ordinary check runs, and the mark it leaves is the model's own.
+      expect(measured?.states).toContain("checking");
+      expect(measured?.states.at(-1)).toBe("supported");
       await expect(card).toBeHidden();
       await expect(line).toContainText("was 1.31x at the end of 2025");
       await expect(line).not.toContainText("was 1.1x at");
@@ -191,6 +194,12 @@ for (const [language, width] of [
       await expect(window.getByTestId("undo-line")).toContainText(WORDS[language].done);
       await expect(marks.nth(0)).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
       await expect(marks.nth(0)).not.toHaveAttribute("data-claim", earlier ?? "");
+      const rechecked = await marks.nth(0).getAttribute("data-claim");
+      // The card's foot names the run that judged the corrected words.
+      await pointAndClick(window, marks.nth(0));
+      await expect(card.getByTestId("claim-checked-by")).toContainText("Haiku");
+      await window.keyboard.press("Escape");
+      await expect(card).toBeHidden();
       await screenshot(window, `use-figure-used-${language}`);
 
       // The undo line brings back the number and the check it had.
@@ -207,10 +216,11 @@ for (const [language, width] of [
       await expect(line).toContainText("was 1.1x at the end of 2025");
       await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
       await expect(marks.nth(0)).toHaveAttribute("data-claim", earlier ?? "");
-      // ⇧⌘Z does it again, and checks the sentence again as Use did (#2402); ⌘Z takes it back.
+      // ⇧⌘Z does it again and asks for its check again (#2402): a third verdict, not the first's.
       await window.keyboard.press("ControlOrMeta+Shift+z");
       await expect(line).toContainText("was 1.31x at the end of 2025");
       await expect(marks.nth(0)).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
+      await expect(marks.nth(0)).not.toHaveAttribute("data-claim", rechecked ?? "");
       await window.keyboard.press("ControlOrMeta+z");
       await expect(line).toContainText("was 1.1x at the end of 2025");
       await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
