@@ -31,8 +31,9 @@ vi.mock("../../src/renderer/src/store", () => ({
     getState: () => ({ openMind: async () => {}, settings: { language: opened.language } }),
   },
 }));
+vi.mock("../../src/renderer/src/editWithAi", () => ({ noteBusy: vi.fn() }));
 vi.mock("../../src/renderer/src/checks", () => ({
-  useChecks: { getState: () => ({ running: {} }) },
+  useChecks: { getState: () => ({ running: {}, rewriting: {} }) },
   dismissCheckProblem: vi.fn(),
   setCheckCardOpen: vi.fn(),
   setCheckProblem: vi.fn(),

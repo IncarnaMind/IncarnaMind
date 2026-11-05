@@ -445,6 +445,62 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+const SEABIRDS = "Seabirds nest on the bay cliffs every spring.";
+
+test("a check, the Note's Check or an edit asked for while a rewrite works waits for it, and the rewrite lands", async () => {
+  test.setTimeout(300_000);
+  const t = (key: MessageKey) => translate("en", key);
+  const { app, window, editor } = await launchNote(
+    "en",
+    1440,
+    undefined,
+    DRY_FILES,
+    "fake-model-slow-check",
+  );
+  const card = await checkSentence(window, editor, DRY);
+  await holdModel(app, true);
+  await pointAndClick(window, card.getByTestId("claim-rewrite"));
+  await expect(window.getByTestId("claim-mark").last()).toHaveAttribute("data-check", "checking");
+  const marks = await window.getByTestId("claim-mark").count();
+  // Another sentence, written and selected while the model works.
+  await pointAndClick(window, editor.locator(":scope > p").last());
+  await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+  await window.keyboard.press("Enter");
+  await window.keyboard.type(SEABIRDS);
+  const other = editor.locator(":scope > p").last();
+  const busy = window.getByTestId("edit-problem");
+  const select = () =>
+    slideSelect(window, other, "Seabirds nest", { line: other, words: "every spring." });
+  const close = async () => {
+    await pointAndClick(window, window.getByTestId("edit-problem-close"));
+    await expect(busy).toHaveCount(0);
+  };
+  await select();
+  await pointAndClick(
+    window,
+    window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
+  );
+  await expect(busy).toContainText(t("edit.problem.busy"));
+  await close();
+  await runCommand(window, "mind.check", t("mindCheck.command"));
+  await expect(busy).toContainText(t("edit.problem.busy"));
+  await close();
+  await select();
+  await pointAndClick(
+    window,
+    window.getByTestId("selection-menu").getByTestId("selection-action-shorten"),
+  );
+  await expect(busy).toContainText(t("edit.problem.busy"));
+  await close();
+  // Nothing else started: no sentence was checked, and the rewrite writes its reply.
+  await expect(window.getByTestId("claim-mark")).toHaveCount(marks);
+  await holdModel(app, false);
+  await expect.poll(() => noteText(editor)).toBe(`${DRY_REWRITTEN}\n${SEABIRDS}`);
+  await expect(window.getByTestId("undo-message")).toHaveText(t("claim.rewrite.done"));
+  await expect(window.getByTestId("error-notice-message")).toHaveCount(0);
+  await app.close();
+});
+
 for (const language of ["en", "zh-CN"] as const) {
   const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   test(`a narrow window keeps the card's new actions inside it (${language})`, async () => {

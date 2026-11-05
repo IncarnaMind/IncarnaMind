@@ -563,3 +563,74 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     kind: "none",
   },
 ];
+
+/**
+ * Whether a sentence's card offers Rewrite beside its close Passage's line: only where a rewrite
+ * could keep to the rules, so never where every rewrite would be refused. Written before the
+ * offer read more than the words before the figure.
+ */
+export interface RewriteOfferCase {
+  id: string;
+  sentence: string;
+  quote: string;
+  offered: boolean;
+}
+
+export const REWRITE_OFFER_CASES: readonly RewriteOfferCase[] = [
+  {
+    id: "another-figure-the-line-also-writes",
+    sentence: "The pool fee is $30 for 2 guests.",
+    quote: "The pool fee is $45 for 2 guests.",
+    // The line gives two figures, so the one-figure rule keeps every rewrite of it.
+    offered: false,
+  },
+  {
+    id: "another-figure-the-line-doesnt-write",
+    sentence: "The pool fee is $30 for 3 guests.",
+    quote: "The pool fee is $45 for 2 guests.",
+    offered: false,
+  },
+  {
+    id: "other-words-after-the-figure",
+    sentence: "The pool fee is $30 per guest.",
+    quote: "The pool fee is $45 per child.",
+    offered: false,
+  },
+  {
+    id: "the-same-words-after-the-figure",
+    sentence: "The pool fee is $30 per guest.",
+    quote: "The pool fee is $45 per guest.",
+    offered: true,
+  },
+  {
+    id: "another-figure-the-line-also-writes-zh",
+    sentence: "泳池费为每人 30 元，限 2 人。",
+    quote: "泳池费为每人 45 元，限 2 人。",
+    // The line gives two figures, so the one-figure rule keeps every rewrite of it.
+    offered: false,
+  },
+  {
+    id: "another-figure-the-line-doesnt-write-zh",
+    sentence: "泳池费为每人 30 元，限 3 人。",
+    quote: "泳池费为每人 45 元，限 2 人。",
+    offered: false,
+  },
+  {
+    id: "other-words-after-the-figure-zh",
+    sentence: "泳池费为 30 元每人。",
+    quote: "泳池费为 45 元每车。",
+    offered: false,
+  },
+  {
+    id: "a-list-number-the-line-also-writes",
+    sentence: "2. The pool fee is $30.",
+    quote: "2. The pool fee is $45.",
+    offered: true,
+  },
+  {
+    id: "a-year",
+    sentence: "The pool opened in 2019.",
+    quote: "The pool opened in 2021.",
+    offered: false,
+  },
+];

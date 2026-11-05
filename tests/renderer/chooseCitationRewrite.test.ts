@@ -76,7 +76,7 @@ const { checkCommands } = await import("../../src/renderer/src/commands/checks")
 const { noteHandle } = await import("../../src/renderer/src/commands/handles");
 
 const SENTENCE = "Rent is 1100 dollars.";
-const LINE = "Rent is 1250 dollars monthly.";
+const LINE = "Rent is 1250 dollars.";
 
 const evidence: CitationAttributes = {
   passageId: "passage-rent",
