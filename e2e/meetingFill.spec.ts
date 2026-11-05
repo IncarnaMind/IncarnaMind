@@ -66,7 +66,7 @@ const LINES = {
     summary: "Summary",
     decisions: "Decisions",
     actions: "Action items",
-    partial: "Notes partly filled in",
+    partial: "Note partly filled in",
     noAdditions: "No notes added",
     omittedOne: "1 item couldn’t be added",
     omittedTwo: "2 items couldn’t be added",

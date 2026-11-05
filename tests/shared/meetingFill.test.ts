@@ -30,7 +30,7 @@ describe("partial meeting-fill status", () => {
   });
 
   test.each([
-    ["en", "Notes partly filled in for Project review"],
+    ["en", "Note partly filled in for Project review"],
     ["zh-CN", "已为“Project review”补全部分笔记"],
   ] as const)("the partial notification in %s preserves the meeting's name", (language, text) => {
     expect(translate(language, "meetings.fill.notify.partial", { meeting: "Project review" })).toBe(

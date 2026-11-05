@@ -6252,7 +6252,7 @@ export const en = {
   "meetings.fill.filling": "Filling in the note…",
   "meetings.fill.fillingLocal": "Filling in the note on this computer…",
   "meetings.fill.filled": "Note filled in",
-  "meetings.fill.partial": "Notes partly filled in",
+  "meetings.fill.partial": "Note partly filled in",
   "meetings.fill.noAdditions": "No notes added",
   "meetings.fill.omitted.one": "{count} item couldn’t be added",
   "meetings.fill.omitted": "{count} items couldn’t be added",
@@ -6281,7 +6281,7 @@ export const en = {
   "meetings.fill.problem.noModel": "choose an AI model first.",
   "meetings.fill.undoName": "Fill in the note",
   "meetings.fill.notify": "Note filled in: {meeting}",
-  "meetings.fill.notify.partial": "Notes partly filled in for {meeting}",
+  "meetings.fill.notify.partial": "Note partly filled in for {meeting}",
   "memos.record": "Record a voice memo",
   "memos.record.menu": "Voice memo",
   "memos.record.keywords":

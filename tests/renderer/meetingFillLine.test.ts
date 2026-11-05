@@ -168,12 +168,12 @@ describe("meeting notes with unfinished Transcript parts", () => {
     [
       "en",
       1,
-      "Notes partly filled in · 1 Transcript part couldn’t be finished · View Transcript · Undo",
+      "Note partly filled in · 1 Transcript part couldn’t be finished · View Transcript · Undo",
     ],
     [
       "en",
       3,
-      "Notes partly filled in · 3 Transcript parts couldn’t be finished · View Transcript · Undo",
+      "Note partly filled in · 3 Transcript parts couldn’t be finished · View Transcript · Undo",
     ],
     ["zh-CN", 1, "笔记未能全部补全 · 1 段转写稿未处理完 · 查看转写稿 · 撤销"],
     ["zh-CN", 3, "笔记未能全部补全 · 3 段转写稿未处理完 · 查看转写稿 · 撤销"],
@@ -198,7 +198,7 @@ describe("meeting notes with unfinished Transcript parts", () => {
   test.each([
     [
       "en",
-      "Notes partly filled in · 1 item couldn’t be added · 2 Transcript parts couldn’t be finished · View Transcript · Undo",
+      "Note partly filled in · 1 item couldn’t be added · 2 Transcript parts couldn’t be finished · View Transcript · Undo",
     ],
     ["zh-CN", "笔记未能全部补全 · 1 项内容未能添加 · 2 段转写稿未处理完 · 查看转写稿 · 撤销"],
   ] as const)(
@@ -214,8 +214,8 @@ describe("meeting notes with unfinished Transcript parts", () => {
 
 describe("meeting notes with omitted items", () => {
   test.each([
-    ["en", 1, "Notes partly filled in · 1 item couldn’t be added · View Transcript · Undo"],
-    ["en", 2, "Notes partly filled in · 2 items couldn’t be added · View Transcript · Undo"],
+    ["en", 1, "Note partly filled in · 1 item couldn’t be added · View Transcript · Undo"],
+    ["en", 2, "Note partly filled in · 2 items couldn’t be added · View Transcript · Undo"],
     ["zh-CN", 1, "笔记未能全部补全 · 1 项内容未能添加 · 查看转写稿 · 撤销"],
     ["zh-CN", 2, "笔记未能全部补全 · 2 项内容未能添加 · 查看转写稿 · 撤销"],
   ] as const)(
@@ -246,7 +246,7 @@ describe("meeting notes with omitted items", () => {
         const line = await show(meetingOf(fillOf({ omitted: 1 })));
         expect(line?.textContent).toBe(
           language === "en"
-            ? "Notes partly filled in · 1 item couldn’t be added · View Transcript · Undo"
+            ? "Note partly filled in · 1 item couldn’t be added · View Transcript · Undo"
             : "笔记未能全部补全 · 1 项内容未能添加 · 查看转写稿 · 撤销",
         );
       },
@@ -286,7 +286,7 @@ describe("meeting notes with omitted items", () => {
 
 describe("meeting notes retained before a later failure", () => {
   test.each([
-    ["en", "Notes partly filled in · View Transcript · Undo"],
+    ["en", "Note partly filled in · View Transcript · Undo"],
     ["zh-CN", "笔记未能全部补全 · 查看转写稿 · 撤销"],
   ] as const)(
     "with no known counts in %s, reports partial results without provider text",
@@ -317,12 +317,12 @@ describe("meeting notes retained before a later failure", () => {
       ),
     );
     expect(line?.textContent).toBe(
-      "Notes partly filled in · 1 item couldn’t be added · View Transcript · Undo",
+      "Note partly filled in · 1 item couldn’t be added · View Transcript · Undo",
     );
   });
 
   test.each([
-    ["en", "Notes partly filled in · View Transcript · Undo"],
+    ["en", "Note partly filled in · View Transcript · Undo"],
     ["zh-CN", "笔记未能全部补全 · 查看转写稿 · 撤销"],
   ] as const)(
     "unknown-size malformed output in %s has no invented item or part count",
@@ -564,7 +564,7 @@ describe("meeting-fill Undo notice", () => {
       completed(meeting);
       const change = actions.push.mock.calls[0]?.[0];
       if (!change) throw new Error("No Undo offered for retained meeting additions");
-      expect(said(change, "en")).toBe("Notes partly filled in");
+      expect(said(change, "en")).toBe("Note partly filled in");
       expect(said(change, "zh-CN")).toBe("笔记未能全部补全");
       change.also?.run();
       expect(actions.openMind.mock.calls).toEqual([[meeting.mindId]]);
