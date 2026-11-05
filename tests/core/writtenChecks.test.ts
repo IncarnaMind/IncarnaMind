@@ -801,14 +801,14 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     ]);
   });
 
-  // protects=a landing that throws (here a newer version wrote the Note mid-check, so no edit may change it) is logged and never becomes its sentence's failure (#2532); fails_when=runItems files the throw as the sentence's failure and lands it again; no_claim=what the card says of a Note a newer version wrote, as the write's own edits fail there too.
-  test("a mark that can't land is logged, not filed as its sentence's failure", async () => {
+  // protects=a landing that throws (here a newer version wrote the Note mid-check, so no edit may change it) is logged and never becomes its sentence's failure, and then fails the write's check as a whole, as one edit of all the marks did: the write stands and no check of it is reported (#2532); fails_when=runItems files the throw as the sentence's failure and lands it again, or the check reports normally after a mark couldn't land; no_claim=what the card says of a Note a newer version wrote.
+  test("a mark that can't land is logged, not filed as its sentence's failure, and fails the check", async () => {
     let page: MindClient | null = null;
     let newer: Promise<void> | null = null;
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const warnings = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      await write(
+      const { model, calls, change } = await write(
         {
           content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
           into: true,
@@ -831,8 +831,14 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       );
       const said = (spy: typeof errors) => spy.mock.calls.map((args) => String(args[0]));
 
-      expect(said(errors).filter((line) => line.includes("marks couldn't land"))).toHaveLength(2);
+      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(2);
+      expect(said(errors).filter((line) => line.includes("marks couldn't land"))).toHaveLength(1);
       expect(said(warnings).filter((line) => line.includes("couldn't be checked"))).toEqual([]);
+      expect(
+        said(errors).filter((line) => line.includes("couldn't be checked before it landed")),
+      ).toHaveLength(1);
+      expect(change?.selfCheck).toBeUndefined();
+      expect(lastResult(model)).toContain("Wrote 1 new Block");
     } finally {
       errors.mockRestore();
       warnings.mockRestore();

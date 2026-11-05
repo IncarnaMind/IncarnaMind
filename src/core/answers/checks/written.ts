@@ -65,6 +65,7 @@ import {
   type RecordAiUseInput,
   type RunStop,
 } from "../../api";
+import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { type ItemOutcome, RunItemError, runItems, type Slots, slots } from "../../runs/stop";
@@ -852,8 +853,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       unsupported: 0,
       contradicted: 0,
     };
+    let landingFailed: unknown = null;
     const landAll = (landings: readonly Landing[]) => {
-      if (landings.length === 0) return;
+      // A Note a newer version wrote refuses every edit, so the rest aren't tried.
+      if (landings.length === 0 || landingFailed instanceof MindReadOnlyError) return;
       input.edit((note) => {
         for (const landing of landings) land(note, input.ids, landing);
       });
@@ -873,7 +876,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       if (sentence.inCell) waiting.push({ index: sending.indexOf(sentence), landing });
       else landAll([landing]);
     };
-    let landingFailed: unknown = null;
     const cuts: { index: number; uncovered: string }[] = [];
     const markOf = (
       sentence: Sentence,
@@ -1027,8 +1029,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         concurrency: claimsAtOnce(prepared),
         signal,
         // runItems hears an outcome inside its own try: a throw here would be filed as the
-        // sentence's failure and heard again. It fails the check once every sentence is heard,
-        // as one edit of all the marks did.
+        // sentence's failure and heard again. The check fails once the rest have landed, so it
+        // never counts a sentence whose mark isn't on the page.
         onOutcome(sentence, outcome) {
           try {
             landed(sentence, outcome);
@@ -1040,9 +1042,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       },
     );
     if (signal.aborted) return null;
-    if (landingFailed !== null) throw landingFailed;
-    done.stop = stop;
-    done.cut = cuts.sort((a, b) => a.index - b.index).map(({ uncovered }) => uncovered);
     const at = options.now().toISOString();
     landAll([
       ...waiting.sort((a, b) => a.index - b.index).map(({ landing }) => landing),
@@ -1054,6 +1053,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         }),
       ),
     ]);
+    if (landingFailed !== null) throw landingFailed;
+    done.stop = stop;
+    done.cut = cuts.sort((a, b) => a.index - b.index).map(({ uncovered }) => uncovered);
     return done;
   }
 }

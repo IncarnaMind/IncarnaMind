@@ -31,6 +31,7 @@ import {
 } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import type { ChatModelSpec } from "../../src/core/providers/models";
+import { BUILT_IN_RERANKING_MODEL } from "../../src/core/reranking/model";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { findQuote } from "../../src/shared/quoteMatch";
 import { shownPassages } from "../../tests/helpers/citations";
@@ -227,7 +228,11 @@ async function writeFlow(
       docs.set(event.mindId, fresh);
       doc = fresh;
       watches.push(watchNote(fresh, sentences, recorder.since));
-      void core.openMind(event.mindId).then(({ state }) => Y.applyUpdate(fresh, state));
+      void core.openMind(event.mindId).then(
+        ({ state }) => Y.applyUpdate(fresh, state),
+        (error: unknown) =>
+          console.error(`Couldn't open Mind ${event.mindId} to watch its marks:`, error),
+      );
     }
     Y.applyUpdate(doc, event.update);
   });
@@ -422,8 +427,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             current = null;
             const reranks = queryDatabase<{ started_at: string; end_ms: number }>(
               dataDir,
-              "SELECT started_at, end_ms FROM ai_timings WHERE kind = 'local' AND started_at >= ? ORDER BY started_at",
-              [startedAt],
+              "SELECT started_at, end_ms FROM ai_timings WHERE kind = 'local' AND model_id = ? AND started_at >= ? ORDER BY started_at",
+              [BUILT_IN_RERANKING_MODEL.name, startedAt],
             ).map((row) => ({
               startMs: Date.parse(row.started_at) - Date.parse(startedAt),
               ms: row.end_ms,
