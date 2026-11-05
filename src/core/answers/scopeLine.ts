@@ -111,7 +111,8 @@ interface AskedScope {
 /**
  * Names the scope of a Question as its chip shows it. A Folder behind a wall is named only to
  * work behind that same wall: outside it the scope's walled Folders are left out as the search
- * leaves them, and the Folders to choose from are those outside every wall.
+ * leaves them, unless the Question has no Note and the scope is those Folders alone, which the
+ * search reads inside the wall. The Folders to choose from are those outside every wall.
  */
 export function nameScope(
   { scope, mindId, wallId, documentIds }: AskedScope,
@@ -120,9 +121,23 @@ export function nameScope(
   const effective = wallId ? folderScope(wallId) : (scope ?? NO_SCOPE);
   const countIn = (part: Partial<SearchScope>) =>
     source.searchableCount(source.resolveScope({ ...NO_SCOPE, ...part }, mindId));
+  const explicitFolderScope =
+    wallId === null &&
+    mindId === null &&
+    effective.folderIds.length > 0 &&
+    effective.folderIds.every((id) => source.walledFolderId(id) !== null) &&
+    new Set(effective.folderIds.map((id) => source.walledFolderId(id))).size === 1 &&
+    effective.tagIds.length === 0 &&
+    effective.documentIds.length === 0;
   const named = (kind: "folder" | "tag", ids: readonly string[]) =>
     ids.flatMap((id) => {
-      if (kind === "folder" && wallId === null && source.walledFolderId(id) !== null) return [];
+      if (
+        kind === "folder" &&
+        wallId === null &&
+        !explicitFolderScope &&
+        source.walledFolderId(id) !== null
+      )
+        return [];
       const name = source.itemName(kind, id);
       if (name === null) return [];
       return [

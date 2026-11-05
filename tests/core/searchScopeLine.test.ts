@@ -147,6 +147,33 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
     expect(instructionsOf(model, 0)).not.toContain("Client B");
   });
 
+  // protects=a walled Folder the User picks for a Question with no Note is searched inside the wall and named, so "this folder" points at it; fails_when=the line leaves it out and the Documents the search reads go unnamed, or names it when a Tag leaves them unread; no_claim=what a real model makes of it.
+  test("names a walled Folder picked for a Question without a Note", async () => {
+    const { core, model, clientB, idsOf } = await setUp();
+    await core.updateLibraryGroup(clientB.id, {
+      name: clientB.name,
+      description: "",
+      keepInside: true,
+    });
+    const budget = await core.createTag({ name: "Budget" });
+    await core.addTagToDocuments(idsOf(["Loose notes.txt"]), budget.id);
+
+    await ask(core, { text: "Summarise this folder.", scope: folderScope(clientB.id) });
+    await ask(core, {
+      text: "Summarise this folder.",
+      scope: { ...noScope, folderIds: [clientB.id], tagIds: [budget.id] },
+    });
+
+    expect(lastSent(model, 0)).toMatch(
+      SCOPE_BEFORE_QUESTION(
+        'Search scope: the Folder "Client B" \\(1 Document\\)',
+        "Summarise this folder\\.",
+      ),
+    );
+    expect(lastSent(model, 1)).toContain('Search scope: the Tag "Budget" (1 Document)');
+    expect(lastSent(model, 1)).not.toContain("Client B");
+  });
+
   // protects=a Note inside a wall is given its wall's Folder as the whole scope, whatever scope arrives; fails_when=another Folder is named to it; no_claim=none beyond protects.
   test("names only its own wall to a Note inside it", async () => {
     const { core, model, clientB, reports } = await setUp();
