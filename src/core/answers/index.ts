@@ -336,6 +336,7 @@ import {
   analysisInstructions,
   answerInstructions,
   CALL_SCOPE_NOTE,
+  CALL_TAGS,
   codeInstructions,
   commandInstructions,
   connectorInstructions,
@@ -1525,6 +1526,7 @@ export function createAnswers(options: AnswersOptions) {
         onRecord: (marker, citation) =>
           announce("answer.citationAdded", { ...place, answerId, marker, citation }),
         marksFormulas: () => workbookToolsOffered,
+        defuses: CALL_TAGS,
       },
       original
         ? {

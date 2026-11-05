@@ -10,9 +10,12 @@
 /** Every tag the app's prompts wrap text in. */
 export const PROMPT_TAGS = [
   "answer",
+  "call",
   "document",
   "figures",
   "focused-mind",
+  "found-in-documents",
+  "live-transcript",
   "mind",
   "notebook",
   "paragraph",

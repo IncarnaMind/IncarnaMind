@@ -5,7 +5,7 @@ import { CJK, nameKey } from "../../shared/text";
 import type { AskedTable, CitationSupport, SkillFile, UnreadFile, UnreadReason } from "../api";
 import { detectLanguage } from "../documents/textLanguage";
 import { LANGUAGE_NAMES, type Language } from "../language";
-import { asData, tagged } from "../promptData";
+import { asData, type PromptTag, tagged } from "../promptData";
 import type { LoadedSkill, SkillSummary } from "../skills";
 import { SET_ASIDE_MARK, UNPLACED_MARK } from "./sheetRows";
 
@@ -423,6 +423,13 @@ export const CALL_SCOPE_NOTE = [
   "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",
   "</call>",
 ].join("\n");
+
+/**
+ * The tags a Question during a call wraps its text in (#2473). A Transcript's lines are speech,
+ * not the app's markup: shown as Passages they could close the transcript early or forge the note
+ * that says what the call is, so every Passage the Question shows may open or close none of them.
+ */
+export const CALL_TAGS: readonly PromptTag[] = ["live-transcript", "call", "found-in-documents"];
 
 /**
  * Connectors that are on but can't be used until the User signs in to them
