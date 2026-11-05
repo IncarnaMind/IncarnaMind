@@ -3,6 +3,7 @@ import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
   checkSentences,
+  fixesFree,
   requestDocumentPicker,
   setCheckCardOpen,
   setClaimFocus,
@@ -24,7 +25,6 @@ import {
   documentWordingAt,
   figureAt,
   findSourcesAt,
-  fixesFree,
   keepAsView,
   notFoundAt,
   searchAllDocuments,

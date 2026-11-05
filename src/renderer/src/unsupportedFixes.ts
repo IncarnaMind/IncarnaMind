@@ -137,16 +137,17 @@ export function figureFix(
   const [only] = written;
   if (!only || written.length !== 1) return null;
   const shown = figureNumber(calculation.figure.shown, calculation.figure.show.language);
-  // The figure's own unit and scale are written whole: the sentence's number word after it,
-  // "kilograms" of "400 kilograms", belonged to the number it replaces.
   const read = readFigures(shown, sentenceFigureContext(shown))[0];
-  if (!read || read.chars !== shown.trim() || read.unit.kind !== "plain") {
+  // A figure that writes a unit word after its number, "300 litres", takes the sentence's own
+  // number word with it: "kilograms" of "400 kilograms" belonged to the number it replaces.
+  if (!read || read.chars !== shown.trim()) {
     const unit = /^[  ]+\p{Script=Latin}+/u.exec(sentence.slice(only.end))?.[0] ?? "";
     return { from: only.start, to: only.end + unit.length, shown };
   }
   // A figure that names no unit leaves the sentence's own currency sign in front of its number.
+  const names = read.unit.kind !== "plain" || read.scaleWord !== null;
   const from =
-    only.currency && sentence.startsWith(only.currency, only.start)
+    !names && only.currency && sentence.startsWith(only.currency, only.start)
       ? only.start + only.currency.length
       : only.start;
   return { from, to: only.end, shown };

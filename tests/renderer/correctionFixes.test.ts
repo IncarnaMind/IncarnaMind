@@ -27,7 +27,6 @@ import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
 import {
   ClaimChecks,
   paragraphPlaces,
-  setClaimContext,
   shownClaims,
 } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -299,7 +298,9 @@ describe("Change to… replaces the words and checks the sentence again", () => 
       part(0, 16, "supported"),
       contradictedPart(22, 39, "36.8%", choices),
     ]);
-    const { editor, doc } = editorWith([{ type: "paragraph", content: [marked(text, attrs)] }]);
+    const { editor, doc } = editorWith([
+      { type: "paragraph", attrs: { id: "block-one" }, content: [marked(text, attrs)] },
+    ]);
     expect(claim(editor, "one").check.correction?.choices[0]?.wording).toBe("40.25%");
 
     expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
@@ -379,7 +380,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
       { wording: "百分之三十八点六", evidence: evidence("报告", "比率是百分之三十八点六。") },
     ]);
     const { editor, doc } = editorWith([
-      { type: "paragraph", content: [marked("比率是 36.8%。", attrs)] },
+      { type: "paragraph", attrs: { id: "block-one" }, content: [marked("比率是 36.8%。", attrs)] },
     ]);
 
     expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
@@ -450,8 +451,16 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     const first = check("first", "The first rate is 36.8%.");
     const second = check("second", "The second rate is 36.8%.");
     const { editor, doc } = editorWith([
-      { type: "paragraph", content: [marked("The first rate is 36.8%.", first)] },
-      { type: "paragraph", content: [marked("The second rate is 36.8%.", second)] },
+      {
+        type: "paragraph",
+        attrs: { id: "first" },
+        content: [marked("The first rate is 36.8%.", first)],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "second" },
+        content: [marked("The second rate is 36.8%.", second)],
+      },
     ]);
     const before = textOf(editor);
     let updates = 0;
@@ -496,8 +505,8 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     ]);
     const one = check("one", "The rate is 36.8%.");
     const { editor, doc } = editorWith([
-      { type: "paragraph", content: [marked(text, two)] },
-      { type: "paragraph", content: [marked("The rate is 36.8%.", one)] },
+      { type: "paragraph", attrs: { id: "two" }, content: [marked(text, two)] },
+      { type: "paragraph", attrs: { id: "one" }, content: [marked("The rate is 36.8%.", one)] },
     ]);
     const before = textOf(editor);
     expect(correctableCount(editor)).toBe(3);
@@ -534,10 +543,18 @@ describe("Change to… replaces the words and checks the sentence again", () => 
       part(23, 33, "unsupported"),
     ]);
     const { editor, doc } = editorWith([
-      { type: "paragraph", content: [marked("The rate is 36.8%.", valid)] },
-      { type: "paragraph", content: [marked("The old rate is 36.8%.", legacy)] },
-      { type: "paragraph", content: [marked("An unsupported sentence.", unsupported)] },
-      { type: "paragraph", content: [marked(mixed, halfway)] },
+      { type: "paragraph", attrs: { id: "valid" }, content: [marked("The rate is 36.8%.", valid)] },
+      {
+        type: "paragraph",
+        attrs: { id: "legacy" },
+        content: [marked("The old rate is 36.8%.", legacy)],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "unsupported" },
+        content: [marked("An unsupported sentence.", unsupported)],
+      },
+      { type: "paragraph", attrs: { id: "halfway" }, content: [marked(mixed, halfway)] },
     ]);
     expect(claim(editor, "halfway").shown.state).toBe("contradicted");
 
@@ -581,7 +598,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
         ),
       ]);
       const { editor, doc } = editorWith([
-        { type: "paragraph", content: [marked(each.text, attrs)] },
+        { type: "paragraph", attrs: { id: "walk" }, content: [marked(each.text, attrs)] },
       ]);
       const shown = claim(editor, "one");
       expect(shown.shown.state).toBe("contradicted");
@@ -611,7 +628,9 @@ describe("Change to… replaces the words and checks the sentence again", () => 
       contradictedPart(0, 24, "$75,000", [fee]),
       contradictedPart(30, 68, "60 days", [days]),
     ]);
-    const { editor, doc } = editorWith([{ type: "paragraph", content: [marked(text, attrs)] }]);
+    const { editor, doc } = editorWith([
+      { type: "paragraph", attrs: { id: "block-two" }, content: [marked(text, attrs)] },
+    ]);
     expect(
       correctionsFor(editor, claim(editor, "two")).map(({ span, correction }) => [
         span,

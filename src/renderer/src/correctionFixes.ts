@@ -12,6 +12,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   CITATION_NODE,
   type Citation,
+  type ClaimCheckAttributes,
   type ClaimCorrection,
   type ClaimCorrectionChoice,
   type ClaimPartSpan,

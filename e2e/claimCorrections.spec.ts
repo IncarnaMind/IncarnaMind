@@ -28,8 +28,9 @@ import {
 
 /*
  * Correct a confirmed contradiction from the Documents (#1481). The checks
- * are written into the page, so no model is involved: the card, badge and ⌘K
- * all use the one correction path, and one Undo restores the words and marks.
+ * are written into the page; the correction then checks the sentence again on
+ * the scripted model like any edit (#2563), and one Undo restores the words and
+ * marks. The card, badge and ⌘K all use the one correction path.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -59,9 +60,15 @@ async function launched(language: "en" | "zh-CN", width: number) {
   await writeFile(
     join(sources, "Lease.txt"),
     language === "en"
-      ? "The Tenant pays a break fee of $57,000.\nThe Landlord returns the deposit within 30 days.\n"
-      : "承租方支付解约费 57,000 美元。\n出租方在 30 天内退还押金。\n",
+      ? "The Tenant pays a break fee of $57,000.\nThe Landlord returns the deposit within 30 days.\nThe break fee is $57,000, and the deposit is returned within 30 days.\n"
+      : "承租方支付解约费 57,000 美元。\n出租方在 30 天内退还押金。\n解约费为 57,000 美元，押金在 30 天内退还。\n",
   );
+  // The corrected words, so the check that follows the correction finds them.
+  const rates =
+    language === "en"
+      ? "The rate is 38.6%.\nThe first rate is 38.6%.\nThe second rate is 39.4%.\n"
+      : "比率是 38.6%。\n第一个比率是 38.6%。\n第二个比率是 39.4%。\n";
+  await writeFile(join(sources, "Rate card.txt"), rates);
   const running = await launchApp(dataDir, { fakeChat: true });
   const { app, window } = running;
   await dismissChatSetup(window);
@@ -72,6 +79,7 @@ async function launched(language: "en" | "zh-CN", width: number) {
     join(sources, "Acceptance scan.txt"),
     join(sources, "Annual report.txt"),
     join(sources, "Lease.txt"),
+    join(sources, "Rate card.txt"),
   ]);
   const documents = await window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
@@ -180,9 +188,10 @@ for (const [language, width] of [
     const longText = "The detailed conclusion is old wording.";
     const conflictText = "The accepted reviewer is 李明.";
     const legacyText = "The legacy rate is 36.8%.";
+    const rateLine = language === "en" ? "The rate is 38.6%." : "比率是 38.6%。";
     const short = check("short", shortText, {
       from: "36.8%",
-      choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+      choices: [{ wording: "38.6%", evidence: evidence("Rate card", "38.6%", rateLine) }],
     });
     const long = check("long", longText, {
       from: "old wording",
@@ -284,7 +293,16 @@ for (const [language, width] of [
           text,
           check("rate", text, {
             from: "36.8%",
-            choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+            choices: [
+              {
+                wording: "38.6%",
+                evidence: evidence(
+                  "Rate card",
+                  "38.6%",
+                  language === "en" ? "The rate is 38.6%." : "比率是 38.6%。",
+                ),
+              },
+            ],
           }),
         ),
       ),
@@ -356,11 +374,29 @@ for (const [language, width] of [
     const legacyText = "The legacy rate is 36.8%.";
     const first = check("first", firstText, {
       from: "36.8%",
-      choices: [{ wording: "38.6%", evidence: evidence("Acceptance scan", "王芳") }],
+      choices: [
+        {
+          wording: "38.6%",
+          evidence: evidence(
+            "Rate card",
+            "38.6%",
+            language === "en" ? "The first rate is 38.6%." : "第一个比率是 38.6%。",
+          ),
+        },
+      ],
     });
     const second = check("second", secondText, {
       from: "36.8%",
-      choices: [{ wording: "39.4%", evidence: evidence("Annual report", "王强") }],
+      choices: [
+        {
+          wording: "39.4%",
+          evidence: evidence(
+            "Rate card",
+            "39.4%",
+            language === "en" ? "The second rate is 39.4%." : "第二个比率是 39.4%。",
+          ),
+        },
+      ],
     });
     const legacy = check("legacy", legacyText, null);
     await insert(window, [
