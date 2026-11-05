@@ -253,8 +253,8 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
     ]);
   });
 
-  // protects=a miss (a DOI no agency has registered yet, a work no service lists yet) is kept a week, then asked about again, and Check again asks about it at once; a found record is kept for good; fails_when=a miss is kept for good, Check again serves a kept miss, or a found record is asked about again; no_claim=none beyond protects.
-  test("a miss is asked about again after a week or on Check again; a found record is kept", async () => {
+  // protects=a miss (a DOI no agency has registered yet, a work no service lists yet) is kept, so checking the list again sends nothing, however long after; Check again, the User asking for a fresh look, asks about misses at once; a found record is kept even then; fails_when=a re-check sends a request, Check again serves a kept miss, or a found record is asked about again; no_claim=none beyond protects.
+  test("checking again sends nothing once sent; Check again asks about misses again", async () => {
     const clock = manualClock();
     const { core, services, mindId } = await setUp([REAL, INVENTED, DEAD_DOI], { now: clock.now });
     const newRequests = async (again: boolean) => {
@@ -273,12 +273,9 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
     expect(askedAgain.some((path) => path.includes("10.9999/nowhere.42"))).toBe(true);
     expect(askedAgain.some((path) => path.includes("Long short-term memory"))).toBe(false);
 
-    clock.advance(6 * 24 * 60 * 60_000);
+    // Kept for good: a year later, checking again still sends nothing.
+    clock.advance(366 * 24 * 60 * 60_000);
     expect(await newRequests(false)).toEqual([]);
-    clock.advance(2 * 24 * 60 * 60_000);
-    const afterAWeek = await newRequests(false);
-    expect(afterAWeek.some((path) => path.includes("Quantum gradient folding"))).toBe(true);
-    expect(afterAWeek.some((path) => path.includes("Long short-term memory"))).toBe(false);
   });
 
   // protects=Crossref is sent the whole entry, so a same-titled entry by other authors is asked about on its own; fails_when=it reuses another entry's candidates; no_claim=none beyond protects.
@@ -368,9 +365,15 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
       references: Array.from({ length: 4 }, () => ({ mark: "not-checked", reason: "unreachable" })),
     });
     expect(dropped.services.requests).toHaveLength(1);
-    // Back online, Try again checks them all.
-    dropped.services.fail(null);
+    // A kept failure: checking again sends nothing...
     expect(await dropped.core.checkReferences(dropped.mindId)).toMatchObject({
+      kind: "checked",
+      references: Array.from({ length: 4 }, () => ({ mark: "not-checked", reason: "unreachable" })),
+    });
+    expect(dropped.services.requests).toHaveLength(1);
+    // ...and Try again, the User asking for a fresh look, checks them all.
+    dropped.services.fail(null);
+    expect(await dropped.core.checkReferences(dropped.mindId, { again: true })).toMatchObject({
       kind: "checked",
       references: [
         { mark: "found" },

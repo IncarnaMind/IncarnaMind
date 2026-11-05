@@ -27,6 +27,7 @@ import {
   startCore,
 } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { mockRerankingModels } from "../helpers/embeddingProviders";
 import { scriptedModels } from "../helpers/models";
 
 const TIDES = {
@@ -266,6 +267,29 @@ describe("suggestions as the User writes", () => {
       ),
     ).toEqual({ kind: "none" });
     expect(suggestionCalls(model)).toHaveLength(1);
+  });
+
+  // protects=a pause is background work: with rerank's flow revoked, its search sends nothing to the reranker and raises no consent request; fails_when=the pause asks for rerank, or a rerank request goes; no_claim=none beyond protects.
+  test("with rerank's flow revoked, a pause neither asks rerank nor sends to it", async () => {
+    const rerankers = mockRerankingModels((text) => (text.includes("Spring tides") ? 0.9 : 0.02));
+    const model = suggestingModel(SPRING);
+    const { core, mind } = await setUp(model, [TIDES, BREAD], {
+      createRerankingModel: rerankers.createRerankingModel,
+    });
+    await core.saveRerankSettings({ kind: "cohere", apiKey: "cohere-test-key" });
+    await core.revokeConsent("rerank", "https://api.cohere.com");
+    const asked: string[] = [];
+    // Any prompt would be declined: the test must see it raised, and the search go without.
+    core.on("consent.requested", (request) => {
+      asked.push(request.flow.id);
+      void core.respondToConsent(request.requestId, false);
+    });
+
+    expect(suggestionOf(await core.suggestNext(requestFor(mind.id, ABOUT_TIDES))).text).toBe(
+      SPRING.text,
+    );
+    expect(asked).not.toContain("rerank");
+    expect(rerankers.calls).toEqual([]);
   });
 
   test("weak or no support sends nothing to the model", async () => {

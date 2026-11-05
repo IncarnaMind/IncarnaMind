@@ -126,6 +126,8 @@ export type Reranker = (
   query: string,
   candidates: readonly SearchCandidate[],
   signal?: AbortSignal,
+  /** Background work (a writing suggestion's search), which waits rather than asks for consent. */
+  background?: boolean,
 ) => Promise<SearchCandidate[]>;
 
 /** Where one hit sits: its sliding-window range, and how good a match it is. */
@@ -261,6 +263,8 @@ export interface SearchToolOptions {
   /** The reranker, while reranking is on; undefined otherwise. */
   rerank?: Reranker;
   signal?: AbortSignal;
+  /** A search no one is waiting on: it uses only flows already allowed, asking never. */
+  background?: boolean;
 }
 
 /**
@@ -283,7 +287,7 @@ export async function searchDocumentsTool(
   let reranked = false;
   if (options.rerank && candidates.length > 0) {
     const fused = new Map(candidates.map((candidate) => [candidate.passageId, candidate.score]));
-    candidates = await options.rerank(query, candidates, options.signal);
+    candidates = await options.rerank(query, candidates, options.signal, options.background);
     // A reranker that couldn't rerank (its model not downloaded yet, a service the User
     // declined) gives search's own scores back.
     reranked = candidates.some((candidate) => fused.get(candidate.passageId) !== candidate.score);

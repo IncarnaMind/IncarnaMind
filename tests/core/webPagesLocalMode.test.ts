@@ -30,7 +30,9 @@ async function startSite() {
   return { requests, url: (path: string) => `http://127.0.0.1:${port}${path}` };
 }
 
-const LIMITS = { webPages: { limits: { timeoutMs: 1_000, maxBytes: 100_000 } } };
+const LIMITS = {
+  webPages: { fetch, limits: { timeoutMs: 1_000, maxBytes: 100_000 } },
+};
 
 describe("A web page by address in Local mode", { timeout: 30_000 }, () => {
   test("is not fetched: the result says why, with the site, and nothing reached it", async () => {

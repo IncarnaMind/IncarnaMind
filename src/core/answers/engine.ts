@@ -202,6 +202,8 @@ export interface AnswerSearchOptions {
   document?: string;
   /** The Documents' file properties too: a check's search, for a sentence about a file itself (#2458). */
   properties?: true;
+  /** A search no one is waiting on (a writing suggestion): it never asks for consent. */
+  background?: boolean;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
