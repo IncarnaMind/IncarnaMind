@@ -4,18 +4,20 @@
  * Check judges it on the model: never a false Supported, and how many right names read Supported.
  *
  * INCARNAMIND_LIVE_ANTHROPIC_KEY runs it. INCARNAMIND_LIVE_SET picks "probes" (development),
- * "held-out" (the first held-out set, built against since) or "gate" (the set the change is gated
- * on); INCARNAMIND_LIVE_RIGHT_ONLY=1 runs only the right names, as main is scored on;
+ * "held-out" (the first held-out set, built against since), "gate" (the set the change was first
+ * gated on) or "wide" (other Documents, Answer shapes and wordings); INCARNAMIND_LIVE_RIGHT_ONLY=1 runs only the right names, as main is scored on;
  * INCARNAMIND_LIVE_REPORT appends a line per case.
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { appendFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { deflateRawSync } from "node:zlib";
 import { expect, test } from "vitest";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
 import { CLAIM_CHECK_MARK, MIND_CONTENT_FIELD } from "../../src/core/api";
+import { writeXlsx } from "../../src/core/exports/xlsx";
 import type { ChatModelFactory } from "../../src/core/providers/models";
 import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -29,6 +31,13 @@ import {
   type NamingCase,
   type Region,
 } from "../helpers/analysisNamingProbes";
+import {
+  DATASETS,
+  NAMING_WIDE,
+  type WideCase,
+  type WideDataset,
+  wideLabel,
+} from "../helpers/analysisNamingWide";
 import { askAssistant } from "../helpers/assistant";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -48,6 +57,7 @@ const SET =
       ? NAMING_HELD_OUT
       : NAMING_PROBES;
 const RIGHT_ONLY = process.env.INCARNAMIND_LIVE_RIGHT_ONLY === "1";
+const WIDE = process.env.INCARNAMIND_LIVE_SET === "wide";
 const REPORT = process.env.INCARNAMIND_LIVE_REPORT;
 const { createChatModel: real, spent } = billedModels(MODEL);
 
@@ -257,7 +267,7 @@ const CASES = SET.filter((held) => !RIGHT_ONLY || held.right).filter(
   (_, at) => at % (parts || 1) === (part || 1) - 1,
 );
 
-test.skipIf(KEY === undefined).each(CASES.map((held) => ({ ...held })))(
+test.skipIf(KEY === undefined || WIDE).each(CASES.map((held) => ({ ...held })))(
   "$name: an Analysis figure's name is the claim judge's, never a false Supported",
   { timeout: 600_000 },
   async (held) => {
@@ -295,6 +305,216 @@ test.skipIf(KEY === undefined).each(CASES.map((held) => ({ ...held })))(
     const read = readNote(
       topLevelBlocks(client.doc.getXmlFragment(MIND_CONTENT_FIELD)).map(nodeOf),
       (text) => text.startsWith(marker),
+    );
+    read.figures.push(
+      ...rows.map((row) =>
+        row.shown.state === "not-checked" ? `not-checked ${row.shown.reason}` : row.shown.state,
+      ),
+    );
+    core.close();
+    const green =
+      read.sentence === "supported" || read.figures.some((each) => each === "supported");
+    const recalled =
+      read.sentence === "supported" && read.figures.every((each) => each === "supported");
+    const outcome = held.right
+      ? recalled
+        ? "recalled"
+        : "missed"
+      : green
+        ? "FALSE SUPPORTED"
+        : "held";
+    if (REPORT)
+      await appendFile(
+        REPORT,
+        `${JSON.stringify({ name: held.name, kind: held.kind, right: held.right, outcome, sentence: read.sentence, figures: read.figures, said: held.sentence, heard, spent: Number(spent().toFixed(4)) })}\n`,
+      );
+    if (!held.right) expect(outcome).toBe("held");
+  },
+);
+
+/** A wide case's Document, written into its own data folder: a CSV, or a workbook of one sheet. */
+async function writeDataset(set: WideDataset, folder: string): Promise<string> {
+  const path = join(folder, set.file);
+  if (set.kind === "csv") {
+    await writeFile(path, [set.columns, ...set.rows].map((row) => row.join(",")).join("\n"));
+    return path;
+  }
+  const cell = (value: string | number, column: number) => ({
+    column: String(column),
+    value:
+      typeof value === "number"
+        ? { kind: "number" as const, number: value }
+        : { kind: "text" as const, text: value },
+  });
+  const book = writeXlsx(
+    {
+      sheets: [
+        {
+          id: "sheet",
+          name: set.title.en,
+          columns: set.columns.map((_, at) => ({ id: String(at) })),
+          rows: [set.columns, ...set.rows].map((row, at) => ({
+            id: String(at),
+            ...(at === 0 && { header: true }),
+            cells: row.map(cell),
+          })),
+        },
+      ],
+    },
+    deflateRawSync,
+    { author: "Test", created: "2026-11-05T00:00:00.000Z" },
+  );
+  await writeFile(path, book);
+  return path;
+}
+
+function wideAnalysis(held: WideCase): { answer: FakeAnswer; code: string } {
+  const set: WideDataset = DATASETS[held.figure.dataset];
+  const { key, column, how } = { key: set.key, ...held.figure };
+  const keyAt = set.columns.indexOf(key);
+  const valueAt = set.columns.indexOf(column);
+  const [, , first = column] = set.columns;
+  const firstAt = set.columns.indexOf(first);
+  const rows = set.rows.flatMap((row, at) =>
+    row[keyAt] === held.figure.group ? [{ row: at + 2, value: Number(row[valueAt]) }] : [],
+  );
+  const values = rows.map((each) => each.value);
+  const total = values.reduce((sum, each) => sum + each, 0);
+  const value =
+    how === "sum" ? total : how === "mean" ? total / values.length : Math.max(...values);
+  const label = wideLabel(held.language, held.figure);
+  const groups = [...new Set(set.rows.map((row) => String(row[keyAt])))];
+  const totals = groups.map((group) => [
+    group,
+    set.rows
+      .filter((row) => row[keyAt] === group)
+      .reduce((sum, row) => sum + Number(row[firstAt]), 0),
+  ]);
+  const code = [
+    `df = inputs["${set.input}"]`,
+    `totals = df.groupby("${key}", as_index=False)["${first}"].sum()`,
+    `result("totals", totals, "${set.title[held.language]}")`,
+    `figure("figure_1", df[df["${key}"] == "${held.figure.group}"]["${column}"], "${how}", "${label}")`,
+  ].join("\n");
+  return {
+    code,
+    answer: {
+      output: {
+        ...noAnalysisOutput(),
+        results: [
+          {
+            kind: "table",
+            name: "totals",
+            label: set.title[held.language],
+            unit: set.units[first] ?? "",
+            table: { columns: [key, first], rows: totals, rowCount: totals.length, columnCount: 2 },
+          },
+          {
+            kind: "figure",
+            name: "figure_1",
+            label,
+            unit: set.units[column] ?? "",
+            value,
+            of: {
+              input: set.input,
+              columns: [column],
+              rows: runsOf(rows.map((each) => each.row)),
+              count: rows.length,
+              how,
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+function wideContent(held: WideCase): string {
+  const { shape, sentence } = held;
+  const body =
+    shape.kind === "prose"
+      ? `${shape.before ? `${shape.before} ` : ""}${sentence}`
+      : shape.kind === "list"
+        ? `- ${sentence}`
+        : shape.kind === "heading"
+          ? `## ${shape.heading}\n\n${sentence}`
+          : `| ${shape.headings[0]} | ${shape.headings[1]} |\n| --- | --- |\n| ${shape.label} | ${sentence} |`;
+  return [
+    `# ${DATASETS[held.figure.dataset].title[held.language]}`,
+    "",
+    "[=table 1]",
+    "",
+    body,
+  ].join("\n");
+}
+
+function wideAnswering(held: WideCase, code: string) {
+  const set: WideDataset = DATASETS[held.figure.dataset];
+  const title = set.title[held.language];
+  const content = wideContent(held);
+  return scriptedModel((call: ModelCall) => {
+    const search = call.results.find((result) => result.tool === "search_documents");
+    if (!search) return { calls: [{ tool: "search_documents", input: { query: set.title.en } }] };
+    if (!call.results.some((result) => result.tool === "run_analysis")) {
+      const base = set.file.replace(/\.[a-z]+$/u, "");
+      const passage = shownPassages(search.text).find((each) => each.document.startsWith(base));
+      return {
+        calls: [
+          {
+            tool: "run_analysis",
+            input: { title, inputs: [{ name: set.input, passage: passage?.id ?? "" }], code },
+          },
+        ],
+      };
+    }
+    if (!call.results.some((result) => result.tool === "create_mind"))
+      return { calls: [{ tool: "create_mind", input: { title, content } }] };
+    return { text: held.language === "en" ? "Written into the note." : "已写入笔记。" };
+  });
+}
+
+const WIDE_CASES = NAMING_WIDE.filter((held) => !RIGHT_ONLY || held.right).filter(
+  (_, at) => at % (parts || 1) === (part || 1) - 1,
+);
+
+test.skipIf(KEY === undefined || !WIDE).each(WIDE_CASES.map((held) => ({ ...held })))(
+  "$name: an Analysis figure's name is the claim judge's, in any Document and Answer shape",
+  { timeout: 600_000 },
+  async (held) => {
+    if (spent() > MAX_USD) return;
+    const set: WideDataset = DATASETS[held.figure.dataset];
+    const { answer, code } = wideAnalysis(held);
+    const heard: string[] = [];
+    const folder = await createTempDataFolder();
+    const core = startCore(folder, {
+      createChatModel: routed(wideAnswering(held, code), heard),
+      analysisRuntime: createFakeAnalysisRuntime({ answer: () => answer }),
+    });
+    core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
+    await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
+    if (held.language === "zh-CN") await core.updateSettings({ user: { language: "zh-CN" } });
+    await addAndProcess(core, [await writeDataset(set, await createTempDataFolder())]);
+    const asked = await askAssistant(core, {
+      text:
+        held.language === "en"
+          ? `Summarise ${set.title.en} by ${set.key} and write a note.`
+          : `按${set.key}汇总${set.title["zh-CN"]}并写成笔记。`,
+      mindId: (await core.createMind({ title: "Questions" })).id,
+      analyse: true,
+    });
+    const made = asked.toolCalls.find(
+      (call) => call.tool === "create_mind" && call.status === "done",
+    )?.mindChange?.mindId;
+    if (!made) throw new Error(`No Note: ${JSON.stringify(asked.toolCalls).slice(0, 600)}`);
+    const client = await connectToMind(core, made);
+    await client.settled();
+    await resolveChanges(client, "accept");
+    await core.checkMind({ requestId: randomUUID(), mindId: made, mode: "changed" });
+    await client.settled();
+    const rows = (await core.getFigureSchedule(made)).rows.filter((row) => !row.analysisTable);
+    const read = readNote(
+      topLevelBlocks(client.doc.getXmlFragment(MIND_CONTENT_FIELD)).map(nodeOf),
+      () => true,
     );
     read.figures.push(
       ...rows.map((row) =>
