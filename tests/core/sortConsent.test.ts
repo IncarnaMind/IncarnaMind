@@ -213,6 +213,10 @@ describe("Dropped Documents wait for the User's Allow (#2308)", { timeout: 120_0
     expect(models.sent("anthropic")).toBe(2);
     expect((await filedIn(core, inside))?.groupId).toBe(walled.id);
 
+    // Off again, a drop would wait for the Allow; in Local mode nothing asks.
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({ ...settings, automatic: false });
+    expect((await core.getLibrary()).sortWaitsFor?.name).toBe("Anthropic");
     await core.setLocalOnly(true);
     expect((await core.getLibrary()).sortWaitsFor).toBeUndefined();
     await drop();
