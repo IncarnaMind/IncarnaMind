@@ -1,8 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
+  addTideConnector,
   answersTookAboutAMinute,
   assistantAnswers,
   createDataFolder,
@@ -670,32 +672,46 @@ test("the silence counts from the User's answer, at the default 320px assistant,
 test("the silence does not count the card's wait, at the default 320px assistant", async () => {
   test.setTimeout(240_000);
   const { app, window } = await startWithMinuteHistory();
+  const connectorId = await addTideConnector(window);
   const languages = [
-    ["en", "Summarise the main documents slowly", "· usually about a minute with fake-model"],
-    ["zh-CN", "总结主要的文档 slowly", "· 用 fake-model 通常要 1 分钟左右"],
+    [
+      "en",
+      "When do spring tides happen? Please lookup_tide slowly",
+      "· usually about a minute with fake-model",
+    ],
+    ["zh-CN", "春潮什么时候出现？Please lookup_tide slowly", "· 用 fake-model 通常要 1 分钟左右"],
   ] as const;
   const waits = await watchAnswerWaits(window);
 
   for (const [language, question, whole] of languages) {
     await setLanguage(window, language);
-    await setSilentWaitMs(window, 2_000);
-    const card = await ask(window, question);
-    // The card sits open past the 2 s silence: that is the case under test, not a wait for the app.
+    await setSilentWaitMs(window, 1_500);
+    // Nothing is on its way to the Connector yet, so the answer asks before it sends.
+    await window.evaluate(async (id) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.revokeConsent("connectors", `connector:${id}`);
+    }, connectorId);
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type(question);
+    await window.keyboard.press("Enter");
+    const consent = window.getByTestId("consent-dialog");
+    await expect(consent).toBeVisible({ timeout: 15_000 });
+    // The card sits open past the 1.5 s silence: that is the case under test, not a wait for the app.
     await window.waitForTimeout(2_500);
     const from = (await waits()).length;
     const answeredAt = await window.evaluate(() => Date.now());
-    await window.keyboard.press("ControlOrMeta+Enter");
-    await expect(card).toHaveCount(0);
+    await consent.getByTestId("consent-allow").click();
+    await expect(consent).toHaveCount(0);
     const answer = assistantAnswers(window).last();
-    // The wait joins after its 2 s, whole in the spoken line: the silence did run, from the answer.
+    // The Connector still runs: the silence runs from the answer, and its wait joins after its 1.5 s.
     await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole, {
       timeout: 15_000,
     });
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
-    // And it never showed before its 2 s: the card's wait is not the Answer's silence.
+    // And it never showed before its 1.5 s: the card's wait is not the Answer's silence.
     const seen = (await waits()).slice(from);
     expect(seen.length).toBeGreaterThan(0);
-    expect(seen[0]?.at).toBeGreaterThanOrEqual(answeredAt + 1_500);
+    expect(seen[0]?.at).toBeGreaterThanOrEqual(answeredAt + 1_000);
   }
   await app.close();
 });
