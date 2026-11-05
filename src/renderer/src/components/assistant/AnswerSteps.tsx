@@ -320,6 +320,7 @@ export function LiveLine({
       <span ref={row} className="answer-steps-live-row">
         <span
           aria-hidden="true"
+          data-row-keeps
           className={`answer-steps-dot ${waiting ? "answer-steps-dot--waiting" : ""}`}
         />
         <span
@@ -334,6 +335,7 @@ export function LiveLine({
           <span
             aria-hidden="true"
             data-testid="answer-steps-summary"
+            data-row-keeps
             className="answer-steps-text answer-steps-summary"
           >
             {`· ${summary}`}
@@ -357,6 +359,7 @@ export function LiveLine({
           <button
             type="button"
             data-testid="answer-steps"
+            data-row-keeps
             aria-expanded={toggle.open}
             aria-label={t("steps.label")}
             ref={toggle.ref}
@@ -374,7 +377,7 @@ export function LiveLine({
           data-testid="answer-steps-wait-row"
           className="answer-steps-live-row answer-steps-live-row--second"
         >
-          <WaitPart text={waitNow.short} />
+          <WaitPart text={waitNow.short} alone />
         </span>
       )}
       {waitNow !== null && (
@@ -396,12 +399,13 @@ export function LiveLine({
   );
 }
 
-/** The wait part of the live line (#2530, #2531): the sentence after the step's own words. */
-function WaitPart({ text }: { text: string }) {
+/** The wait part of the live line (#2530, #2531): the sentence after the step's own words, or alone on its own row. */
+function WaitPart({ text, alone = false }: { text: string; alone?: boolean }) {
+  const sentence = alone ? text.charAt(0).toUpperCase() + text.slice(1) : text;
   return (
     <span aria-hidden="true" data-testid="answer-steps-wait" className="answer-steps-wait">
-      <span aria-hidden="true">{"· "}</span>
-      {text}
+      {alone ? null : <span aria-hidden="true">{"· "}</span>}
+      {sentence}
     </span>
   );
 }

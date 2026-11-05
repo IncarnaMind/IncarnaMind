@@ -2,12 +2,12 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { openDatabase } from "../src/core/storage";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
   addDocuments,
   addTideConnector,
+  answersTookAboutAMinute,
   assistantAnswers,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
@@ -290,6 +290,10 @@ test("a slow Answer's step line takes the wait after 15 seconds, in English, and
   const wait = answer.getByTestId("answer-steps-wait");
   // The wait joins the line itself: no second Stop, and no "Still working".
   await expect(wait).toHaveText(`· usually about a minute with ${MODEL_NAME}`);
+  expect(await wait.evaluate((element) => element.textContent)).toBe(
+    `· usually about a minute with ${MODEL_NAME}`,
+  );
+  await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(0);
   await expect(answer.getByTestId("answer-steps-live")).toBeVisible();
   await expect(answer.getByTestId("answer-stop")).toHaveCount(0);
   await expect(answer).not.toContainText("Still working");
@@ -335,6 +339,10 @@ test("in Chinese, the wait joins the step line in Chinese", async () => {
   await expect(answer.getByTestId("answer-steps-wait")).toHaveText(
     `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
   );
+  expect(
+    await answer.getByTestId("answer-steps-wait").evaluate((element) => element.textContent),
+  ).toBe(`· 用 ${MODEL_NAME} 通常要 1 分钟左右`);
+  await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(0);
   await screenshot(window, "wait-joined-zh");
   await pointAndClick(window, window.getByTestId("composer-stop"));
   await expect(answer).toHaveAttribute("data-status", "stopped");
@@ -353,14 +361,7 @@ async function startWithMinuteHistory(model?: string) {
     await ask(first.window, question);
   }
   await first.app.close();
-  const db = openDatabase(join(dataDir, "incarnamind.db"));
-  try {
-    db.run(
-      "UPDATE conversation_messages SET steps = json_set(steps, '$.firstWordMs', 62000) WHERE kind = 'answer'",
-    );
-  } finally {
-    db.close();
-  }
+  await answersTookAboutAMinute(dataDir);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await setSilentWaitMs(window, 600);
@@ -376,20 +377,20 @@ test("at the default 320px assistant the wait joins in its first fitting form, i
     [
       "en",
       "When do spring tides happen? Please lookup_tide slowly",
-      "Asking Tides: lookup_tide…",
-      "· usually about a minute",
+      "Searching",
+      "Usually about a minute",
       `· usually about a minute with ${MODEL_NAME}`,
     ],
     [
       "zh-CN",
       "春潮什么时候出现？Please lookup_tide slowly",
-      "正在调用 Tides：lookup_tide…",
-      "· 通常要 1 分钟左右",
+      "正在搜索",
+      "通常要 1 分钟左右",
       `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
     ],
   ] as const;
 
-  for (const [index, [language, question, calling, short, whole]] of languages.entries()) {
+  for (const [index, [language, question, searching, short, whole]] of languages.entries()) {
     await core(window).language(language);
     await askSlowly(window, question);
     if (index === 0) {
@@ -401,11 +402,10 @@ test("at the default 320px assistant the wait joins in its first fitting form, i
     const live = answer.getByTestId("answer-steps-live");
     const words = live.getByTestId("answer-writing");
     const wait = answer.getByTestId("answer-steps-wait");
-    // The call's words leave no room for the model's name: the wait takes the short form, never dropped.
-    await expect(live).toHaveAttribute("data-step", "call");
-    await expect(words).toHaveText(calling);
-    await expect(wait).toHaveText(short);
-    // At 320 the short part takes the second row of the same live line.
+    // The search step's words leave no room for the model's name: the short wait takes the second row.
+    await expect(live).toHaveAttribute("data-step", "searching", { timeout: 30_000 });
+    await expect(words).toContainText(searching, { timeout: 30_000 });
+    await expect(wait).toHaveText(short, { timeout: 30_000 });
     await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(1);
     await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
     await expect.poll(async () => (await live.getAttribute("title")) ?? "").toContain(whole);
@@ -418,28 +418,28 @@ test("at the default 320px assistant the wait joins in its first fitting form, i
   await app.close();
 });
 
-test("the whole wait returns when a shorter step frees the line, in English and Chinese", async () => {
+test("the wait keeps the form that fits as the steps change, and the summary keeps the first row, in English and Chinese", async () => {
   test.setTimeout(180_000);
   const { app, window } = await startWithMinuteHistory();
   await addTideConnector(window);
   const languages = [
     [
       "en",
-      460,
+      430,
       "When do spring tides happen? Please lookup_tide slowly",
-      "Searching",
+      "· usually about a minute",
       `· usually about a minute with ${MODEL_NAME}`,
     ],
     [
       "zh-CN",
-      420,
+      380,
       "春潮什么时候出现？Please lookup_tide slowly",
-      "正在搜索",
+      "· 通常要 1 分钟左右",
       `· 用 ${MODEL_NAME} 通常要 1 分钟左右`,
     ],
   ] as const;
 
-  for (const [index, [language, width, question, searching, whole]] of languages.entries()) {
+  for (const [index, [language, width, question, short, whole]] of languages.entries()) {
     await core(window).language(language);
     await sizeAssistant(window, width);
     await setSilentWaitMs(window, 300);
@@ -452,17 +452,60 @@ test("the whole wait returns when a shorter step frees the line, in English and 
     const answer = assistantAnswers(window).last();
     const live = answer.getByTestId("answer-steps-live");
     const wait = answer.getByTestId("answer-steps-wait");
-    // Thinking has room for the whole part.
-    await expect(live).toHaveAttribute("data-step", "thinking");
-    await expect(wait).toHaveText(whole);
-    // The search's words take the room: the same wait keeps its short form.
-    await expect(live).toHaveAttribute("data-step", "searching");
-    await expect(live.getByTestId("answer-writing")).toContainText(searching);
+    // Before the reasoning streams, the short part fits on the first row, joined with "· ".
+    await expect(live).toHaveAttribute("data-step", "thinking", { timeout: 30_000 });
+    await expect(wait).toHaveText(short, { timeout: 30_000 });
+    expect(await wait.evaluate((element) => element.textContent)).toBe(short);
+    await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(0);
+    expect(
+      await live
+        .getByTestId("answer-writing")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    ).toBe(true);
+    // The summary then keeps the first row, and the wait gives way but keeps the whole sentence.
+    const summary = live.getByTestId("answer-steps-summary");
+    await expect(summary).toBeVisible({ timeout: 30_000 });
+    expect(
+      await summary.evaluate((element) => element.getBoundingClientRect().width),
+    ).toBeGreaterThan(60);
     await expect(wait).toBeVisible();
     await expect(wait).not.toContainText(MODEL_NAME);
-    // Back to Thinking: the whole part returns on the shorter step.
-    await expect(live).toHaveAttribute("data-step", "thinking", { timeout: 30_000 });
-    await expect(wait).toHaveText(whole);
+    await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
+    // A longer step: the wait stays, whole in the tooltip and spoken line.
+    await expect
+      .poll(async () => (await live.getAttribute("data-step")) ?? "", { timeout: 30_000 })
+      .toMatch(/searching|call/);
+    await expect(wait).toBeVisible();
+    await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  }
+  await app.close();
+});
+
+test("just above the whole wait's threshold the step's words stay whole, in English and Chinese", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await startWithMinuteHistory();
+  const languages = [
+    ["en", 430, "Thinking"],
+    ["zh-CN", 380, "正在思考"],
+  ] as const;
+
+  for (const [language, width, thinking] of languages) {
+    await core(window).language(language);
+    await sizeAssistant(window, width);
+    await setSilentWaitMs(window, 300);
+    await askSlowly(
+      window,
+      language === "en"
+        ? "Where do neap tides come from? Answer slowly without searching."
+        : "春潮什么时候出现？Answer slowly，不用搜索。",
+    );
+    const answer = assistantAnswers(window).last();
+    const live = answer.getByTestId("answer-steps-live");
+    const words = live.getByTestId("answer-writing");
+    await expect(words).toContainText(thinking);
+    await expect(answer.getByTestId("answer-steps-wait")).toBeVisible();
+    expect(await words.evaluate((step) => step.scrollWidth <= step.clientWidth + 1)).toBe(true);
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
   }
   await app.close();

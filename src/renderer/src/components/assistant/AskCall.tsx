@@ -86,7 +86,7 @@ export function AskedLines({ answer }: { answer: ConversationAnswer }) {
                   <span className="sr-only" data-testid="answer-asked-chose">
                     {t("asks.call.chose", { choice: answeredWords(t, question.answer, true) })}
                   </span>
-                  <span data-testid="answer-asked-words">
+                  <span aria-hidden="true" data-testid="answer-asked-words">
                     {answeredWords(t, question.answer, false)}
                   </span>
                 </p>

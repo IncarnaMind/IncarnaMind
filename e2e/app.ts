@@ -24,6 +24,7 @@ import {
   type ExportFormat,
   type SaveChatProviderInput,
 } from "../src/core/api";
+import { openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
@@ -1937,6 +1938,19 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
       ),
     ms,
   );
+}
+
+/** Records the Answers already in `dataDir` as taking `ms` to their first word, so the line knows a usual wait. */
+export async function answersTookAboutAMinute(dataDir: string, ms = 62_000): Promise<void> {
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    db.run(
+      "UPDATE conversation_messages SET steps = json_set(steps, '$.firstWordMs', ?) WHERE kind = 'answer'",
+      [ms],
+    );
+  } finally {
+    db.close();
+  }
 }
 
 /** Plays every animation at `speed` (0.2: five times slower), so a test can look, or act, during one. */

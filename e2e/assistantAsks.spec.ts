@@ -1,9 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { openDatabase } from "../src/core/storage";
 import {
   addDocuments,
+  answersTookAboutAMinute,
   assistantAnswers,
   createDataFolder,
   dismissChatSetup,
@@ -134,7 +134,7 @@ test("asked which Documents to summarise, the User ticks one more and goes on", 
 });
 
 // The question as Claude Haiku 5.5 asked it: one choice, the recommended row ticked, Other… allowed.
-for (const [how, act, said] of [
+for (const [how, act, said, chose] of [
   [
     "a row clicked after words typed in Other… sends the row alone",
     async (card: Locator) => {
@@ -142,6 +142,7 @@ for (const [how, act, said] of [
       await card.getByTestId("question-option").nth(1).click();
     },
     "All 3 Documents",
+    "You chose: All 3 Documents",
   ],
   [
     "words typed in Other… untick the ticked row and are sent alone",
@@ -153,6 +154,7 @@ for (const [how, act, said] of [
       await card.getByTestId("question-other").press("Enter");
     },
     "the boiler one",
+    "You chose: “the boiler one”",
   ],
 ] as const) {
   test(`in a single choice, ${how}`, async () => {
@@ -168,8 +170,10 @@ for (const [how, act, said] of [
     await expect(card).toHaveCount(0);
     const answer = assistantAnswers(window).last();
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 15_000 });
+    const bubble = answer.getByTestId("answer-asked-answer").locator(".assistant-question-bubble");
     await expect(answer.getByTestId("answer-asked-words")).toHaveText(said);
-    await expect(answer.getByTestId("answer-asked-chose")).toContainText(said);
+    await expect(answer.getByTestId("answer-asked-chose")).toHaveText(chose);
+    await expect(bubble).toMatchAriaSnapshot(`- paragraph: ${JSON.stringify(chose)}`);
     await expect(window.getByRole("alert")).toHaveCount(0);
     await app.close();
   });
@@ -233,6 +237,10 @@ for (const [language, width, height] of [
     expect(choseBox?.width ?? 0).toBeLessThanOrEqual(1);
     expect(choseBox?.height ?? 0).toBeLessThanOrEqual(1);
     await expect(words).not.toContainText(said.chose);
+    // A screen reader hears the attribution once, and the bubble is right-aligned.
+    await expect(bubble).toMatchAriaSnapshot(
+      `- paragraph: ${JSON.stringify(`${said.chose}${said.answer}`)}`,
+    );
     await expect(answer.getByTestId("answer-asked-answer")).toHaveCSS(
       "justify-content",
       "flex-end",
@@ -569,6 +577,11 @@ test("in Chinese, the question and its rows, at a narrow window", async () => {
   await expect(answer.getByTestId("answer-asked-chose")).toHaveText(
     "你选择了：Board minutes、Lease Mill Lane、“还有那份锅炉的”",
   );
+  await expect(
+    answer.getByTestId("answer-asked-answer").locator(".assistant-question-bubble"),
+  ).toMatchAriaSnapshot(
+    `- paragraph: ${JSON.stringify("你选择了：Board minutes、Lease Mill Lane、“还有那份锅炉的”")}`,
+  );
   await app.close();
 });
 
@@ -592,14 +605,7 @@ async function startWithMinuteHistory() {
     await expect(answers.last()).toHaveAttribute("data-status", "done", { timeout: 30_000 });
   }
   await first.app.close();
-  const db = openDatabase(join(dataDir, "incarnamind.db"));
-  try {
-    db.run(
-      "UPDATE conversation_messages SET steps = json_set(steps, '$.firstWordMs', 62000) WHERE kind = 'answer'",
-    );
-  } finally {
-    db.close();
-  }
+  await answersTookAboutAMinute(dataDir);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   await setSilentWaitMs(window, 300);
@@ -641,7 +647,7 @@ test("the silence counts from the User's answer, at the default 320px assistant,
     await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole, {
       timeout: 15_000,
     });
-    await expect(wait).toContainText(short);
+    await expect(wait).toContainText(new RegExp(short, "i"));
     const order = await answer.evaluate((node) =>
       [
         ...node.querySelectorAll(
@@ -655,6 +661,32 @@ test("the silence counts from the User's answer, at the default 320px assistant,
       "answer-steps",
       "assistant-answer-text",
     ]);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+  }
+  await app.close();
+});
+
+test("the silence does not count the card's wait, at the default 320px assistant", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await startWithMinuteHistory();
+  const languages = [
+    ["en", "Summarise the main documents slowly"],
+    ["zh-CN", "总结主要的文档 slowly"],
+  ] as const;
+
+  for (const [language, question] of languages) {
+    await setLanguage(window, language);
+    await setSilentWaitMs(window, 2_000);
+    const card = await ask(window, question);
+    // The card stays open past the 2 s silence, so the Question's clock is older than it.
+    await window.waitForTimeout(2_500);
+    await window.keyboard.press("ControlOrMeta+Enter");
+    await expect(card).toHaveCount(0);
+    const answer = assistantAnswers(window).last();
+    const wait = answer.getByTestId("answer-steps-wait");
+    // A second after the answer the 2 s silence has not run out: it starts at the answer.
+    await window.waitForTimeout(1_000);
+    await expect(wait).toHaveCount(0);
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
   }
   await app.close();
