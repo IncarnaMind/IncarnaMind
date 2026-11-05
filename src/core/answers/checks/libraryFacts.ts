@@ -18,7 +18,6 @@
  * The result keeps a version of each fact it rests on, so a change to the Library puts the
  * sentence back to needs re-check. A check whose Run shows no facts is as it was.
  */
-import { createHash } from "node:crypto";
 import { translate } from "../../../shared/i18n";
 import {
   factKey,
@@ -28,6 +27,7 @@ import {
   SOURCE_KEY,
   sourceValue,
 } from "../../../shared/libraryFacts";
+import type { ScopeKind } from "../../../shared/searchScope";
 import type {
   CheckedVersion,
   ClaimJudgment,
@@ -38,6 +38,8 @@ import type {
   SearchScope,
 } from "../../api";
 import type { CitationSource } from "../../documents";
+import { hashBytes } from "../../documents/files";
+import { keywordTerms } from "../../documents/keywords";
 import type { PageText } from "../../documents/passages";
 import type { WindowedPassage } from "../../documents/search";
 import { isRecord } from "../../errors";
@@ -48,7 +50,13 @@ import type {
   ClaimCheckDependencies,
   ClaimCheckRequest,
 } from "./claimCheck";
-import { type CitationLike, lineQuoted, UNDECIDED, writtenAsSize } from "./fileProperties";
+import {
+  afterFigure,
+  type CitationLike,
+  lineQuoted,
+  UNDECIDED,
+  writtenAsSize,
+} from "./fileProperties";
 import { LIBRARY_LINE_FIELD, readVerdict, replyAcrossTurns } from "./prompt";
 
 /** What a check's scope sees of the Library, Folder walls applied: the facts are made from it. */
@@ -60,14 +68,16 @@ export interface LibraryListing {
   /** Its Documents in no Folder; null when the scope is one Folder, which has none. */
   unfiled: number | null;
   tags: readonly { name: string; count: number }[];
-  /** The notes it sees, the one being checked left out, and the names of those that have one. */
+  /** The notes it sees, the one being checked left out, and the titles typed for them. */
   notes: { count: number; names: readonly string[] };
+  /** The Folder, Tag or Document the note searches, by its kind: its name is always sent. */
+  searches: { kind: ScopeKind; name: string } | null;
 }
 
 /** What a Run's searches ask of the Library's facts (`ClaimCheckDependencies`). */
 export interface LibraryFactSearch {
-  /** The facts' Passage a search adds to what it found: its names chosen by the search's words. */
-  add(query: string): WindowedPassage[];
+  /** The facts' Passage a search adds to what it found: its names chosen by the sentence's words. */
+  add(): WindowedPassage[];
   /** A search's result with what the model is told of the facts it shows. */
   told(result: SearchResultForModel): SearchResultForModel;
   /**
@@ -108,13 +118,16 @@ const NAMED: Readonly<Record<string, LibraryFact["kind"]>> = {
   note: "note",
 };
 
-/** Lines of names past which only the names the search's words match are listed. */
+/** The most Document names one check is shown: a bound for a sentence whose words match very many. */
 const MOST_NAMES = 200;
 
 const english = (key: Parameters<typeof translate>[1]) => translate("en", key);
+// Written as a sentence writes it, "2,000": a figure read from "2000" wouldn't be the same number.
+const groupedNumbers = new Intl.NumberFormat("en-US");
+const grouped = (count: number) => groupedNumbers.format(count);
 
 export const LIBRARY_NOTE = [
-  "The Library facts above are what IncarnaMind's Library lists for this check's scope, not what any Document says. They decide only a sentence about the Library itself: how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, and its Folders, Tags and notes. A count they give that differs from the sentence's contradicts it. They never decide what a Document's text says. A description of the Library they can't settle, such as what its Documents are about or a reading of their names, can't be checked.",
+  "The Library facts above are what IncarnaMind's Library lists for this check's scope, not what any Document says. They decide only a sentence about the Library itself: how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, and its Folders, Tags and notes. A count they give that differs from the sentence's contradicts it. They never decide what a Document's text says. A description of the Library they can't settle, such as what its Documents are about or a reading of their names, can't be checked. Nor can which Folder a Document is in or which Tags it has, unless these facts are of that Folder or Tag, named on their first line: such a sentence is a description they can't settle.",
   'Cite the one line that decides it. After your Verdict line, add a line "Library: " and the facts the sentence states, from documents, folder, unfiled, kind, name, folders, tags, tag, notes and note, separated by commas; "Library: description" for a description of the Library they can\'t settle; or "Library: none" when it is about what a Document says.',
 ].join("\n");
 
@@ -127,6 +140,9 @@ const WORD_OF = Object.fromEntries(
 
 const unstated = (words: readonly string[]) =>
   `Your Library line names ${words.join(", ")}, but no line of the Library facts you recorded with cite states ${words.length === 1 ? "it" : "them"}. Record with cite the one line of the Library facts that decides each, or give the Library line and Verdict the facts bear out; then write your whole reply again.`;
+
+const DOCUMENT_ONLY =
+  "Your search asked for the Library facts, yet your Verdict rests on a Document's text alone. If the sentence is about the Library, record with cite the line of the Library facts that decides it, or give the Verdict and Library line the facts bear out; then write your whole reply again.";
 
 const NOT_ABOUT =
   "Your Library line says none, but you recorded a line of the Library facts, which decide only a sentence about the Library itself. Give the Library line the sentence calls for, and record what decides it; then write your whole reply again.";
@@ -206,59 +222,86 @@ function lineOf(fact: LibraryFact, listing: LibraryListing): string {
   switch (fact.kind) {
     case "documents":
       // No other line holds these words: a quote of the total is of its line alone.
-      return `Documents in all: ${fact.count}`;
+      return `Documents in all: ${grouped(fact.count)}`;
     case "folder":
-      return `Documents in the Folder “${fact.name}”: ${fact.count}`;
+      return `Documents in the Folder “${fact.name}” and the Folders inside it: ${grouped(fact.count)}`;
     case "unfiled":
-      return `Documents not in a Folder: ${fact.count}`;
+      return `Documents not in a Folder: ${grouped(fact.count)}`;
     case "format":
-      return `${english(`library.format.${fact.format}`)} Documents: ${fact.count}`;
+      return `${english(`library.format.${fact.format}`)} Documents: ${grouped(fact.count)}`;
     case "folders":
-      return `Folders: ${fact.count}`;
+      return `Folders: ${grouped(fact.count)}`;
     case "tags":
-      return `Tags on these Documents: ${fact.count}`;
+      return `Tags on these Documents: ${grouped(fact.count)}`;
     case "tag":
-      return `Documents tagged “${fact.name}”: ${fact.count}`;
+      return `Documents tagged “${fact.name}”: ${grouped(fact.count)}`;
     case "notes":
-      return `Notes besides this one: ${fact.count}`;
+      return `Notes besides this one: ${grouped(fact.count)}`;
     case "note":
       return `Note “${fact.name}”`;
     case "name": {
       const kinds = listing.documents
         .filter((each) => oneLine(each.name) === fact.name)
         .map((each) => english(`library.format.${each.kind}`));
-      return `Documents named “${fact.name}”: ${fact.count} (${kinds.join(", ")})`;
+      return `Documents named “${fact.name}”: ${grouped(fact.count)} (${kinds.join(", ")})`;
     }
   }
 }
 
+/** The words of a text as the keyword search splits them, a file name's parts too ("report.pdf"). */
+function wordsOf(text: string): Set<string> {
+  const words = new Set<string>();
+  for (const term of keywordTerms(text)) {
+    words.add(term);
+    for (const part of term.split(/[^\p{L}\p{N}]+/u)) if (part !== "") words.add(part);
+  }
+  return words;
+}
+
 /**
- * The facts' text for the model and where each fact's line is in it. Past `MOST_NAMES` names, the
- * names that more than one Document shares and those the search's words match are listed, and the
- * text says how many more there are.
+ * A sentence about Documents that share a name ("appears twice", "两份"): only then are the names
+ * more than one Document shares sent, whatever the sentence names (#2525).
+ */
+const ABOUT_DUPLICATES =
+  /\b(?:twice|thrice|duplicat\w*|cop(?:y|ies)|same name|share a name|\w+ times)\b|两次|两份|重复|同名|副本|[两三四五六七八九十\d]+\s*(?:次|份)/iu;
+
+/**
+ * The facts' text for the model and where each fact's line is in it. Every count is there. A name
+ * is there only when it shares a word with `sentence`, the sentence under check, or is the Folder,
+ * Tag or Document the note searches (`LibraryListing.searches`), with its count; and for a sentence
+ * about duplicates, each name more than one Document shares. The match is made here, before the
+ * request, so the model never sees a name the sentence doesn't need. `MOST_NAMES` bounds the names.
  */
 export function libraryText(
   listing: LibraryListing,
-  query: string,
+  sentence: string,
 ): { text: string; lines: Line[] } {
-  const all = factsOf(listing);
-  const named = all.filter((fact): fact is LibraryFact & { kind: "name" } => fact.kind === "name");
-  // A short Latin word ("of", "is") would match most names; two Han characters name something.
-  const words = query
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((word) => [...word].length >= 3 || /\p{Script=Han}{2}/u.test(word));
-  const asked = (fact: LibraryFact & { kind: "name" }) =>
-    words.some((word) => fact.name.toLowerCase().includes(word));
-  const listed =
-    named.length <= MOST_NAMES
-      ? named
-      : [
-          ...named.filter((fact) => fact.count > 1),
-          ...named.filter((fact) => fact.count === 1 && asked(fact)),
-        ].slice(0, MOST_NAMES);
+  const words = wordsOf(sentence);
+  const duplicates = ABOUT_DUPLICATES.test(sentence);
+  const matches = (name: string) => [...wordsOf(name)].some((word) => words.has(word));
+  const searched = (kind: ScopeKind, name: string) =>
+    listing.searches?.kind === kind && listing.searches.name === name;
+  const sent = (fact: LibraryFact): boolean => {
+    switch (fact.kind) {
+      case "folder":
+        return matches(fact.name) || searched("folder", fact.name);
+      case "tag":
+        return matches(fact.name) || searched("tag", fact.name);
+      case "note":
+        return matches(fact.name);
+      case "name":
+        return (
+          matches(fact.name) || searched("document", fact.name) || (duplicates && fact.count > 1)
+        );
+      default:
+        return true;
+    }
+  };
+  const all = factsOf(listing).filter(sent);
+  const named = all.filter((fact) => fact.kind === "name");
+  const listed = named.slice(0, MOST_NAMES);
   const facts = [...all.filter((fact) => fact.kind !== "name"), ...listed];
-  let text = `Library facts of ${englishSource(listing.source)}: what IncarnaMind's Library lists for this check's scope, not what any Document says.`;
+  let text = `Library facts of ${englishSource(listing.source)}: what IncarnaMind's Library lists for this check's scope, not what any Document says. Every count covers the whole scope; a name is listed only when it shares a word with the sentence or is what this check searches${duplicates ? ", or when more than one Document shares it" : ""}.`;
   const lines: Line[] = [];
   for (const fact of facts) {
     text += "\n";
@@ -267,12 +310,12 @@ export function libraryText(
     lines.push({ fact, start, end: text.length });
   }
   if (listed.length < named.length) {
-    text += `\nNames not listed: ${named.length - listed.length} more. Search again with a Document's name in the query to see its line.`;
+    text += `\nNames not listed: ${grouped(named.length - listed.length)} more that share a word with the sentence.`;
   }
   return { text, lines };
 }
 
-const hashOf = (text: string) => createHash("sha256").update(text).digest("hex");
+const hashOf = (text: string) => hashBytes(new TextEncoder().encode(text));
 
 /** A fingerprint of everything the listing gives: what an Unsupported sentence about it rests on. */
 const LISTING_KEY = "listing";
@@ -314,6 +357,7 @@ function factOf(citation: CitationLike | null | undefined): LibraryFact | null |
 function libraryRun(
   listing: () => LibraryListing,
   searched: SearchScope | null,
+  sentence: string,
   deps: ClaimCheckDependencies,
 ) {
   const shown = new Map<string, Shown>();
@@ -322,9 +366,9 @@ function libraryRun(
     [...shown.values()].find((each) => each.passage.passageId === passageId);
 
   const search: LibraryFactSearch = {
-    add(query) {
+    add() {
       const now = listing();
-      const { text, lines } = libraryText(now, query);
+      const { text, lines } = libraryText(now, sentence);
       const hash = `${VERSION}${hashOf(text)}`;
       const known = shown.get(hash);
       if (known) return [known.passage];
@@ -375,8 +419,10 @@ function libraryRun(
             return line ? [line.fact.kind] : [];
           }),
         );
-        if (declared.kind === "none")
-          return cited.size > 0 ? { claims: [], note: NOT_ABOUT } : null;
+        if (declared.kind === "none") {
+          if (cited.size > 0) return { claims: [], note: NOT_ABOUT };
+          return verdict === "supported" ? { claims: [], note: DOCUMENT_ONLY } : null;
+        }
         const missing = [...declared.facts].filter((kind) => !cited.has(kind));
         const short =
           verdict === "supported" ? missing.length > 0 : missing.length === declared.facts.size;
@@ -575,6 +621,14 @@ function libraryRun(
       ...(judged.figures ?? []).map((figure) => evidenceOf(figure.result)),
       evidenceOf(judged.remainder),
     ];
+    const restsOn = rests.flatMap((each) => {
+      const fact = factOf(each);
+      return fact ? [fact] : [];
+    });
+    // Shown the facts, a reply that still rests on a Document's text alone isn't borne out: its
+    // one ask is spent, and a Document line describing the files never decides the Library.
+    if (judged.verdict === "supported" && restsOn.length === 0) return unread();
+    if (judged.verdict === "supported" && !countWordsHold(sentence, restsOn)) return unread();
     const unsupported = facts !== null && judged.verdict === "unsupported";
     const kept = versionsOf(versions, rests, unsupported);
     // A sentence with figures is marked with its figures' versions: each keeps the facts too.
@@ -603,10 +657,89 @@ function libraryRun(
 const ownVersions = (versions: readonly CheckedVersion[]): CheckedVersion[] =>
   versions.filter((each) => each.documentId !== LIBRARY_FACTS);
 
-const readsAsCount = (figure: FigureCheckResult): boolean =>
-  figure.reading.scale === 1 &&
-  (figure.reading.unit.kind === "plain" || figure.reading.unit.kind === "other") &&
-  !writtenAsSize(figure);
+/** What a count of the Library counts, written after its figure: "22 uploaded Documents", "7 个文档". */
+const COUNT_NOUN =
+  /^(?:[\p{L}-]+\s+)?(?:documents?|files?|notes?|folders?|tags?|items?|cop(?:y|ies)|records?|entr(?:y|ies)|names?|times)(?![\p{L}])|^(?:个|份|篇|项|条|次|本|件)/iu;
+
+/**
+ * Whether a figure reads as a count of things, which a Library count may decide: no scale word,
+ * and after it nothing or a count noun, never a unit ("11 TB", "22 GB", "5 km").
+ */
+function readsAsCount(figure: FigureCheckResult): boolean {
+  const { reading } = figure;
+  if (reading.scale !== 1 || writtenAsSize(figure)) return false;
+  if (reading.unit.kind === "other") return COUNT_NOUN.test(reading.unit.word);
+  if (reading.unit.kind !== "plain") return false;
+  const after = afterFigure(figure)?.trimStart();
+  return after !== undefined && (!/^\p{L}/u.test(after) || COUNT_NOUN.test(after));
+}
+
+const WORD_COUNTS: Readonly<Record<string, number>> = {
+  zero: 0,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  once: 1,
+  twice: 2,
+  thrice: 3,
+};
+const HAN_DIGITS: Readonly<Record<string, number>> = {
+  零: 0,
+  一: 1,
+  两: 2,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+};
+const COUNT_WORD =
+  /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|once|twice|thrice)\b|([零一两二三四五六七八九十]+)\s*(?:个|份|篇|项|条|次|本|件)/giu;
+
+/** A Chinese numeral below a hundred: "十一" is 11, "二十" is 20, "两" is 2; null for another. */
+function hanCount(numeral: string): number | null {
+  const [tens, units, ...rest] = numeral.split("十");
+  if (rest.length > 0) return null;
+  if (units === undefined) return numeral.length === 1 ? (HAN_DIGITS[numeral] ?? null) : null;
+  const ten = tens === "" ? 1 : (HAN_DIGITS[tens ?? ""] ?? null);
+  const one = units === "" ? 0 : (HAN_DIGITS[units] ?? null);
+  return ten === null || one === null ? null : ten * 10 + one;
+}
+
+/**
+ * A sentence that writes its count in words ("twelve Documents", "appears twice", "两份") holds
+ * only when a fact it rests on gives that count: the figure checks read digits alone.
+ */
+function countWordsHold(sentence: string, facts: readonly LibraryFact[]): boolean {
+  if (/\d/.test(sentence)) return true;
+  const counts = facts.flatMap((fact) => (fact.kind === "note" ? [] : [fact.count]));
+  if (counts.length === 0) return true;
+  const said = [...sentence.matchAll(COUNT_WORD)].flatMap((match) => {
+    const value = match[1] ? WORD_COUNTS[match[1].toLowerCase()] : hanCount(match[2] ?? "");
+    return value === undefined || value === null ? [] : [value];
+  });
+  return said.length === 0 || said.some((value) => counts.includes(value));
+}
 
 /** Not checked for `why`, its figures and its other words too. */
 function notCheckedAll(
@@ -665,7 +798,7 @@ export function withLibraryFacts(
       known ??= libraryListing(request.mindId ?? null, searched);
       return known;
     };
-    const run = libraryRun(listing, searched, deps);
+    const run = libraryRun(listing, searched, request.claim, deps);
     const result = await create({
       ...deps,
       documents: run.documents,

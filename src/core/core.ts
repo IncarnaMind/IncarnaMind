@@ -1784,15 +1784,23 @@ export function createCore(adapters: CoreAdapters): Core {
     const ownWall = walledFolder(mindId);
     const counted = documents.getMany(scopeDocuments(searched, mindId) ?? documents.ids({}));
     const ids = new Set(counted.map((document) => document.id));
-    const one = oneFolderOf(searched);
+    // A scope picked before a Folder got its wall may still list it, or one of its Documents: for a
+    // note outside the wall, what is behind it is named from nowhere, only counted among the walls.
+    const constrained =
+      searched && hasSearchScope(searched) ? constrainedScope(searched, mindId) : null;
+    const visible = constrained && {
+      ...constrained,
+      documentIds: constrained.documentIds.filter((id) => walledDocument(id) === ownWall),
+    };
+    const one = oneFolderOf(visible);
     const within = one === null ? null : new Set(library.subtree(one));
     const seen = (folderId: string | null) =>
       walledFolderId(folderId) === ownWall && (within === null || within.has(folderId ?? ""));
-    const named = searched && hasSearchScope(searched) ? scopeName(searched, scopeItemName) : null;
+    const named = visible && hasSearchScope(visible) ? scopeName(visible, scopeItemName) : null;
     const walls = library.folders().filter((folder) => folder.keepInside).length;
     const folders = library
       .folders()
-      .filter((folder) => folder.id !== one && seen(folder.id))
+      .filter((folder) => seen(folder.id))
       .map((folder) => ({
         name: folder.name,
         count: library.treeDocumentIds(folder.id).filter((id) => ids.has(id)).length,
@@ -1814,7 +1822,12 @@ export function createCore(adapters: CoreAdapters): Core {
         ).length;
         return count > 0 ? [{ name: tag.name, count }] : [];
       }),
-      notes: { count: notes.length, names: notes.map(mindName).filter((name) => name !== "") },
+      // A note with no typed title is named by its first line, which is its text: it is counted only.
+      notes: {
+        count: notes.length,
+        names: notes.map((mind) => mind.title).filter((title) => title !== ""),
+      },
+      searches: named?.name ? { kind: named.kind, name: named.name } : null,
     };
   };
   // A Folder of the Library holds no file that isn't a Document, so it names the folders on disk
@@ -2986,6 +2999,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readableQuote: quoteAsRead,
     language: () => settings.get().language,
     scopeItemName,
+    libraryFactsNow: (mindId) => checks.libraryFactsNow(mindId),
     citationStyle: (mindId) => {
       const { style, textLanguage } = mindStyleAndText(mindId);
       return { style: citationStyles.resolve(style.style, textLanguage), textLanguage };

@@ -2757,7 +2757,8 @@ export const zhCN = {
   "providers.sendsLine": "会把你的问题和文档内容发送给 {provider}。",
   "providers.sends.chat":
     "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个）、会议的转写稿，以及你在笔记中选中要询问的图片",
-  "providers.sends.checks": "你核对的每一句话",
+  "providers.sends.checks":
+    "你核对的每一句话，以及用于核对的段落和文档名称；句子说的是你的资料库时，还有资料库的数量、笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
   "providers.sends.suggestions": "写作建议时你停下的那一段",
   "providers.sends.edits": "你让助手修改的文字",
   "providers.sends.onRequest":
@@ -3018,6 +3019,9 @@ export const zhCN = {
   "consent.data.blocks": "这篇笔记的正文、你写的内容和之前的问题和回答，不含已排除的内容",
   "consent.data.document-names": "问题或命令找到的文档和笔记：名称、文件夹和标签（最多 50 个文档）",
   "consent.data.other-minds": "问题中提到的另一篇笔记的部分内容",
+  "consent.data.library-counts": "句子说的是你的资料库时，资料库的数量",
+  "consent.data.library-names":
+    "笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
   "consent.data.live-transcript": "会议转写稿：录制时的实时部分，停止录制后整份用于填写笔记",
   "consent.data.passages": "文档中与问题相关的段落，连同所属文档的名称和页码",
   "consent.data.tool-results": "回答所用连接器、技能脚本和数据分析返回的结果",

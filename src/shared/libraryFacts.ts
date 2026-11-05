@@ -169,7 +169,7 @@ export function sourceWords(source: LibrarySource, t: Translate, language: Langu
   }
 }
 
-/** A fact in the Library's own words: "22 Documents", "2 Documents named “EiR-RL”". */
+/** A fact in the Library's own words: "22 Documents", "2 Documents named “Kestrel plan”". */
 export function factWords(fact: LibraryFact, t: Translate, language: Language): string {
   const count = (value: number) => new Intl.NumberFormat(language).format(value);
   if (fact.kind === "note") return t("claim.library.note", { name: fact.name });

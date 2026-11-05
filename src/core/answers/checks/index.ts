@@ -173,7 +173,14 @@ import { createWrittenCheck, type WrittenCheckOptions } from "./written";
  * the Passages found, a verified document's sentences, to find its claims
  * (#97), and a Mind's sentences when the whole Mind is checked (#737).
  */
-export const CHECKS_FLOW_SENDS = ["selection", "passages", "verified-document", "blocks"] as const;
+export const CHECKS_FLOW_SENDS = [
+  "selection",
+  "passages",
+  "verified-document",
+  "blocks",
+  "library-counts",
+  "library-names",
+] as const;
 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
 const MAX_CLAIM_CHARACTERS = 2_000;

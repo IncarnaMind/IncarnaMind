@@ -676,7 +676,7 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
           ...(options?.properties && deps.fileProperties
             ? deps.fileProperties.add(matched, within, options)
             : []),
-          ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add(query) : []),
+          ...(options?.library && deps.libraryFacts ? deps.libraryFacts.add() : []),
         ];
         if (!request.window) {
           for (const passage of passages) read.set(passage.documentId, passage.contentHash);

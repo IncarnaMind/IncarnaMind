@@ -2896,7 +2896,8 @@ export const en = {
   "providers.sendsLine": "Sends your questions and document text to {provider}.",
   "providers.sends.chat":
     "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
-  "providers.sends.checks": "each sentence you check",
+  "providers.sends.checks":
+    "each sentence you check, with the passages and Document names it's checked against; for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
   "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
   "providers.sends.edits": "the text you ask the assistant to change",
   "providers.sends.onRequest":
@@ -3172,6 +3173,9 @@ export const en = {
   "consent.data.document-names":
     "The names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50 Documents)",
   "consent.data.other-minds": "Part of another note, when a Question names it",
+  "consent.data.library-counts": "For a sentence about your Library, its counts",
+  "consent.data.library-names":
+    "The name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":

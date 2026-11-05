@@ -281,7 +281,7 @@ const SIZE_UNITS: readonly (readonly [RegExp, readonly number[]])[] = [
  * its reading counts from the paragraph's start, not the context's, so it is found by its
  * characters; undefined when they are there more than once, or not at all.
  */
-function afterFigure(figure: FigureCheckResult): string | undefined {
+export function afterFigure(figure: FigureCheckResult): string | undefined {
   const { chars } = figure.reading;
   const escaped = chars.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const found = [

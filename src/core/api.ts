@@ -8681,6 +8681,8 @@ export const dataKinds = [
   "other-minds",
   "live-transcript",
   "pictures",
+  "library-counts",
+  "library-names",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
