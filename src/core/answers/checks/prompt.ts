@@ -979,6 +979,9 @@ const saysNone = (side: string) => {
   return words === "" || NO_PHRASE.test(words);
 };
 
+/** A side without what it glosses in brackets ("must (a duty)", "none (unconditional)"). */
+const withoutGlosses = (side: string) => side.replace(/\([^)]*\)/g, " ");
+
 /**
  * A Duty line called "same" whose sides are two different duties, in any words, what a side glosses
  * in brackets set aside ("must (a duty)"): it recorded the difference and then denied it. A side
@@ -986,7 +989,7 @@ const saysNone = (side: string) => {
  * on both sides.
  */
 const dutySidesDiffer = (lineSides: readonly string[]): boolean => {
-  const [own, theirs] = lineSides.map((side) => sideWords(side.replace(/\([^)]*\)/g, " ")));
+  const [own, theirs] = lineSides.map((side) => sideWords(withoutGlosses(side)));
   return (
     lineSides.length === 2 &&
     own !== undefined &&
@@ -998,13 +1001,21 @@ const dutySidesDiffer = (lineSides: readonly string[]): boolean => {
 };
 
 /**
+ * A Condition side that says none: whole, or in its words outside the brackets ("none
+ * (unconditional)", 无（未提条件）). A condition copied in brackets is still a condition.
+ */
+const conditionNone = (side: string) => {
+  const outside = sideWords(withoutGlosses(side));
+  return saysNone(side) || (outside !== "" && NO_PHRASE.test(outside));
+};
+
+/**
  * A Condition line called "same" whose sides can't both hold the same condition: a side that is
  * none beside one that holds one, counting each piece a slash in the copied words makes ("and/or",
- * "1/4/2026"), or one side alone that holds one, where the form asks for both. A condition copied
- * in brackets is still a condition.
+ * "1/4/2026"), or one side alone that holds one, where the form asks for both.
  */
 const conditionSidesDiffer = (lineSides: readonly string[]): boolean => {
-  const none = lineSides.map(saysNone);
+  const none = lineSides.map(conditionNone);
   return none.length === 1 ? none[0] === false : none.includes(true) && none.includes(false);
 };
 
@@ -1040,6 +1051,15 @@ const holdsBack = (line: string) =>
     const word = detailWord(label, line, denied);
     return word === "differs" || word === "denied";
   });
+
+/** A reply's Duty and Condition lines that take support away whatever a later line says. */
+export const heldDetailLines = (reply: string): string[] => linesOf(reply).filter(holdsBack);
+
+/** Whether a Duty or Condition line of a reply calls its two sides the same while they differ. */
+export const deniesItself = (reply: string): boolean =>
+  linesOf(reply).some((line) =>
+    DETAIL_FIELDS.some(([label, denied]) => detailWord(label, line, denied) === "denied"),
+  );
 
 /**
  * The Duty and Condition lines' closing words. A "differs" on any of a reply's lines holds, and a
