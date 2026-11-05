@@ -368,15 +368,26 @@ export function inAnalysisTable(element: Y.XmlElement): boolean {
   return false;
 }
 
+const SENTENCE_END = new RegExp(`[.!?。！？]["'”’)）\\]】${INLINE_NODE}\\s]*$`, "u");
+
 /**
  * An Analysis table's caption line that only names its table, as a heading does: one the User typed
  * a sentence into is read as any paragraph is, so what it says is checked and counted.
  */
-export const isTableCaption = (element: Y.XmlElement): boolean =>
-  element
-    .toArray()
-    .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE) &&
-  !/[.!?。！？]/u.test(textOf(element));
+export function isTableCaption(element: Y.XmlElement): boolean {
+  if (
+    !element
+      .toArray()
+      .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE)
+  )
+    return false;
+  const text = textOf(element);
+  const spans = sentenceSpans(text);
+  // "Sales vs. budget" and "1.5x" end no sentence; a full stop at the end of one does.
+  return (
+    spans.length <= 1 && !spans.some((span) => SENTENCE_END.test(text.slice(span.from, span.to)))
+  );
+}
 
 /** A paragraph no check reads as sentences: a table's heading, an Analysis table's caption or cell. */
 const notSentences = (element: Y.XmlElement) =>

@@ -214,6 +214,9 @@ export function checkInstructions(
   }
 }
 
+/** How many of an Analysis figure's runs of rows the judge reads: the count says how many there are. */
+const JUDGED_ROW_RUNS = 20;
+
 /** The message a check Run is given: the sentence, its paragraph, and what it already cites. */
 export function claimPrompt(input: {
   claim: string;
@@ -275,7 +278,12 @@ export function claimPrompt(input: {
                   ...(analysisRecord?.label !== undefined && {
                     analysis: {
                       label: analysisRecord.label,
-                      rule: analysisRecord.of ?? null,
+                      rule: analysisRecord.of
+                        ? {
+                            ...analysisRecord.of,
+                            rows: analysisRecord.of.rows.slice(0, JUDGED_ROW_RUNS),
+                          }
+                        : null,
                       code: analysisRecord.code ?? null,
                     },
                   }),

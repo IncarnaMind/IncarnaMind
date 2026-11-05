@@ -390,6 +390,29 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     core.close();
   });
 
+  test("a caption with an abbreviation or a decimal point still only names its table", async () => {
+    const { core, madeId, client, sent } = await walked(language, CONTENT(language));
+    const typed = language === "en" ? "Orders vs. returns, 1.5x: " : "订单与退货之比 1.5 倍：";
+    const caption = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement =>
+          each instanceof Y.XmlElement &&
+          each
+            .toArray()
+            .some((node) => node instanceof Y.XmlElement && node.nodeName === ANALYSIS_TABLE_NODE),
+      );
+    const words = caption?.toArray().find((each): each is Y.XmlText => each instanceof Y.XmlText);
+    if (!words) throw new Error("No caption.");
+    client.doc.transact(() => words.insert(0, typed));
+    await client.settled();
+    sent.length = 0;
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(sent.some((each) => each.includes(typed.trim()))).toBe(false);
+    core.close();
+  });
+
   test("a cell of words in the Analysis's table is its run's too, never a sentence Check sends", async () => {
     const base = ANALYSIS(WORDS[language].caption);
     const busiest: Record<string, string> = {

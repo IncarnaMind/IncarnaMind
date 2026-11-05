@@ -641,7 +641,7 @@ export function chartSources(
     }
     // Counted apart from quoted values, though the rows it read are still its Sources.
     if (value.fromAnalysis) analysis++;
-    if (!value.citation && !value.citations && !value.inputs) {
+    else if (!value.citation && !value.citations && !value.inputs) {
       uncitedCells.push({ row, series });
       continue;
     }

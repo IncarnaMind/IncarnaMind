@@ -277,6 +277,26 @@ describe("what a chart draws", () => {
     ]);
   });
 
+  test("a value an Analysis worked out is the Analysis's, never one with no Citation", () => {
+    const analysed: ChartAttributes = {
+      ...chart,
+      data: {
+        ...chart.data,
+        rows: chart.data.rows.map((row) => ({
+          ...row,
+          values: row.values.map((value) =>
+            !value || value.citation || value.citations || value.inputs
+              ? value
+              : { ...value, fromAnalysis: true as const },
+          ),
+        })),
+      },
+    };
+    const sources = chartSources(analysed);
+    expect([sources.values, sources.uncited, sources.analysis]).toEqual([8, 0, 1]);
+    expect(sources.uncitedCells).toEqual([]);
+  });
+
   test("its sources count every chosen cell for bars, lines and scatter, and a pie's one column", () => {
     const bar = chartSources(chart);
     const as = (kind: ChartAttributes["kind"], drawn = chart.drawn): ChartAttributes => ({
