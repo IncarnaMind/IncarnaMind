@@ -2312,8 +2312,8 @@ export const migrations: readonly Migration[] = [
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE deleted_at IS NULL
           AND key IN ('chatModel', 'quickTasksModel', 'imageModel')
-          AND json_extract(value, '$.modelId') IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
-          AND json_extract(value, '$.providerId') IN (
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.modelId') END IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.providerId') END IN (
             SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
           );
       UPDATE device_settings
@@ -2321,8 +2321,8 @@ export const migrations: readonly Migration[] = [
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         WHERE deleted_at IS NULL
           AND key = 'lastChatModel'
-          AND json_extract(value, '$.modelId') IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
-          AND json_extract(value, '$.providerId') IN (
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.modelId') END IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.providerId') END IN (
             SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
           );
     `,

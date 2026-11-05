@@ -517,4 +517,71 @@ describe("DeepSeek model ids (#2567)", () => {
     });
     db.close();
   });
+
+  test("a saved DeepSeek image choice moves to deepseek-flash too", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const deepseekMigration = migrations.find((migration) =>
+      migration.description.includes("DeepSeek"),
+    );
+    if (!deepseekMigration) throw new Error("The DeepSeek migration isn't in the list.");
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < deepseekMigration.version),
+    );
+    const at = "2026-11-05T09:00:00.000Z";
+    const deepseek = "00000000-0000-4000-8000-0000000000d5";
+    db.run(
+      "INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at) VALUES (?, 'deepseek', NULL, 'deepseek', NULL, ?, ?)",
+      [deepseek, at, at],
+    );
+    db.run(
+      "INSERT INTO user_settings (id, key, value, created_at, updated_at) VALUES ('s1', 'imageModel', ?, ?, ?)",
+      [JSON.stringify({ providerId: deepseek, modelId: "deepseek-v4-flash" }), at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      JSON.parse(
+        db.get<{ value: string }>("SELECT value FROM user_settings WHERE key = 'imageModel'")
+          ?.value ?? "null",
+      ),
+    ).toEqual({ providerId: deepseek, modelId: "deepseek-flash" });
+    db.close();
+  });
+
+  test("malformed saved preferences don't stop the migration and stay for the settings fallback", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const deepseekMigration = migrations.find((migration) =>
+      migration.description.includes("DeepSeek"),
+    );
+    if (!deepseekMigration) throw new Error("The DeepSeek migration isn't in the list.");
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < deepseekMigration.version),
+    );
+    const at = "2026-11-05T09:00:00.000Z";
+    db.run(
+      "INSERT INTO chat_providers (id, kind, base_url, catalog_id, endpoint, created_at, updated_at) VALUES (?, 'deepseek', NULL, 'deepseek', NULL, ?, ?)",
+      ["00000000-0000-4000-8000-0000000000d5", at, at],
+    );
+    db.run(
+      "INSERT INTO user_settings (id, key, value, created_at, updated_at) VALUES ('s1', 'chatModel', '{', ?, ?)",
+      [at, at],
+    );
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'lastChatModel', '{', ?, ?)",
+      [at, at],
+    );
+
+    expect(() => migrate(db)).not.toThrow();
+    expect(
+      db.get<{ value: string }>("SELECT value FROM user_settings WHERE key = 'chatModel'")?.value,
+    ).toBe("{");
+    expect(
+      db.get<{ value: string }>("SELECT value FROM device_settings WHERE key = 'lastChatModel'")
+        ?.value,
+    ).toBe("{");
+    db.close();
+  });
 });
