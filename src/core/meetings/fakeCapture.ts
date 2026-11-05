@@ -44,8 +44,8 @@ export function wavSamples(bytes: Uint8Array): Int16Array {
 }
 
 export interface FakeCapture extends AudioCapture {
-  /** Sends `ms` of audio from a source while a capture runs. */
-  push(source: AudioSource, ms: number): void;
+  /** Sends `ms` of audio from a source while a capture runs; `quiet`: silence, as when no one speaks into it. */
+  push(source: AudioSource, ms: number, quiet?: boolean): void;
   /** Reports a source's state while a capture runs. */
   report(source: AudioSource, state: CaptureState): void;
   /**
@@ -74,10 +74,10 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
   let timer: ReturnType<typeof setInterval> | null = null;
   const settingsOpened: AudioSource[] = [];
 
-  const samplesOf = (source: AudioSource, ms: number): Int16Array => {
+  const samplesOf = (source: AudioSource, ms: number, quiet: boolean): Int16Array => {
     const count = Math.round((ms * MEETING_SAMPLE_RATE) / 1000);
     const samples = new Int16Array(count);
-    if (source === "system" && system === "silent") return samples;
+    if (quiet || (source === "system" && system === "silent")) return samples;
     if (options.recording) {
       if (source === "system")
         samples.set(options.recording.subarray(made.system, made.system + count));
@@ -94,10 +94,10 @@ export function createFakeCapture(options: FakeCaptureOptions = {}): FakeCapture
   };
 
   const now = options.now ?? Date.now;
-  const push = (source: AudioSource, ms: number) => {
+  const push = (source: AudioSource, ms: number, quiet = false) => {
     if (!sink || !wanted[source]) return;
     if (source === "microphone" && Date.now() < micQuietUntil) return;
-    sink.audio(source, samplesOf(source, ms), now());
+    sink.audio(source, samplesOf(source, ms, quiet), now());
   };
 
   return {

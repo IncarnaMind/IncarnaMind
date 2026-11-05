@@ -37,3 +37,11 @@ $15 for all the runs of this work, held by the runner itself: each run reads wha
 ## Reported, not gated
 
 Per model and step: the times to the first sign, the first words, the first whole option and the end; where the time went (each request's first byte, first text and end, the requests for other steps, reasoning); model calls; how often a reply searched again or went to the User's model; each language's counts; the load; and what each run cost.
+
+## A step found by the first measurement (added on 2026-11-04, before its run)
+
+The first press measured (Claude Haiku 5.5, en-answer-sso, a smoke run of the harness) showed the reply in one call, its first words at 0.9 s, and its end held 1.2 s more by a check of the changes it claims, which asks a model again. Call help is offered no Tool that changes a Note or runs a command, and its reply is lines for the User to say, so that check has nothing to protect there. The branch skips it for call help by default; its run pairs `help-claims-checked` (today's path, the check kept) against `today` (the branch), held to every line above.
+
+## False Supported counted over the set (added on 2026-11-04, after two smoke runs of one case, before any full run)
+
+Two smoke runs on Claude Haiku 5.5 stopped at their first case, en-answer-sso, on a sentence only the step's arm wrote: "Team doesn't include single sign-on, so Enterprise is the plan that meets your security review", cited to the Enterprise line, which doesn't say it. The second pairing was `help-claims-checked` against `today`, which send the same requests until the reply is written: its reply can't depend on the arm, so the difference was chance, the same sentence written on one sample and not the other. Today's path writes it too. Stopping at the first new one would end every run at its first case where a reply varies, so for this set (`INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`) false Supported is held as a count instead: a step holds only where its arm has no more cases with a false Supported than today's path, over the cases both finished, and each case with one, on either arm, is listed with its sentence. Every other line above holds as written.
