@@ -23,7 +23,7 @@ const CASES = {
     one: "1 to organize",
     allow: "Allow Anthropic",
     sends:
-      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, type and short excerpts, and your Folders’ and Tags’ names and descriptions, to Anthropic, for these and for Documents you add later.",
+      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to Anthropic, for these and for Documents you add later.",
     text: (index: number) => `Harbour survey ${index}: the berth depth at the north quay.`,
   },
   "zh-CN": {
@@ -31,7 +31,7 @@ const CASES = {
     one: "1 个待整理",
     allow: "允许 Anthropic",
     sends:
-      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和简短摘录，以及你的文件夹和标签的名称与说明，发送给 Anthropic，包括这些文档和以后添加的文档。",
+      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和说明以及相符标签的名称和说明，发送给 Anthropic，包括这些文档和以后添加的文档。",
     text: (index: number) => `Harbour 测量第 ${index} 份：北码头泊位的水深。`,
   },
 } as const;

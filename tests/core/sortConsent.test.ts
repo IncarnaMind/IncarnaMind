@@ -223,6 +223,32 @@ describe("Dropped Documents wait for the User's Allow (#2308)", { timeout: 120_0
     expect(models.sent("anthropic")).toBe(2);
   });
 
+  // protects=Organize may file a Document into a walled Folder, its matter's, and the one Undo takes it out again, with nothing more sent; fails_when=a walled Folder can't be chosen, or Undo leaves the Document inside the wall; no_claim=which Folder a real model picks.
+  test("a Document filed into a wall comes back out with the Undo", async () => {
+    const { core, models, drop } = await setup();
+    // Before Harbour by name, so the scripted model's first Folder is the walled one.
+    const walled = await core.createLibraryGroup({
+      name: "Archive matter",
+      description: "Kept apart.",
+      keepInside: true,
+    });
+    const document = await drop();
+    await allow(core, [document]);
+    await sorted(core, [document], walled.id);
+    expect(models.sent("anthropic")).toBe(1);
+
+    const filed = await filedIn(core, document);
+    if (!filed) throw new Error("Not filed.");
+    const { documentId: _id, tagging, ...assignment } = filed;
+    await core.restoreAssignment(
+      document,
+      { assignment: null, tagging: null },
+      { assignment, tagging: tagging ?? null },
+    );
+    expect(await filedIn(core, document)).toBeUndefined();
+    expect(models.sent("anthropic")).toBe(1);
+  });
+
   // protects=after a restart the Allow still holds for new drops and nothing that was sorted is sent again; a sort taken back with Undo stays taken back; a failing service leaves its Document with its problem, not waiting again; fails_when=a restart forgets the Allow, sends again, re-sorts after an Undo, or counts a failed Document to sort; no_claim=how the failure is worded.
   test("a restart, an Undo and a failing service", async () => {
     const { core, dataDir, keychain, models, harbour, drop } = await setup();
@@ -278,16 +304,16 @@ describe("The row's words (#2308)", () => {
       "4 to organize",
       "1 to organize",
       "Allow Anthropic",
-      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, type and short excerpts, and your Folders’ and Tags’ names and descriptions, to Anthropic, for these and for Documents you add later.",
-      "1 Document waits to be organized: Anthropic isn’t allowed to read it. Allowing it sends the Document’s name, type and short excerpts, and your Folders’ and Tags’ names and descriptions, to Anthropic, for this one and for Documents you add later.",
+      "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to Anthropic, for these and for Documents you add later.",
+      "1 Document waits to be organized: Anthropic isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to Anthropic, for this one and for Documents you add later.",
     ],
     [
       "zh-CN",
       "4 个待整理",
       "1 个待整理",
       "允许 Anthropic",
-      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和简短摘录，以及你的文件夹和标签的名称与说明，发送给 Anthropic，包括这些文档和以后添加的文档。",
-      "1 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把这个文档的名称、类型和简短摘录，以及你的文件夹和标签的名称与说明，发送给 Anthropic，包括这个文档和以后添加的文档。",
+      "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和说明以及相符标签的名称和说明，发送给 Anthropic，包括这些文档和以后添加的文档。",
+      "1 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把这个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和说明以及相符标签的名称和说明，发送给 Anthropic，包括这个文档和以后添加的文档。",
     ],
   ] as const)("%s", (language, many, one, allowLabel, sends, sendsOne) => {
     expect(translate(language, "library.toSort.other", { count: 4 })).toBe(many);
