@@ -38,6 +38,12 @@ const LIVE: { name: string; kind: ChatProviderKind; apiKey: string | undefined; 
         process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
         (catalogProvider("anthropic")?.roles.quickTasks as string),
     },
+    {
+      name: "DeepSeek",
+      kind: "deepseek",
+      apiKey: process.env.INCARNAMIND_LIVE_DEEPSEEK_KEY,
+      model: process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ?? "deepseek-flash",
+    },
   ];
 
 interface FollowUp {
@@ -278,6 +284,11 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
               await client.settled();
               const after = textsOf();
               const made = followUp.made(before, after);
+              if (!made) {
+                kept.push(
+                  `- ${each.language} “${followUp.ask}”: not made; before ${JSON.stringify(before)}; after ${JSON.stringify(after)}`,
+                );
+              }
               const flagged = (second.answer.steps?.unbackedClaims ?? []).length > 0;
               const denied = DENIES.test(second.answer.text);
               const counts = tally.get(followUp) ?? { made: 0, flagged: 0, denied: 0 };
