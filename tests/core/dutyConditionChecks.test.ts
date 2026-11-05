@@ -839,10 +839,10 @@ describe("a Duty or Condition line is read only by its own closing word (#1766, 
     [
       "a Duty line glossed as the form glosses it, the same duty",
       {
-        sentence: "Members are required to sign the hire book before they launch.",
-        quote: "Members must sign the hire book before they launch.",
+        sentence: "Members may hire a kayak, delivered same-day to the slipway.",
+        quote: "Members may hire a kayak, delivered same-day to the slipway.",
         verdict: "supported",
-        duty: "must (a duty) / must (a duty), same",
+        duty: "may (a permission) / may (a permission or an ability), same",
         condition: SAME,
       },
       "supported",
