@@ -94,6 +94,8 @@ async function setUp(
     runtime?: { interpreter: string; marked?: string | null };
     scriptRuntimes?: CoreAdapters["scriptRuntimes"];
     language?: "en" | "zh-CN";
+    /** More of the login environment than its PATH. */
+    login?: Record<string, string>;
   } = {},
 ) {
   const dataDir = await createTempDataFolder();
@@ -105,7 +107,7 @@ async function setUp(
   const own = options.runtime
     ? await placeRuntime(dataDir, options.runtime.interpreter, options.runtime)
     : null;
-  const processes = createProcessLauncher(async () => ({ PATH: path }));
+  const processes = createProcessLauncher(async () => ({ PATH: path, ...options.login }));
   const local = createLocalExecutor({
     processes,
     tempDir,
@@ -233,7 +235,7 @@ describe.skipIf(process.platform === "win32")(
     });
 
     test("one that is here but can't start is a Problem on the script's card and for the model; python3 isn't run instead", async () => {
-      const { own, requests, results, runWhere } = await setUp({
+      const { own, requests, results, model, runWhere } = await setUp({
         runtime: {
           interpreter: shell(
             'echo "Fatal Python error: init_fs_encoding: failed to get the Python codec of the filesystem encoding" >&2',
@@ -251,7 +253,33 @@ describe.skipIf(process.platform === "win32")(
       expect(calls).toMatchObject([
         { status: "failed", script: { exitCode: null, error: problem } },
       ]);
+      // The model reads that Problem alone: installing a package has nothing to do with it.
+      expect(toldOfScripts(model)).toEqual([{ type: "error-text", value: `Error: ${problem}` }]);
       expect(requests.map(({ command }) => command)).toEqual([own?.command, own?.command]);
+    });
+
+    test("it never gets the User's own Python's settings from the login environment, which python3 still does", async () => {
+      const login = {
+        PYTHONEXECUTABLE: "/bin/echo",
+        PYTHONPATH: "/elsewhere/site-packages",
+        __PYVENV_LAUNCHER__: "/elsewhere/bin/python3",
+        PLAIN_SETTING: "kept",
+      };
+      const printed = shell(
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: the shell's own variables.
+        'echo "executable=${PYTHONEXECUTABLE-unset} path=${PYTHONPATH-unset} launcher=${__PYVENV_LAUNCHER__-unset} setting=${PLAIN_SETTING-unset} encoding=${PYTHONIOENCODING-unset}"',
+      );
+      const own = await setUp({ login, runtime: { interpreter: printed } });
+      await own.runWhere();
+      expect(own.results[0]).toContain(
+        "executable=unset path=unset launcher=unset setting=kept encoding=utf-8",
+      );
+
+      const onPath = await setUp({ login });
+      await onPath.runWhere();
+      expect(onPath.results[0]).toContain("PATH python3: ");
+      expect(onPath.requests[0]?.environment).toBeUndefined();
+      expect(own.requests[0]?.environment).toBe("own-python");
     });
 
     test("a script that fails on it on its own comes back as it ran", async () => {
@@ -288,12 +316,13 @@ describe.skipIf(process.platform === "win32")(
         const { skillDir, model, results, runWhere } = await setUp({
           language,
           runtime: {
+            // Asked whether it has the module, it has not (3); asked to start, it starts.
             interpreter: shell(
-              'case " $* " in *" -c "*) exit 0 ;; esac',
+              'case " $* " in *find_spec*) exit 3 ;; *" -c "*) exit 0 ;; esac',
               'echo "Read 12 rows."',
               'echo "Traceback (most recent call last):" >&2',
               'echo "  File \\"$6\\", line 1, in <module>" >&2',
-              `echo "ModuleNotFoundError: No module named 'zorblax_quant.models'" >&2`,
+              `echo "ModuleNotFoundError: No module named 'zorblax_quant'" >&2`,
               "exit 1",
             ),
           },

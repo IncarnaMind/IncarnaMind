@@ -222,7 +222,14 @@ describe("The script runner asks the Executor", () => {
     await scripts.run(toRun({ script: "scripts/hello.sh" }));
 
     const script = join(SKILL_DIR, "scripts", "hello.py");
-    expect(requests.map(({ command, args, allow }) => ({ command, args, allow }))).toEqual([
+    expect(
+      requests.map(({ command, args, allow, environment }) => ({
+        command,
+        args,
+        allow,
+        environment,
+      })),
+    ).toEqual([
       {
         command: "python3",
         args: [script, "tides"],
@@ -231,6 +238,7 @@ describe("The script runner asks the Executor", () => {
       {
         command: OWN.command,
         args: ["-E", "-s", "-B", "-X", "utf8", script, "tides"],
+        environment: "own-python",
         allow: {
           read: [SKILL_DIR, WORKING_FOLDER, OWN.prefix],
           write: [WORKING_FOLDER],
@@ -406,74 +414,111 @@ describe("The script runner asks the Executor", () => {
         "",
       ].join("\n"),
     });
-    const onOwn = (result: ExecResult) => {
-      const { executor } = fakeExecutor("os", async (request) =>
-        startCheck(request) ? RAN : result,
+    const MISSING = "ModuleNotFoundError: No module named 'zorblax_quant'";
+    const asksForModule = (request: ExecRequest) =>
+      request.args.some((arg) => arg.includes("find_spec"));
+    /** A runtime that starts, and has the module a script asks it about only when `included`. */
+    const onOwn = (result: ExecResult, { included = false } = {}) => {
+      const { executor, requests } = fakeExecutor("os", async (request) =>
+        asksForModule(request)
+          ? { ...RAN, exitCode: included ? 0 : 3, stdout: "" }
+          : startCheck(request)
+            ? RAN
+            : result,
       );
-      return createScriptRunner({ executor, runtimes: { platform: "linux" }, python: () => OWN });
+      const scripts = createScriptRunner({
+        executor,
+        runtimes: { platform: "linux" },
+        python: () => OWN,
+      });
+      return Object.assign(scripts, { requests });
     };
     const ran = async (result: ExecResult, scripts = onOwn(result)) =>
       expect(await scripts.run(toRun({ script: "scripts/hello.py" }))).toStrictEqual({
         ...result,
         error: null,
       });
+    const problem = (name: string) =>
+      `This Skill needs the Python package “${name}”, which isn’t included in IncarnaMind.`;
 
-    test("is a plain Problem naming its top-level package, in the interface's language, with nothing the script wrote", async () => {
-      const scripts = onOwn(
-        failedOn("ModuleNotFoundError: No module named 'zorblax_quant.models'"),
-      );
+    test("is a plain Problem naming the package, in the interface's language, once the runtime says it has no such module, with nothing the script wrote", async () => {
+      const scripts = onOwn(failedOn(MISSING));
 
       await expect(scripts.run(toRun({ script: "scripts/hello.py" }))).rejects.toMatchObject({
-        message:
-          "This Skill needs the Python package “zorblax_quant”, which isn’t included in IncarnaMind.",
+        message: problem("zorblax_quant"),
       });
       await expect(
         scripts.run(toRun({ script: "scripts/hello.py", language: "zh-CN" })),
       ).rejects.toMatchObject({
         message: "这个技能需要 Python 包“zorblax_quant”，IncarnaMind 未包含这个包。",
       });
+      // Asked in the same sandbox as the script, from its own empty working folder.
+      const [script, , asked] = scripts.requests;
+      expect(asked?.args).toEqual([
+        "-E",
+        "-s",
+        "-B",
+        "-X",
+        "utf8",
+        "-c",
+        expect.stringContaining("importlib.util.find_spec(sys.argv[1])"),
+        "zorblax_quant",
+      ]);
+      expect(asked).not.toHaveProperty("cwd");
+      expect(asked?.allow).toEqual(script?.allow);
+      expect(asked?.env).toEqual(script?.env);
+      expect(asked?.environment).toBe("own-python");
+
       await expect(
         onOwn(failedOn("ImportError: No module named zorblax")).run(
           toRun({ script: "scripts/hello.py" }),
         ),
-      ).rejects.toMatchObject({
-        message:
-          "This Skill needs the Python package “zorblax”, which isn’t included in IncarnaMind.",
-      });
+      ).rejects.toMatchObject({ message: problem("zorblax") });
       const longest = "z".repeat(64);
       await expect(
         onOwn(failedOn(`ModuleNotFoundError: No module named '${longest}'`)).run(
           toRun({ script: "scripts/hello.py" }),
         ),
-      ).rejects.toMatchObject({
-        message: `This Skill needs the Python package “${longest}”, which isn’t included in IncarnaMind.`,
-      });
+      ).rejects.toMatchObject({ message: problem(longest) });
     });
 
-    test("a script that caught it and ended well, one that failed otherwise, and one on python3 come back as they ran", async () => {
-      await ran(failedOn("ModuleNotFoundError: No module named 'zorblax_quant'", 0));
+    test("a module the runtime has comes back as it ran: a dotted name, or a line the script wrote itself", async () => {
+      for (const name of ["numpy.zorblax", "sklearn.externals.joblib", "zorblax_quant.models"]) {
+        await ran(failedOn(`ModuleNotFoundError: No module named '${name}'`));
+      }
+      const wroteItself = failedOn("ModuleNotFoundError: No module named 'pandas'");
+      await ran(wroteItself, onOwn(wroteItself, { included: true }));
+    });
+
+    test("a script that caught it and ended well or with another code, one that failed otherwise, and one on python3 come back as they ran", async () => {
+      await ran(failedOn(MISSING, 0));
+      await ran({ ...failedOn(MISSING, 3), stdout: "result: 42\n" });
       await ran(
         failedOn(
           "ValueError: ModuleNotFoundError: No module named 'zorblax_quant' was in the input",
         ),
       );
-      const onPath = failedOn("ModuleNotFoundError: No module named 'zorblax_quant'");
+      const onPath = failedOn(MISSING);
       const { executor } = fakeExecutor("os", async () => onPath);
       await ran(onPath, createScriptRunner({ executor, runtimes: { platform: "linux" } }));
     });
 
-    test("only the last line of its error output counts", async () => {
+    test("only the whole last line of its error output counts", async () => {
       const result = failedOn("ValueError: no rows");
       await ran({
         ...result,
-        stderr: [
-          "ModuleNotFoundError: No module named 'zorblax_quant'",
-          "",
-          "During handling of the above exception, another exception occurred:",
-          "",
-          result.stderr,
-        ].join("\n"),
+        stderr: [MISSING, "", "During handling of the above exception:", "", result.stderr].join(
+          "\n",
+        ),
       });
+      for (const line of [
+        "RuntimeError: ModuleNotFoundError: No module named 'zorblax'",
+        "ModuleNotFoundError: No module named 'zorblax' and more",
+        "RuntimeError: ImportError: No module named zorblax",
+        "ImportError: No module named zorblax and more",
+      ]) {
+        await ran(failedOn(line));
+      }
     });
 
     test("a name that isn't a plain module name comes back as it ran", async () => {
@@ -486,6 +531,29 @@ describe("The script runner asks the Executor", () => {
         "",
       ]) {
         await ran(failedOn(`ModuleNotFoundError: No module named '${name}'`));
+      }
+    });
+
+    test("a Stop while the runtime is checked leaves the run as it ran", async () => {
+      for (const during of [startCheck, asksForModule]) {
+        const answer = new AbortController();
+        const result = failedOn(MISSING);
+        const { executor } = fakeExecutor("os", async (request) => {
+          // As an Executor does: a request stopped already runs nothing.
+          request.signal.throwIfAborted();
+          if (!startCheck(request)) return result;
+          if (!during(request)) return RAN;
+          answer.abort();
+          return { ...RAN, exitCode: null };
+        });
+        const scripts = createScriptRunner({
+          executor,
+          runtimes: { platform: "linux" },
+          python: () => OWN,
+        });
+        expect(
+          await scripts.run(toRun({ script: "scripts/hello.py", signal: answer.signal })),
+        ).toStrictEqual({ ...result, error: null });
       }
     });
   });

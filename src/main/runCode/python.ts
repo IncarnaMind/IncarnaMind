@@ -210,6 +210,9 @@ export function createPythonRuntime(options: PythonRuntimeOptions) {
     update({ downloadedBytes: manifest.size });
     const partial = `${files}.partial`;
     try {
+      // A mark left from before would count these files ready once they are in place, before
+      // their first import, and after one that fails.
+      await rm(join(folder, READY_FILE), { force: true });
       await rm(partial, { recursive: true, force: true });
       await rm(files, { recursive: true, force: true });
       await mkdir(partial, { recursive: true });

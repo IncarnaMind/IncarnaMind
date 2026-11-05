@@ -100,12 +100,14 @@ let pythonPrepared = 0;
 /** The data and temporary folders the runs here use, unless a test gives its own. */
 const folders = () => ({ data, temp: join(root, "temp") });
 
-function executor(where = folders()) {
+/** The app's OS sandbox Executor; `login`: more of the login environment than the tests' own. */
+function executor(where = folders(), login: Record<string, string> = {}) {
   if (!sandbox.available) throw new Error(sandbox.reason);
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
     GITHUB_TOKEN: "ghp_made_up_secret",
     PLAIN_SETTING: "kept",
+    ...login,
   };
   return sandbox.createExecutor({
     processes: createProcessLauncher(async () => env),
@@ -852,7 +854,14 @@ describe.skipIf(unavailable !== undefined || !runtimeFolder)(
           "",
         ].join("\n"),
       );
-      const scripts = createScriptRunner({ executor: executor(), python: () => own });
+      // macOS's CPython reads PYTHONEXECUTABLE even with -E: the User's own is never handed on.
+      const scripts = createScriptRunner({
+        executor: executor(folders(), {
+          PYTHONEXECUTABLE: "/bin/echo",
+          PYTHONPATH: join(home, "site-packages"),
+        }),
+        python: () => own,
+      });
 
       const run = await scripts.run({
         skillDir,
@@ -888,6 +897,22 @@ describe.skipIf(unavailable !== undefined || !runtimeFolder)(
         message:
           "This Skill needs the Python package “zorblax_quant”, which isn’t included in IncarnaMind.",
       });
+
+      // A line about a package the runtime has, which the script wrote itself, is the script's own.
+      await writeFile(
+        join(skillDir, "scripts", "wrote_itself.py"),
+        "import sys\nprint('rows: 0')\nsys.stderr.write(\"ModuleNotFoundError: No module named 'numpy'\\n\")\nsys.exit(1)\n",
+      );
+      expect(
+        await scripts.run({
+          skillDir,
+          script: "scripts/wrote_itself.py",
+          args: [],
+          timeoutMs: 60_000,
+          signal: new AbortController().signal,
+          language: "en",
+        }),
+      ).toMatchObject({ exitCode: 1, stdout: "rows: 0\n", error: null });
     }, 120_000);
   },
 );

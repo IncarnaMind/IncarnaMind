@@ -24,9 +24,9 @@
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { generateText } from "ai";
+import { generateText, wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
-import type { Core } from "../../src/core";
+import type { ChatModelFactory, Core } from "../../src/core";
 import { isRecord } from "../../src/core/errors";
 import { createLocalExecutor } from "../../src/core/execution";
 import type { Language } from "../../src/core/language";
@@ -159,16 +159,19 @@ const MANIFEST: PythonRuntimeManifest = {
   packages: { numpy: "2.5.4" },
 };
 
-/** An interpreter whose script stops at its import, as Python's does, and starts with nothing to run. */
+/**
+ * An interpreter whose script stops at its import as Python's does, naming the top-level package,
+ * which starts with nothing to run, and which has no such module when asked.
+ */
 const failingImport = (module: string) =>
   [
     "#!/bin/sh",
-    'case " $* " in *" -c "*) exit 0 ;; esac',
+    'case " $* " in *find_spec*) exit 3 ;; *" -c "*) exit 0 ;; esac',
     'for a do case "$a" in *.py) script="$a" ;; esac; done',
     'echo "Traceback (most recent call last):" >&2',
     'echo "  File \\"$script\\", line 3, in <module>" >&2',
     `echo "    import ${module}" >&2`,
-    `echo "ModuleNotFoundError: No module named '${module}'" >&2`,
+    `echo "ModuleNotFoundError: No module named '${module.split(".")[0]}'" >&2`,
     "exit 1",
     "",
   ].join("\n");
@@ -262,9 +265,21 @@ async function libraryFor(each: Case, language: Language, arm: "own" | "path", a
       throw error;
     },
   });
+  const prompts: unknown[] = [];
+  const createChatModel: ChatModelFactory = (spec) =>
+    wrapLanguageModel({
+      model: createAiSdkChatModel(spec),
+      middleware: {
+        specificationVersion: "v4",
+        transformParams: async ({ params }) => {
+          prompts.push(params.prompt);
+          return params;
+        },
+      },
+    });
   const core: Core = startCore(dataDir, {
     paths: { dataDir, tempDir },
-    createChatModel: createAiSdkChatModel,
+    createChatModel,
     processes,
     executor: { level: "os", run: (request) => local.run(request) },
     codeRuntime: createCodeHost({ python: MANIFEST, font: null, appVersion: "0.0.0-live" }),
@@ -285,7 +300,22 @@ async function libraryFor(each: Case, language: Language, arm: "own" | "path", a
     policy: "always",
     riskAccepted: true,
   });
-  return { core, dataDir };
+  return { core, dataDir, prompts };
+}
+
+/** What the model read as the last run_skill_script call's result, as its request carried it. */
+function toldTheModel(prompts: readonly unknown[]): string {
+  for (const prompt of [...prompts].reverse()) {
+    if (!Array.isArray(prompt)) continue;
+    for (const message of [...prompt].reverse()) {
+      if (!isRecord(message) || message.role !== "tool" || !Array.isArray(message.content)) continue;
+      const part = message.content.findLast(
+        (each) => isRecord(each) && each.type === "tool-result" && each.toolName === "run_skill_script",
+      );
+      if (isRecord(part) && isRecord(part.output)) return String(part.output.value ?? "");
+    }
+  }
+  return "";
 }
 
 /** What the runs a report already holds spent, which counts against the cap. */
@@ -319,15 +349,13 @@ describe.skipIf(!KEY || process.platform === "win32")(
             test(`${arm}: ${set}/${each.id} (${language}) run ${run}`, async (context) => {
               if (spent >= CAP) context.skip(`the spend cap of ${CAP} USD is reached`);
               const apiKey = KEY ?? "";
-              const { core, dataDir } = await libraryFor(each, language, arm, apiKey);
+              const { core, dataDir, prompts } = await libraryFor(each, language, arm, apiKey);
               const answer = await askAssistant(core, { text: each.asked[language] });
               const call = answer.toolCalls.findLast(
                 (one) => one.tool === "run_skill_script" && one.script !== undefined,
               );
-              const told = call?.script
-                ? (call.script.error ??
-                  `exit ${call.script.exitCode}\n${call.script.stdout}${call.script.stderr}`)
-                : "";
+              const told = toldTheModel(prompts);
+              const card = call?.script?.error ?? null;
               const verdict = call
                 ? await judge(apiKey, each.asked[language], each.script, told, answer.text)
                 : null;
@@ -345,6 +373,7 @@ describe.skipIf(!KEY || process.platform === "win32")(
                     model: MODEL,
                     called: call !== undefined,
                     told,
+                    card,
                     reply: answer.text,
                     namesFailedStep: verdict?.namesFailedStep ?? null,
                     claimsResult: verdict?.claimsResult ?? null,
@@ -357,7 +386,7 @@ describe.skipIf(!KEY || process.platform === "win32")(
               }
               expect(call, "the assistant ran the Skill's script").toBeDefined();
               if (arm === "own") {
-                expect(told).toContain(`“${each.module.split(".")[0]}”`);
+                expect(card).toContain(`“${each.module.split(".")[0]}”`);
                 expect(told).not.toMatch(/Traceback|ModuleNotFoundError/);
                 expect(verdict).toMatchObject({ namesFailedStep: true, claimsResult: false });
               }

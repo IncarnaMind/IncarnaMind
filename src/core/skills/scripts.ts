@@ -284,17 +284,24 @@ async function whyOwnPythonFails(executor: Executor, check: ExecRequest): Promis
 
 /**
  * The package a script couldn't import, when the last line of its error output is that import's
- * error, or null. The name is the script's own text: only a plain top-level module name is ever
- * shown, and nothing else it wrote.
+ * error, or null. The name is the script's own text: only a plain module name is ever shown, and
+ * nothing else it wrote. Python names a dotted module only once the package above it has
+ * imported, so a dotted name is never a package that is missing.
  */
 function missingPackage(stderr: string): string | null {
   const last = stderr.trimEnd().split("\n").at(-1)?.trim() ?? "";
   const named =
     /^ModuleNotFoundError: No module named '([^']*)'$/.exec(last)?.[1] ??
     /^ImportError: No module named '?([^'\s]*)'?$/.exec(last)?.[1];
-  const top = named?.split(".")[0] ?? "";
-  return /^[A-Za-z0-9_]{1,64}$/.test(top) ? top : null;
+  return named !== undefined && /^[A-Za-z0-9_]{1,64}$/.test(named) ? named : null;
 }
+
+/**
+ * Exits with 3 when the runtime has no module of the name it is given. Run from the run's own
+ * empty working folder, so neither the Skill's folder nor anything the script wrote counts.
+ */
+const NOT_INCLUDED =
+  "import importlib.util, sys; sys.exit(3 if importlib.util.find_spec(sys.argv[1]) is None else 0)";
 
 export function createScriptRunner(options: ScriptRunnerOptions) {
   const { executor } = options;
@@ -334,6 +341,7 @@ export function createScriptRunner(options: ScriptRunnerOptions) {
       const program = {
         command: interpreter.command,
         env: { ...interpreter.env, SKILL_DIR: request.skillDir },
+        ...(interpreter.own && { environment: "own-python" as const }),
         allow: scriptAllow(request.skillDir, interpreter.own),
         maxOutputBytes: SKILL_SCRIPT_LIMITS.maxOutputBytes,
         signal,
@@ -355,8 +363,18 @@ export function createScriptRunner(options: ScriptRunnerOptions) {
             timeoutMs: START_CHECK_MS,
           });
           if (why !== null && !signal.aborted) throw ownPythonCantStart(request.script, why);
-          const missing = missingPackage(run.stderr);
-          if (missing !== null) {
+          // Python ends with 1 on an exception nothing caught: any other run went on past it.
+          const missing =
+            run.exitCode === 1 && !signal.aborted ? missingPackage(run.stderr) : null;
+          const notIncluded = async (name: string) =>
+            (
+              await executor.run({
+                ...program,
+                args: [...interpreter.flags, "-c", NOT_INCLUDED, name],
+                timeoutMs: START_CHECK_MS,
+              })
+            ).exitCode === 3;
+          if (missing !== null && (await notIncluded(missing))) {
             const problem = translate(request.language, "scripts.call.missingPackage", {
               package: missing,
             });
