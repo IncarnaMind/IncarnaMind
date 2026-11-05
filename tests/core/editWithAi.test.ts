@@ -23,6 +23,7 @@ import {
   proposalRequestOf,
   resolveProposals,
 } from "../../src/shared/proposals";
+import { BETWEEN_KEPT, BETWEEN_KEPT_LINES } from "../helpers/betweenKept";
 import { setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, nextEvent, saveProviderUnasked, startCore } from "../helpers/core";
 import {
@@ -7258,4 +7259,25 @@ describe("Held-out shapes for how an edit reads and when it waits (#2356), writt
       expect(shownWithChanges(client)).toEqual([each.kept, each.cut]);
     },
   );
+});
+
+describe("Held-out shapes for a new line between two the reply keeps (#2333, #2356), written before any run", () => {
+  // protects=a reply without names that repeats the lines on both sides of one of the User's lines takes that line's place with the new line between only when it says more than half of that line's own words; any other new line is added and the User's line stays, so nothing the reply doesn't clearly rewrite is written over; just over and at half, English and Chinese; fails_when=a line about something else, or one saying half of its words or fewer, writes over the User's line, or a rewrite saying most of them is added beside it; no_claim=what a real model writes.
+  test.each(BETWEEN_KEPT_LINES)("held out: $case", async (each) => {
+    const lines = BETWEEN_KEPT[each.language];
+    const [first = "", old = "", last = ""] = lines;
+    const { core, mind, client } = await noteOf(plain(lines), () =>
+      [first, each.line, last].join("\n\n"),
+    );
+
+    await core.editWithAi(wholeMind(client, mind.id, "Tidy it up"));
+    await resolveChanges(client, "accept");
+
+    const after = shownWithChanges(client);
+    if (each.takes) expect(after).toEqual([first, each.line, last]);
+    else {
+      expect(after).toEqual(expect.arrayContaining([first, old, each.line, last]));
+      expect(after).toHaveLength(4);
+    }
+  });
 });

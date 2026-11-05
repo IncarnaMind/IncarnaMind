@@ -11,6 +11,7 @@ import {
   lastResult,
   mindCalls,
 } from "../helpers/assistant";
+import { BETWEEN_KEPT, BETWEEN_KEPT_LINES } from "../helpers/betweenKept";
 import { checkReply, isCheckRun } from "../helpers/checks";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -2452,5 +2453,75 @@ describe("Held-out shapes for when an edit waits (#2356), written before any run
     expect(lastResult(model)).not.toContain(each.waits ? APPLIES : WAITS);
     await resolveChanges(client, "accept");
     expect(shownWithChanges(client)).toEqual([each.reply.slice(3), ...each.lines.slice(1)]);
+  });
+
+  // protects=a paragraph the User asked to delete goes as a whole Block, counted in its words like any other text: one just under or at half of the User's words applies at once, and one beside a paragraph mostly of numbers and marks, which have few words, waits (fails closed); English and Chinese; fails_when=a whole Block that goes counts its spaces and marks, so a removal under half waits, or a removal of most of the User's words applies at once; no_claim=how a real model quotes it.
+  test.each([
+    {
+      case: "en, just under half",
+      lines: [
+        "The boat leaves at nine and returns at five each day.",
+        "Bring a warm coat and gloves for the windy deck.",
+      ],
+      waits: false,
+    },
+    {
+      case: "zh, half",
+      lines: ["游船每天九点出发，五点返回。", "请带上外套、手套、围巾和帽子。"],
+      waits: false,
+    },
+    {
+      case: "en, beside a paragraph of numbers and marks",
+      lines: ["Rooms: 1-A, 2-B, 3-C, 4-D, 5-E, 6-F.", "Ask at the front desk for keys."],
+      waits: true,
+    },
+    {
+      case: "zh, beside a paragraph of numbers and marks",
+      lines: ["房间：1-A、2-B、3-C、4-D、5-E、6-F。", "请到一楼前台领取房间钥匙和早餐券。"],
+      waits: true,
+    },
+  ])("held out, a second paragraph deleted: $case", async (each) => {
+    const asked = "Delete the second paragraph.";
+    const model = editing(asked, `<removed>${each.lines[1]}</removed>`);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+
+    expect(lastResult(model)).toContain(each.waits ? WAITS : APPLIES);
+    expect(lastResult(model)).not.toContain(each.waits ? APPLIES : WAITS);
+    expect(shownWithChanges(client)).toEqual([each.lines[0], `- ${each.lines[1]}`]);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([each.lines[0]]);
+  });
+
+  // protects=through the assistant too, a reply without names that repeats the lines on both sides of one of the User's lines takes that line's place only with a new line saying more than half of its own words; any other is added and the User's line stays; just over and at half, English and Chinese; fails_when=the User's line is written over by a line that doesn't clearly rewrite it, or a rewrite saying most of its words is added beside it; no_claim=what a real model writes.
+  test.each(BETWEEN_KEPT_LINES)("held out, between two kept lines: $case", async (each) => {
+    const lines = BETWEEN_KEPT[each.language];
+    const [first = "", old = "", last = ""] = lines;
+    const asked = "Tidy my note.";
+    const model = editing(asked, [first, each.line, last].join("\n\n"));
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+    await resolveChanges(client, "accept");
+
+    const after = shownWithChanges(client);
+    if (each.takes) expect(after).toEqual([first, each.line, last]);
+    else {
+      expect(after).toEqual(expect.arrayContaining([first, old, each.line, last]));
+      expect(after).toHaveLength(4);
+    }
   });
 });
