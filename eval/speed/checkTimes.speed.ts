@@ -278,6 +278,30 @@ function answerEnds(
   });
 }
 
+/**
+ * Each Citation marker of an Answer by the sentence it closes: the Answer may number its
+ * Citations otherwise than the script did, and some sentences are written twice, in order.
+ */
+function markersIn(text: string, sentences: readonly string[]): Map<number, number> {
+  const placed = new Map<number, number>();
+  const taken = new Set<number>();
+  for (const match of text.matchAll(/\[\^(\d+)\]/gu)) {
+    const marker = Number(match[1]);
+    if (placed.has(marker)) continue;
+    const before = text
+      .slice(0, match.index)
+      .replace(/\[\^\d+\]/gu, "")
+      .trimEnd();
+    const index = sentences.findIndex(
+      (sentence, at) => !taken.has(at) && before.endsWith(sentence.replace(/[.。!?！？]$/u, "")),
+    );
+    if (index < 0) continue;
+    placed.set(marker, index);
+    taken.add(index);
+  }
+  return placed;
+}
+
 async function answerFlow(
   core: Core,
   choice: ChatModelChoice,
@@ -295,11 +319,16 @@ async function answerFlow(
     if (message.status !== "streaming") endedMs ??= recorder.since();
     // While it streams, a Citation shows its quote's check, which no judgement made.
     if (endedMs === null) return;
+    const placed = markersIn(message.text, sentences);
     for (const citation of message.citations) {
       if (citation.check === "checking") continue;
-      const sentence = citation.marker - 1;
-      if (!landed.some((each) => each.sentence === sentence))
-        landed.push({ sentence, ms: recorder.since(), verdict: citation.check });
+      const sentence = placed.get(citation.marker);
+      if (sentence === undefined) continue;
+      const before = landed.find((each) => each.sentence === sentence);
+      if (!before) landed.push({ sentence, ms: recorder.since(), verdict: citation.check });
+      // A sentence with two Citations shows the worse of their results.
+      else if (citation.check !== "found" && before.verdict === "found")
+        before.verdict = citation.check;
     }
   });
   const doneMs = recorder.since();
