@@ -188,6 +188,41 @@ async function writeShift(
   await app.close();
 }
 
+/**
+ * A Note the assistant makes (#1358): the card says nothing waits while the write comes in, and is
+ * as tall once it lands as just before.
+ */
+async function madeShift(language: "en" | "zh-CN", width: number) {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, width, 900);
+  await dismissChatSetup(window);
+  // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
+  await useLocalChatModel(window);
+  await setLanguage(window, language);
+
+  await sampleFrames(window);
+  await askInAssistant(window, language === "en" ? "write a summary page" : "写一个总结页面");
+  await expect(window.getByTestId("mind-changes-undo")).toBeVisible();
+  await window.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const frames = await stopSampling(window);
+
+  const running = frames.filter((frame) => frame.card !== null && !frame.undo);
+  expect(running.length).toBeGreaterThan(0);
+  expect(running.some((frame) => frame.counted)).toBe(false);
+  const done = heightsOf(
+    frames.filter((frame) => frame.card !== null && frame.undo),
+    (frame) => frame.cardHeight,
+  );
+  expect(done).toHaveLength(1);
+  expect(heightsOf(running.slice(-1), (frame) => frame.cardHeight)).toEqual(done);
+  await app.close();
+}
+
 const LONG_NAME = {
   en: "Q3 review for the northern coastal programme and its suppliers",
   "zh-CN": "北岸沿海项目及其供应商的第三季度审查报告与后续安排",
@@ -213,5 +248,16 @@ for (const language of ["en", "zh-CN"] as const) {
       question: false,
       finalWaiting: true,
     });
+  });
+}
+
+for (const [language, width] of [
+  ["en", 1440],
+  ["zh-CN", 1440],
+  ["en", 900],
+] as const) {
+  test(`at ${width}px in ${language}, the card of a Note the assistant makes keeps its height as the write lands`, async () => {
+    test.setTimeout(90_000);
+    await madeShift(language, width);
   });
 }

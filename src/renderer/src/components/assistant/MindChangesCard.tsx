@@ -42,7 +42,8 @@ function factText(t: Translate, row: ChangedMind, name: string, waiting: Waiting
  * "2 Minds changed · Review", a row for each Mind ("Edited: Q3 review · 4
  * waiting") with Open, then Accept all · Reject all while changes wait. For
  * one Mind, its row is the card's head: "Changed 3 places in “Q3 review” · 3
- * waiting · Review". Review and Open show the Mind at its first change;
+ * waiting · Review", or Open while its changes there apply at once and nothing waits. Review and
+ * Open show the Mind at its first change;
  * Accept all and Reject all offer Undo on the Answer's line. Rejecting a Mind
  * the Answer made removes it.
  */
@@ -116,6 +117,10 @@ export function MindChangesCard({
   const headLeft = rows.length === 1 && only ? leftText(t, only, stillWaiting(waiting[0])) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
   const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, ownWaiting(waiting[0])) : null;
+  // Its changes apply at once, so none waits: Open reaches the write until Review changes comes
+  // when the Answer ends, as one Undo for the turn (#1358).
+  const openWritten =
+    !first && !headInNote && only !== undefined && (waiting[0]?.applying ?? 0) > 0;
 
   return (
     <section
@@ -177,6 +182,22 @@ export function MindChangesCard({
                   className="mind-changes-review"
                 >
                   {t("mindChanges.review")}
+                </button>
+              </>
+            )}
+            {openWritten && only && (
+              <>
+                <span aria-hidden="true" className="mind-changes-dot">
+                  {" · "}
+                </span>
+                <button
+                  type="button"
+                  data-testid="mind-changes-open"
+                  aria-label={`${t("mindChanges.open")} ${nameOf(only)}`}
+                  onClick={() => showChanges(only)}
+                  className="mind-changes-review"
+                >
+                  {t("mindChanges.open")}
                 </button>
               </>
             )}

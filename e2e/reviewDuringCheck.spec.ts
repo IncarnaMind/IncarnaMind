@@ -9,6 +9,7 @@ import {
   dismissChatSetup,
   enterContent,
   forceQuit,
+  frontMindName,
   launchApp,
   nameMind,
   newMind,
@@ -70,6 +71,7 @@ const WORDS = {
     made: "Created “Tide summary” and wrote 2 paragraphs",
     checkingMade: /^Checking 1 sentence in “Tide summary”…/,
     reviewChanges: "Review changes",
+    open: "Open",
     table: "Add a revenue table for checking",
     checkingTable: /^Checking 2 sentences in “Harbour notes”…/,
     added: "Added a table to “Harbour notes”",
@@ -81,6 +83,7 @@ const WORDS = {
     made: "已新建“Tide summary”，并写入 2 个段落",
     checkingMade: /^正在核对“Tide summary”中的 1 句话…/,
     reviewChanges: "查看改动",
+    open: "打开",
     table: "添加核对用的收入表格",
     checkingTable: /^正在核对“Harbour notes”中的 2 句话…/,
     added: "在“Harbour notes”中添加了 1 个表格",
@@ -129,10 +132,69 @@ async function start(language: "en" | "zh-CN", file: string, text: string) {
   return { app, window };
 }
 
+/** A new Note, named, and its paragraphs typed as a person types them. */
+async function writeNote(window: Page, title: string, lines: readonly string[]): Promise<void> {
+  await newMind(window);
+  await nameMind(window, title);
+  await enterContent(window);
+  for (const [index, line] of lines.entries()) {
+    if (index > 0) await window.keyboard.press("Enter");
+    await window.keyboard.type(line);
+  }
+  await expect(
+    window.locator('[data-testid="mind-editor"]:visible').locator(":scope > p"),
+  ).toHaveText([...lines]);
+}
+
+/** The text of the Block the cursor is in. */
+const caretBlock = (window: Page) =>
+  window.evaluate(() => {
+    const node = document.getSelection()?.anchorNode;
+    const element = node instanceof Element ? node : node?.parentElement;
+    return element?.closest("h1, h2, h3, p, li")?.textContent ?? null;
+  });
+
+interface RowFrame {
+  streaming: boolean;
+  rows: number;
+  /** Rows that draw how many of their changes wait. */
+  counted: number;
+  opens: number;
+}
+
+/** Every frame from now on: the newest Answer's rows, what they count, and their Open. */
+const sampleRows = (window: Page) =>
+  window.evaluate(() => {
+    const holder = globalThis as unknown as { rowFrames: RowFrame[]; sampling: boolean };
+    holder.rowFrames = [];
+    holder.sampling = true;
+    const sample = () => {
+      const answer = [...document.querySelectorAll('[data-testid="assistant-answer"]')].at(-1);
+      const rows = [...(answer?.querySelectorAll('[data-testid="mind-changes-row"]') ?? [])];
+      const having = (testId: string) =>
+        rows.filter((row) => row.querySelector(`[data-testid="${testId}"]`)).length;
+      holder.rowFrames.push({
+        streaming: answer?.getAttribute("data-status") === "streaming",
+        rows: rows.length,
+        counted: having("mind-changes-left"),
+        opens: having("mind-changes-open"),
+      });
+      if (holder.sampling) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+
+const stopSamplingRows = (window: Page) =>
+  window.evaluate(() => {
+    const holder = globalThis as unknown as { rowFrames: RowFrame[]; sampling: boolean };
+    holder.sampling = false;
+    return holder.rowFrames;
+  });
+
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  test(`a Note the assistant made says nothing waits while its write is checked, and its Review changes opens the write once it lands, in ${language}`, async () => {
+  test(`a Note the assistant made says nothing waits while its write is checked, its Open goes to the write at once, and Review changes opens it once it lands, in ${language}`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await start(language, "Tides.md", TIDES);
     await holdChecks(app);
@@ -153,6 +215,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("mind-changes-left")).toHaveCount(0);
     await expect(card.getByTestId("mind-changes-review")).toHaveCount(0);
     await expect(window.getByTestId("proposals-count")).toHaveCount(0);
+
+    // Open, while the check still runs, puts the cursor on the write's first change.
+    const open = card.getByTestId("mind-changes-open");
+    await expect(open).toHaveText(words.open);
+    await expect(window.getByTestId("composer-input")).toBeFocused();
+    await pointAndClick(window, open);
+    await expect(editor).toBeFocused();
+    expect(await caretBlock(window)).toBe("Summary");
     await expect(answer).toHaveAttribute("data-status", "streaming");
 
     // Checked, it lands, and Review changes shows it.
@@ -170,14 +240,8 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`Review pressed while a write is checked opens the changes waiting in the Note at once, as many as the card says, in ${language}`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await start(language, "Annual report.md", REVENUE);
-    await newMind(window);
-    await nameMind(window, "Harbour notes");
-    await enterContent(window);
-    await window.keyboard.type(NOTES[0] ?? "");
-    await window.keyboard.press("Enter");
-    await window.keyboard.type(NOTES[1] ?? "");
+    await writeNote(window, "Harbour notes", NOTES);
     const editor = window.locator('[data-testid="mind-editor"]:visible');
-    await expect(editor.locator(":scope > p")).toHaveText(NOTES);
     // A rewrite of most of the User's own text waits for them: two changes.
     const held = await askInAssistant(window, "Rewrite the intro to be clearer");
     await expect(held.getByTestId("mind-changes-left")).toHaveText(/\b2\b/);
@@ -219,7 +283,60 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor.locator("ins.proposal-insert").first()).toBeVisible();
     await app.close();
   });
+
+  test(`Review on an earlier request's waiting changes opens them while another write is checked, in ${language}`, async () => {
+    test.setTimeout(120_000);
+    const { app, window } = await start(language, "Tides.md", TIDES);
+    await writeNote(window, "Harbour notes", NOTES);
+    await askInAssistant(window, "Rewrite the intro to be clearer");
+    const held = assistantAnswers(window).first();
+    await expect(held.getByTestId("mind-changes-left")).toHaveText(/\b2\b/);
+    await writeNote(window, "Ferry notes", ["The ferry runs twice a day."]);
+    await expect(frontMindName(window)).toHaveText("Ferry notes");
+
+    await holdChecks(app);
+    const answer = await ask(
+      window,
+      "Summarise my Documents into a new note called “Tide summary”",
+    );
+    await expect(answer.getByTestId("answer-writing")).toHaveText(words.checkingMade, {
+      timeout: 60_000,
+    });
+    await pointAndClick(window, held.getByTestId("mind-changes-review"));
+    // The Note opens while the write is checked, its two changes still waiting, the first under the cursor.
+    await expect(frontMindName(window)).toHaveText("Harbour notes");
+    await expect(window.getByTestId("change-bar")).toHaveAccessibleName(words.first);
+    await expect(window.locator('[data-testid="mind-editor"]:visible')).toBeFocused();
+    await expect(answer).toHaveAttribute("data-status", "streaming");
+
+    await releaseChecks(app);
+    await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    await app.close();
+  });
 }
+
+test("an Answer that writes in two Notes says no change of either waits while it writes, and offers Open on each", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await start("en", "Tides.md", TIDES);
+  await writeNote(window, "Project plan", ["Hire a designer."]);
+  await writeNote(window, "Q3 review", ["The quarter was good."]);
+  await sampleRows(window);
+  // Slowly: the scripted model writes word by word, so the card shows both rows while it runs.
+  const answer = await askInAssistant(
+    window,
+    "Add Ship the beta in May to Project plan and make a new note called Fieldwork plan slowly",
+  );
+  const frames = await stopSamplingRows(window);
+  const running = frames.filter((frame) => frame.streaming && frame.rows === 2);
+  expect(running.length).toBeGreaterThan(0);
+  expect(running.filter((frame) => frame.counted > 0)).toHaveLength(0);
+  expect(running.filter((frame) => frame.opens !== 2)).toHaveLength(0);
+  await expect(answer.getByTestId("mind-changes-title")).toHaveText([
+    "Wrote 1 paragraph in “Project plan”",
+    "Wrote “Fieldwork plan”",
+  ]);
+  await app.close();
+});
 
 test("quit while a write is checked, the Note keeps it, and what its card then says waits is what Review opens", async () => {
   test.setTimeout(120_000);
