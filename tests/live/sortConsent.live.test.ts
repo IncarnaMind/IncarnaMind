@@ -1,8 +1,8 @@
 /**
- * Dropped Documents and the footer's Allow against a real cloud model (#2308): with Claude Haiku
- * 5.5, nothing reaches Anthropic before the press, and the press sorts the Documents that waited,
+ * Dropped Documents and the footer's Allow against a real cloud model (#2308): with DeepSeek's
+ * catalog model for quick tasks (deepseek-flash), nothing reaches DeepSeek before the press, and the press sorts the Documents that waited,
  * in English and Chinese, into the Folder their start calls for; a Document dropped after it goes
- * by itself. Runs only with the key in the environment (INCARNAMIND_LIVE_ANTHROPIC_KEY); requests
+ * by itself. Runs only with the key in the environment (DEEPSEEK_API_KEY); requests
  * are counted at `fetch`. A few cents.
  */
 import { describe, expect, test, vi } from "vitest";
@@ -10,7 +10,8 @@ import { createAiSdkChatModel } from "../../src/core";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 
-const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
+const KEY = process.env.DEEPSEEK_API_KEY;
+const MODEL = "deepseek-flash";
 
 const FILES: [string, string, "harbour" | "orchard"][] = [
   [
@@ -35,7 +36,7 @@ const FILES: [string, string, "harbour" | "orchard"][] = [
   ],
 ];
 
-describe("Haiku 5.5, live", () => {
+describe("DeepSeek, live", () => {
   test.skipIf(KEY === undefined)(
     "sends nothing before the Allow, then sorts what waited and what comes after",
     { timeout: 300_000 },
@@ -45,7 +46,7 @@ describe("Haiku 5.5, live", () => {
       const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
         const url =
           typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.startsWith("https://api.anthropic.com/")) sent.push(url);
+        if (url.startsWith("https://api.deepseek.com/")) sent.push(url);
         return original(input as Parameters<typeof original>[0], init);
       });
       try {
@@ -53,9 +54,9 @@ describe("Haiku 5.5, live", () => {
           createChatModel: createAiSdkChatModel,
         });
         const provider = await core.saveChatProvider({
-          kind: "anthropic",
+          kind: "deepseek",
           apiKey: KEY ?? "",
-          modelId: "claude-haiku-5-5",
+          modelId: MODEL,
         });
         const folders = {
           harbour: await core.createLibraryGroup({
@@ -71,7 +72,7 @@ describe("Haiku 5.5, live", () => {
           ...(await core.getLibrary()).settings,
           classifier: {
             kind: "chat",
-            choice: { providerId: provider.id, modelId: "claude-haiku-5-5" },
+            choice: { providerId: provider.id, modelId: MODEL },
           },
         });
         const sources = await createTempDataFolder();
@@ -80,7 +81,7 @@ describe("Haiku 5.5, live", () => {
           await Promise.all(FILES.map(([name, text]) => writeSourceFile(sources, name, text))),
         );
         expect(sent).toEqual([]);
-        expect((await core.getLibrary()).sortWaitsFor?.name).toBe("Anthropic");
+        expect((await core.getLibrary()).sortWaitsFor?.name).toBe("DeepSeek");
 
         const { settings } = await core.getLibrary();
         await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });
@@ -103,7 +104,7 @@ describe("Haiku 5.5, live", () => {
           },
           { timeout: 240_000, interval: 500 },
         );
-        console.info(`sort-consent live: ${sent.length} requests to Anthropic`);
+        console.info(`sort-consent live: ${sent.length} requests to DeepSeek (${MODEL})`);
       } finally {
         spy.mockRestore();
       }
