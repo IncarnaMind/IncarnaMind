@@ -272,6 +272,10 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // While it waits, at both widths: every mark beside a line, none above the first block.
     await screenshot(window, `marks-during-edit-${language}-1440`);
+    await expect(
+      window.getByTestId("margin-checks").getByTestId("claim-mark"),
+      "only the unchanged fifth sentence keeps a mark while the edit waits",
+    ).toHaveCount(1);
     await expectMarksBesideLines(window, editor);
     await expectControlMark(window, editor);
 
