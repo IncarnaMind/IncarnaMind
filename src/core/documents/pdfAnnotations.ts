@@ -19,6 +19,12 @@ export interface FileAnnotation {
   colour: AnnotationColour;
   /** Who made it, as the file says. */
   author: string | null;
+  /** Its place among the page's marks: higher first, then further left, so a file listing them in another order still pairs each with its row. */
+  order: number;
+  /** The page's words right before it, which tell one copy of its words from another. */
+  before: string;
+  /** The page's words right after it. */
+  after: string;
 }
 
 /** The subtypes a highlight is saved as. A squiggle or a strike-through marks words too. */
@@ -131,36 +137,131 @@ function placedOf(items: readonly object[]): Placed[] {
 /** The words of `items` under `boxes`, top to bottom and left to right, a space where items are apart. */
 function wordsUnder(boxes: readonly Box[], items: readonly object[]): string {
   if (boxes.length === 0) return "";
-  const covered = placedOf(items).filter((item) => {
-    const middle = (item.box.top + item.box.bottom) / 2;
-    return boxes.some(
-      (box) =>
-        overlaps(box, item.box, item.size * 0.25) && middle <= box.top && middle >= box.bottom,
-    );
-  });
-  covered.sort((a, b) => b.box.top - a.box.top || a.box.left - b.box.left);
+  return linesOf(coveredOf(boxes, items))
+    .map((line) => lineText(line).text)
+    .join("\n")
+    .replaceAll("\u0000", "")
+    .trim();
+}
+
+/** Whether a glyph's own box is one a mark covers: it overlaps, and its middle is inside. */
+function covers(boxes: readonly Box[], item: Placed): boolean {
+  const middle = (item.box.top + item.box.bottom) / 2;
+  return boxes.some(
+    (box) => overlaps(box, item.box, item.size * 0.25) && middle <= box.top && middle >= box.bottom,
+  );
+}
+
+/** The items under `boxes`, in the order they were read. */
+function coveredOf(boxes: readonly Box[], items: readonly object[]): Placed[] {
+  return placedOf(items).filter((item) => covers(boxes, item));
+}
+
+/** The items as the page sets them: a line's items together, lines top to bottom. */
+function linesOf(placed: Placed[]): Placed[][] {
+  placed.sort((a, b) => b.box.top - a.box.top || a.box.left - b.box.left);
   const lines: Placed[][] = [];
-  for (const item of covered) {
+  for (const item of placed) {
     const line = lines.at(-1);
     const size = Math.max(item.size, line?.[0]?.size ?? 0);
     if (line && Math.abs((line[0]?.box.top ?? 0) - item.box.top) <= size * 0.6) line.push(item);
     else lines.push([item]);
   }
-  return lines
-    .map((line) =>
-      line
-        .sort((a, b) => a.box.left - b.box.left)
-        .map((item, index) => {
-          const previous = line[index - 1];
-          const gap = previous ? item.box.left - previous.box.right : 0;
-          const space = previous && gap > item.size * 0.18 ? " " : "";
-          return `${space}${item.str}`;
-        })
-        .join(""),
-    )
-    .join("\n")
-    .replaceAll("\u0000", "")
-    .trim();
+  return lines;
+}
+
+interface Span {
+  start: number;
+  end: number;
+}
+
+/** A line's words left to right, and where each item's own words sit in them. */
+function lineText(line: Placed[]): { text: string; spans: Map<Placed, Span> } {
+  line.sort((a, b) => a.box.left - b.box.left);
+  let text = "";
+  const spans = new Map<Placed, Span>();
+  for (const [index, item] of line.entries()) {
+    const previous = line[index - 1];
+    const gap = previous ? item.box.left - previous.box.right : 0;
+    const space = previous && gap > item.size * 0.18 ? " " : "";
+    text += space;
+    const start = text.length;
+    text += item.str;
+    spans.set(item, { start, end: text.length });
+  }
+  return { text, spans };
+}
+
+/** The page's own words in reading order, with each text item's place in them. */
+function pageTextOf(items: readonly object[]) {
+  let text = "";
+  const spans = new Map<Placed, Span>();
+  const placed: Placed[] = [];
+  for (const [index, line] of linesOf(placedOf(items)).entries()) {
+    if (index > 0) text += "\n";
+    const offset = text.length;
+    const written = lineText(line);
+    text += written.text;
+    for (const [item, span] of written.spans) {
+      spans.set(item, { start: span.start + offset, end: span.end + offset });
+      placed.push(item);
+    }
+  }
+  return { text, spans, placed };
+}
+
+/** How much of the page's words before and after a mark is kept to tell it from another. */
+const AROUND = 80;
+
+/** The page's words at `offset`, `AROUND` characters to either side. */
+function aroundAt(text: string, start: number, end: number): { before: string; after: string } {
+  return {
+    before: text.slice(Math.max(0, start - AROUND), start),
+    after: text.slice(end, end + AROUND),
+  };
+}
+
+/** The text nearest an icon's place, where its own words are none: before the item it is left of, else after it. */
+function nearestOffset(context: ReturnType<typeof pageTextOf>, boxes: readonly Box[]): number {
+  const box = boxes[0];
+  if (!box) return 0;
+  const x = (box.left + box.right) / 2;
+  const y = (box.top + box.bottom) / 2;
+  const away = (item: Placed) => {
+    const across = Math.max(item.box.left - x, x - item.box.right, 0);
+    const down = Math.max(item.box.bottom - y, y - item.box.top, 0);
+    return Math.hypot(across, down);
+  };
+  const nearest = [...context.placed].sort((a, b) => away(a) - away(b))[0];
+  const span = nearest ? context.spans.get(nearest) : undefined;
+  if (!nearest || !span) return 0;
+  return x < (nearest.box.left + nearest.box.right) / 2 ? span.start : span.end;
+}
+
+/** Its place on the page among the file's own marks: higher first, then further left. */
+function orderOf(boxes: readonly Box[]): number {
+  if (boxes.length === 0) return 0;
+  const top = Math.max(...boxes.map((box) => box.top));
+  const left = Math.min(...boxes.filter((box) => box.top === top).map((box) => box.left));
+  return left - top * 1000;
+}
+
+/** The page's words around a mark: a highlight's own covered range, or an icon's nearest words. */
+function surroundingsOf(
+  context: ReturnType<typeof pageTextOf>,
+  boxes: readonly Box[],
+): { before: string; after: string } {
+  if (context.text === "") return { before: "", after: "" };
+  const covered = context.placed
+    .filter((item) => covers(boxes, item))
+    .map((item) => context.spans.get(item))
+    .filter((span): span is Span => span !== undefined)
+    .sort((a, b) => a.start - b.start);
+  const first = covered[0];
+  const last = covered.at(-1);
+  if (first && last) return aroundAt(context.text, first.start, last.end);
+  const at = nearestOffset(context, boxes);
+  return aroundAt(context.text, at, at);
 }
 
 const textOf = (value: unknown): string =>
@@ -177,6 +278,12 @@ export function readFileAnnotations(
   items: readonly object[],
 ): FileAnnotation[] {
   const found: FileAnnotation[] = [];
+  // The page's words, built once for every mark on it; a page with no marks pays nothing.
+  let context: ReturnType<typeof pageTextOf> | null = null;
+  const wordsAround = (boxes: readonly Box[]) => {
+    context ??= pageTextOf(items);
+    return surroundingsOf(context, boxes);
+  };
   for (const annotation of annotations) {
     if (typeof annotation !== "object" || annotation === null) continue;
     const data = annotation as {
@@ -193,8 +300,9 @@ export function readFileAnnotations(
     const note = textOf(data.contentsObj?.str ?? data.contents) || null;
     const author = textOf(data.titleObj?.str ?? data.title) || null;
     const colour = colourOf(numbersOf(data.color));
+    const boxes = boxesOf(data);
     if (HIGHLIGHT_SUBTYPES.has(subtype)) {
-      const quote = wordsUnder(boxesOf(data), items);
+      const quote = wordsUnder(boxes, items);
       if (quote === "") continue;
       found.push({
         page,
@@ -203,6 +311,8 @@ export function readFileAnnotations(
         note,
         colour,
         author,
+        order: orderOf(boxes),
+        ...wordsAround(boxes),
       });
       continue;
     }
@@ -214,6 +324,8 @@ export function readFileAnnotations(
         note,
         colour,
         author,
+        order: orderOf(boxes),
+        ...wordsAround(boxes),
       });
     }
   }

@@ -68,6 +68,7 @@ interface AnnotationRow {
   file_note: string | null;
   file_colour: AnnotationColour | null;
   paired_hash: string | null;
+  file_order: number | null;
   page_from: number | null;
   page_to: number | null;
   location: string | null;
@@ -82,8 +83,9 @@ interface AnnotationRow {
 
 const COLUMNS = `a.id, a.document_id, d.name AS document_name, a.content_hash, a.passage_id,
   a.source, a.colour,
-  a.quote, a.note, a.file_note, a.file_colour, a.paired_hash, a.page_from, a.page_to, a.location,
-  a.check_state, a.check_reason, a.anchor, a.author, a.missing, a.created_at, a.updated_at`;
+  a.quote, a.note, a.file_note, a.file_colour, a.paired_hash, a.file_order, a.page_from, a.page_to,
+  a.location, a.check_state, a.check_reason, a.anchor, a.author, a.missing, a.created_at,
+  a.updated_at`;
 
 const FROM = "FROM document_annotations a LEFT JOIN documents d ON d.id = a.document_id";
 
@@ -231,13 +233,14 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     at: string,
     fileNote: string | null = null,
     fileColour: AnnotationColour | null = null,
+    fileOrder: number | null = null,
   ): Annotation => {
     const result = db.get<{ seq: number }>(
       `INSERT INTO document_annotations
          (id, document_id, content_hash, passage_id, source, colour, quote, note, file_note,
-          file_colour, paired_hash, page_from, page_to, location, check_state, check_reason,
-          anchor, author, missing, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          file_colour, paired_hash, file_order, page_from, page_to, location, check_state,
+          check_reason, anchor, author, missing, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING seq`,
       [
         annotation.id,
@@ -251,6 +254,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         fileNote,
         fileColour,
         annotation.source === "file" ? annotation.contentHash : null,
+        fileOrder,
         annotation.pageFrom === null ? null : BigInt(annotation.pageFrom),
         annotation.pageTo === null ? null : BigInt(annotation.pageTo),
         annotation.location ? JSON.stringify(annotation.location) : null,
@@ -595,23 +599,24 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
     /**
      * Stores a PDF's own highlights and notes for a version. Rows and the new read
      * are grouped by their words with whitespace aside, a sticky note by the file's
-     * own words: a group pairs in page order only when both sides have the same
-     * count and every pair moves by one shift, else only a row of the same version
-     * on the same page is carried. A matched row keeps its id, the User's note,
-     * colour and delete; the file's own note and colour follow the file until the
-     * User edits them. A row the version lacks stays, with the current version, no
-     * Passage and a not-found check. A re-read that changes nothing writes nothing.
-     * The User's own annotations are untouched.
+     * own words. A mark takes the row whose words around it match, when exactly one
+     * does; else a group pairs in the file's own page and mark order when both sides
+     * have the same count and move by one shift. A row the exact version paired
+     * before is carried on its own page, so a re-read pairs as the last one did. A
+     * matched row keeps its id, the User's note, colour and delete; the file's own
+     * note and colour follow the file until the User edits them. A row the version
+     * lacks stays, with the current version, no Passage and a not-found check. A
+     * re-read that changes nothing writes nothing. The User's own annotations are
+     * untouched.
      */
     replaceFileAnnotations(
       documentId: string,
       contentHash: string,
       found: readonly FileAnnotation[],
     ): void {
-      const existing = db.all<AnnotationRow & { deleted_at: string | null; seq: number }>(
-        `SELECT ${COLUMNS}, a.deleted_at, a.seq ${FROM}
-         WHERE a.document_id = ? AND a.source = 'file'
-         ORDER BY a.page_from, a.created_at, a.seq`,
+      const existing = db.all<AnnotationRow & { deleted_at: string | null }>(
+        `SELECT ${COLUMNS}, a.deleted_at ${FROM}
+         WHERE a.document_id = ? AND a.source = 'file'`,
         [documentId],
       );
       const at = now();
@@ -620,7 +625,14 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         const cited =
           annotation.kind === "highlight" && annotation.quote.trim() !== ""
             ? citer.cite(documentId, {
-                parts: [{ unit: annotation.page, text: annotation.quote }],
+                parts: [
+                  {
+                    unit: annotation.page,
+                    text: annotation.quote,
+                    before: annotation.before,
+                    after: annotation.after,
+                  },
+                ],
               })
             : null;
         const there = cited !== null && located(cited.check, cited.checkReason);
@@ -629,6 +641,31 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
       });
       type Row = (typeof existing)[number];
       type Mark = (typeof marks)[number];
+      const anchorOf = (mark: Mark): string =>
+        JSON.stringify({
+          parts: [
+            {
+              unit: mark.annotation.page,
+              text: mark.quote,
+              before: mark.annotation.before,
+              after: mark.annotation.after,
+            },
+          ],
+        });
+      const surroundingsOfRow = (row: Row): { before: string; after: string } => {
+        const anchor = parseAnchor(row.anchor, row.id);
+        return {
+          before: anchor?.parts[0]?.before ?? "",
+          after: anchor?.parts.at(-1)?.after ?? "",
+        };
+      };
+      const sameSurroundings = (row: Row, mark: Mark): boolean => {
+        // A deleted row whose copy a version dropped never hides a new copy.
+        if (row.deleted_at !== null && row.missing === 1) return false;
+        const stored = surroundingsOfRow(row);
+        if (stored.before === "" && stored.after === "") return false;
+        return stored.before === mark.annotation.before && stored.after === mark.annotation.after;
+      };
       db.transaction(() => {
         const taken = new Set<string>();
         const matched = new Set<Mark>();
@@ -640,75 +677,111 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         };
         const pageOf = (mark: Mark) =>
           mark.there && mark.cited?.pageFrom != null ? mark.cited.pageFrom : mark.annotation.page;
-        /** Groups pair in page order for one count and one shift; then a page's own copy, then a missing row. */
+        /**
+         * A group's marks take the rows whose words around them fit when exactly one
+         * does; what is left pairs in the file's own page and mark order for one
+         * count and one shift; failing both, a mark the exact version paired on its
+         * page before is carried.
+         */
         const pairGroups = (
           rowsByKey: Map<string, Row[]>,
           marksByKey: Map<string, Mark[]>,
           rowPage: (row: Row) => number,
           markPage: (mark: Mark) => number,
-          samePageAnyVersion: boolean,
         ) => {
           for (const [key, group] of marksByKey) {
             const all = (rowsByKey.get(key) ?? []).filter((row) => !taken.has(row.id));
             const live = all.filter((row) => row.paired_hash !== null);
-            const attempt = (candidates: Row[]): number => {
-              const open = group.filter((mark) => !matched.has(mark));
-              const byPageRows = [...candidates].sort(
-                (a, b) => rowPage(a) - rowPage(b) || a.seq - b.seq,
-              );
-              const byPageMarks = [...open].sort((a, b) => markPage(a) - markPage(b));
-              const shifts = byPageMarks.map(
-                (mark, index) =>
-                  markPage(mark) - (byPageRows[index] ? rowPage(byPageRows[index]) : 0),
-              );
+            const byRowPlace = (a: Row, b: Row) =>
+              rowPage(a) - rowPage(b) ||
+              (a.file_order ?? 0) - (b.file_order ?? 0) ||
+              a.created_at.localeCompare(b.created_at) ||
+              a.id.localeCompare(b.id);
+            const byMarkPlace = (a: Mark, b: Mark) =>
+              markPage(a) - markPage(b) || a.annotation.order - b.annotation.order;
+            const oneShift = (candidates: readonly Row[], exactPlace: boolean): boolean => {
+              const rows = [...candidates].sort(byRowPlace);
+              const open = [...group].sort(byMarkPlace);
+              if (rows.length !== open.length || rows.length === 0) return false;
+              const shifts = open.map((mark, index) => {
+                const row = rows[index];
+                return row ? markPage(mark) - rowPage(row) : Number.NaN;
+              });
+              if (!shifts.every((shift) => shift === shifts[0])) return false;
+              // A row whose copy a version dropped is this mark's only when the words around it
+              // say so; a row the User deleted never takes a copy by place alone.
               if (
-                byPageRows.length !== byPageMarks.length ||
-                byPageRows.length === 0 ||
-                !shifts.every((shift) => shift === shifts[0])
+                open.some((mark, index) => {
+                  const row = rows[index];
+                  if (row?.missing !== 1) return false;
+                  if (row.deleted_at !== null) return true;
+                  const stored = surroundingsOfRow(row);
+                  const storedHasWords = stored.before !== "" || stored.after !== "";
+                  const markHasWords =
+                    mark.annotation.before !== "" || mark.annotation.after !== "";
+                  if (!storedHasWords || !markHasWords) return false;
+                  return !sameSurroundings(row, mark);
+                })
               ) {
-                return 0;
+                return false;
               }
-              // A copy still on a page that already held one did not move with the rest: fail closed.
+              // The words around them fit two copies: only the place they keep tells them apart.
               if (
-                samePageAnyVersion &&
-                shifts[0] !== 0 &&
-                byPageMarks.some((mark) =>
-                  byPageRows.some((row) => rowPage(row) === markPage(mark)),
-                )
+                exactPlace &&
+                open.some((mark, index) => rows[index]?.file_order !== mark.annotation.order)
               ) {
-                return 0;
+                return false;
               }
-              for (const [index, mark] of byPageMarks.entries()) {
-                const row = byPageRows[index];
+              for (const [index, mark] of open.entries()) {
+                const row = rows[index];
                 if (row) pair(mark, row);
               }
-              return byPageMarks.length;
+              return true;
             };
-            if (live.length > 0 && attempt(live) > 0) continue;
-            if (attempt(all) > 0) continue;
-            // The page it is on still has its row: that copy stayed where it was.
-            for (const mark of group) {
-              if (matched.has(mark)) continue;
-              const row = all.find(
-                (each) =>
-                  !taken.has(each.id) &&
-                  (samePageAnyVersion || each.content_hash === contentHash) &&
-                  rowPage(each) === markPage(mark),
-              );
-              if (row) pair(mark, row);
+            const fits = () =>
+              group
+                .filter((mark) => !matched.has(mark))
+                .map((mark) => ({
+                  mark,
+                  rows: all.filter((row) => !taken.has(row.id) && sameSurroundings(row, mark)),
+                }));
+            let settled = false;
+            for (;;) {
+              const open = fits();
+              const sole = new Map<string, number>();
+              for (const { rows } of open) {
+                const row = rows[0];
+                if (rows.length === 1 && row) sole.set(row.id, (sole.get(row.id) ?? 0) + 1);
+              }
+              let progressed = false;
+              for (const { mark, rows } of open) {
+                const row = rows[0];
+                if (rows.length !== 1 || !row || (sole.get(row.id) ?? 0) > 1) continue;
+                pair(mark, row);
+                progressed = true;
+              }
+              if (!progressed) break;
+              settled = true;
             }
-            // A missing row holding nothing of the User's is better than another row.
-            for (const mark of group) {
-              if (matched.has(mark)) continue;
-              const row = all.find(
-                (each) =>
-                  !taken.has(each.id) &&
-                  each.missing === 1 &&
-                  each.deleted_at === null &&
-                  each.paired_hash === null &&
-                  each.note === each.file_note &&
-                  each.colour === each.file_colour,
-              );
+            // A reading still fit by two rows is no reading: the words around them must be
+            // backed by the place each copy keeps, or the group waits for the next version.
+            const ambiguous = fits().some(({ rows }) => rows.length > 0);
+            if (!settled) {
+              if (!(live.length > 0 && oneShift(live, ambiguous))) oneShift(all, ambiguous);
+            }
+            const carried = [...all]
+              .filter((row) => !taken.has(row.id) && row.paired_hash === contentHash)
+              .sort(byRowPlace);
+            const open = [...group].filter((mark) => !matched.has(mark)).sort(byMarkPlace);
+            for (const mark of open) {
+              const row =
+                carried.find(
+                  (each) =>
+                    !taken.has(each.id) &&
+                    rowPage(each) === markPage(mark) &&
+                    each.file_order === mark.annotation.order,
+                ) ??
+                carried.find((each) => !taken.has(each.id) && rowPage(each) === markPage(mark));
               if (row) pair(mark, row);
             }
           }
@@ -731,7 +804,6 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           noteMarksByText,
           (row) => row.page_from ?? 0,
           (mark) => mark.annotation.page,
-          false,
         );
         // A page's only other note takes a leftover only when the User hasn't rewritten it.
         const freeRowsByPage = new Map<number, Row[]>();
@@ -765,7 +837,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           const key = collapsed(mark.quote);
           markGroups.set(key, [...(markGroups.get(key) ?? []), mark]);
         }
-        pairGroups(rowGroups, markGroups, (row) => row.page_from ?? 0, pageOf, true);
+        pairGroups(rowGroups, markGroups, (row) => row.page_from ?? 0, pageOf);
 
         for (const { mark, row } of pairs) {
           const { annotation, cited, there, quote } = mark;
@@ -787,6 +859,8 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                 : "quote-not-on-pages";
           const missing = annotation.kind === "highlight" && !there;
           const locationText = JSON.stringify(location);
+          const anchorText = anchorOf(mark);
+          const fileOrder = annotation.order;
           const unchanged =
             row.content_hash === contentHash &&
             row.passage_id === passageId &&
@@ -796,20 +870,22 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             row.colour === colour &&
             row.file_colour === annotation.colour &&
             row.paired_hash === contentHash &&
+            row.file_order === fileOrder &&
             row.page_from === pageFrom &&
             row.page_to === pageTo &&
             row.location === locationText &&
             row.check_state === check &&
             row.check_reason === checkReason &&
             row.missing === (missing ? 1 : 0) &&
-            row.author === annotation.author;
+            row.author === annotation.author &&
+            row.anchor === anchorText;
           if (unchanged) continue;
           db.run(
             `UPDATE document_annotations
                SET content_hash = ?, passage_id = ?, quote = ?, note = ?, file_note = ?,
-                 colour = ?, file_colour = ?, paired_hash = ?, page_from = ?, page_to = ?,
-                 location = ?, check_state = ?, check_reason = ?, missing = ?, author = ?,
-                 updated_at = ?
+                 colour = ?, file_colour = ?, paired_hash = ?, file_order = ?, page_from = ?,
+                 page_to = ?, location = ?, check_state = ?, check_reason = ?, missing = ?,
+                 author = ?, anchor = ?, updated_at = ?
              WHERE id = ?`,
             [
               contentHash,
@@ -820,6 +896,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               colour,
               annotation.colour,
               contentHash,
+              fileOrder,
               pageFrom,
               pageTo,
               locationText,
@@ -827,6 +904,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               checkReason,
               missing ? 1 : 0,
               annotation.author,
+              anchorText,
               at,
               row.id,
             ],
@@ -863,7 +941,16 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                   : there
                     ? (cited?.checkReason ?? null)
                     : "quote-not-on-pages",
-              anchor: null,
+              anchor: {
+                parts: [
+                  {
+                    unit: annotation.page,
+                    text: quote,
+                    before: annotation.before,
+                    after: annotation.after,
+                  },
+                ],
+              },
               author: annotation.author,
               missing: annotation.kind === "highlight" && !there,
               createdAt: at,
@@ -872,19 +959,24 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
             at,
             annotation.note,
             annotation.colour,
+            annotation.order,
           );
         }
 
         for (const row of existing) {
           if (
             taken.has(row.id) ||
-            (row.missing === 1 && row.paired_hash === null && row.content_hash === contentHash)
+            (row.missing === 1 &&
+              row.content_hash === contentHash &&
+              row.passage_id === null &&
+              row.check_state === "not-found" &&
+              row.check_reason === "quote-not-on-pages")
           ) {
             continue;
           }
           db.run(
             `UPDATE document_annotations
-               SET content_hash = ?, passage_id = NULL, paired_hash = NULL,
+               SET content_hash = ?, passage_id = NULL,
                  check_state = 'not-found', check_reason = 'quote-not-on-pages', missing = 1,
                  updated_at = ?
              WHERE id = ?`,

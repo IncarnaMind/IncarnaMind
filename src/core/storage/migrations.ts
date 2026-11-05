@@ -2325,8 +2325,12 @@ export const migrations: readonly Migration[] = [
         -- The file's own note and colour as they were read, to tell the User's from the file's (#327).
         file_note TEXT,
         file_colour TEXT,
-        -- The version whose read paired this row, apart from whether it is missing (#327).
+        -- The version whose read last paired this row: kept when a later read does not pair it,
+        -- so a re-read of that version carries the row again by the same file (#327).
         paired_hash TEXT,
+        -- The copy's place on its page among its own words, from the file: higher first, then
+        -- further left, so copies the file lists in another order still pair the same (#327).
+        file_order REAL,
         page_from INTEGER,
         page_to INTEGER,
         -- Its Location, as JSON (CitationLocation), so its label reads without the Document.

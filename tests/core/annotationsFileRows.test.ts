@@ -76,27 +76,47 @@ async function harness() {
   return { document, store, db, read };
 }
 
-const highlight = (quote: string, page = 1, note: string | null = null): FileAnnotation => ({
+const highlight = (
+  quote: string,
+  page = 1,
+  note: string | null = null,
+  order = 0,
+  around: { before?: string; after?: string } = {},
+): FileAnnotation => ({
   page,
   kind: "highlight",
   quote,
   note,
   colour: "yellow",
   author: "Priya Raman",
+  order,
+  before: around.before ?? "",
+  after: around.after ?? "",
+});
+
+/** A sticky note the file holds, at `order` on its page, with the words around it. */
+const fileNote = (
+  page: number,
+  said: string,
+  order = 0,
+  around: { before?: string; after?: string } = {},
+): FileAnnotation => ({
+  page,
+  kind: "note",
+  quote: "",
+  note: said,
+  colour: "yellow",
+  author: "Priya Raman",
+  order,
+  before: around.before ?? "",
+  after: around.after ?? "",
 });
 
 test("a re-read of the same version keeps the User's edit and delete", async () => {
   const { document, store, read, db } = await harness();
   const rows = [
     highlight("The first line of the note.", 1, "Compare with Table 3."),
-    {
-      page: 1,
-      kind: "note" as const,
-      quote: "",
-      note: "Check this figure.",
-      colour: "yellow" as const,
-      author: "Priya Raman",
-    },
+    fileNote(1, "Check this figure."),
   ];
   read("version-a", rows);
   const [edited, deleted] = store.list(document.id);
@@ -225,7 +245,7 @@ test("a file highlight a version lacks keeps the current version and no Passage"
   db.close();
 });
 
-test("the same words twice, with a page inserted, fail closed rather than move a comment", async () => {
+test("the same words twice, with a page inserted in front, each comment follows its copy", async () => {
   const { document, store, read, db } = await harness();
   const quote = "About page one.";
   read("version-a", [highlight(quote, 1), highlight(quote, 2)]);
@@ -238,26 +258,23 @@ test("the same words twice, with a page inserted, fail closed rather than move a
 
   read("version-b", [highlight(quote, 2), highlight(quote, 3)]);
   const reread = store.list(document.id);
-  // A copy still on its page did not move with the rest: the comments stay where they were.
-  expect(reread.find((row) => row.id === second.id)).toMatchObject({
+  // Every copy moved one page with its page: the comments follow their own copies, none missing.
+  expect(reread.find((row) => row.id === first.id)).toMatchObject({
     pageFrom: 2,
+    note: "first",
+    missing: false,
+  });
+  expect(reread.find((row) => row.id === second.id)).toMatchObject({
+    pageFrom: 3,
     note: "second",
     missing: false,
   });
-  expect(reread.find((row) => row.id === first.id)).toMatchObject({ note: "first", missing: true });
   db.close();
 });
 
 test("a new sticky note on another page leaves the old note its comment", async () => {
   const { document, store, read, db } = await harness();
-  const note = (page: number, said: string): FileAnnotation => ({
-    page,
-    kind: "note",
-    quote: "",
-    note: said,
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (page: number, said: string): FileAnnotation => fileNote(page, said);
   read("version-a", [note(1, "Mine")]);
   const [before] = store.list(document.id);
   if (!before) throw new Error("The note wasn't read.");
@@ -322,26 +339,21 @@ test("a file's own note follows the file until the User edits it", async () => {
 test("identical words that did not pair do not add missing rows on each version", async () => {
   const { document, store, read, db } = await harness();
   const quote = "About page one.";
-  read("version-a", [highlight(quote, 1), highlight(quote, 2), highlight(quote, 3)]);
-  // Three words, two marks: no count match, so the new read makes its own rows.
-  read("version-b", [highlight(quote, 1), highlight(quote, 3)]);
+  const copy = (page: number) =>
+    highlight(quote, page, null, page, { before: `Before ${page}.`, after: `After ${page}.` });
+  read("version-a", [copy(1), copy(2), copy(3)]);
+  // Three words, two marks: the words around the two that stayed find their rows.
+  read("version-b", [copy(1), copy(3)]);
   expect(store.list(document.id)).toHaveLength(3);
   // Read again: the rows pair in place, and no empty row is added.
-  read("version-c", [highlight(quote, 1), highlight(quote, 3)]);
+  read("version-c", [copy(1), copy(3)]);
   expect(store.list(document.id)).toHaveLength(3);
   db.close();
 });
 
 test("two notes on one page keep their own comments when one is dropped", async () => {
   const { document, store, read, db } = await harness();
-  const note = (said: string): FileAnnotation => ({
-    page: 1,
-    kind: "note",
-    quote: "",
-    note: said,
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (said: string): FileAnnotation => fileNote(1, said);
   read("version-a", [note("First"), note("Second")]);
   const first = store.list(document.id).find((row) => row.note === "First");
   if (!first) throw new Error("The first note wasn't read.");
@@ -366,6 +378,9 @@ test("a file's colour follows the file until the User recolours", async () => {
     note: null,
     colour,
     author: "Priya Raman",
+    order: 10,
+    before: "",
+    after: "",
   });
   read("version-a", [coloured("yellow")]);
   read("version-b", [coloured("pink")]);
@@ -381,14 +396,7 @@ test("a file's colour follows the file until the User recolours", async () => {
 
 test("a note the file drops does not hand the User's rewritten comment to a new one", async () => {
   const { document, store, read, db } = await harness();
-  const note = (said: string): FileAnnotation => ({
-    page: 1,
-    kind: "note",
-    quote: "",
-    note: said,
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (said: string): FileAnnotation => fileNote(1, said);
   read("version-a", [note("X text.")]);
   const [before] = store.list(document.id);
   if (!before) throw new Error("The note wasn't read.");
@@ -409,14 +417,7 @@ test("a note the file drops does not hand the User's rewritten comment to a new 
 
 test("after a page is inserted, a rewritten note moves with its page", async () => {
   const { document, store, read, db } = await harness();
-  const note = (page: number, said: string): FileAnnotation => ({
-    page,
-    kind: "note",
-    quote: "",
-    note: said,
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (page: number, said: string): FileAnnotation => fileNote(page, said);
   read("version-a", [note(1, "Check."), note(2, "Check.")]);
   const second = store.list(document.id).find((row) => row.pageFrom === 2);
   if (!second) throw new Error("The page-2 note wasn't read.");
@@ -435,14 +436,7 @@ test("after a page is inserted, a rewritten note moves with its page", async () 
 
 test("notes with equal counts and uneven shifts keep their rows apart", async () => {
   const { document, store, read, db } = await harness();
-  const note = (page: number): FileAnnotation => ({
-    page,
-    kind: "note",
-    quote: "",
-    note: "Same.",
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (page: number): FileAnnotation => fileNote(page, "Same.");
   read("version-a", [note(1), note(4)]);
   read("version-b", [note(2), note(7)]);
   const rows = store.list(document.id).sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
@@ -453,14 +447,7 @@ test("notes with equal counts and uneven shifts keep their rows apart", async ()
 
 test("an untouched note the file replaces on its page follows the file", async () => {
   const { document, store, read, db } = await harness();
-  const note = (said: string): FileAnnotation => ({
-    page: 1,
-    kind: "note",
-    quote: "",
-    note: said,
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (said: string): FileAnnotation => fileNote(1, said);
   read("version-a", [note("X text.")]);
   const [before] = store.list(document.id);
   if (!before) throw new Error("The note wasn't read.");
@@ -473,14 +460,7 @@ test("an untouched note the file replaces on its page follows the file", async (
 
 test("a note group counts its live rows first, so missing rows do not pile up", async () => {
   const { document, store, read, db } = await harness();
-  const note = (page: number): FileAnnotation => ({
-    page,
-    kind: "note",
-    quote: "",
-    note: "Check.",
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (page: number): FileAnnotation => fileNote(page, "Check.");
   read("version-a", [note(1), note(2), note(3)]);
   for (const row of store.list(document.id))
     store.update(row.id, { note: `Mine ${row.pageFrom}.` });
@@ -536,19 +516,17 @@ test("a second re-read writes no database change", async () => {
 test("two copies of the same words on one page keep their own comments on a re-read", async () => {
   const { document, store, read, db } = await harness();
   const quote = "the Seller";
-  read("version-a", [
-    highlight(quote, 1, "First mention."),
-    highlight(quote, 1, "Second mention."),
-  ]);
+  const copies = () => [
+    highlight(quote, 1, "First mention.", 10, around("first")),
+    highlight(quote, 1, "Second mention.", 20, around("second")),
+  ];
+  read("version-a", copies());
   const first = store.list(document.id).find((row) => row.note === "First mention.");
   if (!first) throw new Error("The first copy wasn't read.");
   store.update(first.id, { note: "Mine about the first." });
   const changes = () => db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0;
   const before = changes();
-  read("version-a", [
-    highlight(quote, 1, "First mention."),
-    highlight(quote, 1, "Second mention."),
-  ]);
+  read("version-a", copies());
   expect(store.list(document.id).find((row) => row.id === first.id)?.note).toBe(
     "Mine about the first.",
   );
@@ -559,33 +537,28 @@ test("two copies of the same words on one page keep their own comments on a re-r
 test("a file flipping between two copies and one stops growing rows", async () => {
   const { document, store, read, db } = await harness();
   const quote = "About page one.";
-  const two = () => [highlight(quote, 1), highlight(quote, 2)];
+  const copy = (page: number) =>
+    highlight(quote, page, null, page, { before: `Before ${page}.`, after: `After ${page}.` });
+  const two = () => [copy(1), copy(2)];
   read("version-two", two());
   const first = store.list(document.id).find((row) => row.pageFrom === 1);
   if (!first) throw new Error("The page-1 copy wasn't read.");
   store.update(first.id, { note: "Mine on page 1." });
 
-  read("version-one", [highlight(quote, 1)]);
+  read("version-one", [copy(1)]);
   expect(store.list(document.id)).toHaveLength(2);
   read("version-two-again", two());
   expect(store.list(document.id)).toHaveLength(2);
   const pageOne = store.list(document.id).find((row) => row.id === first.id);
   expect(pageOne).toMatchObject({ note: "Mine on page 1.", missing: false });
-  read("version-one-again", [highlight(quote, 1)]);
+  read("version-one-again", [copy(1)]);
   expect(store.list(document.id)).toHaveLength(2);
   db.close();
 });
 
 test("a note of the same version on its page is carried when the group cannot pair", async () => {
   const { document, store, read, db } = await harness();
-  const note = (page: number): FileAnnotation => ({
-    page,
-    kind: "note",
-    quote: "",
-    note: "Check.",
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (page: number): FileAnnotation => fileNote(page, "Check.");
   read("version-a", [note(1), note(2)]);
   const second = store.list(document.id).find((row) => row.pageFrom === 2);
   if (!second) throw new Error("The page-2 note wasn't read.");
@@ -604,14 +577,7 @@ test("a note of the same version on its page is carried when the group cannot pa
 
 test("a note of another version is not carried by the same-page fallback", async () => {
   const { document, store, read, db } = await harness();
-  const note = (page: number): FileAnnotation => ({
-    page,
-    kind: "note",
-    quote: "",
-    note: "Check.",
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (page: number): FileAnnotation => fileNote(page, "Check.");
   read("version-a", [note(1), note(2)]);
   const second = store.list(document.id).find((row) => row.pageFrom === 2);
   if (!second) throw new Error("The page-2 note wasn't read.");
@@ -626,14 +592,7 @@ test("a note of another version is not carried by the same-page fallback", async
 
 test("two untouched notes on a page are not handed one new note's row", async () => {
   const { document, store, read, db } = await harness();
-  const note = (said: string): FileAnnotation => ({
-    page: 1,
-    kind: "note",
-    quote: "",
-    note: said,
-    colour: "yellow",
-    author: "Priya Raman",
-  });
+  const note = (said: string): FileAnnotation => fileNote(1, said);
   read("version-a", [note("X."), note("Y.")]);
   read("version-b", [note("Z.")]);
   const rows = store.list(document.id);
@@ -711,5 +670,361 @@ test("a deleted file highlight stays deleted when a new version still has its wo
 
   read("version-b", [row]);
   expect(store.list(document.id)).toEqual([]);
+  db.close();
+});
+
+/** The words around a copy, which stay with it as its page moves. */
+const around = (id: string) => ({ before: `Before ${id}.`, after: `After ${id}.` });
+
+/** The live row at `order` on its page, from the file's own place for it. */
+function rowAt(
+  db: ReturnType<typeof openDatabase>,
+  documentId: string,
+  order: number,
+): { id: string } | undefined {
+  return db.get<{ id: string }>(
+    "SELECT id FROM document_annotations WHERE document_id = ? AND file_order = ? AND deleted_at IS NULL",
+    [documentId, order],
+  );
+}
+
+test("a cover page in front keeps each comment with its own copy", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const copy = (page: number, id: string, order: number) =>
+    highlight(quote, page, null, order, around(id));
+  read("version-a", [copy(1, "a", 10), copy(2, "b", 20)]);
+  const first = store.list(document.id).find((row) => row.pageFrom === 1);
+  const second = store.list(document.id).find((row) => row.pageFrom === 2);
+  if (!first || !second) throw new Error("Both highlights weren't read.");
+  store.update(first.id, { note: "first" });
+  store.update(second.id, { note: "second" });
+
+  read("version-b", [copy(2, "a", 10), copy(3, "b", 20)]);
+  const rows = store.list(document.id);
+  expect(rows).toHaveLength(2);
+  expect(rows.find((row) => row.id === first.id)).toMatchObject({
+    pageFrom: 2,
+    note: "first",
+    missing: false,
+  });
+  expect(rows.find((row) => row.id === second.id)).toMatchObject({
+    pageFrom: 3,
+    note: "second",
+    missing: false,
+  });
+  db.close();
+});
+
+test("two or three copies, pages put in front, keep every comment", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const copy = (page: number, id: string, order: number) =>
+    highlight(quote, page, null, order, around(id));
+
+  read("first-a", [copy(1, "a", 10), copy(3, "b", 30)]);
+  const pair = store.list(document.id);
+  const low = pair.find((row) => row.pageFrom === 1);
+  const high = pair.find((row) => row.pageFrom === 3);
+  if (!low || !high) throw new Error("Both highlights weren't read.");
+  store.update(low.id, { note: "a" });
+  store.update(high.id, { note: "b" });
+  read("first-b", [copy(3, "a", 10), copy(5, "b", 30)]);
+  expect(store.list(document.id).find((row) => row.id === low.id)).toMatchObject({
+    pageFrom: 3,
+    note: "a",
+    missing: false,
+  });
+  expect(store.list(document.id).find((row) => row.id === high.id)).toMatchObject({
+    pageFrom: 5,
+    note: "b",
+    missing: false,
+  });
+
+  const three = [copy(1, "c", 11), copy(2, "d", 22), copy(3, "e", 33)];
+  read("second-a", three);
+  for (const [page, said] of [
+    [1, "c"],
+    [2, "d"],
+    [3, "e"],
+  ] as const) {
+    const row = store.list(document.id).find((each) => each.pageFrom === page);
+    if (!row) throw new Error(`The page-${page} copy wasn't read.`);
+    store.update(row.id, { note: said });
+  }
+  read("second-b", [copy(2, "c", 11), copy(3, "d", 22), copy(4, "e", 33)]);
+  for (const [page, said] of [
+    [2, "c"],
+    [3, "d"],
+    [4, "e"],
+  ] as const) {
+    expect(store.list(document.id).find((row) => row.pageFrom === page)).toMatchObject({
+      note: said,
+      missing: false,
+    });
+  }
+  db.close();
+});
+
+test("a page added after page one leaves page three's comment on page three's copy", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const copy = (page: number, id: string, order: number) =>
+    highlight(quote, page, null, order, around(id));
+  read("version-a", [copy(1, "a", 10), copy(2, "b", 20), copy(3, "c", 30)]);
+  const rows = new Map(
+    (
+      [
+        [1, "a"],
+        [2, "b"],
+        [3, "c"],
+      ] as const
+    ).map(([page, said]) => {
+      const row = store.list(document.id).find((each) => each.pageFrom === page);
+      if (!row) throw new Error(`The page-${page} copy wasn't read.`);
+      store.update(row.id, { note: said });
+      return [said, row.id] as const;
+    }),
+  );
+
+  read("version-b", [copy(1, "a", 10), copy(3, "b", 20), copy(4, "c", 30)]);
+  expect(store.list(document.id).find((row) => row.id === rows.get("a"))).toMatchObject({
+    pageFrom: 1,
+    note: "a",
+    missing: false,
+  });
+  expect(store.list(document.id).find((row) => row.id === rows.get("b"))).toMatchObject({
+    pageFrom: 3,
+    note: "b",
+    missing: false,
+  });
+  expect(store.list(document.id).find((row) => row.id === rows.get("c"))).toMatchObject({
+    pageFrom: 4,
+    note: "c",
+    missing: false,
+  });
+  db.close();
+});
+
+test("page one of three removed leaves each comment with its own words", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const copy = (page: number, id: string, order: number) =>
+    highlight(quote, page, null, order, around(id));
+  read("version-a", [copy(1, "alpha", 10), copy(2, "beta", 20), copy(3, "gamma", 30)]);
+  const alpha = store.list(document.id).find((row) => row.pageFrom === 1);
+  const beta = store.list(document.id).find((row) => row.pageFrom === 2);
+  const gamma = store.list(document.id).find((row) => row.pageFrom === 3);
+  if (!alpha || !beta || !gamma) throw new Error("The three highlights weren't read.");
+  store.update(alpha.id, { note: "alpha" });
+  store.update(beta.id, { note: "beta" });
+  store.update(gamma.id, { note: "gamma" });
+
+  read("version-b", [copy(1, "beta", 20), copy(2, "gamma", 30)]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === alpha.id)).toMatchObject({ note: "alpha", missing: true });
+  expect(rows.find((row) => row.id === beta.id)).toMatchObject({
+    pageFrom: 1,
+    note: "beta",
+    missing: false,
+  });
+  expect(rows.find((row) => row.id === gamma.id)).toMatchObject({
+    pageFrom: 2,
+    note: "gamma",
+    missing: false,
+  });
+  db.close();
+});
+
+test("three copies on one page, one dropped, keep their own comments", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const copy = (id: string, order: number) => highlight(quote, 1, null, order, around(id));
+  read("version-a", [copy("a", 10), copy("b", 20), copy("c", 30)]);
+  const ids = new Map<string, string>();
+  for (const [, order, said] of [
+    ["a", 10, "A"],
+    ["b", 20, "B"],
+    ["c", 30, "C"],
+  ] as const) {
+    const row = rowAt(db, document.id, order);
+    if (!row) throw new Error(`The copy at ${order} wasn't read.`);
+    store.update(row.id, { note: said });
+    ids.set(said, row.id);
+  }
+
+  read("version-b", [copy("a", 10), copy("c", 30)]);
+  const rows = store.list(document.id);
+  expect(rows).toHaveLength(3);
+  expect(rows.find((row) => row.id === ids.get("A"))).toMatchObject({
+    note: "A",
+    missing: false,
+  });
+  expect(rows.find((row) => row.id === ids.get("B"))).toMatchObject({ note: "B", missing: true });
+  expect(rows.find((row) => row.id === ids.get("C"))).toMatchObject({
+    note: "C",
+    missing: false,
+  });
+  db.close();
+});
+
+test("a missing row is not handed to a new copy elsewhere", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1, null, 10, around("one"))]);
+  const [before] = store.list(document.id);
+  if (!before) throw new Error("The highlight wasn't read.");
+  store.update(before.id, { note: "Mine" });
+
+  read("version-b", []);
+  read("version-c", [highlight(quote, 2, null, 20, around("two"))]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === before.id)).toMatchObject({
+    note: "Mine",
+    missing: true,
+  });
+  const fresh = rows.find((row) => row.id !== before.id);
+  expect(fresh).toMatchObject({ pageFrom: 2, missing: false });
+  expect(fresh?.note).not.toBe("Mine");
+  db.close();
+});
+
+test("a re-read of the same version writes nothing and moves nothing, over repeats", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const rows = () => [
+    highlight(quote, 1, null, 10, around("a")),
+    highlight(quote, 2, null, 20, around("b")),
+  ];
+  read("version-a", rows());
+  const [first, second] = store
+    .list(document.id)
+    .sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
+  if (!first || !second) throw new Error("Both highlights weren't read.");
+  store.update(first.id, { note: "first" });
+  store.update(second.id, { note: "second" });
+
+  const changes = () => db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0;
+  const before = changes();
+  for (let repeat = 0; repeat < 5; repeat++) read("version-a", rows());
+  expect(changes()).toBe(before);
+  expect(store.list(document.id).find((row) => row.id === first.id)).toMatchObject({
+    pageFrom: 1,
+    note: "first",
+    missing: false,
+  });
+  expect(store.list(document.id).find((row) => row.id === second.id)).toMatchObject({
+    pageFrom: 2,
+    note: "second",
+    missing: false,
+  });
+  db.close();
+});
+
+test("a re-read after a copy returns writes nothing and keeps the comment", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const a = () => highlight(quote, 1, null, 10, around("a"));
+  const b = () => highlight(quote, 3, null, 30, around("b"));
+  read("version-a", [a(), b()]);
+  const pageThree = store.list(document.id).find((row) => row.pageFrom === 3);
+  if (!pageThree) throw new Error("The page-3 copy wasn't read.");
+  store.update(pageThree.id, { note: "Mine on page three." });
+
+  // The version keeps only page 3's copy, and the one after adds a copy below it, on page 3.
+  const below = () => highlight(quote, 3, null, 40, around("c"));
+  read("version-b", [b()]);
+  read("version-c", [b(), below()]);
+  const settled = store.list(document.id);
+  const changes = () => db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0;
+  const before = changes();
+  read("version-c", [b(), below()]);
+  expect(changes()).toBe(before);
+  const reread = store.list(document.id);
+  expect(reread.map((row) => row.id).sort()).toEqual(settled.map((row) => row.id).sort());
+  expect(reread.find((row) => row.id === pageThree.id)).toMatchObject({
+    pageFrom: 3,
+    note: "Mine on page three.",
+    missing: false,
+  });
+  db.close();
+});
+
+test("same-page copies the file lists in another order keep their own comments, over trials", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "the Seller";
+  const copies = () => [
+    highlight(quote, 1, "First mention.", 10, around("first")),
+    highlight(quote, 1, "Second mention.", 20, around("second")),
+  ];
+  read("version-a", copies());
+  const first = rowAt(db, document.id, 10);
+  if (!first) throw new Error("The first copy wasn't read.");
+  store.update(first.id, { note: "Mine about the first." });
+
+  const changes = () => db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0;
+  const before = changes();
+  for (let trial = 0; trial < 30; trial++) {
+    const marks = copies();
+    // The file lists them the other way round on some reads.
+    read("version-a", trial % 2 === 0 ? marks : marks.reverse());
+    expect(rowAt(db, document.id, 10)?.id, `trial ${trial}`).toBe(first.id);
+    expect(store.list(document.id).find((row) => row.id === first.id)).toMatchObject({
+      note: "Mine about the first.",
+      missing: false,
+    });
+  }
+  expect(changes()).toBe(before);
+  db.close();
+});
+
+test("both readings fit, so neither comment moves to the other copy", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const shared = { before: "The same words.", after: "The same words." };
+  const copy = (order: number) => highlight(quote, 1, null, order, shared);
+  read("version-a", [copy(10), copy(20)]);
+  const first = rowAt(db, document.id, 10);
+  const second = rowAt(db, document.id, 20);
+  if (!first || !second) throw new Error("Both copies weren't read.");
+  store.update(first.id, { note: "first" });
+  store.update(second.id, { note: "second" });
+
+  // One copy dropped, another added: the words around each fit both rows.
+  read("version-b", [copy(20), copy(30)]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === first.id)).toMatchObject({ note: "first", missing: true });
+  expect(rows.find((row) => row.id === second.id)).toMatchObject({ note: "second", missing: true });
+  expect(rows.filter((row) => row.note === "first" || row.note === "second")).toHaveLength(2);
+  expect(rows.filter((row) => !row.missing)).toHaveLength(2);
+  db.close();
+});
+
+test("a file flipping between two copies and one brings both comments back over versions", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const a = () => highlight(quote, 1, null, 10, around("a"));
+  const b = () => highlight(quote, 2, null, 20, around("b"));
+  read("v0", [a(), b()]);
+  const [first, second] = store
+    .list(document.id)
+    .sort((one, other) => (one.pageFrom ?? 0) - (other.pageFrom ?? 0));
+  if (!first || !second) throw new Error("Both highlights weren't read.");
+  store.update(first.id, { note: "first" });
+  store.update(second.id, { note: "second" });
+
+  for (let step = 1; step <= 12; step++) {
+    read(`v${step}`, step % 2 === 1 ? [a()] : [a(), b()]);
+    const rows = store.list(document.id);
+    expect(rows, `version ${step}`).toHaveLength(2);
+    expect(rows.find((row) => row.id === first.id)).toMatchObject({
+      note: "first",
+      missing: false,
+    });
+    expect(rows.find((row) => row.id === second.id)).toMatchObject({
+      note: "second",
+      missing: step % 2 !== 0,
+    });
+  }
   db.close();
 });

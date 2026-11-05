@@ -2367,7 +2367,10 @@ export interface Annotation {
   /** As its Citation's check stood when it was made or last re-anchored. */
   check: CitationCheck;
   checkReason: CitationCheckReason | null;
-  /** The selection it was made from; null for an annotation read from a file. */
+  /**
+   * The selection it was made from; for an annotation read from a file, the file's own words and
+   * the words around them, so a new version finds them again.
+   */
   anchor: AnnotationAnchor | null;
   /** A file annotation's author, as the file says; null for the User's own. */
   author: string | null;

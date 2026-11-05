@@ -930,4 +930,86 @@ describe("annotations", () => {
       (await core.listAnnotations(document.id)).find((each) => each.id === kept.id),
     ).toMatchObject({ note: "Mine" });
   });
+
+  test("a PDF's own highlights follow their pages through a cover, a removed page and an added one", async () => {
+    const core = startCore(await createTempDataFolder());
+    const sources = await createSourceFolder();
+    const mark = (contents: string) => ({
+      subtype: "Highlight" as const,
+      rect: [72, 758, 300, 770] as const,
+      quadPoints: [72, 770, 300, 770, 72, 758, 300, 758] as const,
+      contents,
+      title: "Priya Raman",
+    });
+    const path = await writeSourceFile(
+      sources,
+      "Survey.pdf",
+      buildPdf([
+        { lines: ["Alpha page words.", "Alpha's second line."], marks: [mark("Alpha note.")] },
+        { lines: ["Beta page words.", "Beta's second line."], marks: [mark("Beta note.")] },
+      ]),
+    );
+    const [document] = await addAndProcess(core, [path]);
+    if (!document) throw new Error("The Document wasn't added.");
+    const before = await core.listAnnotations(document.id);
+    const alpha = before.find((each) => each.quote === "Alpha page words.");
+    const beta = before.find((each) => each.quote === "Beta page words.");
+    if (!alpha || !beta) throw new Error("The file's highlights weren't read.");
+    expect(alpha.note).toBe("Alpha note.");
+    await core.updateAnnotation(beta.id, { note: "Mine about beta." });
+
+    const reread = async (pages: Parameters<typeof buildPdf>[0]) => {
+      await writeFile(path, buildPdf(pages));
+      await core.reconcileDocuments();
+      await waitForProcessing(core, [document.id]);
+      return core.listAnnotations(document.id);
+    };
+
+    const covered = await reread([
+      { lines: ["Cover page."] },
+      { lines: ["Alpha page words.", "Alpha's second line."], marks: [mark("Alpha note.")] },
+      { lines: ["Beta page words.", "Beta's second line."], marks: [mark("Beta note.")] },
+    ]);
+    expect(covered.find((each) => each.id === alpha.id)).toMatchObject({
+      pageFrom: 2,
+      note: "Alpha note.",
+      missing: false,
+    });
+    expect(covered.find((each) => each.id === beta.id)).toMatchObject({
+      pageFrom: 3,
+      note: "Mine about beta.",
+      missing: false,
+    });
+
+    const shortened = await reread([
+      { lines: ["Alpha page words.", "Alpha's second line."], marks: [mark("Alpha note.")] },
+      { lines: ["Beta page words.", "Beta's second line."], marks: [mark("Beta note.")] },
+    ]);
+    expect(shortened.find((each) => each.id === alpha.id)).toMatchObject({
+      pageFrom: 1,
+      note: "Alpha note.",
+      missing: false,
+    });
+    expect(shortened.find((each) => each.id === beta.id)).toMatchObject({
+      pageFrom: 2,
+      note: "Mine about beta.",
+      missing: false,
+    });
+
+    const inserted = await reread([
+      { lines: ["Alpha page words.", "Alpha's second line."], marks: [mark("Alpha note.")] },
+      { lines: ["Inserted page."] },
+      { lines: ["Beta page words.", "Beta's second line."], marks: [mark("Beta note.")] },
+    ]);
+    expect(inserted.find((each) => each.id === alpha.id)).toMatchObject({
+      pageFrom: 1,
+      note: "Alpha note.",
+      missing: false,
+    });
+    expect(inserted.find((each) => each.id === beta.id)).toMatchObject({
+      pageFrom: 3,
+      note: "Mine about beta.",
+      missing: false,
+    });
+  });
 });
