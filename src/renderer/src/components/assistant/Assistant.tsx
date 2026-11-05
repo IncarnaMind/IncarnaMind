@@ -294,7 +294,7 @@ function AssistantMain({
       <div
         ref={thread}
         data-testid="assistant-thread"
-        className="assistant-thread"
+        className="assistant-thread scroll-fade"
         onScroll={(event) => {
           scrolled.current = event.currentTarget.scrollTop;
         }}
