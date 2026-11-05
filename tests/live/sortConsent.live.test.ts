@@ -1,9 +1,9 @@
 /**
- * Dropped Documents and the footer's Allow against a real cloud model (#2308): with DeepSeek's
- * catalog model for quick tasks (deepseek-flash), nothing reaches DeepSeek before the press, and the press sorts the Documents that waited,
- * in English and Chinese, into the Folder their start calls for; a Document dropped after it goes
- * by itself. Runs only with the key in the environment (DEEPSEEK_API_KEY); requests
- * are counted at `fetch`. A few cents.
+ * Dropped Documents and the footer's Allow against a real cloud model (#2308): with DeepSeek V4.1
+ * Flash 1017 (deepseek-flash), nothing reaches DeepSeek before the press, and the press organizes
+ * the Documents that waited, in English and Chinese, into the Folder their start calls for; a
+ * Document dropped after it goes by itself. Runs only with the key in the environment
+ * (DEEPSEEK_API_KEY); requests are counted at `fetch`. A few cents.
  */
 import { describe, expect, test, vi } from "vitest";
 import { createAiSdkChatModel } from "../../src/core";
