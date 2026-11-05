@@ -1,18 +1,26 @@
 /**
  * The Organize failures To review says in the Library's own words (#2308): the
  * Documents that met one cause, and that cause's one action, in one line for
- * the group instead of the provider's sentence cut short in every row. Pure, so
- * the tests import it.
+ * the group instead of the provider's sentence in every row. Pure, so the tests
+ * import it.
  */
 
 import type { Document, DocumentGroupAssignment, ProviderErrorKind } from "../../core/api";
-import type { MessageKey } from "../../shared/i18n";
+import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { organizeStateOf } from "./organizeOutcome";
 
-/** What a group of failed Documents ran into, in the Library's words. */
-export type ReviewProblemKind = "credit" | "keyRefused" | "planLimit" | "rateLimit";
+type Translate = (key: MessageKey, params?: MessageParams) => string;
 
-const KINDS: readonly ReviewProblemKind[] = ["credit", "keyRefused", "planLimit", "rateLimit"];
+/** What a group of failed Documents ran into, in the Library's words; `other` is one it can't name. */
+export type ReviewProblemKind = "credit" | "keyRefused" | "planLimit" | "rateLimit" | "other";
+
+const KINDS: readonly ReviewProblemKind[] = [
+  "credit",
+  "keyRefused",
+  "planLimit",
+  "rateLimit",
+  "other",
+];
 
 const KIND_OF: Partial<Record<ProviderErrorKind, ReviewProblemKind>> = {
   "out-of-credit": "credit",
@@ -22,11 +30,11 @@ const KIND_OF: Partial<Record<ProviderErrorKind, ReviewProblemKind>> = {
   "rate-limit": "rateLimit",
 };
 
-/** The kind the Library says in its own words; null for one that keeps the provider's sentence. */
-export const reviewProblemKind = (kind: ProviderErrorKind): ReviewProblemKind | null =>
-  KIND_OF[kind] ?? null;
+/** The kind the Library says in its own words; one it has no words for is `other`. */
+export const reviewProblemKind = (kind: ProviderErrorKind): ReviewProblemKind =>
+  KIND_OF[kind] ?? "other";
 
-export const PROBLEM_WORDS: Record<ReviewProblemKind, MessageKey> = {
+export const PROBLEM_WORDS: Record<Exclude<ReviewProblemKind, "other">, MessageKey> = {
   credit: "library.organize.problem.credit",
   keyRefused: "library.organize.problem.keyRefused",
   planLimit: "library.organize.problem.planLimit",
@@ -61,8 +69,7 @@ export function reviewProblemsOf(
   for (const document of documents) {
     const item = held.get(document.id);
     if (organizeStateOf(document, item).run !== "failed") continue;
-    const kind = item?.error ? reviewProblemKind(item.error.kind) : null;
-    if (!kind) continue;
+    const kind = item?.error ? reviewProblemKind(item.error.kind) : "other";
     const list = groups.get(kind);
     if (list) list.push(document.id);
     else groups.set(kind, [document.id]);
@@ -71,4 +78,20 @@ export function reviewProblemsOf(
     const documentIds = groups.get(kind);
     return documentIds ? [{ kind, documentIds }] : [];
   });
+}
+
+/**
+ * One group's line: the cause with the service it went to, or Organize's own
+ * count when it can name neither. Never the provider's own sentence.
+ */
+export function problemLine(
+  kind: ReviewProblemKind,
+  count: number,
+  service: string | null,
+  t: Translate,
+): string {
+  if (kind === "other" || service === null) {
+    return t(count === 1 ? "library.organize.failed.one" : "library.organize.failed", { count });
+  }
+  return t(PROBLEM_WORDS[kind], { service });
 }

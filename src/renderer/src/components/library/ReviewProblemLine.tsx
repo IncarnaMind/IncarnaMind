@@ -1,7 +1,7 @@
 import { useT } from "../../i18n";
 import { organizeDocuments } from "../../organizeDocuments";
 import { fixOrganizeProblem } from "../../organizeFix";
-import { PROBLEM_FIX, PROBLEM_WORDS, type ReviewProblem } from "../../reviewProblems";
+import { PROBLEM_FIX, problemLine, type ReviewProblem } from "../../reviewProblems";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
 
@@ -9,7 +9,13 @@ import { ProblemLine } from "../ProblemLine";
  * One cause behind several Documents Organize couldn't sort (#2308): the
  * Library's own words for it, the one action that fixes it, and Try again.
  */
-export function ReviewProblemLine({ problem }: { problem: ReviewProblem }) {
+export function ReviewProblemLine({
+  problem,
+  serviceName,
+}: {
+  problem: ReviewProblem;
+  serviceName: string | null;
+}) {
   const t = useT();
   const fixLabel = PROBLEM_FIX[problem.kind];
   const retry = {
@@ -37,7 +43,7 @@ export function ReviewProblemLine({ problem }: { problem: ReviewProblem }) {
         }
         also={fixLabel ? retry : undefined}
       >
-        {t(PROBLEM_WORDS[problem.kind])}
+        {problemLine(problem.kind, problem.documentIds.length, serviceName, t)}
       </ProblemLine>
     </div>
   );

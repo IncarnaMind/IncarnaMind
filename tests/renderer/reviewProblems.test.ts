@@ -3,10 +3,14 @@ import type { Document, DocumentGroupAssignment, ProviderErrorKind } from "../..
 import {
   PROBLEM_FIX,
   PROBLEM_WORDS,
+  problemLine,
   reviewProblemKind,
   reviewProblemsOf,
 } from "../../src/renderer/src/reviewProblems";
-import { translate } from "../../src/shared/i18n";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+
+const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+const zh = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
 
 const doc = (id: string): Document => ({ id, name: id, tagging: "tagged" }) as Document;
 
@@ -54,9 +58,14 @@ describe("one line for the group, not one per row", () => {
     ).toEqual(["credit", "keyRefused", "planLimit", "rateLimit"]);
   });
 
-  test("keeps the provider's sentence for a cause the Library has no words for", () => {
-    expect(reviewProblemsOf([doc("a")], [held("a", "provider")])).toEqual([]);
-    expect(reviewProblemsOf([doc("a")], [held("a", null)])).toEqual([]);
+  test("a cause it can't name, and one with no cause at all, are one plain group", () => {
+    expect(
+      reviewProblemsOf(["a", "b", "c"].map(doc), [
+        held("a", "provider"),
+        held("b", "network"),
+        held("c", null),
+      ]),
+    ).toEqual([{ kind: "other", documentIds: ["a", "b", "c"] }]);
   });
 
   test("says nothing of a Document whose latest run did not fail", () => {
@@ -68,7 +77,8 @@ describe("one line for the group, not one per row", () => {
   test("a key the provider does not know and one this device can't read are both the key", () => {
     expect(reviewProblemKind("auth")).toBe("keyRefused");
     expect(reviewProblemKind("api-key-unreadable")).toBe("keyRefused");
-    expect(reviewProblemKind("provider")).toBeNull();
+    expect(reviewProblemKind("provider")).toBe("other");
+    expect(reviewProblemKind("network")).toBe("other");
   });
 });
 
@@ -89,27 +99,42 @@ describe("the words and the actions", () => {
     expect(translate("zh-CN", "answer.error.retry")).toBe("重试");
   });
 
-  test("the credit line says what ran out", () => {
-    expect(translate("en", PROBLEM_WORDS.credit)).toBe("No credit left on the key Organize uses");
-    expect(translate("zh-CN", PROBLEM_WORDS.credit)).toBe("整理用的密钥没有额度了");
-  });
-
-  test("a refused key says so", () => {
-    expect(translate("en", PROBLEM_WORDS.keyRefused)).toBe("The key Organize uses was refused");
-    expect(translate("zh-CN", PROBLEM_WORDS.keyRefused)).toBe("整理用的密钥被拒绝");
-  });
-
-  test("a plan's limit says so", () => {
-    expect(translate("en", PROBLEM_WORDS.planLimit)).toBe(
-      "The plan for Organize’s model is used up for now",
+  test("each cause names the service Organize sends to, in both languages", () => {
+    expect(translate("en", PROBLEM_WORDS.credit, { service: "OpenAI" })).toBe(
+      "Your OpenAI key is out of credit",
     );
-    expect(translate("zh-CN", PROBLEM_WORDS.planLimit)).toBe("整理所用模型的套餐额度暂时用完");
+    expect(translate("zh-CN", PROBLEM_WORDS.credit, { service: "OpenAI" })).toBe(
+      "你的 OpenAI 密钥额度已用完",
+    );
+    expect(translate("en", PROBLEM_WORDS.keyRefused, { service: "Anthropic" })).toBe(
+      "Your Anthropic key was refused",
+    );
+    expect(translate("zh-CN", PROBLEM_WORDS.keyRefused, { service: "Anthropic" })).toBe(
+      "你的 Anthropic 密钥被拒绝",
+    );
+    expect(translate("en", PROBLEM_WORDS.planLimit, { service: "ChatGPT" })).toBe(
+      "Your ChatGPT plan is used up for now",
+    );
+    expect(translate("zh-CN", PROBLEM_WORDS.planLimit, { service: "ChatGPT" })).toBe(
+      "你的 ChatGPT 套餐额度暂时用完",
+    );
+    expect(translate("en", PROBLEM_WORDS.rateLimit, { service: "OpenAI" })).toBe(
+      "OpenAI is limiting requests right now",
+    );
+    expect(translate("zh-CN", PROBLEM_WORDS.rateLimit, { service: "OpenAI" })).toBe(
+      "OpenAI 暂时限制了请求",
+    );
   });
 
-  test("a rate limit says so", () => {
-    expect(translate("en", PROBLEM_WORDS.rateLimit)).toBe(
-      "The service Organize uses is limiting requests right now",
-    );
-    expect(translate("zh-CN", PROBLEM_WORDS.rateLimit)).toBe("整理用的服务暂时限制了请求");
+  test("a cause it can't name is one plain line that keeps Try again", () => {
+    expect(problemLine("other", 4, null, en)).toBe("Organize couldn’t sort 4 Documents");
+    expect(problemLine("other", 1, null, en)).toBe("Organize couldn’t sort 1 Document");
+    expect(problemLine("other", 2, null, zh)).toBe("“整理”未能处理 2 个文档");
+    expect(PROBLEM_FIX.other).toBeUndefined();
+  });
+
+  test("a cause with no service it can name says Organize's own count instead", () => {
+    expect(problemLine("credit", 4, null, en)).toBe("Organize couldn’t sort 4 Documents");
+    expect(problemLine("credit", 1, null, zh)).toBe("“整理”未能处理 1 个文档");
   });
 });

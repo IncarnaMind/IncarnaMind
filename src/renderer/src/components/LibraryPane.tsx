@@ -4,7 +4,7 @@ import type { Document, LibraryGroup } from "../../../core/api";
 import { focusComposer } from "../commands/assistant";
 import { useComposer } from "../composer";
 import { LIBRARY_DELETED } from "../deletedItems";
-import { errorMessage, providerErrorText } from "../errors";
+import { errorMessage } from "../errors";
 import { useFindSources } from "../findSources";
 import { folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
@@ -40,7 +40,7 @@ import { looseDocumentIds, organizeDocuments, useProposing } from "../organizeDo
 import { organizeStateOf } from "../organizeOutcome";
 import { DAY_ONE_DOCUMENTS, ownsATag, useLibraryDocuments, useOwnDocuments } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
-import { PROBLEM_WORDS, reviewProblemKind } from "../reviewProblems";
+import { problemLine, reviewProblemKind } from "../reviewProblems";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
@@ -65,6 +65,7 @@ import { useReviewFocus } from "./library/useReviewFocus";
 import { ProblemLine } from "./ProblemLine";
 import { ReferenceImportPanel } from "./ReferenceImportPanel";
 import { UnreadFilesLine } from "./UnreadFilesLine";
+import { useTaggingService } from "./useTaggingService";
 
 const NO_GROUPS: readonly LibraryGroup[] = [];
 const NO_DOCUMENTS: readonly Document[] = [];
@@ -100,6 +101,9 @@ export function LibraryPane() {
   const tagFilter = useAppStore(useShallow((state) => state.tagFilter));
   const request = useAppStore((state) => state.libraryFilter);
   const reviewTarget = useAppStore((state) => state.reviewTarget);
+  const organizeService = useTaggingService("classification", true);
+  const organizeServiceName =
+    organizeService.route.where === "cloud" ? organizeService.route.service.name : null;
   const findingSources = useFindSources((state) => state.open);
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
@@ -236,24 +240,18 @@ export function LibraryPane() {
     (documentId: string) => {
       if (!unsortedIds.has(documentId)) return null;
       const said = assignments.get(documentId)?.error;
-      const kind = said ? reviewProblemKind(said.kind) : null;
-      if (kind) return t(PROBLEM_WORDS[kind]);
-      const text = said ? providerErrorText(said, t) : "";
-      return text || t("library.notSorted.noReason");
+      return problemLine(said ? reviewProblemKind(said.kind) : "other", 1, organizeServiceName, t);
     },
-    [unsortedIds, assignments, t],
+    [unsortedIds, assignments, t, organizeServiceName],
   );
   const sortFailedOf = useCallback(
     (documentId: string) => {
       const state = states.get(documentId);
       if (!state?.suggested || state.run !== "failed") return null;
       const said = assignments.get(documentId)?.error;
-      const kind = said ? reviewProblemKind(said.kind) : null;
-      if (kind) return t(PROBLEM_WORDS[kind]);
-      const text = said ? providerErrorText(said, t) : "";
-      return text || t("library.notSorted.noReason");
+      return problemLine(said ? reviewProblemKind(said.kind) : "other", 1, organizeServiceName, t);
     },
-    [states, assignments, t],
+    [states, assignments, t, organizeServiceName],
   );
   const notSorted = useMemo(
     () =>
@@ -597,6 +595,7 @@ export function LibraryPane() {
                     notSortedOf={notSortedOf}
                     sortFailedOf={sortFailedOf}
                     assignments={snapshot?.assignments ?? []}
+                    serviceName={organizeServiceName}
                   />
                 )}
                 {sections.map((section) => (

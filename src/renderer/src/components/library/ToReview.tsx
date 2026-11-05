@@ -27,6 +27,7 @@ export function ToReview({
   notSortedOf,
   sortFailedOf,
   assignments,
+  serviceName,
 }: {
   review: Review;
   /** The Documents Organize couldn't sort, in the page's order. */
@@ -35,6 +36,8 @@ export function ToReview({
   notSortedOf(documentId: string): string | null;
   sortFailedOf(documentId: string): string | null;
   assignments: readonly DocumentGroupAssignment[];
+  /** The service Organize sends to, as the model menu names it; null when it runs here. */
+  serviceName: string | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -151,7 +154,7 @@ export function ToReview({
                 })}
               </p>
               {problems.map((problem) => (
-                <ReviewProblemLine key={problem.kind} problem={problem} />
+                <ReviewProblemLine key={problem.kind} problem={problem} serviceName={serviceName} />
               ))}
               {listed.map((doc) => (
                 <LibraryRow
@@ -189,7 +192,7 @@ export function ToReview({
             })}
           </p>
           {unsortedProblems.map((problem) => (
-            <ReviewProblemLine key={problem.kind} problem={problem} />
+            <ReviewProblemLine key={problem.kind} problem={problem} serviceName={serviceName} />
           ))}
           {unsortedListed.map((doc) => (
             <LibraryRow

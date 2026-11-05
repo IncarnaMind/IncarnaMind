@@ -21,9 +21,10 @@ import {
 /*
  * The sidebar's "Needs attention · Review" (#2308): each press takes the User to the next
  * Document Organize couldn't sort, its row in view with the group's line and its action; once
- * every one was seen the status goes. A credit failure is one plain line for the group, with
- * Add credit and Try again, instead of the provider's sentence cut short in every row. In
- * English and Chinese, at 900 and 1,440 pixels. Set INCARNAMIND_SCREENSHOTS to save screenshots.
+ * every one was seen the status goes. A failure is one plain line for the group, naming the
+ * service Organize sends to, with that cause's action and Try again; a cause the Library can't
+ * name is one plain line with Try again. Never the provider's sentence. In English and Chinese,
+ * at 900 and 1,440 pixels. Set INCARNAMIND_SCREENSHOTS to save screenshots.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -172,7 +173,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     const line = library.getByTestId("library-review-problem");
     await expect(line).toHaveCount(1);
     await expect(line).toHaveAttribute("data-kind", "credit");
-    await expect(line).toContainText("No credit left on the key Organize uses");
+    await expect(line).toContainText("Your OpenAI key is out of credit");
     await expect(line.getByRole("button")).toHaveText(["Add credit", "Try again"]);
     await expect(unsortedRows(window)).toHaveCount(4);
     await expect(
@@ -192,7 +193,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
 
     // The second from the Library, in Chinese.
     await setLanguage(window, "zh-CN");
-    await expect(line).toContainText("整理用的密钥没有额度了");
+    await expect(line).toContainText("你的 OpenAI 密钥额度已用完");
     await expect(line.getByRole("button")).toHaveText(["充值", "重试"]);
     await screenshot(window, "review-attention-zh-1440-status");
     const second = await pressReview(window, secondId);
@@ -216,7 +217,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
 
     // The fourth from a Note, in Chinese: every one was seen, so the status goes.
     await setLanguage(window, "zh-CN");
-    await expect(line).toContainText("整理用的密钥没有额度了");
+    await expect(line).toContainText("你的 OpenAI 密钥额度已用完");
     await screenshot(window, "review-attention-zh-900-status");
     await newMind(window);
     const fourth = await pressReview(window, fourthId);
@@ -262,6 +263,31 @@ test("Review goes to each Document that needs attention, and a credit failure is
     });
     expect(sorted).toHaveLength(4);
     for (const each of sorted) expect(each).toEqual({ folder: "Invoice", status: "classified" });
+
+    // A cause the Library can't name is still one plain line with Try again, never the provider's words.
+    const unreadable: string[] = [];
+    for (let at = 1; at <= 2; at++) {
+      const path = join(sources, `Field notes ${at}.txt`);
+      await writeFile(path, `Field notes ${at}. The server is unreachable.`);
+      unreadable.push(path);
+    }
+    await addDocuments(window, unreadable);
+    await pointAndClick(window, library.getByTestId("library-organize"));
+    const notSorted = library.getByTestId("library-review-not-sorted");
+    await expect(notSorted).toBeVisible({ timeout: 60_000 });
+    await pointAndClick(window, notSorted);
+    const fallback = library.getByTestId("library-review-problem");
+    await expect(fallback).toHaveCount(1);
+    await expect(fallback).toHaveAttribute("data-kind", "other");
+    await expect(fallback).toContainText("Organize couldn’t sort 2 Documents");
+    await expect(fallback.getByRole("button")).toHaveText(["Try again"]);
+    const unsorted = library.getByTestId("library-review-unsorted");
+    await expect(unsorted).toBeVisible();
+    await expect(unsorted).not.toContainText("Cannot connect to API");
+    await setLanguage(window, "zh-CN");
+    await expect(fallback).toContainText("“整理”未能处理 2 个文档");
+    await expect(fallback.getByRole("button")).toHaveText(["重试"]);
+    await expect(unsorted).not.toContainText("Cannot connect to API");
   } finally {
     await app.close();
   }
