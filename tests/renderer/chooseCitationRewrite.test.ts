@@ -266,6 +266,8 @@ describe("Rewrite with what the Documents say", () => {
     expect(
       about("Rent is 1100 dollars.", "Rent is 1250 dollars and the deposit 3000 dollars."),
     ).toBe(false);
+    // A year: a correction keeps a named period, so a rewrite never changes one.
+    expect(about("The lease starts in 2025.", "The lease starts in 2026.")).toBe(false);
     // The same thing's figure, and the same party's name.
     expect(about("Rent is 1100 dollars.", "Rent is 1250 dollars.")).toBe(true);
     expect(

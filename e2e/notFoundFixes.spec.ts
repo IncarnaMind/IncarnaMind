@@ -36,7 +36,6 @@ const OWN = "Harbours publish the times of high water every 12 months.";
 const ELSEWHERE = "Penguins nest on the harbour cliffs every spring.";
 const ABSENT = "Whales sing in the deep bay.";
 const DIFFERENT = "Harbours forecast tides for 6 months.";
-const PORTS = "Harbours publish (6) for (3) ports.";
 const TIDE_TABLES = "北码头潮汐时刻表";
 
 let dataDirs: string[];
@@ -66,6 +65,8 @@ const DRY_FILES = [
   { name: "Bay.txt", contents: "Bay\n\nThe bay is dry for 3 months of summer.\n" },
 ];
 const DRY_REWRITTEN = "The bay is dry for 3 months of summer￼.";
+/** The same, with a figure the line doesn't give: Rewrite is offered, and the core keeps it. */
+const DRY_AND_WINTER = "The bay is dry for 2 months of summer and 5 of winter.";
 
 /** The app in `language`, the Documents added, and a new Note: its scope `scope` when given. */
 async function launchNote(
@@ -433,10 +434,10 @@ for (const language of ["en", "zh-CN"] as const) {
     );
 
     // A figure the Passage doesn't give stays out: the sentence is kept as written.
-    const ports = await checkSentence(window, editor, PORTS);
-    await pointAndClick(window, ports.getByTestId("claim-rewrite"));
+    const kept = await checkSentence(window, editor, DRY_AND_WINTER);
+    await pointAndClick(window, kept.getByTestId("claim-rewrite"));
     await expect(window.getByTestId("error-notice-message")).toContainText(t("claim.rewrite.kept"));
-    expect(await noteText(editor)).toBe(`${DRY}\n${PORTS}`);
+    expect(await noteText(editor)).toBe(`${DRY}\n${DRY_AND_WINTER}`);
     await setWindowSize(app, window, 900, 900);
     await capture(window, `after-rewrite-kept-${language}-900`);
 

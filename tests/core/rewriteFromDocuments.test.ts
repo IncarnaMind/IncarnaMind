@@ -192,10 +192,19 @@ describe("Nothing to change is the same value only by the code's own reading", (
     expect(rewritten(quote, NONE, quote)).toEqual({ kind: "same" });
   });
 
-  test("is the same value where the quote gives that one among others", () => {
+  test("is the model's alone where the quote gives the value among others", () => {
     expect(
-      rewritten("The deposit is $42,750.", NONE, "The rent is $14,250 and the deposit is $42,750."),
-    ).toEqual({ kind: "same" });
+      rewritten("The rent is $42,750.", NONE, "The rent is $14,250 and the deposit is $42,750."),
+    ).toEqual({ kind: "none" });
+    expect(rewritten("租金为42750元。", NONE, "租金为14250元，押金为42750元。")).toEqual({
+      kind: "none",
+    });
+    expect(rewritten("The rent is $42,750.", NONE, "The rent is $14,250 or $42,750.")).toEqual({
+      kind: "none",
+    });
+    expect(rewritten("The rent is $42,750.", NONE, "The rent is $42,750.")).toEqual({
+      kind: "same",
+    });
   });
 });
 
@@ -440,6 +449,144 @@ describe("A rewritten figure keeps every word before it that the quote says", ()
   });
 });
 
+describe("A rewritten figure is said of the same thing in the same words, either side's", () => {
+  test.each([
+    [
+      "a narrower thing",
+      "Income was $2.1 million.",
+      "Change 1: $2.1 million\nTo 1: $2.4 million",
+      "Operating income was $2.4 million.",
+      "Operating income was $2.1 million.",
+    ],
+    [
+      "a narrower thing after it",
+      "The rent is $12,000.",
+      "Change 1: $12,000\nTo 1: $13,500",
+      "The rent for the parking space is $13,500.",
+      "The rent for the parking space is $12,000.",
+    ],
+    [
+      "a narrower thing, in Chinese",
+      "营收为3.3亿元。",
+      "Change 1: 3.3亿元\nTo 1: 3.6亿元",
+      "海外营收为3.6亿元。",
+      "海外营收为3.3亿元。",
+    ],
+    [
+      "may",
+      "The rent is $12,000.",
+      "Change 1: $12,000\nTo 1: $13,500",
+      "The Landlord may raise the rent to $13,500.",
+      "The Landlord may raise the rent to $12,000.",
+    ],
+    [
+      "a condition",
+      "The rent is $12,000.",
+      "Change 1: $12,000\nTo 1: $13,500",
+      "Upon renewal, the rent is $13,500.",
+      "Upon renewal, the rent is $12,000.",
+    ],
+    [
+      "a hedge on no list",
+      "The rent is $12,000.",
+      "Change 1: $12,000\nTo 1: $13,500",
+      "The rent is in excess of $13,500.",
+      "The rent is in excess of $12,000.",
+    ],
+    [
+      "a cap, in Chinese",
+      "租金为2400元。",
+      "Change 1: 2400\nTo 1: 2600",
+      "租金上限为2600元。",
+      "租金上限为2400元。",
+    ],
+    [
+      "a change for a level",
+      "Revenue was $1.2 million.",
+      "Change 1: $1.2 million\nTo 1: $1.5 million",
+      "Revenue fell $1.5 million.",
+      "Revenue fell $1.2 million.",
+    ],
+    [
+      "to for by",
+      "Revenue rose by 8%.",
+      "Change 1: 8%\nTo 1: 12%",
+      "Revenue rose to 12%.",
+      "Revenue rose to 8%.",
+    ],
+    [
+      "至 for none, in Chinese",
+      "营收增长8%。",
+      "Change 1: 8%\nTo 1: 12%",
+      "营收增长至12%。",
+      "营收增长至8%。",
+    ],
+    [
+      "another party by one letter",
+      "Party A pays $900.",
+      "Change 1: $900\nTo 1: $1,200",
+      "Party B pays $1,200.",
+      "Party B pays $900.",
+    ],
+    [
+      "the parties the other way round",
+      "The Landlord pays the Tenant $5,000.",
+      "Change 1: $5,000\nTo 1: $6,000",
+      "The Tenant pays the Landlord $6,000.",
+      "The Tenant pays the Landlord $5,000.",
+    ],
+    [
+      "the parties the other way round, in Chinese",
+      "甲方向乙方支付5000元。",
+      "Change 1: 5000\nTo 1: 6000",
+      "乙方向甲方支付6000元。",
+      "乙方向甲方支付5000元。",
+    ],
+  ])(
+    "refuses %s only the quote says, and rewrites a sentence that says it too",
+    (_, sentence, reply, quote, same) => {
+      expect(rewritten(sentence, reply, quote)).toEqual({ kind: "kept" });
+      expect(rewritten(same, reply, quote)).toMatchObject({ kind: "rewritten" });
+    },
+  );
+
+  test.each([
+    ["shall", "The Tenant pays a fee of $250.", "The Tenant shall pay a fee of $300."],
+    ["every", "Tenants pay $40 a month.", "Every tenant pays $55 a month."],
+    [
+      "a verb after by",
+      "Either party may end it with 30 days' notice.",
+      "Either party may end it by giving 45 days' notice.",
+    ],
+    ["annual beside a year", "The levy is $40 a year.", "The annual levy is $55 a year."],
+    ["应", "乙方支付押金500元。", "乙方应支付押金600元。"],
+  ])("rewrites where only the quote adds %s", (_, sentence, quote) => {
+    const [from] = sentence.match(/\d[\d,]*/u) ?? [];
+    const [to] = quote.match(/\d[\d,]*/u) ?? [];
+    expect(rewritten(sentence, `Change 1: ${from}\nTo 1: ${to}`, quote)).toMatchObject({
+      kind: "rewritten",
+    });
+  });
+
+  test("refuses a figure the quote alone says rose, after it, and rewrites one that says so too", () => {
+    const reply = "Change 1: $1.2 million\nTo 1: $1.5 million";
+    const quote = "Revenue was $1.5 million, an increase.";
+    expect(rewritten("Revenue was $1.2 million.", reply, quote)).toEqual({ kind: "kept" });
+    expect(rewritten("Revenue was $1.2 million, an increase.", reply, quote)).toMatchObject({
+      kind: "rewritten",
+    });
+    expect(rewritten("Revenue was $1.5 million.", "Change 1: none\nTo 1: none", quote)).toEqual({
+      kind: "none",
+    });
+  });
+
+  test("refuses annual where the sentence names no year", () => {
+    expect(
+      rewritten("The levy is $40.", "Change 1: $40\nTo 1: $55", "The annual levy is $55."),
+    ).toEqual({ kind: "kept" });
+  });
+});
+
 describe("A rewritten name keeps whose name it is", () => {
   test("refuses the other party's name, told by the words after it", () => {
     expect(
@@ -490,6 +637,16 @@ describe("A rewritten name keeps whose name it is", () => {
     ["张医生", "项目负责人为张医生。"],
     ["李太太", "项目负责人为李太太。"],
     ["王某", "项目负责人为王某。"],
+    ["王师傅", "项目负责人为王师傅。"],
+    ["王某某", "项目负责人为王某某。"],
+    ["李阿姨", "项目负责人为李阿姨。"],
+    ["王姐", "项目负责人为王姐。"],
+    ["王哥", "项目负责人为王哥。"],
+    ["王叔", "项目负责人为王叔。"],
+    ["陈伯", "项目负责人为陈伯。"],
+    ["王老", "项目负责人为王老。"],
+    ["刘律", "项目负责人为刘律。"],
+    ["李同学", "项目负责人为李同学。"],
   ])("refuses %s in Chinese: a surname and a title", (name, quote) => {
     expect(rewritten("项目负责人为李乙。", `Change 1: 李乙\nTo 1: ${name}`, quote)).toEqual({
       kind: "kept",
