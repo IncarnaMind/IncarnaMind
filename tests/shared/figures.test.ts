@@ -1850,6 +1850,11 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("$62,000.00", 62000, { unit: "USD" })],
     ],
     [
+      `Cash came to sixty-two thousand dollars ($62,000.00). ${"x".repeat(389)} negative`,
+      EN,
+      [f("$62,000.00", 62000, { unit: "USD" })],
+    ],
+    [
       `Cash came to sixty-two thousand dollars ($62,000.00). ${"The Tenant shall keep the premises in good repair. ".repeat(9)}That balance is negative.`,
       EN,
       [f("$62,000.00", 62000, { unit: "USD" })],
@@ -2262,32 +2267,32 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("($4,000.00)", -4000, { unit: "USD" })],
     ],
     [
-      "The negative balance owed by Acme Inc. was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance owed by Party A Inc. was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance of Acme Ltd. stood at ninety-five thousand dollars ($95,000.00).",
+      "The negative balance of Party B Ltd. stood at ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance due to Mr. Smith was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance due to Mr. A was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance due to Mrs. Smith was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance due to Mrs. B was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance due to Ms. Smith was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance due to Ms. C was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance due to Dr. Smith was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance due to Dr. D was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
@@ -2317,22 +2322,22 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance of Smith Jr. Holdings was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance of Party C Jr. Holdings was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance due to Prof. Wang was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance due to Prof. E was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance of Acme Corp. Treasury was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance of Party D Corp. Treasury was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The negative balance of Acme Co. Ltd. was ninety-five thousand dollars ($95,000.00).",
+      "The negative balance of Party B Co. Ltd. was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
@@ -2372,7 +2377,7 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The balance was negative for Acme Inc. The fee was ninety-five thousand dollars ($95,000.00).",
+      "The balance was negative for Party A Inc. The fee was ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
@@ -2477,17 +2482,17 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "Acme had a negative result. Acme Inc. paid a fee of ninety-five thousand dollars ($95,000.00).",
+      "Party A had a negative result. Party A Inc. paid a fee of ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The result was negative. Acme Ltd. paid ninety-five thousand dollars ($95,000.00).",
+      "The result was negative. Party B Ltd. paid ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
     [
-      "The outlook was negative. Mr. Smith paid ninety-five thousand dollars ($95,000.00).",
+      "The outlook was negative. Mr. A paid ninety-five thousand dollars ($95,000.00).",
       EN,
       [f("($95,000.00)", -95000, { unit: "USD" })],
     ],
@@ -2640,6 +2645,139 @@ describe("a bracket right after an amount (#2341)", () => {
       "The loss-making unit's result was sixty-two thousand dollars ($62,000.00).",
       EN,
       [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Net cash at year end: - sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The movement was – sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Net debt movement: − USD 6.2 million ($6,200,000)",
+      EN,
+      [
+        f("USD 6.2 million", 6200000, { unit: "USD", scale: "million" }),
+        f("($6,200,000)", -6200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "The account stood below zero, at sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Retained earnings fell under zero: sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Its equity, sixty-two thousand dollars ($62,000.00), was less than zero.",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The ledger shows the account in debit, sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Cash position -ve: sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Current account OD sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The figure, sixty-two thousand dollars ($62,000.00), is printed in red.",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The project is under water by sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "期末现金余额低于零，为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "账户余额小于零：人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "该项目以红字列示人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "本年净利润为亏，金额人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "本期净亏人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "应付款项扣减人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "抵扣人民币六万二千元（¥62,000）后的余额",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "减去人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "减除人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "Deduct: retention of sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Less — retention of sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      `Cash came to sixty-two thousand dollars ($62,000.00). ${"x".repeat(388)} negative`,
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Its result is shown in red: sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The underwater loan stood at sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "本月亏了人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
     ],
     [
       "Despite a negative outlook, the rent is sixty-two thousand dollars ($62,000.00).",
