@@ -1062,12 +1062,13 @@ export function createLibrary(options: {
           gateStop(error) !== null ||
           error instanceof TaggingNotReadyError ||
           reachedPlanLimit(error);
-        state(
-          id,
-          waiting ? "waiting" : "failed",
+        const said =
           limitedUntil === null
             ? (refused ?? classifyProviderError(error))
-            : rateLimitError(limitedUntil, error),
+            : rateLimitError(limitedUntil, error);
+        state(id, waiting ? "waiting" : "failed", said);
+        console.error(
+          `Organize couldn't sort Document ${id}: ${said.kind}${said.status === undefined ? "" : ` (${said.status})`}. ${said.message}`,
         );
         call.failed?.(error);
       }

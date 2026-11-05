@@ -40,7 +40,7 @@ import { looseDocumentIds, organizeDocuments, useProposing } from "../organizeDo
 import { organizeStateOf } from "../organizeOutcome";
 import { DAY_ONE_DOCUMENTS, ownsATag, useLibraryDocuments, useOwnDocuments } from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
-import { problemLine, reviewProblemKind } from "../reviewProblems";
+import { reviewProblemKind, reviewReason } from "../reviewProblems";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
 import { sortOf, useSort } from "../sortChoices";
@@ -241,22 +241,25 @@ export function LibraryPane() {
     () => new Set([...states].flatMap(([id, state]) => (state.place === "notSorted" ? [id] : []))),
     [states],
   );
-  const notSortedOf = useCallback(
+  const reasonOf = useCallback(
     (documentId: string) => {
-      if (!unsortedIds.has(documentId)) return null;
       const said = assignments.get(documentId)?.error;
-      return problemLine(said ? reviewProblemKind(said.kind) : "other", 1, organizeServiceName, t);
+      return reviewReason(said ? reviewProblemKind(said.kind) : "other", organizeServiceName, t);
     },
-    [unsortedIds, assignments, t, organizeServiceName],
+    [assignments, t, organizeServiceName],
+  );
+  const notSortedOf = useCallback(
+    (documentId: string) => (unsortedIds.has(documentId) ? reasonOf(documentId) : null),
+    [unsortedIds, reasonOf],
   );
   const sortFailedOf = useCallback(
     (documentId: string) => {
       const state = states.get(documentId);
-      if (!state?.suggested || state.run !== "failed") return null;
-      const said = assignments.get(documentId)?.error;
-      return problemLine(said ? reviewProblemKind(said.kind) : "other", 1, organizeServiceName, t);
+      return state?.run === "failed" && !state.manual && state.place !== "notSorted"
+        ? reasonOf(documentId)
+        : null;
     },
-    [states, assignments, t, organizeServiceName],
+    [states, reasonOf],
   );
   const notSorted = useMemo(
     () =>
@@ -328,8 +331,8 @@ export function LibraryPane() {
     held.keepOnly((ref) => visible.has(ref.id));
   }, [shownIds, reviewList]);
   useReviewFocus(grid, reviewList.join());
-  // The sidebar's Review asked for this Document: clear what hides it, open where it waits,
-  // and put its row in view with the focus on it.
+  // The row may hide behind the search, a filter or a folded section: clear what hides it before
+  // the reveal looks, which gives up after 120 frames (#2308).
   useEffect(() => {
     if (reviewTarget === null) return;
     useAppStore.setState({ reviewTarget: null });

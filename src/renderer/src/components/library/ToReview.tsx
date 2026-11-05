@@ -6,7 +6,7 @@ import { useLibraryFolds, useRevealed } from "../../libraryFolds";
 import { FIRST_ROWS } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
 import { lastOrganizeStep } from "../../organizeRun";
-import { reviewProblemsOf } from "../../reviewProblems";
+import { type ReviewReason, reviewProblemsOf } from "../../reviewProblems";
 import { useAppStore } from "../../store";
 import { type ToReview as Review, reviewSummary, TO_REVIEW } from "../../toReview";
 import { foldKeys, TREE_ROW } from "../../treeKeys";
@@ -33,8 +33,8 @@ export function ToReview({
   /** The Documents Organize couldn't sort, in the page's order. */
   notSorted: readonly Document[];
   suggestedIn(documentId: string): string | null;
-  notSortedOf(documentId: string): string | null;
-  sortFailedOf(documentId: string): string | null;
+  notSortedOf(documentId: string): ReviewReason | null;
+  sortFailedOf(documentId: string): ReviewReason | null;
   assignments: readonly DocumentGroupAssignment[];
   /** The service Organize sends to, as the model menu names it; null when it runs here. */
   serviceName: string | null;

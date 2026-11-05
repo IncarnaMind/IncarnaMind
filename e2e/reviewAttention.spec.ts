@@ -10,6 +10,7 @@ import {
   interceptOpenExternal,
   launchApp,
   leaveFirstOpen,
+  leaveText,
   newMind,
   pointAndClick,
   removeDataFolder,
@@ -167,6 +168,38 @@ test("Review goes to each Document that needs attention, and a credit failure is
     const status = attentionOf(window);
     await expect(status).toBeVisible({ timeout: 60_000 });
     await expect(status.getByTestId("status-label")).toHaveText("Needs attention");
+
+    // A row names only the cause, and its tooltip and accessible name carry the whole sentence (#2535).
+    const failedRow = library
+      .locator("[data-document-id]")
+      .filter({ has: window.getByTestId("library-not-sorted") })
+      .first();
+    await expect(failedRow.getByTestId("library-not-sorted")).toContainText("No credit left");
+    await expect(failedRow.getByTestId("library-not-sorted")).toHaveAttribute(
+      "title",
+      "Your OpenAI key is out of credit",
+    );
+    const clipped = () =>
+      failedRow.getByTestId("library-not-sorted").evaluate((element) => {
+        const text = element.querySelector('[aria-hidden="true"]');
+        return text !== null && text.scrollWidth > text.clientWidth + 1;
+      });
+    expect(await clipped()).toBe(false);
+
+    // Get info says the same plain words, never the provider's sentence.
+    await failedRow.locator("[data-row-main]").focus();
+    await window.keyboard.press("ControlOrMeta+i");
+    const info = window.getByTestId("info-panel");
+    await expect(info).toBeVisible();
+    await expect(info.getByTestId("info-organize")).toContainText(
+      "Your OpenAI key is out of credit",
+    );
+    await expect(info.getByTestId("info-organize")).not.toContainText(
+      "You exceeded your current quota",
+    );
+    await window.keyboard.press("Escape");
+    await expect(info).toHaveCount(0);
+
     await pointAndClick(window, library.getByTestId("library-review-not-sorted"));
 
     // One line for the group, not the provider's sentence in every row.
@@ -174,7 +207,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await expect(line).toHaveCount(1);
     await expect(line).toHaveAttribute("data-kind", "credit");
     await expect(line).toContainText("Your OpenAI key is out of credit");
-    await expect(line.getByRole("button")).toHaveText(["Add credit", "Try again"]);
+    await expect(line.getByRole("button")).toHaveText(["Add credit"]);
     await expect(unsortedRows(window)).toHaveCount(4);
     await expect(
       window.getByTestId("library-review-unsorted").getByTestId("library-not-sorted"),
@@ -194,7 +227,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     // The second from the Library, in Chinese.
     await setLanguage(window, "zh-CN");
     await expect(line).toContainText("你的 OpenAI 密钥额度已用完");
-    await expect(line.getByRole("button")).toHaveText(["充值", "重试"]);
+    await expect(line.getByRole("button")).toHaveText(["充值"]);
     await screenshot(window, "review-attention-zh-1440-status");
     const second = await pressReview(window, secondId);
     expect(second.selected).toBe(secondId);
@@ -206,6 +239,8 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await setLanguage(window, "en");
     await setWindowSize(app, window, 900, 760);
     await expect(status).toBeVisible();
+    await expect(library.getByTestId("library-not-sorted").first()).toContainText("No credit left");
+    expect(await clipped()).toBe(false);
     await screenshot(window, "review-attention-en-900-status");
     await newMind(window);
     const third = await pressReview(window, thirdId);
@@ -234,17 +269,39 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await screenshot(window, "review-attention-en-900-gone");
     await expect(attentionOf(window)).toHaveCount(0);
 
-    // Add credit opens the company's billing page; Try again sorts them once it is added.
+    // Add credit opens the company's billing page; back in the app, they try once by themselves (#2535).
     await pointAndClick(window, line.getByTestId("library-review-problem-fix"));
     await expect
       .poll(() => urlsOpened(app))
       .toContain("https://platform.openai.com/settings/organization/billing/overview");
-    await pointAndClick(window, line.getByTestId("library-review-problem-retry"));
+    await window.evaluate(() => {
+      globalThis.dispatchEvent(new Event("focus"));
+    });
     await expect(library.getByTestId("library-review-unsorted")).toHaveCount(0, {
       timeout: 60_000,
     });
     await expect(library.getByTestId("library-review-problem")).toHaveCount(0);
     await expect(attentionOf(window)).toHaveCount(0);
+    // The retry runs on its own: wait for the four to be classified, not only queued.
+    await expect
+      .poll(
+        async () =>
+          await window.evaluate(async () => {
+            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const [{ assignments }, documents] = await Promise.all([
+              core.getLibrary(),
+              core.listDocuments(),
+            ]);
+            return documents
+              .filter((document) => /^Invoice \d/.test(document.name))
+              .map(
+                (document) =>
+                  assignments.find((each) => each.documentId === document.id)?.status ?? null,
+              );
+          }),
+        { timeout: 60_000 },
+      )
+      .toEqual(["classified", "classified", "classified", "classified"]);
     const sorted = await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const [{ groups, assignments }, documents] = await Promise.all([
@@ -353,6 +410,84 @@ test("Review opens To review past its first rows when a search hides them", asyn
       await library.getByTestId("library-search").fill("Nothing matches this");
       await pressReview(window, id);
     }
+    await expect(attentionOf(window)).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Document Review showed needs attention again after Undo, and Review lands on it", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await leaveFirstOpen(window);
+    await acceptPlainTextKeys(window);
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const provider = await core.saveChatProvider({
+        kind: "openai",
+        apiKey: "sk-test",
+        modelId: "fake-model",
+      });
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+        automatic: false,
+      });
+      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+      if (flow) await core.allowDataFlow("classification", flow.flow.service.id);
+      await core.createLibraryGroup({ name: "Invoice", description: "Invoices" });
+    });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, "en");
+
+    const path = join(sources, "Invoice 1.txt");
+    await writeFile(path, "Invoice 1 for consulting. The account is out of credit.");
+    await addDocuments(window, [path]);
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    await pointAndClick(window, library.getByTestId("library-organize"));
+
+    // One Document needs attention, and the sidebar says so in the singular (#2535).
+    const status = attentionOf(window);
+    await expect(status).toBeVisible({ timeout: 60_000 });
+    await expect(status.getByTestId("status-label")).toHaveText("Needs attention");
+    await expect(status).toContainText("1 Document can’t be organized yet");
+
+    const [id] = await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return (await core.listDocuments())
+        .filter((document) => /^Invoice \d/.test(document.name))
+        .map((document) => document.id);
+    });
+    if (id === undefined) throw new Error("The Document isn't in the Library.");
+    const first = await pressReview(window, id);
+    expect(first.selected).toBe(id);
+    await expect(attentionOf(window)).toHaveCount(0);
+
+    // In a Folder it needs nothing; Undo brings the failure back, and with it the status.
+    const row = library
+      .getByTestId("library-review-document")
+      .filter({ has: window.getByRole("button", { name: "Invoice 1", exact: true }) });
+    await expect(row).toHaveCount(1);
+    await row.locator("[data-row-main]").focus();
+    await window.keyboard.press("ControlOrMeta+Shift+M");
+    const picker = window.getByTestId("move-to-picker");
+    await expect(picker.getByTestId("move-to-search")).toBeFocused();
+    await window.keyboard.type("Invoice");
+    await expect(
+      picker.locator('[data-testid="move-to-option"][aria-selected="true"]'),
+    ).toContainText("Invoice");
+    await window.keyboard.press("Enter");
+    await expect(attentionOf(window)).toHaveCount(0);
+
+    await leaveText(window);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(attentionOf(window)).toBeVisible({ timeout: 10_000 });
+    await expect(status.getByTestId("status-label")).toHaveText("Needs attention");
+    await expect(status).toContainText("1 Document can’t be organized yet");
+    const again = await pressReview(window, id);
+    expect(again.selected).toBe(id);
     await expect(attentionOf(window)).toHaveCount(0);
   } finally {
     await app.close();

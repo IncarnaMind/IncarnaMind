@@ -1,13 +1,14 @@
 import { useT } from "../../i18n";
 import { organizeDocuments } from "../../organizeDocuments";
 import { fixOrganizeProblem } from "../../organizeFix";
-import { PROBLEM_FIX, problemLine, type ReviewProblem } from "../../reviewProblems";
+import { PROBLEM_FIX, problemAction, problemLine, type ReviewProblem } from "../../reviewProblems";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
 
 /**
  * One cause behind several Documents Organize couldn't sort (#2308): the
- * Library's own words for it, the one action that fixes it, and Try again.
+ * Library's own words for it and the one action that fits it. A cause it
+ * can't name offers Try again alone (#2535).
  */
 export function ReviewProblemLine({
   problem,
@@ -17,7 +18,8 @@ export function ReviewProblemLine({
   serviceName: string | null;
 }) {
   const t = useT();
-  const fixLabel = PROBLEM_FIX[problem.kind];
+  const fixLabel =
+    problemAction(problem.kind, serviceName) === "fix" ? PROBLEM_FIX[problem.kind] : undefined;
   const retry = {
     label: t("answer.error.retry"),
     testId: "library-review-problem-retry",
@@ -37,11 +39,10 @@ export function ReviewProblemLine({
             ? {
                 label: t(fixLabel),
                 testId: "library-review-problem-fix",
-                onClick: () => void fixOrganizeProblem(problem.kind),
+                onClick: () => void fixOrganizeProblem(problem.kind, problem.documentIds),
               }
             : retry
         }
-        also={fixLabel ? retry : undefined}
       >
         {problemLine(problem.kind, problem.documentIds.length, serviceName, t)}
       </ProblemLine>

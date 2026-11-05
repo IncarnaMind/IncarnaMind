@@ -18,7 +18,6 @@ import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
 import { documentStatusText } from "../documentStatus";
 import { missingFonts, useFontLoads } from "../editor/wordFonts";
-import { providerErrorText } from "../errors";
 import { addedDate, documentSummary, showFileLabelKey, userFile } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { useInfo } from "../info";
@@ -32,6 +31,7 @@ import {
 } from "../linkedFolders";
 import { type Box, enterFrom, useExitToward } from "../motion";
 import { useNotices } from "../notices";
+import { problemLine, reviewProblemKind } from "../reviewProblems";
 import { scanningStatus } from "../scanStatus";
 import { useAppStore } from "../store";
 import { chipsOf } from "../tagEditing";
@@ -305,6 +305,9 @@ function DocumentInfo({ document }: { document: Document }) {
     "scan-images",
     assignment?.error?.wording?.key === "error.library.scanImagesOff",
   );
+  const organizeService = useTaggingService("classification", Boolean(assignment?.error));
+  const organizeServiceName =
+    organizeService.route.where === "cloud" ? organizeService.route.service.name : null;
   const scanImagesToAllow =
     scanImages.route.where === "cloud" && scanImages.allowed === false
       ? scanImages.route.service
@@ -432,7 +435,11 @@ function DocumentInfo({ document }: { document: Document }) {
             <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
           )}
           {assignment?.error && (
-            <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
+            <span className="block text-ink-meta">
+              {assignment.error.wording
+                ? t(assignment.error.wording.key, assignment.error.wording.values)
+                : problemLine(reviewProblemKind(assignment.error.kind), 1, organizeServiceName, t)}
+            </span>
           )}
           {scanImagesToAllow && (
             <button

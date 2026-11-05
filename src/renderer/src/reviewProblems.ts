@@ -95,3 +95,40 @@ export function problemLine(
   }
   return t(PROBLEM_WORDS[kind], { service });
 }
+
+/** Whether a cause can be named: it has words of its own and the service Organize sends to is known. */
+export const namedProblem = (kind: ReviewProblemKind, service: string | null): boolean =>
+  kind !== "other" && service !== null;
+
+/** The one action a line offers: its cause's fix where it can be named, else Try again (#2535). */
+export const problemAction = (kind: ReviewProblemKind, service: string | null): "fix" | "retry" =>
+  namedProblem(kind, service) && PROBLEM_FIX[kind] !== undefined ? "fix" : "retry";
+
+/** The cause alone, for a Document's own row, whose place already says it is Organize's (#2535). */
+export const ROW_PROBLEM_WORDS: Record<ReviewProblemKind, MessageKey> = {
+  credit: "library.row.problem.credit",
+  keyRefused: "library.row.problem.keyRefused",
+  planLimit: "library.row.problem.planLimit",
+  rateLimit: "library.row.problem.rateLimit",
+  other: "library.row.problem.other",
+};
+
+/** A Document's own row's reason: the short cause it shows, and the whole sentence on hover. */
+export interface ReviewReason {
+  kind: ReviewProblemKind;
+  /** The whole ruled sentence, for the row's tooltip and accessible name. */
+  title: string;
+}
+
+/** The short cause and the whole sentence a Document's own row shows; `kind` is "other" when it can't name it. */
+export function reviewReason(
+  kind: ReviewProblemKind,
+  service: string | null,
+  t: Translate,
+): ReviewReason {
+  const named = namedProblem(kind, service);
+  return {
+    kind: named ? kind : "other",
+    title: named ? problemLine(kind, 1, service, t) : t("library.row.problem.other.title"),
+  };
+}

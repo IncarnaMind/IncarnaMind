@@ -25,6 +25,7 @@ import { organizeDocuments, useProposing } from "../../organizeDocuments";
 import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
 import { useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
+import type { ReviewReason } from "../../reviewProblems";
 import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
@@ -83,9 +84,9 @@ export function LibrarySection({
   /** The Suggested Folder a Document waits in, by its id, if it waits in one. */
   suggestedOf(documentId: string): string | null;
   /** Why Organize couldn't sort a Document, by its id, if it couldn't. */
-  notSortedOf(documentId: string): string | null;
+  notSortedOf(documentId: string): ReviewReason | null;
   /** Why a Suggested Folder's latest run failed, by a Document's id, if it did. */
-  sortFailedOf(documentId: string): string | null;
+  sortFailedOf(documentId: string): ReviewReason | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -191,8 +192,8 @@ function SubfolderRow({
   matches: ReadonlyMap<string, SearchMatch> | null;
   pathOf(documentId: string): string | null;
   suggestedOf(documentId: string): string | null;
-  notSortedOf(documentId: string): string | null;
-  sortFailedOf(documentId: string): string | null;
+  notSortedOf(documentId: string): ReviewReason | null;
+  sortFailedOf(documentId: string): ReviewReason | null;
 }) {
   const t = useT();
   const language = useLanguage();

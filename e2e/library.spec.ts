@@ -736,8 +736,9 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     );
     await expect(notes.getByTestId("library-not-sorted")).toHaveAttribute(
       "title",
-      "Organize couldn’t sort it: Organize couldn’t sort 1 Document",
+      "Organize couldn’t sort this Document",
     );
+    await expect(notes.getByTestId("library-not-sorted")).toContainText("Couldn’t sort");
     const info = await infoOf(window, scan);
     await expect(info.getByTestId("info-organize")).toContainText("Needs attention");
     await window.keyboard.press("Escape");

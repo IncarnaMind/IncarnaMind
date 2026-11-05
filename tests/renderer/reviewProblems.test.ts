@@ -3,9 +3,12 @@ import type { Document, DocumentGroupAssignment, ProviderErrorKind } from "../..
 import {
   PROBLEM_FIX,
   PROBLEM_WORDS,
+  problemAction,
   problemLine,
+  ROW_PROBLEM_WORDS,
   reviewProblemKind,
   reviewProblemsOf,
+  reviewReason,
 } from "../../src/renderer/src/reviewProblems";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -136,5 +139,64 @@ describe("the words and the actions", () => {
   test("a cause with no service it can name says Organize's own count instead", () => {
     expect(problemLine("credit", 4, null, en)).toBe("Organize couldn’t sort 4 Documents");
     expect(problemLine("credit", 1, null, zh)).toBe("“整理”未能处理 1 个文档");
+  });
+});
+
+describe("the one action a line offers and the row's own words (#2535)", () => {
+  test("a named cause offers its fix alone; only a cause it can't name keeps Try again", () => {
+    expect(problemAction("credit", "OpenAI")).toBe("fix");
+    expect(problemAction("keyRefused", "OpenAI")).toBe("fix");
+    expect(problemAction("planLimit", "OpenAI")).toBe("fix");
+    expect(problemAction("rateLimit", "OpenAI")).toBe("retry");
+    expect(problemAction("other", null)).toBe("retry");
+    expect(problemAction("credit", null)).toBe("retry");
+
+    expect(PROBLEM_FIX.credit).toBe("answer.error.addCredit");
+    expect(en("answer.error.addCredit")).toBe("Add credit");
+    expect(zh("answer.error.addCredit")).toBe("充值");
+    expect(PROBLEM_FIX.keyRefused).toBe("answer.error.checkKey");
+    expect(en("answer.error.checkKey")).toBe("Check the key");
+    expect(zh("answer.error.checkKey")).toBe("检查密钥");
+    expect(PROBLEM_FIX.planLimit).toBe("answer.error.chooseModel");
+    expect(en("answer.error.chooseModel")).toBe("Choose another model");
+    expect(zh("answer.error.chooseModel")).toBe("换一个模型");
+  });
+
+  test("a named row names only the cause; its tooltip carries the whole sentence", () => {
+    expect(reviewReason("credit", "OpenAI", en)).toEqual({
+      kind: "credit",
+      title: "Your OpenAI key is out of credit",
+    });
+    expect(reviewReason("keyRefused", "OpenAI", en).title).toBe("Your OpenAI key was refused");
+    expect(reviewReason("planLimit", "OpenAI", en).title).toBe(
+      "Your OpenAI plan is used up for now",
+    );
+    expect(reviewReason("rateLimit", "OpenAI", en).title).toBe(
+      "OpenAI is limiting requests right now",
+    );
+    expect(en(ROW_PROBLEM_WORDS.credit)).toBe("No credit left");
+    expect(zh(ROW_PROBLEM_WORDS.credit)).toBe("额度已用完");
+    expect(en(ROW_PROBLEM_WORDS.keyRefused)).toBe("Key refused");
+    expect(zh(ROW_PROBLEM_WORDS.keyRefused)).toBe("密钥被拒绝");
+    expect(en(ROW_PROBLEM_WORDS.planLimit)).toBe("Plan used up for now");
+    expect(zh(ROW_PROBLEM_WORDS.planLimit)).toBe("套餐额度暂时用完");
+    expect(en(ROW_PROBLEM_WORDS.rateLimit)).toBe("Busy right now");
+    expect(zh(ROW_PROBLEM_WORDS.rateLimit)).toBe("服务繁忙");
+  });
+
+  test("a cause it can't name is a short row with a whole tooltip, never the same words twice", () => {
+    const unnamed = reviewReason("other", null, en);
+    expect(unnamed).toEqual({
+      kind: "other",
+      title: "Organize couldn’t sort this Document",
+    });
+    expect(en(ROW_PROBLEM_WORDS.other)).toBe("Couldn’t sort");
+    expect(zh(ROW_PROBLEM_WORDS.other)).toBe("未能整理");
+    expect(zh("library.row.problem.other.title")).toBe("“整理”未能处理这个文档");
+    expect(unnamed.title).not.toBe(en(ROW_PROBLEM_WORDS.other));
+
+    // The service is unknown while it loads: the same short row, not a cause without its service.
+    expect(reviewReason("credit", null, en)).toEqual(unnamed);
+    expect(reviewReason("credit", null, en).title).not.toBe(en(ROW_PROBLEM_WORDS.credit));
   });
 });

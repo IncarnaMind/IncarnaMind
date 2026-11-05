@@ -1055,7 +1055,7 @@ function useStatuses(): Status[] {
         tone: "waiting",
         alerts: true,
         short: t("library.needsAttention"),
-        full: t("library.waiting", { count: attention }),
+        full: t(attention === 1 ? "library.waiting.one" : "library.waiting", { count: attention }),
         action: {
           label: t("library.review"),
           testId: "organization-attention-review",
