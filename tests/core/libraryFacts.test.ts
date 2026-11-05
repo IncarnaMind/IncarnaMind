@@ -453,7 +453,7 @@ describe("the rules that hold a Library sentence's result", () => {
     expect(rowOf(supported, "en")).toBe("Your Library: 1 Document named “Harbour survey”");
   });
 
-  // protects=each figure is held to the facts its sentence's Library line names, even when the reply's prose cites the count; fails_when=a figure bound to a Document's "22 files" is Supported because the sentence cites "Documents in all: 22".
+  // protects=a figure bound to a Document's number is no count, even when the reply's prose cites the count; fails_when=a figure bound to a Document's "22 files" is Supported because the sentence cites "Documents in all: 22".
   test("a figure bound to a Document's number is no count, though the reply cites the count", async () => {
     const bound = await setUp(memo, {
       [sentence]: {
@@ -602,7 +602,7 @@ describe("a count wrong by its scale or unit", () => {
 });
 
 describe("Folder walls", () => {
-  // protects=a walled Folder's Documents are never counted or named for a note outside it, and a note inside sees only its own; fails_when=the facts count the whole Library.
+  // protects=nothing of a walled Folder reaches a request for a scope that leaves it out: not its name, its Documents' names, a Tag only its Documents carry, a note in it, nor a count that includes them; and a note inside sees only its own; fails_when=the facts count or name the whole Library.
   test("the wall limits the facts both ways", async () => {
     const sentence = "Your Library holds 3 Documents.";
     const setup = await setUp(
@@ -622,12 +622,31 @@ describe("Folder walls", () => {
       description: "",
       keepInside: true,
     });
+    const hold = await core.createTag({ name: "Litigation hold" });
+    const fieldwork = await core.createTag({ name: "Fieldwork" });
+    const [lease, survey] = [
+      setup.documents.find((each) => each.name === "Client A lease"),
+      setup.documents.find((each) => each.name === "Survey note 01"),
+    ];
+    if (!lease || !survey) throw new Error("The test Documents are missing.");
+    await core.addDocumentTag(lease.id, hold.id);
+    await core.addDocumentTag(survey.id, fieldwork.id);
+    await core.createMind({ title: "Walled memo", folderId: folder.id });
+    await core.createMind({ title: "Harbour visit", folderId: null });
 
     const outside = await checkInNote(core, sentence);
     expect(outside.check.state).toBe("supported");
     expect(rowOf(outside.check, "en")).toBe("All Documents · 1 Folder left out: 3 Documents");
     expect(rowOf(outside.check, "zh-CN")).toBe("全部文档 · 已排除 1 个文件夹：3 个文档");
-    expect(setup.sent()).not.toContain("Client A lease");
+    const sent = setup.sent();
+    for (const walledWords of ["Client A", "Litigation hold", "Walled memo", "Documents in all: 5"])
+      expect(sent).not.toContain(walledWords);
+    for (const seen of [
+      "Documents in all: 3",
+      "Documents tagged “Fieldwork”: 1",
+      "Note “Harbour visit”",
+    ])
+      expect(sent).toContain(seen);
 
     const inside = await setUp([], {
       "This Folder holds 2 Documents.": {
@@ -649,11 +668,157 @@ describe("Folder walls", () => {
       description: "",
       keepInside: true,
     });
+    const outer = await inside.core.createTag({ name: "Fieldwork" });
+    const harbour = sources.find((each: Document) => each.name === "Harbour survey");
+    if (!harbour) throw new Error("The test Document is missing.");
+    await inside.core.addDocumentTag(harbour.id, outer.id);
+    await inside.core.createMind({ title: "Harbour visit", folderId: null });
+    await inside.core.createMind({ title: "Lease timeline", folderId: walled.id });
     const within = await checkInNote(inside.core, "This Folder holds 2 Documents.", walled.id);
     expect(within.check.state).toBe("supported");
     expect(rowOf(within.check, "en")).toBe("“Client A”: 2 Documents");
     expect(rowOf(within.check, "zh-CN")).toBe("“Client A”：2 个文档");
-    expect(inside.sent()).not.toContain("Harbour survey");
+    const insideSent = inside.sent();
+    for (const outsideWords of [
+      "Harbour survey",
+      "Fieldwork",
+      "Harbour visit",
+      "Documents in all: 3",
+    ])
+      expect(insideSent).not.toContain(outsideWords);
+    for (const seen of ["Documents in all: 2", "Note “Lease timeline”"])
+      expect(insideSent).toContain(seen);
+  });
+});
+
+describe("where the Library's facts go", () => {
+  const sentence = "Your Library holds 3 Documents.";
+  const plans: Record<string, Plan> = {
+    [sentence]: { verdict: "supported", quote: "Documents in all: 3", line: "documents" },
+  };
+
+  /** Three Documents and a note checked on the model `choose` saves; the scripted one answers for it. */
+  async function library(choose: (core: Core) => Promise<{ service?: { id: string } | null }>) {
+    const calls: ModelCall[] = [];
+    const models = scriptedModels(libraryModel(plans, calls));
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: models.createChatModel,
+    });
+    const service = (await choose(core)).service?.id ?? null;
+    const sources = await createTempDataFolder();
+    await addAndProcess(
+      core,
+      await Promise.all(files(3).map((file) => writeSourceFile(sources, file.name, file.contents))),
+    );
+    const note = await core.createMind({ title: "Library overview", folderId: null });
+    const mind = await connectToMind(core, note.id);
+    writeMind(mind, [paragraph("one", sentence)]);
+    await mind.settled();
+    const flows: string[] = [];
+    const answerConsent = (allow: boolean) =>
+      core.on("consent.requested", (asked) => {
+        flows.push(asked.flow.id);
+        void core.respondToConsent(asked.requestId, allow);
+      });
+    const check = async () => {
+      const result = await core.checkSentences({
+        requestId: `check-${randomUUID()}`,
+        mindId: note.id,
+        action: "check-against-documents",
+        from: { blockId: "one", offset: 0 },
+        to: { blockId: "one", offset: sentence.length },
+        allDocuments: true,
+      });
+      await mind.settled();
+      return result;
+    };
+    const requests = () => calls.filter(isCheckRun);
+    const sent = () =>
+      requests()
+        .flatMap((call) => [call.prompt, ...call.results.map((each) => each.text)])
+        .join("\n");
+    const state = () => claimSpans(readMind(mind))[0]?.check.state ?? "no mark";
+    return { core, service, models, flows, answerConsent, check, requests, sent, state };
+  }
+
+  const cloud = (core: Core) =>
+    core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-made-up",
+      modelId: "claude-haiku-5-5",
+    });
+
+  // protects=a check that may show the Library's facts goes through the checks flow's consent for the chosen model, as every check does: choosing the model allows it, and once the User stops it the check asks again and sends nothing when declined; fails_when=the facts go out while checks are stopped for that service.
+  test("goes through the checks flow's consent for the chosen model, and sends nothing when it is declined", async () => {
+    const chosen = await library(cloud);
+    chosen.answerConsent(true);
+    await chosen.check();
+    expect(chosen.flows).toEqual([]);
+    expect(chosen.sent()).toContain("Library facts of your Library");
+    expect(chosen.state()).toBe("supported");
+
+    const declined = await library(cloud);
+    if (!declined.service) throw new Error("The cloud model has no service.");
+    await declined.core.revokeConsent("checks", declined.service);
+    declined.answerConsent(false);
+    await declined.check();
+    expect(declined.flows).toEqual(["checks"]);
+    expect(declined.requests()).toHaveLength(0);
+    expect(declined.state()).not.toBe("supported");
+
+    const allowed = await library(cloud);
+    if (!allowed.service) throw new Error("The cloud model has no service.");
+    await allowed.core.revokeConsent("checks", allowed.service);
+    allowed.answerConsent(true);
+    await allowed.check();
+    expect(allowed.flows).toEqual(["checks"]);
+    expect(allowed.sent()).toContain("Library facts of your Library");
+    expect(allowed.state()).toBe("supported");
+  });
+
+  // protects=the facts go only to the model chosen for the check, never to another saved service; fails_when=a second saved provider is asked too.
+  test("goes only to the chosen model, not to another saved service", async () => {
+    const both = await library(async (core) => {
+      const chosen = await cloud(core);
+      await core.saveChatProvider({
+        kind: "openai",
+        apiKey: "sk-made-up",
+        modelId: "gpt-6-luna",
+        keepDefault: true,
+      });
+      return chosen;
+    });
+    both.answerConsent(true);
+    await both.check();
+    expect(both.sent()).toContain("Library facts of your Library");
+    expect(new Set(both.models.specs.map((spec) => `${spec.kind} ${spec.modelId}`))).toEqual(
+      new Set(["anthropic claude-haiku-5-5"]),
+    );
+  });
+
+  // protects=in Local mode a check on a cloud model sends nothing at all, facts included, while a model on this computer still gets them; fails_when=Local mode lets a Library-fact check reach the cloud.
+  test("in Local mode, nothing leaves for a cloud model, and a model on this computer still checks", async () => {
+    const local = await library(async (core) => {
+      const chosen = await cloud(core);
+      await core.setLocalOnly(true);
+      return chosen;
+    });
+    local.answerConsent(true);
+    expect(await local.check()).toMatchObject({ kind: "local-mode" });
+    expect(local.requests()).toHaveLength(0);
+    expect(local.flows).toEqual([]);
+
+    const onThisComputer = await library(async (core) => {
+      const chosen = await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      await core.setLocalOnly(true);
+      return chosen;
+    });
+    await onThisComputer.check();
+    expect(onThisComputer.sent()).toContain("Library facts of your Library");
+    expect(new Set(onThisComputer.models.specs.map((spec) => spec.kind))).toEqual(
+      new Set(["ollama"]),
+    );
+    expect(onThisComputer.state()).toBe("supported");
   });
 });
 
