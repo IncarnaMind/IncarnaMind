@@ -7,6 +7,11 @@ import { createCanvas } from "@napi-rs/canvas";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { AssignmentState, Core, Document, Embedder, TextRecognizer } from "../../src/core";
+import {
+  type DocumentHead,
+  type ReadingChannel,
+  runJob,
+} from "../../src/core/documents/processing";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { createTempDataFolder, NO_MODEL_FILES, startCore } from "../helpers/core";
@@ -475,5 +480,61 @@ describe("Dropped scans are classified from their first pages (#2308)", {
     } finally {
       open();
     }
+  });
+});
+
+describe("A scan says its first pages only when pages follow them (#2308)", {
+  timeout: 120_000,
+}, () => {
+  // protects=a scan with scanned pages after its first 12 says those 12 once, before reading on, with 12 pages and Passages to classify from, while a scan of 12 pages or fewer says nothing, its whole read being a moment away; fails_when=a short scan stops to give way just before it ends, or a long one never says its first pages; no_claim=the order the scan lane reads in, which the tests above cover.
+  test.each([
+    [14, 1],
+    [12, 0],
+  ])("a %i-page scan says its first pages %i time(s)", async (pages, times) => {
+    const sources = await createSourceFolder();
+    const file = await writeSourceFile(
+      sources,
+      "Quay survey.pdf",
+      scan(LANGUAGES.en.cover("berth", 1), pages),
+    );
+    const fake = createFakeTextRecognizer({
+      script: {
+        pages: Object.fromEntries(
+          Array.from({ length: pages }, (_, index) => [
+            String(index + 1),
+            { lines: [...LANGUAGES.en.sheet(index + 1)] },
+          ]),
+        ),
+      },
+    });
+    // The fake reads no model files.
+    await fake.load({ detector: "", recognizer: "" });
+    const said: { head: DocumentHead; after: number }[] = [];
+    let read = 0;
+    const channel: ReadingChannel = {
+      signal: new AbortController().signal,
+      progress: () => undefined,
+      log: () => undefined,
+      head: (head) => said.push({ head, after: read }),
+      read: (page, picture) => {
+        read++;
+        return fake.read(picture, page);
+      },
+      readFile: () => new Promise(() => undefined),
+    };
+    const result = await runJob(
+      {
+        task: "process",
+        documentId: "scan",
+        kind: "pdf",
+        file,
+        scan: { reader: "fake", keep: null, head: { pages: 12, passages: 6 } },
+      },
+      channel,
+    );
+    expect(result.outcome).toBe("ready");
+    expect(said.map(({ head, after }) => [head.units.length, head.passages.length, after])).toEqual(
+      Array(times).fill([12, 6, 11]),
+    );
   });
 });

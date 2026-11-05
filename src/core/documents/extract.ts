@@ -682,8 +682,11 @@ async function readScannedPages(
   const unread: number[] = [];
   let message: string | null = null;
   let unavailable = false;
-  const { head } = reading;
-  const headScans = head ? scanned.filter((number) => number <= head.pages).length : 0;
+  // Said only when scanned pages follow them: otherwise the whole read is a moment away.
+  const head = scanned.some((number) => number > (reading.head?.pages ?? Infinity))
+    ? reading.head
+    : undefined;
+  const headScans = head ? scanned.filter((number) => number <= head.pages).length : -1;
   const sayHead = () => head?.read(pages.slice(0, head.pages), keptBreaks, pages.length);
   reading.progress(0, scanned.length, null);
   if (headScans === 0) sayHead();
