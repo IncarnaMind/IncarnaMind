@@ -40,6 +40,7 @@ import { type MessageKey, type MessageParams, translate } from "../../shared/i18
 import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
 import { tagLinks } from "../../shared/tagLinks";
+import { attentionOrder } from "./attention";
 import {
   deleted,
   documentsAdded,
@@ -54,7 +55,7 @@ import { LIBRARY_DELETED } from "./deletedItems";
 import { applyAssignments, applyDocumentChanges, createDocumentUpdates } from "./documentUpdates";
 import { describeError, errorMessage } from "./errors";
 import { folderPathLabel, folderWallOf, isInsideFolder } from "./folders";
-import { languageNow } from "./i18n";
+import { languageNow, translateNow } from "./i18n";
 import {
   createLayoutSlice,
   currentMindIdOf,
@@ -88,6 +89,7 @@ import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
+import { sortOf, useSort } from "./sortChoices";
 import { returnFocusAfterTabClose } from "./tabFocus";
 import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
@@ -199,6 +201,13 @@ export interface AppState extends LayoutSlice {
    * again); or "starters", the starter Folders at its top.
    */
   libraryFilter: string;
+  /** The Document the sidebar's Review asked the Library to show: its row, once the page is ready. */
+  reviewTarget: string | null;
+  /**
+   * The Documents needing attention the User has already been taken to, so the
+   * sidebar's status counts the rest and goes once every one was seen (#2308).
+   */
+  reviewedAttention: ReadonlySet<string>;
   refreshLibrary(): Promise<void>;
   /**
    * Shows the Library (one tab per window), at a Folder's section if given:
@@ -206,6 +215,13 @@ export interface AppState extends LayoutSlice {
    * or behind the one shown.
    */
   openLibrary(filter?: string, options?: { side?: boolean; behind?: boolean }): void;
+  /**
+   * Takes the User to the first Document needing attention the Library hasn't
+   * shown them yet, its row in view with its problem's line and action (#2308).
+   */
+  reviewAttention(): void;
+  /** Keeps only the reviewed Documents that still need attention, so a new failure shows again. */
+  keepReviewedAttention(live: ReadonlySet<string>): void;
   /**
    * Shows Home (one tab per window): its tab where it is open, else a new one
    * in the focused group; with `first`, as at a launch, just before the tab
@@ -1001,6 +1017,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     tagsDialogOpen: false,
     library: null,
     libraryFilter: "all",
+    reviewTarget: null,
+    reviewedAttention: new Set(),
     refreshLibrary: async () => {
       const ticket = ++libraryRequest;
       const library = await core.getLibrary();
@@ -1043,6 +1061,28 @@ export const useAppStore = create<AppState>()((set, get) => {
         where: options?.side ? { in: "side" } : { in: "place" },
         ...(options?.behind && { behind: true }),
       });
+    },
+    reviewAttention: () => {
+      const state = get();
+      const library = state.library;
+      const own = state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
+      const order = attentionOrder(
+        own,
+        library?.groups ?? [],
+        library?.assignments ?? [],
+        sortOf("library:all")(useSort.getState()),
+        translateNow,
+        languageNow(),
+      );
+      const next = order.find((id) => !state.reviewedAttention.has(id));
+      if (next === undefined) return;
+      set({ reviewTarget: next, reviewedAttention: new Set([...state.reviewedAttention, next]) });
+      get().openLibrary();
+    },
+    keepReviewedAttention: (live) => {
+      const reviewed = get().reviewedAttention;
+      const kept = [...reviewed].filter((id) => live.has(id));
+      if (kept.length < reviewed.size) set({ reviewedAttention: new Set(kept) });
     },
     skills: [],
     examples: null,

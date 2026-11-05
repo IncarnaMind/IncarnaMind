@@ -73,6 +73,19 @@ export function tagsRateLimited(options: GenerateOptions): boolean {
   return true;
 }
 
+const creditOnce = new Set<string>();
+
+/**
+ * A Document whose text says "out of credit" meets an account with none the first time it is
+ * tagged or organized: the second run sorts it, as if the credit was added.
+ */
+export function tagsOutOfCredit(options: GenerateOptions): boolean {
+  const excerpt = taggingExcerpt(options) ?? (organizes(options) ? organizeInput(options) : null);
+  if (!excerpt || !/\bout of credit\b/i.test(excerpt) || creditOnce.has(excerpt)) return false;
+  creditOnce.add(excerpt);
+  return true;
+}
+
 /**
  * The scripted tagger: of the Tag names offered, those that appear as a word
  * (ignoring case) in the Document's excerpt, i.e. its name or text.
