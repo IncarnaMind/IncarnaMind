@@ -320,10 +320,12 @@ describe("dataFlows.changed", () => {
           ? core.allowDataFlow("chat", service)
           : core.revokeConsent("chat", service);
       await vi.waitFor(() => expect(looks.second.length).toBeGreaterThan(0));
+      // The older read finishes first; the newest one then rejects, and only its retry sends.
+      for (const each of looks.first.splice(0)) each.resolve([]);
+      await first;
       for (const each of looks.second.splice(0)) each.reject(new Error("Ollama is down"));
       looks.settle([]);
-      for (const each of looks.first.splice(0)) each.resolve([]);
-      await Promise.all([first, second]);
+      await second;
 
       expect(chatTo(sent.at(-1))).toBe(order === "revoke-then-allow" ? "accepted" : "not-asked");
     },
