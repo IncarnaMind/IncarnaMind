@@ -22,13 +22,14 @@
  *
  * Where the User chose a cloud service (#141), the live audio goes to it
  * instead, each chunk through the cloud's send gate and counted against the
- * monthly cap first. A lost connection, or the service refusing its key,
- * hands the live audio to this computer: what the cloud hadn't given text for
- * is a gap, filled in after Stop. At the cap, the cloud's streams finish what
- * they were sent. When the gate closes (Local mode, consent revoked, another
- * route chosen, the key removed), its streams are dropped with nothing more
- * sent, and this computer transcribes that stretch after Stop. Recording never
- * stops, and the bar says why, except where the User chose.
+ * monthly cap first. A lost connection, the service refusing its key, or its
+ * account out of credit, hands the live audio to this computer: what the cloud
+ * hadn't given text for is a gap, filled in after Stop. At the cap, the cloud's
+ * streams finish what they were sent. When the gate closes (Local mode, consent
+ * revoked, another route chosen, the key removed), its streams are dropped with
+ * nothing more sent, and this computer transcribes that stretch after Stop. A
+ * new key for the same service opens them again on it. Recording never stops,
+ * and the bar says why, except where the User chose.
  *
  * What is needed to pick up after a crash is in files beside the Transcript,
  * as the audio's parts are (ADR-0015): its lines and gaps in the WebVTT file,
@@ -299,7 +300,8 @@ const speakerOf = (source: AudioSource, callSound: boolean, memo: boolean): stri
 const msOf = (chunks: readonly Int16Array[]) =>
   chunks.reduce((sum, samples) => sum + samples.length / SAMPLE_RATE_MS, 0);
 
-type Leaving = "dropped" | "refused" | "cap" | "user" | "local-mode" | "moved";
+/** Why live audio leaves a cloud service: as `CloudLoss`, or a gate, or "renew", to open again on a new key. */
+type Leaving = "dropped" | "refused" | "credit" | "cap" | "user" | "local-mode" | "moved" | "renew";
 
 /** The engine couldn't start, or stopped, while what was left was being transcribed. */
 class EngineError extends Error {}
@@ -753,26 +755,26 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (live) leaveCloud(found.state, live, loss);
   }
 
-  // Dropped, refused or the gate closed: the cloud's streams are dropped, nothing they queued is
-  // sent, and the stretch this computer didn't hear is transcribed after Stop. At the cap, the
-  // streams finish with what they were already sent.
+  // Dropped, refused, out of credit or the gate closed: the cloud's streams are dropped, nothing
+  // they queued is sent, and the stretch this computer didn't hear is transcribed after Stop. At
+  // the cap, the streams finish with what they were already sent. A new key for the same service
+  // opens the streams again on it, from the next audio (#866).
   function leaveCloud(state: State, live: Live, reason: Leaving): void {
     if (live.engine === "local") return;
     const route = live.engine;
     const atMs = live.pushedMs;
+    const failed = reason === "dropped" || reason === "refused" || reason === "credit";
     if (reason === "cap") {
       if (live.started) finishStreams(state, live, atMs);
     } else {
       dropStreams(live);
       const lost = { fromMs: live.doneMs, toMs: Math.max(live.doneMs, live.pushedMs) };
       if (live.started && live.pendingFrom === null && lost.toMs > lost.fromMs) {
-        if (reason === "dropped" || reason === "refused") {
-          state.gaps.push({ ...lost, reason: "cloud" });
-        }
+        if (failed) state.gaps.push({ ...lost, reason: "cloud" });
         state.pending = addRange(state.pending, lost);
       }
     }
-    if (reason === "refused") options.cloud?.refuse(route);
+    if (reason === "refused" && live.cloud) options.cloud?.refuse(route, live.cloud.stream);
     live.engine = "local";
     live.cloud = null;
     live.started = false;
@@ -782,14 +784,21 @@ export function createTranscripts(options: TranscriptsOptions) {
     live.heardMs = live.doneMs;
     live.backlogEnd = live.pushedMs;
     state.partials.clear();
-    if (reason !== "user") state.fellBack = { route, atMs, reason };
+    if (reason === "renew" && options.cloud) {
+      live.choosing = true;
+      log.info("transcript.cloudRenewed", { meetingId: state.meetingId, route });
+      choose(state, live, options.cloud);
+      persist(state);
+      options.changed();
+      return;
+    }
+    if (reason !== "user" && reason !== "renew") state.fellBack = { route, atMs, reason };
     health.add(state.meetingId, {
       kind: "switched",
       atMs,
       from: "cloud",
       to: "local",
-      reason:
-        reason === "dropped" || reason === "refused" ? "failed" : reason === "cap" ? "cap" : "user",
+      reason: failed ? "failed" : reason === "cap" ? "cap" : "user",
     });
     startEngine(state);
     writeLines(state, { now: true });

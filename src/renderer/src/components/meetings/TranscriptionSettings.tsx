@@ -25,6 +25,7 @@ import {
   ruledRowClass,
 } from "../ui";
 import { CloudLine } from "./CloudLine";
+import { LanguagesLine } from "./LanguagesLine";
 
 /**
  * Under "Transcribe on" in Settings › Meetings (#141). Before a cloud service is chosen it says
@@ -72,6 +73,7 @@ export function TranscriptionRouteLine({ id, read }: { id?: string; read: Servic
       ) : (
         <CloudLine service={service} className={rowTextClass} />
       )}
+      <LanguagesLine service={service} className={rowTextClass} />
     </div>
   );
 }
@@ -107,11 +109,14 @@ export function TranscriptionRouteConsent({ read }: { read: ServicesView }) {
     );
   }
   return (
-    <CloudLine
-      service={service}
-      testId="meetings-route-consent"
-      className="text-[12px] leading-5 text-ink-meta"
-    />
+    <>
+      <CloudLine
+        service={service}
+        testId="meetings-route-consent"
+        className="text-[12px] leading-5 text-ink-meta"
+      />
+      <LanguagesLine service={service} className="text-[12px] leading-5 text-ink-meta" />
+    </>
   );
 }
 
@@ -129,7 +134,11 @@ function chooseAgainLine(
   });
 }
 
-/** A transcription service's own key (Soniox's): pasted, checked with the service, kept in the keychain. */
+/**
+ * A transcription service's own key (Soniox's, Deepgram's, AssemblyAI's): pasted, checked with the
+ * service, kept in the keychain. Deepgram's takes the server too, where it isn't Deepgram's own:
+ * Cloudflare Workers AI's or the User's, whose key may be left out.
+ */
 export function TranscriptionKeyRows({ read }: { read: ServicesView }) {
   const services = read.state === "ready" ? read.data : [];
   return (
@@ -146,7 +155,10 @@ export function TranscriptionKeyRows({ read }: { read: ServicesView }) {
 function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus }) {
   const t = useT();
   const inputId = useId();
+  const serverId = useId();
   const [open, setOpen] = useState(false);
+  const takesServer = service.route === "deepgram";
+  const [server, setServer] = useState("");
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   useEffect(() => {
     core
@@ -169,7 +181,9 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
   const name = { provider: t(ROUTE_LABELS[service.route]) };
   const save = async () => {
     setSaving(true);
-    const failed = await useTranscriptionServices.getState().setKey(service.route, key);
+    const failed = await useTranscriptionServices
+      .getState()
+      .setKey(service.route, key, takesServer ? server : undefined);
     setSaving(false);
     setProblem(failed);
     if (!failed) {
@@ -177,6 +191,11 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
       setOpen(false);
     }
   };
+  const close = () => {
+    setOpen(false);
+    setKey("");
+  };
+  const given = text !== "" || (takesServer && server.trim() !== "");
 
   return (
     <div data-testid={`transcription-key-${service.route}`} className={ruledRowClass}>
@@ -200,12 +219,45 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
             </>
           )}
         </p>
+        {service.server && !open && (
+          <p data-testid="transcription-key-server-saved" className={`${rowTextClass} break-words`}>
+            {t("meetings.key.serverSaved", { server: service.server })}
+          </p>
+        )}
+        {open && takesServer && (
+          <div className="mt-1.5 flex flex-col gap-1">
+            <label htmlFor={serverId} className="text-[13px] leading-5 text-ink">
+              {t("meetings.key.server")}
+            </label>
+            <input
+              id={serverId}
+              type="url"
+              autoComplete="off"
+              spellCheck={false}
+              data-testid="transcription-key-server"
+              placeholder={t("meetings.key.serverPlaceholder")}
+              aria-describedby={`${serverId}-tip`}
+              value={server}
+              onChange={(event) => setServer(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.stopPropagation();
+                  close();
+                }
+              }}
+              className={`${inputClass} mt-0 min-w-48`}
+            />
+            <p id={`${serverId}-tip`} className={rowTextClass}>
+              {t("meetings.key.serverTip")}
+            </p>
+          </div>
+        )}
         {open && (
           <form
             className="mt-1.5 flex flex-wrap items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              if (text !== "" && !stray && !saving) void save();
+              if (given && !stray && !saving) void save();
             }}
           >
             <input
@@ -224,8 +276,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.stopPropagation();
-                  setOpen(false);
-                  setKey("");
+                  close();
                 }
               }}
               className={`${inputClass} mt-0 min-w-48 flex-1`}
@@ -234,7 +285,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
               type="submit"
               data-testid="transcription-key-save"
               disabled={
-                text === "" || stray !== null || saving || (storage !== null && !storage.canSave)
+                !given || stray !== null || saving || (storage !== null && !storage.canSave)
               }
               className={buttonStyle("primary")}
             >
@@ -264,6 +315,7 @@ function TranscriptionKeyRow({ service }: { service: TranscriptionServiceStatus 
             data-testid="transcription-key-add"
             onClick={() => {
               setProblem(null);
+              setServer(service.server ?? "");
               setOpen(true);
             }}
             className={buttonStyle("secondary")}

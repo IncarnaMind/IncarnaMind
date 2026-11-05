@@ -4225,6 +4225,7 @@ export function createCore(adapters: CoreAdapters): Core {
     meter,
     localOnly: () => embedding.localOnly(),
     providerKey: (catalogId) => chat.apiKeyOf(catalogId),
+    languages: () => [settings.get().language, ...adapters.systemLanguages()],
     log: adapters.log ?? silentLogger,
     ...(adapters.transcriptionKeyFetch && { fetch: adapters.transcriptionKeyFetch }),
     vadFile: async () => {
@@ -6455,7 +6456,12 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteMeetingAudio: async (meetingId) => meetings.deleteAudio(meetingId),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
     listTranscriptionServices: () => cloudTranscription.list(),
-    setTranscriptionKey: (input) => cloudTranscription.setKey(input),
+    setTranscriptionKey: async (input) => {
+      const listed = await cloudTranscription.setKey(input);
+      // A new key for the service a Meeting is sending to takes over from its next audio.
+      transcriptionGateChanged();
+      return listed;
+    },
     getTranscriptionModel: async () => transcriptionModel?.status() ?? null,
     getTranscriptionSpeed: async () => {
       const speed = settings.readDeviceValue(TRANSCRIPTION_SPEED);

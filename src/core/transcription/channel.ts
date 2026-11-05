@@ -13,8 +13,8 @@
  * change }, { type: "lost", stream, loss } and { type: "opened", stream } as
  * they happen.
  *
- * A stream opened with a cloud service (#141) goes to it instead of the engine, from the same
- * process: OpenAI's live model needs Silero VAD, which runs here.
+ * A stream opened with a cloud service (#141, #866) goes to it instead of the engine, from the
+ * same process: OpenAI's live model needs Silero VAD, which runs here.
  */
 import type {
   CloudLoss,
@@ -25,6 +25,9 @@ import type {
   TranscriberListener,
   TranscriptionModelFiles,
 } from "../adapters";
+import { createAssemblyAiStream } from "./cloud/assemblyai";
+import { createDeepgramStream } from "./cloud/deepgram";
+import { createGeminiStream } from "./cloud/gemini";
 import { createOpenAiStream } from "./cloud/openai";
 import { createQwenStream } from "./cloud/qwen";
 import type { CloudConnect } from "./cloud/socket";
@@ -242,6 +245,11 @@ export function serveTranscriber(
   const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
   /** Cloud streams, each once its connection is made: requests for one wait for it, in order. */
   const clouds = new Map<string, Promise<CloudStreamHandle | null>>();
+  /**
+   * What came for a cloud stream before it was made: one that ended with no audio (stopped
+   * while OpenAI's voice detector loads) is never connected, so the key goes nowhere (#866).
+   */
+  const before = new Map<string, { audio: boolean; ended: boolean }>();
   const detectors = new Map<string, Promise<() => VoiceDetector>>();
 
   async function openCloud(stream: string, config: CloudStream): Promise<CloudStreamHandle | null> {
@@ -266,8 +274,18 @@ export function serveTranscriber(
       connect: cloud.connect,
       report: streamReport,
     };
-    if (config.service === "soniox") return createSonioxStream(options);
-    if (config.service === "qwen") return createQwenStream({ ...options, url: config.url });
+    switch (config.service) {
+      case "soniox":
+        return createSonioxStream(options);
+      case "qwen":
+        return createQwenStream({ ...options, url: config.url });
+      case "deepgram":
+        return createDeepgramStream({ ...options, url: config.url });
+      case "assemblyai":
+        return createAssemblyAiStream(options);
+      case "gemini":
+        return createGeminiStream(options);
+    }
     try {
       let made = detectors.get(config.vad);
       if (!made) {
@@ -275,7 +293,9 @@ export function serveTranscriber(
         detectors.set(config.vad, made);
         made.catch(() => detectors.delete(config.vad));
       }
-      return createOpenAiStream({ ...options, detector: (await made)() });
+      const detector = (await made)();
+      if (before.get(stream)?.ended) return null;
+      return createOpenAiStream({ ...options, detector });
     } catch (error) {
       // The process has no logger of its own: its output goes to the app's log.
       console.error("Silero VAD couldn't load for a cloud stream:", messageOf(error));
@@ -287,25 +307,35 @@ export function serveTranscriber(
   port.onRequest((request) => {
     const handle = "stream" in request ? clouds.get(request.stream) : undefined;
     if (handle) {
+      const early = "stream" in request ? before.get(request.stream) : undefined;
       switch (request.type) {
         case "audio":
+          if (early) early.audio = true;
           void handle.then((each) => each?.push(request.samples));
           return;
         case "finish":
+          if (early && !early.audio) early.ended = true;
           void handle
             .then((each) => each?.finish())
             .then(() => port.respond({ type: "done", id: request.id }));
           return;
         case "drop":
+          if (early) early.ended = true;
           clouds.delete(request.stream);
           void handle.then((each) => each?.drop());
           return;
       }
     }
     switch (request.type) {
-      case "open":
-        clouds.set(request.stream, openCloud(request.stream, request.cloud));
+      case "open": {
+        const { stream } = request;
+        before.set(stream, { audio: false, ended: false });
+        const made = openCloud(stream, request.cloud);
+        clouds.set(stream, made);
+        const forget = () => before.delete(stream);
+        void made.then(forget, forget);
         return;
+      }
       case "load":
         ready = ready.then(async () => {
           try {

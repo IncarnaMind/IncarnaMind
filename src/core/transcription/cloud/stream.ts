@@ -1,7 +1,7 @@
 /**
  * One stream's audio going to a cloud transcription service (#141), as the transcription
- * process serves it beside the engine on this computer (../channel): the services' adapters
- * (./openai, ./soniox) turn what each sends back into the same segments and progress.
+ * process serves it beside the engine on this computer (../channel): each service's adapter,
+ * over the one live client (./live), turns what it sends back into the same segments and progress.
  */
 import { type CloudLoss, MEETING_SAMPLE_RATE, type SpeechSegment } from "../../adapters";
 import type { CloudConnect } from "./socket";

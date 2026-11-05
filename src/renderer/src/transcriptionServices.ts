@@ -21,8 +21,8 @@ interface TranscriptionServicesState {
   revision: number;
   /** Reads the list and resolves with what is held after it; rejects when the core can't answer. */
   load(): Promise<TranscriptionServiceStatus[]>;
-  /** Keeps a service's own key once it accepts it; what went wrong, in words, otherwise. */
-  setKey(route: CloudTranscriptionRoute, apiKey: string): Promise<string | null>;
+  /** Keeps a service's own key, with Deepgram's server, once it accepts it; what went wrong, in words, otherwise. */
+  setKey(route: CloudTranscriptionRoute, apiKey: string, server?: string): Promise<string | null>;
   removeKey(route: CloudTranscriptionRoute): Promise<string | null>;
 }
 
@@ -51,7 +51,10 @@ export const useTranscriptionServices = create<TranscriptionServicesState>()((se
       take(await core.listTranscriptionServices());
       return get().services ?? [];
     },
-    setKey: (route, apiKey) => change(() => core.setTranscriptionKey({ route, apiKey })),
+    setKey: (route, apiKey, server) =>
+      change(() =>
+        core.setTranscriptionKey({ route, apiKey, ...(server !== undefined && { server }) }),
+      ),
     removeKey: (route) => change(() => core.removeTranscriptionKey(route)),
   };
 });
@@ -90,7 +93,41 @@ export const ROUTE_LABELS: Record<TranscriptionRoute, MessageKey> = {
   openai: "meetings.route.openai",
   soniox: "meetings.route.soniox",
   qwen: "meetings.route.qwen",
+  deepgram: "meetings.route.deepgram",
+  assemblyai: "meetings.route.assemblyai",
+  gemini: "meetings.route.gemini",
 };
+
+/** The services as held, or read now when no view has read them yet (the meeting bar's lines). */
+async function servicesNow(): Promise<TranscriptionServiceStatus[]> {
+  const { services, load } = useTranscriptionServices.getState();
+  return services ?? load();
+}
+
+/** Where a route's key is changed: its own in Settings › Meetings, a provider's in Settings › Models. */
+export async function checkTranscriptionKey(route: CloudTranscriptionRoute): Promise<void> {
+  const { openSettings } = useAppStore.getState();
+  try {
+    const service = (await servicesNow()).find((each) => each.route === route);
+    openSettings(service?.key === "own" ? "meetings" : "models");
+  } catch (error) {
+    // Settings › Meetings lists every route, so the key is found from there.
+    console.error("The transcription services couldn't be read.", error);
+    openSettings("meetings");
+  }
+}
+
+/** Where credit is added to the account a route's key is for, or its key's settings when none is known. */
+export async function addTranscriptionCredit(route: CloudTranscriptionRoute): Promise<void> {
+  let url: string | null = null;
+  try {
+    url = (await servicesNow()).find((each) => each.route === route)?.billingUrl ?? null;
+  } catch (error) {
+    console.error("The transcription services couldn't be read.", error);
+  }
+  if (url) window.open(url, "_blank", "noreferrer");
+  else await checkTranscriptionKey(route);
+}
 
 /** Where a Meeting's recording stays, said so it holds with a cloud route chosen too. */
 export function useAudioKeptKey(): MessageKey {
@@ -104,7 +141,10 @@ export function serviceMeta(service: TranscriptionServiceStatus, t: Translate, l
   const named = service.key === "provider";
   return joinMeta([
     named ? service.model : "",
-    t(named ? "meetings.route.perHour" : "meetings.route.perHourFirst", { price }),
+    // A server of the User's own costs nothing IncarnaMind can count.
+    service.perHour.amount === 0
+      ? t("meetings.route.ownServer")
+      : t(named ? "meetings.route.perHour" : "meetings.route.perHourFirst", { price }),
     t(named ? "meetings.route.providerKey" : "meetings.route.ownKey", {
       provider: t(ROUTE_LABELS[service.route]),
     }),
