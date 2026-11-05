@@ -853,10 +853,19 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       contradicted: 0,
     };
     // Each sentence lands as its check ends, so its verdict shows while the others are checked.
+    // A mark that can't land stays out, logged: its check's result is counted once, and the
+    // other sentences still land.
     const landNow = (landing: Landing) => {
       if (signal.aborted) return;
-      input.edit((note) => land(note, input.ids, landing));
-      options.retainEvidence(mindId);
+      try {
+        input.edit((note) => land(note, input.ids, landing));
+        options.retainEvidence(mindId);
+      } catch (error) {
+        console.error(
+          `A sentence the assistant wrote in Mind ${mindId} was checked, but its mark couldn't land:`,
+          error,
+        );
+      }
     };
     const markOf = (
       sentence: Sentence,

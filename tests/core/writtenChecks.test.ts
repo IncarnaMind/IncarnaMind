@@ -1,6 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import type { Core } from "../../src/core";
+import {
+  CONTENT_SCHEMA_VERSION,
+  CONTENT_SCHEMA_VERSION_KEY,
+  type Core,
+  MIND_SETTINGS_FIELD,
+} from "../../src/core";
 import { OLLAMA_CLOUD } from "../../src/core/providers/ollamaCloud";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown, SENTENCES_CHECKED_AT_MOST } from "../../src/shared/claimChecks";
@@ -796,6 +801,35 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     ]);
   });
 
+  // protects=a mark that can't land (a newer version wrote the Note mid-check, so no edit may change it) is logged, the other sentences are still landed, and each is counted once (#2532); fails_when=the failed landing becomes its sentence's failure, is counted twice, or ends the check; no_claim=what the card says of a Note a newer version wrote.
+  test("a mark that can't land is left out, and each sentence is counted once", async () => {
+    let page: MindClient | null = null;
+    let newer: Promise<void> | null = null;
+    const { change } = await write(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call) => {
+          const client = page;
+          if (call.results.length > 0 || !client) return null;
+          if (!newer) {
+            client.doc
+              .getMap(MIND_SETTINGS_FIELD)
+              .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+            newer = client.settled();
+          }
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: newer } };
+        },
+      },
+      ({ client }) => {
+        page = client;
+      },
+    );
+
+    expect(change?.selfCheck).toMatchObject({ sent: 2, checked: 2, failed: 0 });
+  });
+
   // protects=Stop while a write's sentences are checked keeps the marks that landed and lands none for a sentence whose check Stop cut short, as Check this note leaves them (#2532); fails_when=a sentence stopped mid-check lands marked, or a landed mark is taken back; no_claim=what the Answer says once stopped.
   test("Stop while a write is checked keeps the marks that landed and lands no more", async () => {
     const calls: ModelCall[] = [];
@@ -821,10 +855,11 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       calls,
       () => started,
     );
-    const { core, folderId, mindId, client } = await harbour(model, {
-      kind: "anthropic",
-      modelId: "claude-haiku-5-5",
-    });
+    const { core, folderId, mindId, client } = await harbour(
+      model,
+      { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      undefined,
+    );
     started = core;
     page = client;
 
@@ -835,11 +870,12 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
     if (!asked.asked) throw new Error("Not asked.");
     answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
-    await vi.waitFor(
+    const stopped = await vi.waitFor(
       async () => {
         const { messages } = await core.getConversation(asked.conversation.id);
         const found = messages.find((each) => each.id === asked.answerId);
-        expect(found?.kind === "answer" && found.status).toBe("stopped");
+        if (found?.kind !== "answer" || found.status !== "stopped") throw new Error("Not stopped.");
+        return found;
       },
       { timeout: 20_000, interval: 20 },
     );
@@ -848,6 +884,9 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
       ["Spring tides come at new and full moon .", "supported"],
     ]);
+    const [change] = changesIn(stopped);
+    expect(change?.checking).toBe(2);
+    expect(change?.selfCheck).toBeUndefined();
   });
 
   // protects=words the User types into what the assistant wrote while the check runs stay: only the sentences cut or marked are written, each only while unchanged (one with no cut too); fails_when=the User's words vanish, or a sentence they changed is cut over; no_claim=none beyond protects.
