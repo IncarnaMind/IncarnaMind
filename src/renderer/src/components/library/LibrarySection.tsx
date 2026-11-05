@@ -26,6 +26,7 @@ import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
 import { useOrganizeAsk } from "../../organizeRun";
 import { useRequests } from "../../requests";
 import type { ReviewReason } from "../../reviewProblems";
+import { notOrganizedLine, retryableCause, reviewProblemsOf } from "../../reviewProblems";
 import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
@@ -616,7 +617,14 @@ function Organize({ documents }: { documents: readonly Document[] }) {
     return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
   }, [all, library]);
   const pending = states.filter((state) => state.run === "working").length;
-  const failed = useMemo(() => organizeFailedIds(all, library?.assignments ?? []), [all, library]);
+  const failed = useMemo(
+    () => organizeFailedIds(documents, library?.assignments ?? []),
+    [documents, library],
+  );
+  const problems = useMemo(
+    () => reviewProblemsOf(documents, library?.assignments ?? []),
+    [documents, library],
+  );
   const run = (ids: readonly string[]) => {
     organizeDocuments(ids).catch(useAppStore.getState().reportError);
   };
@@ -639,13 +647,15 @@ function Organize({ documents }: { documents: readonly Document[] }) {
         data-testid="library-organize-failed"
         className="min-w-0 truncate text-[13px] text-ink-meta"
       >
-        {t(failed.size === 1 ? "library.organize.failed.one" : "library.organize.failed", {
-          count: failed.size,
-        })}
-        <span aria-hidden="true"> · </span>
-        <button type="button" onClick={retry} className={quietButtonClass}>
-          {t("library.organize.retry")}
-        </button>
+        {notOrganizedLine(problems, failed.size, t)}
+        {problems.some((problem) => retryableCause(problem.kind)) && (
+          <>
+            <span aria-hidden="true"> · </span>
+            <button type="button" onClick={retry} className={quietButtonClass}>
+              {t("library.organize.retry")}
+            </button>
+          </>
+        )}
       </span>
     );
   }

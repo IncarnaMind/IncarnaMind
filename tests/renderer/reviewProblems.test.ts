@@ -1,11 +1,15 @@
 import { describe, expect, test } from "vitest";
 import type { Document, DocumentGroupAssignment, ProviderErrorKind } from "../../src/core/api";
 import {
+  CAUSE_WORDS,
+  folderProblemWords,
+  notOrganizedLine,
   PROBLEM_FIX,
   PROBLEM_WORDS,
   problemAction,
   problemLine,
   ROW_PROBLEM_WORDS,
+  retryableCause,
   reviewProblemKind,
   reviewProblemsOf,
   reviewReason,
@@ -130,14 +134,14 @@ describe("the words and the actions", () => {
   });
 
   test("a cause it can't name is one plain line that keeps Try again", () => {
-    expect(problemLine("other", 4, null, en)).toBe("Organize couldn’t sort 4 Documents");
-    expect(problemLine("other", 1, null, en)).toBe("Organize couldn’t sort 1 Document");
+    expect(problemLine("other", 4, null, en)).toBe("Couldn’t organize 4 Documents");
+    expect(problemLine("other", 1, null, en)).toBe("Couldn’t organize 1 Document");
     expect(problemLine("other", 2, null, zh)).toBe("“整理”未能处理 2 个文档");
     expect(PROBLEM_FIX.other).toBeUndefined();
   });
 
   test("a cause with no service it can name says Organize's own count instead", () => {
-    expect(problemLine("credit", 4, null, en)).toBe("Organize couldn’t sort 4 Documents");
+    expect(problemLine("credit", 4, null, en)).toBe("Couldn’t organize 4 Documents");
     expect(problemLine("credit", 1, null, zh)).toBe("“整理”未能处理 1 个文档");
   });
 });
@@ -188,15 +192,80 @@ describe("the one action a line offers and the row's own words (#2535)", () => {
     const unnamed = reviewReason("other", null, en);
     expect(unnamed).toEqual({
       kind: "other",
-      title: "Organize couldn’t sort this Document",
+      title: "Organize couldn’t place this Document in a Folder",
     });
-    expect(en(ROW_PROBLEM_WORDS.other)).toBe("Couldn’t sort");
+    expect(en(ROW_PROBLEM_WORDS.other)).toBe("Couldn’t organize");
     expect(zh(ROW_PROBLEM_WORDS.other)).toBe("未能整理");
-    expect(zh("library.row.problem.other.title")).toBe("“整理”未能处理这个文档");
+    expect(zh("library.row.problem.other.title")).toBe("“整理”未能把这个文档放入文件夹");
     expect(unnamed.title).not.toBe(en(ROW_PROBLEM_WORDS.other));
 
     // The service is unknown while it loads: the same short row, not a cause without its service.
     expect(reviewReason("credit", null, en)).toEqual(unnamed);
     expect(reviewReason("credit", null, en).title).not.toBe(en(ROW_PROBLEM_WORDS.credit));
+  });
+});
+
+describe("the header and a Folder row's words (#2535)", () => {
+  test("the Not in a Folder header names the shared cause, in words only, in both languages", () => {
+    const credit = { kind: "credit" as const, documentIds: ["a"] };
+    expect(notOrganizedLine([credit], 6, en)).toBe("6 Documents not organized: no credit left");
+    expect(notOrganizedLine([credit], 6, zh)).toBe("6 个文档未整理：额度已用完");
+    expect(notOrganizedLine([credit], 1, en)).toBe("1 Document not organized: no credit left");
+    expect(notOrganizedLine([credit], 1, zh)).toBe("1 个文档未整理：额度已用完");
+    expect(notOrganizedLine([{ kind: "rateLimit", documentIds: ["a"] }], 2, en)).toBe(
+      "2 Documents not organized: busy right now",
+    );
+    expect(notOrganizedLine([], 6, en)).toBe("6 Documents not organized");
+    expect(notOrganizedLine([], 6, zh)).toBe("6 个文档未整理");
+    expect(notOrganizedLine([{ kind: "other", documentIds: ["a"] }], 1, en)).toBe(
+      "1 Document not organized",
+    );
+    expect(
+      notOrganizedLine(
+        [
+          { kind: "credit", documentIds: ["a"] },
+          { kind: "other", documentIds: ["b"] },
+        ],
+        2,
+        en,
+      ),
+    ).toBe("2 Documents not organized");
+  });
+
+  test("only a cause with no fix of its own is retryable", () => {
+    expect(retryableCause("other")).toBe(true);
+    expect(retryableCause("rateLimit")).toBe(true);
+    expect(retryableCause("credit")).toBe(false);
+    expect(retryableCause("keyRefused")).toBe(false);
+    expect(retryableCause("planLimit")).toBe(false);
+  });
+
+  test("a Folder row prefixes the cause with Organize, and keeps the unnamed short word", () => {
+    expect(folderProblemWords("credit", en)).toBe("Organize: no credit left");
+    expect(folderProblemWords("credit", zh)).toBe("整理：额度已用完");
+    expect(folderProblemWords("keyRefused", en)).toBe("Organize: key refused");
+    expect(folderProblemWords("keyRefused", zh)).toBe("整理：密钥被拒绝");
+    expect(folderProblemWords("planLimit", en)).toBe("Organize: plan used up for now");
+    expect(folderProblemWords("planLimit", zh)).toBe("整理：套餐额度暂时用完");
+    expect(folderProblemWords("rateLimit", en)).toBe("Organize: busy right now");
+    expect(folderProblemWords("rateLimit", zh)).toBe("整理：服务繁忙");
+    expect(folderProblemWords("other", en)).toBe("Couldn’t organize");
+    expect(folderProblemWords("other", zh)).toBe("未能整理");
+  });
+
+  test("the cause words are mid-sentence, in both languages", () => {
+    expect(en(CAUSE_WORDS.credit)).toBe("no credit left");
+    expect(zh(CAUSE_WORDS.credit)).toBe("额度已用完");
+    expect(en(CAUSE_WORDS.keyRefused)).toBe("key refused");
+    expect(zh(CAUSE_WORDS.keyRefused)).toBe("密钥被拒绝");
+    expect(en(CAUSE_WORDS.planLimit)).toBe("plan used up for now");
+    expect(zh(CAUSE_WORDS.planLimit)).toBe("套餐额度暂时用完");
+    expect(en(CAUSE_WORDS.rateLimit)).toBe("busy right now");
+    expect(zh(CAUSE_WORDS.rateLimit)).toBe("服务繁忙");
+  });
+
+  test("the Organize Add credit command names its own act, in both languages", () => {
+    expect(en("library.addCredit")).toBe("Add credit for Organize");
+    expect(zh("library.addCredit")).toBe("为“整理”充值");
   });
 });

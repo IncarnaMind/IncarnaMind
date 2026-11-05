@@ -1,8 +1,7 @@
 import { attentionIds } from "../attention";
 import { looseDocumentIds, organizeDocuments } from "../organizeDocuments";
-import { fixOrganizeProblem } from "../organizeFix";
+import { documentsOfCause, fixOrganizeProblem } from "../organizeFix";
 import { organizeFailedIds } from "../organizeOutcome";
-import { type ReviewProblemKind, reviewProblemsOf } from "../reviewProblems";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { hasNotSorted, waitingIds } from "../suggestionReview";
 import type { Command } from "./registry";
@@ -13,19 +12,10 @@ const ownNow = () => {
   return state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
 };
 
-const problemsNow = () => {
-  const state = useAppStore.getState();
-  return reviewProblemsOf(ownNow(), state.library?.assignments ?? []);
-};
-
 const failedNow = () => {
   const state = useAppStore.getState();
   return organizeFailedIds(ownNow(), state.library?.assignments ?? []);
 };
-
-/** The Documents behind a cause, for the one action that fixes it (#2535). */
-const documentsOfCause = (kind: ReviewProblemKind): readonly string[] =>
-  problemsNow().find((problem) => problem.kind === kind)?.documentIds ?? [];
 
 export const libraryCommands: readonly Command[] = [
   {
@@ -88,29 +78,32 @@ export const libraryCommands: readonly Command[] = [
   },
   {
     id: "library.addCredit",
-    label: "answer.error.addCredit",
+    label: "library.addCredit",
     keywords: ["library.addCredit.keywords"],
     group: "main",
+    assistant: { never: "keys" },
     when: () => documentsOfCause("credit").length > 0,
     reversible: true,
-    run: () => void fixOrganizeProblem("credit", documentsOfCause("credit")),
+    run: () => void fixOrganizeProblem("credit"),
   },
   {
     id: "library.checkKey",
     label: "answer.error.checkKey",
     keywords: ["library.checkKey.keywords"],
     group: "main",
+    assistant: { never: "keys" },
     when: () => documentsOfCause("keyRefused").length > 0,
     reversible: true,
-    run: () => void fixOrganizeProblem("keyRefused", documentsOfCause("keyRefused")),
+    run: () => void fixOrganizeProblem("keyRefused"),
   },
   {
     id: "library.chooseModel",
     label: "answer.error.chooseModel",
     keywords: ["library.chooseModel.keywords"],
     group: "main",
+    assistant: { never: "keys" },
     when: () => documentsOfCause("planLimit").length > 0,
     reversible: true,
-    run: () => void fixOrganizeProblem("planLimit", documentsOfCause("planLimit")),
+    run: () => void fixOrganizeProblem("planLimit"),
   },
 ];

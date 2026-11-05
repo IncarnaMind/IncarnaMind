@@ -30,6 +30,10 @@ import {
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 
+/** A name long enough to cut the cause beside it if the cause gives way first (#2535). */
+const LONG_NAME =
+  "Invoice 4 quarterly maintenance invoice for the north warehouse roof and gutter repairs";
+
 let dataDir: string;
 let sources: string;
 test.beforeEach(async () => {
@@ -156,7 +160,8 @@ test("Review goes to each Document that needs attention, and a credit failure is
 
     const files: string[] = [];
     for (let at = 1; at <= 4; at++) {
-      const path = join(sources, `Invoice ${at}.txt`);
+      const name = at === 4 ? LONG_NAME : `Invoice ${at}`;
+      const path = join(sources, `${name}.txt`);
       await writeFile(path, `Invoice ${at} for consulting. The account is out of credit.`);
       files.push(path);
     }
@@ -169,6 +174,11 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await expect(status).toBeVisible({ timeout: 60_000 });
     await expect(status.getByTestId("status-label")).toHaveText("Needs attention");
 
+    // The Not in a Folder header says the shared cause in words only: the action is on To review's line.
+    const header = library.getByTestId("library-organize-failed");
+    await expect(header).toHaveText("4 Documents not organized: no credit left");
+    await expect(header.getByRole("button")).toHaveCount(0);
+
     // A row names only the cause, and its tooltip and accessible name carry the whole sentence (#2535).
     const failedRow = library
       .locator("[data-document-id]")
@@ -179,12 +189,26 @@ test("Review goes to each Document that needs attention, and a credit failure is
       "title",
       "Your OpenAI key is out of credit",
     );
+    const longRow = library
+      .locator("[data-document-id]")
+      .filter({ has: window.getByTestId("library-not-sorted") })
+      .filter({ hasText: LONG_NAME })
+      .first();
     const clipped = () =>
-      failedRow.getByTestId("library-not-sorted").evaluate((element) => {
+      longRow.getByTestId("library-not-sorted").evaluate((element) => {
         const text = element.querySelector('[aria-hidden="true"]');
         return text !== null && text.scrollWidth > text.clientWidth + 1;
       });
     expect(await clipped()).toBe(false);
+    const nameCut = () =>
+      longRow
+        .getByTestId("library-document-name")
+        .evaluate((element) => element.scrollWidth > element.clientWidth);
+    expect(await nameCut(), "the long name truncates, not the cause").toBe(true);
+    await expect(longRow.locator("[data-row-main]")).toHaveAttribute(
+      "title",
+      new RegExp(LONG_NAME),
+    );
 
     // Get info says the same plain words, never the provider's sentence.
     await failedRow.locator("[data-row-main]").focus();
@@ -226,6 +250,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
 
     // The second from the Library, in Chinese.
     await setLanguage(window, "zh-CN");
+    await expect(header).toHaveText("4 个文档未整理：额度已用完");
     await expect(line).toContainText("你的 OpenAI 密钥额度已用完");
     await expect(line.getByRole("button")).toHaveText(["充值"]);
     await screenshot(window, "review-attention-zh-1440-status");
@@ -241,6 +266,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await expect(status).toBeVisible();
     await expect(library.getByTestId("library-not-sorted").first()).toContainText("No credit left");
     expect(await clipped()).toBe(false);
+    expect(await nameCut()).toBe(true);
     await screenshot(window, "review-attention-en-900-status");
     await newMind(window);
     const third = await pressReview(window, thirdId);
@@ -336,7 +362,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     const fallback = library.getByTestId("library-review-problem");
     await expect(fallback).toHaveCount(1);
     await expect(fallback).toHaveAttribute("data-kind", "other");
-    await expect(fallback).toContainText("Organize couldn’t sort 2 Documents");
+    await expect(fallback).toContainText("Couldn’t organize 2 Documents");
     await expect(fallback.getByRole("button")).toHaveText(["Try again"]);
     const unsorted = library.getByTestId("library-review-unsorted");
     await expect(unsorted).toBeVisible();

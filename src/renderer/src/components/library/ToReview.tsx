@@ -63,6 +63,11 @@ export function ToReview({
   const unsorted = notSorted.length > 0;
   const shownAll = showingAll.has(UNSORTED_KEY);
   const unsortedListed = shownAll ? notSorted : notSorted.slice(0, FIRST_ROWS);
+  // One credit line for every block (#2535): its fix is one press, wherever the failures sit.
+  const credit = reviewProblemsOf(
+    [...review.groups.flatMap((group) => group.documents), ...notSorted],
+    assignments,
+  ).find((problem) => problem.kind === "credit");
   const unsortedProblems = reviewProblemsOf(notSorted, assignments);
   const unsortedCovered = new Set(unsortedProblems.flatMap((problem) => problem.documentIds));
   return (
@@ -139,6 +144,7 @@ export function ToReview({
           </span>
         }
       />
+      {open && credit && <ReviewProblemLine problem={credit} serviceName={serviceName} />}
       {open &&
         review.groups.map(({ folder, path, documents }) => {
           const all = showingAll.has(`${TO_REVIEW}:${folder.id}`);
@@ -153,9 +159,15 @@ export function ToReview({
                   count: formatCount(documents.length, language),
                 })}
               </p>
-              {problems.map((problem) => (
-                <ReviewProblemLine key={problem.kind} problem={problem} serviceName={serviceName} />
-              ))}
+              {problems
+                .filter((problem) => problem.kind !== "credit")
+                .map((problem) => (
+                  <ReviewProblemLine
+                    key={problem.kind}
+                    problem={problem}
+                    serviceName={serviceName}
+                  />
+                ))}
               {listed.map((doc) => (
                 <LibraryRow
                   key={doc.id}
@@ -191,9 +203,11 @@ export function ToReview({
               count: formatCount(notSorted.length, language),
             })}
           </p>
-          {unsortedProblems.map((problem) => (
-            <ReviewProblemLine key={problem.kind} problem={problem} serviceName={serviceName} />
-          ))}
+          {unsortedProblems
+            .filter((problem) => problem.kind !== "credit")
+            .map((problem) => (
+              <ReviewProblemLine key={problem.kind} problem={problem} serviceName={serviceName} />
+            ))}
           {unsortedListed.map((doc) => (
             <LibraryRow
               key={doc.id}

@@ -99,7 +99,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     const library = window.getByTestId("library");
     await pointAndClick(window, library.getByTestId("library-organize"));
 
-    const reason = "Couldn’t sort";
+    const reason = "Couldn’t organize";
     const loose = section(library, "not-in-a-folder");
     const review = reviewOf(window);
     await expect(review.getByTestId("library-review-summary")).toHaveText(
@@ -111,10 +111,10 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(loose.getByTestId("library-not-sorted").first()).toContainText(reason);
     await expect(loose.getByTestId("library-not-sorted").first()).toHaveAttribute(
       "title",
-      "Organize couldn’t sort this Document",
+      "Organize couldn’t place this Document in a Folder",
     );
     await expect(
-      loose.getByTestId("library-not-sorted").first().getByTestId("library-not-sorted-retry"),
+      loose.getByTestId("library-not-sorted").first().getByTestId("library-not-organized-retry"),
     ).toHaveText("Try again");
 
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("3 not sorted");
@@ -132,7 +132,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(unsorted.getByTestId("library-review-document")).toHaveCount(3);
     await expect(unsorted.getByTestId("library-not-sorted")).toHaveCount(0);
     await expect(unsorted.getByTestId("library-review-problem")).toContainText(
-      "Organize couldn’t sort 3 Documents",
+      "Couldn’t organize 3 Documents",
     );
     await expect(unsorted.getByTestId("review-accept")).toHaveCount(0);
     await toTop(library);
@@ -175,7 +175,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(loose.getByTestId("library-not-sorted").first()).toContainText("未能整理");
     await expect(loose.getByTestId("library-not-sorted").first()).toHaveAttribute(
       "title",
-      "“整理”未能处理这个文档",
+      "“整理”未能把这个文档放入文件夹",
     );
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("3 个未整理");
     await expect(library.getByTestId("library-review-not-sorted")).toHaveText("查看");
@@ -337,10 +337,10 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("1 not sorted");
     await expect(
       section(library, "not-in-a-folder").getByTestId("library-not-sorted").first(),
-    ).toContainText("Couldn’t sort");
+    ).toContainText("Couldn’t organize");
     await expect(
       section(library, "not-in-a-folder").getByTestId("library-not-sorted").first(),
-    ).toHaveAttribute("title", "Organize couldn’t sort this Document");
+    ).toHaveAttribute("title", "Organize couldn’t place this Document in a Folder");
 
     // A suggestion that a re-run fails for, then turned down, is the User's decision: finishing it
     // settles the Document, so nothing calls it one Organize couldn't sort.
@@ -402,7 +402,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(noteRow).toHaveCount(1);
     await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
     await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
-      "Organize couldn’t sort 1 Document",
+      "Couldn’t organize 1 Document",
     );
     const reportsSection = library.getByTestId("library-section").filter({
       has: library.page().getByTestId("library-section-name").filter({ hasText: "Reports" }),
@@ -412,13 +412,15 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     const noteInReports = reportsSection.getByTestId("library-document").filter({
       has: window.getByRole("button", { name: "Note 1", exact: true }),
     });
-    await expect(noteInReports.getByTestId("library-sort-failed")).toContainText("Couldn’t sort");
+    await expect(noteInReports.getByTestId("library-sort-failed")).toContainText(
+      "Couldn’t organize",
+    );
     await expect(noteInReports.getByTestId("library-sort-failed")).toHaveAttribute(
       "title",
-      "Organize couldn’t sort this Document",
+      "Organize couldn’t place this Document in a Folder",
     );
     await expect(
-      noteInReports.getByTestId("library-sort-failed").getByTestId("library-sort-failed-retry"),
+      noteInReports.getByTestId("library-sort-failed").getByTestId("library-organize-failed-retry"),
     ).toHaveText("Try again");
     // Screenshots of the row's reason: no row selected by an earlier click, and the pointer off the rows.
     for (const box of await library.locator('[data-testid="library-select"]:checked').all())
@@ -480,11 +482,10 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(noteRow).toHaveCount(1);
     await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
     await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
-      "Organize couldn’t sort 1 Document",
+      "Couldn’t organize 1 Document",
     );
-    await expect(looseNow.getByTestId("library-organize-failed")).toContainText(
-      "Organize couldn’t sort 1 Document",
-    );
+    // A Suggested Document is waiting for acceptance, not failing: the header never counts it.
+    await expect(looseNow.getByTestId("library-organize-failed")).toHaveCount(0);
     await expect(library.getByTestId("library-not-sorted-count")).toHaveCount(0);
     await expect(library.getByTestId("library-review-unsorted")).toHaveCount(0);
     await expect(looseNow.getByTestId("library-not-sorted")).toHaveCount(0);
@@ -534,7 +535,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(noteRow).toHaveCount(1);
     await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
     await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
-      "Organize couldn’t sort 1 Document",
+      "Couldn’t organize 1 Document",
     );
     expect(await noteNow()).toMatchObject({
       folder: "Reports",
@@ -649,7 +650,7 @@ test("deleting the last Document Organize couldn't sort leaves no Review behind,
     await expect(loose.getByTestId("library-not-sorted").first()).toContainText("未能整理");
     await expect(loose.getByTestId("library-not-sorted").first()).toHaveAttribute(
       "title",
-      "“整理”未能处理这个文档",
+      "“整理”未能把这个文档放入文件夹",
     );
     await window.keyboard.press("ControlOrMeta+z");
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("2 个未整理");

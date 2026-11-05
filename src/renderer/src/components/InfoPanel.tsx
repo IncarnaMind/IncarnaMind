@@ -31,7 +31,7 @@ import {
 } from "../linkedFolders";
 import { type Box, enterFrom, useExitToward } from "../motion";
 import { useNotices } from "../notices";
-import { problemLine, reviewProblemKind } from "../reviewProblems";
+import { reviewProblemKind, reviewReason } from "../reviewProblems";
 import { scanningStatus } from "../scanStatus";
 import { useAppStore } from "../store";
 import { chipsOf } from "../tagEditing";
@@ -438,7 +438,8 @@ function DocumentInfo({ document }: { document: Document }) {
             <span className="block text-ink-meta">
               {assignment.error.wording
                 ? t(assignment.error.wording.key, assignment.error.wording.values)
-                : problemLine(reviewProblemKind(assignment.error.kind), 1, organizeServiceName, t)}
+                : reviewReason(reviewProblemKind(assignment.error.kind), organizeServiceName, t)
+                    .title}
             </span>
           )}
           {scanImagesToAllow && (

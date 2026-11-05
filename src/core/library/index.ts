@@ -31,6 +31,7 @@ import {
 import type { Language } from "../language";
 import { normalizeBaseUrl, serviceForUrl } from "../providers/kinds";
 import { classifyProviderError } from "../providers/providerErrors";
+import { redactMessage } from "../redact";
 import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
@@ -1067,8 +1068,9 @@ export function createLibrary(options: {
             ? (refused ?? classifyProviderError(error))
             : rateLimitError(limitedUntil, error);
         state(id, waiting ? "waiting" : "failed", said);
+        // The app log's scrubber takes a UUID for a key: dotted, the id stays findable.
         console.error(
-          `Organize couldn't sort Document ${id}: ${said.kind}${said.status === undefined ? "" : ` (${said.status})`}. ${said.message}`,
+          `Organize failed on Document ${id.replaceAll("-", ".")}: ${said.kind}${said.status === undefined ? "" : ` (${said.status})`}. ${redactMessage(said.message)}`,
         );
         call.failed?.(error);
       }

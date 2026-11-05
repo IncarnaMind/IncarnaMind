@@ -39,7 +39,7 @@ export function ReviewProblemLine({
             ? {
                 label: t(fixLabel),
                 testId: "library-review-problem-fix",
-                onClick: () => void fixOrganizeProblem(problem.kind, problem.documentIds),
+                onClick: () => void fixOrganizeProblem(problem.kind),
               }
             : retry
         }

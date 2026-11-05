@@ -104,6 +104,18 @@ export const namedProblem = (kind: ReviewProblemKind, service: string | null): b
 export const problemAction = (kind: ReviewProblemKind, service: string | null): "fix" | "retry" =>
   namedProblem(kind, service) && PROBLEM_FIX[kind] !== undefined ? "fix" : "retry";
 
+/** The cause in mid-sentence, for the Not in a Folder header and a Folder row's prefix (#2535). */
+export const CAUSE_WORDS: Record<Exclude<ReviewProblemKind, "other">, MessageKey> = {
+  credit: "library.cause.credit",
+  keyRefused: "library.cause.keyRefused",
+  planLimit: "library.cause.planLimit",
+  rateLimit: "library.cause.rateLimit",
+};
+
+/** Whether Try again can help a cause: it has no fix of its own, so retrying is its action. */
+export const retryableCause = (kind: ReviewProblemKind): boolean =>
+  kind === "other" || kind === "rateLimit";
+
 /** The cause alone, for a Document's own row, whose place already says it is Organize's (#2535). */
 export const ROW_PROBLEM_WORDS: Record<ReviewProblemKind, MessageKey> = {
   credit: "library.row.problem.credit",
@@ -131,4 +143,38 @@ export function reviewReason(
     kind: named ? kind : "other",
     title: named ? problemLine(kind, 1, service, t) : t("library.row.problem.other.title"),
   };
+}
+
+/**
+ * A Folder row's cause, prefixed because the place no longer says it is Organize's (#2535); a
+ * cause it can't name keeps its own short word.
+ */
+export function folderProblemWords(kind: ReviewProblemKind, t: Translate): string {
+  return kind === "other"
+    ? t(ROW_PROBLEM_WORDS.other)
+    : t("library.row.problem.folder", { cause: t(CAUSE_WORDS[kind]) });
+}
+
+/**
+ * The Not in a Folder header's words (#2535): the count, and the cause when every failure shares
+ * one the Library can name. The caller adds Try again only when `retryableCause` says so.
+ */
+export function notOrganizedLine(
+  problems: readonly ReviewProblem[],
+  count: number,
+  t: Translate,
+): string {
+  const shared = problems.length === 1 ? problems[0] : undefined;
+  if (shared !== undefined && shared.kind !== "other") {
+    const cause = t(CAUSE_WORDS[shared.kind]);
+    return t(
+      count === 1
+        ? "library.organize.notOrganized.cause.one"
+        : "library.organize.notOrganized.cause",
+      { count, cause },
+    );
+  }
+  return t(count === 1 ? "library.organize.notOrganized.one" : "library.organize.notOrganized", {
+    count,
+  });
 }
