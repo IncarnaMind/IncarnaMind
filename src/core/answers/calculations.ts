@@ -1907,13 +1907,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       before: page.text.slice(0, page.at),
       after: page.text.slice(page.at + quote.length),
     };
-    const quoteContextOf = (base: FigureContext): FigureContext => ({
-      ...base,
+    let quoteContext: FigureContext = {
+      ...context,
       midLine: page.midLine,
       around,
       ...(cells && { dates: true }),
-    });
-    let quoteContext = quoteContextOf(context);
+    };
     const contextProblem = quotePlaceProblem(quote, quoted.units, quoted.matching);
     if (contextProblem) return contextProblem;
     const figures = readFigures(quote, quoteContext);
@@ -1956,7 +1955,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         unitProblem = null;
         const yen = figureContextOf(unit.citation.quote, context.language).yen ?? context.yen;
         context = { ...context, yen };
-        quoteContext = quoteContextOf(context);
+        quoteContext = { ...quoteContext, yen };
         const at = figure.start;
         const chars = figure.chars;
         const reread = readFigures(quote, quoteContext).find(

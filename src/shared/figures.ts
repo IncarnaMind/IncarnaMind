@@ -796,10 +796,13 @@ interface Settled {
   chinese: boolean;
   accounts: boolean;
   negativeBrackets: boolean;
-  /** Up to 400 characters of the Document before and after the text read, in NFKC. */
+  /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
   before: string;
   after: string;
 }
+
+/** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
+const DASHES = /[\u2010-\u2015\u2212]/g;
 
 function settle(context: FigureContext): Settled {
   const byLanguage = context.language ? languageSeparators(context.language) : null;
@@ -824,8 +827,8 @@ function settle(context: FigureContext): Settled {
     chinese: tag?.language === "zh",
     accounts: context.accounts === true,
     negativeBrackets: context.negativeBrackets === true,
-    before: (context.around?.before ?? "").slice(-400).normalize("NFKC"),
-    after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC"),
+    before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
+    after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
 }
 
@@ -2561,18 +2564,19 @@ function amountInWords(
  * deficit of", "decreased by", "亏损", "减少", "扣除"; or a minus or a △ written on it.
  */
 const SIGN_BEFORE =
-  /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除)[ \u00a0]*[为了]?$|-$|[△▲▽▼][ \u00a0]*$/i;
+  /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除|减去|扣减|抵扣|减除)[ \u00a0]*[为了]?$|-[ \u00a0]*$|[△▲▽▼][ \u00a0]*$/i;
 
 /**
  * A word that says an amount is below zero, in the text around it: "minus", "negative", "a net
- * loss", "overdrawn", "in the red", "(−)", 负, 亏损, 透支, 赤字, 由盈转亏. Not a "negative pledge", nor
- * 负责, 负担, 负债, 负面 or 自负, nor "the loss was", which gives a loss's size.
+ * loss", "overdrawn", "OD", "in the red", "printed in red", "below zero", "in debit", "-ve", "(−)",
+ * 负, 亏损, 透支, 赤字, 红字, 小于零, 由盈转亏. Not a "negative pledge", nor 负责, 负担, 负债, 负面 or 自负,
+ * nor "the loss was", which gives a loss's size.
  */
 const NEGATIVE_WORD =
-  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|in deficit|an? (?:[a-z-]+ ){0,2}(?:loss|deficit)|loss-making)(?![A-Za-z])|(?<!自)负(?![责担债面])|亏损|透支|赤字|转亏|\([-−]\)/i;
+  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|in deficit|an? (?:[a-z-]+ ){0,2}(?:loss|deficit)|loss-making|(?:below|under|less than) zero|in debit|-ve|od|(?:shown|printed) in red|under ?water)(?![A-Za-z])|(?<!自)负(?![责担债面])|亏损|透支|赤字|转亏|为亏|净亏|亏了|[小低]于零|红字|\(-\)/i;
 
 /** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …", a table's "Less" cell. */
-const DEDUCTION_LINE = /^[\s|]*(?:less|减)[ \u00a0]*(?:[:：]|\t|\|)/i;
+const DEDUCTION_LINE = /^[\s|]*(?:less|deduct|减)[ \u00a0]*(?:[:：-]|\t|\|)/i;
 
 /** The Document says amounts in brackets are negative: "Amounts in brackets are negative", "括号内数字为负数". */
 const SAYS_BRACKETS_NEGATIVE =
