@@ -888,7 +888,9 @@ export function createEdits(options: EditsOptions) {
         selected: selection.characters,
       });
     const appliesNow = () =>
-      explain || ask.action === "translate" || (stream?.extent().mapped ?? false);
+      explain ||
+      ask.action === "translate" ||
+      (stream ? stream.extent().mapped && !holdsBack(stream) : false);
     let wrote = false;
     let refused = false;
     /** What it wrote holds a Citation, footnote or figure its reply didn't place: nothing more goes in. */

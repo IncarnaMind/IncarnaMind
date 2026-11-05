@@ -2963,7 +2963,10 @@ export interface EditCause {
   requestId: string;
   /** Its Proposals' `ProposalRef.request`. */
   request: string;
-  /** Drawn as applied while it streams in; false until its new text maps onto the selection. */
+  /**
+   * Drawn as applied while it streams in: its new text maps onto the selection, and what it has
+   * written so far would not wait for the User.
+   */
   apply: boolean;
 }
 
