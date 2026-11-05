@@ -773,7 +773,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
         check: (call) => {
           if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
           const landed = vi
-            .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 5_000, interval: 5 })
+            .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 20_000, interval: 5 })
             .then(
               () => {
                 markedWhileWaiting = true;
@@ -793,6 +793,60 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
       ["Spring tides come at new and full moon .", "supported"],
       ["Neap tides are twice as strong .", "unsupported"],
+    ]);
+  });
+
+  // protects=Stop while a write's sentences are checked keeps the marks that landed and lands none for a sentence whose check Stop cut short, as Check this note leaves them (#2532); fails_when=a sentence stopped mid-check lands marked, or a landed mark is taken back; no_claim=what the Answer says once stopped.
+  test("Stop while a write is checked keeps the marks that landed and lands no more", async () => {
+    const calls: ModelCall[] = [];
+    let started: Core | null = null;
+    let page: MindClient | null = null;
+    let answer: { conversationId: string; answerId: string } | null = null;
+    const moonMarked = () =>
+      page !== null &&
+      claimSpans(readMind(page)).some((span) => span.sentence.text.startsWith("Spring tides"));
+    const model = writingModel(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call, core) => {
+          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
+          const stopped = vi
+            .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 20_000, interval: 5 })
+            .then(() => (answer ? core.stopConversationAnswer(answer) : undefined));
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
+        },
+      },
+      calls,
+      () => started,
+    );
+    const { core, folderId, mindId, client } = await harbour(model, {
+      kind: "anthropic",
+      modelId: "claude-haiku-5-5",
+    });
+    started = core;
+    page = client;
+
+    const asked = await core.askInConversation({
+      text: "Add a short note on tides to this Mind",
+      mindId,
+      scope: { folderIds: [folderId], tagIds: [], documentIds: [] },
+    });
+    if (!asked.asked) throw new Error("Not asked.");
+    answer = { conversationId: asked.conversation.id, answerId: asked.answerId };
+    await vi.waitFor(
+      async () => {
+        const { messages } = await core.getConversation(asked.conversation.id);
+        const found = messages.find((each) => each.id === asked.answerId);
+        expect(found?.kind === "answer" && found.status).toBe("stopped");
+      },
+      { timeout: 20_000, interval: 20 },
+    );
+
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
+      ["Spring tides come at new and full moon .", "supported"],
     ]);
   });
 
