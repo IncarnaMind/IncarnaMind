@@ -180,6 +180,7 @@ const ANSWER_CARD = {
     asked: "Summarise the main documents slowly",
     question: "Which Documents should I summarise?",
     answer: "Board minutes, Lease Mill Lane",
+    chose: "You chose: ",
     reply: "Summarised the Documents you chose.",
     waiting: "Waiting for your answer below",
   },
@@ -187,6 +188,7 @@ const ANSWER_CARD = {
     asked: "总结主要的文档 slowly",
     question: "要总结哪几份文档？",
     answer: "Board minutes、Lease Mill Lane",
+    chose: "你选择了：",
     reply: "已写好你选的文档的摘要。",
     waiting: "等你在下方回答",
   },
@@ -222,7 +224,15 @@ for (const [language, width, height] of [
 
     // The User's answer is their own bubble, right-aligned as the Question above it.
     const bubble = answer.getByTestId("answer-asked-answer").locator(".assistant-question-bubble");
-    await expect(bubble).toHaveText(said.answer);
+    const words = bubble.getByTestId("answer-asked-words");
+    await expect(words).toHaveText(said.answer);
+    // The attribution is spoken only: a hidden box, never part of the visible words.
+    const chose = bubble.getByTestId("answer-asked-chose");
+    await expect(chose).toHaveText(`${said.chose}${said.answer}`);
+    const choseBox = await chose.boundingBox();
+    expect(choseBox?.width ?? 0).toBeLessThanOrEqual(1);
+    expect(choseBox?.height ?? 0).toBeLessThanOrEqual(1);
+    await expect(words).not.toContainText(said.chose);
     await expect(answer.getByTestId("answer-asked-answer")).toHaveCSS(
       "justify-content",
       "flex-end",
