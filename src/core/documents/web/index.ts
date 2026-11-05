@@ -435,7 +435,7 @@ export function createWebPages(options: WebPagesOptions) {
     /**
      * See `CoreApi.saveWebPage`; the caller files it in its Folder. `added`
      * hears a new Document's id as it is stored, before it is processed.
-     * `fetch` fetches the page instead of the usual one: web search's (#128). `origin` says who
+     * `fetch` fetches the page instead of the configured one: web search's (#128). `origin` says who
      * saves it; the User saving an address a search saved makes it theirs. `reuse` limits which
      * page saved already is given back; without it, any is.
      */

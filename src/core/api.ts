@@ -11864,8 +11864,9 @@ export interface CoreApi {
    * only one that differs; an arXiv number on arXiv. Calling it is the
    * consent to the "reference-check" flow (ADR-0022); in local mode every
    * entry is "not-checked". One check of a Mind at a time. Answers are kept:
-   * a found record for good, a miss for seven days; `again` asks about every
-   * miss again.
+   * a found record for good, and a miss or a failure too, so an ordinary
+   * check sends nothing more; `again` asks about every kept miss and failure
+   * again.
    */
   checkReferences(mindId: string, options?: { again?: boolean }): Promise<CheckReferencesResult>;
   /** Stops a Mind's `checkReferences`: it gives "cancelled". Stopping none does nothing. */

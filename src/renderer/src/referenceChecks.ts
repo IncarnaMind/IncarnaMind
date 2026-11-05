@@ -38,7 +38,8 @@ core.on("referenceCheck.progress", ({ mindId, done, total }) => {
 
 /**
  * Checks the Mind's reference list; `total` shows at once, before the core
- * says more. `again`: Check again, which asks about every miss again.
+ * says more. `again`: Check again or Try again, which asks about every kept
+ * miss and failure again.
  */
 export async function checkReferences(mindId: string, total: number, again = false): Promise<void> {
   set(mindId, { kind: "checking", done: 0, total });
