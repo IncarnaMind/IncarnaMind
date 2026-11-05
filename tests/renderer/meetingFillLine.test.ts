@@ -17,6 +17,7 @@ const actions = vi.hoisted(() => {
     fillNotes: vi.fn(),
     undoFill: vi.fn(),
     showTranscript: vi.fn(),
+    showMeetingNoteView: vi.fn(),
     listeners,
     push: vi.fn<(change: Undoable) => void>(),
     openMind: vi.fn(),
@@ -35,6 +36,13 @@ vi.mock("../../src/renderer/src/meetings", () => ({
 }));
 vi.mock("../../src/renderer/src/transcripts", () => ({
   showTranscript: actions.showTranscript,
+}));
+vi.mock("../../src/renderer/src/meetingViews", () => ({
+  showMeetingNoteView: actions.showMeetingNoteView,
+}));
+vi.mock("../../src/renderer/src/components/DownloadSources", () => ({
+  failedEverySource: () => false,
+  useDownloadSources: () => ({}),
 }));
 vi.mock("../../src/renderer/src/components/tabs/tabItems", () => ({
   useTabPlace: () => actions.place.current,
@@ -60,6 +68,7 @@ vi.mock("../../src/renderer/src/undo", () => ({
 let root: Root | null = null;
 let container: HTMLElement;
 let MeetingFillLine: ComponentType<{ meeting: Meeting }>;
+let TranscriptLines: ComponentType<{ meeting: Meeting }>;
 
 const fillOf = (fill: Partial<MeetingFill> = {}): MeetingFill => ({
   state: "filled",
@@ -130,6 +139,8 @@ beforeEach(async () => {
   root = createRoot(container);
   const componentPath = "../../src/renderer/src/components/MeetingFillLine.tsx";
   ({ MeetingFillLine } = await import(componentPath));
+  const transcriptPath = "../../src/renderer/src/components/TranscriptLines.tsx";
+  ({ TranscriptLines } = await import(transcriptPath));
 });
 
 afterEach(async () => {
@@ -216,9 +227,10 @@ describe("meeting notes with omitted items", () => {
       expect(line?.textContent).toBe(text);
       expect(line?.querySelectorAll("button")).toHaveLength(2);
       await click("meeting-fill-transcript");
-      expect(actions.showTranscript.mock.calls).toEqual([
-        ["actual-transcript-document", "meeting-group"],
+      expect(actions.showMeetingNoteView.mock.calls).toEqual([
+        ["meeting-tab", meeting.mindId, "transcript"],
       ]);
+      expect(actions.showTranscript).not.toHaveBeenCalled();
       expect(actions.undoFill).not.toHaveBeenCalled();
       await click("meeting-fill-undo");
       expect(actions.undoFill.mock.calls).toEqual([[meeting.id]]);
@@ -261,9 +273,10 @@ describe("meeting notes with omitted items", () => {
       expect(line?.getAttribute("title")).toBe("provider diagnostic");
       expect(container.querySelector('[data-testid="meeting-fill-undo"]')).toBeNull();
       await click("meeting-fill-transcript");
-      expect(actions.showTranscript.mock.calls).toEqual([
-        ["actual-transcript-document", "meeting-group"],
+      expect(actions.showMeetingNoteView.mock.calls).toEqual([
+        ["meeting-tab", meeting.mindId, "transcript"],
       ]);
+      expect(actions.showTranscript).not.toHaveBeenCalled();
       await click("meeting-fill-again");
       expect(actions.fillNotes.mock.calls).toEqual([[meeting.id]]);
       expect(actions.undoFill).not.toHaveBeenCalled();
@@ -329,11 +342,47 @@ describe("meeting notes retained before a later failure", () => {
 });
 
 describe("Transcript entry points", () => {
-  test("without a tab context, opens the actual Transcript with no group override", async () => {
+  test.each(["en", "zh-CN"] as const)(
+    "the saved Transcript uses the Note view in %s",
+    async (language) => {
+      actions.language.current = language;
+      const meeting = meetingOf(fillOf());
+      await act(async () => root?.render(createElement(TranscriptLines, { meeting })));
+      await click("meeting-transcript-open");
+      expect(actions.showMeetingNoteView.mock.calls).toEqual([
+        ["meeting-tab", meeting.mindId, "transcript"],
+      ]);
+      expect(actions.showTranscript).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each(["memo", "live"] as const)(
+    "the existing %s Transcript entry keeps its side-view behavior",
+    async (kind) => {
+      const meeting = meetingOf(fillOf());
+      if (kind === "memo") meeting.kind = "memo";
+      else {
+        meeting.status = "recording";
+        if (meeting.transcript) {
+          meeting.transcript.state = "live";
+          meeting.transcript.problem = { kind: "speakers", message: "Separation failed" };
+        }
+      }
+      await act(async () => root?.render(createElement(TranscriptLines, { meeting })));
+      await click("meeting-transcript-open");
+      expect(actions.showTranscript.mock.calls).toEqual([
+        ["actual-transcript-document", "meeting-group"],
+      ]);
+      expect(actions.showMeetingNoteView).not.toHaveBeenCalled();
+    },
+  );
+
+  test("without a Note tab context, never opens an independent Transcript Document", async () => {
     actions.place.current = null;
     await show(meetingOf(fillOf({ omitted: 1 })));
-    await click("meeting-fill-transcript");
-    expect(actions.showTranscript.mock.calls).toEqual([["actual-transcript-document", undefined]]);
+    expect(container.querySelector('[data-testid="meeting-fill-transcript"]')).toBeNull();
+    expect(actions.showMeetingNoteView).not.toHaveBeenCalled();
+    expect(actions.showTranscript).not.toHaveBeenCalled();
   });
 
   test.each(["filled", "failed"] as const)(

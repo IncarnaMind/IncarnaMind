@@ -16,7 +16,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
@@ -95,6 +95,7 @@ import { ListKeys } from "../editor/listKeys";
 import { MarginChecks } from "../editor/MarginChecks";
 import { MathEditing, MathEditor } from "../editor/MathEditor";
 import { MindOutline } from "../editor/MindOutline";
+import { MeetingFillPlace } from "../editor/meetingFillPlace";
 import { MeetingNotes } from "../editor/meetingNotes";
 import {
   CompareSheetSlotContext,
@@ -156,6 +157,7 @@ import { translateNow, useT } from "../i18n";
 import { useKeptScope, useMindScope } from "../keptScope";
 import { markSelectionAsMine } from "../markAsMine";
 import { useMeetingOf, useMeetings } from "../meetings";
+import { showMeetingNoteView, useMeetingNoteView } from "../meetingViews";
 import { type OpenedCopy, openMindCopy } from "../mindCopies";
 import { isWritingIn } from "../mindStatus";
 import { followMindStyle } from "../mindStyles";
@@ -174,7 +176,9 @@ import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
 import { StartGuide, useIsExample } from "./GettingStarted";
 import { CheckLineIcon, MineLineIcon } from "./lineIcons";
+import { MeetingFillAt } from "./MeetingFillAt";
 import { MindNotice } from "./MindNotice";
+import { useTabPlace } from "./tabs/tabItems";
 
 /** Stands in for the hint's button in its translated words, which are split around it. */
 const ASK = "\uE000";
@@ -368,7 +372,14 @@ function MindEditorView({
   placeholder.current = { body: t("editor.placeholder"), title: t("editor.title") };
   // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet; a
   // voice memo's, for its note.
-  const meetingKind = useMeetingOf(mindId)?.kind;
+  const meeting = useMeetingOf(mindId);
+  const meetingKind = meeting?.kind;
+  const tabId = useTabPlace()?.tabId;
+  const noteView = useMeetingNoteView(tabId, mindId);
+  const showingNotes = meetingKind !== "meeting" || noteView === "notes";
+  const revealEditor = useCallback(() => {
+    if (tabId) flushSync(() => showMeetingNoteView(tabId, mindId, "notes"));
+  }, [tabId, mindId]);
   // The example Mind invites a Question of one's own at its end.
   const [explained, setExplained] = useState(mindExplained);
   const hintText = (place: HintPlace): HintText => {
@@ -466,6 +477,7 @@ function MindEditorView({
         FootnoteKeys,
         DocumentChipKeys,
         ListKeys,
+        MeetingFillPlace,
         MeetingNotes.configure({
           mindId,
           doc,
@@ -660,7 +672,7 @@ function MindEditorView({
 
   // The commands on the Mind's text (⌘K, ⌘↵ and ⌘⌫ on its changes) act on the Mind last written in.
   useEffect(() => {
-    if (readOnly) return;
+    if (readOnly || !showingNotes) return;
     const lend = () => {
       noteHandle.current = { editor, mindId, doc, place };
     };
@@ -670,7 +682,7 @@ function MindEditorView({
       editor.off("focus", lend);
       if (noteHandle.current?.editor === editor) noteHandle.current = null;
     };
-  }, [editor, mindId, doc, place, readOnly]);
+  }, [editor, mindId, doc, place, readOnly, showingNotes]);
 
   // The Mind the assistant reads (it draws this Mind's composer): Add to note puts an Answer
   // here through this editor, and a second Esc in the assistant comes back here.
@@ -685,6 +697,7 @@ function MindEditorView({
       cursorPlaced: () => cursorPlaced.current,
       returnToNote() {
         if (editor.isDestroyed) return;
+        revealEditor();
         // Where the cursor was, or at the end, at once: what is typed next goes there.
         // (Tiptap's `focus` waits a frame, and the first keys would go elsewhere.)
         if (!cursorInMind.current) {
@@ -701,7 +714,7 @@ function MindEditorView({
     return () => {
       if (readMindHandle.current === handle) readMindHandle.current = null;
     };
-  }, [reads, editor, mindId, doc]);
+  }, [reads, editor, mindId, doc, revealEditor]);
 
   // The selection menu's AI section: each applies at once (#880), as Mark as mine does.
   const hasDocuments = useAppStore((state) => state.documents.length > 0);
@@ -976,21 +989,23 @@ function MindEditorView({
         {slots.menu &&
           createPortal(
             <>
-              {reviewing && slots.reviewShown !== "beside" && (
+              {showingNotes && reviewing && slots.reviewShown !== "beside" && (
                 <ReviewFold editor={editor} mindId={mindId} />
               )}
-              <CommentsButton editor={editor} mindId={mindId} doc={doc} />
+              {showingNotes && <CommentsButton editor={editor} mindId={mindId} doc={doc} />}
               <PageMenu
                 editor={editor}
                 doc={doc}
                 mindId={mindId}
                 verification={verification}
                 readOnly={readOnly}
+                revealEditor={revealEditor}
               />
             </>,
             slots.menu,
           )}
-        {slots.review &&
+        {showingNotes &&
+          slots.review &&
           reviewing &&
           (slots.reviewShown === "beside" || slots.reviewShown === "over") &&
           createPortal(
@@ -998,11 +1013,13 @@ function MindEditorView({
             slots.review,
           )}
         {/* The quiet first open shows the example's text alone (#856). */}
-        {slots.count &&
+        {showingNotes &&
+          slots.count &&
           countShown &&
           !(firstOpen && isExample) &&
           createPortal(<WordCount editor={editor} doc={doc} />, slots.count)}
-        {slots.badge &&
+        {showingNotes &&
+          slots.badge &&
           createPortal(
             <CheckBadge
               editor={editor}
@@ -1025,6 +1042,7 @@ function MindEditorView({
           <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
             <EditorContent editor={editor} />
           </OpinionMenu>
+          {meeting?.kind === "meeting" && <MeetingFillAt editor={editor} meeting={meeting} />}
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
           <CommentLayer editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
@@ -1048,12 +1066,13 @@ function MindEditorView({
             )}
         </div>
         {guide && <StartGuide mindId={mindId} />}
-        {sheetSlot &&
+        {showingNotes &&
+          sheetSlot &&
           comparing &&
           !readOnly &&
           createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-        {!readOnly && <BlockHandle editor={editor} />}
-        {!readOnly && (
+        {showingNotes && !readOnly && <BlockHandle editor={editor} />}
+        {showingNotes && !readOnly && (
           <SelectionMenu
             editor={editor}
             ai={aiActions}
@@ -1063,7 +1082,7 @@ function MindEditorView({
             }}
           />
         )}
-        {!readOnly && cite && (
+        {showingNotes && !readOnly && cite && (
           <CiteSearch
             key={`${cite.from}:${cite.to}`}
             place={cite}
@@ -1072,22 +1091,24 @@ function MindEditorView({
             onDone={() => setCite(null)}
           />
         )}
-        <AskedComment
-          editor={editor}
-          mindId={mindId}
-          doc={doc}
-          fallback={slots.menu}
-          readOnly={readOnly}
-        />
-        {!readOnly && <LinkBubble editor={editor} />}
-        {findShown && (
+        {showingNotes && (
+          <AskedComment
+            editor={editor}
+            mindId={mindId}
+            doc={doc}
+            fallback={slots.menu}
+            readOnly={readOnly}
+          />
+        )}
+        {showingNotes && !readOnly && <LinkBubble editor={editor} />}
+        {showingNotes && findShown && (
           <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />
         )}
-        {outlineShown && (
+        {showingNotes && outlineShown && (
           <MindOutline editor={editor} onClose={() => useMindTools.getState().hideOutline()} />
         )}
-        <FootnotePopover editor={editor} citationView={citationView} />
-        {editingMath !== null && (
+        {showingNotes && <FootnotePopover editor={editor} citationView={citationView} />}
+        {showingNotes && editingMath !== null && (
           <MathEditor
             key={editingMath}
             editor={editor}

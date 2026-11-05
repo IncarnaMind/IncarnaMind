@@ -10896,6 +10896,8 @@ export interface MeetingFill {
   omitted?: number;
   /** Transcript parts not finished when a request failed; absent on older fills. */
   unfinishedParts?: number;
+  /** Blocks inserted by this fill, for status placement without changing the Note. */
+  addedBlockIds?: string[];
 }
 
 /**

@@ -98,6 +98,21 @@ const command = (id: CommandId) => {
   return found;
 };
 
+test.each([
+  ["ready", false],
+  ["recording", true],
+  ["paused", true],
+  ["stopped", false],
+] as const)("a %s Meeting keeps its identity when checking whether it is live", (status, live) => {
+  const current = meeting("meeting", "note", status);
+  expect(stores.isLive(current)).toBe(live);
+  if (!stores.isLive(current)) expect(current.mindId).toBe("note");
+});
+
+test("a missing Meeting is not live", () => {
+  expect(stores.isLive(undefined)).toBe(false);
+});
+
 describe("the meeting commands", () => {
   test("are named in English and Chinese, and Pause/Resume says which it will do", () => {
     canRecord();

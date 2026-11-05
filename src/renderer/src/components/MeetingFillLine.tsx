@@ -3,7 +3,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { isPartialMeetingFill } from "../../../shared/meetingFill";
 import { useT } from "../i18n";
 import { useMeetings } from "../meetings";
-import { showTranscript } from "../transcripts";
+import { showMeetingNoteView } from "../meetingViews";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
 
@@ -115,11 +115,11 @@ export function MeetingFillLine({ meeting }: { meeting: Meeting }) {
             : []),
         ]}
         action={
-          documentId
+          documentId && place
             ? {
                 label: t("meetings.fill.viewTranscript"),
                 testId: "meeting-fill-transcript",
-                onClick: () => showTranscript(documentId, place?.groupId),
+                onClick: () => showMeetingNoteView(place.tabId, meeting.mindId, "transcript"),
               }
             : undefined
         }

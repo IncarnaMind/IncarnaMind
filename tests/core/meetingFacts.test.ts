@@ -286,8 +286,28 @@ for (const language of ["en", "zh-CN"] as const) {
           expect.stringContaining(words.first),
           expect.stringContaining(words.second),
         ]);
+        const added = fill.addedBlockIds;
+        expect(added).toBeDefined();
+        expect(added?.length).toBeGreaterThan(0);
+        const originalIds = new Set(before.map((block) => block?.attributes.id));
+        const visibleIds = new Set<string>();
+        readMind(client).descendants((node) => {
+          if (typeof node.attrs.id === "string") visibleIds.add(node.attrs.id);
+        });
+        for (const id of added ?? []) {
+          expect(originalIds.has(id)).toBe(false);
+          expect(visibleIds.has(id)).toBe(true);
+        }
+        const reported = [...(added ?? [])];
+        added?.push("changed-only-in-the-public-copy");
+        expect(
+          (await core.listMeetings()).find((each) => each.id === meeting.id)?.fill?.addedBlockIds,
+        ).toEqual(reported);
         await core.undoMeetingFill(meeting.id);
         await vi.waitFor(() => expect(exactly(client)).toEqual(before));
+        expect(
+          (await core.listMeetings()).find((each) => each.id === meeting.id)?.fill?.addedBlockIds,
+        ).toEqual([]);
       } finally {
         core.close();
       }

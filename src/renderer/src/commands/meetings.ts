@@ -2,9 +2,10 @@ import type { LayoutTab, Meeting } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import { markNow, noteOf } from "../editor/meetingNotes";
 import { translateNow } from "../i18n";
-import { currentMindIdOf } from "../layoutSlice";
+import { currentMindIdOf, currentTabOf } from "../layoutSlice";
 import { helpKeysLabel } from "../meetingHelp";
 import { canRecordMeetings, isLive, useMeetings } from "../meetings";
+import { meetingNoteViewFor, showMeetingNoteView } from "../meetingViews";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { hideTranscript, showTranscript } from "../transcripts";
@@ -93,6 +94,19 @@ const whileAudioKept = (ctx: CommandContext) => {
   } as const;
 };
 
+function noteTranscriptInView(ctx: CommandContext) {
+  const tab = currentTabOf(useAppStore.getState().layout);
+  if (tab?.item.kind !== "mind") return null;
+  const mindId = tab.item.mindId;
+  if (ctx.focus && (ctx.focus.kind !== "mind" || ctx.focus.id !== mindId)) return null;
+  const meeting = useMeetings.getState().meetings.find((each) => each.mindId === mindId);
+  return meeting?.kind === "meeting" &&
+    meeting.status === "stopped" &&
+    meeting.transcript?.documentId
+    ? { tabId: tab.id, mindId }
+    : null;
+}
+
 export const meetingCommands: readonly Command[] = [
   {
     id: "meeting.record",
@@ -175,22 +189,41 @@ export const meetingCommands: readonly Command[] = [
   },
   {
     id: "meeting.transcript",
-    label: (_ctx, t) => {
+    label: (ctx, t) => {
+      const note = noteTranscriptInView(ctx);
+      if (note) {
+        return t(
+          meetingNoteViewFor(note.tabId, note.mindId) === "transcript"
+            ? "meetings.views.notes"
+            : "meetings.views.transcript",
+        );
+      }
       const meeting = liveMeeting();
       const documentId = meeting?.transcript?.documentId ?? null;
       const shown = meeting ? placesOf(meeting, documentId).tab : undefined;
       return t(shown ? "meetings.bar.hideTranscript" : "meetings.bar.showTranscript");
     },
+    keywords: ["meetings.views.notes", "meetings.views.transcript"],
     group: "main",
     // Pressed again, it undoes itself.
     reversible: true,
-    when: meetingsOn,
-    enabled: () => {
+    when: (ctx) => noteTranscriptInView(ctx) !== null || meetingsOn(),
+    enabled: (ctx) => {
+      if (noteTranscriptInView(ctx)) return true;
       const meeting = liveMeeting();
       if (!meeting) return { reason: "meetings.command.noneLive" };
       return meeting.transcript?.documentId ? true : { reason: "meetings.bar.transcriptSoon" };
     },
-    run() {
+    run(ctx) {
+      const note = noteTranscriptInView(ctx);
+      if (note) {
+        showMeetingNoteView(
+          note.tabId,
+          note.mindId,
+          meetingNoteViewFor(note.tabId, note.mindId) === "transcript" ? "notes" : "transcript",
+        );
+        return;
+      }
       const meeting = liveMeeting();
       const documentId = meeting?.transcript?.documentId;
       if (!meeting || !documentId) return;

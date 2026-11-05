@@ -347,7 +347,9 @@ export const useMeetingOf = (mindId: string): Meeting | undefined =>
   useMeetings((state) => state.meetings.find((each) => each.mindId === mindId));
 
 /** A Meeting is recording or paused: its Mind shows the meeting bar. */
-export const isLive = (meeting: Meeting | undefined): meeting is Meeting =>
+export const isLive = (
+  meeting: Meeting | undefined,
+): meeting is Meeting & { status: "recording" | "paused" } =>
   meeting?.status === "recording" || meeting?.status === "paused";
 
 /** Whether some Meeting's audio is being captured now: background work waits meanwhile. */
