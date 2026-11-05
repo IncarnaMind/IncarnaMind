@@ -99,7 +99,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     const library = window.getByTestId("library");
     await pointAndClick(window, library.getByTestId("library-organize"));
 
-    const reason = `Not sorted: ${DECISION_FAILURE}`;
+    const reason = "Not sorted: Organize couldn’t sort 1 Document";
     const loose = section(library, "not-in-a-folder");
     const review = reviewOf(window);
     await expect(review.getByTestId("library-review-summary")).toHaveText(
@@ -123,8 +123,10 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await pointAndClick(window, review.getByTestId("library-review-name"));
     const unsorted = review.getByTestId("library-review-unsorted");
     await expect(unsorted.getByTestId("library-review-document")).toHaveCount(3);
-    await expect(unsorted.getByTestId("library-not-sorted")).toHaveCount(3);
-    await expect(unsorted.getByTestId("library-not-sorted").first()).toHaveText(reason);
+    await expect(unsorted.getByTestId("library-not-sorted")).toHaveCount(0);
+    await expect(unsorted.getByTestId("library-review-problem")).toContainText(
+      "Organize couldn’t sort 3 Documents",
+    );
     await expect(unsorted.getByTestId("review-accept")).toHaveCount(0);
     await toTop(library);
     await screenshot(window, "organize-outcome-en-1600");
@@ -164,15 +166,16 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await screenshot(loose, "organize-outcome-en-900-not-sorted");
     await setLanguage(window, "zh-CN");
     await expect(loose.getByTestId("library-not-sorted").first()).toHaveText(
-      `未能整理：${DECISION_FAILURE}`,
+      "未能整理：“整理”未能处理 1 个文档",
     );
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("3 个未整理");
     await expect(library.getByTestId("library-review-not-sorted")).toHaveText("查看");
     await expect(sidebarFolder(window, "Finance").getByTestId("browse-count")).toHaveText(
       "20 · 20 个推荐",
     );
-    await expect(unsorted.getByTestId("library-not-sorted").first()).toHaveText(
-      `未能整理：${DECISION_FAILURE}`,
+    await expect(unsorted.getByTestId("library-not-sorted")).toHaveCount(0);
+    await expect(unsorted.getByTestId("library-review-problem")).toContainText(
+      "“整理”未能处理 3 个文档",
     );
     await toTop(library);
     await screenshot(window, "organize-outcome-zh-900");
@@ -325,7 +328,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("1 not sorted");
     await expect(
       section(library, "not-in-a-folder").getByTestId("library-not-sorted").first(),
-    ).toHaveText("Not sorted: the model gave no reason");
+    ).toHaveText("Not sorted: Organize couldn’t sort 1 Document");
 
     // A suggestion that a re-run fails for, then turned down, is the User's decision: finishing it
     // settles the Document, so nothing calls it one Organize couldn't sort.
@@ -383,9 +386,11 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     const noteRow = review
       .getByTestId("library-review-document")
       .filter({ has: window.getByRole("button", { name: "Note 1", exact: true }) });
+    const reportsGroup = review.getByTestId("library-review-group").filter({ hasText: "Reports" });
     await expect(noteRow).toHaveCount(1);
-    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
-      `Couldn’t sort again: ${DECISION_FAILURE}`,
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
+    await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
+      "Organize couldn’t sort 1 Document",
     );
     const reportsSection = library.getByTestId("library-section").filter({
       has: library.page().getByTestId("library-section-name").filter({ hasText: "Reports" }),
@@ -396,7 +401,7 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
       has: window.getByRole("button", { name: "Note 1", exact: true }),
     });
     await expect(noteInReports.getByTestId("library-sort-failed")).toHaveText(
-      `Couldn’t sort again: ${DECISION_FAILURE}`,
+      "Couldn’t sort again: Organize couldn’t sort 1 Document",
     );
     // Screenshots of the row's reason: no row selected by an earlier click, and the pointer off the rows.
     for (const box of await library.locator('[data-testid="library-select"]:checked').all())
@@ -411,8 +416,9 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await setWindowSize(app, window, 900, 760);
     await shoot("organize-outcome-en-900-sort-failed");
     await setLanguage(window, "zh-CN");
-    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
-      `未能再次整理：${DECISION_FAILURE}`,
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
+    await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
+      "“整理”未能处理 1 个文档",
     );
     await shoot("organize-outcome-zh-900-sort-failed");
     await setWindowSize(app, window, 1600, 900);
@@ -455,8 +461,9 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
     await expect(noteRow).toHaveCount(1);
-    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
-      `Couldn’t sort again: ${DECISION_FAILURE}`,
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
+    await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
+      "Organize couldn’t sort 1 Document",
     );
     await expect(looseNow.getByTestId("library-organize-failed")).toContainText(
       "Organize couldn’t sort 1 Document",
@@ -479,8 +486,9 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
       taggingError: { kind: "provider", message: DECISION_FAILURE },
     });
     await setLanguage(window, "zh-CN");
-    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
-      `未能再次整理：${DECISION_FAILURE}`,
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
+    await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
+      "“整理”未能处理 1 个文档",
     );
     await setLanguage(window, "en");
     await window.keyboard.press("ControlOrMeta+Shift+z");
@@ -507,8 +515,9 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
     await leaveText(window);
     await window.keyboard.press("ControlOrMeta+z");
     await expect(noteRow).toHaveCount(1);
-    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
-      `Couldn’t sort again: ${DECISION_FAILURE}`,
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
+    await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
+      "Organize couldn’t sort 1 Document",
     );
     expect(await noteNow()).toMatchObject({
       folder: "Reports",
@@ -522,8 +531,9 @@ test("Organize says which Documents it couldn't sort and why, when sorting is do
       taggingError: { message: DECISION_FAILURE },
     });
     await setLanguage(window, "zh-CN");
-    await expect(noteRow.getByTestId("library-sort-failed")).toHaveText(
-      `未能再次整理：${DECISION_FAILURE}`,
+    await expect(noteRow.getByTestId("library-sort-failed")).toHaveCount(0);
+    await expect(reportsGroup.getByTestId("library-review-problem")).toContainText(
+      "“整理”未能处理 1 个文档",
     );
     await setLanguage(window, "en");
     failing = false;
@@ -620,7 +630,7 @@ test("deleting the last Document Organize couldn't sort leaves no Review behind,
     await expect(reviewOf(window)).toHaveAttribute("data-count", "1");
     await expect(library.getByTestId("library-review-not-sorted")).toHaveText("查看");
     await expect(loose.getByTestId("library-not-sorted").first()).toHaveText(
-      `未能整理：${DECISION_FAILURE}`,
+      "未能整理：“整理”未能处理 1 个文档",
     );
     await window.keyboard.press("ControlOrMeta+z");
     await expect(library.getByTestId("library-not-sorted-count")).toHaveText("2 个未整理");

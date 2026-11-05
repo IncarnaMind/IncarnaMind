@@ -736,7 +736,7 @@ test("Auto routes text and scans with tags, reports failures, retries and preser
     );
     await expect(notes.getByTestId("library-not-sorted")).toHaveAttribute(
       "title",
-      /Temporary test outage/,
+      "Organize couldn’t sort it: Organize couldn’t sort 1 Document",
     );
     const info = await infoOf(window, scan);
     await expect(info.getByTestId("info-organize")).toContainText("Needs attention");
