@@ -486,7 +486,7 @@ describe("Dropped scans are classified from their first pages (#2308)", {
 describe("A scan says its first pages only when pages follow them (#2308)", {
   timeout: 120_000,
 }, () => {
-  // protects=a scan with scanned pages after its first 12 says those 12 once, before reading on, with 12 pages and Passages to classify from, while a scan of 12 pages or fewer says nothing, its whole read being a moment away; fails_when=a short scan stops to give way just before it ends, or a long one never says its first pages; no_claim=the order the scan lane reads in, which the tests above cover.
+  // protects=a scan with scanned pages after its first 12 says those 12 once, before reading on, with 12 pages and Passages to classify from, while a scan of 12 pages or fewer says nothing, its whole read being a moment away; fails_when=a short scan stops to give way just before it ends, or a long one never says its first pages; no_claim=the order scans are read in, which the tests above cover.
   test.each([
     [14, 1],
     [12, 0],

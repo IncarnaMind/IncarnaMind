@@ -13,9 +13,9 @@
  * there. Each running job has a worker of its own, so a job that crashes its
  * worker fails alone.
  *
- * The lane reads every scan's first pages before any scan's later ones (#2308): a scan that
- * has said its first pages (`onHead`) gives way, stopping to wait behind the others, while a
- * scan whose first pages are unread waits; it reads on from where it was in its next turn.
+ * Every scan's first pages are read before any scan's later ones (#2308): a scan that has
+ * said its first pages (`onHead`) gives way, stopping to wait behind the others, while a scan
+ * whose first pages are unread waits; it reads on from where it was in its next turn.
  */
 import type { Worker } from "node:worker_threads";
 import type { TextUnit } from "../../shared/units";
@@ -120,7 +120,7 @@ export function createProcessor(
   const scanSlots = Math.max(1, handlers.scansAtOnce ?? 1);
   const queue: WorkerJob[] = [];
   /**
-   * Jobs that read scanned pages waiting for the scan lane: those whose first pages are unread,
+   * Jobs that read scanned pages waiting for their turn: those whose first pages are unread,
    * in the order they were found, then those that read them (`headRead`) and gave way.
    * `stopping`: its run is still stopping, and it can't start again until it has.
    */
@@ -252,7 +252,7 @@ export function createProcessor(
     schedulePump();
   }
 
-  /** A scan in the lane past its first pages stops for each scan whose first pages are unread. */
+  /** A scan read past its first pages stops for each scan whose first pages are unread. */
   function giveWay(): void {
     let unread = scansWaiting.filter((each) => !each.headRead).length;
     for (const run of inLane("scan")) {
