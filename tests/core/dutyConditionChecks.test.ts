@@ -134,15 +134,17 @@ function replying(each: Case, calls: ModelCall[], looks: string[]) {
             evidence: [1],
           }),
         };
-      const lines = each.split
-        ? [
-            `Verdict: ${each.verdict}`,
-            "Absence: no",
-            ...(each.lastLines ?? []),
-            "The rules say so [^1].",
-            "Evidence: [1]",
-          ]
-        : [...verdictLines, "The rules say so [^1].", "Evidence: [1]"];
+      // Asked for its lines, it writes its whole reply again in one turn, as the ask tells it to.
+      const lines =
+        each.split && !call.prompt.includes(ASKED)
+          ? [
+              `Verdict: ${each.verdict}`,
+              "Absence: no",
+              ...(each.lastLines ?? []),
+              "The rules say so [^1].",
+              "Evidence: [1]",
+            ]
+          : [...verdictLines, "The rules say so [^1].", "Evidence: [1]"];
       const figures = requestedFigures(call);
       if (figures.length === 0)
         return { text: [...lines, "Covered: the rule", "Not covered: its wording"].join("\n") };

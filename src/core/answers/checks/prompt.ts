@@ -72,7 +72,7 @@ const ABSENCE_LINE =
 // "same" (a side that says neither must nor may; a condition one side adds), so Claude Sonnet
 // 5.5 called every such near copy of a held-out set Supported (#1766, #1708).
 const DUTY_LINE =
-  'Duty: how each side puts it, one word each: must (a duty), should (advice, or what is expected), may (a permission or an ability), must not (a prohibition) or none (it says only what is or happens); the sentence\'s first, then " / " and the Passage\'s for that very thing, then same or differs ("Duty: should / must, differs"; "Duty: must / may, differs"; "Duty: must / must, same" for "is bound to" against "must"). "differs" when they are two different words of the first four. Anything else is "same": the same word, a side that is none, or one rule put the other way round ("must keep it shut" against "must not leave it open").';
+  'Duty: how each side puts it, one word each: must (a duty), should (advice, or what is expected), may (a permission or an ability), must not (a prohibition) or none (it says only what is or happens); the sentence\'s first, then " / " and the Passage\'s for that very thing, then same or differs ("Duty: should / must, differs"; "Duty: must / may, differs"; "Duty: must / must, same" for "is bound to" against "must"). "differs" when they are two different words of the first four. Anything else is "same": the same word, or a side that is none. One rule put the other way round takes the same word on both sides ("Duty: must / must, same" for "must keep it shut" against "must not leave it open").';
 const CONDITION_LINE =
   'Condition: the condition or exception it holds on, copied as written (such as only if, unless, except, provided that, subject to, after notice; none when it has none), first as the sentence says it, then " / " and as the Passage says it for that very thing, then same or differs ("Condition: none / unless it rains, differs"; "Condition: on Sundays only / only on Sundays, same"; "Condition: none / none, same"). "differs" when one side holds it only on a condition, or with an exception, that the other leaves out or puts otherwise. Anything else is "same".';
 
@@ -966,62 +966,85 @@ const timeOf = (line: string | undefined): Pick<ReadVerdict, "time"> => {
   return time === "same" || time === "differs" ? { time } : {};
 };
 
-/** A Duty or Condition side's words, without what it glosses in brackets ("must (a duty)"). */
 const sideWords = (side: string) =>
   side
     .toLowerCase()
-    .replace(/\([^)]*\)/g, " ")
     .replace(/[^\p{L}\p{N}\s]/gu, "")
     .replace(/\s+/g, " ")
     .trim();
 
 /** A side with no letters or digits ("—", "(none)") says none, as the form's word for it does. */
-const saysNone = (words: string) => words === "" || NO_PHRASE.test(words);
+const saysNone = (side: string) => {
+  const words = sideWords(side);
+  return words === "" || NO_PHRASE.test(words);
+};
 
 /**
- * A Duty line called "same" whose sides are two different duties, in any words: it recorded the
- * difference and then denied it. A side that is none, and "must" against "must not" (one rule put
- * the other way round), are the same, as the form says.
+ * A Duty line called "same" whose sides are two different duties, in any words, what a side glosses
+ * in brackets set aside ("must (a duty)"): it recorded the difference and then denied it. A side
+ * that is none is the same, as the form says; one rule put the other way round takes the same word
+ * on both sides.
  */
 const dutySidesDiffer = (lineSides: readonly string[]): boolean => {
-  const [own, theirs] = lineSides.map(sideWords);
+  const [own, theirs] = lineSides.map((side) => sideWords(side.replace(/\([^)]*\)/g, " ")));
   return (
     lineSides.length === 2 &&
     own !== undefined &&
     theirs !== undefined &&
     own !== theirs &&
     !saysNone(own) &&
-    !saysNone(theirs) &&
-    !(own.startsWith("must") && theirs.startsWith("must"))
+    !saysNone(theirs)
   );
 };
 
-/** A Condition line with a condition on one side only, called "same". */
-const conditionSidesDiffer = (lineSides: readonly string[]): boolean =>
-  lineSides.length === 2 && lineSides.filter((side) => saysNone(sideWords(side))).length === 1;
+/**
+ * A Condition line called "same" whose sides can't both hold the same condition: a side that is
+ * none beside one that holds one, counting each piece a slash in the copied words makes ("and/or",
+ * "1/4/2026"), or one side alone that holds one, where the form asks for both. A condition copied
+ * in brackets is still a condition.
+ */
+const conditionSidesDiffer = (lineSides: readonly string[]): boolean => {
+  const none = lineSides.map(saysNone);
+  return none.length === 1 ? none[0] === false : none.includes(true) && none.includes(false);
+};
 
 /**
  * A Duty or Condition line's closing word. A "same" counts only where it starts a piece after the
- * sides, never inside or at the end of the copied words ("of the same age group", "same-day"), and
- * never when its own sides deny it. A "differs" also counts as the field's very last word, as it
- * only takes support away. Undefined when there is none to read.
+ * sides, never inside or at the end of the copied words ("of the same age group", "same-day"); one
+ * its own sides deny is "denied". A "differs" also counts as the field's very last word, as it only
+ * takes support away. Undefined when there is none to read.
  */
 function detailWord(
   label: RegExp,
   line: string,
   denied: (lineSides: readonly string[]) => boolean,
-): "same" | "differs" | undefined {
+): "same" | "differs" | "denied" | undefined {
   const field = label.exec(line)?.[1];
   if (field === undefined) return undefined;
   const { word, sides: lineSides, placed } = closingWord(field, ["same", "differs"]);
   if (word === "differs")
     return placed || /\bdiffers?[\s"'`*_.。]*$/i.test(field) ? word : undefined;
-  return word === "same" && placed && !denied(lineSides) ? word : undefined;
+  if (word !== "same" || !placed) return undefined;
+  return denied(lineSides) ? "denied" : word;
 }
 
+/** Each detail line's label and the sides that deny its "same". */
+const DETAIL_FIELDS = [
+  [DUTY, dutySidesDiffer],
+  [CONDITION, conditionSidesDiffer],
+] as const;
+
+/** A line that takes support away whatever a later line of the field says. */
+const holdsBack = (line: string) =>
+  DETAIL_FIELDS.some(([label, denied]) => {
+    const word = detailWord(label, line, denied);
+    return word === "differs" || word === "denied";
+  });
+
 /**
- * The Duty and Condition lines' closing words. A "differs" on any of a reply's lines holds; else the
- * last line's word, absent when it can't be read.
+ * The Duty and Condition lines' closing words. A "differs" on any of a reply's lines holds, and a
+ * line whose sides deny its "same" leaves the field unread; else the last line's word, absent when
+ * it can't be read.
  */
 function detailOf(
   dutyLines: readonly string[],
@@ -1033,7 +1056,9 @@ function detailOf(
     denied: (lineSides: readonly string[]) => boolean,
   ) => {
     const words = lines.map((line) => detailWord(label, line, denied));
-    return words.includes("differs") ? "differs" : words.at(-1);
+    if (words.includes("differs")) return "differs";
+    const last = words.at(-1);
+    return words.includes("denied") || last === "denied" ? undefined : last;
   };
   const duty = read(dutyLines, DUTY, dutySidesDiffer);
   const condition = read(conditionLines, CONDITION, conditionSidesDiffer);
@@ -1320,8 +1345,8 @@ const linesOf = (turn: string): string[] =>
  * leaves out from the turns set aside after the search: Claude Haiku 5.5 wrote them beside `cite`
  * and only its verdict and sentence after them. Each can hold a verdict back ("…, other"), and a
  * kept Duty or Condition line also stands for the one a Supported reply would otherwise lack. An
- * earlier Duty or Condition "differs" is kept beside the last turn's own line: a difference the
- * check wrote down holds, as it does across one turn's lines.
+ * earlier Duty or Condition line that says "differs", or whose sides deny its "same", is kept beside
+ * the last turn's own line: what the check wrote down holds, as it does across one turn's lines.
  */
 function withFieldsSetAside(last: string, setAside: readonly string[]): string {
   const own = linesOf(last);
@@ -1331,12 +1356,8 @@ function withFieldsSetAside(last: string, setAside: readonly string[]): string {
       ? []
       : (earlier.findLast((line) => field.test(line)) ?? []),
   );
-  const differing = [DUTY, CONDITION].flatMap((field) =>
-    earlier.filter(
-      (line) => !kept.includes(line) && detailWord(field, line, () => false) === "differs",
-    ),
-  );
-  const added = [...kept, ...differing];
+  const holding = earlier.filter((line) => !kept.includes(line) && holdsBack(line));
+  const added = [...kept, ...holding];
   return added.length === 0 ? last : `${last}\n${added.join("\n")}`;
 }
 

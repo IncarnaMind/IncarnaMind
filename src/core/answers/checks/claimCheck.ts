@@ -2045,9 +2045,13 @@ function unreadPlaceOf(deps: ClaimCheckDependencies, source: CitationSource): Un
 const ROLES_OWN_WORDS =
   "Your Roles line's first side isn't the sentence's own words. Copy from the sentence, word for word and in its own order, the words that say who does it, for or to whom, and whether it must or may happen, or, when it names no one, the words for what happens; then \" / \" and the Passage's words; then same, differs or other. Then give your whole reply again.";
 
-/** Asked of a Supported reply that gives no Duty or Condition word: neither was compared. */
+/**
+ * Asked of a Supported reply whose Duty or Condition line is missing or can't be read. It names the
+ * Duty line's words: a line that is there with the same duty in two words ("has to / must, same")
+ * can't be read, and the form's word on each side can (#1766).
+ */
 const DETAIL_LINES =
-  "Your reply has no Duty or Condition line that can be read. Write your whole reply again in the form asked for, with its Duty and Condition lines, each ending with same or differs.";
+  "Your reply has no Duty or Condition line that can be read. Write your whole reply again in the form asked for: its Duty line gives each side as one of must, should, may, must not or none, and its Condition line each side's condition as written, or none; each line ends with same or differs.";
 
 /**
  * `asked`: a reply of this check has already given other words than the sentence's. A Roles line
