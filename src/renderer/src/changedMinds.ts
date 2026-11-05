@@ -53,7 +53,7 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
     const replaced = change.replacedOwn;
     // Counted by paragraph; an Answer's calls from before that counted Proposals, a table one of them.
     if (call.tool === "edit_mind" && !change.revised) {
-      // Lines added beside the User's, which stay, were written; none of theirs changed (#2356).
+      // Lines added beside the User's, which stay, are added, as written ones are; none of theirs changed (#2356).
       const count = change.changed ?? change.proposals - tables;
       if (change.added) row.wrote += count;
       else row.changed += count;

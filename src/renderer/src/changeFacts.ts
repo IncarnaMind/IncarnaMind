@@ -13,6 +13,8 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
 /** What was done in one Mind: paragraphs changed, paragraphs written in whole Blocks, tables and charts added. */
 export interface ChangeCounts {
   created: boolean;
+  /** It was written into while it held nothing: its paragraphs were written, not added. */
+  filled?: boolean;
   changed: number;
   wrote: number;
   tables: number;
@@ -71,12 +73,16 @@ export function ownWaiting(
   return Math.max(0, row.count - row.applying);
 }
 
+/** A whole new Note, or one written into while it held nothing: its paragraphs were written, not added. */
+const wroteNote = (row: ChangeCounts) => row.created || row.filled === true;
+
 export function changeFact(t: Translate, row: ChangeCounts, name: string | null): string {
   const count = row.wrote + row.changed;
   if (row.tables > 0 || (row.charts ?? 0) > 0) return tablesFact(t, row, name);
   if (name === null) {
     if (row.changed === 0 && count > 0) {
-      return count === 1 ? t("edit.wrote.one") : t("edit.wrote", { count });
+      if (wroteNote(row)) return count === 1 ? t("edit.wrote.one") : t("edit.wrote", { count });
+      return count === 1 ? t("edit.added.one") : t("edit.added", { count });
     }
     return count === 1 ? t("edit.applied.one") : t("edit.applied", { count });
   }
@@ -88,9 +94,14 @@ export function changeFact(t: Translate, row: ChangeCounts, name: string | null)
   }
   if (count === 0) return t("mindChanges.one.edited", { mind: name });
   if (row.changed === 0) {
+    if (row.filled) {
+      return count === 1
+        ? t("mindChanges.wrote.one", { mind: name })
+        : t("mindChanges.wrote", { mind: name, count });
+    }
     return count === 1
-      ? t("mindChanges.wrote.one", { mind: name })
-      : t("mindChanges.wrote", { mind: name, count });
+      ? t("mindChanges.added.one", { mind: name })
+      : t("mindChanges.added", { mind: name, count });
   }
   return count === 1
     ? t("mindChanges.changed.one", { mind: name })
@@ -122,9 +133,11 @@ function tablesFact(t: Translate, row: ChangeCounts, name: string | null): strin
   const count = row.wrote + row.changed;
   if (name === null) {
     if (count === 0) return t("edit.tables", { tables });
-    return row.changed === 0
-      ? t("edit.wrote.tables", { paragraphs: counted(t, count, "paragraphs"), tables })
-      : t("edit.applied.tables", { paragraphs: counted(t, count, "paragraphs"), tables });
+    const paragraphs = counted(t, count, "paragraphs");
+    if (row.changed > 0) return t("edit.applied.tables", { paragraphs, tables });
+    return wroteNote(row)
+      ? t("edit.wrote.tables", { paragraphs, tables })
+      : t("edit.added.tables", { paragraphs, tables });
   }
   if (count === 0) {
     return row.created
@@ -133,8 +146,10 @@ function tablesFact(t: Translate, row: ChangeCounts, name: string | null): strin
   }
   const paragraphs = counted(t, count, "paragraphs");
   if (row.created) return t("mindChanges.created.wrote.tables", { mind: name, paragraphs, tables });
-  if (row.changed === 0) return t("mindChanges.wrote.tables", { mind: name, paragraphs, tables });
-  return t("mindChanges.changed.tables", { mind: name, paragraphs, tables });
+  if (row.changed > 0) return t("mindChanges.changed.tables", { mind: name, paragraphs, tables });
+  return row.filled
+    ? t("mindChanges.wrote.tables", { mind: name, paragraphs, tables })
+    : t("mindChanges.added.tables", { mind: name, paragraphs, tables });
 }
 
 /**

@@ -764,6 +764,7 @@ function takenOut(before: string, after: string, leftOut = "", unnamed = ""): st
 
 const changes = (count: number) => (count === 1 ? "1 change" : `${count} changes`);
 const paragraphsSaid = (count: number) => (count === 1 ? "1 paragraph" : `${count} paragraphs`);
+const tablesSaid = (count: number) => (count === 1 ? "a table" : `${count} tables`);
 
 function tableNotes(change: MindChange, unmatchedMarkers = 0): string[] {
   const { tables = 0, unlinkedSources = 0, droppedSources = 0, extraCells = 0 } = change;
@@ -2087,7 +2088,10 @@ export function mindTools(options: MindToolsOptions): {
         ? `Proposed ${changes(proposals)} in`
         : change.added
           ? // Lines added beside the User's, which stay, are no change to them (#2356).
-            `Added ${paragraphsSaid(change.changed ?? proposals)} to`
+            `Added ${[
+              ...((change.changed ?? 0) > 0 ? [paragraphsSaid(change.changed ?? 0)] : []),
+              ...((change.tables ?? 0) > 0 ? [tablesSaid(change.tables ?? 0)] : []),
+            ].join(" and ")} to`
           : // "Changed", never "Made": a reply that copies it would read as making a Mind (./claimedChanges).
             `Changed ${proposals === 1 ? "1 place" : `${proposals} places`} in`;
     return `${done} “${mind.name}”${went}. ${outcome}`;
@@ -2401,7 +2405,7 @@ export function mindTools(options: MindToolsOptions): {
         kinds: changeKinds(note, (ref) => ref.request === result.request),
       }));
       const changed = countChanged(kinds);
-      const added = changed > 0 && addsOnly(kinds);
+      const added = addsOnly(kinds);
       const notes = someTableNotes({
         unlinkedSources: result.unlinkedSources ?? 0,
         extraCells: result.extraCells ?? 0,

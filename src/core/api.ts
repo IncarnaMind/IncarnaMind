@@ -1464,7 +1464,7 @@ export interface MindChange {
   proposals: number;
   /** How many paragraphs they change, add or remove, each once (`changedParagraphs`). Absent: none. */
   changed?: number;
-  /** Every one of those paragraphs it adds whole, changing none of the User's (`addsOnly`). */
+  /** Every paragraph and table it changes it adds whole, changing none of the User's (`addsOnly`). */
   added?: true;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;

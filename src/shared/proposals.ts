@@ -490,7 +490,15 @@ const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
  * Block added or removed (a heading that way is a section's title, not a paragraph written, as
  * "Wrote 3 paragraphs" counts it); or not touched.
  */
-export type ChangeKind = "edited" | "added" | "removed" | "title-added" | "title-removed" | "kept";
+export type ChangeKind =
+  | "edited"
+  | "added"
+  | "removed"
+  | "title-added"
+  | "title-removed"
+  | "table-added"
+  | "table-removed"
+  | "kept";
 
 /**
  * How many paragraphs changed, each counted once (#1335), from what happened to each paragraph in
@@ -508,6 +516,8 @@ export function countChanged(kinds: Iterable<ChangeKind>): number {
     run.added = run.removed = run["title-added"] = run["title-removed"] = 0;
   };
   for (const kind of kinds) {
+    // A table added or removed whole counts as a table, not as paragraphs.
+    if (kind === "table-added" || kind === "table-removed") continue;
     if (kind === "edited" || kind === "kept") {
       close();
       if (kind === "edited") count++;
@@ -518,13 +528,13 @@ export function countChanged(kinds: Iterable<ChangeKind>): number {
 }
 
 /**
- * Every paragraph a change came to it added whole, the User's kept as they were: it wrote them and
- * changed none, as everything said of it must say (#2356).
+ * Every paragraph and table a change came to it added whole, the User's kept as they were: it
+ * added them and changed none, as everything said of it must say (#2356).
  */
 export function addsOnly(kinds: Iterable<ChangeKind>): boolean {
   let added = false;
   for (const kind of kinds) {
-    if (kind === "added" || kind === "title-added") added = true;
+    if (kind === "added" || kind === "title-added" || kind === "table-added") added = true;
     else if (kind !== "kept") return false;
   }
   return added;
@@ -569,7 +579,10 @@ export function changeKinds(
       const own =
         whole ?? (ours(proposal) ? (proposal?.kind === "insert" ? "added" : "removed") : null);
       // A table added or removed whole counts as a table, not by its cells.
-      if (child.nodeName === "table" && own) continue;
+      if (child.nodeName === "table" && own) {
+        kinds.push(own === "added" ? "table-added" : "table-removed");
+        continue;
+      }
       if (TEXT_BLOCKS.has(child.nodeName)) {
         if (own) kinds.push(child.nodeName === "heading" ? `title-${own}` : own);
         else kinds.push(wordsChanged(child) ? "edited" : "kept");

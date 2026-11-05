@@ -476,7 +476,7 @@ const COUNTED: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 export interface ChangedBlocks {
   paragraphs: number;
   tables: number;
-  /** Every paragraph counted was added whole, the User's kept: written, not changed (`addsOnly`). */
+  /** Every paragraph and table counted was added whole, the User's kept: added, not changed (`addsOnly`). */
   added?: true;
 }
 
@@ -521,6 +521,7 @@ export function changedBlocksOf(
       change.removed.descendants((node) => {
         if (node.type.name === "table") {
           wholeTables++;
+          kinds.push("table-removed");
           return false;
         }
         if (COUNTED.has(node.type.name)) {
@@ -535,6 +536,7 @@ export function changedBlocksOf(
     }
     state.doc.nodesBetween(place.from, Math.max(place.to, place.from + 1), (node, pos) => {
       if (node.type.name === "table" && change.block === "added") {
+        if (!tables.has(pos)) kinds.push("table-added");
         tables.add(pos);
         return false;
       }
@@ -568,19 +570,32 @@ const changesIn = (t: Translate, { paragraphs, tables }: ChangedBlocks): string 
 
 /** What the applied line and its Undo notice say an edit changed: "Changed 3 paragraphs and 1 table". */
 export function appliedText(t: Translate, blocks: ChangedBlocks): string {
+  if (blocks.added) return addedText(t, blocks);
   if (blocks.tables > 0) return t("edit.applied.changes", { changes: changesIn(t, blocks) });
-  if (blocks.added) {
-    return blocks.paragraphs === 1
-      ? t("edit.wrote.one")
-      : t("edit.wrote", { count: blocks.paragraphs });
-  }
   return blocks.paragraphs === 1
     ? t("edit.applied.one")
     : t("edit.applied", { count: blocks.paragraphs });
 }
 
+/** An edit that only added: "Added 3 paragraphs and a table", as the assistant's lines say it. */
+function addedText(t: Translate, { paragraphs, tables }: ChangedBlocks): string {
+  const table =
+    tables === 1
+      ? t("mindChanges.count.tables.one")
+      : t("mindChanges.count.tables", { count: tables });
+  if (paragraphs === 0) return t("edit.tables", { tables: table });
+  if (tables > 0) {
+    const counted =
+      paragraphs === 1
+        ? t("mindChanges.count.paragraphs.one")
+        : t("mindChanges.count.paragraphs", { count: paragraphs });
+    return t("edit.added.tables", { paragraphs: counted, tables: table });
+  }
+  return paragraphs === 1 ? t("edit.added.one") : t("edit.added", { count: paragraphs });
+}
+
 function reviewText(t: Translate, blocks: ChangedBlocks, byAssistant: boolean): string {
-  if (blocks.added && blocks.tables === 0) return appliedText(t, blocks);
+  if (blocks.added) return addedText(t, blocks);
   if (blocks.tables > 0) {
     const changes = changesIn(t, blocks);
     return byAssistant
