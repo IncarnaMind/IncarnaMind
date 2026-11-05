@@ -53,6 +53,8 @@ interface Plan {
   library?: boolean;
   /** The words it cites, from whichever Passage shown holds them. */
   quote?: string;
+  /** For a sentence with figures, the words each figure is bound to, cited second; `quote` when absent. */
+  figureQuote?: string;
   /** What its Library line names; no line when null; "none" when absent. */
   line?: string | null;
   says?: string;
@@ -106,10 +108,12 @@ function libraryModel(plans: Record<string, Plan>, calls: ModelCall[], inventory
       const cites = call.results.filter((result) => result.tool === "cite").length;
       const citeAgain = asked && planned.asked?.quote !== undefined && cites < 2;
       if (quote && (cites === 0 || citeAgain)) {
-        const passage = (shown.find((each) => each.text.includes(quote)) ?? shown[0])?.id;
-        return {
-          calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote }] } }],
-        };
+        const passageOf = (words: string) =>
+          (shown.find((each) => each.text.includes(words)) ?? shown[0])?.id;
+        const citations = [quote, ...(plan.figureQuote ? [plan.figureQuote] : [])].map(
+          (words, at) => ({ marker: at + 1, passage: passageOf(words), quote: words }),
+        );
+        return { calls: [{ tool: "cite", input: { citations } }] };
       }
       const line = plan.line === undefined ? "none" : plan.line;
       const lines = [
@@ -122,7 +126,9 @@ function libraryModel(plans: Record<string, Plan>, calls: ModelCall[], inventory
       ];
       const figures = requestedFigures(call);
       if (figures.length > 0) {
-        const number = quote?.match(/\d+/)?.[0];
+        const bound = plan.figureQuote ?? quote;
+        const marker = plan.figureQuote ? 2 : 1;
+        const number = bound?.match(/\d+/)?.[0];
         const items = figures.map(({ id, reading }) => ({
           id,
           verdict: number ? plan.verdict : "unsupported",
@@ -132,7 +138,7 @@ function libraryModel(plans: Record<string, Plan>, calls: ModelCall[], inventory
           says: null,
           reading,
           relation: "equals",
-          source: number ? { citation: 1, number } : null,
+          source: number ? { citation: marker, number } : null,
           calculation: null,
         }));
         lines.push(`Figures: ${JSON.stringify({ items, remainder: null })}`);
@@ -418,6 +424,51 @@ describe("the rules that hold a Library sentence's result", () => {
     expect(asks(mended.calls, UNSTATED_ASK)).toBe(1);
     expect(supported.state).toBe("supported");
     expect(rowOf(supported, "en")).toBe("Your Library: 22 Documents");
+  });
+
+  // protects=a Library sentence with no figure is held to its Library line on its own: a Document's text that names the file never decides it; fails_when=only a figure's Citations are held to the facts.
+  test("a Document's text never decides a Library sentence that has no figure", async () => {
+    const named = "A Document called Harbour survey is in your Library.";
+    const index = [
+      { name: "Harbour survey.txt", contents: "Harbour survey notes." },
+      { name: "File index.txt", contents: "File index: Harbour survey, Tide log." },
+    ];
+    const still = await setUp(index, {
+      [named]: { verdict: "supported", quote: "File index: Harbour survey", line: "name" },
+    });
+    const kept = (await checkInNote(still.core, named)).check;
+    expect(kept.state).toBe("not-checked");
+    expect(kept.reason).toBe("malformed");
+
+    const mended = await setUp(index, {
+      [named]: {
+        verdict: "supported",
+        quote: "File index: Harbour survey",
+        line: "name",
+        asked: { quote: "Documents named “Harbour survey”: 1" },
+      },
+    });
+    const supported = (await checkInNote(mended.core, named)).check;
+    expect(supported.state).toBe("supported");
+    expect(rowOf(supported, "en")).toBe("Your Library: 1 Document named “Harbour survey”");
+  });
+
+  // protects=each figure is held to the facts its sentence's Library line names, even when the reply's prose cites the count; fails_when=a figure bound to a Document's "22 files" is Supported because the sentence cites "Documents in all: 22".
+  test("a figure bound to a Document's number is no count, though the reply cites the count", async () => {
+    const bound = await setUp(memo, {
+      [sentence]: {
+        verdict: "supported",
+        quote: "Documents in all: 22",
+        figureQuote: "The archive holds 22 files",
+        line: "documents",
+      },
+    });
+    expect((await checkInNote(bound.core, sentence)).check.state).toBe("not-checked");
+
+    const counted = await setUp(memo, {
+      [sentence]: { verdict: "supported", quote: "Documents in all: 22", line: "documents" },
+    });
+    expect((await checkInNote(counted.core, sentence)).check.state).toBe("supported");
   });
 
   // protects=a fact decides only a sentence whose Library line names it; fails_when=a reply that calls the sentence about a Document's text is Supported by the Library's count.
