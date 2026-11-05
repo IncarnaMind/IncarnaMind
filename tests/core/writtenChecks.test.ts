@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import type { Core } from "../../src/core";
 import { OLLAMA_CLOUD } from "../../src/core/providers/ollamaCloud";
@@ -754,6 +754,46 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(lastResult(model)).toContain(
       `Only the first ${SENTENCES_CHECKED_AT_MOST} of its ${many} sentences with Citations were checked`,
     );
+  });
+
+  // protects=a written sentence's mark lands as its own check ends, while another sentence of the write is still being checked (#2532); fails_when=the marks wait for the last check and land together; no_claim=the order in which the checks end.
+  test("a sentence's mark lands as soon as its check ends, while another is still checked", async () => {
+    let page: MindClient | null = null;
+    const moonMarked = () =>
+      page !== null &&
+      claimSpans(readMind(page)).some(
+        (span) => span.sentence.text.startsWith("Spring tides") && span.check.state === "supported",
+      );
+    let markedWhileWaiting = false;
+    const { core, client } = await write(
+      {
+        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        into: true,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+        check: (call) => {
+          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
+          const landed = vi
+            .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 5_000, interval: 5 })
+            .then(
+              () => {
+                markedWhileWaiting = true;
+              },
+              () => undefined,
+            );
+          return { ...checkReply(call, PLANS), pause: { after: 0, until: landed } };
+        },
+      },
+      ({ client: connected }) => {
+        page = connected;
+      },
+    );
+
+    expect(markedWhileWaiting).toBe(true);
+    const marks = await marksIn(core, client);
+    expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
+      ["Spring tides come at new and full moon .", "supported"],
+      ["Neap tides are twice as strong .", "unsupported"],
+    ]);
   });
 
   // protects=words the User types into what the assistant wrote while the check runs stay: only the sentences cut or marked are written, each only while unchanged (one with no cut too); fails_when=the User's words vanish, or a sentence they changed is cut over; no_claim=none beyond protects.

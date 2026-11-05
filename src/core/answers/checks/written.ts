@@ -67,7 +67,7 @@ import {
 } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { RunItemError, runItems, type Slots, slots } from "../../runs/stop";
+import { type ItemOutcome, RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { type MarkJSON, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import {
@@ -838,51 +838,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           ? { kind: "heading", text: paragraphText(inlineOf(previous)).replaceAll(INLINE_NODE, "") }
           : { kind: "unknown" };
       });
-    const { outcomes, stop } = await runItems(
-      sending,
-      async (sentence): Promise<Checked> => {
-        const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-        const first =
-          looked.get(sentence) ??
-          (quick &&
-            (await options.firstLook({
-              claim: read.claim,
-              figures: read.figures?.length ?? 0,
-              inCell: sentence.inCell,
-              place:
-                sentence.place.after.kind === "start" && beforeWrite
-                  ? { ...sentence.place, after: beforeWrite }
-                  : sentence.place,
-              paragraph: sentence.context,
-              citations: sentence.citations,
-              scope: scope.scope,
-              ask: (asked, until) => quickLook(quick, asked, until),
-              signal: AbortSignal.any([
-                signal,
-                AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
-              ]),
-            })));
-        if (quick && first?.result) {
-          return { result: first.result, uncovered: null, nodes: null, by: quick, passedOn: null };
-        }
-        if (first) looked.set(sentence, first);
-        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
-        const failure = runFailureOf(result);
-        if (failure) throw new RunItemError(failure);
-        // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
-        const uncovered =
-          result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
-            ? result.unsupported.uncovered
-            : null;
-        const nodes = uncovered
-          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
-          : null;
-        return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
-      },
-      { concurrency: claimsAtOnce(prepared), signal },
-    );
-    if (signal.aborted) return null;
-
     const done: WrittenCheck = {
       request,
       blocks: [...input.ids],
@@ -891,13 +846,18 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       sent: sending.length,
       checked: 0,
       failed: 0,
-      stop,
+      stop: null,
       blocked: null,
       cut: [],
       unsupported: 0,
       contradicted: 0,
     };
-    const landings: Landing[] = [];
+    // Each sentence lands as its check ends, so its verdict shows while the others are checked.
+    const landNow = (landing: Landing) => {
+      if (signal.aborted) return;
+      input.edit((note) => land(note, input.ids, landing));
+      options.retainEvidence(mindId);
+    };
     const markOf = (
       sentence: Sentence,
       by: PreparedChatModel = prepared,
@@ -946,15 +906,14 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         `A sentence the assistant wrote in Mind ${mindId} couldn't be checked before it landed: ${reason}${detail ? ` (${detail})` : ""}`,
       );
       const at = options.now().toISOString();
-      landings.push({
+      landNow({
         sentence,
         nodes: null,
         mark: () => notChecked(markOf(sentence), reason, detail, at),
       });
     };
-    sending.forEach((sentence, index) => {
-      const outcome = outcomes[index];
-      if (!outcome || outcome.status === "stopped") return;
+    const landed = (sentence: Sentence, outcome: ItemOutcome<Checked>) => {
+      if (outcome.status === "stopped") return;
       if (outcome.status === "not-checked") {
         failed(sentence, outcome.stop.reason, null);
         return;
@@ -970,7 +929,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       }
       const { result, uncovered, nodes, by, passedOn } = outcome.value;
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
-        landings.push({
+        landNow({
           sentence,
           opinion: result.parts.map(({ span, kind }) => ({ span, kind })),
         });
@@ -995,28 +954,72 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           reads.get(sentence)?.claim,
         );
       if (result.verdict === "supported") {
-        landings.push({ sentence, nodes: null, mark });
+        landNow({ sentence, nodes: null, mark });
         return;
       }
       if (nodes && uncovered) {
         done.cut.push(uncovered);
-        landings.push({ sentence, nodes, mark });
+        landNow({ sentence, nodes, mark });
         return;
       }
       done[result.verdict]++;
-      landings.push({ sentence, nodes: null, mark });
-    });
+      landNow({ sentence, nodes: null, mark });
+    };
+    const { stop } = await runItems(
+      sending,
+      async (sentence): Promise<Checked> => {
+        const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
+        const first =
+          looked.get(sentence) ??
+          (quick &&
+            (await options.firstLook({
+              claim: read.claim,
+              figures: read.figures?.length ?? 0,
+              inCell: sentence.inCell,
+              place:
+                sentence.place.after.kind === "start" && beforeWrite
+                  ? { ...sentence.place, after: beforeWrite }
+                  : sentence.place,
+              paragraph: sentence.context,
+              citations: sentence.citations,
+              scope: scope.scope,
+              ask: (asked, until) => quickLook(quick, asked, until),
+              signal: AbortSignal.any([
+                signal,
+                AbortSignal.timeout(options.claimTimeLimitMs * FIRST_LOOK_SHARE),
+              ]),
+            })));
+        if (quick && first?.result) {
+          return { result: first.result, uncovered: null, nodes: null, by: quick, passedOn: null };
+        }
+        if (first) looked.set(sentence, first);
+        const result = await checkWithin(sentence, read, mindId, scope, prepared, limit, signal);
+        const failure = runFailureOf(result);
+        if (failure) throw new RunItemError(failure);
+        // Asked to cut what a cell's Citations don't state, Edit with AI rewrote its figure.
+        const uncovered =
+          result.verdict === "unsupported" && result.unsupported?.covered && !sentence.inCell
+            ? result.unsupported.uncovered
+            : null;
+        const nodes = uncovered
+          ? await cutOf(blocks, mindId, sentence, uncovered, prepared, scope, limit, signal)
+          : null;
+        return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
+      },
+      { concurrency: claimsAtOnce(prepared), signal, onOutcome: landed },
+    );
+    if (signal.aborted) return null;
+    done.stop = stop;
     const at = options.now().toISOString();
-    for (const sentence of sentences.slice(SENTENCES_CHECKED_AT_MOST)) {
-      landings.push({
-        sentence,
-        nodes: null,
-        mark: () => notChecked(markOf(sentence), "too-many", null, at),
-      });
-    }
-    if (landings.length > 0) {
+    const left = sentences.slice(SENTENCES_CHECKED_AT_MOST);
+    if (left.length > 0) {
       input.edit((note) => {
-        for (const landing of landings) land(note, input.ids, landing);
+        for (const sentence of left)
+          land(note, input.ids, {
+            sentence,
+            nodes: null,
+            mark: () => notChecked(markOf(sentence), "too-many", null, at),
+          });
       });
       options.retainEvidence(mindId);
     }
