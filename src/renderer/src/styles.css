@@ -1635,9 +1635,10 @@
       outline-offset: 1px;
     }
   }
-  /* A running badge, or one whose card is open, keeps one width, so its words changing move
-     nothing; at rest it takes only its words' width, clear of the page's foot. The button fills
-     the pill, and its words start at one edge, so a change widens it without moving them. */
+  /* A running badge, or one showing a finished check, keeps one width, so its words changing move
+     nothing; at rest it takes only its words' width, clear of the page's foot, and opening the
+     card leaves it as it was. The button fills the pill, and its words start at one edge, so a
+     change widens it without moving them. */
   .check-badge[data-stable] {
     justify-content: flex-start;
     min-width: 252px;
@@ -1863,15 +1864,37 @@
       padding-left: 0;
     }
   }
+  /* The run's words take Check's row: they lie over the hidden Check, to its left, so the row
+     keeps the Check's own size and the words' length never moves it (#2313). */
+  .check-card-press {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+
+    & > [data-hidden] {
+      visibility: hidden;
+    }
+  }
+  .check-card-progress {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    margin: 0;
+    padding-left: 0;
+  }
+  /* The foot's Stop is the badge's own, in the line's height. */
+  .check-card-progress .check-badge-stop {
+    height: 20px;
+  }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
     margin: 0;
-    padding: 0 8px 6px;
-
-    /* Its line is kept while a run is on, so the card keeps one height as results land (#1312). */
-    &:empty::before {
-      content: "\00a0";
-    }
+    padding: 6px 8px 4px;
   }
   .check-card-note {
     padding: 4px 8px 6px;
@@ -1879,11 +1902,6 @@
     line-height: 18px;
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
-
-    /* A run ends a moment before its record reaches the Mind: the line keeps its one line. */
-    &:empty::before {
-      content: "\00a0";
-    }
   }
   .check-card-actions {
     display: flex;
@@ -5830,8 +5848,13 @@
     color: var(--color-ink-meta);
   }
 
+  .claim-card-checked-by-name,
   .claim-card-checked-by-when {
     white-space: nowrap;
+  }
+
+  .claim-card-checked-by-name--wide {
+    white-space: normal;
   }
 
   /* A figure a check worked out (#707): how, then each input's Citation. */
@@ -7451,18 +7474,17 @@
       border-radius: 4px;
       background: var(--color-rule-strong) padding-box;
     }
-
-    /* The last 12px above the composer fade to the sheet, so text never meets its edge. */
-    &::after {
-      content: "";
-      position: sticky;
-      bottom: 0;
-      display: block;
-      height: 12px;
-      margin-top: -12px;
-      background: linear-gradient(to bottom, transparent, var(--color-sheet));
-      pointer-events: none;
-    }
+  }
+  /* A scrolling frame's last 12px fade to the sheet, so a cut line never meets its edge (#614). */
+  .scroll-fade::after {
+    content: "";
+    position: sticky;
+    bottom: 0;
+    display: block;
+    height: 12px;
+    margin-top: -12px;
+    background: linear-gradient(to bottom, transparent, var(--color-sheet));
+    pointer-events: none;
   }
   .assistant-empty {
     margin: 0;

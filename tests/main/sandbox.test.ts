@@ -1270,6 +1270,7 @@ console.log(JSON.stringify(results));
           args: [canary],
           timeoutMs: 20_000,
           signal: new AbortController().signal,
+          language: "en",
         });
       } catch (error) {
         if (String(error).includes("python3 not found")) {

@@ -1649,20 +1649,18 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     };
   }
 
-  /** How a figure of `quote` at `start` reads under a stated unit (`header`); null when it doesn't apply. */
+  /** How a figure of `quote` at `start` reads under a stated unit (`header`); none when it doesn't apply. */
   function statedReading(
     quote: string,
     start: number,
     context: FigureContext,
     header: string,
   ): Reading[] {
-    const scaleReadings = (with_: FigureContext) =>
-      readFigures(quote, with_)
+    const readings =
+      readFigures(quote, { ...context, header })
         .find((each) => each.start === start)
         ?.ambiguous.find((each) => each.kind === "scale")?.readings ?? [];
-    const own = scaleReadings({ ...context, header: null });
-    const all = scaleReadings({ ...context, header });
-    return all.slice(Math.max(1, own.length));
+    return readings.filter((each) => each.statedIn === "header" || each.statedIn === "both");
   }
 
   function onPage(quoted: Quoted): { text: string; at: number; midLine: boolean } {

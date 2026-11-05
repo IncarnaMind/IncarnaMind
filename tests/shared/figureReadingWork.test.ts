@@ -129,3 +129,26 @@ test.each([
     expect(figures.at(-1)?.start).toBe(99_980);
   },
 );
+
+test("100 KB of tables each headed 单位：万元 reads each figure's scale once", () => {
+  const figures = read("单位：万元\n1,234 ".repeat(8_333));
+  expect(figures).toHaveLength(8_333);
+  for (const figure of figures.slice(0, 3))
+    expect(figure.ambiguous.find((each) => each.kind === "scale")?.readings).toHaveLength(2);
+});
+
+test("100 KB of stated units, each over a 1 on its own line, are kept in one pass", () => {
+  expect(
+    read("单位：万元\n1\n".repeat(12_500)).map((figure) => [figure.chars, figure.start]),
+  ).toEqual([["1", 99_998]]);
+});
+
+test("100 KB of bracketed stated units on one line reads the line's brackets once", () => {
+  const figures = read("(单位：万元) 1,234 ".repeat(7_142));
+  expect(figures).toHaveLength(7_142);
+  expect(figures[0]?.ambiguous.find((each) => each.kind === "scale")?.readings).toHaveLength(2);
+});
+
+test("100 KB of bracketed currency signs with no amount reads no figure", () => {
+  expect(read("(£) ".repeat(25_000))).toEqual([]);
+});

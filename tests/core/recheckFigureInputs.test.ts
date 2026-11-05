@@ -402,7 +402,7 @@ describe("a currency a statement writes on its first amount", () => {
     ).toMatchObject({ number: { value: -4620, unit: { kind: "currency", code: "GBP" } } });
   });
 
-  test.each(["万科", "一千", "工作单位"])(
+  test.each(["万栖", "一千", "工作单位"])(
     "accepts a Chinese two-decimal statement with %s above it",
     (line) => {
       const session = source(
