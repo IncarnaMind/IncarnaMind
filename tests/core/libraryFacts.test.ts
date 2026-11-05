@@ -460,6 +460,7 @@ describe("the rules that hold a Library sentence's result", () => {
         verdict: "supported",
         quote: "Documents in all: 22",
         figureQuote: "The archive holds 22 files",
+        says: "The Library lists 22 Documents.",
         line: "documents",
       },
     });
