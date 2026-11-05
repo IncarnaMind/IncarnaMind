@@ -1047,7 +1047,7 @@ export function createConversations(db: Database, now: () => string) {
         folderInFrontId !== null &&
         (typeof folderInFrontId !== "string" || folderInFrontId === "")
       ) {
-        throw new InvalidInputError("The Folder in front must be a Folder's id, or null for none.");
+        throw new InvalidInputError({ key: "error.question.folderInFront" });
       }
       return {
         conversationId:
