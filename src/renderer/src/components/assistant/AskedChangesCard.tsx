@@ -362,8 +362,7 @@ function AppliedActions({
           {t("mindChanges.onTop")}
         </span>
       )}
-      {/* Hidden while the Answer runs, before its apply has a state, it keeps the room Open takes. */}
-      {(row.created || !inFront) && (state !== "closed" || !live) && (
+      {(row.created || !inFront) && state !== "closed" && (
         <>
           <Dot />
           <button
