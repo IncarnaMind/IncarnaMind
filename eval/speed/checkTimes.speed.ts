@@ -164,7 +164,7 @@ function watchNote(doc: Y.Doc, sentences: readonly string[], since: () => number
       firstMarkMs ??= since();
       if (state === "checking") continue;
       const text = (span.check?.text ?? span.sentence.text).trim();
-      const exact = sentences.findIndex((sentence) => sentence === text);
+      const exact = sentences.indexOf(text);
       const index =
         exact >= 0
           ? exact

@@ -30,3 +30,9 @@ From #1624: Check this Note on 10 sentences shows its first verdict under 5 s an
 ## Reported, not gated
 
 Per model, language and flow: requests per sentence and of which kind, searches, turn checks that sent the model back, failed requests and retries, the time each request waited for its first byte and thought, the time between a sentence's requests (searching and reranking, and waiting for a free place), cached input tokens, the load, and what the run cost.
+
+## Results, 2026-11-05
+
+- **Twelve at once on Anthropic and OpenRouter: kept.** Path identity holds (`tests/core/checkSpeed.test.ts`). The end came sooner in all 14 cells of model, language, flow and Library, by 0.3 to 5.6 s, with no failed request and no rate limit. The first verdict moved by −2.3 to +0.6 s, and was later in 5 cells by 0.1 to 0.6 s (Luna's Chinese Note, Haiku's Chinese Note on the mixed Library, and the writes on Haiku in Chinese and on Sonnet in both languages). That is within the spread between two runs of one arm here (up to 2.4 s). So the line "neither later" was read past that spread. This reading was decided after the runs, and the pull request names the cells.
+- **A write's marks as each lands: kept.** Path identity holds (`tests/core/writtenChecks.test.ts`). The first mark came 8.2 to 14.1 s sooner and the end didn't move.
+- **An Answer's batches without thinking: failed, kept today's path.** On Claude Haiku 5.5, 11 sentences the rules don't state were Supported in more runs than today's: the dropped conditions in both languages, the lead-in and `copy-damage`. Judged right fell from 129 to 105 of 180, with 6 allowed. On Sonnet 5.5, 2 sentences were Supported in more runs (`copy-damage`, `notwithstanding`), with judged right 93 → 94 of 120.
