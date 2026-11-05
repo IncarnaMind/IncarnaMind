@@ -12,7 +12,6 @@ import type {
   ReadyQuestion,
   RunEstimate,
   SearchScope,
-  TabItem,
 } from "../../core/api";
 import { conversationName } from "../../shared/naming";
 import { settleAsk, useAnswers } from "./answers";
@@ -335,10 +334,7 @@ export async function askInAssistant(
   });
   try {
     // Where the User is when they ask: the Note, Document, Library or Home in front (#2572).
-    const askedFromItem: TabItem | null =
-      input.mindId === null
-        ? (currentTabOf(useAppStore.getState().layout)?.item ?? null)
-        : { kind: "mind", mindId: input.mindId };
+    const askedFromItem = currentTabOf(useAppStore.getState().layout)?.item ?? null;
     const result = await core.askInConversation({
       ...input,
       conversationId: useConversations.getState().openId,

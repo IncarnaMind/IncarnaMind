@@ -494,13 +494,9 @@ function follow(row: ChangedMind): void {
 const finish = (answer: ConversationAnswer): Promise<unknown> => {
   const rows = changedMinds(answer);
   const made = rows.some((row) => row.created);
-  // A made Note comes to the front only when the User is still where they asked from (#2572).
-  const stillThere = sameTabItem(
-    currentTabOf(useAppStore.getState().layout)?.item ?? null,
-    askedFromHere.get(answer.id) ?? null,
-  );
+  const askedFrom = askedFromHere.get(answer.id) ?? null;
   const task = Promise.allSettled(
-    rows.map((row) => finishIn(answer, row, made && (!row.created || !stillThere))),
+    rows.map((row) => finishIn(answer, row, { made, created: row.created, askedFrom })),
   ).then((results) => {
     for (const result of results) {
       if (result.status === "rejected") useAppStore.getState().reportError(result.reason);
@@ -517,7 +513,7 @@ const finish = (answer: ConversationAnswer): Promise<unknown> => {
 async function finishIn(
   answer: ConversationAnswer,
   row: ChangedMind,
-  behind: boolean,
+  { made, created, askedFrom }: { made: boolean; created: boolean; askedFrom: TabItem | null },
 ): Promise<void> {
   const editor = mindEditor(row.mindId);
   if (!editor) {
@@ -549,6 +545,12 @@ async function finishIn(
     };
     asked.set(keyOf(answer.id, row.mindId), each);
     setOutcome(each, application.held ? "held" : "applied", application.accepted);
+    // A made Note comes to the front only when the User is still where they asked from (#2572).
+    const stillThere = sameTabItem(
+      currentTabOf(useAppStore.getState().layout)?.item ?? null,
+      askedFrom,
+    );
+    const behind = made && (!created || !stillThere);
     if (!(await openBeside(row.mindId, behind))) return;
     const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
     // Undone on the card while the Note opened, and that Undo's entry gone since with a newer
