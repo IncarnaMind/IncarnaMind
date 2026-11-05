@@ -52,6 +52,17 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  */
 const RETRIEVES_FIRST: readonly Admitted[] = [];
 
+/**
+ * Call help answers on the provider's quick-tasks model, thinking off, and goes to the User's
+ * Answers model only when the quick reply is flagged or a quote it gives isn't found (#2526, #1667
+ * step E), on paired runs against eval/speed/gates/call-help.md. Each entry is the Answers model
+ * with the quick model it was measured with. None yet (2026-11-05): Claude Haiku 5.5 first under
+ * Claude Sonnet 5.5 ended 4.2 s sooner at the median, but judged right fell from 16 to 13 of 30
+ * (in Chinese from 10 to 6), and no reply went to Sonnet: its partial replies were neither flagged
+ * nor quoted wrongly, so the escalation never saw them.
+ */
+const QUICK_HELP: readonly (Admitted & { quick: string })[] = [];
+
 /** A model as an Answer runs it. */
 export interface ListedModel {
   catalogId: string | null;
@@ -62,6 +73,12 @@ export interface ListedModel {
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
   retrievesFirst?(model: ListedModel): boolean | undefined;
+  helpsQuickFirst?(answers: ListedModel, quick: ListedModel): boolean | undefined;
+  /**
+   * Whether call help's reply is checked for changes it claims, as before #2526. Undefined: it
+   * isn't, since call help offers no Tool that changes anything.
+   */
+  checksHelpClaims?(): boolean | undefined;
 }
 
 const listed = (
@@ -86,3 +103,19 @@ export const retrievesFirst = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);
+
+const named = ({ catalogId, modelId }: ListedModel) =>
+  catalogId === null ? null : `${catalogId}/${withoutDateSuffix(modelId)}`;
+
+/** Whether call help under `answers` answers on `quick` first. */
+export function helpsQuickFirst(
+  answers: ListedModel,
+  quick: ListedModel,
+  override?: AnswerPathsOverride,
+): boolean {
+  const chosen = override?.helpsQuickFirst?.(answers, quick);
+  if (chosen !== undefined) return chosen;
+  const model = named(answers);
+  const first = named(quick);
+  return QUICK_HELP.some((each) => each.model === model && each.quick === first);
+}
