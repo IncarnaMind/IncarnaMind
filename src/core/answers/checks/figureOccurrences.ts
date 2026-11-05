@@ -264,6 +264,18 @@ function inSentence(
 /** How much of a run's code the claim judge reads as its rule: a long run's first lines hold its inputs. */
 const JUDGED_CODE = 3000;
 
+/** The heading above the Block holding `node`, as the judge reads a scale or unit stated there. */
+function headingAbove(node: Y.XmlElement): { heading?: string } {
+  let block: Y.XmlElement = node;
+  while (block.parent instanceof Y.XmlElement) block = block.parent;
+  for (let at = block.prevSibling; at; at = at.prevSibling)
+    if (at instanceof Y.XmlElement && at.nodeName === "heading") {
+      const words = plainText(at).trim();
+      return words ? { heading: words.slice(0, 200) } : {};
+    }
+  return {};
+}
+
 /** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
 function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
   const doc = node.doc;
@@ -274,21 +286,18 @@ function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
     const value = run?.values.find((each) => each.name === figure.figure.analysis?.result);
     // No record of it: the Analysis it came from is gone.
     if (!run || !value) return undefined;
-    const siblings = [
-      ...run.values.filter((each) => each !== value).map((each) => each.label),
-      ...(run.tables ?? []).flatMap((kept) => kept.table.rows.map((row) => String(row[0] ?? ""))),
-    ].filter((label) => label.trim() !== "");
     return {
       recalculated: value.check?.kind === "same",
       citations: analysisInputCitations(run.inputs),
       label: value.label,
       of: value.of ?? null,
-      siblings: [...new Set(siblings)],
       vocabulary: [
         ...(value.of ? [value.of.input, ...value.of.columns] : []),
         ...(value.unit ? [value.unit] : []),
       ],
       code: run.code.slice(0, JUDGED_CODE),
+      unit: value.unit ?? null,
+      ...headingAbove(node),
     };
   } catch (error) {
     console.error("Reading an Analysis figure's record for its check failed:", error);

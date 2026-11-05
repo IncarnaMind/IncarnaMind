@@ -37,3 +37,16 @@ test("an Analysis's table and its caption hold no sentence a write's check reads
   expect(said([caption, table(true)])).toEqual([]);
   expect(said([table(false)])).toEqual(["Brightside placed most orders"]);
 });
+
+test("a sentence or a figure written into a caption line is read as any is, by the same rule as Check's", () => {
+  const said = (blocks: NodeJSON[]) => checkableSentences(blocks).map((each) => each.text);
+  const captionWith = (words: string): NodeJSON => ({
+    ...caption,
+    content: [text(words), ...(caption.content ?? []).slice(1)],
+  });
+  expect(said([captionWith("Central had the busiest customer. By region"), table(true)])).toContain(
+    "Central had the busiest customer.",
+  );
+  expect(said([captionWith("Central leads with 9,450"), table(true)]).join(" ")).toContain("9,450");
+  expect(said([captionWith("Busiest customer vs. last year by region"), table(true)])).toEqual([]);
+});

@@ -92,6 +92,15 @@ export interface AnalysisTable {
 export const FIGURE_HOW = ["sum", "mean", "min", "max", "count"] as const;
 export type FigureHow = (typeof FIGURE_HOW)[number];
 
+/** The words for each way a figure is worked out, in English and Chinese: a sum may be called a total. */
+export const AGGREGATE_WORDS: Record<FigureHow, readonly string[]> = {
+  sum: ["total", "sum", "合计", "总计", "总额"],
+  mean: ["average", "mean", "平均", "均值"],
+  min: ["lowest", "minimum", "smallest", "最低", "最小"],
+  max: ["highest", "maximum", "largest", "最高", "最大"],
+  count: ["number", "count", "数量", "个数"],
+};
+
 /**
  * The rows of an input a figure was worked out from (#2346): `figure(name,
  * column, how)`'s one column, or the rows and columns `result(..., of=)` names,

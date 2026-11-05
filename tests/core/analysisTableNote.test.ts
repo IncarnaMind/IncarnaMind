@@ -364,12 +364,16 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     core.close();
   });
 
-  test("a sentence the User types into the caption line is checked as any is", async () => {
+  test.each([
+    [
+      "a sentence",
+      "North's total amount grew 40% to 12,000 in 2025. ",
+      "北部地区金额合计在 2025 年增长 40%，达到 12,000。",
+    ],
+    ["a figure with no full stop", "North leads with 12,000 ", "北部地区领先，金额合计 12,000 "],
+  ])("%s the User types into the caption line is checked as any is", async (_, en, zh) => {
     const { core, madeId, client, sent } = await walked(language, CONTENT(language));
-    const typed =
-      language === "en"
-        ? "North's total amount grew 40% to 12,000 in 2025. "
-        : "北部地区金额合计在 2025 年增长 40%，达到 12,000。";
+    const typed = language === "en" ? en : zh;
     const caption = client.blocks
       .toArray()
       .find(
@@ -390,9 +394,9 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
     core.close();
   });
 
-  test("a caption with an abbreviation or a decimal point still only names its table", async () => {
+  test("a caption with an abbreviation still only names its table", async () => {
     const { core, madeId, client, sent } = await walked(language, CONTENT(language));
-    const typed = language === "en" ? "Orders vs. returns, 1.5x: " : "订单与退货之比 1.5 倍：";
+    const typed = language === "en" ? "Orders vs. returns: " : "订单 vs. 退货：";
     const caption = client.blocks
       .toArray()
       .find(
@@ -1006,6 +1010,83 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     core.close();
   });
 
+  test("the judge decides: a reply whose fields disagree with its verdict is asked once, then read as the model's reply that couldn't be read", async () => {
+    const unread = "malformed";
+    const judgedWith =
+      (fields: (asked: boolean) => Record<string, string>, names: Plan["names"] = "same") =>
+      (sentence: string): Plan | undefined =>
+        sentence.startsWith(words.right.slice(0, 8))
+          ? { verdict: "supported", names, analysisItem: fields }
+          : undefined;
+    const checked = async (plan: (sentence: string) => Plan | undefined) => {
+      const { core, madeId, client } = await walked(
+        language,
+        lines(words.right),
+        false,
+        null,
+        withFigures(),
+        null,
+        plan,
+      );
+      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+      await client.settled();
+      const shown = {
+        mark: stateOf(client, words.right),
+        rows: await scheduleStates(core, madeId),
+      };
+      core.close();
+      return shown;
+    };
+    // Each field that disagrees with a same, asked about and still disagreeing.
+    for (const disagreeing of <Record<string, string>[]>[
+      { verdict: "unsupported" },
+      { verdict: "contradicted" },
+      { relation: "at least" },
+      { topic: "not found" },
+      { roles: "differs" },
+      { scope: "wider" },
+    ]) {
+      const shown = await checked(judgedWith(() => disagreeing));
+      expect(shown.mark, JSON.stringify(disagreeing)).toMatchObject({
+        state: "not-checked",
+        reason: unread,
+      });
+      expect(shown.rows, JSON.stringify(disagreeing)).toEqual(["not-checked"]);
+    }
+    // "other" with a verdict of supported, and "unclear" with supported, disagree as well.
+    for (const names of ["other", "unclear"] as const) {
+      const shown = await checked(judgedWith(() => ({ verdict: "supported" }), names));
+      expect(shown.mark, names).toMatchObject({ state: "not-checked", reason: unread });
+    }
+    // Mended when asked, the judge's own same stands.
+    const mended = await checked(
+      judgedWith((asked): Record<string, string> => (asked ? {} : { verdict: "unsupported" })),
+    );
+    expect(mended.mark?.state).toBe("supported");
+    expect(mended.rows).toEqual(["supported"]);
+  });
+
+  test("one verdict everywhere: a reply with no remainder leaves the sentence, its marker and its row all Not checked", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right),
+      false,
+      null,
+      withFigures(),
+      null,
+      () => ({ remainder: "left out" }),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(stateOf(client, words.right)).toMatchObject({
+      state: "not-checked",
+      reason: "malformed",
+    });
+    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
+    expect((await reading(core, client))?.kind).not.toBe("checked");
+    core.close();
+  });
+
   test("the judge's same never stands where the figure's own clause leaves a word of its label out: it is left Not checked, never Unsupported", async () => {
     const content = lines(words.right, words.swapped, words.asTotal);
     const { core, madeId, client } = await walked(language, content, false, null, withFigures());
@@ -1084,7 +1165,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     core.close();
   });
 
-  test("a judge that gives supported but leaves names out has read no name: the figure is left Not checked", async () => {
+  test("a judge that gives supported but leaves names out, asked again and still without them, is a reply that couldn't be read", async () => {
     const { core, madeId, client } = await walked(
       language,
       lines(words.right),
@@ -1098,7 +1179,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     await client.settled();
     expect(stateOf(client, words.right)).toMatchObject({
       state: "not-checked",
-      reason: "analysis-unnamed",
+      reason: "malformed",
     });
     core.close();
   });

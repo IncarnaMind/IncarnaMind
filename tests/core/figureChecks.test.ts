@@ -483,7 +483,11 @@ test("a missing remainder cannot make the parent all supported", async () => {
     figures: [target("f1")],
     text: `Figures: ${JSON.stringify({ items: [item()] })}`,
   });
-  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  // One verdict everywhere: a reply that can't be read backs none of its figures either (#2378).
+  expect(result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "malformed",
+  });
   expect(result.remainder).toBeUndefined();
   expect(result.verdict).toBe("not-checked");
 });
@@ -1393,7 +1397,9 @@ test.each(["same", "neither", "malformed"])(
         citation: 2,
       }),
     });
-    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.figures?.[0]?.result.verdict).toBe(
+      judgement === "malformed" ? "not-checked" : "supported",
+    );
     expect(result.remainder?.verdict).toBe(
       judgement === "malformed" ? "not-checked" : "unsupported",
     );

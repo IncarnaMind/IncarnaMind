@@ -579,6 +579,21 @@ test("a figure its sentence misnames reads Unsupported on its marker, and one be
       documentId === "source" ? "Matter" : null,
     ),
   ).toEqual({ state: "not-checked", reason: "kept-inside" });
+  // Any input of its run behind the wall, not only the first its check names (#2378).
+  expect(
+    checkedFigureInText(
+      {
+        state: "supported",
+        named: true,
+        versions: [
+          { documentId: "open", contentHash: "v1" },
+          { documentId: "copy", contentHash: "v1" },
+        ],
+      },
+      null,
+      (documentId) => (documentId === "copy" ? "Matter" : null),
+    ),
+  ).toEqual({ state: "not-checked", reason: "kept-inside" });
 });
 
 const rangeCitation: Citation = {

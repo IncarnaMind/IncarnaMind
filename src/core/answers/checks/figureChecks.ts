@@ -351,7 +351,11 @@ function analysisJudgment(
     return { verdict: "not-checked", reason: "analysis", detail: null, ...known };
   const label = record.label ?? target.calculated?.figure.label ?? "";
   const unread = { citedCaseUnchecked: false, citedCaseFound: false, calculation: null };
-  if (item?.names === "other")
+  // The judge decides: a reply whose fields disagree with its verdict was asked once already
+  // (`analysisItemDisagrees`), and still can't be read as one.
+  if (!item || analysisItemDisagrees(item) !== null)
+    return { verdict: "not-checked", reason: "malformed", detail: null, ...known };
+  if (item.names === "other")
     return {
       verdict: "unsupported",
       evidence: null,
@@ -360,10 +364,37 @@ function analysisJudgment(
       ...unread,
       ...known,
     };
-  // Only the judge's own "same" stands: a verdict of supported alone may be a habit, not a reading.
-  if (item?.names === "same" && holds)
+  if (item.names === "same" && holds)
     return { verdict: "supported", evidence, says: null, unsupported: null, ...unread, ...known };
   return { verdict: "not-checked", reason: "analysis-unnamed", detail: label, ...known };
+}
+
+/**
+ * Why an Analysis figure's item disagrees with its own verdict (#2378); null when it agrees. Its
+ * "same" stands only with the verdict supported, the relation equals and its subject, roles and
+ * scope the figure's own; "other" only with unsupported; "unclear" never with supported.
+ */
+export function analysisItemDisagrees(item: FigureReplyItem): string | null {
+  switch (item.names) {
+    case "same":
+      return item.verdict === "supported" &&
+        item.relation === "equals" &&
+        item.topic === "found" &&
+        item.roles === "same" &&
+        item.scope === "same"
+        ? null
+        : `"names" is "same", but its verdict is ${item.verdict}, relation ${item.relation}, topic ${item.topic}, roles ${item.roles} and scope ${item.scope}`;
+    case "other":
+      return item.verdict === "unsupported"
+        ? null
+        : `"names" is "other", but its verdict is ${item.verdict}`;
+    case "unclear":
+      return item.verdict === "supported"
+        ? `"names" is "unclear", but its verdict is supported`
+        : null;
+    default:
+      return 'it gives no "names"';
+  }
 }
 
 export interface FigureCheckOptions {
@@ -849,6 +880,33 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         : undefined;
   if (options.signal.aborted) return uncheckedFigureResults(requested, unavailable("stopped"));
   return { ...aggregateFigureResults(rows, remainder), figures: rows, remainder };
+}
+
+/**
+ * One verdict everywhere (#2378): a sentence whose reply couldn't be read, once its last ask is
+ * settled, backs none of its figures either, so its marker, its schedule row and the sentence read
+ * the same.
+ */
+export function oneVerdict(result: ClaimCheckResult): ClaimCheckResult {
+  if (result.verdict !== "not-checked" || result.reason !== "malformed" || !result.figures)
+    return result;
+  return {
+    ...result,
+    figures: result.figures.map(({ named, ...figure }) =>
+      figure.result.verdict === "supported"
+        ? {
+            ...figure,
+            result: {
+              verdict: "not-checked",
+              reason: "malformed",
+              detail: null,
+              versions: figure.result.versions,
+              excluded: figure.result.excluded,
+            },
+          }
+        : { ...figure, ...(named && { named }) },
+    ),
+  };
 }
 
 /**

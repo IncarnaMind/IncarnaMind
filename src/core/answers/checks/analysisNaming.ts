@@ -6,6 +6,7 @@
  * Analysis's own words for its input and columns and words that only link a figure to its name.
  * Any other word, a qualifier, a period, a change, a negation or another group, leaves it unchecked.
  */
+import { AGGREGATE_WORDS } from "../../../shared/analysis";
 import type { CheckFigure } from "../../api";
 
 /** Where the words between two figures part: a comma, colon, semicolon or bracket. */
@@ -99,15 +100,6 @@ const HEADING_WORDS = ["value", "result", "figure", "数值", "结果"].map((ter
   term,
   exact: false,
 }));
-
-/** The words for each way a figure is worked out: a sum's own clause may call it a total. */
-const AGGREGATES: Record<string, readonly string[]> = {
-  sum: ["total", "sum", "合计", "总计", "总额"],
-  mean: ["average", "mean", "平均", "均值"],
-  min: ["lowest", "minimum", "smallest", "最低", "最小"],
-  max: ["highest", "maximum", "largest", "最高", "最大"],
-  count: ["number", "count", "数量", "个数"],
-};
 
 interface Terms {
   /** Lowercased words of three letters or more, and words with a digit ("2026", "q3"). */
@@ -242,10 +234,9 @@ function unaccounted(clause: string, known: readonly { term: string; exact: bool
 
 /**
  * Whether `figure`'s own clause in `claim` can stand as naming it: it holds every word of its label
- * (in a table, its cell's row and column headings count), none that only another of its run's
- * figures, or another figure of the sentence, is named by, and no word but those, the Analysis's
- * own words for its input, columns and unit, and linking words; a cell's headings are read the same
- * way. `figures` are all of the sentence's, so each is placed among them. False also when its
+ * (in a table, its cell's row and column headings count), and no word but those, the Analysis's
+ * own words for its input, columns and unit, the words for its way of being worked out, and linking
+ * words; a cell's headings are read the same way, so another group's name is never one of them. `figures` are all of the sentence's, so each is placed among them. False also when its
  * clause can't be found.
  */
 export function namingHolds(
@@ -262,22 +253,11 @@ export function namingHolds(
   const headings = figure.label ?? "";
   const clause = `${found} ${headings}`;
   if (!terms.every(({ term, exact }) => holds(clause, term, exact))) return false;
-  const mine = new Set(terms.map(({ term }) => term.toLowerCase()));
-  const others = [
-    ...(record?.siblings ?? []),
-    ...figures
-      .filter((each) => each.id !== figure.id)
-      .map((each) => each.analysisRecord?.label ?? each.calculated?.figure.label ?? ""),
-  ];
-  const sibling = others
-    .flatMap((each) => allTerms(termsOf(each)))
-    .filter(({ term }) => !mine.has(term.toLowerCase()));
-  if (sibling.some(({ term, exact }) => holds(clause, term, exact))) return false;
   const how = record?.of?.how;
   const known = [
     ...terms,
     ...(record?.vocabulary ?? []).flatMap((each) => allTerms(termsOf(each))),
-    ...(how ? (AGGREGATES[how] ?? []) : []).map((term) => ({ term, exact: false })),
+    ...(how ? (AGGREGATE_WORDS[how] ?? []) : []).map((term) => ({ term, exact: false })),
   ];
   // A cell's own words beside its number, a unit such as 次, are its headings' to say.
   const besideItsNumber = [...headings.matchAll(/\p{Script=Han}/gu)].map(([term]) => ({

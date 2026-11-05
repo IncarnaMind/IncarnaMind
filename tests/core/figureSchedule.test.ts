@@ -1139,6 +1139,25 @@ test("a kept Analysis figure is Supported once a check read its sentence as nami
   expect(shownWith(new Map())).toEqual({ state: "needs-recheck", why: "document-removed" });
 });
 
+test("a figure copied with another's id into a sentence of its own takes no check but its own sentence's (#2378)", async () => {
+  const blocks = await markedAnalysisFigure({ state: "supported", named: true });
+  const checked = blocks.get(0);
+  const figure = checked instanceof Y.XmlElement ? checked.get(0) : null;
+  if (!(figure instanceof Y.XmlElement)) throw new Error("Missing fixture");
+  const copy = new Y.XmlElement(figure.nodeName);
+  for (const [name, value] of Object.entries(figure.getAttributes()))
+    if (value !== undefined) copy.setAttribute(name, value);
+  const line = new Y.XmlElement("paragraph");
+  line.setAttribute("id", "b");
+  line.insert(0, [new Y.XmlText("Also "), copy]);
+  blocks.insert(1, [line]);
+  const rows = figureSchedule({
+    ...scheduleInput(blocks),
+    versions: new Map([["accounts", "v1"]]),
+  }).rows.map((row) => row.shown.state);
+  expect(rows).toEqual(["supported", "not-checked"]);
+});
+
 test("before a check reads its sentence as naming it, a kept Analysis figure's row has no verdict (#2378)", async () => {
   const rowOf = async (child: Partial<FigureCheckAttributes> | null) =>
     figureSchedule({

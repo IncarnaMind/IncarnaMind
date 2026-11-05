@@ -799,12 +799,13 @@ export function figureCheckShown(
   figure: FigureCheckAttributes,
   now: ClaimCheckNow,
 ): ClaimCheckShown {
-  // An Analysis figure's evidence is its run's input: behind a wall the Note is now outside, the
-  // check made inside it backs nothing (#2378).
+  // An Analysis figure's evidence is its run's inputs, each one: behind a wall the Note is now
+  // outside, the check made inside it backs nothing (#2378).
   if (
     figure.calculated?.figure.analysis &&
-    figure.evidence?.documentId &&
-    now.keptInside?.(figure.evidence.documentId)
+    [figure.evidence?.documentId, ...figure.versions.map((version) => version.documentId)].some(
+      (documentId) => documentId && now.keptInside?.(documentId),
+    )
   )
     return { state: "not-checked", reason: "kept-inside" };
   const shown = basisShown(figure, now);

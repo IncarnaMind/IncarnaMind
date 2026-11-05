@@ -8,7 +8,7 @@
  * and cells the Analysis gave, formatted as the interface writes them.
  */
 
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
@@ -18,15 +18,19 @@ import {
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   type Citation,
+  MIND_CONTENT_FIELD,
   type RetainedFigureAnalysis,
 } from "../core/api";
 import type { Language } from "../core/language";
 import {
+  AGGREGATE_WORDS,
   type AnalysisCell,
   type AnalysisColumnCheck,
   type AnalysisColumnRule,
   type AnalysisTable,
   type AnalysisTableKey,
+  FIGURE_HOW,
+  type FigureHow,
   sameTableKey,
 } from "./analysis";
 import type { NodeJSON } from "./blockJson";
@@ -382,6 +386,8 @@ export interface AnalysisTableColumn {
   differs: DifferingCell[];
   /** A total row the User added that adds up the Analysis's rows above it: its footing's sum. */
   footed: { label: string; sum: string }[];
+  /** The table's caption names another way of working it out, or a scale: "Total…" over averages (#2378). */
+  captionMisnames?: true;
 }
 
 /**
@@ -419,6 +425,8 @@ export function analysisTableShown(
   language: string,
   versions: ReadonlyMap<string, string> | null,
   keptInside: ((documentId: string) => string | null) | null = null,
+  /** The words of its caption line, which may name it another way than its columns' rules. */
+  caption: string | null = null,
 ): AnalysisTableShown {
   if (!kept) return { state: { kind: "unavailable" }, columns: [], missing: 0 };
   const grid = gridOf(block);
@@ -509,8 +517,16 @@ export function analysisTableShown(
     if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
       return { state: { kind: "needs-recheck", why: "new-version" }, columns, missing };
   }
-  const recalculated = columns.length > 0 && columns.every(columnEarns);
-  return { state: { kind: recalculated ? "recalculated" : "calculated" }, columns, missing };
+  const read =
+    caption === null
+      ? columns
+      : columns.map((column) =>
+          column.rule && captionMisnames(caption, column.rule.how)
+            ? { ...column, captionMisnames: true as const }
+            : column,
+        );
+  const recalculated = read.length > 0 && read.every(columnEarns);
+  return { state: { kind: recalculated ? "recalculated" : "calculated" }, columns: read, missing };
 }
 
 const underItsInput = (column: AnalysisTableColumn, rule: AnalysisColumnRule) =>
@@ -522,7 +538,51 @@ const underItsInput = (column: AnalysisTableColumn, rule: AnalysisColumnRule) =>
  * code reads a heading as naming another column, so it earns nothing.
  */
 export const columnEarns = (column: AnalysisTableColumn): boolean =>
-  column.rule !== null && underItsInput(column, column.rule);
+  column.rule !== null && !column.captionMisnames && underItsInput(column, column.rule);
+
+/**
+ * Whether a caption names a way of working a column out other than `how` (#2378): "Total amount by
+ * region" over averages, or "Average amount" over sums. Such a column keeps its line, which says
+ * what it is, but earns no ✓.
+ */
+export function captionMisnames(caption: string, how: FigureHow): boolean {
+  const words = new Set(caption.toLowerCase().match(/\p{L}+/gu) ?? []);
+  // A run's table gives its numbers as they are: a caption "in thousands" says they are others.
+  if (
+    ["thousand", "million", "billion"].some((word) => words.has(word) || words.has(`${word}s`)) ||
+    /[千万亿]/u.test(caption)
+  )
+    return true;
+  return FIGURE_HOW.some(
+    (other) =>
+      other !== how &&
+      AGGREGATE_WORDS[other].some((word) =>
+        /\p{Script=Han}/u.test(word)
+          ? caption.includes(word)
+          : words.has(word) || words.has(`${word}s`),
+      ),
+  );
+}
+
+const sameOrNone = (named: AnalysisTableBinding | null, binding: AnalysisTableBinding) =>
+  named !== null && sameBinding(named, binding);
+
+/** The words of the caption line that holds `binding`'s marker, without the marker; null for none. */
+export function captionTextOf(blocks: Y.XmlFragment, binding: AnalysisTableBinding): string | null {
+  for (const line of blocks.toArray()) {
+    if (!(line instanceof Y.XmlElement)) continue;
+    const parts = line.toArray();
+    const holds = parts.some(
+      (part) =>
+        part instanceof Y.XmlElement &&
+        part.nodeName === ANALYSIS_TABLE_NODE &&
+        sameOrNone(readTableBinding(part.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)), binding),
+    );
+    if (holds)
+      return parts.flatMap((part) => (part instanceof Y.XmlText ? [part.toString()] : [])).join("");
+  }
+  return null;
+}
 
 /**
  * A rule a column's line can stand on (#2378): one over a column and a key it can name. A count is
@@ -586,7 +646,9 @@ export function tableShownIn(
   } catch (error) {
     console.error("Reading an Analysis table's run failed:", error);
   }
-  return analysisTableShown(table, kept, language, versions, keptInside);
+  const binding = readTableBinding(table.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]);
+  const caption = binding ? captionTextOf(doc.getXmlFragment(MIND_CONTENT_FIELD), binding) : null;
+  return analysisTableShown(table, kept, language, versions, keptInside, caption);
 }
 
 /** Whether a table's state needs a look: a cell differs, or a Document it read changed. */

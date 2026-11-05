@@ -754,14 +754,15 @@ function analysisTableRows(
       console.error(`Mind ${input.mindId}: reading Analysis table ${tableId}'s run failed`, error);
     }
     const kept = boundTableFor(node, keptAnalysisTables(analyses));
+    const caption = captionOf(blocks, binding);
     const shown = analysisTableShown(
       node,
       kept,
       input.language ?? "en",
       input.versions,
       input.keptInside ?? null,
+      caption ? plainText(caption.element) : null,
     );
-    const caption = captionOf(blocks, binding);
     const captionId = caption?.element.getAttribute("id");
     const title = caption ? plainText(caption.element).trim() : (kept?.label ?? "");
     const at =
@@ -822,37 +823,41 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     occurrences.map((occurrence) => [occurrence.id, occurrence.context]),
   );
   const findings = new Map<string, FigureFinding>();
-  const states = new Map<
-    string,
-    {
-      owner: Owner | null;
-      child: FigureCheckAttributes | null;
-      now: ClaimCheckNow;
-      current: boolean;
-    }
-  >();
+  // By occurrence, not id: a figure pasted with another's id reads its own sentence's check (#2378).
+  const states: {
+    owner: Owner | null;
+    child: FigureCheckAttributes | null;
+    now: ClaimCheckNow;
+    current: boolean;
+    finding: FigureFinding;
+  }[] = [];
+  const repeated = new Set(
+    occurrences.map((occurrence) => occurrence.id).filter((id, at, ids) => ids.indexOf(id) !== at),
+  );
   for (const occurrence of occurrences) {
     const owner = ownerOf(occurrence, owners);
     const child = childOf(occurrence, owner);
-    const now = { ...input, text: owner?.sentence ?? "", figureContexts };
+    // A figure whose id another one shares reads its own words, never the other's.
+    const contexts = repeated.has(occurrence.id)
+      ? new Map([...figureContexts, [occurrence.id, occurrence.context]])
+      : figureContexts;
+    const now = { ...input, text: owner?.sentence ?? "", figureContexts: contexts };
     const current =
       child !== null &&
       sameOccurrence(occurrence, child) &&
       figureCheckShown(child, now).state !== "needs-recheck";
-    findings.set(
-      occurrence.id,
-      child
-        ? {
-            ...(readFigureFinding(child) ?? emptyFinding(occurrence)),
-            locator: occurrence.locator,
-            calculated: occurrence.calculated,
-            context: occurrence.context,
-            label: occurrence.label,
-            reading: current ? child.reading : occurrence.reading,
-          }
-        : emptyFinding(occurrence),
-    );
-    states.set(occurrence.id, { owner, child, now, current });
+    const finding = child
+      ? {
+          ...(readFigureFinding(child) ?? emptyFinding(occurrence)),
+          locator: occurrence.locator,
+          calculated: occurrence.calculated,
+          context: occurrence.context,
+          label: occurrence.label,
+          reading: current ? child.reading : occurrence.reading,
+        }
+      : emptyFinding(occurrence);
+    findings.set(occurrence.id, finding);
+    states.push({ owner, child, now, current, finding });
   }
   const footings = tableFooting(occurrences, findings, layout);
   const signOffs = figureSignOffs(
@@ -861,8 +866,8 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
     input.personId ?? null,
   );
   const rows = occurrences.map((occurrence, index): FigureScheduleRow => {
-    const state = states.get(occurrence.id);
-    const existing = findings.get(occurrence.id) ?? emptyFinding(occurrence);
+    const state = states[index];
+    const existing = state?.finding ?? emptyFinding(occurrence);
     const footing = footings.get(occurrence.id) ?? [];
     const finding = {
       ...existing,

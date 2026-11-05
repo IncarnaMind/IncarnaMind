@@ -65,6 +65,7 @@ export function CalculatedFigureView({
         attributes?.id ?? "",
         evidence?.sources?.analysis ?? null,
         attributes?.figure.analysis?.result ?? null,
+        getPos() ?? null,
       ),
   });
   const style = formatting?.style ?? "numbered";

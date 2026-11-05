@@ -18,6 +18,7 @@ import {
   analysisTableMatch,
   analysisTableShown,
   analysisTablesOf,
+  columnEarns,
   columnLine,
   holdsTableAgain,
   missingLine,
@@ -335,6 +336,54 @@ describe("a bound table reads as its run while the Note keeps the run's headings
     expect(read.columns.map((column) => columnLine(column, "en"))).toEqual([
       "Revenue: sum of 24 rows, by Region · recalculated",
     ]);
+  });
+
+  test("a column under a heading for another quantity keeps its line but never earns the ✓", () => {
+    const gross = analysisTableShown(
+      bound(tableBlock(rows)),
+      analysisTableMatch(
+        binding,
+        "Revenue by region",
+        table(rows),
+        [citation],
+        [
+          {
+            column: 1,
+            rule: { input: "sales", key: "Region", value: "Gross", how: "sum" },
+            rows: 24,
+          },
+        ],
+      ),
+      "en",
+      null,
+    );
+    expect(gross.columns.map((column) => columnLine(column, "en"))).toEqual([
+      "Revenue: sum of Gross over 24 rows, by Region · recalculated",
+    ]);
+    expect(gross.columns.map(columnEarns)).toEqual([false]);
+    expect(gross.state.kind).toBe("calculated");
+    expect(shown(tableBlock(rows)).columns.map(columnEarns)).toEqual([true]);
+  });
+
+  test("a caption naming another way of working it out keeps the column's line but takes the ✓ away", () => {
+    const captioned = (caption: string) =>
+      analysisTableShown(bound(tableBlock(rows)), kept(rows), "en", null, null, caption);
+    for (const caption of [
+      "Average revenue by region",
+      "Highest revenue by region",
+      "各地区平均收入",
+      "Revenue by region (USD thousands)",
+      "各地区收入（万元）",
+    ]) {
+      const read = captioned(caption);
+      expect(read.state.kind, caption).toBe("calculated");
+      expect(read.columns.map(columnEarns), caption).toEqual([false]);
+      expect(read.columns.map((column) => columnLine(column, "en"))).toEqual([
+        "Revenue: sum of 24 rows, by Region · recalculated",
+      ]);
+    }
+    for (const caption of ["Revenue by region", "Total revenue by region", "各地区收入合计"])
+      expect(captioned(caption).state.kind, caption).toBe("recalculated");
   });
 
   test("a heading the User renames, or a column they add, leaves it not recalculated", () => {

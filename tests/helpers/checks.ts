@@ -26,9 +26,16 @@ import {
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
   /** What else the sentence asserts beside its Analysis's figures, as a model gives it, and its verdict. */
-  remainder?: { text: string; verdict: "supported" | "unsupported" };
+  remainder?: { text: string; verdict: "supported" | "unsupported" } | "left out";
   /** Whether the sentence names each Analysis figure as its label and rule say: same when absent; null leaves it out. */
   names?: "same" | "other" | "unclear" | null;
+  /**
+   * Fields of each Analysis figure's item in place of the ones `names` gives; `asked` when the check
+   * asked again because they disagreed, so a reply can mend them the second time.
+   */
+  analysisItem?: (
+    asked: boolean,
+  ) => Partial<Record<"verdict" | "relation" | "topic" | "roles" | "scope", string>>;
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   /** The number of `quote` that backs the sentence's figure, as written: its first of a kind when absent. */
@@ -113,7 +120,7 @@ export function requestedFigures(call: ModelCall): {
 
 /** What else the sentence asserts, as a plan gives it, in the Figures line's form. */
 const remainderOf = (plan: Plan) =>
-  plan.remainder
+  plan.remainder && plan.remainder !== "left out"
     ? {
         text: plan.remainder.text,
         verdict: plan.remainder.verdict,
@@ -217,6 +224,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
   // An Analysis's figure is never looked for in the Passages, as the check's instructions say.
+  const asked = call.prompt.includes("disagrees with itself for an Analysis's figure");
   const analysed = ({ id, reading }: { id: string; reading: number | null }) => ({
     id,
     ...(plan.names !== null && { names: plan.names ?? "same" }),
@@ -229,11 +237,12 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
     relation: "equals",
     source: null,
     calculation: null,
+    ...plan.analysisItem?.(asked),
   });
   if (!calculation) {
     // With nothing quoted, each figure is one no Passage states.
     if (!quote) {
-      const items = figures.map(({ id, reading, analysis }) =>
+      const items = figures.map(({ id, reading, analysis, shown }) =>
         analysis
           ? analysed({ id, reading })
           : {
@@ -250,7 +259,9 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
             },
       );
       return {
-        text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: remainderOf(plan) })}`,
+        text: `${verdict}\nFigures: ${JSON.stringify(
+          plan.remainder === "left out" ? { items } : { items, remainder: remainderOf(plan) },
+        )}`,
       };
     }
     // Each figure from the cited quote's number of its own kind of unit, or its first.

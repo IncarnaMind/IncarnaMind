@@ -44,7 +44,6 @@ function figureIn(
       of: given.how
         ? { input: "orders", columns: ["amount"], rows: [[2, 41]], count: 40, how: given.how }
         : null,
-      siblings: given.siblings ?? [],
       code: "",
     },
   };
@@ -85,6 +84,15 @@ describe("a figure's own clause names it", () => {
     expect(holds("中部地区，金额合计为 8,325。", "8,325", { label: "中部地区金额合计" })).toBe(
       true,
     );
+  });
+});
+
+describe("a label's short words and Han words are read whole", () => {
+  test("a word of one or two letters only in its own case, a Han word only as its own two characters", () => {
+    expect(holds("UK revenue is 9,450.", "9,450", { label: "Revenue, UK" })).toBe(true);
+    expect(holds("uk revenue is 9,450.", "9,450", { label: "Revenue, UK" })).toBe(false);
+    expect(holds("东部金额合计为 8,325。", "8,325", { label: "东部金额合计" })).toBe(true);
+    expect(holds("部东金额合计为 8,325。", "8,325", { label: "东部金额合计" })).toBe(false);
   });
 });
 
