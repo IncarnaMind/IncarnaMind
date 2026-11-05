@@ -3839,6 +3839,13 @@ export interface Document {
    */
   yourNote: DocumentYourNote | null;
   /**
+   * Set when the Document is a Meeting's Transcript (#2528): the Note it belongs to. It goes
+   * where the Note goes, into its Folder, behind its wall and to Recently deleted, and has no
+   * Folder, Tags or row of its own: it is reached through its Note. Null for every other
+   * Document, a .vtt the User added among them.
+   */
+  meetingMindId: string | null;
+  /**
    * The Mind this file was last imported as, still there (#720): the User's working copy of
    * it, which is never cited. Null for a file never imported.
    */
@@ -8109,6 +8116,11 @@ export interface DocumentTextMatch {
   pageTo: number | null;
   excerpt: string;
   highlights: TextRange[];
+  /**
+   * In a Transcript, when the words found were said: the start of the line they are in, in ms
+   * from its start (#2528). Null for every other Document, and where the line isn't found.
+   */
+  atMs: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -10550,6 +10562,19 @@ export type MeetingSourceState =
   | "denied"
   | "unavailable"
   | "ended";
+
+/**
+ * A meeting's Note moved to its Transcript's Folder when the pair, filed apart, was joined
+ * (#2528): it went to the side of the wall the Transcript was behind, so nothing walled came out.
+ */
+export interface JoinedMeeting {
+  id: string;
+  mindId: string;
+  /** Where the Note is now, with its Transcript. */
+  folderId: string;
+  /** Where it was, which Undo moves it back to; null for Not in a Folder. */
+  fromFolderId: string | null;
+}
 
 /**
  * A stretch the User didn't choose not to record: IncarnaMind wasn't running
@@ -13070,6 +13095,13 @@ export interface CoreApi {
   /** Every Meeting, newest first. */
   listMeetings(): Promise<Meeting[]>;
   /**
+   * The meetings' Notes this version moved to their Transcript's Folder when it joined each pair
+   * filed apart (#2528), not said yet: the sidebar says each once, with Undo.
+   */
+  listJoinedMeetings(): Promise<JoinedMeeting[]>;
+  /** Records that the sidebar said these (`listJoinedMeetings`), so it never says them again. */
+  joinedMeetingsSaid(ids: string[]): Promise<void>;
+  /**
    * A Meeting ready to record, in a new Mind named for the day or in an empty
    * Mind given: its Mind shows the start block. Needs a Mind with no Meeting,
    * and a copy that can record audio.
@@ -13800,6 +13832,8 @@ const methods: Record<CoreApiMethod, true> = {
   listFileWriteRequests: true,
   respondToFileWrite: true,
   listMeetings: true,
+  listJoinedMeetings: true,
+  joinedMeetingsSaid: true,
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,

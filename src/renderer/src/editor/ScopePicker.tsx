@@ -27,6 +27,7 @@ import {
 } from "../components/lineIcons";
 import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
+import { isListedDocument } from "../meetingTranscript";
 import { type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
 import { takeTypedTrigger } from "./documentPicker";
@@ -229,7 +230,8 @@ export function ScopeChoiceList({
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const assignments = useAppStore((state) => state.library?.assignments);
-  const library = { folders, groups, tags, documents, assignments };
+  const minds = useAppStore((state) => state.minds);
+  const library = { folders, groups, tags, documents, assignments, minds, t };
   const shown = scopeChoices(library, scope, query).filter(
     (choice) => !kinds || kinds.includes(choice.kind),
   );
@@ -237,6 +239,8 @@ export function ScopeChoiceList({
     if (item.walled === undefined || item.walled === null) return false;
     if (item.walled !== currentWalled) return true;
     if (item.kind !== "document") return false;
+    // A Meeting's Transcript is filed by its Note, which the User put there (#2528).
+    if (documents.some((each) => each.id === item.id && !isListedDocument(each))) return false;
     const filings = (assignments ?? []).filter(
       (each) =>
         each.documentId === item.id &&

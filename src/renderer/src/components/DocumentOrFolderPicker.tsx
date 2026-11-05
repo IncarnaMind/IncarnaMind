@@ -1,5 +1,6 @@
 import type { SearchScope } from "../../../core/api";
 import { useT } from "../i18n";
+import { useListedDocuments } from "../ownDocuments";
 import { useAppStore } from "../store";
 import {
   type DocumentOrFolderChoice,
@@ -45,8 +46,9 @@ export function DocumentOrFolderPicker({
   const groups = useAppStore((state) => state.library?.groups);
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
+  const listed = useListedDocuments();
   const assignments = useAppStore((state) => state.library?.assignments);
-  const library = { folders, groups, tags, documents, assignments };
+  const library = { folders, groups, tags, documents: listed, assignments };
   const byId = new Map(documents.map((document) => [document.id, document]));
 
   const matching = (query: string): PickerSection<DocumentOrFolderChoice>[] => {

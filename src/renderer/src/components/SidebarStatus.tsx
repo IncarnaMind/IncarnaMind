@@ -13,13 +13,16 @@ import type { DocumentStatus, EmbeddingModelError } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import type { MessageKey } from "../../../shared/i18n";
 import { organizeHeld, organizes, organizesNewDocuments } from "../../../shared/libraryModels";
+import { mindName } from "../../../shared/naming";
 import { commands } from "../commands/registry";
 import { core } from "../core";
 import { Popover } from "../editor/Popover";
 import { useLanguage, useT } from "../i18n";
+import { useJoinedMeetings } from "../joinedMeetings";
 import { useKeyRefusals } from "../keyRefusals";
 import { saidInLine } from "../lineNames";
 import { useCapturing, useMeetings } from "../meetings";
+import { isListedDocument } from "../meetingTranscript";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
 import { organizeStateOf } from "../organizeOutcome";
@@ -414,6 +417,11 @@ function useStatuses(): Status[] {
   const alreadyAdded = useAppStore((state) => state.alreadyAdded);
   const savedOutside = useAppStore((state) => state.savedOutside);
   const dismissSavedOutside = useAppStore((state) => state.dismissSavedOutside);
+  const joined = useJoinedMeetings((state) => state.joined);
+  const minds = useAppStore((state) => state.minds);
+  useEffect(() => {
+    useJoinedMeetings.getState().load().catch(useAppStore.getState().reportError);
+  }, []);
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
   const library = useAppStore((state) => state.library);
@@ -453,6 +461,7 @@ function useStatuses(): Status[] {
         state.linkedFolders.filter((each) => each.status === "paused").map((each) => each.id),
       );
       for (const item of state.documents) {
+        if (!isListedDocument(item)) continue;
         if (PROCESSING.has(item.status)) {
           if (item.linkedFolderId === null || !paused.has(item.linkedFolderId)) {
             processing++;
@@ -806,6 +815,32 @@ function useStatuses(): Status[] {
           : t("status.alreadyAdded.other", { count: alreadyAdded.length }),
       full: t("documents.alreadyAdded", { names: alreadyAdded.join(", ") }),
       dismiss: dismissAlreadyAdded,
+    });
+  }
+
+  // Said once, each, where the migration moved a meeting's Note to its Transcript's side of a wall.
+  for (const join of joined) {
+    const mind = minds.find((each) => each.id === join.mindId);
+    const folder = library?.groups.find((each) => each.id === join.folderId);
+    if (!mind || !folder) continue;
+    const text = t("meetings.joined", {
+      meeting: mindName(mind) || t("mind.untitled"),
+      folder: folder.name,
+    });
+    statuses.push({
+      testId: `meeting-joined-${join.id}`,
+      tone: "info",
+      short: text,
+      full: text,
+      wraps: true,
+      action: {
+        label: t("meetings.joined.undo"),
+        testId: "meeting-joined-undo",
+        run: () => {
+          useJoinedMeetings.getState().undo(join.id).catch(useAppStore.getState().reportError);
+        },
+      },
+      dismiss: () => useJoinedMeetings.getState().dismiss(join.id),
     });
   }
 

@@ -154,11 +154,12 @@ export function createTagger(options: TaggerOptions) {
   const asked = new Set<string>();
   const organized = (id: string) => options.organizing?.(id) === true;
 
+  // A Meeting's Transcript has no Tags of its own: it goes with its Note (#2528).
   const rowOf = (id: string) =>
     db.get<DocumentRow>(
       `SELECT name, kind, page_count, status, tagging_status, tagging_error_kind, tagging_error_message,
          tagging_error_resets_at
-       FROM documents WHERE id = ? AND deleted_at IS NULL`,
+       FROM documents WHERE id = ? AND deleted_at IS NULL AND meeting_mind_id IS NULL`,
       [id],
     );
 
@@ -434,7 +435,7 @@ export function createTagger(options: TaggerOptions) {
     const found = db
       .all<{ id: string; tagging_status: string; tagging_error_kind: string | null }>(
         `SELECT id, tagging_status, tagging_error_kind FROM documents
-         WHERE deleted_at IS NULL AND status = 'ready'
+         WHERE deleted_at IS NULL AND status = 'ready' AND meeting_mind_id IS NULL
            AND tagging_status IN (${statuses.map(() => "?").join(", ")})
          ORDER BY created_at, rowid`,
         statuses,
@@ -545,7 +546,7 @@ export function createTagger(options: TaggerOptions) {
         input === undefined
           ? db
               .all<{ id: string }>(
-                "SELECT id FROM documents WHERE deleted_at IS NULL ORDER BY created_at, rowid",
+                "SELECT id FROM documents WHERE deleted_at IS NULL AND meeting_mind_id IS NULL ORDER BY created_at, rowid",
               )
               .map((row) => row.id)
           : [...new Set(input as string[])];
@@ -584,7 +585,7 @@ export function createTagger(options: TaggerOptions) {
       return db
         .all<{ id: string }>(
           `SELECT id FROM documents
-           WHERE deleted_at IS NULL AND status = 'ready'
+           WHERE deleted_at IS NULL AND status = 'ready' AND meeting_mind_id IS NULL
              AND tagging_status = 'failed' AND tagging_error_kind = 'network'
            ORDER BY created_at, rowid`,
         )

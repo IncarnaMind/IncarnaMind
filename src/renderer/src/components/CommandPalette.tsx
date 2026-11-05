@@ -177,7 +177,7 @@ function Palette() {
       ...nameGroups(words, found),
       ...actionGroup(words, context, language, found.names),
       ...(notes ? noteGroup(notes.items, minds, t) : []),
-      ...(passages ? documentTextGroup(passages.items, documents, t) : []),
+      ...(passages ? documentTextGroup(passages.items, documents, minds, t) : []),
       ...(said ? conversationTextGroup(said.items) : []),
     ];
   }, [actionsOnly, words, found, context, language, t, notes, passages, said, minds, documents]);
@@ -385,7 +385,11 @@ function ItemIcon({ item }: { item: PaletteItem }) {
     case "note":
       return <MindLineIcon className={className} />;
     case "passage":
-      return <DocumentLineIcon kind={item.documentKind} className={className} />;
+      return item.mindId === null ? (
+        <DocumentLineIcon kind={item.documentKind} className={className} />
+      ) : (
+        <MindLineIcon className={className} />
+      );
     case "said":
       return <ConversationLineIcon className={className} />;
     case "ask":

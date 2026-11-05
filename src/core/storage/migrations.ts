@@ -2300,6 +2300,91 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE minds ADD COLUMN duplicated_from_mind_id TEXT;
     `,
   },
+  {
+    version: 129,
+    description:
+      "A Meeting's Transcript belongs to its Note: it goes where the Note goes, with no Folder, Tags or row of its own (#2528)",
+    sql: `
+      -- The Note whose Meeting this Document is the Transcript of. Null for every other Document,
+      -- a .vtt the User added among them, and for a Transcript whose Note was deleted permanently,
+      -- which keeps a row of its own so it can still be found.
+      ALTER TABLE documents ADD COLUMN meeting_mind_id TEXT;
+      CREATE INDEX documents_by_meeting_mind ON documents (meeting_mind_id)
+        WHERE meeting_mind_id IS NOT NULL;
+      UPDATE documents SET meeting_mind_id = meeting.mind_id
+      FROM (
+        SELECT m.transcript_document_id AS document_id, m.mind_id,
+          row_number() OVER (PARTITION BY m.transcript_document_id ORDER BY m.created_at, m.rowid)
+            AS first
+        FROM meetings m JOIN minds n ON n.id = m.mind_id
+        WHERE m.transcript_document_id IS NOT NULL AND n.purged_at IS NULL
+      ) AS meeting
+      WHERE meeting.document_id = documents.id AND meeting.first = 1 AND documents.purged_at IS NULL;
+      -- A Note this version moved to its Transcript's Folder, so the sidebar can say so once
+      -- (said_at), with Undo back to from_folder_id.
+      CREATE TABLE meeting_joins (
+        id TEXT PRIMARY KEY NOT NULL,
+        mind_id TEXT NOT NULL,
+        from_folder_id TEXT,
+        to_folder_id TEXT NOT NULL,
+        said_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      -- A pair filed apart joins on the walled side, so nothing walled comes out: a Transcript
+      -- behind a wall its Note isn't behind takes the Note into its Folder. Otherwise the
+      -- Transcript joins its Note. A Note with Transcripts behind several walls goes to its first
+      -- Meeting's. Each live Folder's nearest wall is worked out once, as the Library does.
+      WITH RECURSIVE up (folder_id, at_id, wall) AS (
+        SELECT id, id, CASE WHEN keep_inside = 1 THEN id END
+        FROM library_groups WHERE deleted_at IS NULL
+        UNION
+        SELECT up.folder_id, p.id, CASE WHEN p.keep_inside = 1 THEN p.id END
+        FROM up
+        JOIN library_groups g ON g.id = up.at_id
+        JOIN library_groups p ON p.id = g.parent_id AND p.deleted_at IS NULL
+        WHERE up.wall IS NULL
+      ),
+      walls AS (SELECT folder_id, max(wall) AS wall FROM up GROUP BY folder_id),
+      pairs AS (
+        SELECT n.id AS mind_id, n.folder_id AS from_folder_id, a.group_id AS to_folder_id,
+          row_number() OVER (PARTITION BY n.id ORDER BY m.created_at, m.rowid) AS first
+        FROM meetings m
+        JOIN documents d ON d.id = m.transcript_document_id AND d.meeting_mind_id = m.mind_id
+        JOIN minds n ON n.id = m.mind_id
+        JOIN document_groups a ON a.document_id = d.id AND a.deleted_at IS NULL
+        JOIN walls tw ON tw.folder_id = a.group_id
+        LEFT JOIN walls nw ON nw.folder_id = n.folder_id
+        WHERE tw.wall IS NOT NULL AND tw.wall IS NOT nw.wall
+      )
+      INSERT INTO meeting_joins (id, mind_id, from_folder_id, to_folder_id, created_at, updated_at)
+        SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4'
+            || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', 1 + (random() & 3), 1)
+            || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+          mind_id, from_folder_id, to_folder_id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        FROM pairs WHERE first = 1;
+      UPDATE minds SET folder_id = j.to_folder_id, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      FROM meeting_joins j WHERE j.mind_id = minds.id;
+      -- The Transcript's own Folder, suggestions, turned-down Folders and Tags go: its Note's
+      -- Folder is its place. Tags deleted with it are moved off its delete time, so a Restore
+      -- doesn't bring them back.
+      UPDATE document_groups SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE deleted_at IS NULL
+        AND document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL);
+      UPDATE document_group_rejections SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE deleted_at IS NULL
+        AND document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL);
+      UPDATE document_tags SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL)
+        AND (deleted_at IS NULL
+          OR deleted_at = (SELECT d.deleted_at FROM documents d WHERE d.id = document_tags.document_id));
+    `,
+  },
 ];
 
 /**

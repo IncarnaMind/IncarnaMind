@@ -9,6 +9,7 @@ import { countNow, translateNow } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
 import { fileStatusLabel, folderName } from "../linkedFolders";
+import { isListedDocument } from "../meetingTranscript";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { findTab } from "../tabs";
@@ -83,6 +84,9 @@ const fileReason = (ctx: CommandContext) => {
 };
 
 const onFiles = (ctx: CommandContext) => everyDocument(ctx, userFile);
+
+/** A Meeting's Transcript moves, is tagged and is deleted only with its Note (#2528). */
+const ownRows = (ctx: CommandContext) => documentsOf(ctx).every(isListedDocument);
 
 /** A PDF that couldn't be read for want of its password (#763). */
 const isLockedPdf = (document: { kind: string; failure: { reason: string } | null }) =>
@@ -253,6 +257,7 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     reversible: true,
     ...needsHere("document.moveTo"),
+    when: (ctx) => ctx.here?.["document.moveTo"] !== undefined && ownRows(ctx),
   },
   {
     id: "document.retry",
@@ -338,6 +343,7 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     reversible: true,
     ...needsHere("document.tags"),
+    when: (ctx) => ctx.here?.["document.tags"] !== undefined && ownRows(ctx),
   },
   {
     id: "document.rename",
@@ -389,6 +395,7 @@ export const documentCommands: readonly Command[] = [
     group: "danger",
     destructive: true,
     appliesTo: ["document"],
+    when: ownRows,
     reversible: true,
     async run(ctx) {
       await store().deleteDocuments(documentsOf(ctx).map((document) => document.id));

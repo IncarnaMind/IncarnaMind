@@ -37,7 +37,13 @@ import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
 import { looseDocumentIds, organizeDocuments, useProposing } from "../organizeDocuments";
 import { organizeStateOf } from "../organizeOutcome";
-import { DAY_ONE_DOCUMENTS, ownsATag, useLibraryDocuments, useOwnDocuments } from "../ownDocuments";
+import {
+  DAY_ONE_DOCUMENTS,
+  ownsATag,
+  useLibraryDocuments,
+  useListedDocuments,
+  useOwnDocuments,
+} from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -104,7 +110,7 @@ export function LibraryPane() {
   // A source's view lists that source's Documents even when they are the examples': the examples
   // leave the Library once the User has a Document of their own, but their Linked folder's row
   // stays the way back to them (#1944).
-  const everyDocument = useAppStore((state) => state.documents);
+  const everyDocument = useListedDocuments();
   const documents = facetFilter.source?.length ? everyDocument : libraryDocuments;
   const field = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);

@@ -4,6 +4,7 @@ import type {
   DocumentKind,
   Folder,
   LibraryGroup,
+  Mind,
   SearchScope,
   Tag,
 } from "../../core/api";
@@ -17,6 +18,8 @@ import {
 } from "../../shared/searchScope";
 import { buildFolderTree, flattenFolderTree, folderPath } from "./folders";
 import { matchName, queryWords } from "./matcher";
+import { isListedDocument, noteOf, transcriptInNote } from "./meetingTranscript";
+import type { Translate } from "./objects";
 
 /** What a scope item gone without its name is called: "Deleted Folder". */
 export const DELETED_NAMES: Record<ScopeKind, MessageKey> = {
@@ -35,7 +38,17 @@ export interface ScopeLibrary {
   documents: readonly Document[];
   /** Which in-app Folder each Document is filed in; the counts of those Folders read it. */
   assignments?: readonly DocumentGroupAssignment[];
+  /** The Notes: a Meeting's Transcript counts in its Note's Folder (#2528), and none without them. */
+  minds?: readonly Mind[];
+  /** The words to name a Meeting's Transcript as its Note's: without them it is offered nowhere. */
+  t?: Translate;
 }
+
+/** A Meeting's Transcript as a scope names it: "Weekly call · Transcript", or null. */
+const transcriptName = (library: ScopeLibrary, document: Document): string | null => {
+  const note = noteOf(document, library.minds ?? []);
+  return note && library.t ? transcriptInNote(note, null, library.t) : null;
+};
 
 /** A Folder, Tag or Document the "@" picker offers for a Question's Search scope. */
 export interface ScopeChoice {
@@ -127,6 +140,12 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
     for (const id of ids) count(id, new Set());
     return counted;
   };
+  // A Meeting's Transcript is searched where its Note is (#2528).
+  const transcriptsIn = new Map<string, number>();
+  for (const document of live) {
+    const folderId = noteOf(document, library.minds ?? [])?.folderId;
+    if (folderId) transcriptsIn.set(folderId, (transcriptsIn.get(folderId) ?? 0) + 1);
+  }
   const groupDirect = new Map<string, number>();
   for (const group of groups) {
     groupDirect.set(
@@ -136,7 +155,7 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
           each.groupId === group.id &&
           liveIds.has(each.documentId) &&
           (!insideWall(group.id) || each.source === "user"),
-      ).length,
+      ).length + (transcriptsIn.get(group.id) ?? 0),
     );
   }
   for (const [id, held] of sumUp(
@@ -181,8 +200,12 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
     }
     return null;
   };
-  const documentWall = (documentId: string) => {
-    const filed = (library.assignments ?? []).find((each) => each.documentId === documentId);
+  const documentWall = (document: Document) => {
+    if (!isListedDocument(document)) {
+      const folderId = noteOf(document, library.minds ?? [])?.folderId;
+      return folderId ? groupWall(folderId) : null;
+    }
+    const filed = (library.assignments ?? []).find((each) => each.documentId === document.id);
     return filed?.groupId ? groupWall(filed.groupId) : null;
   };
   const names = new Map(library.folders.map((folder) => [folder.id, folder.name]));
@@ -231,16 +254,21 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
         count: counts.get(tag.id) ?? 0,
       }),
     ),
-    ...library.documents.map(
-      (document): ScopeChoice => ({
-        kind: "document",
-        id: document.id,
-        name: document.name,
-        path: [],
-        documentKind: document.kind,
-        walled: documentWall(document.id),
-      }),
-    ),
+    ...library.documents.flatMap((document): ScopeChoice[] => {
+      const name = isListedDocument(document) ? document.name : transcriptName(library, document);
+      return name === null
+        ? []
+        : [
+            {
+              kind: "document",
+              id: document.id,
+              name,
+              path: [],
+              documentKind: document.kind,
+              walled: documentWall(document),
+            },
+          ];
+    }),
   ];
 }
 
@@ -318,7 +346,7 @@ export function scopeChips(library: ScopeLibrary, scope: SearchScope): ScopeChip
       return {
         kind: "document",
         id,
-        name: document?.name ?? null,
+        name: document ? (transcriptName(library, document) ?? document.name) : null,
         path: [],
         deleted: !document,
         documentKind: document?.kind ?? null,

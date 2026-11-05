@@ -5455,6 +5455,8 @@ export const en = {
   "error.transcription.localMode":
     "Meeting audio can’t go to a cloud service: “Keep everything on this computer” is on.",
   "error.transcription.noKey": "Add a {service} key first.",
+  "error.transcript.withNote":
+    "A meeting’s Transcript goes with its Note. Move or delete the Note instead.",
   "error.transcription.keyMissing": "Paste the key first.",
   "error.transcription.unreachable":
     "Couldn’t reach {service}. Check the connection and try again.",
@@ -6062,6 +6064,10 @@ export const en = {
   "meetings.guide.close": "Close (Esc)",
   "meetings.transcript.name": "Transcript · {meeting}",
   "meetings.transcript.nameAlone": "Transcript",
+  "meetings.transcript.inNote": "{meeting} · Transcript",
+  "meetings.transcript.inNoteAt": "{meeting} · Transcript, {time}",
+  "meetings.joined": "“{meeting}” moved to “{folder}” with its Transcript",
+  "meetings.joined.undo": "Undo",
   "meetings.bar.showTranscript": "Show transcript",
   "meetings.bar.hideTranscript": "Hide transcript",
   "meetings.bar.transcriptSoon": "The transcript appears with its first line",

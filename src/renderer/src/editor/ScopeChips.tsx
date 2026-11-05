@@ -81,7 +81,11 @@ export function ScopeChips({
     return counted.get(ownFolderId) ?? 0;
   });
   const assignments = useAppStore((state) => state.library?.assignments);
-  const chips = scopeChips({ folders, groups, deletedGroups, tags, documents, assignments }, scope);
+  const minds = useAppStore((state) => state.minds);
+  const chips = scopeChips(
+    { folders, groups, deletedGroups, tags, documents, assignments, minds, t },
+    scope,
+  );
   const [expanded, setExpanded] = useState(false);
   const long = chips.length > most;
   const shown = long && !expanded ? chips.slice(0, most - 1) : chips;

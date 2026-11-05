@@ -41,6 +41,7 @@ import { cursorAtBlock } from "./editor/notePlace";
 import { type FindableKind, type FoundObject, findable } from "./finding";
 import { currentTabOf } from "./layoutSlice";
 import { matchName, type NameMatch, queryWords } from "./matcher";
+import { isListedDocument, noteOf, transcriptInNote } from "./meetingTranscript";
 import type { ObjectRef, Translate } from "./objects";
 import { useSelection } from "./selection";
 import { refKey } from "./selectionModel";
@@ -48,6 +49,7 @@ import { moveFromPalette } from "./sidebarMoves";
 import { useAppStore } from "./store";
 import { findTab } from "./tabs";
 import { taskAt } from "./taskFocus";
+import { openTranscriptOfNote } from "./transcripts";
 
 const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette" };
 
@@ -156,6 +158,8 @@ export type PaletteItem =
       key: string;
       documentId: string;
       documentKind: DocumentKind;
+      /** A Meeting's Transcript: its Note, whose hit this is (#2528). Null for any other Document. */
+      mindId: string | null;
       name: string;
       meta: string;
       pageFrom: number | null;
@@ -368,7 +372,7 @@ export function noteGroup(
 }
 
 /** A Document as the palette reads it. */
-export type NamedDocument = Pick<Document, "id" | "name" | "title" | "kind">;
+export type NamedDocument = Pick<Document, "id" | "name" | "title" | "kind" | "meetingMindId">;
 
 /** Where a Passage found is, for a PDF's page or a deck's slide; "" for the other kinds. */
 export function passagePlace(
@@ -398,25 +402,31 @@ export function atPassage(
   };
 }
 
-/** "In your Documents": the Documents the core found the words in, with the Passage that holds them. */
+/**
+ * "In your Documents": the Documents the core found the words in, with the Passage that holds
+ * them. Words said in a Meeting are its Note's: "Weekly call · Transcript, 12:07" (#2528).
+ */
 export function documentTextGroup(
   found: readonly DocumentTextMatch[],
   documents: readonly NamedDocument[],
+  minds: readonly Mind[],
   t: Translate,
 ): PaletteGroup[] {
   const byId = new Map(documents.map((document) => [document.id, document]));
   const items = found.flatMap((match): PaletteItem[] => {
     const document = byId.get(match.documentId);
     if (!document) return [];
-    const meta = passagePlace(document.kind, match, t);
+    const note = noteOf(document, minds);
+    if (!note && !isListedDocument(document)) return [];
     return [
       {
         kind: "passage",
         key: `passage:${match.passageId}`,
         documentId: match.documentId,
         documentKind: document.kind,
-        name: displayName(document),
-        meta,
+        mindId: note?.id ?? null,
+        name: note ? transcriptInNote(note, match.atMs, t) : displayName(document),
+        meta: note ? "" : passagePlace(document.kind, match, t),
         pageFrom: match.pageFrom,
         pageTo: match.pageTo,
         excerpt: match.excerpt,
@@ -519,6 +529,10 @@ export async function runItem(
       return;
     }
     case "passage":
+      if (item.mindId !== null) {
+        await openTranscriptOfNote(item.mindId, item.documentId, atPassage(item));
+        return;
+      }
       store.openDocument(
         { documentId: item.documentId, ...atPassage(item) },
         { as: inTab ? "here" : "list" },

@@ -69,6 +69,7 @@ import { type LibraryBridge, mindToAskIn } from "./libraryBridges";
 import { NEEDS_REVIEW } from "./libraryFilters";
 import type { WordsInLine } from "./lineNames";
 import { formatCount, folderName as linkedFolderName } from "./linkedFolders";
+import { isListedDocument } from "./meetingTranscript";
 import {
   foldersMovedFrom,
   itemsOf,
@@ -2067,10 +2068,11 @@ async function startGettingStarted(exampleMindId: string): Promise<void> {
   }
 }
 
-/** A Document of the User's own: not one of the examples. */
+/** A Document of the User's own, as the Library lists it: not one of the examples. */
 export const isOwnDocument = (document: Document, examples: readonly Examples[]) =>
-  document.linkedFolderId === null ||
-  !examples.some((each) => each.linkedFolderId === document.linkedFolderId);
+  isListedDocument(document) &&
+  (document.linkedFolderId === null ||
+    !examples.some((each) => each.linkedFolderId === document.linkedFolderId));
 
 /** The example a first run makes, shown first; the earlier version's tea example stands in for it. */
 const FIRST_RUN_EXAMPLE: ExampleGroup = "credit";
