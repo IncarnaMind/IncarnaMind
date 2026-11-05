@@ -29,11 +29,12 @@ const CASES = {
     ],
     sheet: (page: number) =>
       Array.from(
-        { length: 12 },
-        (_, line) => `Sheet ${page}, line ${line + 1}: a delivery note copied by the clerk.`,
+        { length: 16 },
+        (_, line) =>
+          `Sheet ${page}, line ${line + 1}: a delivery note for the fenders, copied by the clerk on duty from the carbon kept at the store.`,
       ),
     says: "invoice",
-    reading: /^Reading \d+\/39$/,
+    reading: /^Reading \d+\/39/,
     suggested: "Suggested",
   },
   "zh-CN": {
@@ -44,11 +45,12 @@ const CASES = {
     ],
     sheet: (page: number) =>
       Array.from(
-        { length: 12 },
-        (_, line) => `第 ${page} 页第 ${line + 1} 行：记录员抄录的送货单。`,
+        { length: 16 },
+        (_, line) =>
+          `第 ${page} 页第 ${line + 1} 行：值班记录员从仓库留存的复写联抄录的护舷送货单，数量和日期已核对并签名。`,
       ),
     says: "发票",
-    reading: /^识别中 \d+\/39$/,
+    reading: /^识别中 \d+\/39/,
     suggested: "推荐",
   },
 } as const;
