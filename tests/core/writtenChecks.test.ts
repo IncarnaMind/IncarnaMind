@@ -801,33 +801,64 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     ]);
   });
 
-  // protects=a mark that can't land (a newer version wrote the Note mid-check, so no edit may change it) is logged, the other sentences are still landed, and each is counted once (#2532); fails_when=the failed landing becomes its sentence's failure, is counted twice, or ends the check; no_claim=what the card says of a Note a newer version wrote.
-  test("a mark that can't land is left out, and each sentence is counted once", async () => {
+  // protects=a landing that throws (here a newer version wrote the Note mid-check, so no edit may change it) is logged and never becomes its sentence's failure (#2532); fails_when=runItems files the throw as the sentence's failure and lands it again; no_claim=what the card says of a Note a newer version wrote, as the write's own edits fail there too.
+  test("a mark that can't land is logged, not filed as its sentence's failure", async () => {
     let page: MindClient | null = null;
     let newer: Promise<void> | null = null;
-    const { change } = await write(
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await write(
+        {
+          content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+          into: true,
+          cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+          check: (call) => {
+            const client = page;
+            if (call.results.length > 0 || !client) return null;
+            if (!newer) {
+              client.doc
+                .getMap(MIND_SETTINGS_FIELD)
+                .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+              newer = client.settled();
+            }
+            return { ...checkReply(call, PLANS), pause: { after: 0, until: newer } };
+          },
+        },
+        ({ client }) => {
+          page = client;
+        },
+      );
+      const said = (spy: typeof errors) => spy.mock.calls.map((args) => String(args[0]));
+
+      expect(said(errors).filter((line) => line.includes("marks couldn't land"))).toHaveLength(2);
+      expect(said(warnings).filter((line) => line.includes("couldn't be checked"))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+      warnings.mockRestore();
+    }
+  });
+
+  // protects=the sentences of a table land together after every check, in one edit, as a table's marks are footed against each other and its chart drawn from them (#2532); fails_when=a table's sentence lands on its own as its check ends; no_claim=how a table foots.
+  test("a table's sentences land together after every check", async () => {
+    const seen: number[] = [];
+    const { core, client } = await write(
       {
-        content: `Spring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        content:
+          "| Region | Note |\n| --- | --- |\n| North | Spring tides come at new and full moon [^1] |\n| South | Neap tides are twice as strong [^1] |",
         into: true,
         cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
-        check: (call) => {
-          const client = page;
-          if (call.results.length > 0 || !client) return null;
-          if (!newer) {
-            client.doc
-              .getMap(MIND_SETTINGS_FIELD)
-              .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
-            newer = client.settled();
-          }
-          return { ...checkReply(call, PLANS), pause: { after: 0, until: newer } };
-        },
       },
-      ({ client }) => {
-        page = client;
+      ({ client: connected }) => {
+        connected.doc.on("update", () => {
+          seen.push(claimSpans(readMind(connected)).length);
+        });
       },
     );
 
-    expect(change?.selfCheck).toMatchObject({ sent: 2, checked: 2, failed: 0 });
+    expect(await marksIn(core, client)).toHaveLength(2);
+    expect(seen).toContain(2);
+    expect(seen).not.toContain(1);
   });
 
   // protects=Stop while a write's sentences are checked keeps the marks that landed and lands none for a sentence whose check Stop cut short, as Check this note leaves them (#2532); fails_when=a sentence stopped mid-check lands marked, or a landed mark is taken back; no_claim=what the Answer says once stopped.

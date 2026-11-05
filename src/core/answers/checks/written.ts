@@ -852,21 +852,31 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       unsupported: 0,
       contradicted: 0,
     };
-    // Each sentence lands as its check ends, so its verdict shows while the others are checked.
-    // A mark that can't land stays out, logged: its check's result is counted once, and the
-    // other sentences still land.
+    const landAll = (landings: readonly Landing[]) => {
+      if (landings.length === 0) return;
+      input.edit((note) => {
+        for (const landing of landings) land(note, input.ids, landing);
+      });
+      options.retainEvidence(mindId);
+    };
+    const couldNotLand = (error: unknown) =>
+      console.error(
+        `What the assistant wrote in Mind ${mindId} was checked, but marks couldn't land:`,
+        error,
+      );
+    // A sentence lands as its check ends, so its verdict shows while the others are checked. A
+    // table's marks are footed against each other as they land (a total against its cells) and its
+    // chart is drawn from them, so a sentence in a table or with figures waits, and those land
+    // together after every check, in their order.
+    const waiting: { index: number; landing: Landing }[] = [];
     const landNow = (landing: Landing) => {
       if (signal.aborted) return;
-      try {
-        input.edit((note) => land(note, input.ids, landing));
-        options.retainEvidence(mindId);
-      } catch (error) {
-        console.error(
-          `A sentence the assistant wrote in Mind ${mindId} was checked, but its mark couldn't land:`,
-          error,
-        );
-      }
+      const { sentence } = landing;
+      if (sentence.inCell || (reads.get(sentence)?.figures?.length ?? 0) > 0)
+        waiting.push({ index: sending.indexOf(sentence), landing });
+      else landAll([landing]);
     };
+    const cuts: { index: number; uncovered: string }[] = [];
     const markOf = (
       sentence: Sentence,
       by: PreparedChatModel = prepared,
@@ -967,7 +977,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         return;
       }
       if (nodes && uncovered) {
-        done.cut.push(uncovered);
+        cuts.push({ index: sending.indexOf(sentence), uncovered });
         landNow({ sentence, nodes, mark });
         return;
       }
@@ -1015,22 +1025,37 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           : null;
         return { result, uncovered, nodes, by: prepared, passedOn: first?.asked ? quick : null };
       },
-      { concurrency: claimsAtOnce(prepared), signal, onOutcome: landed },
+      {
+        concurrency: claimsAtOnce(prepared),
+        signal,
+        // runItems hears an outcome inside its own try: a throw here would be filed as the
+        // sentence's failure and heard again.
+        onOutcome(sentence, outcome) {
+          try {
+            landed(sentence, outcome);
+          } catch (error) {
+            couldNotLand(error);
+          }
+        },
+      },
     );
     if (signal.aborted) return null;
     done.stop = stop;
+    done.cut = cuts.sort((a, b) => a.index - b.index).map(({ uncovered }) => uncovered);
     const at = options.now().toISOString();
-    const left = sentences.slice(SENTENCES_CHECKED_AT_MOST);
-    if (left.length > 0) {
-      input.edit((note) => {
-        for (const sentence of left)
-          land(note, input.ids, {
+    try {
+      landAll([
+        ...waiting.sort((a, b) => a.index - b.index).map(({ landing }) => landing),
+        ...sentences.slice(SENTENCES_CHECKED_AT_MOST).map(
+          (sentence): Landing => ({
             sentence,
             nodes: null,
             mark: () => notChecked(markOf(sentence), "too-many", null, at),
-          });
-      });
-      options.retainEvidence(mindId);
+          }),
+        ),
+      ]);
+    } catch (error) {
+      couldNotLand(error);
     }
     return done;
   }

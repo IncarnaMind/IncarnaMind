@@ -20,7 +20,7 @@ On an Anthropic key, a run of sentence checks (Check this Note, Verify and the w
 - **Done:** the step's median end comes before today's.
 - **First verdict:** the step's median first verdict is not later than today's by more than the cell's spread, and never by more than 1.0 s. The spread is the largest minus the smallest of today's first verdicts in that cell.
 - **No failure:** no request fails and no rate limit is met on the step's arm.
-- **Verdicts:** the test (`tests/core/checkSpeed.test.ts`) shows that each sentence's check sends the same requests and lands the same mark at six and at twelve. Verdicts that differ between the arms are reported.
+- **Verdicts:** a test (since taken out with the step) shows that each sentence's check sends the same requests and lands the same mark at six and at twelve. Verdicts that differ between the arms are reported.
 
 ## What decides
 
