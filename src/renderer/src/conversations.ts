@@ -353,9 +353,9 @@ export async function askInAssistant(
     settleAsk(key, result);
     sayLeftOut(result);
     if (!result.asked) return false;
-    watchMindsMadeBy(result.answerId);
+    watchMindsMadeBy(result.answerId, input.mindId);
     // A new Answer has nothing to make way for, and it may end before an Undo running now does.
-    applyWhatIsAsked(result.answerId);
+    applyWhatIsAsked(result.answerId, input.mindId);
     watchCommands(result.answerId);
     const id = result.conversation.id;
     if (stayed() && useConversations.getState().openId !== id) {
@@ -446,8 +446,11 @@ export async function regenerateAnswer(
   if (!conversationId) return;
   settleAsk(answerId, null);
   try {
-    watchMindsMadeBy(answerId);
-    await applyWhatWasAsked(answerId, { keepWritten: clearScope });
+    watchMindsMadeBy(answerId, askedFrom(answerId));
+    await applyWhatWasAsked(answerId, {
+      keepWritten: clearScope,
+      askedFromMind: askedFrom(answerId),
+    });
     watchCommands(answerId);
     const result = await core.regenerateConversationAnswer({
       conversationId,

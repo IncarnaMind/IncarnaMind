@@ -38,6 +38,7 @@ import { core } from "./core";
 import type { FollowedSteps } from "./editor/editorUndo";
 import { mindEditor, onMindEditorOpen, whenMindEditor } from "./editor/openEditors";
 import { applyingIn, editorDoc, setApplying } from "./editor/proposalReview";
+import { currentMindIdOf } from "./layoutSlice";
 import { useAppStore } from "./store";
 import { answerUndoPlace, type Undoable, UndoRefused, undoSettled, useUndo } from "./undo";
 
@@ -95,6 +96,8 @@ interface HeadlessChange {
 
 const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
+/** By Answer: the Mind in front when this window asked for it, or null for Home (#2572). */
+const askedFromHere = new Map<string, string | null>();
 const finishing = new Map<string, Promise<unknown>>();
 const recovering = new Set<string>();
 const catchingUp = new Map<string, () => void>();
@@ -313,13 +316,15 @@ async function makeWayForAnswer(
 }
 
 /** An Answer this window has just asked for: what it was asked to write or change applies here. */
-export function applyWhatIsAsked(answerId: string): void {
+export function applyWhatIsAsked(answerId: string, askedFromMind: string | null): void {
   askedHere.add(answerId);
+  askedFromHere.set(answerId, askedFromMind);
   syncArriving();
 }
 
 /** An Answer this window asked for that nothing will be written for: nothing of it is on its way. */
 export function applyNotAsked(answerId: string): void {
+  askedFromHere.delete(answerId);
   if (!askedHere.delete(answerId)) return;
   syncArriving();
 }
@@ -332,9 +337,13 @@ export function applyNotAsked(answerId: string): void {
  */
 export async function applyWhatWasAsked(
   answerId: string,
-  { keepWritten = false } = {},
+  {
+    keepWritten = false,
+    askedFromMind,
+  }: { keepWritten?: boolean; askedFromMind?: string | null } = {},
 ): Promise<void> {
   askedHere.add(answerId);
+  askedFromHere.set(answerId, askedFromMind ?? null);
   syncArriving();
   await undoSettled();
   const pending = finishing.get(answerId);
@@ -482,8 +491,11 @@ function follow(row: ChangedMind): void {
 const finish = (answer: ConversationAnswer): Promise<unknown> => {
   const rows = changedMinds(answer);
   const made = rows.some((row) => row.created);
+  // A made Note comes to the front only when the User is still where they asked from (#2572).
+  const stillThere =
+    currentMindIdOf(useAppStore.getState().layout) === (askedFromHere.get(answer.id) ?? null);
   const task = Promise.allSettled(
-    rows.map((row) => finishIn(answer, row, made && !row.created)),
+    rows.map((row) => finishIn(answer, row, made && (!row.created || !stillThere))),
   ).then((results) => {
     for (const result of results) {
       if (result.status === "rejected") useAppStore.getState().reportError(result.reason);
@@ -715,6 +727,7 @@ core.on("conversation.message", (message) => {
   for (const row of changedMinds(answer)) follow(row);
   if (answer.status === "streaming") return;
   askedHere.delete(answer.id);
+  askedFromHere.delete(answer.id);
   syncArriving();
   finish(answer).catch(useAppStore.getState().reportError);
 });
