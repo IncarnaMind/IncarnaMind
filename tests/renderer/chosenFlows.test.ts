@@ -15,13 +15,13 @@ const t =
 const FULL = {
   en: [
     "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
-    "each sentence you check",
+    "each sentence you check, with the passages and Document names it's checked against; for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
     "the paragraph you pause on, for writing suggestions",
     "the text you ask the assistant to change",
   ],
   "zh-CN": [
     "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个）、会议的转写稿，以及你在笔记中选中要询问的图片",
-    "你核对的每一句话",
+    "你核对的每一句话，以及用于核对的段落和文档名称；句子说的是你的资料库时，还有资料库的数量、笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
     "写作建议时你停下的那一段",
     "你让助手修改的文字",
   ],
@@ -30,7 +30,7 @@ const FULL = {
 /** The kinds of data each item of the line names, so a kind a flow starts sending fails until one does. */
 const NAMED_BY: Record<string, readonly DataKind[]> = {
   chat: ["blocks", "passages", "document-names", "other-minds", "live-transcript", "pictures"],
-  checks: ["verified-document"],
+  checks: ["verified-document", "library-counts", "library-names"],
   suggestions: ["writing", "writing-passages"],
   edits: ["selection"],
 };

@@ -264,7 +264,7 @@ for (const language of ["en", "zh-CN"] as const) {
           evidence: ofLibrary(
             { kind: "folder", name: "Research", count: 6 },
             { kind: "left-out", folders: 1 },
-            "Documents in the Folder “Research”: 6",
+            "Documents in the Folder “Research” and the Folders inside it: 6",
           ),
         }),
       ),

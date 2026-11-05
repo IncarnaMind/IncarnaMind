@@ -7,9 +7,10 @@
  * sort, as an opinion is.
  */
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import type { ClaimCheckAttributes, Core, Document } from "../../src/core";
+import type { ClaimCheckAttributes, Core, Document, SearchScope } from "../../src/core";
 import { readClaimParts } from "../../src/core/answers/checks/claims";
 import {
   declaredLibrary,
@@ -27,6 +28,7 @@ import { claimCheckShown } from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { libraryRow } from "../../src/shared/libraryFacts";
 import { citationLocation } from "../../src/shared/locations";
+import { setMindScope } from "../../src/shared/mindScope";
 import {
   checkGenerate,
   isCheckRun,
@@ -37,6 +39,7 @@ import {
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import {
@@ -182,7 +185,22 @@ async function setUp(
     calls
       .flatMap((call) => [call.system, call.prompt, ...call.results.map((each) => each.text)])
       .join("\n");
-  return { core, documents, calls, sent, sources };
+  /** What the Library's facts Passage of every search carried: the Documents' own Passages left out. */
+  const factsSent = () => factsIn(calls);
+  return { core, documents, calls, sent, factsSent, sources };
+}
+
+/** The text of every Library facts Passage the model was shown, with its attributes checked. */
+function factsIn(calls: readonly ModelCall[]): string {
+  const shown = calls
+    .flatMap((call) => call.results.filter((each) => each.tool === "search_documents"))
+    .flatMap((result) => shownPassages(result.text))
+    .filter((passage) => passage.document === "Library facts");
+  for (const passage of shown) {
+    if (passage.date !== null || passage.pages !== null || passage.location !== null)
+      throw new Error("The Library facts Passage carried a date, pages or a location.");
+  }
+  return shown.map((passage) => passage.text).join("\n");
 }
 
 const paragraph = (id: string, text: string): JSONContent => ({
@@ -197,10 +215,12 @@ async function checkInNote(
   sentence: string,
   folderId: string | null = null,
   allDocuments = folderId === null,
+  scope: SearchScope | null = null,
 ) {
   const note = await core.createMind({ title: "Library overview", folderId });
   const mind = await connectToMind(core, note.id);
   writeMind(mind, [paragraph("one", sentence)]);
+  if (scope) setMindScope(mind.doc, scope);
   await mind.settled();
   await core.checkSentences({
     requestId: `check-${randomUUID()}`,
@@ -369,8 +389,10 @@ describe.each(["en", "zh-CN"] as const)("a sentence about the Library (%s)", (la
     expect(rowOf(check, language)).toBe(
       language === "en" ? "Your Library: 2 other notes" : "你的资料库：另有 2 篇笔记",
     );
-    expect(setup.sent()).toContain("Note “Harbour visit”");
-    expect(setup.sent()).not.toContain("Note “Library overview”");
+    // The sentence names no note: their count is sent, and no title.
+    expect(setup.factsSent()).toContain("Notes besides this one: 2");
+    for (const title of ["Harbour visit", "Kestrel budget", "Library overview"])
+      expect(setup.factsSent()).not.toContain(title);
   });
 
   // protects=a description the facts can't settle is Not checked with the ruled reason, never Not found with Cut; fails_when=it reads Unsupported.
@@ -581,12 +603,87 @@ describe("the rules that hold a Library sentence's result", () => {
   });
 });
 
+describe("a verdict the facts must decide", () => {
+  // protects=shown the facts, a Supported verdict that rests on a Document's text alone is asked about once, then reads Not checked; a search that didn't ask for the facts is as it was; fails_when="Your files include the Osprey contract." is Supported by one Document line.
+  test("a Supported verdict resting on a Document's text alone, after the facts were shown", async () => {
+    const sentence = "Your files include the Osprey contract.";
+    const plan = {
+      verdict: "supported",
+      quote: "Osprey contract, signed copy",
+      line: "none",
+      says: "The Document lists a contract.",
+    } as const;
+    const osprey = [
+      ...files(2),
+      { name: "Osprey contract.txt", contents: "Osprey contract, signed copy." },
+    ];
+    const shown = await setUp(osprey, { [sentence]: plan });
+    const kept = (await checkInNote(shown.core, sentence)).check;
+    expect(
+      Math.max(
+        0,
+        ...shown.calls
+          .filter(isCheckRun)
+          .map(
+            (call) =>
+              call.prompt.split("yet your Verdict rests on a Document's text alone").length - 1,
+          ),
+      ),
+    ).toBe(1);
+    expect(kept.state).toBe("not-checked");
+
+    const unasked = await setUp(osprey, { [sentence]: { ...plan, library: false } });
+    expect((await checkInNote(unasked.core, sentence)).check.state).toBe("supported");
+  });
+
+  // protects=a count written in words is held to the fact as digits are; fails_when="twelve Documents" reads Supported by "Documents in all: 11".
+  test.each([
+    ["en", "Your Library holds twelve Documents.", "not supported"],
+    ["en", "Your Library holds eleven Documents.", "supported"],
+    ["zh-CN", "你的资料库里有十二个文档。", "not supported"],
+    ["zh-CN", "你的资料库里有十一个文档。", "supported"],
+  ] as const)("%s: %s reads %s", async (language, sentence, reads) => {
+    const setup = await setUp(
+      files(11),
+      { [sentence]: { verdict: "supported", quote: "Documents in all: 11", line: "documents" } },
+      language,
+    );
+    const { check } = await checkInNote(setup.core, sentence);
+    if (reads === "supported") expect(check.state).toBe("supported");
+    else expect(check.state).not.toBe("supported");
+  });
+
+  // protects=a Word export says a Library sentence needs a re-check once the Library changed, as the window does; fails_when=the export compares Documents' versions only.
+  test("a Word export says a Library change needs a re-check", async () => {
+    const sentence = SENTENCES.count.en;
+    const setup = await setUp(files(22), {
+      [sentence]: { verdict: "supported", quote: "Documents in all: 22", line: "documents" },
+    });
+    const { noteId } = await checkInNote(setup.core, sentence);
+    const commented = async () => {
+      const result = await setup.core.exportMind(noteId, {
+        format: "docx",
+        commentFailedChecks: true,
+      });
+      return textOf(unzip(result.data).get("word/comments.xml")?.toString("utf8") ?? "");
+    };
+    const changed = "Needs re-check: your Library has changed since this was checked.";
+    expect(await commented()).not.toContain(changed);
+    await addAndProcess(setup.core, [
+      await writeSourceFile(setup.sources, "Survey note 23.txt", "Field visit 23."),
+    ]);
+    expect(await commented()).toContain(changed);
+  });
+});
+
 describe("a count wrong by its scale or unit", () => {
   // protects=a Library count is decided by its own figure, scale and unit: "22 thousand" or "22 GB" never reads Supported by "Documents in all: 22"; fails_when=the judge's Supported stands on the bare number.
   test.each([
     ["en", "Your Library holds 22 Documents.", "supported"],
     ["en", "Your Library holds 22 thousand Documents.", "not supported"],
     ["en", "Your Library holds 22 GB of Documents.", "not supported"],
+    ["en", "Your Library takes up 22 TB.", "not supported"],
+    ["zh-CN", "你的资料库占用 22 TB。", "not supported"],
     ["zh-CN", "你的资料库里有 22 个文档。", "supported"],
     ["zh-CN", "你的资料库里有 22 万个文档。", "not supported"],
   ] as const)("%s: %s reads %s", async (language, sentence, reads) => {
@@ -602,9 +699,35 @@ describe("a count wrong by its scale or unit", () => {
 });
 
 describe("Folder walls", () => {
+  // protects=a Search scope picked before its Folder got a wall sends nothing of that Folder from outside it, its name least of all; fails_when="Library facts of “Litigation hold” and 1 more" reaches the model.
+  test("an old scope pick of a walled Folder sends no trace of its name from outside", async () => {
+    const sentence = "The Litigation hold and Fieldwork Folders hold 1 Document.";
+    const setup = await setUp(
+      [...files(2), { name: "Hold notice.txt", contents: "Notice of the hold on the records." }],
+      { [sentence]: { verdict: "supported", quote: "Documents in all: 1", line: "documents" } },
+    );
+    const { core } = setup;
+    const hold = await core.createLibraryGroup({ name: "Litigation hold", description: "" });
+    const open = await core.createLibraryGroup({ name: "Fieldwork", description: "" });
+    const notice = setup.documents.find((each) => each.name === "Hold notice");
+    const survey = setup.documents.find((each) => each.name === "Survey note 01");
+    if (!notice || !survey) throw new Error("The test Documents are missing.");
+    await core.assignDocumentGroup(notice.id, hold.id);
+    await core.assignDocumentGroup(survey.id, open.id);
+    const picked = { folderIds: [hold.id, open.id], tagIds: [], documentIds: [] };
+    await core.updateLibraryGroup(hold.id, { name: hold.name, description: "", keepInside: true });
+    const { check } = await checkInNote(core, sentence, null, false, picked);
+    expect(check.state).toBe("supported");
+    const results = setup.calls.flatMap((call) => call.results.map((each) => each.text)).join("\n");
+    for (const walled of ["Litigation", "Hold notice", "the records"])
+      expect(results).not.toContain(walled);
+    expect(setup.factsSent()).toContain("Library facts of “Fieldwork”");
+  });
+
   // protects=nothing of a walled Folder reaches a request for a scope that leaves it out: not its name, its Documents' names, a Tag only its Documents carry, a note in it, nor a count that includes them; and a note inside sees only its own; fails_when=the facts count or name the whole Library.
-  test("the wall limits the facts both ways", async () => {
-    const sentence = "Your Library holds 3 Documents.";
+  test("the wall limits the facts both ways, even for a sentence that names what it keeps", async () => {
+    const sentence =
+      "Your Library holds 3 Documents, with no Client A lease, brief or memo under Litigation hold.";
     const setup = await setUp(
       [
         ...files(3),
@@ -638,18 +761,21 @@ describe("Folder walls", () => {
     expect(outside.check.state).toBe("supported");
     expect(rowOf(outside.check, "en")).toBe("All Documents · 1 Folder left out: 3 Documents");
     expect(rowOf(outside.check, "zh-CN")).toBe("全部文档 · 已排除 1 个文件夹：3 个文档");
-    const sent = setup.sent();
+    // Everything the requests carried beside the sentence itself: the facts and every Passage found.
+    const sent = setup.calls.flatMap((call) => call.results.map((each) => each.text)).join("\n");
     for (const walledWords of ["Client A", "Litigation hold", "Walled memo", "Documents in all: 5"])
       expect(sent).not.toContain(walledWords);
     for (const seen of [
       "Documents in all: 3",
-      "Documents tagged “Fieldwork”: 1",
-      "Note “Harbour visit”",
+      "Tags on these Documents: 1",
+      "Notes besides this one: 1",
     ])
       expect(sent).toContain(seen);
 
+    const inFolder =
+      "This Folder holds 2 Documents, not the Harbour survey, Fieldwork or Harbour visit.";
     const inside = await setUp([], {
-      "This Folder holds 2 Documents.": {
+      [inFolder]: {
         verdict: "supported",
         quote: "Documents in all: 2",
         line: "documents",
@@ -674,11 +800,13 @@ describe("Folder walls", () => {
     await inside.core.addDocumentTag(harbour.id, outer.id);
     await inside.core.createMind({ title: "Harbour visit", folderId: null });
     await inside.core.createMind({ title: "Lease timeline", folderId: walled.id });
-    const within = await checkInNote(inside.core, "This Folder holds 2 Documents.", walled.id);
+    const within = await checkInNote(inside.core, inFolder, walled.id);
     expect(within.check.state).toBe("supported");
     expect(rowOf(within.check, "en")).toBe("“Client A”: 2 Documents");
     expect(rowOf(within.check, "zh-CN")).toBe("“Client A”：2 个文档");
-    const insideSent = inside.sent();
+    const insideSent = inside.calls
+      .flatMap((call) => call.results.map((each) => each.text))
+      .join("\n");
     for (const outsideWords of [
       "Harbour survey",
       "Fieldwork",
@@ -686,7 +814,7 @@ describe("Folder walls", () => {
       "Documents in all: 3",
     ])
       expect(insideSent).not.toContain(outsideWords);
-    for (const seen of ["Documents in all: 2", "Note “Lease timeline”"])
+    for (const seen of ["Documents in all: 2", "Notes besides this one: 1"])
       expect(insideSent).toContain(seen);
   });
 });
@@ -744,7 +872,7 @@ describe("where the Library's facts go", () => {
   const cloud = (core: Core) =>
     core.saveChatProvider({
       kind: "anthropic",
-      apiKey: "sk-ant-made-up",
+      apiKey: "sk-ant-test",
       modelId: "claude-haiku-5-5",
     });
 
@@ -776,13 +904,36 @@ describe("where the Library's facts go", () => {
     expect(allowed.state()).toBe("supported");
   });
 
+  // protects=a User who allowed checks before they could send the Library's counts and names is asked again, for those two alone, before any is sent; fails_when=the facts go out on the earlier consent.
+  test("a User who allowed checks before is asked again, for the Library's counts and names", async () => {
+    const before = await library(async (core) => {
+      const checks = core.dataFlows.get("checks");
+      if (!checks) throw new Error("The checks flow isn't registered.");
+      const earlier = checks.sends.filter(
+        (kind) => kind !== "library-counts" && kind !== "library-names",
+      );
+      core.dataFlows.register({ ...checks, sends: earlier });
+      const chosen = await cloud(core);
+      core.dataFlows.register(checks);
+      return chosen;
+    });
+    const asked: string[][] = [];
+    before.core.on("consent.requested", (request) => {
+      asked.push([...request.newKinds]);
+      void before.core.respondToConsent(request.requestId, false);
+    });
+    await before.check();
+    expect(asked).toEqual([["library-counts", "library-names"]]);
+    expect(before.requests()).toHaveLength(0);
+  });
+
   // protects=the facts go only to the model chosen for the check, never to another saved service; fails_when=a second saved provider is asked too.
   test("goes only to the chosen model, not to another saved service", async () => {
     const both = await library(async (core) => {
       const chosen = await cloud(core);
       await core.saveChatProvider({
         kind: "openai",
-        apiKey: "sk-made-up",
+        apiKey: "sk-test",
         modelId: "gpt-6-luna",
         keepDefault: true,
       });
@@ -819,6 +970,45 @@ describe("where the Library's facts go", () => {
       new Set(["ollama"]),
     );
     expect(onThisComputer.state()).toBe("supported");
+  });
+});
+
+describe("the words for what a check sends", () => {
+  const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+
+  // protects=the consent line and the re-ask name every kind of Library fact a check sends, in the words given for them; fails_when=the line says less than the request carries.
+  test("the consent line and the data kinds, in English and Chinese", () => {
+    expect(translate("en", "providers.sends.checks")).toBe(
+      "each sentence you check, with the passages and Document names it's checked against; for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
+    );
+    expect(translate("zh-CN", "providers.sends.checks")).toBe(
+      "你核对的每一句话，以及用于核对的段落和文档名称；句子说的是你的资料库时，还有资料库的数量、笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
+    );
+    expect(translate("en", "consent.data.library-counts")).toBe(
+      "For a sentence about your Library, its counts",
+    );
+    expect(translate("zh-CN", "consent.data.library-counts")).toBe(
+      "句子说的是你的资料库时，资料库的数量",
+    );
+    expect(translate("en", "consent.data.library-names")).toBe(
+      "The name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
+    );
+    expect(translate("zh-CN", "consent.data.library-names")).toBe(
+      "笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
+    );
+  });
+
+  // protects=the privacy pages say what a Library-fact check sends, in English and Chinese; fails_when=a page leaves the Library's names out.
+  test("the privacy pages, in English and Chinese", () => {
+    expect(read("docs/privacy.md")).toContain(
+      "A sentence about your Library also sends the Library's counts (Documents in all, per Folder, not in a Folder and per kind, and the numbers of Folders, Tags and other notes), the name of the Folder, Tag or Document the note searches, with its count, the names of Documents, Folders and Tags and the titles of other notes that share a word with the sentence or the note's search, and, for a sentence about duplicates, the names two or more Documents share, with how many and their kinds. A Folder that keeps its work inside it is sent only as a number to a note outside it. Never sent: ids, paths, sizes, dates, page counts, Folder or Tag descriptions, any note's text, or which Document is in which Folder or has which Tag beyond the counts.",
+    );
+    expect(read("docs/where-your-data-goes.md")).toContain(
+      "; for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches and the matching names of Documents, Folders, Tags and notes (a Folder that keeps its work inside it only as a number), never their text, paths or descriptions",
+    );
+    expect(read("docs/where-your-data-goes.zh-CN.md")).toContain(
+      "；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称，以及相符的文档、文件夹、标签名称和笔记标题（只在本文件夹内工作的文件夹只计数量），不含其内容、路径或说明",
+    );
   });
 });
 
@@ -868,54 +1058,344 @@ describe("a change to the Library", () => {
   });
 });
 
-describe("the facts' text", () => {
-  const listing = (names: readonly string[]): LibraryListing => ({
-    source: { kind: "library" },
-    documents: names.map((name) => ({ name, kind: "pdf" })),
-    folders: [{ name: "Research", count: 1 }],
-    unfiled: names.length - 1,
-    tags: [{ name: "Finance", count: 2 }],
-    notes: { count: 1, names: ["Plan"] },
+describe.each(["en", "zh-CN"] as const)("only what the sentence needs (%s)", (language) => {
+  const zh = language === "zh-CN";
+  const three = [
+    { name: "Harbour survey.txt", contents: "Harbour survey: the north wall." },
+    { name: "Tide log.txt", contents: "Tide log: high water at 04:12." },
+    { name: "Crew roster.txt", contents: "Crew roster: three on the early shift." },
+  ];
+  const single = ["Harbour survey", "Tide log", "Crew roster"];
+
+  // protects=a sentence that names nothing is sent the counts and no name at all; fails_when=the Document names go with "You have 3 Documents".
+  test("a sentence that names nothing sends counts only", async () => {
+    const sentence = zh ? "你的资料库里有 3 个文档。" : "Your Library holds 3 Documents.";
+    const setup = await setUp(
+      three,
+      { [sentence]: { verdict: "supported", quote: "Documents in all: 3", line: "documents" } },
+      language,
+    );
+    expect((await checkInNote(setup.core, sentence)).check.state).toBe("supported");
+    const facts = setup.factsSent();
+    expect(facts).toContain("Documents in all: 3");
+    expect(facts).not.toContain("Documents named");
+    for (const name of single) expect(facts).not.toContain(name);
   });
 
-  // protects=each fact is one line, names that share one counted together; fails_when=a shared name reads as two lines of one.
-  test("lists each fact on a line of its own", () => {
-    const { text } = libraryText(listing(["Kestrel plan", "Kestrel plan", "Harbour"]), "");
-    expect(text.split("\n")).toEqual([
-      "Library facts of your Library: what IncarnaMind's Library lists for this check's scope, not what any Document says.",
-      "Documents in all: 3",
-      "Documents in the Folder “Research”: 1",
-      "Documents not in a Folder: 2",
-      "PDF Documents: 3",
-      "Folders: 1",
-      "Tags on these Documents: 1",
+  // protects=a sentence naming one Document is sent that name and no other; fails_when=naming one Document sends the whole list.
+  test("a sentence naming one Document sends that name and no other", async () => {
+    const sentence = zh
+      ? "Harbour survey 是你的文档之一。"
+      : "Harbour survey is one of your Documents.";
+    const setup = await setUp(
+      three,
+      {
+        [sentence]: {
+          verdict: "supported",
+          quote: "Documents named “Harbour survey”: 1",
+          line: "name",
+        },
+      },
+      language,
+    );
+    expect((await checkInNote(setup.core, sentence)).check.state).toBe("supported");
+    const facts = setup.factsSent();
+    expect(facts).toContain("Documents named “Harbour survey”: 1 (Plain text)");
+    for (const name of ["Tide log", "Crew roster"]) expect(facts).not.toContain(name);
+  });
+
+  // protects=a sentence about duplicates is sent the names two or more Documents share, with counts and kinds, and no single name; fails_when="report.pdf appears twice" can't be checked, or every name goes.
+  test("a duplicate sentence sends only the duplicated names", async () => {
+    const sentence = zh
+      ? "report.pdf 在你的文件列表中出现了两次。"
+      : "report.pdf appears twice in your file list.";
+    const setup = await setUp(
+      [
+        { name: "report.txt", contents: "The report, first draft." },
+        { name: "report.md", contents: "# Report\n\nThe second draft." },
+        { name: "Budget.txt", contents: "Budget: crew and timber." },
+        { name: "Budget.md", contents: "# Budget\n\nThe second draft." },
+        { name: "Tide log.txt", contents: "Tide log: high water at 04:12." },
+      ],
+      {
+        [sentence]: {
+          verdict: "supported",
+          quote: "Documents named “report”: 2",
+          line: "name",
+        },
+      },
+      language,
+    );
+    expect((await checkInNote(setup.core, sentence)).check.state).toBe("supported");
+    const facts = setup.factsSent();
+    expect(facts).toContain("Documents named “report”: 2 (");
+    expect(facts).toContain("Documents named “Budget”: 2 (");
+    expect(facts).not.toContain("Tide log");
+  });
+
+  // protects=a "this folder" sentence is checked against the count of the Folder the note searches, which keeps its name; fails_when="this folder has 2 Documents" names no Folder and finds nothing to rest on.
+  test("a this-folder sentence is checked against its own Folder's count", async () => {
+    const sentence = zh ? "这个文件夹里有 2 个文档。" : "This folder has 2 Documents.";
+    const setup = await setUp(
+      three,
+      { [sentence]: { verdict: "supported", quote: "Documents in all: 2", line: "documents" } },
+      language,
+    );
+    const research = await setup.core.createLibraryGroup({ name: "Research", description: "" });
+    const archive = await setup.core.createLibraryGroup({ name: "Archive", description: "" });
+    const [survey, log, roster] = setup.documents;
+    if (!survey || !log || !roster) throw new Error("The test Documents are missing.");
+    await setup.core.assignDocumentGroup(survey.id, research.id);
+    await setup.core.assignDocumentGroup(log.id, research.id);
+    await setup.core.assignDocumentGroup(roster.id, archive.id);
+    const { check } = await checkInNote(setup.core, sentence, research.id);
+    expect(check.state).toBe("supported");
+    expect(rowOf(check, language)).toBe(zh ? "“Research”：2 个文档" : "“Research”: 2 Documents");
+    const facts = setup.factsSent();
+    expect(facts).toContain("Library facts of “Research”");
+    expect(facts).not.toContain("Archive");
+  });
+
+  // protects=a Folder outside the note's scope whose name shares no word with the sentence is counted, never named; fails_when=every Folder's name goes with a count sentence.
+  test("a Folder outside the scope with no matching word is not named", async () => {
+    const sentence = zh ? "你的资料库里有 3 个文档。" : "Your Library holds 3 Documents.";
+    const setup = await setUp(
+      three,
+      { [sentence]: { verdict: "supported", quote: "Documents in all: 3", line: "documents" } },
+      language,
+    );
+    const research = await setup.core.createLibraryGroup({ name: "Research", description: "" });
+    const [survey] = setup.documents;
+    if (!survey) throw new Error("The test Document is missing.");
+    await setup.core.assignDocumentGroup(survey.id, research.id);
+    expect((await checkInNote(setup.core, sentence)).check.state).toBe("supported");
+    const facts = setup.factsSent();
+    expect(facts).toContain("Folders: 1");
+    expect(facts).not.toContain("Research");
+  });
+
+  // protects=an untitled note's first line is never sent as its title, so a client's name in it never leaves: it is counted only; fails_when=a sentence naming that line sends the note's own words.
+  test("an untitled note is counted, never named by its first line", async () => {
+    const sentence = zh
+      ? "你有关于 Brightwater Holdings 的笔记。"
+      : "You have a note about Brightwater Holdings.";
+    const setup = await setUp(
+      three,
+      { [sentence]: { verdict: "unsupported", line: "note" } },
+      language,
+    );
+    const untitled = await setup.core.createMind({ title: "", folderId: null });
+    const client = await connectToMind(setup.core, untitled.id);
+    writeMind(client, [paragraph("first", "Brightwater Holdings retainer, signed in March")]);
+    await client.settled();
+    const named = (await setup.core.listMinds()).find((each) => each.id === untitled.id);
+    expect(named?.autoTitle).toBe("Brightwater Holdings retainer, signed in March");
+    await checkInNote(setup.core, sentence);
+    expect(setup.factsSent()).toContain("Notes besides this one: 1");
+    const results = setup.calls.flatMap((call) => call.results.map((each) => each.text)).join("\n");
+    for (const words of ["Brightwater", "retainer", "signed in March"])
+      expect(results).not.toContain(words);
+  });
+
+  // protects=inside a walled Folder the note's own Folder has its count line, so "this Folder holds 3 Documents" rests on it; fails_when=the facts say "Folders: 0" and the true sentence reads Unsupported.
+  test("inside a walled Folder, its own count decides a this-Folder sentence", async () => {
+    const sentence = zh ? "这个文件夹里有 3 个文档。" : "This Folder holds 3 Documents.";
+    const quote = "Documents in the Folder “Client A” and the Folders inside it: 3";
+    const setup = await setUp(
+      [...three, { name: "Osprey contract.txt", contents: "Osprey contract, signed copy." }],
+      { [sentence]: { verdict: "supported", quote, line: "folder" } },
+      language,
+    );
+    const client = await setup.core.createLibraryGroup({ name: "Client A", description: "" });
+    for (const document of setup.documents.slice(0, 3))
+      await setup.core.assignDocumentGroup(document.id, client.id);
+    await setup.core.updateLibraryGroup(client.id, {
+      name: client.name,
+      description: "",
+      keepInside: true,
+    });
+    const { check } = await checkInNote(setup.core, sentence, client.id);
+    expect(check.state).toBe("supported");
+    const facts = setup.factsSent();
+    expect(facts).toContain(quote);
+    expect(facts).toContain("Folders: 1");
+    expect(facts).not.toContain("Osprey");
+  });
+
+  // protects=a Folder inside a Folder counts toward it, and the line says so; fails_when="The Field Folder holds 3 Documents, counting its subfolder." reads Unsupported.
+  test("a Folder's count takes in the Folders inside it, and says so", async () => {
+    const sentence = zh
+      ? "Field 文件夹里有 3 个文档，包括其子文件夹。"
+      : "The Field Folder holds 3 Documents, counting its subfolder.";
+    const quote = "Documents in the Folder “Field” and the Folders inside it: 3";
+    const setup = await setUp(
+      three,
+      { [sentence]: { verdict: "supported", quote, line: "folder" } },
+      language,
+    );
+    const field = await setup.core.createLibraryGroup({ name: "Field", description: "" });
+    const inner = await setup.core.createLibraryGroup({
+      name: "Season two",
+      description: "",
+      parentId: field.id,
+    });
+    const [survey, log, roster] = setup.documents;
+    if (!survey || !log || !roster) throw new Error("The test Documents are missing.");
+    await setup.core.assignDocumentGroup(survey.id, field.id);
+    await setup.core.assignDocumentGroup(log.id, inner.id);
+    await setup.core.assignDocumentGroup(roster.id, inner.id);
+    expect((await checkInNote(setup.core, sentence)).check.state).toBe("supported");
+    expect(setup.factsSent()).toContain(quote);
+  });
+
+  // protects=a Folder, Tag or note title the sentence names is sent and the others are not; fails_when=one named Tag brings every Tag, or a named note is left out.
+  test("a Folder, Tag or note named in the sentence is sent and the others are not", async () => {
+    const cases = [
+      {
+        sentence: zh ? "“Research”文件夹里有 1 个文档。" : "The Research Folder holds 1 Document.",
+        quote: "Documents in the Folder “Research” and the Folders inside it: 1",
+        line: "folder",
+        sent: "Documents in the Folder “Research” and the Folders inside it: 1",
+      },
+      {
+        sentence: zh ? "有 1 个文档带有标签“Finance”。" : "1 Document is tagged Finance.",
+        quote: "Documents tagged “Finance”: 1",
+        line: "tag",
+        sent: "Documents tagged “Finance”: 1",
+      },
+      {
+        sentence: zh ? "你有名为“Site visit”的笔记。" : "You have a note called Site visit.",
+        quote: "Note “Site visit”",
+        line: "note",
+        sent: "Note “Site visit”",
+      },
+    ];
+    const others = ["Archive", "Legal", "Budget review"];
+    for (const each of cases) {
+      const setup = await setUp(
+        three,
+        { [each.sentence]: { verdict: "supported", quote: each.quote, line: each.line } },
+        language,
+      );
+      const { core, documents } = setup;
+      const [survey, log] = documents;
+      if (!survey || !log) throw new Error("The test Documents are missing.");
+      const research = await core.createLibraryGroup({ name: "Research", description: "" });
+      const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+      await core.assignDocumentGroup(survey.id, research.id);
+      await core.assignDocumentGroup(log.id, archive.id);
+      await core.addDocumentTag(survey.id, (await core.createTag({ name: "Finance" })).id);
+      await core.addDocumentTag(log.id, (await core.createTag({ name: "Legal" })).id);
+      await core.createMind({ title: "Site visit", folderId: null });
+      await core.createMind({ title: "Budget review", folderId: null });
+      expect((await checkInNote(core, each.sentence)).check.state).toBe("supported");
+      const facts = setup.factsSent();
+      expect(facts).toContain(each.sent);
+      for (const other of others) expect(facts).not.toContain(other);
+      const named = [each.sent.includes("Research"), each.sent.includes("Finance")];
+      if (!named[0]) expect(facts).not.toContain("Research");
+      if (!named[1]) expect(facts).not.toContain("Finance");
+    }
+  });
+});
+
+describe("the facts' text", () => {
+  const listing = (
+    names: readonly string[],
+    searches: LibraryListing["searches"] = null,
+  ): LibraryListing => ({
+    source: { kind: "library" },
+    documents: names.map((name) => ({ name, kind: "pdf" })),
+    folders: [
+      { name: "Research", count: 1 },
+      { name: "Archive", count: 0 },
+    ],
+    unfiled: names.length - 1,
+    tags: [
+      { name: "Finance", count: 2 },
+      { name: "Legal", count: 1 },
+    ],
+    notes: { count: 2, names: ["Budget review", "Site visit"] },
+    searches,
+  });
+  const linesOf = (
+    names: readonly string[],
+    sentence: string,
+    searches?: LibraryListing["searches"],
+  ) => libraryText(listing(names, searches), sentence).text.split("\n").slice(1);
+  const COUNTS = [
+    "Documents in all: 3",
+    "Documents not in a Folder: 2",
+    "PDF Documents: 3",
+    "Folders: 2",
+    "Tags on these Documents: 2",
+    "Notes besides this one: 2",
+  ];
+
+  // protects=a sentence that names nothing is sent the counts and no name; fails_when=Folder, Tag, note or Document names go with every check.
+  test.each(["Your Library holds 3 Documents.", "你的资料库里有 3 个文档。"])(
+    "names nothing, sends counts only: %s",
+    (sentence) => {
+      expect(linesOf(["Kestrel plan", "Kestrel plan", "Harbour"], sentence)).toEqual(COUNTS);
+    },
+  );
+
+  // protects=only the names that share a word with the sentence are sent, each kind of name; fails_when=one named Folder brings every Folder's name.
+  test.each([
+    "The Kestrel plan is in Research, tagged Finance, beside the Site visit note.",
+    "Kestrel plan 在 Research 文件夹里，带有标签 Finance，旁边是笔记 Site visit。",
+  ])("sends the names the sentence names and no other: %s", (sentence) => {
+    const lines = linesOf(["Kestrel plan", "Harbour"], sentence);
+    for (const named of [
+      "Documents in the Folder “Research” and the Folders inside it: 1",
       "Documents tagged “Finance”: 2",
-      "Notes besides this one: 1",
-      "Note “Plan”",
-      "Documents named “Harbour”: 1 (PDF)",
-      "Documents named “Kestrel plan”: 2 (PDF, PDF)",
-    ]);
+      "Note “Site visit”",
+      "Documents named “Kestrel plan”: 1 (PDF)",
+    ])
+      expect(lines).toContain(named);
+    for (const other of ["Archive", "Legal", "Budget review", "Harbour"])
+      expect(lines.join("\n")).not.toContain(other);
+  });
+
+  // protects=a sentence about duplicates is sent the names more than one Document shares, and no single one; fails_when=it sees no shared name, or every name.
+  test.each(["Two of your files share a name.", "你有两份同名文件。"])(
+    "about duplicates, sends only the shared names: %s",
+    (sentence) => {
+      const lines = linesOf(["Kestrel plan", "Kestrel plan", "Harbour"], sentence);
+      expect(lines).toContain("Documents named “Kestrel plan”: 2 (PDF, PDF)");
+      expect(lines.join("\n")).not.toContain("Harbour");
+    },
+  );
+
+  // protects=the Folder the note searches keeps its name and count though the sentence names no Folder; fails_when="this folder has 1 Document" has no Folder line to rest on.
+  test.each(["This folder has 1 Document.", "这个文件夹里有 1 个文档。"])(
+    "the Folder the note searches keeps its line: %s",
+    (sentence) => {
+      const lines = linesOf(["Harbour"], sentence, { kind: "folder", name: "Research" });
+      expect(lines).toContain("Documents in the Folder “Research” and the Folders inside it: 1");
+      expect(lines.join("\n")).not.toContain("Archive");
+    },
+  );
+
+  // protects=a count is written as a sentence writes it, so "2,000 Documents" is the fact's own number; fails_when="Documents in all: 2000" leaves a true total Not checked.
+  test("writes a large count with its thousands marked", () => {
+    const names = Array.from({ length: 2000 }, (_, at) => `Ledger ${at}`);
+    expect(libraryText(listing(names), "").text).toContain("Documents in all: 2,000");
   });
 
   // protects=a name holding a line break can't pose as another fact's line; fails_when=it splits into a "Documents in all: 99" line.
   test("a name with a line break stays on its own line", () => {
-    const { text } = libraryText(listing(["Plan\nDocuments in all: 99"]), "");
+    const { text } = libraryText(listing(["Plan\nDocuments in all: 99"]), "The Plan file is here.");
+    expect(text).toContain("Documents named “Plan Documents in all: 99”");
     expect(text).not.toMatch(/^Documents in all: 99$/m);
   });
 
-  // protects=past 200 names, shared names and those the search names stay listed; fails_when=a long Library lists none, or all.
-  test("past 200 names lists the shared ones and those the search names", () => {
-    const names = [
-      ...Array.from({ length: 250 }, (_, at) => `Survey ${at}`),
-      "Kestrel plan",
-      "Kestrel plan",
-      "Harbour log",
-    ];
-    const { text } = libraryText(listing(names), "Is the harbour log there?");
-    expect(text).toContain("Documents named “Kestrel plan”: 2");
-    expect(text).toContain("Documents named “Harbour log”: 1");
-    expect(text).not.toContain("Documents named “Survey 7”");
-    expect(text).toContain("Names not listed: 250 more.");
+  // protects=200 names is a bound even when the sentence's word matches more; fails_when=a word shared by every name sends them all.
+  test("sends at most 200 names, and says how many more matched", () => {
+    const names = Array.from({ length: 250 }, (_, at) => `Survey ${at}`);
+    const { text } = libraryText(listing(names), "Which survey is this?");
+    expect(text.split("\n").filter((line) => line.startsWith("Documents named"))).toHaveLength(200);
+    expect(text).toContain("Names not listed: 50 more that share a word with the sentence.");
   });
 
   // protects=a fact no longer there reads 0, so a check resting on it needs re-check; fails_when=it reads as unknown and the check stands.
