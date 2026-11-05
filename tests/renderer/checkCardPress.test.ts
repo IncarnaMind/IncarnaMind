@@ -13,7 +13,11 @@ import type { Planned } from "../../src/renderer/src/mindCheck";
  * plan's cost, unseen. A press with no price yet asks with the couldn't-estimate line instead.
  */
 
-const pressed = vi.hoisted(() => ({ check: vi.fn(), unpriced: vi.fn() }));
+const pressed = vi.hoisted(() => ({
+  check: vi.fn(),
+  unpriced: vi.fn(),
+  running: { value: false },
+}));
 vi.mock("../../src/renderer/src/mindCheck", () => ({
   startCheck: pressed.check,
   startCheckUnpriced: pressed.unpriced,
@@ -31,7 +35,12 @@ vi.mock("@tiptap/react", () => ({
 }));
 vi.mock("@tiptap/y-tiptap", () => ({ ySyncPluginKey: {} }));
 vi.mock("../../src/renderer/src/checks", () => ({
-  useChecks: () => undefined,
+  useChecks: (selector: (state: { running: Record<string, unknown> }) => unknown) =>
+    selector({
+      running: pressed.running.value
+        ? { mind: { requestId: "check-1", action: "whole-mind" } }
+        : {},
+    }),
   setCheckCardOpen: vi.fn(),
   stopCheck: vi.fn(),
 }));
@@ -126,7 +135,11 @@ let root: Root | null = null;
 let container: HTMLElement;
 let Press: ComponentType<PressProps>;
 
-async function render(estimateState: CheckEstimateView["state"], at: Planned | null) {
+async function render(
+  estimateState: CheckEstimateView["state"],
+  at: Planned | null,
+  line: CheckEstimateView["line"] = price,
+) {
   await act(() =>
     root?.render(
       createElement(Press, {
@@ -135,7 +148,7 @@ async function render(estimateState: CheckEstimateView["state"], at: Planned | n
         mindId: "mind",
         askingMind: false,
         planned: at,
-        estimate: price,
+        estimate: line,
         estimateState,
       }),
     ),
@@ -172,6 +185,7 @@ beforeEach(async () => {
   root = createRoot(container);
   pressed.check.mockClear();
   pressed.unpriced.mockClear();
+  pressed.running.value = false;
   const modulePath = "../../src/renderer/src/editor/CheckBadge.tsx";
   const module: { CheckActions: ComponentType<PressProps> } = await import(modulePath);
   Press = module.CheckActions;
@@ -200,4 +214,61 @@ test("the card's press with no price asks instead", async () => {
 
   expect(pressed.unpriced).toHaveBeenCalledWith("mind");
   expect(pressed.check).not.toHaveBeenCalled();
+});
+
+// protects=#2313: at rest the foot shows the Check alone, with no progress line or Stop to make an empty band; fails_when=the run's line is laid out before a run; no_claim=the card's press.
+test("the foot shows no run line or Stop before a run", async () => {
+  await render("price", planned);
+  expect(container.querySelector('[data-testid="card-foot-progress"]')).toBeNull();
+  expect(container.querySelector('[data-testid="card-foot-stop"]')).toBeNull();
+  expect(container.querySelector('[data-testid="badge-check-mind"]')).not.toBeNull();
+});
+
+// protects=#2313: at the press the run's words take Check's own row, and the hidden Check keeps the row's height; fails_when=the run's line is drawn as a new row, or the Check's room goes, so the foot moves; no_claim=the rest above.
+test("the run's line takes Check's own row", async () => {
+  await render("price", planned);
+  pressed.running.value = true;
+  await render("price", null);
+
+  expect(container.querySelector('[data-testid="card-foot-progress"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="card-foot-stop"]')).not.toBeNull();
+  const check = container.querySelector('[data-testid="badge-check-mind"]');
+  expect(check?.getAttribute("data-hidden")).toBe("");
+  expect(check?.getAttribute("disabled")).not.toBeNull();
+});
+
+// protects=#2313: while the run is on the price line stays as it was, shown, so no blank band takes its room; fails_when=the price line is hidden or removed at the press; no_claim=the price line shown before the run above.
+test("the price line stays through the run", async () => {
+  await render("price", planned);
+  pressed.running.value = true;
+  await render("price", null);
+
+  const price = container.querySelector(".check-card-estimate");
+  if (!price) throw new Error("The price line's room went at the press.");
+  expect(price.getAttribute("data-hidden")).toBeNull();
+  expect(container.querySelector('[data-testid="check-estimate"]')?.textContent).toBe(
+    "About $1.40",
+  );
+});
+
+// protects=#2313: after the run ends a card with no new price keeps the last price line shown, and the Check comes back; fails_when=the price line goes at the end of the run, so the foot goes blank; no_claim=the run above.
+test("the last price line stays after the run ends", async () => {
+  await render("price", planned);
+  pressed.running.value = true;
+  await render("price", null);
+  pressed.running.value = false;
+  await render("none", planned, null);
+
+  const price = container.querySelector(".check-card-estimate");
+  if (!price) throw new Error("The card went blank when the run ended.");
+  expect(price.getAttribute("data-hidden")).toBeNull();
+  expect(container.querySelector('[data-testid="check-estimate"]')).not.toBeNull();
+  const check = container.querySelector('[data-testid="badge-check-mind"]');
+  expect(check?.getAttribute("data-hidden")).toBeNull();
+});
+
+// protects=#2313: a card that never showed a price line keeps no empty line above Check; fails_when=the progress line's room is laid out at rest; no_claim=the price line's card above.
+test("a card with no price line keeps no empty line at rest", async () => {
+  await render("none", planned, null);
+  expect(container.querySelector('[data-testid="card-foot-progress"]')).toBeNull();
 });
