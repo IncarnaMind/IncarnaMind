@@ -1340,6 +1340,45 @@ console.log(JSON.stringify(results));
         .toEqual([]);
     }, 600_000);
 
+    test("one run can't blind or delay another: a descriptor flood is stopped at its folder limit, and a memory hog beside a many-file run is stopped at its memory limit", async () => {
+      const { tempDir, home, data } = await setUp();
+      const reports: string[] = [];
+      const executor = osExecutor({
+        tempDir,
+        denyRead: [home, data],
+        env: environment(),
+        reportError: (error) => reports.push(String(error)),
+      });
+      const run = (script: string, limits: { memoryBytes?: number; folderBytes?: number }) =>
+        executor.run({ ...shell(script), timeoutMs: 30_000, limits });
+      const random = 'open(my $r, "<", "/dev/urandom") or die;';
+      // Five helpers each try to duplicate one descriptor far past the 1024 cap, then it writes
+      // unlinked files past the folder limit: the cap keeps lsof readable, so it is stopped.
+      const flood = [
+        "for i in 1 2 3 4 5; do",
+        '  perl -e \'open(my $f, "<", "/dev/null") or die; my @d; for (1..120000) { open(my $c, "<&", $f) or last; push @d, $c; } sleep 40\' &',
+        "done",
+        `perl -e '${random} my @f; for my $i (1..20) { open(my $g, ">", "gone$i") or die; read($r, my $b, 50_000_000); syswrite($g, $b) or die; unlink "gone$i"; push @f, $g; } sleep 40'`,
+      ].join("\n");
+      const flooded = await run(flood, { folderBytes: 200_000_000 });
+      expect(flooded).toMatchObject({ limit: "folder", timedOut: false });
+
+      // While one run makes 150,000 empty files (far under its limit), a memory hog beside it is
+      // still stopped at its memory limit, not left to run to its timeout.
+      const [many, hog] = await Promise.all([
+        run("for i in $(seq 1 150000); do : > f$i; done; sleep 20", { folderBytes: 200_000_000 }),
+        run(
+          `perl -e '${random} my @h; for (1..80) { read($r, my $b, 100_000_000); push @h, $b; } sleep 20'`,
+          {
+            memoryBytes: 2_000_000_000,
+          },
+        ),
+      ]);
+      expect(hog).toMatchObject({ limit: "memory", timedOut: false });
+      expect(many.limit === undefined || many.limit === "folder").toBe(true);
+      expect(reports).toEqual([]);
+    }, 600_000);
+
     test("a program that asks for the network is refused before it runs, never run unconfined", async () => {
       const { executor, skillDir, outside } = await setUp();
       const marker = join(outside, "ran.txt");

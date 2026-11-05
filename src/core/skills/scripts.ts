@@ -250,6 +250,7 @@ export function createScriptRunner(options: ScriptRunnerOptions) {
         return {
           exitCode: run.exitCode,
           timedOut: run.timedOut,
+          ...(run.limit === "folder-unknown" && { diskUnmeasured: true }),
           stdout: run.stdout,
           stderr: run.stderr,
           stdoutTruncated: run.stdoutTruncated,

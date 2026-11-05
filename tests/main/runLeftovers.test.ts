@@ -333,6 +333,25 @@ describe("the run's processes launchd took over, counted against its limits whil
     expect(limits).toEqual([2000]);
   });
 
+  test("two runs on one tick share the start-time cache, so an orphan's start time is read once", async () => {
+    const table = [...APP, row(601)];
+    const { deps } = computer(table, new Set([601]));
+    const startsRead: number[][] = [];
+    const started = deps.started;
+    deps.started = async (pids) => {
+      startsRead.push([...pids]);
+      return started(pids);
+    };
+    const shared = new Map<number, number | null>();
+    const runA: RunRecord = { ...RUN, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
+    const runB: RunRecord = { ...RUN, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" };
+    await adoptedMembers(runA, 600, listing(table), deps, new Map(), shared);
+    await adoptedMembers(runB, 700, listing(table), deps, new Map(), shared);
+    // The orphans' start times (the app's parent 400 and 601) are read on the first run and
+    // reused on the second: one read, not one per run.
+    expect(startsRead).toEqual([[400, 601]]);
+  });
+
   test("on Linux there are none: bubblewrap's PID namespace keeps them under the program", async () => {
     const table = [...APP, row(601)];
     const { deps } = computer(table, new Set([601]), "linux");

@@ -626,3 +626,43 @@ test("a program is stopped at the first limit its meter measures it past, and a 
   expect(reports.map(String)).toEqual(["Error: lsof didn't answer in time."]);
   expect(stopped).toBe(1);
 });
+
+test("a program whose folder the meter can't measure is stopped, so one run can't hide another's disk use", async () => {
+  const watching: ((use: ProgramUse) => void)[] = [];
+  const meter: ProgramMeter = {
+    watch(_root, _folder, use) {
+      watching.push(use);
+      return () => undefined;
+    },
+  };
+  const executor = createLocalExecutor({
+    processes: createProcessLauncher(async () => smallEnvironment()),
+    tempDir: await createTempDataFolder(),
+    reportError: failOnError,
+    confinement: {
+      level: "os",
+      confine: async ({ command, args, env }) => ({ command, args, env, meter }),
+      release: () => {},
+    },
+  });
+  const run = executor.run({
+    command: "/bin/sleep",
+    args: ["30"],
+    env: {},
+    allow: { read: [], write: [], network: "none" },
+    timeoutMs: 30_000,
+    maxOutputBytes: 1024,
+    signal: new AbortController().signal,
+    limits: { folderBytes: 500 },
+  });
+  await vi.waitFor(() => expect(watching).toHaveLength(1));
+  const use = watching[0];
+  if (!use) throw new Error("Nothing was watched.");
+  use({ memory: 0, folder: 10 });
+  use({ memory: 0, folder: "unknown" });
+  await expect(run).resolves.toMatchObject({
+    exitCode: null,
+    timedOut: false,
+    limit: "folder-unknown",
+  });
+});

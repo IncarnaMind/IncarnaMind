@@ -283,6 +283,8 @@ function endLine(analysis: AnswerAnalysis, end: AnswerAnalysis["end"]): string {
       return `It ran longer than ${Math.round(end.limitMs / 1000)} seconds and was stopped. Make it do less, or work on fewer rows.`;
     case "out-of-memory":
       return "It ran out of memory and was stopped. Make it hold less at once.";
+    case "disk-unmeasured":
+      return "It was stopped because its disk use couldn't be measured. Run it again; if it stops again, make it do less at once.";
     case "stopped":
       return "It was stopped before it finished.";
     case "crashed":

@@ -358,8 +358,9 @@ export async function sweepRun(run: RunRecord, group: number, deps: SweepDeps): 
 /**
  * The run's processes launchd took over when their parents ended (a daemon), which the program's
  * tree no longer holds, from a tick's listing: each of this User's orphans is asked once, as the
- * sweep asks of a member, and `known` keeps an answer sandbox_check gave in full. On Linux none:
- * bubblewrap's PID namespace keeps them under the program.
+ * sweep asks of a member, and `known` keeps an answer sandbox_check gave in full. `started` is a
+ * start time belongs to a pid, not a run, so it is read once a tick and reused across runs. On
+ * Linux none: bubblewrap's PID namespace keeps them under the program.
  */
 export async function adoptedMembers(
   run: RunRecord,
@@ -367,6 +368,7 @@ export async function adoptedMembers(
   listed: readonly ListedProcess[],
   deps: Pick<SweepDeps, "started" | "check" | "platform" | "uid" | "app">,
   known: Map<number, boolean>,
+  started: Map<number, number | null> = new Map(),
 ): Promise<number[]> {
   if (deps.platform !== "darwin") return [];
   // A pid goes to another process only once the system has been through all the others, never
@@ -376,10 +378,16 @@ export async function adoptedMembers(
   const orphans = listed.filter((each) => each.ppid === 1 && each.uid === deps.uid);
   const unasked = orphans.filter((each) => !known.has(each.pid));
   if (unasked.length > 0) {
-    const started = await deps.started(unasked.map((each) => each.pid));
+    const toRead = unasked.filter((each) => !started.has(each.pid)).map((each) => each.pid);
+    if (toRead.length > 0) {
+      const read = await deps.started(toRead);
+      for (const pid of toRead) started.set(pid, read.get(pid) ?? null);
+    }
     const rows = unasked.flatMap((each) => {
       const startedMs = started.get(each.pid);
-      return startedMs === undefined ? [] : [{ ...each, startedMs, command: "" }];
+      return startedMs === undefined || startedMs === null
+        ? []
+        : [{ ...each, startedMs, command: "" }];
     });
     const context = { platform: deps.platform, uid: deps.uid, app: deps.app, group };
     const check: ProfileCheck = (questions) => deps.check(questions, { timeoutMs: COMMAND_MS });
@@ -413,7 +421,11 @@ export interface SweptRun {
   /** Stops what the run left; never rejects. */
   sweep(group: number): Promise<void>;
   /** Its processes launchd adopted, from a tick's listing (`adoptedMembers`). */
-  adopted(group: number, listed: readonly ListedProcess[]): Promise<number[]>;
+  adopted(
+    group: number,
+    listed: readonly ListedProcess[],
+    started: Map<number, number | null>,
+  ): Promise<number[]>;
 }
 
 export interface RunSweeper {
@@ -546,7 +558,8 @@ export function createRunSweeper(options: RunSweeperOptions): RunSweeper {
       const known = new Map<number, boolean>();
       return {
         sweep: (group) => sweepAndForget(run, group).catch(report),
-        adopted: (group, listed) => adoptedMembers(run, group, listed, deps, known),
+        adopted: (group, listed, started) =>
+          adoptedMembers(run, group, listed, deps, known, started),
       };
     },
     async stuck() {

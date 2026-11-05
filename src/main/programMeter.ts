@@ -14,7 +14,6 @@ import type { ProgramMeter, ProgramUse } from "../core/execution";
 
 const execFileAsync = promisify(execFile);
 
-/** How often every watched program is measured. */
 export const WATCH_MS = 250;
 
 /** How long one of the meter's commands may run: past it, what it would count is unknown. */
@@ -36,7 +35,6 @@ export const runCommand: MeterCommand = async (file, args) =>
     })
   ).stdout;
 
-/** A process as one tick lists it. */
 export interface ListedProcess {
   pid: number;
   ppid: number;
@@ -230,6 +228,16 @@ export function unlinkedMappings(pid: number, maps: string): UnlinkedFile[] {
 
 const gone = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 
+/** The unlinked files `pids` hold, read the way this platform allows. */
+async function readUnlinked(
+  platform: NodeJS.Platform,
+  command: MeterCommand,
+  pids: readonly number[],
+): Promise<UnlinkedFile[]> {
+  if (pids.length === 0) return [];
+  return platform === "darwin" ? macUnlinked(command, pids) : procUnlinked(pids);
+}
+
 async function procUnlinked(pids: readonly number[]): Promise<UnlinkedFile[]> {
   const files: UnlinkedFile[] = [];
   for (const pid of pids) {
@@ -257,8 +265,9 @@ async function procUnlinked(pids: readonly number[]): Promise<UnlinkedFile[]> {
 
 /**
  * The bytes of `files` that `pids` hold, each file once however many hold it, on the working
- * folder's `device` where it is known: the only disk the program can write. Elsewhere such a file
- * is memory (a shared anonymous mapping, a memfd), which its memory limit counts.
+ * folder's `device` where it is known: the only disk the program can write. A file elsewhere isn't
+ * on a disk the program can fill, so the folder limit leaves it out; a memfd it never maps is held
+ * by no limit, but it can't grow the folder either.
  */
 export function heldBytes(
   files: readonly UnlinkedFile[],
@@ -302,8 +311,15 @@ export async function folderSize(folder: string): Promise<number> {
   return total;
 }
 
-/** The run's processes launchd took over when their parents ended, told from a tick's listing. */
-export type AdoptedFinder = (group: number, listed: readonly ListedProcess[]) => Promise<number[]>;
+/**
+ * The run's processes launchd took over when their parents ended, told from a tick's listing;
+ * `started` caches orphan start times so every run on a tick shares one lookup.
+ */
+export type AdoptedFinder = (
+  group: number,
+  listed: readonly ListedProcess[],
+  started: Map<number, number | null>,
+) => Promise<number[]>;
 
 interface Watched {
   root: number;
@@ -311,34 +327,59 @@ interface Watched {
   adopted: AdoptedFinder | undefined;
   use(use: ProgramUse): void;
   unmeasured(error: unknown): void;
-  /** What its processes held with no name left when last counted. */
   unlinked: number;
-  /** Its working folder's device, once read. */
+  lastFolder: number;
+  lastMemory: number;
+  /** Consecutive turns its own disk use couldn't be read; past the grace, the folder is unknown. */
+  unknownTurns: number;
   device: number | undefined;
+  deviceRead: boolean;
+  /** Its folder read hasn't returned: the next tick leaves it to finish rather than stack another. */
+  busy: boolean;
 }
 
 export interface Meters {
-  /** A meter for one program; `adopted` finds its run's processes launchd took over. */
   meter(adopted?: AdoptedFinder): ProgramMeter;
-  /** Measures every watched program once, as each `WATCH_MS` does. */
+  /** Measures every watched program once, as each `WATCH_MS` does; its own disk reads run after. */
   tick(): Promise<void>;
+  /** Waits for the disk reads this tick's `tick` set going, so a test can read what they report. */
+  settle(): Promise<void>;
 }
 
 export interface MetersOptions {
-  /** A test's commands; `runCommand` otherwise. */
   command?: MeterCommand;
   platform?: NodeJS.Platform;
-  /** A test's folder sizes; `folderSize` otherwise. */
   folder?: (folder: string) => Promise<number>;
   /** False: only `tick` measures, as a test drives it. */
   interval?: boolean;
 }
 
+/** How many turns in a row a program's own disk use may be unreadable before its folder is unknown. */
+const UNKNOWN_FOLDER_TURNS = 2;
+
+const TIMED_OUT: unique symbol = Symbol("timed out");
+
+/** `work`'s result, or `TIMED_OUT` if it takes longer than `ms`; the work runs on, its throw caught. */
+async function within<T>(ms: number, work: () => Promise<T>): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+  });
+  const running: Promise<T | typeof TIMED_OUT> = work().catch(() => TIMED_OUT);
+  try {
+    return await Promise.race([running, limit]);
+  } finally {
+    clearTimeout(timer);
+    void running.catch(() => undefined);
+  }
+}
+
 /**
- * Measures every program it watches each `WATCH_MS`, from one listing of the computer's
- * processes. Footprints and unlinked files, the two slower reads, take turns, so each count is at
- * most one tick old and no limit is caught more than one tick late. A part that can't be read
- * counts nothing and is reported: only what was measured stops a program.
+ * Measures every program it watches each `WATCH_MS`. One listing of the computer's processes a
+ * tick serves them all, and memory is judged from it before the slower reads, so one run never
+ * waits on another's. Footprints and unlinked files take turns, so neither is more than one tick
+ * old. Each read stops after `COMMAND_MS`; a program's own folder walk runs on its own, and when
+ * its disk use stays unreadable its folder is reported unknown, which stops that run and no other.
  */
 export function createMeters(options: MetersOptions = {}): Meters {
   const command = options.command ?? runCommand;
@@ -349,17 +390,80 @@ export function createMeters(options: MetersOptions = {}): Meters {
   let ticking = false;
   let turn = 0;
   let held = new Map<number, number>();
+  const reading = new Set<Promise<void>>();
+
+  /** Schedules a program's own disk read, which runs on its own so no run waits on another. */
+  const read = (work: Promise<void>) => {
+    reading.add(work);
+    void work.finally(() => reading.delete(work));
+  };
 
   const reportAll = (programs: readonly Watched[], error: unknown) => {
     for (const each of programs) each.unmeasured(error);
   };
 
+  /** Reads each program's own folder and unlinked files, then reports what it holds. Runs on its own. */
+  async function account(
+    each: Watched,
+    pids: readonly number[] | null,
+    unlinkedTurn: boolean,
+    shared: UnlinkedFile[] | "failed" | null,
+  ) {
+    if (each.busy) return;
+    each.busy = true;
+    try {
+      if (!each.deviceRead) {
+        each.device = await stat(each.folder).then(
+          (info) => info.dev,
+          () => undefined,
+        );
+        each.deviceRead = true;
+      }
+      if (unlinkedTurn) {
+        const own =
+          shared === "failed" || shared === null
+            ? pids === null
+              ? TIMED_OUT
+              : await within(COMMAND_MS, () => readUnlinked(platform, command, pids))
+            : shared;
+        if (own === TIMED_OUT || pids === null) {
+          each.unknownTurns += 1;
+        } else {
+          each.unlinked = heldBytes(own, new Set(pids), each.device);
+          each.unknownTurns = 0;
+        }
+      }
+      const walked = await within(COMMAND_MS, () => sizeOf(each.folder));
+      // Open files it holds that no limit could read stop it; a folder walk that is only slow this
+      // tick keeps the last count, so many small files that take a while to walk don't stop a run.
+      if (each.unknownTurns >= UNKNOWN_FOLDER_TURNS) {
+        if (watched.has(each)) each.use({ memory: each.lastMemory, folder: "unknown" });
+      } else {
+        if (walked !== TIMED_OUT) each.lastFolder = walked + each.unlinked;
+        if (watched.has(each)) each.use({ memory: each.lastMemory, folder: each.lastFolder });
+      }
+    } finally {
+      each.busy = false;
+    }
+  }
+
   async function measure(programs: readonly Watched[]) {
-    const listed = readListing(await command("ps", LISTING_ARGS));
+    let listed: ListedProcess[];
+    try {
+      listed = readListing(await command("ps", LISTING_ARGS));
+    } catch (error) {
+      // No processes to read: memory can't be judged, so leave each run's own folder read to fail
+      // closed if its disk use stays unreadable.
+      reportAll(programs, error);
+      for (const each of programs) read(account(each, null, turn % 2 === 1, "failed"));
+      turn += 1;
+      return;
+    }
+    const started = new Map<number, number | null>();
     const pids = new Map<Watched, number[]>();
     for (const each of programs) {
       const adopted = each.adopted
-        ? await each.adopted(each.root, listed).catch((error: unknown) => {
+        ? await each.adopted(each.root, listed, started).catch((error: unknown) => {
             each.unmeasured(error);
             return [];
           })
@@ -373,30 +477,24 @@ export function createMeters(options: MetersOptions = {}): Meters {
         reportAll(programs, error);
         return new Map<number, number>();
       });
-    } else if (!footprintTurn) {
-      const files = await (platform === "darwin"
-        ? all.length > 0
-          ? macUnlinked(command, all)
-          : Promise.resolve([])
-        : procUnlinked(all)
-      ).catch((error: unknown) => {
-        reportAll(programs, error);
-        return null;
-      });
-      for (const each of programs) {
-        each.device ??= await stat(each.folder).then(
-          (info) => info.dev,
-          () => undefined,
-        );
-        each.unlinked = files === null ? 0 : heldBytes(files, new Set(pids.get(each)), each.device);
+    }
+    // Memory from the listing first, before the slower disk reads, so a program that allocates
+    // fast is stopped without waiting on any run's folder.
+    for (const each of programs) {
+      each.lastMemory = memoryOf(listed, pids.get(each) ?? [], held);
+      if (watched.has(each)) each.use({ memory: each.lastMemory, folder: each.lastFolder });
+    }
+    let shared: UnlinkedFile[] | "failed" | null = null;
+    if (!footprintTurn) {
+      const read = await within(COMMAND_MS, () => readUnlinked(platform, command, all));
+      if (read === TIMED_OUT) {
+        shared = "failed";
+        reportAll(programs, new Error("The open files of the running programs couldn't be read."));
+      } else {
+        shared = read;
       }
     }
-    for (const each of programs) {
-      const memory = memoryOf(listed, pids.get(each) ?? [], held);
-      const folder = (await sizeOf(each.folder)) + each.unlinked;
-      // One that has ended or was stopped while this tick read is no longer the meter's to judge.
-      if (watched.has(each)) each.use({ memory, folder });
-    }
+    for (const each of programs) read(account(each, pids.get(each) ?? [], !footprintTurn, shared));
   }
 
   async function tick() {
@@ -414,6 +512,9 @@ export function createMeters(options: MetersOptions = {}): Meters {
 
   return {
     tick,
+    settle: async () => {
+      await Promise.allSettled([...reading]);
+    },
     meter: (adopted) => ({
       watch(root, folder, use, unmeasured) {
         const each: Watched = {
@@ -423,7 +524,12 @@ export function createMeters(options: MetersOptions = {}): Meters {
           use,
           unmeasured,
           unlinked: 0,
+          lastFolder: 0,
+          lastMemory: 0,
+          unknownTurns: 0,
           device: undefined,
+          deviceRead: false,
+          busy: false,
         };
         watched.add(each);
         if (options.interval !== false && timer === undefined) {

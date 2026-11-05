@@ -233,6 +233,7 @@ function endOf(exec: ExecResult, signal: AbortSignal, limitMs: number): Analysis
   if (signal.aborted) return { kind: "stopped" };
   if (exec.timedOut) return { kind: "timed-out", limitMs };
   if (exec.limit === "memory") return { kind: "out-of-memory" };
+  if (exec.limit === "folder-unknown") return { kind: "disk-unmeasured" };
   if (exec.limit === "folder") {
     return {
       kind: "error",

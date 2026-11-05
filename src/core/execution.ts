@@ -208,10 +208,14 @@ class Tail {
 /** How long a stopped program's output may stay open before the run ends without it. */
 const STOP_GRACE_MS = 2000;
 
-/** What a running program holds, as its limits count it, in bytes. */
+/**
+ * What a running program holds, as its limits count it, in bytes. `folder` is "unknown" when the
+ * meter couldn't measure this program's own disk use; a run whose folder stays unknown is stopped,
+ * so one run can't hide the files of another it shares a measurement with.
+ */
 export interface ProgramUse {
   memory: number;
-  folder: number;
+  folder: number | "unknown";
 }
 
 /** Measures a running program against its limits: the host's, which reads its processes. */
@@ -258,7 +262,9 @@ function watchLimits(
     cwd,
     (use) => {
       if (memoryBytes !== undefined && use.memory > memoryBytes) over("memory");
-      else if (folderBytes !== undefined && use.folder > folderBytes) over("folder");
+      else if (folderBytes === undefined) return;
+      else if (use.folder === "unknown") over("folder-unknown");
+      else if (use.folder > folderBytes) over("folder");
     },
     reportOnce,
   );

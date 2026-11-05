@@ -469,6 +469,10 @@ async function limitLines(limits: ExecRequest["limits"]): Promise<string[]> {
   const lines: string[] = [];
   if (limits?.fileBytes !== undefined) {
     lines.push(`ulimit -f ${Math.max(1, Math.floor(limits.fileBytes / 1024))} || exit 125`);
+    // A run can't duplicate file descriptors without bound: unmeasured, they would hide unlinked
+    // files the folder limit counts (#2351). 1024 is Linux's usual default and above macOS's 256,
+    // so ordinary programs keep their descriptors.
+    lines.push("ulimit -n 1024 || exit 125");
   }
   if (limits?.processes !== undefined) {
     lines.push(`ulimit -u ${(await accountProcesses()) + limits.processes} || exit 125`);

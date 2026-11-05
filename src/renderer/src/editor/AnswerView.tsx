@@ -942,9 +942,11 @@ function ScriptCall({ call }: { call: AnswerToolCall }) {
             ? t("scripts.call.cantRun", params)
             : run?.timedOut
               ? t("scripts.call.timedOut", params)
-              : run && run.exitCode !== null
-                ? t("scripts.call.exited", { ...params, code: run.exitCode })
-                : t("scripts.call.stopped", params);
+              : run?.diskUnmeasured
+                ? t("scripts.call.diskUnmeasured", params)
+                : run && run.exitCode !== null
+                  ? t("scripts.call.exited", { ...params, code: run.exitCode })
+                  : t("scripts.call.stopped", params);
   const limit = SKILL_SCRIPT_LIMITS.maxOutputBytes;
   return (
     <div
