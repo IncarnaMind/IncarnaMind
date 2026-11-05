@@ -704,6 +704,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                 (each) =>
                   !taken.has(each.id) &&
                   each.missing === 1 &&
+                  each.deleted_at === null &&
                   each.paired_hash === null &&
                   each.note === each.file_note &&
                   each.colour === each.file_colour,

@@ -507,6 +507,21 @@ test("a re-read of the same version changes nothing", async () => {
   db.close();
 });
 
+test("a deleted missing row does not hide a new copy", async () => {
+  const { document, store, read, db } = await harness();
+  read("version-a", [highlight("The fee is fixed.", 1)]);
+  const [row] = store.list(document.id);
+  if (!row) throw new Error("The highlight wasn't read.");
+  store.remove(row.id);
+
+  read("version-b", []);
+  read("version-c", [highlight("The fee is fixed.", 6), highlight("The fee is fixed.", 7)]);
+  const live = store.list(document.id).sort((a, b) => (a.pageFrom ?? 0) - (b.pageFrom ?? 0));
+  expect(live.map((each) => each.pageFrom)).toEqual([6, 7]);
+  expect(live.every((each) => !each.missing)).toBe(true);
+  db.close();
+});
+
 test("a second re-read writes no database change", async () => {
   const { read, db } = await harness();
   const rows = [highlight("Same.", 1), highlight("Same.", 2)];
