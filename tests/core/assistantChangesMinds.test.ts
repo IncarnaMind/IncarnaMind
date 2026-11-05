@@ -2,7 +2,10 @@ import type { JSONContent } from "@tiptap/core";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
+import { changedMinds } from "../../src/renderer/src/changedMinds";
+import { appliedFact, changeFact } from "../../src/renderer/src/changeFacts";
 import { ownTextRemoved } from "../../src/shared/askedChanges";
+import { translate } from "../../src/shared/i18n";
 import { pendingProposals } from "../../src/shared/proposals";
 import {
   answerRequests,
@@ -2523,5 +2526,115 @@ describe("Held-out shapes for when an edit waits (#2356), written before any run
       expect(after).toEqual(expect.arrayContaining([first, old, each.line, last]));
       expect(after).toHaveLength(4);
     }
+  });
+});
+
+describe("A line a reply without names adds beside one of the User's is said to be added (#2356)", {
+  timeout: 30_000,
+}, () => {
+  const editing = (asked: string, reply: string) =>
+    scriptedModel((call: ModelCall): ScriptedReply => {
+      if (/<passage>\n/.test(call.prompt)) return { text: `${reply}\n<why>Done.</why>` };
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+        : { text: "Done." };
+    });
+  const ROOMS = [
+    "Room 101 is booked for Monday.",
+    "Room 102 is booked for Tuesday.",
+    "Room 105 is free all week.",
+  ];
+  const FEES = ["房租每月1200元。", "停车每月100元。", "水费每月30元。"];
+
+  // protects=a reply without names that changes only a line's numbers adds the new line beside the User's, which stays, and everything said of it says a paragraph was written, never changed: the tool's result the model reads, the line on the Answer's card and the one over the Note, in English and Chinese; a line with words added to it changes that line and says so; fails_when=an added line is told or shown as a change, edit or replacement, or the User's line is written over; no_claim=how a real model words its reply.
+  test.each([
+    {
+      case: "en, a room number",
+      language: "en",
+      lines: ROOMS,
+      reply: [ROOMS[0], "Room 103 is booked for Tuesday.", ROOMS[2]],
+      after: [ROOMS[0], "Room 103 is booked for Tuesday.", ROOMS[1], ROOMS[2]],
+      told: "Added 1 paragraph to “Q3 review”",
+      card: "Wrote 1 paragraph in “Q3 review”",
+      line: "Wrote 1 paragraph",
+    },
+    {
+      case: "zh, a parking fee",
+      language: "zh-CN",
+      lines: FEES,
+      reply: [FEES[0], "停车每月120元。", FEES[2]],
+      after: [FEES[0], "停车每月120元。", FEES[1], FEES[2]],
+      told: "Added 1 paragraph to “Q3 review”",
+      card: "在“Q3 review”中已写入 1 个段落",
+      line: "写入了 1 个段落",
+    },
+    {
+      case: "en, words added to the room line",
+      language: "en",
+      lines: ROOMS,
+      reply: [ROOMS[0], "Room 102 is booked for Tuesday and Wednesday.", ROOMS[2]],
+      after: [ROOMS[0], "Room 102 is booked for Tuesday and Wednesday.", ROOMS[2]],
+      told: "Changed 1 place in “Q3 review”",
+      card: "Changed 1 paragraph in “Q3 review”",
+      line: "Changed 1 paragraph",
+    },
+    {
+      case: "zh, words added to the parking line",
+      language: "zh-CN",
+      lines: FEES,
+      reply: [FEES[0], "停车每月100元，月底前交。", FEES[2]],
+      after: [FEES[0], "停车每月100元，月底前交。", FEES[2]],
+      told: "Changed 1 place in “Q3 review”",
+      card: "已修改“Q3 review”中的 1 段",
+      line: "修改了 1 个段落",
+    },
+  ] as const)("$case", async (each) => {
+    const asked = "Tidy my note.";
+    const model = editing(asked, each.reply.join("\n\n"));
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    const answer = await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+
+    const told = lastResult(model);
+    expect(told).toContain(each.told);
+    if (each.after.length > each.lines.length) {
+      expect(told).not.toMatch(/\b(changed|edited|replaced)\b/i);
+    }
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate(each.language, key, params);
+    const [row] = changedMinds(answer);
+    if (!row) throw new Error("The Answer changed no Note.");
+    expect(appliedFact(t, row, "Q3 review")).toBe(each.card);
+    expect(changeFact(t, row, null)).toBe(each.line);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual(each.after);
+  });
+
+  // protects=a reply without names that changes only the first line's amount adds it beside the User's line, which stays, and says a paragraph was written (#2356); English; fails_when=the rent line is written over, or the change is told as changed; no_claim=how a real model words its reply.
+  test("a rent with only its amount changed is added beside the User's, which stays", async () => {
+    const lines = ["Rent is 1,200 a month.", "Parking is 100 a month.", "Water is 30 a month."];
+    const asked = "Rent is 1,300 now.";
+    const model = editing(asked, ["Rent is 1,300 a month.", lines[1], lines[2]].join("\n\n"));
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      lines.map((line) => note(line)),
+    );
+    await client.settled();
+
+    await ask(core, { text: asked, mindId: mind.id });
+    await client.settled();
+
+    expect(lastResult(model)).toContain("Added 1 paragraph to “Q3 review”");
+    await resolveChanges(client, "accept");
+    const after = shownWithChanges(client);
+    expect(after).toEqual(expect.arrayContaining([...lines, "Rent is 1,300 a month."]));
+    expect(after).toHaveLength(4);
   });
 });

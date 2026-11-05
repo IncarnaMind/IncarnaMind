@@ -4,11 +4,15 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD, MIND_PROPOSAL_REQUESTS_FIELD } from "../../src/core/api";
 import { ownWaiting } from "../../src/renderer/src/changeFacts";
+import { appliedText } from "../../src/renderer/src/editor/appliedEditLine";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { proposalsIn } from "../../src/renderer/src/editor/proposalReview";
+import { translate } from "../../src/shared/i18n";
 import {
+  addsOnly,
   appliedWaiting,
   changedParagraphs,
+  changeKinds,
   decideProposals,
   pendingProposals,
   waitingChanges,
@@ -351,5 +355,41 @@ describe("The count an applied row draws (#1358)", () => {
     expect(ownWaiting({ count: 3, applying: 3 })).toBe(0);
     // Those it holds back, and the ones applied at once, in one count.
     expect(ownWaiting({ count: 4, applying: 1 })).toBe(3);
+  });
+});
+
+describe("A change that only adds paragraphs says it wrote them (#2356)", () => {
+  const onlyAdds = (content: JSONContent[]) => addsOnly(changeKinds(mind(content).blocks, ours));
+
+  // protects=a change whose every paragraph is added whole, the User's kept beside, only adds, so every surface says it wrote, never changed, a paragraph: the applied line and its Undo notice read "Wrote 1 paragraph" (写入了 1 个段落); one that also rewords or removes one of the User's changes them; fails_when=an added line reads as changed, or a change of the User's words reads as written; no_claim=the assistant's own reply.
+  test("a line added beside the User's only adds, and is said to be written", () => {
+    expect(
+      onlyAdds([
+        plain("Room 101 is booked."),
+        added("Room 103 is booked."),
+        plain("Room 102 is booked."),
+      ]),
+    ).toBe(true);
+    expect(
+      onlyAdds([plain("房租每月1200元。"), added("停车每月120元。"), plain("停车每月100元。")]),
+    ).toBe(true);
+    expect(onlyAdds([plain("Kept."), reworded("Room 102", "Room 103")])).toBe(false);
+    expect(onlyAdds([removed("停车每月100元。"), added("停车每月120元。")])).toBe(false);
+    expect(onlyAdds([plain("Kept.")])).toBe(false);
+
+    const written = { paragraphs: 1, tables: 0, added: true } as const;
+    expect(appliedText((key, params) => translate("en", key, params), written)).toBe(
+      "Wrote 1 paragraph",
+    );
+    expect(appliedText((key, params) => translate("zh-CN", key, params), written)).toBe(
+      "写入了 1 个段落",
+    );
+    const changed = { paragraphs: 1, tables: 0 };
+    expect(appliedText((key, params) => translate("en", key, params), changed)).toBe(
+      "Changed 1 paragraph",
+    );
+    expect(appliedText((key, params) => translate("zh-CN", key, params), changed)).toBe(
+      "修改了 1 个段落",
+    );
   });
 });
