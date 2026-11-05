@@ -1329,3 +1329,44 @@ test("one fitting row is not taken by two marks", async () => {
   expect(store.list(document.id).filter((row) => !row.missing)).toHaveLength(2);
   db.close();
 });
+
+test("a same-version re-read carries the row at the mark's own place", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const same = { before: "Page words.", after: "Page words." };
+  read("version-a", [highlight(quote, 1, null, 10, same), highlight(quote, 1, null, 20, same)]);
+  const upper = rowAt(db, document.id, 10);
+  const lower = rowAt(db, document.id, 20);
+  if (!upper || !lower) throw new Error("Both copies weren't read.");
+
+  // A read of the same version with one copy left: the one at place 20 is carried there.
+  read("version-a", [highlight(quote, 1, null, 20, same)]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === lower.id)).toMatchObject({
+    pageFrom: 1,
+    missing: false,
+  });
+  expect(rows.find((row) => row.id === upper.id)).toMatchObject({ missing: true });
+  db.close();
+});
+
+test("a same-version re-read carries a row on the mark's page when its words changed", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1, null, 10, around("one"))]);
+  const [row] = store.list(document.id);
+  if (!row) throw new Error("The highlight wasn't read.");
+
+  // A version drops it, then the exact version that paired it is read again with the words
+  // around it changed: the same-page carry keeps its row.
+  read("version-b", []);
+  read("version-a", [highlight(quote, 1, null, 20, around("two"))]);
+  const carried = store.list(document.id).find((each) => each.id === row.id);
+  expect(carried).toMatchObject({ pageFrom: 1, missing: false });
+  const stored = db.get<{ file_order: number }>(
+    "SELECT file_order FROM document_annotations WHERE id = ?",
+    [row.id],
+  );
+  expect(stored?.file_order).toBe(20);
+  db.close();
+});
