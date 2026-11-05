@@ -142,7 +142,7 @@ async function checkSentence(window: Page, editor: Locator, claim: string): Prom
   return card;
 }
 
-/** Holds the scripted "-slow-check" model's work until `held` is false again, which lets it go. */
+/** Holds the scripted model's judgements and rewrites until `held` is false again, which lets them go. */
 const holdModel = (app: ElectronApplication, held: boolean) =>
   app.evaluate((_electron, on) => {
     const model = (
