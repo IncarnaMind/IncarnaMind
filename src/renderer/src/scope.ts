@@ -16,9 +16,14 @@ import {
   type ScopeKind,
   scopeIds,
 } from "../../shared/searchScope";
-import { buildFolderTree, flattenFolderTree, folderPath } from "./folders";
+import { buildFolderTree, flattenFolderTree, folderPath, folderWallOf } from "./folders";
 import { matchName, queryWords } from "./matcher";
-import { isListedDocument, noteOf, transcriptInNote } from "./meetingTranscript";
+import {
+  isListedDocument,
+  noteOf,
+  transcriptInNote,
+  withTranscriptsFiled,
+} from "./meetingTranscript";
 import type { Translate } from "./objects";
 
 /** What a scope item gone without its name is called: "Deleted Folder". */
@@ -44,6 +49,33 @@ export interface ScopeLibrary {
   t?: Translate;
 }
 
+/** Where the scope places each Document: a Meeting's Transcript is where its Note is (#2528). */
+const filingsOf = (library: ScopeLibrary): DocumentGroupAssignment[] =>
+  withTranscriptsFiled(library.assignments ?? [], library.documents, library.minds ?? []);
+
+/**
+ * Whether a Note behind `wall` (null: outside every wall) may not pick this choice: one behind
+ * another wall, or a Document behind its own that Organize only suggested there. A meeting's
+ * Transcript is where its Note is, which the User put there (#2528).
+ */
+export function blockedFrom(
+  library: ScopeLibrary,
+  item: ScopeChoice,
+  wall: string | null,
+): boolean {
+  if (item.walled === undefined || item.walled === null) return false;
+  if (item.walled !== wall) return true;
+  if (item.kind !== "document") return false;
+  const groups = library.groups ?? [];
+  return !filingsOf(library).some(
+    (each) =>
+      each.documentId === item.id &&
+      each.groupId !== null &&
+      each.source === "user" &&
+      folderWallOf(groups, each.groupId) === wall,
+  );
+}
+
 /** A Meeting's Transcript as a scope names it: "Weekly call · Transcript", or null. */
 const transcriptName = (library: ScopeLibrary, document: Document): string | null => {
   const note = noteOf(document, library.minds ?? []);
@@ -67,6 +99,8 @@ export interface ScopeChoice {
   walled?: string | null;
   /** A Document's kind, for its icon. */
   documentKind: DocumentKind | null;
+  /** A meeting's Transcript, drawn as its Note is (#2528). */
+  meeting?: boolean;
 }
 
 /** A Search scope item as a chip on its Question. */
@@ -85,6 +119,8 @@ export interface ScopeChip {
   /** Deleted since: the search ignores it. */
   deleted: boolean;
   documentKind: DocumentKind | null;
+  /** A meeting's Transcript, drawn as its Note is (#2528). */
+  meeting?: boolean;
 }
 
 /** The most choices of one kind the picker lists at once; typing narrows them. */
@@ -101,7 +137,7 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
   const live = library.documents.filter(holdsText);
   const liveIds = new Set(live.map((document) => document.id));
   const groups = library.groups ?? [];
-  const assignments = library.assignments ?? [];
+  const assignments = filingsOf(library);
   const byId = new Map(groups.map((group) => [group.id, group]));
   const insideWall = (id: string): boolean => {
     const seen = new Set<string>();
@@ -140,12 +176,6 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
     for (const id of ids) count(id, new Set());
     return counted;
   };
-  // A Meeting's Transcript is searched where its Note is (#2528).
-  const transcriptsIn = new Map<string, number>();
-  for (const document of live) {
-    const folderId = noteOf(document, library.minds ?? [])?.folderId;
-    if (folderId) transcriptsIn.set(folderId, (transcriptsIn.get(folderId) ?? 0) + 1);
-  }
   const groupDirect = new Map<string, number>();
   for (const group of groups) {
     groupDirect.set(
@@ -155,7 +185,7 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
           each.groupId === group.id &&
           liveIds.has(each.documentId) &&
           (!insideWall(group.id) || each.source === "user"),
-      ).length + (transcriptsIn.get(group.id) ?? 0),
+      ).length,
     );
   }
   for (const [id, held] of sumUp(
@@ -200,12 +230,9 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
     }
     return null;
   };
+  const filings = filingsOf(library);
   const documentWall = (document: Document) => {
-    if (!isListedDocument(document)) {
-      const folderId = noteOf(document, library.minds ?? [])?.folderId;
-      return folderId ? groupWall(folderId) : null;
-    }
-    const filed = (library.assignments ?? []).find((each) => each.documentId === document.id);
+    const filed = filings.find((each) => each.documentId === document.id);
     return filed?.groupId ? groupWall(filed.groupId) : null;
   };
   const names = new Map(library.folders.map((folder) => [folder.id, folder.name]));
@@ -265,6 +292,7 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
               name,
               path: [],
               documentKind: document.kind,
+              ...(!isListedDocument(document) && { meeting: true }),
               walled: documentWall(document),
             },
           ];
@@ -350,6 +378,7 @@ export function scopeChips(library: ScopeLibrary, scope: SearchScope): ScopeChip
         path: [],
         deleted: !document,
         documentKind: document?.kind ?? null,
+        ...(document && !isListedDocument(document) && { meeting: true }),
       };
     }),
   ];

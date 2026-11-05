@@ -245,7 +245,14 @@ import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
-import { joinedMeetings, joinedMeetingsSaid, transcriptsApart } from "./meetings/oneItem";
+import {
+  joinedMeetings,
+  joinedMeetingsSaid,
+  meetingsLeftApart,
+  meetingsLeftApartSaid,
+  transcriptsApart,
+  undoMeetingJoin,
+} from "./meetings/oneItem";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
@@ -1682,10 +1689,10 @@ export function createCore(adapters: CoreAdapters): Core {
     const made = examples.made();
     if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
     const left = new Set(made.documentIds);
-    // The examples are the User's Library until a Document of their own exists (#1942); a
-    // meeting's Transcript is its Note's, not one (#2528), though it is searched with theirs.
-    if (!documents.ids({ listed: true }).some((id) => !left.has(id))) return null;
-    return documents.ids({}).filter((id) => !left.has(id));
+    // The examples are the User's Library until a Document of their own exists (#1942), a
+    // meeting's Transcript among them: a first meeting's Note searches its own words only.
+    const own = documents.ids({}).filter((id) => !left.has(id));
+    return own.length > 0 ? own : null;
   };
   /**
    * The Documents a Search scope covers; with no scope, "every Document": the examples' until the
@@ -2528,9 +2535,6 @@ export function createCore(adapters: CoreAdapters): Core {
   const removeDocuments = (ids: readonly string[], at: string = now()) => {
     for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
   };
-  const hasTranscript = (mindId: string): boolean =>
-    db.get("SELECT 1 FROM documents WHERE meeting_mind_id = ? AND deleted_at IS NULL", [mindId]) !==
-    undefined;
   /** Documents the User may delete on their own: a Meeting's Transcript goes with its Note (#2528). */
   const deletable = (ids: readonly string[]): readonly string[] => {
     for (const id of ids) {
@@ -4140,7 +4144,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const readyQuestionNow = (): ReadyQuestion | null => {
     const exampleDocuments = new Set(examples.made().documentIds);
     return readyQuestionOf({
-      own: documents.list({ listed: true }).filter((each) => !exampleDocuments.has(each.id)),
+      own: documents.list().filter((each) => !exampleDocuments.has(each.id)),
       example: examples.readyQuestion(),
       language: settings.get().language,
     });
@@ -4372,7 +4376,11 @@ export function createCore(adapters: CoreAdapters): Core {
   listMeetings = () => meetings.list();
   // One meeting is one item (#2528): a pair an earlier version left apart is put right first.
   db.transaction(() => {
-    for (const { deletedAt, documentIds } of transcriptsApart(db, now())) {
+    const apart = transcriptsApart(db, now());
+    for (const { documentId, folderId } of apart.fileWhereNoteWas) {
+      library.assign(documentId, folderId);
+    }
+    for (const { deletedAt, documentIds } of apart.deleteWithNotes) {
       removeDocuments(documentIds, deletedAt);
     }
   });
@@ -5957,11 +5965,7 @@ export function createCore(adapters: CoreAdapters): Core {
         // A Note or a Document that joined a Folder changes what its other Notes are checked
         // against; a Document leaving one cannot add a contradiction, so it starts nothing.
         for (const item of joined) checks.mindJoinedFolder(item.id);
-        // A meeting's Note brings its Transcript into the Folder with it (#2528).
-        if (
-          move.documents.some((item) => item.from !== folderId) ||
-          joined.some((item) => hasTranscript(item.id))
-        ) {
+        if (move.documents.some((item) => item.from !== folderId)) {
           checks.folderContentsChanged(folderId);
         }
       }
@@ -6468,6 +6472,30 @@ export function createCore(adapters: CoreAdapters): Core {
     listMeetings: async () => meetings.list(),
     listJoinedMeetings: async () => joinedMeetings(db),
     joinedMeetingsSaid: async (ids) => joinedMeetingsSaid(db, ids, now()),
+    undoMeetingJoin: async (id) => {
+      const { undone, moved } = db.transaction(() => {
+        const undone = undoMeetingJoin(db, id, now());
+        const moved =
+          undone.noteBackTo === undefined ? [] : minds.move([undone.mindId], undone.noteBackTo);
+        return { undone, moved };
+      });
+      if (moved.some((item) => item.from !== undone.noteBackTo)) {
+        mindsChanged();
+        if (undone.noteBackTo) checks.mindJoinedFolder(undone.mindId);
+      }
+      for (const document of documents.getMany(undone.documentIds)) {
+        events.emit("document.status", document);
+      }
+      library.moved(undone.documentIds);
+      const filedIn = db.all<{ group_id: string }>(
+        `SELECT DISTINCT group_id FROM document_groups
+         WHERE deleted_at IS NULL AND document_id IN (SELECT value FROM json_each(?))`,
+        [JSON.stringify(undone.documentIds)],
+      );
+      for (const row of filedIn) checks.folderContentsChanged(row.group_id);
+    },
+    listMeetingsLeftApart: async () => meetingsLeftApart(db),
+    meetingsLeftApartSaid: async (ids) => meetingsLeftApartSaid(db, ids, now()),
     createMeeting: async (input) => meetings.create(input),
     discardMeeting: async (meetingId) => meetings.discard(meetingId),
     startMeeting: async (input) => meetings.start(input),

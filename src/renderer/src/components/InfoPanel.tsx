@@ -441,30 +441,33 @@ function DocumentInfo({ document }: { document: Document }) {
             <span className="block text-ink-meta">{document.failure.message}</span>
           )}
         </Row>
-        <Row label={t("info.organize")} testId="info-organize" focusRef={organizeRow}>
-          {t(organizeState(document, assignment))}
-          {assignment?.model && (
-            <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
-          )}
-          {assignment?.error && (
-            <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
-          )}
-          {scanImagesToAllow && (
-            <button
-              type="button"
-              data-testid="info-allow-page-images"
-              onClick={() =>
-                void core
-                  .allowDataFlow("scan-images", scanImagesToAllow.id)
-                  .then(() => organizeRow.current?.focus())
-                  .catch((error: unknown) => useAppStore.getState().reportError(error))
-              }
-              className={`${buttonClass} mt-1.5`}
-            >
-              {t("scan.images.allow")}
-            </button>
-          )}
-        </Row>
+        {/* Organize never files a meeting's Transcript: its Note is its place (#2528). */}
+        {!meetingNote && (
+          <Row label={t("info.organize")} testId="info-organize" focusRef={organizeRow}>
+            {t(organizeState(document, assignment))}
+            {assignment?.model && (
+              <span className="block text-ink-meta">{organizeModel(assignment.model, t)}</span>
+            )}
+            {assignment?.error && (
+              <span className="block text-ink-meta">{providerErrorText(assignment.error, t)}</span>
+            )}
+            {scanImagesToAllow && (
+              <button
+                type="button"
+                data-testid="info-allow-page-images"
+                onClick={() =>
+                  void core
+                    .allowDataFlow("scan-images", scanImagesToAllow.id)
+                    .then(() => organizeRow.current?.focus())
+                    .catch((error: unknown) => useAppStore.getState().reportError(error))
+                }
+                className={`${buttonClass} mt-1.5`}
+              >
+                {t("scan.images.allow")}
+              </button>
+            )}
+          </Row>
+        )}
       </Rows>
       {file && (
         <Actions

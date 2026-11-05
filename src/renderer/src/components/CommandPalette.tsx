@@ -29,6 +29,7 @@ import {
   conversationTextGroup,
   documentTextGroup,
   findings,
+  meetingTextItems,
   nameGroups,
   noteGroup,
   type PaletteGroup,
@@ -176,8 +177,15 @@ function Palette() {
     return [
       ...nameGroups(words, found),
       ...actionGroup(words, context, language, found.names),
-      ...(notes ? noteGroup(notes.items, minds, t) : []),
-      ...(passages ? documentTextGroup(passages.items, documents, minds, t) : []),
+      ...(notes || passages
+        ? noteGroup(
+            notes?.items ?? [],
+            minds,
+            t,
+            passages ? meetingTextItems(passages.items, documents, minds, t) : [],
+          )
+        : []),
+      ...(passages ? documentTextGroup(passages.items, documents, t) : []),
       ...(said ? conversationTextGroup(said.items) : []),
     ];
   }, [actionsOnly, words, found, context, language, t, notes, passages, said, minds, documents]);

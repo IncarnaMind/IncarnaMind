@@ -23,12 +23,12 @@ import {
   DocumentLineIcon,
   FolderLineIcon,
   LockLineIcon,
+  MindLineIcon,
   TagLineIcon,
 } from "../components/lineIcons";
 import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
-import { isListedDocument } from "../meetingTranscript";
-import { type ScopeChoice, scopeChoices } from "../scope";
+import { blockedFrom, type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
 import { takeTypedTrigger } from "./documentPicker";
 import { asOneStep } from "./editorUndo";
@@ -172,6 +172,7 @@ function ChoiceIcon({ choice }: { choice: ScopeChoice }) {
   if (choice.walled) return <LockLineIcon className={className} />;
   if (choice.kind === "folder") return <FolderLineIcon className={className} />;
   if (choice.kind === "tag") return <TagLineIcon className={className} />;
+  if (choice.meeting) return <MindLineIcon className={className} />;
   return <DocumentLineIcon kind={choice.documentKind ?? "text"} className={className} />;
 }
 
@@ -235,21 +236,7 @@ export function ScopeChoiceList({
   const shown = scopeChoices(library, scope, query).filter(
     (choice) => !kinds || kinds.includes(choice.kind),
   );
-  const isBlocked = (item: ScopeChoice) => {
-    if (item.walled === undefined || item.walled === null) return false;
-    if (item.walled !== currentWalled) return true;
-    if (item.kind !== "document") return false;
-    // A Meeting's Transcript is filed by its Note, which the User put there (#2528).
-    if (documents.some((each) => each.id === item.id && !isListedDocument(each))) return false;
-    const filings = (assignments ?? []).filter(
-      (each) =>
-        each.documentId === item.id &&
-        each.groupId !== null &&
-        groups !== undefined &&
-        folderWallOf(groups, each.groupId) === currentWalled,
-    );
-    return !filings.some((each) => each.source === "user");
-  };
+  const isBlocked = (item: ScopeChoice) => blockedFrom(library, item, currentWalled);
   const nothing = kinds
     ? documents.length === 0
     : folders.length + (groups?.length ?? 0) + tags.length + documents.length === 0;

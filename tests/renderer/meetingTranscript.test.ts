@@ -7,14 +7,21 @@ import type {
   Mind,
 } from "../../src/core/api";
 import { agentFolderRows } from "../../src/renderer/src/agentFolders";
-import { isListedDocument } from "../../src/renderer/src/meetingTranscript";
+import { documentOrFolderChoices } from "../../src/renderer/src/components/documentOrFolder";
+import {
+  folderIdOfDocument,
+  isListedDocument,
+  meetingHitsOf,
+} from "../../src/renderer/src/meetingTranscript";
 import type * as Palette from "../../src/renderer/src/palette";
 import {
+  blockedFrom,
   type ScopeLibrary,
   scopeChips,
   scopeChoices,
   scopeCounts,
 } from "../../src/renderer/src/scope";
+import { keptInsideName, scopeOutsideWalls } from "../../src/renderer/src/walls";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
@@ -101,48 +108,46 @@ describe("A meeting's Transcript in the lists", () => {
 });
 
 describe("A hit inside a meeting's Transcript", () => {
-  test("is its Note's, with the time the words were said, in English and Chinese", () => {
-    const [english] = palette.documentTextGroup(
-      [hit(transcript.id, 727_000)],
-      [transcript],
+  const notesOf = (found: DocumentTextMatch[], translate: typeof en) =>
+    palette.noteGroup(
+      [],
       [weekly],
-      en,
+      translate,
+      palette.meetingTextItems(found, [transcript, lease, orphan], [weekly], translate),
     );
+
+  test("is its Note's, in the Notes' group, with the time as its Transcript shows it, in English and Chinese", () => {
+    const [english] = notesOf([hit(transcript.id, 7_000)], en);
+    expect(english?.id).toBe("notes");
     expect(english?.items).toEqual([
       expect.objectContaining({
         kind: "passage",
         documentId: transcript.id,
         mindId: weekly.id,
-        name: "Weekly call · Transcript, 12:07",
+        name: "Weekly call · Transcript, 00:07",
         meta: "",
       }),
     ]);
-    const [chinese] = palette.documentTextGroup(
-      [hit(transcript.id, 727_000)],
-      [transcript],
-      [weekly],
-      zh,
-    );
+    const [chinese] = notesOf([hit(transcript.id, 727_000)], zh);
     expect(chinese?.items[0]).toMatchObject({ name: "Weekly call · 转写稿 12:07" });
-    const [timeless] = palette.documentTextGroup(
-      [hit(transcript.id, null)],
-      [transcript],
-      [weekly],
-      en,
-    );
+    const [timeless] = notesOf([hit(transcript.id, null)], en);
     expect(timeless?.items[0]).toMatchObject({ name: "Weekly call · Transcript" });
   });
 
-  test("of a Note that isn't here shows nothing, while another Document's hit is its own", () => {
+  test("is never under the Documents' words, where another Document's hit is its own", () => {
     const groups = palette.documentTextGroup(
-      [hit(orphan.id, 1_000), hit(lease.id, null)],
-      [orphan, lease],
-      [weekly],
+      [hit(transcript.id, 1_000), hit(orphan.id, 1_000), hit(lease.id, null)],
+      [transcript, orphan, lease],
       en,
     );
+    expect(groups.map((group) => group.id)).toEqual(["documentText"]);
     expect(groups[0]?.items).toEqual([
       expect.objectContaining({ documentId: lease.id, mindId: null, name: "Pier lease" }),
     ]);
+  });
+
+  test("of a Note that isn't here shows nothing", () => {
+    expect(notesOf([hit(orphan.id, 1_000)], en)).toEqual([]);
   });
 });
 
@@ -176,5 +181,102 @@ describe("A meeting in a Search scope", () => {
     expect(chips.map((chip) => chip.name)).toEqual(["Weekly call · Transcript"]);
     expect(scopeCounts(library(true)).get("g-harbour")).toBe(1);
     expect(scopeCounts(library(false)).get("g-harbour")).toBe(0);
+  });
+
+  test("Check against a Document… offers it by its Note's name and counts it in its Note's Folder", () => {
+    const choices = documentOrFolderChoices(library(true), "");
+    expect(choices.find((choice) => choice.id === "g-harbour")).toMatchObject({ count: 1 });
+    expect(choices.filter((choice) => choice.kind === "document").map((each) => each.name)).toEqual(
+      ["Pier lease", "Weekly call · Transcript"],
+    );
+  });
+});
+
+describe("The lines about meetings an earlier version filed apart", () => {
+  test("say it in these words, one meeting and several, in English and Chinese", () => {
+    expect(translate("en", "meetings.leftApart.one")).toBe(
+      "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
+    );
+    expect(translate("en", "meetings.leftApart.other", { count: 3 })).toBe(
+      "3 meetings left apart from their Transcripts, since each Folder keeps its work inside it",
+    );
+    expect(translate("en", "meetings.leftApart.show")).toBe("Show");
+    expect(translate("zh-CN", "meetings.leftApart.one")).toBe(
+      "1 场会议未与转写稿合并：笔记和转写稿所在的文件夹都只在本文件夹内工作",
+    );
+    expect(translate("zh-CN", "meetings.leftApart.other", { count: 3 })).toBe(
+      "3 场会议未与转写稿合并：笔记和转写稿所在的文件夹都只在本文件夹内工作",
+    );
+    expect(translate("zh-CN", "meetings.leftApart.show")).toBe("查看");
+    expect(translate("en", "meetings.joined", { meeting: "Weekly call", folder: "Vault" })).toBe(
+      "“Weekly call” moved to “Vault” with its Transcript",
+    );
+    expect(translate("zh-CN", "meetings.joined", { meeting: "周会", folder: "Vault" })).toBe(
+      "“周会”已随转写稿移到“Vault”",
+    );
+  });
+
+  test("Don't cite the Transcript, and back, on the meeting Note's menus", () => {
+    expect(translate("en", "evidence.notCited.transcript")).toBe("Don’t cite the Transcript");
+    expect(translate("zh-CN", "evidence.notCited.transcript")).toBe("不引用转写稿");
+    expect(translate("en", "evidence.citeAgain.transcript")).toBe("Cite the Transcript again");
+    expect(translate("zh-CN", "evidence.citeAgain.transcript")).toBe("重新引用转写稿");
+  });
+});
+
+describe("A meeting's Transcript is placed where its Note is", () => {
+  const vault: LibraryGroup = { ...folder("g-vault", "Vault"), keepInside: true };
+  const inVault = note("m-vault", "Weekly call", vault.id);
+  const owned = document("d-owned", "Transcript · Weekly call", inVault.id);
+  const filed = { documentId: lease.id, groupId: vault.id };
+  const walls = {
+    groups: [vault],
+    assignments: [filed],
+    documents: [lease, owned],
+    minds: [inVault],
+  };
+
+  test("behind its Note's wall, as a Document filed there is", () => {
+    expect(keptInsideName(walls, owned.id, null)).toBe("Vault");
+    expect(keptInsideName(walls, owned.id, vault.id)).toBeNull();
+    expect(keptInsideName({ ...walls, minds: [] }, owned.id, null)).toBeNull();
+    const scope = { folderIds: [], tagIds: [], documentIds: [owned.id, lease.id] };
+    expect(scopeOutsideWalls(walls, scope, null)?.documentIds).toEqual([]);
+    expect(scopeOutsideWalls(walls, scope, vault.id)?.documentIds).toEqual([owned.id, lease.id]);
+  });
+
+  test("in Get info's Folder, its Note's", () => {
+    const state = { library: { assignments: [filed] }, minds: [inVault] };
+    expect(folderIdOfDocument(state, owned)).toBe(vault.id);
+    expect(folderIdOfDocument(state, lease)).toBe(vault.id);
+    expect(folderIdOfDocument({ ...state, minds: [] }, owned)).toBeNull();
+  });
+
+  test('so a Note behind the same wall may pick it in the "@" picker, and one outside may not', () => {
+    const scope: ScopeLibrary = {
+      folders: [],
+      groups: [vault],
+      tags: [],
+      documents: [owned],
+      assignments: [],
+      minds: [inVault],
+      t: en,
+    };
+    const [choice] = scopeChoices(scope, { folderIds: [], tagIds: [], documentIds: [] }, "weekly");
+    expect(choice).toMatchObject({ id: owned.id, walled: vault.id, meeting: true });
+    if (!choice) throw new Error("Not offered.");
+    expect(blockedFrom(scope, choice, vault.id)).toBe(false);
+    expect(blockedFrom(scope, choice, null)).toBe(true);
+  });
+
+  test("and the Library's search finds it as its Note's", () => {
+    const found = new Map([
+      [owned.id, hit(owned.id, 1_750)],
+      [lease.id, hit(lease.id, null)],
+    ]);
+    expect(meetingHitsOf(found, [lease, owned], [inVault]).map((each) => each.note.id)).toEqual([
+      inVault.id,
+    ]);
+    expect(meetingHitsOf(found, [lease, owned], [])).toEqual([]);
   });
 });

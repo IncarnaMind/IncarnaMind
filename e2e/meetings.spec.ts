@@ -16,7 +16,6 @@ import {
   forceQuit,
   frontMindName,
   launchApp,
-  makeTagOnDocument,
   motionSettled,
   openDocumentAt,
   openSettings,
@@ -178,10 +177,7 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
   await expect(bar).toBeInViewport();
   await shot(window, "meeting-bar-scrolled-en");
 
-  // While it records, Documents wait to be read; its Transcript is read at once. A Tag of the
-  // User's own is what lets the footer name Tags at all (#1942).
-  await makeTagOnDocument(window);
-  await expect(window.getByTestId("tagging-waiting")).toBeVisible({ timeout: 20_000 });
+  // While it records, Documents wait to be read; its Transcript is read at once.
   const file = join(sources, "Agenda.md");
   await writeFile(file, "# Agenda\n\nThe rebates.\n");
   await window.evaluate(async (path) => {
@@ -189,12 +185,9 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
     if (!hooks) throw new Error("Test hooks are off.");
     await hooks.addPaths([path]);
   }, file);
-  // The Transcript's tags waiting for a model is the more pressing status: reading waits behind "+1".
   const agenda = window.getByTestId("document-list-item").filter({ hasText: "Agenda" });
   await expect(agenda).toHaveAttribute("data-status", "queued");
-  await window.getByTestId("status-more").click();
-  await expect(window.getByTestId("status-others").getByTestId("reading-paused")).toBeVisible();
-  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("reading-paused")).toBeVisible();
 
   // ⌘⇧P (Ctrl+Shift+P) is the "Pause recording" command, bound in the window's one keymap:
   // it works while the User types in the meeting's notes, and types nothing there.

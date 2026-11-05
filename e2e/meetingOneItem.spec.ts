@@ -18,7 +18,8 @@ import {
 
 /**
  * One meeting is one item (#2528): its Transcript has no row of its own, a hit inside it is the
- * Note's, and a pair an earlier version filed apart is joined once, said once in the sidebar.
+ * Note's, and a pair an earlier version filed apart is joined once, on the walled side of one wall
+ * with Undo, or left apart by two, each said once in the sidebar.
  */
 
 /** Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots. */
@@ -105,11 +106,17 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await window.getByTestId("palette-search").fill("eighteenth");
   const hits = window
     .getByTestId("palette")
-    .locator('[data-testid="palette-group"][data-group="documentText"]')
+    .locator('[data-testid="palette-group"][data-group="notes"]')
     .getByTestId("palette-item");
   await expect(hits).toHaveCount(1);
+  // A meeting is a Note: never under the Documents' words, and timed as its Transcript shows it.
+  await expect(
+    window
+      .getByTestId("palette")
+      .locator('[data-testid="palette-group"][data-group="documentText"]'),
+  ).toHaveCount(0);
   await expect(hits.first()).toContainText(
-    new RegExp(`^${escaped(title)} · Transcript, \\d+:\\d{2}`),
+    new RegExp(`^${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
   );
   await shot(window, "one-item-palette-en");
   await window.keyboard.press("Enter");
@@ -140,51 +147,106 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await setLanguage(window, "zh-CN");
   await window.keyboard.press("ControlOrMeta+k");
   await window.getByTestId("palette-search").fill("eighteenth");
-  await expect(hits.first()).toContainText(new RegExp(`^${escaped(title)} · 转写稿 \\d+:\\d{2}`));
+  await expect(hits.first()).toContainText(new RegExp(`^${escaped(title)} · 转写稿 \\d{2}:\\d{2}`));
   await shot(window, "one-item-palette-zh");
   await window.keyboard.press("Escape");
   await app.close();
 });
 
-test("a Note an earlier version filed apart from its Transcript joins it behind the wall once, and the sidebar says so once, with Undo, in Chinese and English", async () => {
-  const first = await launchApp(dataDir);
-  await dismissChatSetup(first.window);
-  await setWindowSize(first.app, first.window, 1280, 800);
-  const { meeting, title } = await recordAndStop(first.window);
-  const documentId = meeting.transcript?.documentId as string;
-  const { vault, desk } = await (await core(first.window)).evaluate(async (bridge, mindId) => {
-    const vault = await bridge.createLibraryGroup({ name: "Vault", description: "" });
-    await bridge.updateLibraryGroup(vault.id, { name: "Vault", description: "", keepInside: true });
-    const desk = await bridge.createLibraryGroup({ name: "Open desk", description: "" });
-    await bridge.moveToFolder({ mindIds: [mindId], folderId: desk.id });
-    await bridge.updateSettings({ user: { language: "zh-CN" } });
-    return { vault: vault.id, desk: desk.id };
-  }, meeting.mindId);
-  await first.app.close();
-
-  // As the version before left it: the Transcript filed on its own, behind the wall.
+/** Takes the data folder back to how the version before left it, these Transcripts filed alone. */
+function asBefore(filings: readonly { documentId: string; folderId: string }[]) {
   const ours = migrations.find((each) => each.description.includes("(#2528)"));
   if (!ours) throw new Error("The migration isn't listed.");
   const db = openDatabase(join(dataDir, "incarnamind.db"));
   db.exec(`
     DROP TABLE meeting_joins;
+    DROP TABLE meeting_join_transcripts;
+    DROP TABLE meetings_left_apart;
     DROP INDEX documents_by_meeting_mind;
     ALTER TABLE documents DROP COLUMN meeting_mind_id;
     DELETE FROM schema_migrations WHERE version = ${ours.version};
   `);
-  db.run(
-    `INSERT INTO document_groups (id, document_id, group_id, source, status, request_id,
-       created_at, updated_at)
-     VALUES ('filed-alone', ?, ?, 'user', 'classified', 'request', ?, ?)`,
-    [documentId, vault, "2026-10-20T09:00:00.000Z", "2026-10-20T09:00:00.000Z"],
-  );
+  for (const { documentId, folderId } of filings) {
+    db.run(
+      `INSERT INTO document_groups (id, document_id, group_id, source, status, request_id,
+         created_at, updated_at)
+       VALUES (?, ?, ?, 'user', 'classified', 'request', ?, ?)`,
+      [
+        `filed-${documentId}`,
+        documentId,
+        folderId,
+        "2026-10-20T09:00:00.000Z",
+        "2026-10-20T09:00:00.000Z",
+      ],
+    );
+  }
   db.close();
+}
+
+const placeOf = (window: Page, mindId: string, documentId: string) =>
+  window.evaluate(
+    async (ids) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const note = (await bridge.listMinds()).find((mind) => mind.id === ids.mindId);
+      const transcript = (await bridge.listDocuments()).find((each) => each.id === ids.documentId);
+      const filed = (await bridge.getLibrary()).assignments.filter(
+        (each) => each.documentId === ids.documentId,
+      );
+      return {
+        noteFolder: note?.folderId ?? null,
+        ownedBy: transcript?.meetingMindId ?? null,
+        filedIn: filed.map((each) => each.groupId),
+      };
+    },
+    { mindId, documentId },
+  );
+
+test("a meeting an earlier version filed apart, one wall between, joins on the walled side and says so once with Undo, which puts it back exactly, in Chinese and English", async () => {
+  const first = await launchApp(dataDir);
+  await dismissChatSetup(first.window);
+  await setWindowSize(first.app, first.window, 1440, 900);
+  const weekly = { ...(await recordAndStop(first.window)), title: "Weekly call" };
+  const pier = { ...(await recordAndStop(first.window)), title: "Pier survey" };
+  const { vault, cellar, desk } = await (await core(first.window)).evaluate(
+    async (bridge, ids) => {
+      const [weeklyId, pierId] = ids;
+      if (!weeklyId || !pierId) throw new Error("Two meetings were recorded.");
+      await bridge.renameMind(weeklyId, "Weekly call");
+      await bridge.renameMind(pierId, "Pier survey");
+      const walled = async (name: string) => {
+        const folder = await bridge.createLibraryGroup({ name, description: "" });
+        await bridge.updateLibraryGroup(folder.id, { name, description: "", keepInside: true });
+        return folder.id;
+      };
+      const vault = await walled("Vault");
+      const cellar = await walled("Cellar");
+      const desk = (await bridge.createLibraryGroup({ name: "Open desk", description: "" })).id;
+      await bridge.moveToFolder({ mindIds: ids, folderId: desk });
+      await bridge.updateSettings({ user: { language: "zh-CN" } });
+      return { vault, cellar, desk };
+    },
+    [weekly.meeting.mindId, pier.meeting.mindId],
+  );
+  await first.app.close();
+  const weeklyTranscript = weekly.meeting.transcript?.documentId as string;
+  const pierTranscript = pier.meeting.transcript?.documentId as string;
+  asBefore([
+    { documentId: weeklyTranscript, folderId: vault },
+    { documentId: pierTranscript, folderId: cellar },
+  ]);
 
   const { app, window } = await launchApp(dataDir);
-  await setWindowSize(app, window, 1280, 800);
-  const line = window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/);
+  await setWindowSize(app, window, 1440, 900);
+  const line = window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/).first();
   await expect(line).toBeVisible();
-  await expect(line.getByTestId("status-label")).toHaveText(`“${title}”已随转写稿移到“Vault”`);
+  const said = await line.getByTestId("status-label").textContent();
+  const shown = said?.includes(weekly.title) ? weekly : pier;
+  const other = shown === weekly ? pier : weekly;
+  const shownIn = shown === weekly ? vault : cellar;
+  const shownTranscript = shown === weekly ? weeklyTranscript : pierTranscript;
+  await expect(line.getByTestId("status-label")).toHaveText(
+    `“${shown.title}”已随转写稿移到“${shown === weekly ? "Vault" : "Cellar"}”`,
+  );
   await expect(line.getByTestId("meeting-joined-undo")).toHaveText("撤销");
   await shot(window, "one-item-joined-zh");
   // Narrow, the line wraps by word inside the sidebar, its Undo kept with it.
@@ -198,31 +260,128 @@ test("a Note an earlier version filed apart from its Transcript joins it behind 
   expect(label.x + label.width).toBeLessThanOrEqual(sidebar.x + sidebar.width + 1);
   expect(row.x + row.width).toBeLessThanOrEqual(sidebar.x + sidebar.width + 1);
   await shot(window, "one-item-joined-narrow-zh");
-  await setWindowSize(app, window, 1280, 800);
+  await setWindowSize(app, window, 1440, 900);
   await setLanguage(window, "en");
   await expect(line.getByTestId("status-label")).toHaveText(
-    `“${title}” moved to “Vault” with its Transcript`,
+    `“${shown.title}” moved to “${shown === weekly ? "Vault" : "Cellar"}” with its Transcript`,
   );
   await shot(window, "one-item-joined-en");
-  const folderOfNote = () =>
-    window.evaluate(
-      async (id) =>
-        (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds()).find(
-          (mind) => mind.id === id,
-        )?.folderId,
-      meeting.mindId,
-    );
-  expect(await folderOfNote()).toBe(vault);
+  expect(await placeOf(window, shown.meeting.mindId, shownTranscript)).toEqual({
+    noteFolder: shownIn,
+    ownedBy: shown.meeting.mindId,
+    filedIn: [],
+  });
 
-  // Undo moves the Note back, its Transcript with it, as any move does.
+  // Undo puts the pair back exactly: the Note in its Folder, the Transcript behind the wall, a
+  // Document of its own with its row.
+  const lineId = (await line.getAttribute("data-testid")) as string;
   await pointAndClick(window, line.getByTestId("meeting-joined-undo"));
-  await expect(line).toHaveCount(0);
-  await expect.poll(folderOfNote).toBe(desk);
+  await expect
+    .poll(() => placeOf(window, shown.meeting.mindId, shownTranscript))
+    .toEqual({ noteFolder: desk, ownedBy: null, filedIn: [shownIn] });
+  await expect(window.getByTestId(lineId)).toHaveCount(0);
   await app.close();
 
-  // Said once: the next start says nothing.
+  // The other line was left alone; said once, the next start says nothing, and it stays joined.
   const again = await launchApp(dataDir);
   await expect(again.window.getByTestId("sidebar-status")).toBeVisible();
   await expect(again.window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/)).toHaveCount(0);
+  const otherTranscript = other === weekly ? weeklyTranscript : pierTranscript;
+  expect(await placeOf(again.window, other.meeting.mindId, otherTranscript)).toEqual({
+    noteFolder: other === weekly ? vault : cellar,
+    ownedBy: other.meeting.mindId,
+    filedIn: [],
+  });
+  await again.app.close();
+});
+
+test("a meeting two walls keep apart from its Transcript stays where it is, and the sidebar says so once and lists it, in Chinese and English", async () => {
+  const first = await launchApp(dataDir);
+  await dismissChatSetup(first.window);
+  await setWindowSize(first.app, first.window, 1440, 900);
+  const { meeting, title } = await recordAndStop(first.window);
+  const documentId = meeting.transcript?.documentId as string;
+  const { vault, cellar } = await (await core(first.window)).evaluate(async (bridge, mindId) => {
+    const walled = async (name: string) => {
+      const folder = await bridge.createLibraryGroup({ name, description: "" });
+      await bridge.updateLibraryGroup(folder.id, { name, description: "", keepInside: true });
+      return folder.id;
+    };
+    const vault = await walled("Vault");
+    const cellar = await walled("Cellar");
+    await bridge.moveToFolder({ mindIds: [mindId], folderId: cellar });
+    await bridge.updateSettings({ user: { language: "zh-CN" } });
+    return { vault, cellar };
+  }, meeting.mindId);
+  await first.app.close();
+  asBefore([{ documentId, folderId: vault }]);
+
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  const line = window.getByTestId("meetings-left-apart");
+  await expect(line).toBeVisible();
+  await expect(line.getByTestId("status-label")).toHaveText(
+    "1 场会议未与转写稿合并：笔记和转写稿所在的文件夹都只在本文件夹内工作",
+  );
+  const show = line.getByTestId("meetings-left-apart-show");
+  await expect(show).toHaveText("查看");
+  await expect(line.getByRole("button", { name: "撤销" })).toHaveCount(0);
+  await shot(window, "one-item-left-apart-zh");
+  await setWindowSize(app, window, 900, 700);
+  const [row, label, sidebar] = await Promise.all([
+    line.boundingBox(),
+    line.getByTestId("status-label").boundingBox(),
+    window.getByTestId("sidebar-status").boundingBox(),
+  ]);
+  if (!row || !label || !sidebar) throw new Error("The line isn't drawn.");
+  expect(label.x + label.width).toBeLessThanOrEqual(sidebar.x + sidebar.width + 1);
+  expect(row.x + row.width).toBeLessThanOrEqual(sidebar.x + sidebar.width + 1);
+  await shot(window, "one-item-left-apart-narrow-zh");
+  await setWindowSize(app, window, 1440, 900);
+  await setLanguage(window, "en");
+  await expect(line.getByTestId("status-label")).toHaveText(
+    "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
+  );
+  await expect(show).toHaveText("Show");
+
+  // Show is a button in the tab order: from the keyboard it lists the meeting, and Esc folds it.
+  expect(await show.evaluate((button) => button.tagName === "BUTTON" && button.tabIndex >= 0)).toBe(
+    true,
+  );
+  await show.focus();
+  await window.keyboard.press("Enter");
+  const listed = line.getByTestId("meetings-left-apart-note");
+  await expect(listed).toHaveText([title]);
+  await expect(show).toHaveText("Hide");
+  await shot(window, "one-item-left-apart-en");
+  await window.keyboard.press("Escape");
+  await expect(listed).toHaveCount(0);
+  await expect(show).toBeFocused();
+  await pointAndClick(window, show);
+  await pointAndClick(window, listed);
+  await expect(window.getByTestId("mind-pane")).toBeVisible();
+
+  // Nothing moved: the Note in its Folder, the Transcript behind the other wall, a Document of its
+  // own with its row, and a ⌘K hit inside it is a plain Document hit.
+  expect(await placeOf(window, meeting.mindId, documentId)).toEqual({
+    noteFolder: cellar,
+    ownedBy: null,
+    filedIn: [vault],
+  });
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.getByTestId("palette-search").fill("eighteenth");
+  await expect(
+    window
+      .getByTestId("palette")
+      .locator('[data-testid="palette-group"][data-group="documentText"]')
+      .getByTestId("palette-item"),
+  ).toContainText([/^Transcript/]);
+  await window.keyboard.press("Escape");
+  await app.close();
+
+  // Said once, and left alone: the next start says nothing.
+  const again = await launchApp(dataDir);
+  await expect(again.window.getByTestId("sidebar-status")).toBeVisible();
+  await expect(again.window.getByTestId("meetings-left-apart")).toHaveCount(0);
   await again.app.close();
 });

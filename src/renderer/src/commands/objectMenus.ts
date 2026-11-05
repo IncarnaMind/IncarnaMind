@@ -18,6 +18,8 @@ registerMenu("mind", [
   "mind.useAsSource",
   "mind.updateSourceSnapshot",
   "mind.removeAsSource",
+  "mind.dontCiteTranscript",
+  "mind.citeTranscriptAgain",
   ...EXPORTS,
   "mind.history",
   "mind.check",

@@ -1,6 +1,5 @@
 import type { SearchScope } from "../../../core/api";
 import { useT } from "../i18n";
-import { useListedDocuments } from "../ownDocuments";
 import { useAppStore } from "../store";
 import {
   type DocumentOrFolderChoice,
@@ -8,7 +7,7 @@ import {
   documentOrFolderScope,
   keptFrom,
 } from "./documentOrFolder";
-import { DocumentLineIcon, FolderLineIcon, LockLineIcon } from "./lineIcons";
+import { DocumentLineIcon, FolderLineIcon, LockLineIcon, MindLineIcon } from "./lineIcons";
 import { type PickerOption, type PickerSection, SearchPicker } from "./SearchPicker";
 
 export type { DocumentOrFolderChoice } from "./documentOrFolder";
@@ -46,9 +45,11 @@ export function DocumentOrFolderPicker({
   const groups = useAppStore((state) => state.library?.groups);
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
-  const listed = useListedDocuments();
   const assignments = useAppStore((state) => state.library?.assignments);
-  const library = { folders, groups, tags, documents: listed, assignments };
+  const minds = useAppStore((state) => state.minds);
+  // As the "@" picker has them: a meeting's Transcript is offered by its Note's name and counts in
+  // its Note's Folder (#2528).
+  const library = { folders, groups, tags, documents, assignments, minds, t };
   const byId = new Map(documents.map((document) => [document.id, document]));
 
   const matching = (query: string): PickerSection<DocumentOrFolderChoice>[] => {
@@ -80,6 +81,8 @@ export function DocumentOrFolderPicker({
           <LockLineIcon className="size-4 shrink-0 text-ink-meta" />
         ) : choice.kind === "folder" ? (
           <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
+        ) : choice.meeting ? (
+          <MindLineIcon className="size-4 shrink-0 text-ink-meta" />
         ) : (
           <DocumentLineIcon
             kind={choice.documentKind ?? "text"}

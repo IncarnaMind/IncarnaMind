@@ -31,11 +31,13 @@ import type {
   Tag,
 } from "../../core/api";
 import { EXAMPLE_GROUPS } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { resolveLanguage } from "../../core/language";
 import type { UiUsageEvent } from "../../core/usageEvents";
 import { displayName } from "../../shared/documentNames";
 import { isSearchable } from "../../shared/documentStatus";
 import type { DocumentLocation } from "../../shared/documentViewer";
+import { errorForWindow } from "../../shared/errorWording";
 import { type MessageKey, type MessageParams, translate } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
@@ -1266,6 +1268,11 @@ export const useAppStore = create<AppState>()((set, get) => {
       let madeId: string | null = null;
       await attempt(async () => {
         const { minds, documents, library } = get();
+        const chosen = items ? itemsOf(items) : null;
+        // Refused before the Folder is made, so no empty Folder is left behind.
+        if (chosen && !hasRowsOfTheirOwn(chosen.documentIds)) {
+          throw errorForWindow(new TranslatableError({ key: "error.transcript.withNote" }));
+        }
         const name =
           named?.trim() ||
           untitledFolderName(
@@ -1278,7 +1285,6 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...(parentId && { parentId }),
         });
         await get().refreshLibrary();
-        const chosen = items ? itemsOf(items) : null;
         const going =
           chosen && chosen.mindIds.length + chosen.documentIds.length > 0 ? chosen : null;
         const done = going ? await move(going, folder.id) : null;
@@ -2067,6 +2073,19 @@ async function startGettingStarted(exampleMindId: string): Promise<void> {
     // Then the app opens as usual, without the checklist.
   }
 }
+
+/**
+ * Whether each Document has a row of its own, so it may be filed, tagged, renamed or deleted on
+ * its own: a meeting's Transcript goes with its Note (#2528). The one check every control that
+ * does so asks.
+ */
+export const hasRowsOfTheirOwn = (documentIds: readonly string[]): boolean => {
+  const { documents } = useAppStore.getState();
+  return documentIds.every((id) => {
+    const document = documents.find((each) => each.id === id);
+    return !document || isListedDocument(document);
+  });
+};
 
 /** A Document of the User's own, as the Library lists it: not one of the examples. */
 export const isOwnDocument = (document: Document, examples: readonly Examples[]) =>

@@ -10,6 +10,7 @@ export const en = {
   "library.sections": "Documents by Folder",
   "library.search.label": "Search the Library",
   "library.search.clear": "Clear the search",
+  "library.found.meetings": "Meetings",
   "library.search.hint": "Press / to search",
   "library.filter.add": "Filter",
   "library.filter.addLabel": "Add a filter",
@@ -2056,6 +2057,8 @@ export const en = {
   "evidence.notCitedMany": "Don’t cite {count} Documents",
   "evidence.citeAgain": "Cite this Document again",
   "evidence.citeAgainMany": "Cite {count} Documents again",
+  "evidence.notCited.transcript": "Don’t cite the Transcript",
+  "evidence.citeAgain.transcript": "Cite the Transcript again",
   "evidence.notCited.hint": "Read for context only: never cited or used as evidence.",
   "evidence.notCited.label": "Not cited",
   "evidence.notCited.done": "“{name}” won’t be cited",
@@ -5456,7 +5459,8 @@ export const en = {
     "Meeting audio can’t go to a cloud service: “Keep everything on this computer” is on.",
   "error.transcription.noKey": "Add a {service} key first.",
   "error.transcript.withNote":
-    "A meeting’s Transcript goes with its Note. Move or delete the Note instead.",
+    "A meeting’s Transcript goes with its note. Move or delete the note instead.",
+  "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
   "error.transcription.keyMissing": "Paste the key first.",
   "error.transcription.unreachable":
     "Couldn’t reach {service}. Check the connection and try again.",
@@ -6068,6 +6072,11 @@ export const en = {
   "meetings.transcript.inNoteAt": "{meeting} · Transcript, {time}",
   "meetings.joined": "“{meeting}” moved to “{folder}” with its Transcript",
   "meetings.joined.undo": "Undo",
+  "meetings.leftApart.one":
+    "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
+  "meetings.leftApart.other":
+    "{count} meetings left apart from their Transcripts, since each Folder keeps its work inside it",
+  "meetings.leftApart.show": "Show",
   "meetings.bar.showTranscript": "Show transcript",
   "meetings.bar.hideTranscript": "Hide transcript",
   "meetings.bar.transcriptSoon": "The transcript appears with its first line",

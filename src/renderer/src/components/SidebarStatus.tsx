@@ -22,6 +22,7 @@ import { useJoinedMeetings } from "../joinedMeetings";
 import { useKeyRefusals } from "../keyRefusals";
 import { saidInLine } from "../lineNames";
 import { useCapturing, useMeetings } from "../meetings";
+import { useMeetingsLeftApart } from "../meetingsLeftApart";
 import { isListedDocument } from "../meetingTranscript";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
@@ -48,6 +49,7 @@ import {
 } from "../webPages";
 import { failedEverySource, useDownloadSources } from "./DownloadSources";
 import { CloseLineIcon } from "./lineIcons";
+import { useMeetingsLeftApartDetails } from "./MeetingsLeftApart";
 import { embeddingProviderLabel } from "./providers/EmbeddingSettings";
 import { testErrorKey } from "./providers/shared";
 import { useSkippedFilesDetails } from "./SkippedFilesLine";
@@ -419,8 +421,11 @@ function useStatuses(): Status[] {
   const dismissSavedOutside = useAppStore((state) => state.dismissSavedOutside);
   const joined = useJoinedMeetings((state) => state.joined);
   const minds = useAppStore((state) => state.minds);
+  const leftApart = useMeetingsLeftApart((state) => state.left);
+  const leftApartDetails = useMeetingsLeftApartDetails(leftApart);
   useEffect(() => {
     useJoinedMeetings.getState().load().catch(useAppStore.getState().reportError);
+    useMeetingsLeftApart.getState().load().catch(useAppStore.getState().reportError);
   }, []);
   const model = useAppStore((state) => state.embeddingModel);
   const embedding = useAppStore((state) => state.embedding);
@@ -818,11 +823,12 @@ function useStatuses(): Status[] {
     });
   }
 
-  // Said once, each, where the migration moved a meeting's Note to its Transcript's side of a wall.
+  // Said once, each, where the migration joined a meeting on the walled side of a wall's edge;
+  // gone once the User moves the Note, as Undo can no longer put it back.
   for (const join of joined) {
     const mind = minds.find((each) => each.id === join.mindId);
     const folder = library?.groups.find((each) => each.id === join.folderId);
-    if (!mind || !folder) continue;
+    if (!mind || !folder || mind.folderId !== join.folderId) continue;
     const text = t("meetings.joined", {
       meeting: mindName(mind) || t("mind.untitled"),
       folder: folder.name,
@@ -841,6 +847,23 @@ function useStatuses(): Status[] {
         },
       },
       dismiss: () => useJoinedMeetings.getState().dismiss(join.id),
+    });
+  }
+
+  // Said once: the meetings the migration left apart from their Transcripts, two walls between.
+  if (leftApart.length > 0) {
+    const text =
+      leftApart.length === 1
+        ? t("meetings.leftApart.one")
+        : t("meetings.leftApart.other", { count: leftApart.length });
+    statuses.push({
+      testId: "meetings-left-apart",
+      tone: "info",
+      short: text,
+      full: text,
+      wraps: true,
+      details: leftApartDetails,
+      dismiss: () => useMeetingsLeftApart.getState().dismiss(),
     });
   }
 

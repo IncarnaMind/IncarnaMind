@@ -345,11 +345,15 @@ export function actionGroup(
   return shown.length > 0 ? [{ id: "actions", items: shown }] : [];
 }
 
-/** "In your notes": the Minds the core found the words in, with the Block that holds them. */
+/**
+ * "In your text": the Minds the core found the words in, with the Block that holds them, then the
+ * meetings whose Transcripts hold them (`meetingTextItems`), as a meeting is a Note (#2528).
+ */
 export function noteGroup(
   found: readonly MindTextMatch[],
   minds: readonly Mind[],
   t: Translate,
+  meetings: readonly PaletteItem[] = [],
 ): PaletteGroup[] {
   const byId = new Map(minds.map((mind) => [mind.id, mind]));
   const items = found.flatMap((match): PaletteItem[] => {
@@ -368,7 +372,8 @@ export function noteGroup(
       },
     ];
   });
-  return items.length > 0 ? [{ id: "notes", items: items.slice(0, SHOWN.words) }] : [];
+  const all = [...items, ...meetings];
+  return all.length > 0 ? [{ id: "notes", items: all.slice(0, SHOWN.words) }] : [];
 }
 
 /** A Document as the palette reads it. */
@@ -402,31 +407,25 @@ export function atPassage(
   };
 }
 
-/**
- * "In your Documents": the Documents the core found the words in, with the Passage that holds
- * them. Words said in a Meeting are its Note's: "Weekly call · Transcript, 12:07" (#2528).
- */
+/** "In your Documents": the Documents of the User's the core found the words in, with the Passage that holds them. */
 export function documentTextGroup(
   found: readonly DocumentTextMatch[],
   documents: readonly NamedDocument[],
-  minds: readonly Mind[],
   t: Translate,
 ): PaletteGroup[] {
   const byId = new Map(documents.map((document) => [document.id, document]));
   const items = found.flatMap((match): PaletteItem[] => {
     const document = byId.get(match.documentId);
-    if (!document) return [];
-    const note = noteOf(document, minds);
-    if (!note && !isListedDocument(document)) return [];
+    if (!document || !isListedDocument(document)) return [];
     return [
       {
         kind: "passage",
         key: `passage:${match.passageId}`,
         documentId: match.documentId,
         documentKind: document.kind,
-        mindId: note?.id ?? null,
-        name: note ? transcriptInNote(note, match.atMs, t) : displayName(document),
-        meta: note ? "" : passagePlace(document.kind, match, t),
+        mindId: null,
+        name: displayName(document),
+        meta: passagePlace(document.kind, match, t),
         pageFrom: match.pageFrom,
         pageTo: match.pageTo,
         excerpt: match.excerpt,
@@ -435,6 +434,39 @@ export function documentTextGroup(
     ];
   });
   return items.length > 0 ? [{ id: "documentText", items: items.slice(0, SHOWN.words) }] : [];
+}
+
+/**
+ * Words said in a meeting, as its Note's hits: "Weekly call · Transcript, 00:07", opening the
+ * Transcript beside its Note there (#2528). None for a Transcript whose Note isn't here.
+ */
+export function meetingTextItems(
+  found: readonly DocumentTextMatch[],
+  documents: readonly NamedDocument[],
+  minds: readonly Mind[],
+  t: Translate,
+): PaletteItem[] {
+  const byId = new Map(documents.map((document) => [document.id, document]));
+  return found.flatMap((match): PaletteItem[] => {
+    const document = byId.get(match.documentId);
+    const note = document && noteOf(document, minds);
+    if (!document || !note) return [];
+    return [
+      {
+        kind: "passage",
+        key: `passage:${match.passageId}`,
+        documentId: match.documentId,
+        documentKind: document.kind,
+        mindId: note.id,
+        name: transcriptInNote(note, match.atMs, t),
+        meta: "",
+        pageFrom: match.pageFrom,
+        pageTo: match.pageTo,
+        excerpt: match.excerpt,
+        highlights: match.highlights,
+      },
+    ];
+  });
 }
 
 /** "In your conversations": the conversations whose messages hold the words, with the first that does. */

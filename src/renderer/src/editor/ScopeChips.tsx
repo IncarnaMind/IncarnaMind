@@ -6,6 +6,7 @@ import {
   DocumentLineIcon,
   FolderLineIcon,
   LockLineIcon,
+  MindLineIcon,
   TagLineIcon,
 } from "../components/lineIcons";
 import { folderWallOf } from "../folders";
@@ -26,6 +27,7 @@ function ChipIcon({ chip }: { chip: ScopeChip }) {
   const className = "scope-chip-icon";
   if (chip.kind === "folder") return <FolderLineIcon className={className} />;
   if (chip.kind === "tag") return <TagLineIcon className={className} />;
+  if (chip.meeting) return <MindLineIcon className={className} />;
   return <DocumentLineIcon kind={chip.documentKind ?? "text"} className={className} />;
 }
 

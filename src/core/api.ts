@@ -10564,16 +10564,23 @@ export type MeetingSourceState =
   | "ended";
 
 /**
- * A meeting's Note moved to its Transcript's Folder when the pair, filed apart, was joined
- * (#2528): it went to the side of the wall the Transcript was behind, so nothing walled came out.
+ * A meeting this version joined with its Transcript on the walled side of the one wall between
+ * them (#2528): its Note moved into its Transcript's Folder, or its Transcript into its Note's.
  */
 export interface JoinedMeeting {
   id: string;
   mindId: string;
-  /** Where the Note is now, with its Transcript. */
+  /** The Folder the meeting is in now. */
   folderId: string;
-  /** Where it was, which Undo moves it back to; null for Not in a Folder. */
-  fromFolderId: string | null;
+}
+
+/**
+ * A meeting left apart from its Transcript when pairs filed apart were joined (#2528): two walls
+ * lay between them, so each stayed exactly where it was, the Transcript a Document of its own.
+ */
+export interface MeetingLeftApart {
+  id: string;
+  mindId: string;
 }
 
 /**
@@ -13095,12 +13102,24 @@ export interface CoreApi {
   /** Every Meeting, newest first. */
   listMeetings(): Promise<Meeting[]>;
   /**
-   * The meetings' Notes this version moved to their Transcript's Folder when it joined each pair
-   * filed apart (#2528), not said yet: the sidebar says each once, with Undo.
+   * The meetings this version joined across a wall's edge (#2528), not said yet, each still where
+   * the join put it: the sidebar says each once, with Undo.
    */
   listJoinedMeetings(): Promise<JoinedMeeting[]>;
   /** Records that the sidebar said these (`listJoinedMeetings`), so it never says them again. */
   joinedMeetingsSaid(ids: string[]): Promise<void>;
+  /**
+   * Puts a joined meeting back exactly as it was: its Transcript a Document of its own in its own
+   * Folder, its Note in its own. Refused once the User has moved the Note since.
+   */
+  undoMeetingJoin(id: string): Promise<void>;
+  /**
+   * The meetings this version left apart from their Transcripts, two walls lying between them,
+   * when it joined each pair filed apart (#2528), not said yet: the sidebar says so once.
+   */
+  listMeetingsLeftApart(): Promise<MeetingLeftApart[]>;
+  /** Records that the sidebar said these (`listMeetingsLeftApart`), so it never says them again. */
+  meetingsLeftApartSaid(ids: string[]): Promise<void>;
   /**
    * A Meeting ready to record, in a new Mind named for the day or in an empty
    * Mind given: its Mind shows the start block. Needs a Mind with no Meeting,
@@ -13834,6 +13853,9 @@ const methods: Record<CoreApiMethod, true> = {
   listMeetings: true,
   listJoinedMeetings: true,
   joinedMeetingsSaid: true,
+  undoMeetingJoin: true,
+  listMeetingsLeftApart: true,
+  meetingsLeftApartSaid: true,
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,

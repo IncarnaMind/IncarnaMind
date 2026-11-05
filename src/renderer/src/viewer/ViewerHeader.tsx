@@ -18,6 +18,7 @@ import { useLeftOutOfEvidence } from "../evidence";
 import { userFile } from "../fileInfo";
 import { useGap, useLanguage, useT } from "../i18n";
 import { type Said, saidInLine } from "../lineNames";
+import { isListedDocument } from "../meetingTranscript";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useRename } from "../useRename";
 import { pageDate } from "../webPages";
@@ -190,7 +191,7 @@ export function ViewerHeader({
             </span>
           ) : document ? (
             <button
-              {...rename.nameProps}
+              {...(isListedDocument(document) && rename.nameProps)}
               type="button"
               // Out of the toolbar's tab order: a click focuses it for F2, and its menu has Rename.
               tabIndex={-1}
@@ -207,7 +208,7 @@ ${sourceOf(document)}`
             </button>
           ) : null}
           {document && <YourNoteLabel item={document} />}
-          {document && <DocumentTagChips document={document} />}
+          {document && isListedDocument(document) && <DocumentTagChips document={document} />}
         </div>
         {children}
         {areaMode && (

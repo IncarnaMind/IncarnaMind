@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import type { JoinedMeeting } from "../../core/api";
 import { core } from "./core";
-import { useAppStore } from "./store";
 
 interface JoinedMeetingsState {
   joined: JoinedMeeting[];
@@ -12,10 +11,10 @@ interface JoinedMeetingsState {
 }
 
 /**
- * The meetings' Notes this version moved to their Transcript's Folder when it joined each pair
- * filed apart (#2528). The sidebar says each once: it is marked said as soon as it is read, and
- * stays until the User dismisses it or takes it back. Undo moves the Note back, its Transcript
- * with it, as any move does, with its own Undo line.
+ * The meetings this version joined on the walled side of the one wall between a Note and its
+ * Transcript (#2528). The sidebar says each once: it is marked said as soon as it is read, and
+ * stays until the User dismisses it or takes it back. Undo puts the pair back exactly as it was,
+ * so nothing walled comes out.
  */
 export const useJoinedMeetings = create<JoinedMeetingsState>()((set, get) => ({
   joined: [],
@@ -30,9 +29,7 @@ export const useJoinedMeetings = create<JoinedMeetingsState>()((set, get) => ({
   },
   dismiss: (id) => set((state) => ({ joined: state.joined.filter((each) => each.id !== id) })),
   async undo(id) {
-    const join = get().joined.find((each) => each.id === id);
-    if (!join) return;
     get().dismiss(id);
-    await useAppStore.getState().moveToFolder({ mindIds: [join.mindId] }, join.fromFolderId);
+    await core.undoMeetingJoin(id);
   },
 }));

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Document, LibraryGroup } from "../../core/api";
 import { core } from "./core";
 import type { UnitCount } from "./fileInfo";
-import { isListedDocument, noteOf } from "./meetingTranscript";
+import { folderIdOfDocument } from "./meetingTranscript";
 import { useAppStore } from "./store";
 
 /**
@@ -49,10 +49,7 @@ export function useUnitCount(document: Document | null): UnitCount | null {
 export function useDocumentFolder(documentId: string): LibraryGroup | null {
   return useAppStore((state) => {
     const document = state.documents.find((each) => each.id === documentId);
-    const groupId =
-      document && !isListedDocument(document)
-        ? noteOf(document, state.minds)?.folderId
-        : state.library?.assignments.find((each) => each.documentId === documentId)?.groupId;
+    const groupId = folderIdOfDocument(state, document ?? { id: documentId, meetingMindId: null });
     return groupId ? (state.library?.groups.find((each) => each.id === groupId) ?? null) : null;
   });
 }

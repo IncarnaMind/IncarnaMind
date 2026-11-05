@@ -4,9 +4,11 @@ import { type Core, DATABASE_FILE, type SearchScope } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
 import { type Migration, migrations } from "../../src/core/storage/migrations";
 import { citationState } from "../../src/shared/citations";
+import { askAndFinish, citationsIn, citingModel } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { classifierModel } from "../helpers/library";
+import { connectToMind } from "../helpers/mindClient";
 import { scriptedModels } from "../helpers/models";
 import { taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
 import {
@@ -221,6 +223,8 @@ function asBefore(dataDir: string, before: (db: ReturnType<typeof openDatabase>)
   const db = openDatabase(join(dataDir, DATABASE_FILE));
   db.exec(`
     DROP TABLE meeting_joins;
+    DROP TABLE meeting_join_transcripts;
+    DROP TABLE meetings_left_apart;
     DROP INDEX documents_by_meeting_mind;
     ALTER TABLE documents DROP COLUMN meeting_mind_id;
     DELETE FROM schema_migrations WHERE version = ${ours.version};
@@ -230,13 +234,15 @@ function asBefore(dataDir: string, before: (db: ReturnType<typeof openDatabase>)
 }
 
 describe("A database from before (#2528)", { timeout: 60_000 }, () => {
-  test("joins its pair once: the Note goes behind its Transcript's wall, says so once, keeps its Citations, and Undo takes it back", async () => {
+  test("joins a pair one wall lies between on its walled side, says so once, and Undo puts both back exactly", async () => {
     const { core, dataDir, meeting } = await recordedMeeting("en");
     const { document } = await stoppedMeeting(core, dataDir, meeting.id);
     const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
     await core.updateLibraryGroup(vault.id, { name: "Vault", description: "", keepInside: true });
     const desk = await core.createLibraryGroup({ name: "Open desk", description: "" });
     await core.moveToFolder({ mindIds: [meeting.mindId], folderId: desk.id });
+    const behind = await core.createMind({ title: "Harbour vault notes" });
+    await core.moveToFolder({ mindIds: [behind.id], folderId: vault.id });
     const outside = await core.createMind({ title: "Ferry timetable" });
     const tag = await core.createTag({ name: "Calls" });
     core.close();
@@ -256,18 +262,21 @@ describe("A database from before (#2528)", { timeout: 60_000 }, () => {
     });
 
     const { core: again } = await transcribingCore(dataDir);
-    expect((await again.listMinds()).find((mind) => mind.id === meeting.mindId)?.folderId).toBe(
-      vault.id,
-    );
+    const folderOf = async (mindId: string) =>
+      (await again.listMinds()).find((mind) => mind.id === mindId)?.folderId;
+    // The Note went in, behind the wall: nothing walled came out.
+    expect(await folderOf(meeting.mindId)).toBe(vault.id);
     const joined = await again.listJoinedMeetings();
-    expect(
-      joined.map(({ mindId, folderId, fromFolderId }) => ({ mindId, folderId, fromFolderId })),
-    ).toEqual([{ mindId: meeting.mindId, folderId: vault.id, fromFolderId: desk.id }]);
+    expect(joined.map(({ mindId, folderId }) => ({ mindId, folderId }))).toEqual([
+      { mindId: meeting.mindId, folderId: vault.id },
+    ]);
     expect(await filedTranscripts(again, document.id)).toEqual([]);
-    const transcript = (await again.listDocuments()).find((each) => each.id === document.id);
-    expect(transcript).toMatchObject({ meetingMindId: meeting.mindId, tags: [] });
-    // Nothing walled came out: only the Note behind the wall finds the meeting's words.
+    expect((await again.listDocuments()).find((each) => each.id === document.id)).toMatchObject({
+      meetingMindId: meeting.mindId,
+      tags: [],
+    });
     expect(await foundFrom(again, meeting.mindId)).toEqual([document.id]);
+    expect(await foundFrom(again, behind.id)).toEqual([document.id]);
     expect(await foundFrom(again, outside.id)).toEqual([]);
     const citation = {
       documentId: document.id,
@@ -279,21 +288,154 @@ describe("A database from before (#2528)", { timeout: 60_000 }, () => {
     };
     expect(citationState(citation, await again.listDocuments()).check).toBe("found");
 
-    // Said once: the sidebar marks it said, and it isn't listed again.
-    await again.joinedMeetingsSaid(joined.map((each) => each.id));
+    // Undo: the Note goes back out, the Transcript stays behind the wall, a Document of its own
+    // again with its Folder and Tag.
+    await again.undoMeetingJoin(joined[0]?.id as string);
+    expect(await folderOf(meeting.mindId)).toBe(desk.id);
+    const apart = (await again.listDocuments()).find((each) => each.id === document.id);
+    expect(apart?.meetingMindId).toBeNull();
+    expect(apart?.tags.map((each) => each.tagId)).toEqual([tag.id]);
+    expect((await filedTranscripts(again, document.id)).map((each) => each.groupId)).toEqual([
+      vault.id,
+    ]);
+    expect(await foundFrom(again, behind.id)).toEqual([document.id]);
+    expect(await foundFrom(again, meeting.mindId)).toEqual([]);
+    expect(await foundFrom(again, outside.id)).toEqual([]);
     expect(await again.listJoinedMeetings()).toEqual([]);
+    again.close();
+  });
 
-    // Undo moves the Note back where it was, its Transcript with it.
-    await again.moveToFolder({ mindIds: [meeting.mindId], folderId: desk.id });
+  test("takes a Transcript outside into its walled Note's Folder, and Undo puts it back outside", async () => {
+    const { core, dataDir, meeting } = await recordedMeeting("en");
+    const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    await core.updateLibraryGroup(vault.id, { name: "Vault", description: "", keepInside: true });
+    const desk = await core.createLibraryGroup({ name: "Open desk", description: "" });
+    await core.moveToFolder({ mindIds: [meeting.mindId], folderId: vault.id });
+    const outside = await core.createMind({ title: "Ferry timetable" });
+    core.close();
+    asBefore(dataDir, (db) => {
+      db.run(
+        `INSERT INTO document_groups (id, document_id, group_id, source, status, request_id,
+           created_at, updated_at)
+         VALUES ('filed-alone', ?, ?, 'user', 'classified', 'request', ?, ?)`,
+        [document.id, desk.id, document.createdAt, document.createdAt],
+      );
+    });
+
+    const { core: again } = await transcribingCore(dataDir);
+    expect((await again.listMinds()).find((mind) => mind.id === meeting.mindId)?.folderId).toBe(
+      vault.id,
+    );
+    expect(
+      (await again.listDocuments()).find((each) => each.id === document.id)?.meetingMindId,
+    ).toBe(meeting.mindId);
+    expect(await foundFrom(again, outside.id)).toEqual([]);
+    const joined = await again.listJoinedMeetings();
+    expect(joined.map(({ mindId, folderId }) => ({ mindId, folderId }))).toEqual([
+      { mindId: meeting.mindId, folderId: vault.id },
+    ]);
+
+    await again.undoMeetingJoin(joined[0]?.id as string);
+    expect((await again.listMinds()).find((mind) => mind.id === meeting.mindId)?.folderId).toBe(
+      vault.id,
+    );
+    expect((await filedTranscripts(again, document.id)).map((each) => each.groupId)).toEqual([
+      desk.id,
+    ]);
     expect(await foundFrom(again, outside.id)).toEqual([document.id]);
     again.close();
+  });
 
+  test("leaves a pair two walls lie between exactly where it is, each wall's Notes finding only their own, and says so once", async () => {
+    const { core, dataDir, meeting } = await recordedMeeting("en");
+    const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    await core.updateLibraryGroup(vault.id, { name: "Vault", description: "", keepInside: true });
+    const cellar = await core.createLibraryGroup({ name: "Cellar", description: "" });
+    await core.updateLibraryGroup(cellar.id, { name: "Cellar", description: "", keepInside: true });
+    await core.moveToFolder({ mindIds: [meeting.mindId], folderId: cellar.id });
+    const behind = await core.createMind({ title: "Harbour vault notes" });
+    await core.moveToFolder({ mindIds: [behind.id], folderId: vault.id });
+    const outside = await core.createMind({ title: "Ferry timetable" });
+    const tag = await core.createTag({ name: "Calls" });
+    core.close();
+    asBefore(dataDir, (db) => {
+      db.run(
+        `INSERT INTO document_groups (id, document_id, group_id, source, status, request_id,
+           created_at, updated_at)
+         VALUES ('filed-alone', ?, ?, 'user', 'classified', 'request', ?, ?)`,
+        [document.id, vault.id, document.createdAt, document.createdAt],
+      );
+      db.run(
+        `INSERT INTO document_tags (id, document_id, tag_id, source, created_at, updated_at)
+         VALUES ('tagged-alone', ?, ?, 'user', ?, ?)`,
+        [document.id, tag.id, document.createdAt, document.createdAt],
+      );
+    });
+
+    const { core: again } = await transcribingCore(dataDir);
+    const folderOf = async (mindId: string) =>
+      (await again.listMinds()).find((mind) => mind.id === mindId)?.folderId;
+    expect(await folderOf(meeting.mindId)).toBe(cellar.id);
+    expect((await filedTranscripts(again, document.id)).map((each) => each.groupId)).toEqual([
+      vault.id,
+    ]);
+    const transcript = (await again.listDocuments()).find((each) => each.id === document.id);
+    expect(transcript?.meetingMindId).toBeNull();
+    expect(transcript?.tags.map((each) => each.tagId)).toEqual([tag.id]);
+    // Each wall's Notes still find only their own Documents.
+    expect(await foundFrom(again, behind.id)).toEqual([document.id]);
+    expect(await foundFrom(again, meeting.mindId)).toEqual([]);
+    expect(await foundFrom(again, outside.id)).toEqual([]);
+    expect(await again.listJoinedMeetings()).toEqual([]);
+
+    const left = await again.listMeetingsLeftApart();
+    expect(left.map((each) => each.mindId)).toEqual([meeting.mindId]);
+    await again.meetingsLeftApartSaid(left.map((each) => each.id));
+    again.close();
+
+    // Said once: the next start says nothing.
     const { core: third } = await transcribingCore(dataDir);
-    expect(await third.listJoinedMeetings()).toEqual([]);
-    expect((await third.listMinds()).find((mind) => mind.id === meeting.mindId)?.folderId).toBe(
-      desk.id,
-    );
+    expect(await third.listMeetingsLeftApart()).toEqual([]);
     third.close();
+  });
+
+  test("joins a pair behind the same wall, its Transcript then where its Note is, and says nothing", async () => {
+    const { core, dataDir, meeting } = await recordedMeeting("en");
+    const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    await core.updateLibraryGroup(vault.id, { name: "Vault", description: "", keepInside: true });
+    const minutes = await core.createLibraryGroup({
+      name: "Minutes",
+      description: "",
+      parentId: vault.id,
+    });
+    await core.moveToFolder({ mindIds: [meeting.mindId], folderId: minutes.id });
+    const outside = await core.createMind({ title: "Ferry timetable" });
+    core.close();
+    asBefore(dataDir, (db) => {
+      db.run(
+        `INSERT INTO document_groups (id, document_id, group_id, source, status, request_id,
+           created_at, updated_at)
+         VALUES ('filed-alone', ?, ?, 'user', 'classified', 'request', ?, ?)`,
+        [document.id, vault.id, document.createdAt, document.createdAt],
+      );
+    });
+
+    const { core: again } = await transcribingCore(dataDir);
+    expect((await again.listMinds()).find((mind) => mind.id === meeting.mindId)?.folderId).toBe(
+      minutes.id,
+    );
+    expect(
+      (await again.listDocuments()).find((each) => each.id === document.id)?.meetingMindId,
+    ).toBe(meeting.mindId);
+    expect(await filedTranscripts(again, document.id)).toEqual([]);
+    expect(await again.countScopeDocuments(folderScope(minutes.id))).toBe(1);
+    expect(await foundFrom(again, meeting.mindId)).toEqual([document.id]);
+    expect(await foundFrom(again, outside.id)).toEqual([]);
+    expect(await again.listMeetingsLeftApart()).toEqual([]);
+    again.close();
   });
 
   test("a Transcript left live beside its deleted Note goes to Recently deleted with it, as one item", async () => {
@@ -319,5 +461,39 @@ describe("A database from before (#2528)", { timeout: 60_000 }, () => {
       meetingMindId: meeting.mindId,
     });
     expect(await foundFrom(again, meeting.mindId)).toEqual([document.id]);
+  });
+});
+
+describe("Don't cite the Transcript", { timeout: 60_000 }, () => {
+  test("keeps a meeting's Transcript out of an Answer's Citations and a check's evidence, while it is still read", async () => {
+    const model = citingModel({
+      query: "eighteenth of November",
+      records: (passages) =>
+        passages.map((passage, index) => ({
+          marker: index + 1,
+          passage: passage.id,
+          quote: "The launch moves to the eighteenth of November",
+        })),
+      answer: "The launch moves to the eighteenth of November.[^1]",
+    });
+    const models = scriptedModels(model);
+    const { core, dataDir, meeting } = await recordedMeeting("en", {}, models.createChatModel);
+    const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const asker = await core.createMind({ title: "Launch plan" });
+    const client = await connectToMind(core, asker.id);
+
+    const before = await askAndFinish(core, client, asker.id, "When does the launch move to?");
+    expect(citationsIn(client, before.answerId).map((each) => each.documentId)).toEqual([
+      document.id,
+    ]);
+
+    await core.setNotCited(document.id, true);
+    const after = await askAndFinish(core, client, asker.id, "When does the launch move to, now?");
+    expect(citationsIn(client, after.answerId)).toEqual([]);
+    expect(JSON.stringify(model.doStreamCalls.at(-1)?.prompt ?? [])).toContain('cite=\\"never\\"');
+    const evidence = await core.searchEvidence("eighteenth of November");
+    expect(evidence.passages).toEqual([]);
+    expect(evidence.excluded).toMatchObject([{ documentId: document.id, reason: "own-workings" }]);
   });
 });

@@ -111,13 +111,24 @@ export function seedMeetingLibrary(db: Database): void {
         purged_at: purgedAt,
       });
 
-    // Together already: 100, their Transcripts tagged by Organize.
-    for (let i = 0; i < 100; i++) {
+    // Together already: 80, their Transcripts tagged by Organize.
+    for (let i = 0; i < 80; i++) {
       note(`n-same-${i}`, open(i));
       transcript(`t-same-${i}`, `n-same-${i}`, open(i));
       tagged({
         id: `tag-t-same-${i}`,
         document_id: `t-same-${i}`,
+        tag_id: "tag-calls",
+        source: "automatic",
+      });
+    }
+    // Behind the same wall, the Note in its sub-Folder: 20, tagged by Organize too.
+    for (let i = 0; i < 20; i++) {
+      note(`n-within-${i}`, inWall(i));
+      transcript(`t-within-${i}`, `n-within-${i}`, wall(i));
+      tagged({
+        id: `tag-t-within-${i}`,
+        document_id: `t-within-${i}`,
         tag_id: "tag-calls",
         source: "automatic",
       });
