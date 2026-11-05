@@ -79,6 +79,8 @@ async function check() {
 }
 
 test("the update check reads a version without sending an install identifier", async () => {
+  const { updateCheckSendsNoInstallId } = await import("../../src/main/autoUpdater");
+  expect(updateCheckSendsNoInstallId).toBe(true);
   const result = await check();
   expect(result?.isUpdateAvailable).toBe(true);
   expect(result?.updateInfo.version).toBe("1.2.3");
@@ -95,3 +97,20 @@ test("the update check reads a version without sending an install identifier", a
   expect(sent).not.toContain("x-user-staging-id");
   expect(existsSync(join(fixture.data, ".updaterId"))).toBe(false);
 });
+
+test.each(["stagingUserIdPromise", "computeFinalHeaders"] as const)(
+  "stripping the install ID fails closed when %s is missing",
+  async (missing) => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { stripInstallId } = await import("../../src/main/autoUpdater");
+    const updater: Parameters<typeof stripInstallId>[0] = {
+      stagingUserIdPromise: { value: Promise.resolve("old-install-id") },
+      computeFinalHeaders: (headers) => headers,
+    };
+    if (missing === "stagingUserIdPromise") updater.stagingUserIdPromise = undefined;
+    else updater.computeFinalHeaders = undefined;
+    expect(stripInstallId(updater)).toBe(false);
+    expect(error).toHaveBeenCalledOnce();
+    expect(error.mock.calls[0]?.[0]).toContain("#2557");
+  },
+);
