@@ -213,7 +213,10 @@ async function checked(each: Case) {
   const calls: ModelCall[] = [];
   const plans: Record<string, Plan> = {
     [each.sentence]: { verdict: "supported", calculation: each.calculation },
-    [each.after]: { verdict: each.verdict },
+    [each.after]:
+      each.verdict === "supported"
+        ? { verdict: "supported", calculation: { ...each.calculation, stated: "1.31x" } }
+        : { verdict: "unsupported" },
   };
   const model = held(checkingModel(plans, calls));
   const clock = manualClock(CHECKED_AT);
@@ -422,7 +425,7 @@ describe("Change to… asks the model for the verdict (#2563)", () => {
         pageFrom: 1,
         pageTo: 1,
         location: null,
-        quote: each.document.contents.split("\n").at(-1) ?? "",
+        quote: each.document.contents.split("\n").filter(Boolean).at(-1) ?? "",
         check: "found",
         checkReason: null,
       };

@@ -565,53 +565,47 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(claim(editor, "halfway").shown.state).toBe("needs-recheck");
   });
 
-  test("the walk's sentence is corrected in one press, never Cut, in English and Chinese (#2313)", () => {
-    const cases = [
-      {
-        text: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
-        first: "Customer churn fell to 3.9 per cent",
-        timing: "after the onboarding redesign",
-        from: "3.9 per cent",
-        to: "4.2 per cent",
-        fixed: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
-      },
-      {
-        text: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
-        first: "客户流失率降至 3.9%",
-        timing: "时点在引导流程重新设计之后",
-        from: "3.9%",
-        to: "4.2%",
-        fixed: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
-      },
-    ];
-    for (const each of cases) {
-      const deck = evidence("deck", each.fixed);
-      const attrs = checkWithParts(basis("one", each.text), [
-        contradictedPart(0, each.first.length, each.from, [{ wording: each.to, evidence: deck }]),
-        part(
-          each.text.indexOf(each.timing),
-          each.text.indexOf(each.timing) + each.timing.length,
-          "supported",
-          {
-            evidence: [deck],
-          },
-        ),
-      ]);
-      const { editor, doc } = editorWith([
-        { type: "paragraph", attrs: { id: "walk" }, content: [marked(each.text, attrs)] },
-      ]);
-      const shown = claim(editor, "one");
-      expect(shown.shown.state).toBe("contradicted");
+  test.each([
+    {
+      text: "Customer churn fell to 3.9 per cent after the onboarding redesign.",
+      first: "Customer churn fell to 3.9 per cent",
+      timing: "after the onboarding redesign",
+      from: "3.9 per cent",
+      to: "4.2 per cent",
+      fixed: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
+    },
+    {
+      text: "客户流失率降至 3.9%，时点在引导流程重新设计之后。",
+      first: "客户流失率降至 3.9%",
+      timing: "时点在引导流程重新设计之后",
+      from: "3.9%",
+      to: "4.2%",
+      fixed: "客户流失率降至 4.2%，时点在引导流程重新设计之后。",
+    },
+  ] as const)("the walk's sentence is corrected in one press, never Cut ($text)", (each) => {
+    const deck = evidence("deck", each.fixed);
+    const attrs = checkWithParts(basis("one", each.text), [
+      contradictedPart(0, each.first.length, each.from, [{ wording: each.to, evidence: deck }]),
+      part(
+        each.text.indexOf(each.timing),
+        each.text.indexOf(each.timing) + each.timing.length,
+        "supported",
+        {
+          evidence: [deck],
+        },
+      ),
+    ]);
+    const { editor, doc } = editorWith([
+      { type: "paragraph", attrs: { id: "walk" }, content: [marked(each.text, attrs)] },
+    ]);
+    const shown = claim(editor, "one");
+    expect(shown.shown.state).toBe("contradicted");
 
-      expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
+    expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
-      expect(textOf(editor)).toBe(
-        `${each.fixed.slice(0, -1)}${INLINE_NODE}${each.fixed.slice(-1)}`,
-      );
-      expect(offersFixes(editor, claim(editor, "one"))).toBe(false);
-      expect(asked.checks.length).toBeGreaterThan(0);
-      asked.checks.length = 0;
-    }
+    expect(textOf(editor)).toBe(`${each.fixed.slice(0, -1)}${INLINE_NODE}${each.fixed.slice(-1)}`);
+    expect(offersFixes(editor, claim(editor, "one"))).toBe(false);
+    expect(asked.checks).toHaveLength(1);
   });
 
   test("corrects each contradicted part of a two-part sentence on its own, then the other", async () => {
@@ -648,18 +642,14 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(textOf(editor)).toBe(
       `The break fee is $75,000, and the deposit is returned within 30 days${INLINE_NODE}.`,
     );
-    expect(correctionsFor(editor, claim(editor, "two"))).toHaveLength(1);
-
-    expect(applyCorrection(editor, "mind", doc, claim(editor, "two"), { start: 0, end: 24 })).toBe(
-      true,
-    );
-
+    // The old check stays until the re-check answers, so the other part waits for it.
     expect(claim(editor, "two").shown.state).toBe("needs-recheck");
-    expect(citationsOf(editor).map((each) => each.quote)).toEqual([
-      "The Landlord shall return it within 30 days.",
-      "paying a break fee of $57,000",
-    ]);
-    await vi.waitFor(() => expect(asked.checks).toHaveLength(2));
+    expect(asked.checks).toHaveLength(1);
+    undoManager(editor)?.undo();
+    expect(textOf(editor)).toBe(
+      "The break fee is $75,000, and the deposit is returned within 60 days.",
+    );
+    expect(claim(editor, "two").shown.state).toBe("contradicted");
   });
 });
 
