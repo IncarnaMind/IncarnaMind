@@ -504,37 +504,15 @@ function libraryRun(
       const { correction: _correction, ...kept } = judgment;
       return kept as J;
     };
-    // A sentence with figures is decided by its figures and its other words, each held to these
-    // rules on its own Citations; together they cite each fact its Library line names, or none of
-    // them decides it.
+    // Each figure and the sentence's other words are held to these rules on their own Citations;
+    // the sentence's own rule, below, sees every figure's Citation too.
     const evidenceOf = (judgment: ClaimJudgment | null | undefined) =>
       judgment && judgment.verdict !== "not-checked" ? judgment.evidence : null;
-    const backed = new Set(
-      [
-        ...(result.figures ?? []).flatMap((figure) => [
-          evidenceOf(figure.result),
-          figure.source,
-          figure.sourceInput?.citation,
-        ]),
-        evidenceOf(result.remainder),
-      ].flatMap((each) => factOf(each)?.kind ?? []),
-    );
-    const partsUnbacked = facts !== null && [...facts].some((kind) => !backed.has(kind));
-    const heldPart = <J extends ClaimJudgment>(
-      judgment: J,
-      deciding: readonly (CitationLike | null | undefined)[],
-    ): J | null => {
-      const judged = held(judgment, deciding, false);
-      return judged === null ||
-        (partsUnbacked && (judged.verdict === "supported" || judged.verdict === "contradicted"))
-        ? null
-        : judged;
-    };
     // Its one ask is spent (`turnCheck`): a verdict its reply doesn't bear out is no verdict.
     const unread = () => notCheckedAll(result, versions, "malformed");
     const figures: FigureCheckResult[] = [];
     for (const figure of result.figures ?? []) {
-      const checked = heldPart(figure.result, [figure.source, figure.sourceInput?.citation]);
+      const checked = held(figure.result, [figure.source, figure.sourceInput?.citation], false);
       if (checked === null) return unread();
       // A count of things has no scale word, share, price or size: "22 thousand" or "22 GB" is
       // never "Documents in all: 22", whatever the reply says.
@@ -563,7 +541,7 @@ function libraryRun(
           : { ...figure, result: judged },
       );
     }
-    const heldRemainder = result.remainder ? heldPart(result.remainder, []) : result.remainder;
+    const heldRemainder = result.remainder ? held(result.remainder, [], false) : result.remainder;
     if (result.remainder && heldRemainder === null) return unread();
     const remainder = heldRemainder && {
       ...heldRemainder,
