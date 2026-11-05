@@ -1234,6 +1234,8 @@ export function createCore(adapters: CoreAdapters): Core {
     if (wasLocal !== embedding.localOnly()) {
       usageData.localModeChanged();
       privacyChanged();
+      // Documents waiting to be allowed on a cloud service aren't, in Local mode (#2308).
+      events.emit("library.changed", null);
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
       await rerankChanged();
@@ -3404,6 +3406,7 @@ export function createCore(adapters: CoreAdapters): Core {
     background,
     isExampleDocument: (documentId) => isExampleDocument(documentId),
     head: (id) => documents.head(id),
+    localOnly: () => embedding.localOnly(),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();

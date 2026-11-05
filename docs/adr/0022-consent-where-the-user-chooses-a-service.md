@@ -23,3 +23,16 @@ Choosing a cloud model for Tags turns **Tag and sort new Documents automatically
 - **Existing profiles keep their switch.** A profile that chose a model before this rule keeps its switch as it was. No migration or default turns it on, and a save that shows the switch off keeps it off.
 
 Before, a User who chose "Tags and Folders use Claude Haiku 5.5" in setup got no Tags at all, with every Document "off" and nothing saying why.
+
+## Amendment: dropped Documents ask on their own row (2026-11-04, #2308)
+
+The User found scans they dropped left in no Folder, with nothing saying why. With a cloud model, sorting new Documents by itself is off until it is turned on for that service, and the only way to turn it on was in Settings. Now the Documents waiting say so where the User sees the Library's work, and the User can allow it there.
+
+- **Nothing goes before the press.** Without the switch on for the service Organize sends to, a dropped Document stays in no Folder and nothing of it is sent. Its first pages are still read first, on this computer either way.
+- **The press is the consent, for that service only.** The sidebar's footer says "4 to sort · Allow {service}", its popover says what is sent before the press ("…sends each Document’s name and short excerpts to {service}, for these and for Documents you add later"), and the button names the service. Pressing it records the consent through `src/core/consent.ts` and turns on "sort new Documents automatically" for that service, as the switch's own Turn on does, with its time.
+- **The Documents waiting are sorted at the press,** as the User's own Organize, with its one Undo. From then on, new Documents go by themselves; Documents that were in the Library before still wait for the User's Organize, as the rule above says.
+- **Turning the switch off withdraws it.** Nothing more goes by itself, and Documents that wait show the row again. Another cloud service asks again on its own row. A model on this computer is unchanged.
+- **Walls and Local mode still hold.** A Document filed inside a Folder that keeps its work inside it never goes to a cloud service by itself, and in Local mode the row doesn't show and nothing goes.
+- **Only the start of a Document is sent**, the excerpt Organize reads: its name and type, its first Passages and, for a scan with no text, page images only where that flow is allowed.
+
+This reverses, for sorting, the rule that only setup, Settings › Tagging and Settings › Models turn the switch on: the row's Allow is a fourth place, with the line on screen.

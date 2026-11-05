@@ -388,6 +388,8 @@ export function createLibrary(options: {
    * reads them as it would read the finished Document, so it sorts it once, at once.
    */
   head?(id: string): Pick<OrganizeSource, "pageCount" | "passages" | "units"> | null;
+  /** Local mode: nothing goes to a cloud service, so nothing waits to be allowed there. */
+  localOnly?(): boolean;
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -479,6 +481,11 @@ export function createLibrary(options: {
       "SELECT a.group_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id WHERE a.document_id = ? AND a.deleted_at IS NULL AND g.deleted_at IS NULL",
       [id],
     )?.group_id ?? null;
+  /** A Document filed inside a Folder that keeps its work inside it: nothing of it goes to a cloud service by itself (#2308). */
+  const inWall = (id: string) => {
+    const place = placeOf(id);
+    return place !== null && wallOf(place) !== null;
+  };
   const taggingStoppedFor = (id: string) => {
     const { taggingStopped } = getSettings();
     return taggingStopped.length > 0 && taggingStopped.includes(placeOf(id));
@@ -1018,7 +1025,10 @@ export function createLibrary(options: {
       // Checked on where this request goes, as prepared; the User's own Organize goes.
       const service = options.organizeService(settingsNow);
       const services = service ? [service] : [];
-      if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
+      if (
+        !asked.has(id) &&
+        (!mayBackgroundSend(db, id, services, turnedOnAt) || (services.length > 0 && inWall(id)))
+      ) {
         holdBack(id, initial);
         return;
       }
@@ -1244,6 +1254,13 @@ export function createLibrary(options: {
     announce([id]);
   }
 
+  /** The cloud service new Documents wait to be allowed on (`LibrarySnapshot.sortWaitsFor`). */
+  function sortWaitsFor(): ExternalService | null {
+    const now = getSettings();
+    if (now.automatic || options.localOnly?.() || groups().length === 0) return null;
+    return options.organizeService(now);
+  }
+
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
   // waiting or failed), or while Organize files new Documents by itself.
   const isOrganizing = (id: string): boolean => {
@@ -1355,6 +1372,7 @@ export function createLibrary(options: {
         )
         .map(toGroup);
       const saved = savedSettings();
+      const waiting = sortWaitsFor();
       return {
         groups: groups(),
         deletedGroups,
@@ -1362,6 +1380,7 @@ export function createLibrary(options: {
         settings: shownSettings(saved),
         automaticDefault: defaultAutomatic(saved),
         automaticOffNotice: automaticOffNotice(),
+        ...(waiting && { sortWaitsFor: waiting }),
       };
     },
     dismissAutomaticOffNotice(): void {
