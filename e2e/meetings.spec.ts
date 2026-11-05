@@ -972,7 +972,7 @@ test("asking during the call: the assistant listens to the live transcript, its 
   await app.close();
 });
 
-test("a stopped Transcript has no row of its own: from its Note, Get info says IncarnaMind keeps it, with no .vtt path and no file actions, in English and Chinese (#763, #2528)", async () => {
+test("a stopped Transcript has no row of its own: from its Note, Get info names that Note, with no .vtt path and no file actions, in English and Chinese (#763, #2528)", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await setWindowSize(app, window, 1440, 900);
@@ -1010,8 +1010,17 @@ test("a stopped Transcript has no row of its own: from its Note, Get info says I
   await expect(menu.getByTestId("document.openExternally")).toHaveCount(0);
   await pointAndClick(window, menu.getByTestId("file.info"));
   const panel = window.getByTestId("info-panel");
-  await expect(panel.getByTestId("info-path")).toHaveText("In your Library");
+  // Its place is its Note's: the panel names the Note, which it opens, never a place of its own.
+  const [note] = await window.evaluate(async () =>
+    (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds()).map(
+      (mind) => mind.title,
+    ),
+  );
+  await expect(panel.getByRole("term").filter({ hasText: /^Note$/ })).toBeVisible();
+  await expect(panel.getByTestId("info-open-meeting-note")).toHaveText(note ?? "");
+  await expect(panel.getByTestId("info-path")).toHaveCount(0);
   await expect(panel).not.toContainText(".vtt");
+  await expect(panel).not.toContainText("In your Library");
   await expect(panel.getByTestId("info-show")).toHaveCount(0);
   await expect(panel.getByTestId("info-copy-path")).toHaveCount(0);
   await window.keyboard.press("Escape");
@@ -1019,7 +1028,11 @@ test("a stopped Transcript has no row of its own: from its Note, Get info says I
   await setLanguage(window, "zh-CN");
   await pointAndClick(window, header.getByTestId("document-file-menu"));
   await pointAndClick(window, menu.getByTestId("file.info"));
-  await expect(panel.getByTestId("info-path")).toHaveText("在资料库中");
+  await expect(panel.getByRole("term").filter({ hasText: /^笔记$/ })).toBeVisible();
+  await expect(panel.getByTestId("info-open-meeting-note")).toHaveText(note ?? "");
+  await expect(panel).not.toContainText("在资料库中");
   await expect(panel).not.toContainText(".vtt");
+  await pointAndClick(window, panel.getByTestId("info-open-meeting-note"));
+  await expect(window.getByTestId("mind-pane")).toBeVisible();
   await app.close();
 });

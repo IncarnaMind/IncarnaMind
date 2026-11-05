@@ -63,7 +63,7 @@ export function joinedMeetings(db: Database): JoinedMeeting[] {
        JOIN minds n ON n.id = j.mind_id AND n.deleted_at IS NULL AND n.folder_id = j.to_folder_id
        JOIN library_groups g ON g.id = j.to_folder_id AND g.deleted_at IS NULL
        WHERE j.said_at IS NULL AND j.deleted_at IS NULL
-       ORDER BY j.created_at, j.id`,
+       ORDER BY j.created_at, j.mind_id`,
     )
     .map((row) => ({
       id: row.id,

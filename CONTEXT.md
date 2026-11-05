@@ -338,7 +338,7 @@ What the User records alone, with the microphone, to think out loud: recorded an
 _Avoid_: dictation, voice note, audio note, recording
 
 **Transcript**:
-The words of a Meeting, in order and with times, kept as a Document in the Library so that a Citation can point at it; its file is IncarnaMind's own, inside the data folder, never one the User keeps. A `.vtt` file the User adds is their own file, as any Document is. Its Location is a range of time.
+The words of a Meeting, in order and with times, kept as a Document that belongs to the Meeting's Note, so that a Citation can point at it; its file is IncarnaMind's own, inside the data folder, never one the User keeps. A meeting is one item: the Transcript has no row, Folder or Tags of its own, and is reached through its Note; it goes where its Note goes, into its Folder, behind its wall and to Recently deleted, and words found inside it are its Note's. A `.vtt` file the User adds is their own file, as any Document is. Its Location is a range of time.
 _Avoid_: captions, subtitles, minutes
 
 **Speaker**:

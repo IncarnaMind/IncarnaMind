@@ -6,9 +6,10 @@
  */
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
+import { DATABASE_FILE } from "../../src/core";
 import { type Database, migrate, openDatabase } from "../../src/core/storage";
 import { type Migration, migrations } from "../../src/core/storage/migrations";
-import { createTempDataFolder } from "../helpers/core";
+import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 
 const AT = "2026-10-20T09:00:00.000Z";
 const DELETED = "2026-10-25T09:00:00.000Z";
@@ -167,17 +168,33 @@ const liveTags = (db: Database) =>
 const liveRejections = (db: Database) =>
   db.all<{ id: string }>("SELECT id FROM document_group_rejections WHERE deleted_at IS NULL");
 
-async function seeded(): Promise<Database> {
-  const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+async function seeded(file?: string): Promise<Database> {
+  const db = openDatabase(file ?? join(await createTempDataFolder(), "test.db"));
   migrate(db, before);
   seed(db);
   return db;
 }
 
+/** Every Document and Note there is, live or deleted, as each was left. */
+const everything = (db: Database) => ({
+  documents: db.all<{ id: string; deleted_at: string | null; purged_at: string | null }>(
+    "SELECT id, deleted_at, purged_at FROM documents ORDER BY id",
+  ),
+  notes: db.all<{ id: string; title: string; deleted_at: string | null }>(
+    "SELECT id, title, deleted_at FROM minds ORDER BY id",
+  ),
+});
+
 describe("Migration: a Meeting's Transcript belongs to its Note (#2528)", () => {
   test("pairs filed apart join once, on the walled side when a wall lies between them", async () => {
     const db = await seeded();
+    const kept = everything(db);
     migrate(db);
+
+    // Every Document and Note is still there, as it was; only Folders changed.
+    expect(everything(db)).toEqual(kept);
+    expect(kept.documents).toHaveLength(11);
+    expect(kept.notes).toHaveLength(9);
 
     expect(notes(db)).toEqual([
       { id: "n1", folder_id: "S" },
@@ -273,5 +290,51 @@ describe("Migration: a Meeting's Transcript belongs to its Note (#2528)", () => 
     expect(joins(db)).toHaveLength(4);
     expect(notes(db).find((each) => each.id === "n1")).toEqual({ id: "n1", folder_id: "S" });
     db.close();
+  });
+});
+
+describe("A database from before, opened by this version (#2528)", () => {
+  test("keeps every Document and Note, says each Note it moved, and Undo puts each back where it was", async () => {
+    const dataDir = await createTempDataFolder();
+    const seededDb = await seeded(join(dataDir, DATABASE_FILE));
+    const before = seededDb.all<{ id: string; folder_id: string | null }>(
+      "SELECT id, folder_id FROM minds WHERE deleted_at IS NULL ORDER BY id",
+    );
+    seededDb.close();
+
+    const core = startCore(dataDir, { now: manualClock("2026-10-26T09:00:00.000Z").now });
+
+    const live = ["t1", "t2", "t3", "t4", "t5", "t7", "t8a", "t8b", "t9", "u1"];
+    expect((await core.listDocuments()).map((each) => each.id).sort()).toEqual(live);
+    expect((await core.listMinds()).map((mind) => mind.id).sort()).toEqual(
+      before.map((each) => each.id),
+    );
+    // The Transcript an earlier version left live beside its deleted Note waits with it, as one item.
+    expect(
+      (await core.listDeleted()).map((item) => [item.kind, item.id, item.meeting?.transcript]),
+    ).toEqual([["mind", "n6", true]]);
+    expect((await core.listDocuments()).find((each) => each.id === "t7")?.meetingMindId).toBeNull();
+    expect((await core.listDocuments()).find((each) => each.id === "t1")?.meetingMindId).toBe("n1");
+
+    const joined = await core.listJoinedMeetings();
+    expect(
+      joined.map(({ mindId, folderId, fromFolderId }) => ({ mindId, folderId, fromFolderId })),
+    ).toEqual([
+      { mindId: "n1", folderId: "S", fromFolderId: "A" },
+      { mindId: "n4", folderId: "W", fromFolderId: "V" },
+      { mindId: "n8", folderId: "W", fromFolderId: null },
+    ]);
+
+    // Undo, as the sidebar's line does: each Note goes back where it was, its Transcript with it.
+    for (const join of joined) {
+      await core.moveToFolder({ mindIds: [join.mindId], folderId: join.fromFolderId });
+    }
+    expect(
+      (await core.listMinds())
+        .map((mind) => ({ id: mind.id, folder_id: mind.folderId }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    ).toEqual(before);
+    expect((await core.listDocuments()).map((each) => each.id).sort()).toEqual(live);
+    core.close();
   });
 });
