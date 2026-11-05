@@ -476,12 +476,41 @@ describe("a Supported reply without its Duty or Condition line is asked once, an
       "supported",
       0,
     ],
+    [
+      "the same duty in two words, given in the form's words when asked",
+      {
+        sentence: "Berth holders have to wear a life jacket on the pontoons.",
+        quote: "Berth holders must wear a life jacket on the pontoons.",
+        verdict: "supported",
+        duty: "has to / must, same",
+        condition: SAME,
+        again: { duty: "must / must, same", condition: SAME },
+      },
+      "supported",
+      1,
+    ],
   ])("%s", async (_, each, state, asked) => {
     const calls: ModelCall[] = [];
     const checked = await check(each, BERTHS, calls);
     expect(checked?.state).toBe(state);
     expect(asks(calls)).toHaveLength(asked);
     if (each.number) expect(checked?.figures).toHaveLength(1);
+  });
+
+  test("the ask names the words each side of the Duty line takes", async () => {
+    const calls: ModelCall[] = [];
+    await check(
+      {
+        sentence: "Berth holders have to wear a life jacket on the pontoons.",
+        quote: "Berth holders must wear a life jacket on the pontoons.",
+        verdict: "supported",
+        duty: "has to / must, same",
+        condition: SAME,
+      },
+      BERTHS,
+      calls,
+    );
+    expect(asks(calls)[0]?.prompt).toContain("must, should, may, must not or none");
   });
 });
 
@@ -703,6 +732,10 @@ describe("a Duty or Condition line is read only by its own closing word (#1766, 
       "",
       "Members may swap boats if the hire fees are the same.",
       "",
+      "Members may hire a dinghy if the bosun and/or the treasurer agrees.",
+      "",
+      "Members must not leave a boat on the slipway.",
+      "",
     ].join("\n"),
   };
   const asks = (calls: readonly ModelCall[]) => calls.filter((call) => call.prompt.includes(ASKED));
@@ -900,6 +933,139 @@ describe("a Duty or Condition line is read only by its own closing word (#1766, 
       },
       "unsupported",
       0,
+    ],
+    [
+      "a Condition copied in brackets on one side, called the same",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / (provided that both hirers are of the same age group), same",
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a Condition line with only the Passage's side, called the same",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "provided that both hirers are of the same age group, same",
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a Condition line with one side that is none, called the same",
+      {
+        sentence: "Members must sign the hire book before they launch.",
+        quote: "Members must sign the hire book before they launch.",
+        verdict: "supported",
+        duty: "must / must, same",
+        condition: "none, same",
+      },
+      "supported",
+      0,
+    ],
+    [
+      "a Condition with a slash in its words on one side, called the same",
+      {
+        sentence: "Members may hire a dinghy.",
+        quote: "Members may hire a dinghy if the bosun and/or the treasurer agrees.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / if the bosun and/or the treasurer agrees, same",
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a Condition with a slash in its words on both sides, the same",
+      {
+        sentence: "Members may hire a dinghy if the bosun and/or the treasurer agrees.",
+        quote: "Members may hire a dinghy if the bosun and/or the treasurer agrees.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition:
+          "if the bosun and/or the treasurer agrees / if the bosun and/or the treasurer agrees, same",
+      },
+      "supported",
+      0,
+    ],
+    [
+      "a Duty line that calls must and must not the same",
+      {
+        sentence: "Members must leave a boat on the slipway.",
+        quote: "Members must not leave a boat on the slipway.",
+        verdict: "supported",
+        duty: "must / must not, same",
+        condition: SAME,
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a rule put the other way round, the same word on both sides",
+      {
+        sentence: "Members must keep the slipway clear of boats.",
+        quote: "Members must not leave a boat on the slipway.",
+        verdict: "supported",
+        duty: "must / must, same",
+        condition: SAME,
+      },
+      "supported",
+      0,
+    ],
+    [
+      "a 'differs' that ends the line, with no comma before it",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / provided that both hirers are of the same age group differs",
+      },
+      "unsupported",
+      0,
+    ],
+    [
+      "a self-denying Condition line, then one that reads the same",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: null,
+        condition: null,
+        lines: [
+          "Duty: may / may, same",
+          "Condition: none / provided that both hirers are of the same age group, same",
+          `Condition: ${SAME}`,
+        ],
+      },
+      "not-checked",
+      1,
+    ],
+    [
+      "a self-denying Condition beside cite, then the last turn's own line",
+      {
+        sentence: "Members may hire a paddle board.",
+        quote:
+          "Members may hire a paddle board, provided that both hirers are of the same age group.",
+        verdict: "supported",
+        duty: "may / may, same",
+        condition: "none / provided that both hirers are of the same age group, same",
+        split: true,
+        lastLines: ["Duty: may / may, same", `Condition: ${SAME}`],
+      },
+      "not-checked",
+      1,
     ],
     [
       "lines beside cite and in the last turn, all the same",
