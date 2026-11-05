@@ -38,6 +38,14 @@ const LIVE: { name: string; kind: ChatProviderKind; apiKey: string | undefined; 
         process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
         (catalogProvider("anthropic")?.roles.quickTasks as string),
     },
+    {
+      name: "DeepSeek",
+      kind: "deepseek",
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      model:
+        process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ??
+        (catalogProvider("deepseek")?.roles.answers as string),
+    },
   ];
 
 interface Request {
