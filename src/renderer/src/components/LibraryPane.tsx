@@ -101,9 +101,6 @@ export function LibraryPane() {
   const tagFilter = useAppStore(useShallow((state) => state.tagFilter));
   const request = useAppStore((state) => state.libraryFilter);
   const reviewTarget = useAppStore((state) => state.reviewTarget);
-  const organizeService = useTaggingService("classification", true);
-  const organizeServiceName =
-    organizeService.route.where === "cloud" ? organizeService.route.service.name : null;
   const findingSources = useFindSources((state) => state.open);
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
@@ -232,6 +229,14 @@ export function LibraryPane() {
     const held = new Map((snapshot?.assignments ?? []).map((item) => [item.documentId, item]));
     return new Map(documents.map((doc) => [doc.id, organizeStateOf(doc, held.get(doc.id))]));
   }, [documents, snapshot?.assignments]);
+  const anyFailed = useMemo(
+    () => [...states.values()].some((state) => state.run === "failed"),
+    [states],
+  );
+  // Only a failure's line names the service Organize sends to, so the route is read then alone.
+  const organizeService = useTaggingService("classification", anyFailed);
+  const organizeServiceName =
+    organizeService.route.where === "cloud" ? organizeService.route.service.name : null;
   const unsortedIds = useMemo(
     () => new Set([...states].flatMap(([id, state]) => (state.place === "notSorted" ? [id] : []))),
     [states],
