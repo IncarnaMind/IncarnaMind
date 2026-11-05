@@ -179,7 +179,7 @@ describe("Check this note", () => {
     rewriting.current = { mind: "check-rent" };
     try {
       const { startMindCheck } = await import("../../src/renderer/src/mindCheck");
-      expect(await startMindCheck("mind", "changed")).toEqual({ kind: "running" });
+      expect(await startMindCheck("mind", "changed")).toEqual({ kind: "busy" });
       expect(noteBusy).toHaveBeenCalledWith("mind");
       expect(bridge.holdMindCheck).not.toHaveBeenCalled();
       expect(bridge.planMindCheck).not.toHaveBeenCalled();

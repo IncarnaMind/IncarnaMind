@@ -549,7 +549,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const price = health.getByTestId("check-estimate");
       const line = health.getByTestId("card-foot-progress");
       const foot = health.getByTestId("check-card-foot");
-      await expect(price).toContainText(language === "en" ? "About $" : "约 $");
+      // The scripted cloud model's estimate is of nothing, which shows no amount: its tokens show.
+      await expect(price).toContainText(language === "en" ? "tokens" : "token");
       // At rest the row is Check's own: no progress line, no empty one.
       await expect(line).toHaveCount(0);
       await screenshot(window, `card-foot-${language}-${width}-open`);
@@ -629,7 +630,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const press = health.getByTestId("badge-check-mind");
       const price = health.getByTestId("check-estimate");
       const line = health.getByTestId("card-foot-progress");
-      await expect(price).toContainText("约 $");
+      await expect(price).toContainText("token");
       await health.evaluate((element) => {
         (element as HTMLElement).style.width = "220px";
       });

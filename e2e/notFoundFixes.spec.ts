@@ -65,8 +65,8 @@ const DRY_FILES = [
   { name: "Bay.txt", contents: "Bay\n\nThe bay is dry for 3 months of summer.\n" },
 ];
 const DRY_REWRITTEN = "The bay is dry for 3 months of summer￼.";
-/** The same, with a figure the line doesn't give: Rewrite is offered, and the core keeps it. */
-const DRY_AND_WINTER = "The bay is dry for 2 months of summer and 5 of winter.";
+/** The same, with a rate the line doesn't name after a comma: Rewrite is offered, and the core keeps it. */
+const DRY_EVERY_YEAR = "The bay is dry for 2 months of summer, every year.";
 
 /** The app in `language`, the Documents added, and a new Note: its scope `scope` when given. */
 async function launchNote(
@@ -433,11 +433,11 @@ for (const language of ["en", "zh-CN"] as const) {
       "unsupported",
     );
 
-    // A figure the Passage doesn't give stays out: the sentence is kept as written.
-    const kept = await checkSentence(window, editor, DRY_AND_WINTER);
+    // A rate the Passage doesn't name stays out: the sentence is kept as written.
+    const kept = await checkSentence(window, editor, DRY_EVERY_YEAR);
     await pointAndClick(window, kept.getByTestId("claim-rewrite"));
     await expect(window.getByTestId("error-notice-message")).toContainText(t("claim.rewrite.kept"));
-    expect(await noteText(editor)).toBe(`${DRY}\n${DRY_AND_WINTER}`);
+    expect(await noteText(editor)).toBe(`${DRY}\n${DRY_EVERY_YEAR}`);
     await setWindowSize(app, window, 900, 900);
     await capture(window, `after-rewrite-kept-${language}-900`);
 
@@ -527,13 +527,13 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-const EVERY_12_WEEKS = "Harbours publish the times of high water every 12 weeks.";
+const EACH_YEAR = "Harbours publish the times of high water every 12 months, each year.";
 
 /**
  * Two sentences whose checks found the line `OWN` and called them unsupported, as a real model may
  * where the scripted one never does: one that gives the line's figure of what the line gives it
- * for, and one with the same figure in another unit, which a rewrite could still reach. The
- * scripted rewrite finds nothing to change in either.
+ * for, and one with the same figure and a rate the line doesn't name, which the card offers a
+ * rewrite for. The scripted rewrite finds nothing to change in either.
  */
 async function writeChecksOnTheLine(window: Page, editor: Locator): Promise<void> {
   const evidence = await window.evaluate(async (quote) => {
@@ -581,7 +581,7 @@ async function writeChecksOnTheLine(window: Page, editor: Locator): Promise<void
     (dom, content) => {
       (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
     },
-    [paragraph("check-same", OWN), paragraph("check-weeks", EVERY_12_WEEKS)],
+    [paragraph("check-same", OWN), paragraph("check-each-year", EACH_YEAR)],
   );
   await motionSettled(window);
 }
@@ -620,8 +620,8 @@ for (const [language, same, none] of [
     await writeChecksOnTheLine(window, editor);
     const card = window.getByTestId("claim-card");
     for (const [words, said] of [
-      ["12 months", same],
-      ["12 weeks", none],
+      ["12 months.", same],
+      ["each year", none],
     ] as const) {
       await openCardAt(window, editor, words);
       await expect(card.getByTestId("claim-sentence")).toContainText(words);
@@ -629,7 +629,7 @@ for (const [language, same, none] of [
       await expect(window.getByTestId("copied-line")).toHaveText(said);
       await capture(window, `after-rewrite-${said === same ? "same" : "none"}-${language}-1440`);
       await expect(window.getByTestId("error-notice-message")).toHaveCount(0);
-      expect(await noteText(editor)).toBe(`${OWN}\n${EVERY_12_WEEKS}`);
+      expect(await noteText(editor)).toBe(`${OWN}\n${EACH_YEAR}`);
       await openCardAt(window, editor, words);
       await expect(card.getByTestId("claim-choose-citation")).toBeVisible();
       await window.keyboard.press("Escape");
