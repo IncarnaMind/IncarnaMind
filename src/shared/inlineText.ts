@@ -76,6 +76,28 @@ export function inlineRange(
   return typeof from === "number" && typeof to === "number" ? { from, to } : null;
 }
 
+// A projection is never changed once made, so where each raw offset first is in it is worked out
+// once, and a paragraph of many sentences costs no more than its length (#2512).
+const firstPlaces = new WeakMap<
+  InlineTextProjection,
+  { starts: Map<number, number>; ends: Map<number, number> }
+>();
+
+function placesOf(projection: InlineTextProjection) {
+  let places = firstPlaces.get(projection);
+  if (places) return places;
+  const firstOf = (offsets: readonly (number | null)[]) => {
+    const first = new Map<number, number>();
+    offsets.forEach((offset, index) => {
+      if (offset !== null && !first.has(offset)) first.set(offset, index);
+    });
+    return first;
+  };
+  places = { starts: firstOf(projection.rawStarts), ends: firstOf(projection.rawEnds) };
+  firstPlaces.set(projection, places);
+  return places;
+}
+
 export function inlineSpan(
   projection: InlineTextProjection,
   from: number,
@@ -83,8 +105,9 @@ export function inlineSpan(
 ): { start: number; end: number } | null {
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to <= from)
     return null;
-  const start = projection.rawStarts.indexOf(from);
-  const end = projection.rawEnds.indexOf(to) + 1;
+  const places = placesOf(projection);
+  const start = places.starts.get(from) ?? -1;
+  const end = (places.ends.get(to) ?? -1) + 1;
   return start >= 0 && end > start && inlineRange(projection, start, end) ? { start, end } : null;
 }
 
