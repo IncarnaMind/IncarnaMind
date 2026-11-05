@@ -308,9 +308,11 @@ function toldTheModel(prompts: readonly unknown[]): string {
   for (const prompt of [...prompts].reverse()) {
     if (!Array.isArray(prompt)) continue;
     for (const message of [...prompt].reverse()) {
-      if (!isRecord(message) || message.role !== "tool" || !Array.isArray(message.content)) continue;
+      if (!isRecord(message) || message.role !== "tool" || !Array.isArray(message.content))
+        continue;
       const part = message.content.findLast(
-        (each) => isRecord(each) && each.type === "tool-result" && each.toolName === "run_skill_script",
+        (each) =>
+          isRecord(each) && each.type === "tool-result" && each.toolName === "run_skill_script",
       );
       if (isRecord(part) && isRecord(part.output)) return String(part.output.value ?? "");
     }

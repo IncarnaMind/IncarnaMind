@@ -433,7 +433,10 @@ describe("The script runner asks the Executor", () => {
       });
       return Object.assign(scripts, { requests });
     };
-    const ran = async (result: ExecResult, scripts = onOwn(result)) =>
+    const ran = async (
+      result: ExecResult,
+      scripts: Pick<ReturnType<typeof createScriptRunner>, "run"> = onOwn(result),
+    ) =>
       expect(await scripts.run(toRun({ script: "scripts/hello.py" }))).toStrictEqual({
         ...result,
         error: null,

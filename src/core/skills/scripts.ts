@@ -364,8 +364,7 @@ export function createScriptRunner(options: ScriptRunnerOptions) {
           });
           if (why !== null && !signal.aborted) throw ownPythonCantStart(request.script, why);
           // Python ends with 1 on an exception nothing caught: any other run went on past it.
-          const missing =
-            run.exitCode === 1 && !signal.aborted ? missingPackage(run.stderr) : null;
+          const missing = run.exitCode === 1 && !signal.aborted ? missingPackage(run.stderr) : null;
           const notIncluded = async (name: string) =>
             (
               await executor.run({
