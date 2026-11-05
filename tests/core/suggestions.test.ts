@@ -48,6 +48,12 @@ const BREAD = {
   contents: "# Bread\n\nSourdough bread needs a starter fed with flour and water every day.",
 };
 
+/** Another Passage the pause's query matches, so search hands the reranker two candidates: it returns without one. */
+const ALMANAC = {
+  name: "Almanac.md",
+  contents: "# Almanac\n\nThe moon pulls the sea twice a day.",
+};
+
 const CHAOZHOU = {
   name: "潮汐.md",
   contents:
@@ -273,11 +279,20 @@ describe("suggestions as the User writes", () => {
   test("with rerank's flow revoked, a pause neither asks rerank nor sends to it", async () => {
     const rerankers = mockRerankingModels((text) => (text.includes("Spring tides") ? 0.9 : 0.02));
     const model = suggestingModel(SPRING);
-    const { core, mind } = await setUp(model, [TIDES, BREAD], {
+    const { core, mind } = await setUp(model, [TIDES, ALMANAC, BREAD], {
       createRerankingModel: rerankers.createRerankingModel,
     });
     await core.saveRerankSettings({ kind: "cohere", apiKey: "cohere-test-key" });
+    expect(await core.getRerankSettings()).toMatchObject({
+      kind: "cohere",
+      hasApiKey: true,
+      paused: false,
+    });
+    // A search the User starts uses it: the pause below must not.
+    await core.searchEvidence("spring tides at the new moon and the full moon");
+    expect(rerankers.calls.length).toBeGreaterThan(0);
     await core.revokeConsent("rerank", "https://api.cohere.com");
+    const sent = rerankers.calls.length;
     const asked: string[] = [];
     // Any prompt would be declined: the test must see it raised, and the search go without.
     core.on("consent.requested", (request) => {
@@ -289,7 +304,7 @@ describe("suggestions as the User writes", () => {
       SPRING.text,
     );
     expect(asked).not.toContain("rerank");
-    expect(rerankers.calls).toEqual([]);
+    expect(rerankers.calls).toHaveLength(sent);
   });
 
   test("weak or no support sends nothing to the model", async () => {
