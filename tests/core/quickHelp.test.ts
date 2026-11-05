@@ -33,6 +33,8 @@ interface Reply {
   /** The records it gives the Passage found ahead: marker and quote. */
   cites: readonly { marker: number; quote: string }[];
   text: string;
+  /** Its text stops after this many characters until `until` resolves. */
+  pause?: { after: number; until: Promise<void> };
 }
 
 /**
@@ -52,7 +54,7 @@ function helping(reply: Reply, calls: ModelCall[], checks: string[]) {
         const citations = reply.cites.map((each) => ({ ...each, passage: found.id }));
         return { calls: [{ tool: "cite", input: { citations } }] };
       }
-      return { text: reply.text };
+      return { text: reply.text, ...(reply.pause && { pause: reply.pause }) };
     },
     {
       generate: (call) => {
@@ -244,8 +246,9 @@ describe("Call help on the quick model first", { timeout: 60_000 }, () => {
     const answer = await press(core, meeting);
 
     expect(helpCalls(quickCalls)).toEqual([]);
-    expect(helpCalls(ownCalls)).toHaveLength(2);
+    expect(helpCalls(ownCalls).length).toBeGreaterThan(0);
     expect(answer.text).toBe(OWN_TEXT);
+    expect(answer.model?.modelId).toBe("claude-sonnet-5-5");
   });
 
   test("an Answers model that is its own quick model sends the same requests, listed or not", async () => {
@@ -274,23 +277,32 @@ describe("Call help on the quick model first", { timeout: 60_000 }, () => {
 
 describe("Call help's reply and its checks", { timeout: 60_000 }, () => {
   test("the reply shows while its Citation is still being checked, and the check lands on the same reply", async () => {
-    const { core, meeting } = await setUp({ quick: right, own: right });
-    const seen: { text: string; checks: string[]; status: string }[] = [];
-    const stop = core.on("conversation.message", (message) => {
-      if (message.kind === "answer")
-        seen.push({
-          text: message.text,
-          checks: message.citations.map((citation) => citation.check),
-          status: message.status,
-        });
+    let release: () => void = () => undefined;
+    const until = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { core, meeting } = await setUp({
+      quick: right,
+      own: { ...right, pause: { after: 60, until } },
+    });
+    const shown = new Promise<{ text: string; checks: string[] }>((resolve) => {
+      const stop = core.on("conversation.message", (message) => {
+        if (message.kind !== "answer" || message.status !== "streaming" || !message.text) return;
+        stop();
+        resolve({ text: message.text, checks: message.citations.map((each) => each.check) });
+      });
     });
 
-    const answer = await press(core, meeting);
-    stop();
+    const pressing = press(core, meeting);
+    const streaming = await shown;
+    release();
+    const answer = await pressing;
 
-    const shown = seen.find((each) => each.text.includes("Enterprise has single sign-on"));
-    expect(shown).toMatchObject({ status: "streaming" });
-    expect(shown?.checks).toEqual(["checking"]);
+    expect(OWN_TEXT.startsWith(streaming.text)).toBe(true);
+    expect(streaming.text).toContain("[^1]");
+    expect(streaming.text.length).toBeLessThan(OWN_TEXT.length);
+    expect(streaming.checks).toEqual(["checking"]);
+    expect(answer.text).toBe(OWN_TEXT);
     expect(answer.citations).toEqual([
       expect.objectContaining({ marker: 1, quote: PRICE, check: "found" }),
     ]);

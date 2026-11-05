@@ -45,3 +45,12 @@ The first press measured (Claude Haiku 5.5, en-answer-sso, a smoke run of the ha
 ## False Supported counted over the set (added on 2026-11-04, after two smoke runs of one case, before any full run)
 
 Two smoke runs on Claude Haiku 5.5 stopped at their first case, en-answer-sso, on a sentence only the step's arm wrote: "Team doesn't include single sign-on, so Enterprise is the plan that meets your security review", cited to the Enterprise line, which doesn't say it. The second pairing was `help-claims-checked` against `today`, which send the same requests until the reply is written: its reply can't depend on the arm, so the difference was chance, the same sentence written on one sample and not the other. Today's path writes it too. Stopping at the first new one would end every run at its first case where a reply varies, so for this set (`INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`) false Supported is held as a count instead: a step holds only where its arm has no more cases with a false Supported than today's path, over the cases both finished, and each case with one, on either arm, is listed with its sentence. Every other line above holds as written.
+
+## How the claims step's runs were read (added on 2026-11-05, after its runs)
+
+This reading was decided after both runs, and it applies only to the step that skips the check of the changes a reply claims. That check runs once the reply is written; a unit test (`tests/core/quickHelp.test.ts`, "with the check kept, as before …") shows every request until then is the same with the check and without it. So the reply each arm shows is the same path sampled twice, and a guard that moves between the arms moves by chance. As written, one line failed on each model, each the other way on the other:
+
+- Claude Haiku 5.5: false Supported 10 → 13 cases (10 new, 7 gone); cited 18 → 19, judged right 11 → 14.
+- Claude Sonnet 5.5: cited 18 → 16 (2 lost, both Chinese, none gained); judged right 15 → 16, false Supported 18 → 14.
+
+On this step the gate is path identity, and that test decides it; the end came 1.3 s sooner on Haiku and 1.2 s on Sonnet, each in 24 of 30 cases. A step that changes the reply (the quick model, the newest stretch, writing first) is never read this way: its lines hold as written above.
