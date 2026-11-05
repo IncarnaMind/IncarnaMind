@@ -679,9 +679,10 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           mark.there && mark.cited?.pageFrom != null ? mark.cited.pageFrom : mark.annotation.page;
         /**
          * A group's marks take the rows whose words around them fit when exactly one
-         * does; what is left pairs in the file's own page and mark order for one
-         * count and one shift; failing both, a mark the exact version paired on its
-         * page before is carried.
+         * does, then a fitting row at the mark's own page and place; what is left
+         * pairs in the file's page and mark order for one count and one shift, and a
+         * mark with no row to pair takes an untouched fitting row instead of a new one.
+         * Failing all, a mark the exact version paired on its page before is carried.
          */
         const pairGroups = (
           rowsByKey: Map<string, Row[]>,
@@ -691,7 +692,6 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
         ) => {
           for (const [key, group] of marksByKey) {
             const all = (rowsByKey.get(key) ?? []).filter((row) => !taken.has(row.id));
-            const live = all.filter((row) => row.paired_hash !== null);
             const byRowPlace = (a: Row, b: Row) =>
               rowPage(a) - rowPage(b) ||
               (a.file_order ?? 0) - (b.file_order ?? 0) ||
@@ -699,11 +699,18 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               a.id.localeCompare(b.id);
             const byMarkPlace = (a: Mark, b: Mark) =>
               markPage(a) - markPage(b) || a.annotation.order - b.annotation.order;
-            const oneShift = (candidates: readonly Row[], exactPlace: boolean): boolean => {
-              const rows = [...candidates].sort(byRowPlace);
-              const open = [...group].sort(byMarkPlace);
-              if (rows.length !== open.length || rows.length === 0) return false;
-              const shifts = open.map((mark, index) => {
+            const openMarks = () =>
+              [...group].filter((mark) => !matched.has(mark)).sort(byMarkPlace);
+            const untaken = () => all.filter((row) => !taken.has(row.id)).sort(byRowPlace);
+            const fits = (mark: Mark) =>
+              all.filter((row) => !taken.has(row.id) && sameSurroundings(row, mark));
+            const oneShift = (
+              rows: readonly Row[],
+              marks: readonly Mark[],
+              exactPlace: boolean,
+            ): boolean => {
+              if (rows.length !== marks.length || rows.length === 0) return false;
+              const shifts = marks.map((mark, index) => {
                 const row = rows[index];
                 return row ? markPage(mark) - rowPage(row) : Number.NaN;
               });
@@ -711,7 +718,7 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               // A row whose copy a version dropped is this mark's only when the words around it
               // say so; a row the User deleted never takes a copy by place alone.
               if (
-                open.some((mark, index) => {
+                marks.some((mark, index) => {
                   const row = rows[index];
                   if (row?.missing !== 1) return false;
                   if (row.deleted_at !== null) return true;
@@ -728,52 +735,67 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
               // The words around them fit two copies: only the place they keep tells them apart.
               if (
                 exactPlace &&
-                open.some((mark, index) => rows[index]?.file_order !== mark.annotation.order)
+                marks.some((mark, index) => rows[index]?.file_order !== mark.annotation.order)
               ) {
                 return false;
               }
-              for (const [index, mark] of open.entries()) {
+              for (const [index, mark] of marks.entries()) {
                 const row = rows[index];
                 if (row) pair(mark, row);
               }
               return true;
             };
-            const fits = () =>
-              group
-                .filter((mark) => !matched.has(mark))
-                .map((mark) => ({
-                  mark,
-                  rows: all.filter((row) => !taken.has(row.id) && sameSurroundings(row, mark)),
-                }));
-            let settled = false;
+            // The words decide where exactly one row fits; a mark and a row fitted one-to-one.
             for (;;) {
-              const open = fits();
+              const marks = openMarks();
               const sole = new Map<string, number>();
-              for (const { rows } of open) {
+              for (const mark of marks) {
+                const rows = fits(mark);
                 const row = rows[0];
                 if (rows.length === 1 && row) sole.set(row.id, (sole.get(row.id) ?? 0) + 1);
               }
               let progressed = false;
-              for (const { mark, rows } of open) {
+              for (const mark of marks) {
+                const rows = fits(mark);
                 const row = rows[0];
                 if (rows.length !== 1 || !row || (sole.get(row.id) ?? 0) > 1) continue;
                 pair(mark, row);
                 progressed = true;
               }
               if (!progressed) break;
-              settled = true;
             }
-            // A reading still fit by two rows is no reading: the words around them must be
-            // backed by the place each copy keeps, or the group waits for the next version.
-            const ambiguous = fits().some(({ rows }) => rows.length > 0);
-            if (!settled) {
-              if (!(live.length > 0 && oneShift(live, ambiguous))) oneShift(all, ambiguous);
+            // The words fit a live row and a mark that differ, or fit two rows: the file's own
+            // order tells them apart when the places agree.
+            const ambiguous = openMarks().some((mark) => fits(mark).length > 0);
+            if (!oneShift(untaken(), openMarks(), ambiguous)) {
+              // A fitting row kept at the mark's own page and place is that copy, even when the
+              // words around it fit another row too.
+              for (const mark of openMarks()) {
+                const row = untaken().find(
+                  (each) =>
+                    sameSurroundings(each, mark) &&
+                    rowPage(each) === markPage(mark) &&
+                    each.file_order === mark.annotation.order,
+                );
+                if (row) pair(mark, row);
+              }
+              // Nothing left fits by words or place: an untouched row is this mark's better than
+              // a new one, so a repeated save stops adding rows.
+              for (const mark of openMarks()) {
+                const row = untaken().find(
+                  (each) =>
+                    each.deleted_at === null &&
+                    sameSurroundings(each, mark) &&
+                    each.note === each.file_note &&
+                    each.colour === each.file_colour,
+                );
+                if (row) pair(mark, row);
+              }
             }
             const carried = [...all]
               .filter((row) => !taken.has(row.id) && row.paired_hash === contentHash)
               .sort(byRowPlace);
-            const open = [...group].filter((mark) => !matched.has(mark)).sort(byMarkPlace);
-            for (const mark of open) {
+            for (const mark of openMarks()) {
               const row =
                 carried.find(
                   (each) =>
@@ -805,10 +827,19 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
           (row) => row.page_from ?? 0,
           (mark) => mark.annotation.page,
         );
-        // A page's only other note takes a leftover only when the User hasn't rewritten it.
+        // A page's only other note takes a leftover only when it is on the page now and the
+        // User hasn't rewritten it: a row a version left missing, or the User deleted, is not
+        // this note's place.
         const freeRowsByPage = new Map<number, Row[]>();
         for (const row of noteRows) {
-          if (taken.has(row.id) || row.paired_hash === null || row.note !== row.file_note) continue;
+          if (
+            taken.has(row.id) ||
+            row.missing !== 0 ||
+            row.deleted_at !== null ||
+            row.note !== row.file_note
+          ) {
+            continue;
+          }
           const page = row.page_from ?? 0;
           freeRowsByPage.set(page, [...(freeRowsByPage.get(page) ?? []), row]);
         }

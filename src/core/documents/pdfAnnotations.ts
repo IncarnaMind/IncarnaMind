@@ -152,12 +152,10 @@ function covers(boxes: readonly Box[], item: Placed): boolean {
   );
 }
 
-/** The items under `boxes`, in the order they were read. */
 function coveredOf(boxes: readonly Box[], items: readonly object[]): Placed[] {
   return placedOf(items).filter((item) => covers(boxes, item));
 }
 
-/** The items as the page sets them: a line's items together, lines top to bottom. */
 function linesOf(placed: Placed[]): Placed[][] {
   placed.sort((a, b) => b.box.top - a.box.top || a.box.left - b.box.left);
   const lines: Placed[][] = [];
@@ -213,7 +211,7 @@ function pageTextOf(items: readonly object[]) {
 /** How much of the page's words before and after a mark is kept to tell it from another. */
 const AROUND = 80;
 
-/** The page's words at `offset`, `AROUND` characters to either side. */
+/** The page's words just before `start` and just after `end`, `AROUND` characters each. */
 function aroundAt(text: string, start: number, end: number): { before: string; after: string } {
   return {
     before: text.slice(Math.max(0, start - AROUND), start),
@@ -238,7 +236,6 @@ function nearestOffset(context: ReturnType<typeof pageTextOf>, boxes: readonly B
   return x < (nearest.box.left + nearest.box.right) / 2 ? span.start : span.end;
 }
 
-/** Its place on the page among the file's own marks: higher first, then further left. */
 function orderOf(boxes: readonly Box[]): number {
   if (boxes.length === 0) return 0;
   const top = Math.max(...boxes.map((box) => box.top));

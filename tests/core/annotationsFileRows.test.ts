@@ -12,7 +12,7 @@ import {
   type CitationRecheckLike,
   createAnnotations,
 } from "../../src/core/annotations";
-import type { FileAnnotation } from "../../src/core/documents/pdfAnnotations";
+import { type FileAnnotation, readFileAnnotations } from "../../src/core/documents/pdfAnnotations";
 import { openDatabase } from "../../src/core/storage";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -990,13 +990,18 @@ test("both readings fit, so neither comment moves to the other copy", async () =
   store.update(first.id, { note: "first" });
   store.update(second.id, { note: "second" });
 
-  // One copy dropped, another added: the words around each fit both rows.
+  // One copy dropped, another added: the words around each fit both rows, but the copy
+  // still at its own place keeps its comment, and the dropped one's stays with its row.
   read("version-b", [copy(20), copy(30)]);
   const rows = store.list(document.id);
   expect(rows.find((row) => row.id === first.id)).toMatchObject({ note: "first", missing: true });
-  expect(rows.find((row) => row.id === second.id)).toMatchObject({ note: "second", missing: true });
-  expect(rows.filter((row) => row.note === "first" || row.note === "second")).toHaveLength(2);
-  expect(rows.filter((row) => !row.missing)).toHaveLength(2);
+  expect(rows.find((row) => row.id === second.id)).toMatchObject({
+    note: "second",
+    missing: false,
+  });
+  const fresh = rows.find((row) => !row.missing && row.id !== second.id);
+  expect(fresh?.note).not.toBe("first");
+  expect(fresh?.note).not.toBe("second");
   db.close();
 });
 
@@ -1027,4 +1032,178 @@ test("a file flipping between two copies and one brings both comments back over 
     });
   }
   db.close();
+});
+
+test("a deleted sticky note does not hide a new note on its page", async () => {
+  const { document, store, read, db } = await harness();
+  read("version-a", [fileNote(3, "Old remark.")]);
+  const [old] = store.list(document.id);
+  if (!old) throw new Error("The note wasn't read.");
+  store.remove(old.id);
+
+  read("version-b", []);
+  read("version-c", [fileNote(3, "A new remark.")]);
+  const live = store.list(document.id);
+  expect(live).toHaveLength(1);
+  expect(live[0]).toMatchObject({ pageFrom: 3, note: "A new remark.", missing: false });
+  expect(live[0]?.id).not.toBe(old.id);
+  db.close();
+});
+
+test("a copied page in front does not hide the note the copy repeats", async () => {
+  const { document, store, read, db } = await harness();
+  read("version-a", [fileNote(1, "Same remark.")]);
+  const [old] = store.list(document.id);
+  if (!old) throw new Error("The note wasn't read.");
+  store.remove(old.id);
+
+  // The page is copied in front, so the same note is on pages 1 and 2.
+  read("version-b", [fileNote(1, "Same remark."), fileNote(2, "Same remark.")]);
+  const live = store.list(document.id);
+  expect(live).toHaveLength(2);
+  expect(live.map((row) => row.pageFrom).sort()).toEqual([1, 2]);
+  expect(live.some((row) => row.id === old.id)).toBe(false);
+  db.close();
+});
+
+test("copies whose words around them are the same keep their comments on a save", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const same = { before: "Alpha words.", after: "Alpha words." };
+  const other = { before: "Beta words.", after: "Beta words." };
+  const marks = () => [
+    highlight(quote, 1, "One.", 10, same),
+    highlight(quote, 2, "Two.", 10, same),
+    highlight(quote, 3, null, 10, other),
+  ];
+  read("version-a", marks());
+  const one = store.list(document.id).find((row) => row.pageFrom === 1);
+  const two = store.list(document.id).find((row) => row.pageFrom === 2);
+  if (!one || !two) throw new Error("The copies weren't read.");
+  store.update(one.id, { note: "Mine one" });
+  store.update(two.id, { note: "Mine two" });
+
+  read("version-b", marks());
+  expect(store.list(document.id)).toHaveLength(3);
+  expect(store.list(document.id).find((row) => row.id === one.id)).toMatchObject({
+    pageFrom: 1,
+    note: "Mine one",
+    missing: false,
+  });
+  expect(store.list(document.id).find((row) => row.id === two.id)).toMatchObject({
+    pageFrom: 2,
+    note: "Mine two",
+    missing: false,
+  });
+
+  read("version-c", marks());
+  expect(store.list(document.id)).toHaveLength(3);
+  expect(store.list(document.id).find((row) => row.id === one.id)).toMatchObject({
+    note: "Mine one",
+    missing: false,
+  });
+  db.close();
+});
+
+test("identical forms with one removed keep their rows on later saves", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const same = { before: "Form words.", after: "Form words." };
+  const form = (page: number) => highlight(quote, page, null, 10, same);
+  read("version-a", [form(1), form(2), form(3)]);
+
+  const copy = [form(1), form(2)];
+  read("version-b", copy);
+  expect(store.list(document.id)).toHaveLength(3);
+  read("version-c", copy);
+  expect(store.list(document.id)).toHaveLength(3);
+  read("version-d", copy);
+  expect(store.list(document.id)).toHaveLength(3);
+  db.close();
+});
+
+test("a deleted highlight's row does not take a copy back at its page and place", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  const mark = () => highlight(quote, 1, null, 10, around("one"));
+  read("version-a", [mark()]);
+  const [old] = store.list(document.id);
+  if (!old) throw new Error("The highlight wasn't read.");
+  store.remove(old.id);
+
+  read("version-b", []);
+  read("version-c", [mark()]);
+  const live = store.list(document.id);
+  expect(live).toHaveLength(1);
+  expect(live[0]?.id).not.toBe(old.id);
+  expect(live[0]).toMatchObject({ pageFrom: 1, missing: false });
+  db.close();
+});
+
+test("a mark's new place and the words around it are written to its row", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "About page one.";
+  read("version-a", [highlight(quote, 1, null, 10, around("one"))]);
+  const [row] = store.list(document.id);
+  if (!row) throw new Error("The highlight wasn't read.");
+
+  read("version-b", [highlight(quote, 1, null, 20, around("two"))]);
+  const stored = db.get<{ file_order: number; anchor: string }>(
+    "SELECT file_order, anchor FROM document_annotations WHERE id = ?",
+    [row.id],
+  );
+  expect(stored?.file_order).toBe(20);
+  expect(stored?.anchor).toContain("Before two.");
+  expect(store.list(document.id).find((each) => each.id === row.id)).toMatchObject({
+    missing: false,
+  });
+  db.close();
+});
+
+test("two copies on one line keep their own comments over re-reads", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "the Seller";
+  const copies = () => [
+    highlight(quote, 1, "Left.", 10, around("left")),
+    highlight(quote, 1, "Right.", 10.5, around("right")),
+  ];
+  read("version-a", copies());
+  const left = rowAt(db, document.id, 10);
+  if (!left) throw new Error("The left copy wasn't read.");
+  store.update(left.id, { note: "Mine left" });
+
+  const changes = () => db.get<{ n: number }>("SELECT total_changes() AS n")?.n ?? 0;
+  const before = changes();
+  for (let trial = 0; trial < 10; trial++) {
+    const marks = copies();
+    read("version-a", trial % 2 === 0 ? marks : marks.reverse());
+    expect(rowAt(db, document.id, 10)?.id, `trial ${trial}`).toBe(left.id);
+    expect(store.list(document.id).find((row) => row.id === left.id)).toMatchObject({
+      note: "Mine left",
+      missing: false,
+    });
+  }
+  expect(changes()).toBe(before);
+  db.close();
+});
+
+test("a PDF mark carries the page's words around it and its place", () => {
+  const items = [
+    { str: "Alpha words.", transform: [11, 0, 0, 11, 72, 760], width: 60, height: 11 },
+    { str: "Middle line.", transform: [11, 0, 0, 11, 72, 746], width: 60, height: 11 },
+    { str: "Lower words.", transform: [11, 0, 0, 11, 72, 732], width: 60, height: 11 },
+  ];
+  const mark = (baseline: number) => ({
+    subtype: "Highlight",
+    rect: [72, baseline - 2, 300, baseline + 10],
+    quadPoints: [72, baseline + 10, 300, baseline + 10, 72, baseline - 2, 300, baseline - 2],
+  });
+  const found = readFileAnnotations(1, [mark(760), mark(732)], items);
+  expect(found).toHaveLength(2);
+  const [upper, lower] = found;
+  expect(upper?.quote).toBe("Alpha words.");
+  expect(upper?.after).toContain("Middle line.");
+  expect(lower?.quote).toBe("Lower words.");
+  expect(lower?.before).toContain("Middle line.");
+  expect(upper?.order).toBeLessThan(lower?.order ?? 0);
 });
