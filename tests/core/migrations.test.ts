@@ -460,9 +460,13 @@ describe("Folders inside Folders (#246)", () => {
 describe("DeepSeek model ids (#2567)", () => {
   test("a saved old id moves to deepseek-flash, and another provider's choice stays", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    const deepseekMigration = migrations.find((migration) =>
+      migration.description.includes("DeepSeek"),
+    );
+    if (!deepseekMigration) throw new Error("The DeepSeek migration isn't in the list.");
     migrate(
       db,
-      migrations.filter((migration) => migration.version < 129),
+      migrations.filter((migration) => migration.version < deepseekMigration.version),
     );
     const at = "2026-11-05T09:00:00.000Z";
     const deepseek = "00000000-0000-4000-8000-0000000000d5";
