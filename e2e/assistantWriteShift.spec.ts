@@ -37,7 +37,7 @@ interface Frame {
   question: number | null;
   card: number | null;
   cardHeight: number | null;
-  /** The card's own count of what waits is drawn: its waiting row is complete. */
+  /** The card's own count of what waits is drawn. */
   counted: boolean;
   undo: boolean;
 }
@@ -165,14 +165,15 @@ async function writeShift(
     expect(heightsOf(questions, (frame) => frame.question)).toHaveLength(1);
   }
 
+  // What the User asked for applies at once: while it comes in, the card never says it waits (#1358).
+  expect(frames.some((frame) => frame.card !== null && !frame.undo && frame.counted)).toBe(false);
+
   // The card keeps its height as its waiting row becomes the applied one, so nothing under it
   // moves: its two rows share one cell and it is as tall as the taller. The waiting height is the
-  // last frame before the apply: while the Answer streams, its own count and the paragraph it says
-  // were changed grow with the words arriving, and neither they nor the room they will need are
-  // known in advance; the apply is what must not move the card.
-  const waitingFrames = frames.filter(
-    (frame) => frame.card !== null && !frame.undo && frame.counted,
-  );
+  // last frame before the apply: while the Answer streams, the paragraphs it says were changed grow
+  // with the words arriving, and neither they nor the room they will need are known in advance;
+  // the apply is what must not move the card.
+  const waitingFrames = frames.filter((frame) => frame.card !== null && !frame.undo);
   const waiting = heightsOf(
     finalWaiting ? waitingFrames.slice(-1) : waitingFrames,
     (frame) => frame.cardHeight,

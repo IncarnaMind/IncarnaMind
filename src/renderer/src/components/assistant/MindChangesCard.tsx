@@ -4,7 +4,14 @@ import { mindName } from "../../../../shared/naming";
 import { type ArrivingInMind, arrivingInMind } from "../../arrivingChanges";
 import { useArrivingAnswers, useAskedChanges } from "../../askedChanges";
 import { type ChangedMind, changedMinds } from "../../changedMinds";
-import { changeFact, inNoteText, keptText, leftText, ownWaiting } from "../../changeFacts";
+import {
+  changeFact,
+  inNoteText,
+  keptText,
+  leftText,
+  ownWaiting,
+  stillWaiting,
+} from "../../changeFacts";
 import { askInAssistant, useConversations } from "../../conversations";
 import { useT } from "../../i18n";
 import {
@@ -96,7 +103,7 @@ export function MindChangesCard({
     );
   }
   const counted = (index: number) => {
-    const count = waiting[index]?.count;
+    const count = stillWaiting(waiting[index]);
     return typeof count === "number" ? count : 0;
   };
   const total = rows.reduce((sum, _, index) => sum + counted(index), 0);
@@ -106,7 +113,7 @@ export function MindChangesCard({
     rows.length === 1 && only
       ? factText(t, only, nameOf(only), waiting[0]?.count ?? null)
       : t("mindChanges.minds", { count: rows.length });
-  const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0]?.count ?? null) : null;
+  const headLeft = rows.length === 1 && only ? leftText(t, only, stillWaiting(waiting[0])) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
   const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, ownWaiting(waiting[0])) : null;
 
@@ -200,7 +207,7 @@ export function MindChangesCard({
                 });
           const kept = keptText(t, row);
           const fact = [factText(t, row, name, count), kept].filter(Boolean).join(" ");
-          const left = leftText(t, row, count);
+          const left = leftText(t, row, stillWaiting(waiting[index]));
           return (
             <div
               key={row.mindId}

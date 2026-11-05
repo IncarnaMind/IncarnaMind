@@ -28,7 +28,7 @@ import { type ArrivingInMind, arrivingNow } from "./arrivingChanges";
 import type { ChangedMind } from "./changedMinds";
 import { readMindHandle } from "./commands/handles";
 import { core } from "./core";
-import { pendingIn } from "./editor/proposalReview";
+import { type PendingProposal, pendingIn } from "./editor/proposalReview";
 import { openMindCopy } from "./mindCopies";
 import { useAppStore } from "./store";
 import { answerUndoPlace, type Undoable, useUndo } from "./undo";
@@ -209,15 +209,19 @@ const openBeside = (mindId: string) =>
 /** Frames to wait for a Mind just opened to show its changes. */
 const REVEAL_FRAMES = 60;
 
-/** Puts the cursor in the first of the changes `picked` picks in a Mind open in the editor, once it shows them. */
+/**
+ * Puts the cursor in the change `pick` takes from those a Mind open in the editor shows waiting,
+ * once it shows them. Not from the Mind's copy: while an Answer runs, its copy also holds the
+ * changes this window applies at once, which the editor draws as applied (#1358).
+ */
 function revealChange(
   mindId: string,
-  picked: (proposal: ProposalRef) => boolean,
+  pick: (pending: readonly PendingProposal[]) => PendingProposal | undefined,
   frames = REVEAL_FRAMES,
 ): void {
   const read = readMindHandle.current;
   if (read && read.mindId === mindId && !read.editor.isDestroyed) {
-    const first = pendingIn(read.editor.state).find(picked);
+    const first = pick(pendingIn(read.editor.state));
     if (first) {
       const at = first.block ? first.from + 1 : first.from;
       read.editor
@@ -229,26 +233,25 @@ function revealChange(
       return;
     }
   }
-  if (frames > 0) requestAnimationFrame(() => revealChange(mindId, picked, frames - 1));
+  if (frames > 0) requestAnimationFrame(() => revealChange(mindId, pick, frames - 1));
 }
 
 /** Review and Open: the Mind, at its first change from the Answer. */
 export function showChanges(row: ChangedMind): void {
   useAppStore.getState().openMind(row.mindId);
-  revealChange(row.mindId, belongsTo(row.requests));
+  revealChange(row.mindId, (pending) => pending.find(belongsTo(row.requests)));
 }
 
 /** Review beside the Note's count of what waits: the Mind, at the change of this Answer that waits, else at the first of any. */
 export function showNoteWaiting(row: ChangedMind): void {
   useAppStore.getState().openMind(row.mindId);
-  const own = waiting({ mindId: row.mindId, requests: row.requests });
-  revealChange(row.mindId, own && own.count > 0 ? belongsTo(row.requests) : () => true);
+  revealChange(row.mindId, (pending) => pending.find(belongsTo(row.requests)) ?? pending[0]);
 }
 
 /** Review, where changes waiting kept the assistant from changing a Mind: the Mind, at its first change. */
 export function showWaitingChanges(mindId: string): void {
   useAppStore.getState().openMind(mindId);
-  revealChange(mindId, () => true);
+  revealChange(mindId, (pending) => pending[0]);
 }
 
 /** One Mind's part of Accept all or Reject all: how many changes it took, and how to take it back and do it again. */
