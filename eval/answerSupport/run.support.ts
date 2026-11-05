@@ -20,6 +20,7 @@ import type {
   Document,
 } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import type { ChatModelSpec } from "../../src/core/providers/models";
 import { findQuote } from "../../src/shared/quoteMatch";
 import { shownPassages } from "../../tests/helpers/citations";
 import { type ModelCall, type ScriptedReply, scriptedModel } from "../../tests/helpers/models";
@@ -399,6 +400,10 @@ test("Answer sentences against the quotes they cite", async () => {
   const judge =
     process.env.INCARNAMIND_EVAL_SUPPORT_JUDGE?.trim() === "answer" ? "answer" : "check";
   const spend = { total: 0, cap: Number(process.env.INCARNAMIND_EVAL_SUPPORT_BUDGET ?? "1") || 1 };
+  // How the judging model thinks ("summary" or "off"), for an arm that compares the two.
+  const thinking = (process.env.INCARNAMIND_EVAL_SUPPORT_THINKING?.trim() || null) as
+    | ChatModelSpec["thinking"]
+    | null;
   const rows: Row[] = [];
   const skipped: { id: string; why: string }[] = [];
 
@@ -415,7 +420,12 @@ test("Answer sentences against the quotes they cite", async () => {
       chatModels:
         judge === "answer"
           ? (inner) =>
-              batchWatch.chatModels((spec) => judgingModel(inner(spec) as LanguageModelV4, script))
+              batchWatch.chatModels((spec) =>
+                judgingModel(
+                  inner(thinking ? { ...spec, thinking } : spec) as LanguageModelV4,
+                  script,
+                ),
+              )
           : watch.chatModels,
       name: `support-${name}`,
       embedder: createWorkerEmbedder(),

@@ -9,6 +9,11 @@
  * - `answer`: an Answer of 30 cited sentences, scripted, judged once it ends (#2311).
  *
  * The writing and the Answer are scripted, so only the checks' requests reach the model under test.
+ * INCARNAMIND_EVAL_SPEED_CHECKS_AT_ONCE sends that many sentences at once in place of the catalog's
+ * number, so one run can time today's number and another a step's; INCARNAMIND_EVAL_SPEED_THINKING
+ * ("summary" or "off") sets how every model thinks, which only an Answer's batches feel; and
+ * INCARNAMIND_EVAL_SPEED_LIBRARY=mixed adds the mixed sample set to the Library, so a search
+ * reranks as many Passages as it would in a real one.
  * The 30 sentences are the second held-out set's (./writtenHeldOut), over its membership rules.
  */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -26,6 +31,7 @@ import {
   MIND_CONTENT_FIELD,
 } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import type { ChatModelSpec } from "../../src/core/providers/models";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { findQuote } from "../../src/shared/quoteMatch";
 import { shownPassages } from "../../tests/helpers/citations";
@@ -34,6 +40,7 @@ import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, readMind, writeMind } from "../../tests/helpers/minds";
 import { type ModelCall, scriptedModel } from "../../tests/helpers/models";
 import { buildPdf } from "../../tests/helpers/pdf";
+import { reports } from "../everyday/asking";
 import { readConfig } from "../lib/config";
 import { createWorkerEmbedder } from "../lib/embedder";
 import type { EvalDocument } from "../lib/evaluationSet";
@@ -135,9 +142,15 @@ function scripted(
     wrapGenerate: async ({ doGenerate, params }) =>
       scriptsIt(params) ? answers.doGenerate(params) : doGenerate(),
   };
+  // Every model's thinking as one arm asks for it: only an Answer's batches reach the model with
+  // anything but "off" (src/core/answers/checks/index.ts).
+  const thinking = env("THINKING") as ChatModelSpec["thinking"] | null;
   return (inner: ChatModelFactory): ChatModelFactory =>
     (spec) =>
-      wrapLanguageModel({ model: recorded(inner)(spec) as LanguageModelV4, middleware });
+      wrapLanguageModel({
+        model: recorded(inner)(thinking ? { ...spec, thinking } : spec) as LanguageModelV4,
+        middleware,
+      });
 }
 
 /** Each sentence's verdict as it lands in a Note: a mark that is no longer checking. */
@@ -305,6 +318,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
   const languages = (list("LANGUAGES") ?? ["en", "zh-CN"]) as Language[];
   const runs = Number(env("RUNS") ?? "2");
   const stopUsd = Number(env("STOP_USD") ?? "3");
+  // How many sentences a check sends at once, in place of the catalog's: today's number on one arm.
+  const atOnce = env("CHECKS_AT_ONCE") === null ? null : Number(env("CHECKS_AT_ONCE"));
   const recorder = checkRecorder();
   let current: { flow: string; items: ReturnType<typeof CITED> } | null = null;
   const results: FlowTimes[] = [];
@@ -316,6 +331,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       id: language === "en" ? "en" : "zh",
       language,
     });
+    // The mixed sample set beside them, for searches that rerank as many Passages as a real Library's.
+    if (env("LIBRARY") === "mixed") documents.push(...(await reports()));
     for (const document of HELD_OUT_DOCUMENTS) {
       if (document.language !== language || !document.libraries.includes("terms")) continue;
       const path = join(folder, document.file);
@@ -333,6 +350,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       log,
       chatModels: scripted(recorder.chatModels, () => current),
       examples: join(ROOT, "resources", "examples"),
+      ...(atOnce !== null && { modelFacts: () => ({ checksAtOnce: atOnce }) }),
     });
     try {
       const { core, dataDir } = library;
