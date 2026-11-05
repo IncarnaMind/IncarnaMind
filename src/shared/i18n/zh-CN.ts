@@ -5012,12 +5012,8 @@ export const zhCN = {
   "commands.notRun": "未运行，没有改动",
   "commands.denied": "未允许，没有改动",
   "commands.ask.export.title": "将“{mind}”以 {format} 格式保存到“{folder}”？",
-  "commands.ask.export.title.pictures.one":
-    "将“{mind}”以 {format} 格式保存到“{folder}”，并在旁边保存 1 张图片？",
-  "commands.ask.export.title.pictures.other":
-    "将“{mind}”以 {format} 格式保存到“{folder}”，并在旁边保存 {count} 张图片？",
   "commands.ask.export.text": "这会在保存位置之外写入一个新文件。",
-  "commands.ask.export.why.pictures": "这会在保存位置之外写入 {count} 个新文件。",
+  "commands.ask.export.why.files": "这会在保存位置之外写入 {count} 个新文件。",
   "commands.ask.add.title": "读取“{folder}”中的 {count} 个文件？",
   "commands.ask.add.title.one": "读取“{folder}”中的 1 个文件？",
   "commands.ask.add.text": "文件在这台电脑上读取，并添加到资料库。不会读取文件夹中的其他内容。",

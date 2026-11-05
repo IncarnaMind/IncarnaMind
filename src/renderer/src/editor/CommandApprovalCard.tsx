@@ -81,24 +81,17 @@ function wordsOf(
   switch (ask.kind) {
     case "export":
       return {
-        title: t(
-          ask.pictures === 1
-            ? "commands.ask.export.title.pictures.one"
-            : ask.pictures > 1
-              ? "commands.ask.export.title.pictures.other"
-              : "commands.ask.export.title",
-          {
-            mind: ask.mind.name,
-            format: t(FORMAT_LABELS[ask.format]),
-            folder: folderName(ask.folder),
-            count: ask.pictures,
-          },
-        ),
-        why: t(ask.pictures > 0 ? "commands.ask.export.why.pictures" : "commands.ask.export.text", {
-          count: ask.pictures + 1,
+        title: t("commands.ask.export.title", {
+          mind: ask.mind.name,
+          format: t(FORMAT_LABELS[ask.format]),
+          folder: folderName(ask.folder),
         }),
+        why: t(
+          ask.pictures.length > 0 ? "commands.ask.export.why.files" : "commands.ask.export.text",
+          { count: ask.pictures.length + 1 },
+        ),
         path: ask.folder,
-        names: [ask.fileName],
+        names: [ask.fileName, ...ask.pictures],
       };
     case "add":
       return {

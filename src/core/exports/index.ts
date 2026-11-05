@@ -358,7 +358,7 @@ export function createExports(deps: ExportsDependencies) {
         : null;
     const preview: MindExportPreview = {
       fileName: `${format === "source-pack" ? translate(language, "export.pack.fileName", { name: fileStem }) : fileStem}.${EXTENSIONS[format]}`,
-      pictures: format === "markdown" ? picturesBeside(blocks) : 0,
+      pictures: format === "markdown" ? picturesBeside(blocks) : [],
       citations: footnotes.length,
       citedDocuments: sourcesOf(
         footnotes.map((each) => attributesOf.get(each) ?? {}),

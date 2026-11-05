@@ -438,7 +438,7 @@ describe("exporting a Mind", () => {
 
     expect(await core.previewMindExport(mind.id, { format: "docx" })).toEqual({
       fileName: "Tides spring neap.docx",
-      pictures: 0,
+      pictures: [],
       citations: 3,
       citedDocuments: 1,
       numbered: true,
@@ -924,7 +924,7 @@ describe("exporting a Mind", () => {
     expect(document).toContain('<wp:extent cx="9525" cy="9525"/>');
   });
 
-  test("a Markdown preview counts the pictures it writes beside the file, each once", async () => {
+  test("a Markdown preview lists the picture files it writes beside the file, each once", async () => {
     const { core, mind, client } = await setUp("");
     client.doc.transact(() => {
       client.blocks.push([
@@ -934,7 +934,7 @@ describe("exporting a Mind", () => {
     });
     await client.settled();
     expect(await core.previewMindExport(mind.id, { format: "markdown" })).toMatchObject({
-      pictures: 1,
+      pictures: ["picture-6b7fa434f92a.png"],
     });
 
     client.doc.transact(() => {
@@ -951,12 +951,12 @@ describe("exporting a Mind", () => {
     });
     await client.settled();
     expect(await core.previewMindExport(mind.id, { format: "markdown" })).toMatchObject({
-      pictures: 1,
+      pictures: ["picture-6b7fa434f92a.png"],
     });
 
     // A format that keeps its pictures inside its one file writes none beside it.
     expect(await core.previewMindExport(mind.id, { format: "docx" })).toMatchObject({
-      pictures: 0,
+      pictures: [],
     });
   });
 

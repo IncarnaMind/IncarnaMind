@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { link, open, readdir, rename, rm, stat } from "node:fs/promises";
+import { link, lstat, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { cutAtWord } from "../shared/naming";
 
@@ -131,6 +131,30 @@ export async function writeNewFile(
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+/**
+ * The name a save of `name` would take in `folder`, as `writeNewFile` picks it, without writing:
+ * the name itself, or the next free "Tides 2.docx". `taken` holds names chosen in the same batch.
+ */
+export async function freeFileName(
+  folder: string,
+  name: string,
+  taken: ReadonlySet<string> = new Set(),
+): Promise<string> {
+  const extension = extname(name);
+  const stem = name.slice(0, name.length - extension.length);
+  for (let n = 1; n <= MAX_TRIES; n++) {
+    const candidate = n === 1 ? name : `${stem} ${n}${extension}`;
+    if (taken.has(candidate)) continue;
+    try {
+      await lstat(join(folder, candidate));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return candidate;
+      throw error;
+    }
+  }
+  throw new Error(`Every name like "${name}" is taken in that folder.`);
 }
 
 /**

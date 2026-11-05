@@ -9788,8 +9788,8 @@ export type CommandAsk =
       folder: string;
       /** The name it would be saved under; the next free one if that is taken. */
       fileName: string;
-      /** The picture files it saves beside that one, each once; 0 unless the format writes them. */
-      pictures: number;
+      /** The picture files it saves beside that one, each once, by the names it writes; none unless the format writes them. */
+      pictures: readonly string[];
     }
   | { kind: "add"; folder: string; files: string[] }
   | { kind: "final"; command: CommandId; items: CommandItem[] }
@@ -10160,8 +10160,8 @@ export interface ExportMindOptions {
 export interface MindExportPreview {
   /** A file name for the export, from the Mind's title, e.g. "Tides.docx". */
   fileName: string;
-  /** The picture files a Markdown export writes beside it, each once; 0 for every other format. */
-  pictures: number;
+  /** The picture files a Markdown export writes beside it, each once, by the names it writes; none for every other format. */
+  pictures: readonly string[];
   /**
    * The Citations in the exported text. Each becomes its own footnote, even
    * when several cite the same page.
@@ -12934,9 +12934,14 @@ export interface CoreApi {
   /**
    * What `exportMind` will write with these options: the file name, and how
    * many of the exported Citations are unverified, so the User sees that
-   * before the file is written.
+   * before the file is written. Given the folder it goes to, the names are the
+   * ones it writes there, the next free one where a name is taken.
    */
-  previewMindExport(mindId: string, options: ExportMindOptions): Promise<MindExportPreview>;
+  previewMindExport(
+    mindId: string,
+    options: ExportMindOptions,
+    folder?: string,
+  ): Promise<MindExportPreview>;
   /**
    * Exports a Mind as a file, which the host saves: its title, its Notes
    * (those switched out of Question context too), its Answers and, if

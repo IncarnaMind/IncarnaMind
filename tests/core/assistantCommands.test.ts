@@ -468,29 +468,31 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     });
     const request = await requested;
     expect(request).toMatchObject({
-      ask: { kind: "export", fileName: "Tides.md", pictures: 2 },
+      ask: {
+        kind: "export",
+        fileName: "Tides.md",
+        pictures: ["picture-6b7fa434f92a.png", "picture-ef1955ae757c.gif"],
+      },
     });
     const folder = basename(elsewhere);
     expect(
-      translate("en", "commands.ask.export.title.pictures.other", {
+      translate("en", "commands.ask.export.title", {
         mind: "Tides",
         format: "Markdown (.md)",
         folder,
-        count: 2,
       }),
-    ).toBe(`Save “Tides” as Markdown (.md) in “${folder}”, with 2 pictures beside it?`);
-    expect(translate("en", "commands.ask.export.why.pictures", { count: 3 })).toBe(
+    ).toBe(`Save “Tides” as Markdown (.md) in “${folder}”?`);
+    expect(translate("en", "commands.ask.export.why.files", { count: 3 })).toBe(
       "This writes 3 new files outside your Output location.",
     );
     expect(
-      translate("zh-CN", "commands.ask.export.title.pictures.other", {
+      translate("zh-CN", "commands.ask.export.title", {
         mind: "Tides",
         format: "Markdown（.md）",
         folder,
-        count: 2,
       }),
-    ).toBe(`将“Tides”以 Markdown（.md）格式保存到“${folder}”，并在旁边保存 2 张图片？`);
-    expect(translate("zh-CN", "commands.ask.export.why.pictures", { count: 3 })).toBe(
+    ).toBe(`将“Tides”以 Markdown（.md） 格式保存到“${folder}”？`);
+    expect(translate("zh-CN", "commands.ask.export.why.files", { count: 3 })).toBe(
       "这会在保存位置之外写入 3 个新文件。",
     );
     expect(await readdir(elsewhere)).toEqual([]);
@@ -498,9 +500,63 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     await asking;
 
     const written = await readdir(elsewhere);
-    expect(written.filter((name) => name.startsWith("picture-"))).toHaveLength(2);
-    expect(written).toHaveLength(3);
-    expect(written).toContain("Tides.md");
+    expect(written.sort()).toEqual([
+      "Tides.md",
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
+
+    const againRequested = nextEvent(core, "approval.requested");
+    const askingAgain = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const again = await againRequested;
+    expect(again).toMatchObject({
+      ask: { kind: "export", fileName: "Tides 2.md", pictures: [] },
+    });
+    await core.respondToApproval(again.requestId, "allow-once");
+    await askingAgain;
+    expect((await readdir(elsewhere)).sort()).toEqual([
+      "Tides 2.md",
+      "Tides.md",
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
+  });
+
+  // Value: protects=an export ask names a file as the folder will take it when the name is there already; fails_when=the ask shows a name the save changes, or a picture the save renames; why_new=#2514 ruling; seam=two taken names in the target folder; no_claim=the card's look.
+  test("a Markdown export to a folder that already holds those names asks for the names it will write", async () => {
+    const elsewhere = await createTempDataFolder();
+    await writeFile(join(elsewhere, "Tides.md"), "An older export.");
+    await writeFile(join(elsewhere, "picture-6b7fa434f92a.png"), "An older picture.");
+    const { core, mind, client } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
+    writeMind(client, [picture(PIXEL, "A chart"), picture(PICTURE, "Another chart")]);
+    await client.settled();
+
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const request = await requested;
+    expect(request).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides 2.md",
+        pictures: ["picture-6b7fa434f92a 2.png", "picture-ef1955ae757c.gif"],
+      },
+    });
+    await core.respondToApproval(request.requestId, "allow-once");
+    await asking;
+
+    expect((await readdir(elsewhere)).sort()).toEqual([
+      "Tides 2.md",
+      "Tides.md",
+      "picture-6b7fa434f92a 2.png",
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
   });
 
   // protects=a Markdown export with no pictures still asks for one file, and Allow writes exactly it; fails_when=the ask counts a picture or Allow writes one beside it; no_claim=the card's look.
@@ -515,7 +571,7 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     });
     const request = await requested;
     expect(request).toMatchObject({
-      ask: { kind: "export", fileName: "Tides.md", pictures: 0 },
+      ask: { kind: "export", fileName: "Tides.md", pictures: [] },
     });
     expect(
       translate("en", "commands.ask.export.title", {
@@ -578,7 +634,7 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
         mindId: mind.id,
       });
       const request = await requested;
-      expect(request).toMatchObject({ ask: { kind: "export", pictures: 0 } });
+      expect(request).toMatchObject({ ask: { kind: "export", pictures: [] } });
       expect(await readdir(elsewhere)).toEqual([]);
       await core.respondToApproval(request.requestId, "allow-once");
       await asking;

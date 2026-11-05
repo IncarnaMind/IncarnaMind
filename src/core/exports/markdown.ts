@@ -127,14 +127,24 @@ function pictureFile(
 }
 
 /**
- * How many picture files a Markdown export writes beside it: the same pictures the text links,
- * each once (#1937), counted without writing the text.
+ * The picture files a Markdown export writes beside it, by the names it writes, each once
+ * (#1937), in the order the text first links them.
  */
-export function picturesBeside(blocks: readonly Block[]): number {
-  const names = new Set<string>();
+export function picturesBeside(blocks: readonly Block[]): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const count = (image: Image) => {
+    if (!image.src.startsWith("data:")) return;
+    const decoded = decodeDataUrl(image.src);
+    if (!decoded) return;
+    const name = pictureName(decoded);
+    if (seen.has(name)) return;
+    seen.add(name);
+    names.push(name);
+  };
   const inline = (items: readonly Inline[]) => {
     for (const item of items) {
-      if (item.kind === "image") countPicture(item.image, names);
+      if (item.kind === "image") count(item.image);
       else if (item.kind === "footnote") inline(item.content);
     }
   };
@@ -155,7 +165,7 @@ export function picturesBeside(blocks: readonly Block[]): number {
         for (const row of each.rows) for (const cell of row) cell.content.forEach(block);
         break;
       case "image":
-        countPicture(each.image, names);
+        count(each.image);
         break;
       case "chart":
         for (const row of each.table) for (const cell of row) cell.content.forEach(block);
@@ -165,17 +175,17 @@ export function picturesBeside(blocks: readonly Block[]): number {
     }
   };
   blocks.forEach(block);
-  return names.size;
-}
-
-function countPicture(image: Image, names: Set<string>): void {
-  if (!image.src.startsWith("data:")) return;
-  const decoded = decodeDataUrl(image.src);
-  if (decoded) names.add(pictureName(decoded));
+  return names;
 }
 
 function pictureName(decoded: { data: Uint8Array; extension: string }): string {
   return `picture-${createHash("sha256").update(decoded.data).digest("hex").slice(0, 12)}.${decoded.extension}`;
+}
+
+/** Whether a file named `name` holds exactly what a picture file of that name holds (#1937). */
+export function isPictureFile(name: string, data: Uint8Array): boolean {
+  const extension = name.slice(name.lastIndexOf(".") + 1);
+  return name === pictureName({ data, extension });
 }
 
 /** A `data:` URL's bytes and media type, and the extension Outlook and Word use for them. */

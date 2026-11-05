@@ -217,12 +217,12 @@ import { createExports, type ExportsDependencies } from "./exports";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
-import { renderMarkdown } from "./exports/markdown";
+import { isPictureFile, renderMarkdown } from "./exports/markdown";
 import { setTextOnlyDocuments, textOnlyDocuments } from "./exports/sharedPictures";
 import { writeXlsx } from "./exports/xlsx";
 import { figureSchedule } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
-import { safeFileName, writeNewFile } from "./fileNames";
+import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFolders } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
@@ -6148,7 +6148,29 @@ export function createCore(adapters: CoreAdapters): Core {
       return restored;
     },
 
-    previewMindExport: async (mindId, options) => mindExports.preview(mindId, options),
+    previewMindExport: async (mindId, options, folder) => {
+      const preview = mindExports.preview(mindId, options);
+      if (!folder) return preview;
+      // The ask names the files as this folder will take them: the next free name where one is taken.
+      const taken = new Set<string>();
+      const free = async (name: string) => {
+        const chosen = await freeFileName(folder, name, taken);
+        taken.add(chosen);
+        return chosen;
+      };
+      const fileName = await free(preview.fileName);
+      const pictures: string[] = [];
+      for (const name of preview.pictures) {
+        // A picture the folder already holds is linked, not written (#1937).
+        try {
+          if (isPictureFile(name, new Uint8Array(await readFile(join(folder, name))))) continue;
+        } catch {
+          // Not there, or unreadable: the save writes it, or says why it couldn't.
+        }
+        pictures.push(await free(name));
+      }
+      return { ...preview, fileName, pictures };
+    },
     previewSharePage: (mindId, options) => mindExports.previewSharePage(mindId, options),
     setSharePageTextOnly: async (mindId, documentIds) => {
       if (!Array.isArray(documentIds) || documentIds.some((each) => typeof each !== "string")) {
