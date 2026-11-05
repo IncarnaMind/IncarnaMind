@@ -438,6 +438,7 @@ describe("exporting a Mind", () => {
 
     expect(await core.previewMindExport(mind.id, { format: "docx" })).toEqual({
       fileName: "Tides spring neap.docx",
+      pictures: 0,
       citations: 3,
       citedDocuments: 1,
       numbered: true,
