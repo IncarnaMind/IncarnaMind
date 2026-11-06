@@ -617,6 +617,21 @@ describe("which double marks are quotation marks (#2504)", () => {
     const qualified = "SELECT “name”, users.id FROM users;";
     expect(findQuote(qualified, "select ‘name’, users.id from users;")).toBeNull();
     expect(covered(qualified, "select “name”, users.id from users;")).toBe(qualified);
+    for (const gap of [" ", "\n"]) {
+      const spaced = `SELECT “name”, users.${gap}id FROM users;`;
+      expect(findQuote(spaced, `select ‘name’, users.${gap}id from users;`)).toBeNull();
+      expect(covered(spaced, `select “name”, users.${gap}id from users;`)).toBe(spaced);
+    }
+    const spacedZh = "运行 SELECT “name”, users. id FROM users 读取名字。";
+    expect(findQuote(spacedZh, "运行 SELECT ‘name’, users. id FROM users 读取名字")).toBeNull();
+    const ratio = "Set ratio = 3.5 and call it ‘total’;";
+    expect(findQuote(ratio, "set ratio = 3.5 and call it “total”;")).toBeNull();
+    expect(covered(ratio, "set ratio = 3.5 and call it ‘total’;")).toBe(ratio);
+    const twoLines = "Set ratio = 2\nand call it ‘total’;";
+    expect(findQuote(twoLines, "set ratio = 2\nand call it “total”;")).toBeNull();
+    expect(covered(twoLines, "set ratio = 2\nand call it ‘total’;")).toBe(twoLines);
+    const mention = "Please select a file. He said “go” there.";
+    expect(covered(mention, "he said ‘go’ there")).toBe("He said “go” there");
     const unqualified = "SELECT “name”, usersid FROM users;";
     expect(findQuote(unqualified, "select ‘name’, usersid from users;")).toBeNull();
     expect(covered(unqualified, "select “name”, usersid from users;")).toBe(unqualified);

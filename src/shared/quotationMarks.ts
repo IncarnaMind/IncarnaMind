@@ -12,9 +12,9 @@
  *   “, ‚ with ’ or ‘, and guillemets point either way). Guillemets and corner brackets are never a
  *   measure's, so they need no clear side;
  * - every sentence the pair is in, from its opening to its closing mark, is prose: one with no code
- *   character, read from the text's own characters ("echo ‘$HOME’", "echo “a.$b”", a backtick), no
- *   command option ("ls -la") and no SQL statement in any case, across line breaks ("select “name”
- *   from users").
+ *   character, read from the text's own characters ("echo ‘$HOME’", "echo “a.$b”", a backtick), and
+ *   no command option ("ls -la"); and the pair is in no SQL statement, found in any case before the
+ *   text is cut into sentences ("select “name”, users. id from users").
  *
  * Straight marks " and ' are never quotation marks here: they delimit code as often as prose, where
  * one kind isn't the other ("SELECT "name"" names a column, "SELECT 'name'" is a string).
@@ -121,22 +121,42 @@ function past(text: string, index: number, step: 1 | -1, skipped: number): numbe
 const pastGap = (text: string, index: number, step: 1 | -1) =>
   past(text, index, step, SPACE | HIDDEN);
 
-const SQL_STATEMENT =
-  /\bselect\b.*\bfrom\b|\binsert\s+into\b|\bupdate\b.*\bset\b|\bdelete\s+from\b|\b(?:order|group)\s+by\b/is;
+/** Where an SQL statement may start, and the shape it must have from there, in any case. */
+const SQL_START = /\b(?:select|insert|update|delete|order\s+by|group\s+by)\b/gi;
+const SQL_SHAPE =
+  /^(?:select\b.*\bfrom\b|insert\s+into\b|update\b.*\bset\b|delete\s+from\b|order|group)/is;
+/** An SQL statement runs to ";", a blank line or the text's end, across sentences and line breaks. */
+const STATEMENT_END = /;|\n[^\S\n]*\n/g;
+/** How far a statement is read from its first word, so a text of many is read in one pass. */
+const STATEMENT_REACH = 2000;
 const OPTION = /(?:^|\s)-\p{L}/u;
 /**
  * Where a sentence ends: a full stop, "!" or "?" before whitespace or the text's end, CJK sentence
- * punctuation, or a blank line. A dot inside a word, a name or a number ("users.id", "3.5") and a
- * line break inside a sentence don't end it.
+ * punctuation, or a blank line. A dot inside a word, a name or a number ("3.5") and a line break
+ * inside a sentence don't end it.
  */
 const SENTENCE_END = /[.!?](?=\s|$)|[。！？]|\n[^\S\n]*\n/g;
 
-/** The spans of `text`'s sentences that aren't prose, in order: a code character, a command option or SQL. */
-function codeSentences(text: string): [number, number][] {
+/** The spans of `text`'s SQL statements: SQL is found before the text is cut into sentences. */
+function sqlStatements(text: string): [number, number][] {
+  const ends = [...text.matchAll(STATEMENT_END)].map((end) => end.index);
   const spans: [number, number][] = [];
+  let next = 0;
+  for (const { index: start } of text.matchAll(SQL_START)) {
+    if (start < (spans.at(-1)?.[1] ?? 0)) continue;
+    while (next < ends.length && (ends[next] as number) < start) next++;
+    const end = Math.min(ends[next] ?? text.length, start + STATEMENT_REACH);
+    if (SQL_SHAPE.test(text.slice(start, end))) spans.push([start, end]);
+  }
+  return spans;
+}
+
+/** The spans of `text` that aren't prose, in order: SQL statements, and sentences with code characters or options. */
+function codeSpans(text: string): [number, number][] {
+  const spans = sqlStatements(text);
   const check = (from: number, to: number) => {
     const words = text.slice(from, to);
-    let code = OPTION.test(words) || SQL_STATEMENT.test(words);
+    let code = OPTION.test(words);
     for (let at_ = 0; !code && at_ < words.length; at_++) code = (at(words, at_) & CODE) !== 0;
     if (code) spans.push([from, to]);
   };
@@ -146,7 +166,14 @@ function codeSentences(text: string): [number, number][] {
     start = end.index + end[0].length;
   }
   check(start, text.length);
-  return spans;
+  spans.sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [];
+  for (const span of spans) {
+    const last = merged.at(-1);
+    if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+    else merged.push([span[0], span[1]]);
+  }
+  return merged;
 }
 
 /** Whether the code unit at `index`, just outside an opening mark, ends a word rather than code or a number. */
@@ -237,7 +264,7 @@ export function markQuotationMarks(text: string, units: NormalisedUnit[]): void 
   let code: [number, number][] | undefined;
   // Whether a sentence that isn't prose meets the pair anywhere from its opening to its closing mark.
   const inCode = (from: number, to: number) => {
-    code ??= codeSentences(text);
+    code ??= codeSpans(text);
     let low = 0;
     let high = code.length;
     while (low < high) {
