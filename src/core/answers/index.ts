@@ -4619,11 +4619,6 @@ export function createAnswers(options: AnswersOptions) {
       const ready = await readyModel(model ?? question.model, question.forcedSkill);
       if ("asked" in ready) return ready;
       if (model) options.conversations.setQuestionModel(question.id, model);
-      // The retry's Folder is the one in front now: its scope, and its side of the wall, are recorded.
-      if (typeof folderInFrontId === "string") {
-        options.conversations.setQuestionScope(question.id, folderScope(folderInFrontId));
-        options.conversations.setQuestionFolder(question.id, folderInFrontId);
-      }
       active.get(answerId)?.finish({ status: "stopped" });
       endJudgement(answerId, true);
       const changes = toolCalls.flatMap((call) => call.mindChange ?? []);
@@ -4639,22 +4634,23 @@ export function createAnswers(options: AnswersOptions) {
         !from || from.deleted
           ? null
           : mindToRead(from.mindId, question.focus, question.text, ready.model);
+      // The retry's origin: the Note it still reads, with that Note's Folder and wall, else the
+      // Folder in front. One decision drives the search, the context, the Tools and what is kept.
+      const mindId = mind?.mindId ?? null;
+      const front = mindId === null && typeof folderInFrontId === "string" ? folderInFrontId : null;
+      if (front !== null) {
+        options.conversations.setQuestionScope(question.id, folderScope(front));
+        options.conversations.setQuestionFolder(question.id, front);
+      }
       const turn = options.conversations.restartAnswer(answerId, ready.model, readOf(mind));
-      const frontWall =
-        typeof folderInFrontId === "string" ? options.walledFolderId(folderInFrontId) : null;
-      const frontScope = typeof folderInFrontId === "string" ? folderScope(folderInFrontId) : null;
-      // A Folder in front decides the wall, even an ordinary one (none); only without one does the
-      // Question's own recorded Folder decide.
-      const wall = mind
-        ? null
-        : typeof folderInFrontId === "string"
-          ? frontWall
-          : wallOfTurn(question);
-      const { documentIds, emptyScope } = scopeNow(
-        frontScope ?? question.scope,
-        from && !from.deleted ? from.mindId : null,
-        wall,
-      );
+      const wall =
+        mindId !== null
+          ? null
+          : front !== null
+            ? options.walledFolderId(front)
+            : wallOfTurn(question);
+      const scoped = front !== null ? folderScope(front) : question.scope;
+      const { documentIds, emptyScope } = scopeNow(scoped, mindId, wall);
       return startInConversation(
         turn,
         ready,
@@ -4662,11 +4658,11 @@ export function createAnswers(options: AnswersOptions) {
         emptyScope,
         mind,
         onScreen,
-        checkQuotes(question.quotes, from?.mindId ?? null, wall),
+        checkQuotes(question.quotes, mindId, wall),
         commands,
-        typeof folderInFrontId === "string" ? folderInFrontId : null,
+        front,
         remake,
-        frontScope ?? question.scope,
+        scoped,
       );
     },
 

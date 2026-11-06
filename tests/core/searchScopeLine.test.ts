@@ -555,6 +555,43 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
     );
   });
 
+  // protects=Try again keeps the Note's wall when it still reads the Note, so a later Question outside the wall never sees that Answer; fails_when=the retry records the Folder in front and the walled turn leaks; no_claim=what a real model makes of it.
+  test("Try again from outside the wall still reads the Note's wall, and the next Question there sees nothing of it", async () => {
+    const model = scriptedModel(() => ({ text: "The wall's private answer." }));
+    const set = await setUpWithDocuments(model, everyFile);
+    const { core } = set;
+    const walled = await core.createLibraryGroup({ name: "Client B", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Client B",
+      description: "",
+      keepInside: true,
+    });
+    const open = await core.createLibraryGroup({ name: "Reports", description: "" });
+    const mind = await core.createMind({ title: "Wall notes", folderId: walled.id });
+
+    const first = await ask(core, {
+      text: "A private question about the wall.",
+      mindId: mind.id,
+    });
+    const again = await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+      folderInFrontId: open.id,
+    });
+    if (!again.asked) throw new Error("Not asked again.");
+    await answerEnded(core, again.answerId);
+
+    await ask(core, {
+      text: "What did I ask before?",
+      conversationId: first.conversation.id,
+      folderInFrontId: open.id,
+    });
+    const sent = promptOf(model, 2)
+      .map((message) => message.text)
+      .join("\n");
+    expect(sent).not.toContain("The wall's private answer.");
+  });
+
   // protects=the instructions and the Note's message do not change with the scope, so a provider's prompt cache keeps its start; fails_when=a scope line goes into the instructions or the Note's message; no_claim=none beyond protects.
   test("leaves the instructions and the Note's message as they were", async () => {
     const { core, model, client, mind, reports, contracts } = await setUp();
