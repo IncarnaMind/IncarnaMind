@@ -8,6 +8,7 @@
 import * as Y from "yjs";
 import { readProposalAttribute } from "../../shared/proposals";
 import {
+  ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
@@ -22,6 +23,7 @@ export const CITING: ReadonlySet<string> = new Set([
   CITATION_NODE,
   FOOTNOTE_NODE,
   CALCULATED_FIGURE_NODE,
+  ANALYSIS_TABLE_NODE,
 ]);
 
 /** How many of each citing node, by `citingKey`. */

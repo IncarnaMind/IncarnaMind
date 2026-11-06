@@ -56,7 +56,7 @@ import { notePlace } from "./editor/notePlace";
 import type { Words } from "./lineNames";
 import { exampleMindIds, useAppStore } from "./store";
 import { answerUndoPlace, useUndo } from "./undo";
-import { copiedOutOf, scopeOutsideWalls } from "./walls";
+import { copiedOutOf, scopeOutsideWalls, wallsOf } from "./walls";
 
 /** Where Add to note puts an Answer: a Mind, by id, or a new Mind made from it. */
 export type AddTarget = { kind: "mind"; mindId: string } | { kind: "new" };
@@ -83,7 +83,7 @@ const addedLine =
   (mind: string, blocks: readonly NodeJSON[], folderId: string | null): Words =>
   (t) => {
     const name = mind || t("mind.untitled");
-    const outOf = copiedOutOf(useAppStore.getState().library, blocks, folderId);
+    const outOf = copiedOutOf(wallsOf(useAppStore.getState()), blocks, folderId);
     return outOf === null
       ? t("answer.added", { mind: name })
       : t("answer.added.outOfWall", { mind: name, folder: outOf });
@@ -170,7 +170,7 @@ async function addToReadMind(added: AddedAnswer, mindId: string): Promise<boolea
         carryAnswerScope(
           doc,
           scopeOutsideWalls(
-            useAppStore.getState().library,
+            wallsOf(useAppStore.getState()),
             questionOf(added.answer)?.scope ?? null,
             folderId ?? null,
           ),

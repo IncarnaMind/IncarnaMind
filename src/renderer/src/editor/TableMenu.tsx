@@ -19,6 +19,7 @@ import {
   type TableAction,
   type TableActionId,
   type TableSpot,
+  tableMenuGroups,
   tableSpot,
   unavailable,
 } from "./tableCommands";
@@ -29,13 +30,6 @@ const INSET = 4;
 
 const actionOf = (id: TableActionId) =>
   TABLE_ACTIONS.find((action) => action.id === id) as TableAction;
-
-const GROUPS: readonly (readonly (TableActionId | "chart")[])[] = [
-  ["rowAbove", "rowBelow", "columnLeft", "columnRight"],
-  ["headerRow", "totalRow", "totalColumn"],
-  ["chart"],
-  ["deleteRow", "deleteColumn", "deleteTable"],
-];
 
 /** In `frame`, not fixed, so it scrolls with the text and stays under the composer. */
 function placeOnCell(cell: HTMLElement, button: HTMLElement, frame: HTMLElement): () => void {
@@ -74,7 +68,7 @@ export function TableMenu({ editor }: { editor: Editor }) {
   const shown = spot !== null && (focused || menu.open || asked !== null);
   const button = menu.buttonProps.ref;
   const chart = menu.open && spot ? chartOfTable(editor.state, languageNow()) : null;
-  const groups = GROUPS.filter((group) => group[0] !== "chart" || chart !== null);
+  const groups = tableMenuGroups(spot?.analysis === true, chart !== null);
 
   useEffect(() => {
     editor.storage.tableKeys.openMenu = (buttons) => setAsked({ buttons });
