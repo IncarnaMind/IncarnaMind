@@ -1,6 +1,6 @@
 /**
  * Held-out cases for the rules a rewrite with what the Documents say keeps to (#1554), written
- * from the rules alone, before they changed, in three rounds (the later two marked below): each pairs a sentence and a scripted reply with the
+ * from the rules alone, before they changed, in four rounds (the later three marked below): each pairs a sentence and a scripted reply with the
  * quote the check found, and says what a careful reader would allow. A figure or a name is
  * written only when the quote says it of the same thing, in the same terms; "same" only when the
  * sentence already gives the quote's value; otherwise the sentence stays. The names are invented.
@@ -637,6 +637,40 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     quote: "甲方通知乙方后，乙方退还 900 元。",
     kind: "same",
   },
+  // Written after the seventh review, before the rules changed again: a line's figure that is a
+  // year is never written for an amount or a length, but one a unit follows is a measure.
+  {
+    id: "a-year-for-an-amount",
+    language: "en",
+    sentence: "The fund was set up with 750.",
+    reply: "Change 1: 750\nTo 1: 2021",
+    quote: "The fund was set up in 2021.",
+    kind: "kept",
+  },
+  {
+    id: "a-measure-that-looks-like-a-year",
+    language: "en",
+    sentence: "The hall seats 1,800 people.",
+    reply: "Change 1: 1,800\nTo 1: 2020",
+    quote: "The hall seats 2020 people.",
+    kind: "rewritten",
+  },
+  {
+    id: "a-year-for-a-length-zh",
+    language: "zh-CN",
+    sentence: "合同期限为 3 年。",
+    reply: "Change 1: 3\nTo 1: 2025",
+    quote: "合同期限为 2025 年。",
+    kind: "kept",
+  },
+  {
+    id: "a-measure-that-looks-like-a-year-zh",
+    language: "zh-CN",
+    sentence: "展厅面积为 1800 平方米。",
+    reply: "Change 1: 1800\nTo 1: 2020",
+    quote: "展厅面积为 2020 平方米。",
+    kind: "rewritten",
+  },
 ];
 
 /**
@@ -730,6 +764,30 @@ export const REWRITE_OFFER_CASES: readonly RewriteOfferCase[] = [
     id: "said-again-same-party-zh",
     sentence: "甲方通知乙方后，乙方退还 800 元。",
     quote: "甲方通知乙方后，乙方退还 900 元。",
+    offered: true,
+  },
+  {
+    id: "a-year-for-an-amount",
+    sentence: "The fund was set up with 750.",
+    quote: "The fund was set up in 2021.",
+    offered: false,
+  },
+  {
+    id: "a-measure-that-looks-like-a-year",
+    sentence: "The hall seats 1,800 people.",
+    quote: "The hall seats 2020 people.",
+    offered: true,
+  },
+  {
+    id: "a-year-for-a-length-zh",
+    sentence: "合同期限为 3 年。",
+    quote: "合同期限为 2025 年。",
+    offered: false,
+  },
+  {
+    id: "a-measure-that-looks-like-a-year-zh",
+    sentence: "展厅面积为 1800 平方米。",
+    quote: "展厅面积为 2020 平方米。",
     offered: true,
   },
 ];
