@@ -345,6 +345,16 @@ describe("The provider catalog", () => {
     expect(isNonChatModel("openai", "gpt-7-preview")).toBe(false);
   });
 
+  test("the first-party DeepSeek list is the two ids its API serves (#2567)", () => {
+    expect(catalogModels("deepseek").map((model) => model.id)).toEqual([
+      "deepseek-flash",
+      "deepseek-v4-pro",
+    ]);
+    expect(catalogModels("deepseek").find((model) => model.id === "deepseek-flash")?.name).toBe(
+      "DeepSeek V4.1 Flash",
+    );
+  });
+
   test.each<[ChatProviderKind, string, boolean]>([
     ["anthropic", "claude-haiku-5-5", true],
     ["anthropic", "claude-sonnet-5-5", true],
@@ -353,9 +363,7 @@ describe("The provider catalog", () => {
     ["openrouter", "openai/gpt-6-luna", false],
     ["google", "gemini-3.8-flash", false],
     ["deepseek", "deepseek-flash", true],
-    ["deepseek", "deepseek-v4-flash", true],
     ["deepseek", "deepseek-v4-pro", false],
-    ["deepseek", "deepseek-v4-flash-vision-exp", false],
     ["openrouter", "deepseek/deepseek-chat", false],
     ["qwen", "qwen3.8-flash", false],
     ["siliconflow", "deepseek-ai/DeepSeek-V4", false],
@@ -372,7 +380,6 @@ describe("The provider catalog", () => {
     ["openai", "gpt-6-luna", true],
     ["chatgpt", "gpt-6-sol", true],
     ["deepseek", "deepseek-flash", false],
-    ["deepseek", "deepseek-v4-flash", false],
   ])(
     "%s %s is offered the workbook Tools, the Analysis Tool and calculate in checks: %s",
     (kind, modelId, offered) => {

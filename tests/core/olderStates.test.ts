@@ -76,7 +76,76 @@ function holds() {
   };
 }
 
+/** Reads held by the read that started first, then by the newest one, then settled at once. */
+function phasedReads<T>(idle: T) {
+  let active = false;
+  let phase: "first" | "second" | "settled" = "first";
+  let settled: { value: T } | null = null;
+  const first: { resolve: (value: T) => void; reject: (error: Error) => void }[] = [];
+  const second: { resolve: (value: T) => void; reject: (error: Error) => void }[] = [];
+  return {
+    first,
+    second,
+    begin() {
+      active = true;
+    },
+    newestPhase() {
+      phase = "second";
+    },
+    settle(value: T) {
+      settled = { value };
+      phase = "settled";
+    },
+    read(): Promise<T> {
+      if (!active) return Promise.resolve(idle);
+      if (settled) return Promise.resolve(settled.value);
+      return new Promise<T>((resolve, reject) => {
+        (phase === "first" ? first : second).push({ resolve, reject });
+      });
+    },
+  };
+}
+
 describe("chatReadiness.changed", () => {
+  test("a newest readiness read that fails is made once more, so the window doesn't keep the earlier model", async () => {
+    const looks = phasedReads<null>(null);
+    const core = startCore(await createTempDataFolder(), {
+      ollamaModels: {
+        describe: () => looks.read(),
+        loaded: async () => null,
+        running: async () => true,
+      },
+    });
+    const first = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: await unusedLocalUrl(),
+      modelId: "qwen3:4b",
+    });
+    const second = await core.saveChatProvider({
+      kind: "ollama",
+      baseUrl: await unusedLocalUrl(),
+      modelId: "qwen3:8b",
+    });
+    const sent = collect(core, "chatReadiness.changed");
+
+    looks.begin();
+    const toFirst = core.updateSettings({
+      user: { chatModel: { providerId: first.id, modelId: "qwen3:4b" } },
+    });
+    await vi.waitFor(() => expect(looks.first.length).toBeGreaterThan(0));
+    looks.newestPhase();
+    const toSecond = core.updateSettings({
+      user: { chatModel: { providerId: second.id, modelId: "qwen3:8b" } },
+    });
+    await vi.waitFor(() => expect(looks.second.length).toBeGreaterThan(0));
+    for (const each of looks.second.splice(0)) each.reject(new Error("Ollama is down"));
+    looks.settle(null);
+    for (const each of looks.first.splice(0)) each.resolve(null);
+    await Promise.all([toFirst, toSecond]);
+
+    expect(sent.at(-1)).toMatchObject({ provider: { id: second.id } });
+  });
+
   test.each(["another model is chosen", "the provider is deleted"] as const)(
     "a local model's readiness, read while Ollama is slow to answer, isn't sent after %s",
     async (newer) => {
@@ -216,6 +285,51 @@ describe("dataFlows.changed", () => {
 
     expect(chatTo(sent.at(-1))).toBe("accepted");
   });
+
+  test.each(["revoke-then-allow", "allow-then-revoke"] as const)(
+    "a newest flows read that fails is made once more, so the window doesn't keep the earlier decision (%s)",
+    async (order) => {
+      const looks = phasedReads<string[]>([]);
+      const clock = heldClock();
+      const core = startCore(await createTempDataFolder(), {
+        paceTimers: clock.timers,
+        localModels: () => looks.read(),
+      });
+      const provider = await core.saveChatProvider({
+        kind: "openai",
+        apiKey: OPENAI_KEY,
+        modelId: "gpt-5.4-mini",
+      });
+      const service = provider.service?.id ?? "";
+      const chatTo = (flows: CoreEvents["dataFlows.changed"] | undefined) =>
+        flows
+          ?.find((flow) => flow.id === "chat")
+          ?.services.find((each) => each.flow.service.id === service)?.consent;
+      const sent = collect(core, "dataFlows.changed");
+      clock.advance(60_000);
+
+      looks.begin();
+      const first =
+        order === "revoke-then-allow"
+          ? core.revokeConsent("chat", service)
+          : core.allowDataFlow("chat", service);
+      await vi.waitFor(() => expect(looks.first.length).toBeGreaterThan(0));
+      looks.newestPhase();
+      const second =
+        order === "revoke-then-allow"
+          ? core.allowDataFlow("chat", service)
+          : core.revokeConsent("chat", service);
+      await vi.waitFor(() => expect(looks.second.length).toBeGreaterThan(0));
+      // The older read finishes first; the newest one then rejects, and only its retry sends.
+      for (const each of looks.first.splice(0)) each.resolve([]);
+      await first;
+      for (const each of looks.second.splice(0)) each.reject(new Error("Ollama is down"));
+      looks.settle([]);
+      await second;
+
+      expect(chatTo(sent.at(-1))).toBe(order === "revoke-then-allow" ? "accepted" : "not-asked");
+    },
+  );
 });
 
 describe("Automatic tagging", () => {
