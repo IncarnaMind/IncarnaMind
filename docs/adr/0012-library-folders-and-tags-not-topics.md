@@ -33,3 +33,10 @@ A Folder's **Keep this Folder's work inside it** switch adds an information barr
 - A null Search scope goes through the same resolution as an explicit one: outside work never turns it into every Document. A scope with no Note open may name one walled Folder, never two; each Question records its Folder so a later wall applies to the turn that was already asked, while an unrecorded older Question uses the previous derivation.
 - A Document or Note can still be moved out. Its move notice says what changes and has Undo. Turning the switch off restores the ordinary Search scope.
 - A Citation made before the wall stays readable and opens as before. An outside check does not read its Document again: its last result stands and says **Kept inside {Folder}**.
+
+## Amendment: walled Folders stay Organize's targets (2026-11-04, #2308)
+
+Organize offers every Folder as a place for a Document, a walled one included: its name and description go to the Organize service, with the others, and one choice comes back. A work wall keeps one Folder's Documents out of other Notes' answers. Organize writes no Note's answer: it sends the Folder list only to the service the User allowed for Organize, and filing a new Document into its matter's walled Folder is what the User wants. The Library's Organize already did so, and the wall above doesn't list Organize among the paths it closes.
+
+- **A Document inside a wall is never sent from it by itself.** Neither Organize nor automatic tagging sends anything of a Document filed in a walled Folder to a cloud service by itself; the User's own Organize or re-tag of it, "Organize this Folder" on that Folder included, still goes.
+- **A Document Organize files into a wall comes back with the one Undo**, as any Organize filing does.

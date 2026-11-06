@@ -1008,6 +1008,8 @@ export function createCore(adapters: CoreAdapters): Core {
         prepareRerank();
         documentReady(documentId);
       },
+      // Tagged as soon as its text, or a scan's first pages, can be read, not once embedded (#2308).
+      onText: (documentId) => documentReady(documentId),
       // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
       // conversations. Features other than Citations retain what they need too.
       citedUnits: (documentIds) => {
@@ -1243,6 +1245,8 @@ export function createCore(adapters: CoreAdapters): Core {
     if (wasLocal !== embedding.localOnly()) {
       usageData.localModeChanged();
       privacyChanged();
+      // Documents waiting to be allowed on a cloud service aren't, in Local mode (#2308).
+      events.emit("library.changed", null);
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
       await rerankChanged();
@@ -3447,7 +3451,9 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const tagger = createTagger({
-    maySend: (id, service) => mayBackgroundSend(db, id, [service], library.turnedOnAt),
+    // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
+    maySend: (id, service) =>
+      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnAt),
     db,
     now,
     tags,
@@ -3489,6 +3495,8 @@ export function createCore(adapters: CoreAdapters): Core {
     background,
     rateLimit,
     timers: paceTimers,
+    head: (id) => documents.head(id),
+    headIds: () => documents.headIds(),
   });
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
   // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
@@ -3502,6 +3510,8 @@ export function createCore(adapters: CoreAdapters): Core {
     settings,
     background,
     isExampleDocument: (documentId) => isExampleDocument(documentId),
+    head: (id) => documents.head(id),
+    localOnly: () => embedding.localOnly(),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
