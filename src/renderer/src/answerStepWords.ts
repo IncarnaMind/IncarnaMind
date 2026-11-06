@@ -61,13 +61,32 @@ export function sourcesText(t: Translate, count: number): string {
 /**
  * The Documents read with the Question: “{Document}” for one (a deleted one
  * has no name), else how many; after the Mind's line `read` when it was read too.
+ * When some are the examples', they are told apart from the User's own, so the
+ * count of the User's own agrees with their Library: the total is all that was read.
  */
 export function documentsReadText(
   t: Translate,
   documents: readonly ReadDocument[],
   nameOf: (document: ReadDocument) => string | null,
   read: string | null = null,
+  isExample: (document: ReadDocument) => boolean = () => false,
 ): string {
+  const exampleCount = documents.filter(isExample).length;
+  if (exampleCount > 0) {
+    const own = documents.length - exampleCount;
+    const examples = t(
+      exampleCount === 1 ? "steps.readDocuments.examples.one" : "steps.readDocuments.examples",
+      { count: exampleCount },
+    );
+    if (own === 0) {
+      return read === null
+        ? t("steps.readDocuments.examplesOnly.bare", { examples })
+        : t("steps.readDocuments.examplesOnly", { read, examples });
+    }
+    return read === null
+      ? t("steps.readDocuments.withExamples.bare", { own, examples })
+      : t("steps.readDocuments.withExamples", { read, own, examples });
+  }
   const [first] = documents;
   const document = documents.length === 1 && first ? nameOf(first) : null;
   const count = documents.length;
@@ -91,6 +110,8 @@ export interface FoldedWords {
   modelOf(modelId: string): string;
   /** A Document's name as it is now; null when it can't be found. */
   documentOf(document: ReadDocument): string | null;
+  /** Whether a Document is one of the examples': absent, none is. */
+  isExample?(document: ReadDocument): boolean;
   /** Where the Mind's name goes, to split the line around it. */
   mindName?: string;
 }
@@ -123,6 +144,7 @@ export function foldedWords(t: Translate, line: FoldedLine, words: FoldedWords):
         line.documents,
         words.documentOf,
         line.read && mindStepText(t, line.read, words.mindName),
+        words.isExample,
       );
     case "read":
     case "asked":
