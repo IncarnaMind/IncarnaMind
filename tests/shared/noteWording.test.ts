@@ -113,7 +113,12 @@ const NOTE_FOR_MIND: readonly MessageKey[] = [
 ];
 
 /** Already says 笔记 for the Note, with an English word that never said note. */
-const CHINESE_ONLY: readonly MessageKey[] = ["history.reason.enhance"];
+const CHINESE_ONLY: readonly MessageKey[] = [
+  "history.reason.enhance",
+  // The English says meeting, the Chinese names the meeting's Note and Transcript (#2528).
+  "meetings.leftApart.one",
+  "meetings.leftApart.other",
+];
 
 /**
  * A note here is something else: Word's notes, speaker notes, a style's name,
