@@ -146,6 +146,7 @@ describe("A Passage's tokens, kept between searches", () => {
       ["what is", "a b c d e f g h"],
       ["a b c d e f g h a b c d", "paris lies"],
       ["what is the capital", "paris lies on seine"],
+      ["what is", ""],
     ] as const)
       expect(pairs(query, text)).toEqual(pairIds(tokenizer, query, text, 10));
     reads.mockClear();

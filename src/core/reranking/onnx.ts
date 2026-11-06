@@ -139,7 +139,8 @@ export function pairEncoder(tokenizer: Tokenizer, maxTokens: number) {
   };
   return (query: string, text: string): number[] => {
     if (template === undefined) template = pairTemplate(tokenizer, tokens);
-    if (!template) return pairIds(tokenizer, query, text, maxTokens);
+    // The tokenizer reads an empty second text as no pair at all.
+    if (!template || text === "") return pairIds(tokenizer, query, text, maxTokens);
     const queryTokens = tokens(query);
     const queryLimit = Math.floor(maxTokens * QUERY_SHARE);
     // As `pairIds` reads a cut query: decoded, then read again.
