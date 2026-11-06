@@ -21,6 +21,23 @@ export const checksWaitIn = (flows: readonly RegisteredDataFlow[]): boolean =>
     (flow) => flow.id === "checks" && flow.services.some((use) => use.consent === "not-asked"),
   );
 
+/**
+ * Whether checks wait, read from `list`. While the flows can't be read, they wait, its failure
+ * reported: the waiting line's Review… asks only if checks still need the User's OK, so it never
+ * sends without it, while the plain Not checked would say what isn't known.
+ */
+export async function checksWaitNow(
+  list: () => Promise<readonly RegisteredDataFlow[]>,
+  report: (error: unknown) => void,
+): Promise<boolean> {
+  try {
+    return checksWaitIn(await list());
+  } catch (error) {
+    report(error);
+    return true;
+  }
+}
+
 /** How many sentences the write holds that a check reads; a check recorded before #1909 kept only the cited ones. */
 export const checkableOf = (check: NonNullable<MindChange["selfCheck"]>): number =>
   check.checkable ?? check.cited;

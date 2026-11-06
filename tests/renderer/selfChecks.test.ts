@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { AnswerToolCall, MindChange } from "../../src/core/api";
+import type { AnswerToolCall, MindChange, RegisteredDataFlow } from "../../src/core/api";
 import {
   checkableOf,
   checksWaitIn,
+  checksWaitNow,
   selfCheckLines,
   selfChecksOf,
 } from "../../src/renderer/src/selfChecks";
@@ -345,6 +346,24 @@ describe("What a write's check left to do", () => {
         action: { label: "Check", does: "check" },
       },
     ]);
+  });
+
+  // protects=flows that can't be read leave checks waiting, the failure reported, never thrown where nothing catches it; fails_when=a failed or malformed read throws in its handler, or drops the waiting line on a guess.
+  test("checks wait while the flows can't be read, and the failure is reported", async () => {
+    const reported: unknown[] = [];
+    const report = (error: unknown) => reported.push(error);
+    expect(await checksWaitNow(() => Promise.reject(new Error("The bridge closed.")), report)).toBe(
+      true,
+    );
+    expect(
+      await checksWaitNow(
+        () => Promise.resolve(undefined as unknown as readonly RegisteredDataFlow[]),
+        report,
+      ),
+    ).toBe(true);
+    expect(reported).toHaveLength(2);
+    expect(await checksWaitNow(() => Promise.resolve([]), report)).toBe(false);
+    expect(reported).toHaveLength(2);
   });
 
   // protects=checks wait only while a service is not allowed what they send now; fails_when=the waiting line stays once the User allowed it, or shows for a service they declined.

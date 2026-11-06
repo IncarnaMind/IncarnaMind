@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { core } from "./core";
-import { checksWaitIn } from "./selfChecks";
+import { checksWaitNow } from "./selfChecks";
 import { useAppStore } from "./store";
 
 /**
@@ -14,12 +14,12 @@ export function useChecksWaitForConsent(): boolean {
     let latest = 0;
     const load = () => {
       const mine = ++latest;
-      core.listRegisteredDataFlows().then(
-        (flows) => {
-          if (!stopped && mine === latest) setWaiting(checksWaitIn(flows));
-        },
-        (error: unknown) => useAppStore.getState().reportError(error),
-      );
+      void checksWaitNow(
+        () => core.listRegisteredDataFlows(),
+        (error) => useAppStore.getState().reportError(error),
+      ).then((now) => {
+        if (!stopped && mine === latest) setWaiting(now);
+      });
     };
     load();
     // A dialog answered in place changes the decision without the flows changing.
