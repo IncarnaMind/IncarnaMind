@@ -1148,7 +1148,9 @@ function useStatuses(): Status[] {
   const waitsFor = library?.sortWaitsFor;
   const toSort = waitsFor
     ? ownDocuments
-        .filter((doc, at) => !liveStates[at]?.item && doc.tagging === "off")
+        .filter(
+          (doc, at) => !liveStates[at]?.item && doc.tagging === "off" && isListedDocument(doc),
+        )
         .map((doc) => doc.id)
     : [];
   if (waitsFor && toSort.length > 0 && !capturing) {
