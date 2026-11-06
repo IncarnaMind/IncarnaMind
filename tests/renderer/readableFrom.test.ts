@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
-import type { Document, DocumentGroupAssignment, LibraryGroup } from "../../src/core/api";
+import { describe, expect, test, vi } from "vitest";
+import type { Document, DocumentGroupAssignment, LibraryGroup, Mind } from "../../src/core/api";
 import {
   type ReadableLibrary,
   readableFrom,
@@ -10,6 +10,8 @@ import {
  * Choose the Citation… take a Document only on the Note's side of a Folder wall, and only one with
  * text, as the shared picker offers them.
  */
+
+vi.mock("../../src/renderer/src/core", () => ({ core: { on: () => () => undefined } }));
 
 const folder = (id: string, name: string, keepInside = false): LibraryGroup => ({
   id,
@@ -30,7 +32,11 @@ const filed = (documentId: string, groupId: string): DocumentGroupAssignment => 
   error: null,
   model: null,
 });
-const document = (id: string, status: Document["status"] = "ready") => ({ id, status });
+const document = (id: string, status: Document["status"] = "ready") => ({
+  id,
+  status,
+  meetingMindId: null,
+});
 
 const library: ReadableLibrary = {
   groups: [folder("wall", "Client A", true), folder("general", "General")],
@@ -51,5 +57,29 @@ describe("A Document a sentence's actions may take", () => {
   test("is one with text", () => {
     expect(readableFrom(library, null, { kind: "document", id: "scan" })).toBe(false);
     expect(readableFrom(library, null, { kind: "document", id: "notice" })).toBe(true);
+  });
+});
+
+describe("A Document a Note's sentence may take now", () => {
+  const note = (id: string, folderId: string | null): Mind => ({
+    id,
+    title: id,
+    autoTitle: "",
+    kind: "mind",
+    createdAt: "2026-11-01T00:00:00.000Z",
+    updatedAt: "2026-11-01T00:00:00.000Z",
+    folderId,
+  });
+
+  test("is its own meeting's Transcript, which is where its Note is", async () => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { readableNow } = await import("../../src/renderer/src/readableDocuments");
+    useAppStore.setState({
+      minds: [note("meeting", "wall"), note("elsewhere", null)],
+      documents: [{ ...document("transcript"), meetingMindId: "meeting" } as never],
+      library: { groups: [folder("wall", "Client A", true)], assignments: [] } as never,
+    });
+    expect(readableNow("meeting", { kind: "document", id: "transcript" })).toBe(true);
+    expect(readableNow("elsewhere", { kind: "document", id: "transcript" })).toBe(false);
   });
 });

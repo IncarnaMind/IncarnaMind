@@ -1,4 +1,4 @@
-import type { Document, SearchScope } from "../../../core/api";
+import type { Document, Mind, SearchScope } from "../../../core/api";
 import { NO_SCOPE } from "../../../shared/searchScope";
 import { folderWallOf, isInsideFolder } from "../folders";
 import { withTranscriptsFiled } from "../meetingTranscript";
@@ -19,9 +19,15 @@ export function documentOrFolderChoices(
   );
 }
 
-/** What `readableFrom` reads of the Library: its Folders, where Documents are filed, and their status. */
-export interface ReadableLibrary extends Pick<ScopeLibrary, "groups" | "assignments"> {
-  documents: readonly Pick<Document, "id" | "status">[];
+/** What `keptFrom` reads of the Library: its Folders, where Documents are filed, and whose meeting each is. */
+export interface FilingLibrary extends Pick<ScopeLibrary, "groups" | "assignments"> {
+  documents: readonly Pick<Document, "id" | "meetingMindId">[];
+  minds?: readonly Pick<Mind, "id" | "folderId">[];
+}
+
+/** What `readableFrom` reads of the Library: what `keptFrom` does, and each Document's status. */
+export interface ReadableLibrary extends FilingLibrary {
+  documents: readonly Pick<Document, "id" | "status" | "meetingMindId">[];
 }
 
 /**
@@ -47,7 +53,7 @@ export function readableFrom(
  * the wall's Folder and the Documents the User filed in it is outside. Null when it can.
  */
 export function keptFrom(
-  library: Pick<ScopeLibrary, "groups" | "assignments">,
+  library: FilingLibrary,
   choice: Pick<DocumentOrFolderChoice, "kind" | "id">,
   wall: string | null,
 ): { inside: string } | "outside" | null {
