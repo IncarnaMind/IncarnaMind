@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
   type ConnectionTestResult,
   JEV_DEFAULT_MODEL,
@@ -6,6 +6,8 @@ import {
   type SaveJevSettingsInput,
   type SecretStorageStatus,
 } from "../../../../core/api";
+import { JEV_SERVICE } from "../../../../core/providers/jev";
+import { serviceForUrl } from "../../../../core/providers/service";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
@@ -28,6 +30,7 @@ import {
   sectionNoteClass,
   sectionTitleClass,
 } from "../ui";
+import { setUpJevForSorting } from "./jevSetUp";
 import { SecretStorageNotice, TestResult } from "./ProviderForm";
 import { useProviderKey } from "./shared";
 import { useJevSettings } from "./useJevSettings";
@@ -121,14 +124,39 @@ export function JevSettingsSection({ embedded = false }: { embedded?: boolean })
   );
 }
 
-/** The Jev key, an optional server and model, and the review band; test, then save. */
-function JevForm({
+/** Jev set up from the sorting picker (#2615), where its Use this is the consent and the choice. */
+export interface JevSortingForm {
+  /** What choosing Jev sends, to the service the form's server names (null: this computer). */
+  consent(service: string | null): ReactNode;
+  /** Makes Jev what sorts, once its key is saved: false when that failed, having said why. */
+  choose(): Promise<boolean>;
+}
+
+/** The service a server typed in the form sends to: TypeSafe's when there is none, null on this computer. */
+function serviceOfEndpoint(endpoint: string): string | null {
+  const typed = endpoint.trim();
+  if (typed === "") return JEV_SERVICE.name;
+  try {
+    return serviceForUrl(typed)?.name ?? null;
+  } catch {
+    return typed;
+  }
+}
+
+/**
+ * The Jev key, an optional server and model, and the review band; test, then save. From the
+ * sorting picker (`sorting`), its one button tries the key, saves it and chooses Jev, with no
+ * Test before: nothing goes to TypeSafe until the User has pressed it.
+ */
+export function JevForm({
   current,
+  sorting,
   onSaved,
   onCancel,
 }: {
   current: JevSettings;
-  onSaved(saved: JevSettings): void;
+  sorting?: JevSortingForm;
+  onSaved(saved: JevSettings, chosen?: boolean): void;
   onCancel(): void;
 }) {
   const t = useT();
@@ -142,10 +170,16 @@ function JevForm({
   const [test, setTest] = useState<ConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [secretStorage, setSecretStorage] = useState<SecretStorageStatus | null>(null);
+  const keyField = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     core.getSecretStorage().then(setSecretStorage, () => undefined);
   }, []);
+  const fromPicker = sorting !== undefined;
+  // Chosen from the picker, the key entry is where the User goes next.
+  useEffect(() => {
+    if (fromPicker) keyField.current?.focus();
+  }, [fromPicker]);
 
   const hasKey = key.text !== "" || current.hasApiKey;
   const keyBlocked = key.text !== "" && secretStorage !== null && !secretStorage.canSave;
@@ -162,13 +196,20 @@ function JevForm({
     setError(null);
     if (action === "testing") setTest(null);
     try {
+      const settings = { ...input(), reviewBand: { low: low / 100, high: high / 100 } };
       if (action === "testing") {
         setTest(await core.testJevConnection(input()));
+      } else if (sorting) {
+        setTest(null);
+        const outcome = await setUpJevForSorting(core, settings, sorting.choose);
+        if (outcome.kind === "failed") {
+          setTest(outcome.result);
+          return;
+        }
+        key.clear();
+        onSaved(outcome.saved, outcome.chosen);
       } else {
-        const saved = await core.saveJevSettings({
-          ...input(),
-          reviewBand: { low: low / 100, high: high / 100 },
-        });
+        const saved = await core.saveJevSettings(settings);
         key.clear();
         onSaved(saved);
       }
@@ -209,10 +250,21 @@ function JevForm({
   );
 
   return (
-    <form data-testid="jev-form" onSubmit={submit} className="flex flex-col gap-3">
+    <form
+      data-testid="jev-form"
+      onSubmit={submit}
+      onKeyDown={(event) => {
+        if (!sorting || event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+      }}
+      className="flex flex-col gap-3"
+    >
       <label className={fieldLabelClass}>
         {t("jev.form.apiKey")}
         <input
+          ref={keyField}
           type="password"
           value={key.apiKey}
           onChange={(event) => key.type(event.target.value)}
@@ -267,25 +319,34 @@ function JevForm({
         </div>
       </details>
 
-      <p data-testid="jev-sends" className={hintClass}>
-        {t("jev.form.sends")}
-      </p>
+      {sorting ? (
+        sorting.consent(serviceOfEndpoint(endpoint))
+      ) : (
+        <p data-testid="jev-sends" className={hintClass}>
+          {t("jev.form.sends")}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="submit"
+          data-testid="jev-save"
           disabled={!hasKey || !bandValid || keyBlocked || key.stray !== null || busy !== null}
           className={primaryButtonClass}
         >
-          {busy === "saving" ? t("providers.form.saving") : t("jev.form.save")}
+          {busy === "saving"
+            ? t(sorting ? "providers.form.checking" : "providers.form.saving")
+            : t(sorting ? "setup.step.useThis" : "jev.form.save")}
         </button>
-        <button
-          type="button"
-          disabled={!hasKey || key.stray !== null || busy !== null}
-          onClick={() => void run("testing")}
-          className={buttonClass}
-        >
-          {busy === "testing" ? t("providers.form.testing") : t("providers.form.test")}
-        </button>
+        {!sorting && (
+          <button
+            type="button"
+            disabled={!hasKey || key.stray !== null || busy !== null}
+            onClick={() => void run("testing")}
+            className={buttonClass}
+          >
+            {busy === "testing" ? t("providers.form.testing") : t("providers.form.test")}
+          </button>
+        )}
         <button type="button" onClick={onCancel} className={ghostButtonClass}>
           {t("providers.settings.cancel")}
         </button>

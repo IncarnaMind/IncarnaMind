@@ -212,6 +212,8 @@ export interface LaunchOptions {
    * of the app as the User runs it.
    */
   realEngines?: boolean;
+  /** A stand-in for TypeSafe's hosted Jev, at this base URL. */
+  jev?: string;
   /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
@@ -289,6 +291,7 @@ export async function launchApp(
     sandboxed = false,
     sandboxNotice,
     realEngines = false,
+    jev,
     extraEnv,
     trace = false,
     switches = [],
@@ -326,6 +329,7 @@ export async function launchApp(
     INCARNAMIND_TEST_CLAUDE: claude,
     INCARNAMIND_TEST_CLAUDE_SIGN_IN_MS: claudeSignInMs ? String(claudeSignInMs) : undefined,
     INCARNAMIND_TEST_COPILOT: copilot,
+    INCARNAMIND_TEST_JEV: jev,
     INCARNAMIND_TEST_SCANS: scans,
     INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
     INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),

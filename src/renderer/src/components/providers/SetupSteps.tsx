@@ -10,6 +10,7 @@ import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
 import { STEP_BUTTON_CLASS, StepNumber } from "../StepNumber";
 import { buttonStyle, fieldClass, hintClass } from "../ui";
+import { JEV_NAME, JevSortingSetUp } from "./JevSortingSetUp";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
 
 const linkClass =
@@ -264,8 +265,9 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
 /** What sorts Tags and Folders and names meeting hints, the best the keys reach picked first. */
 function SortingStep({ onDone }: { onDone(choice: string): void }) {
   const t = useT();
-  const { options, current, choose, known, loading, read } = useSorting();
+  const { options, current, choose, known, loading, read, jevSetUp } = useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
+  const [settingUpJev, setSettingUpJev] = useState(false);
   const chosen = picked ?? current;
   const use = async () => {
     if (chosen && !(await choose(chosen, { turnOn: true }))) return;
@@ -294,15 +296,63 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
         autoFocus
         options={options}
         current={chosen}
-        onChange={setPicked}
+        setUp={{
+          offered: jevSetUp,
+          open: settingUpJev,
+          onChoose: () => setSettingUpJev(true),
+        }}
+        onChange={(option) => {
+          setSettingUpJev(false);
+          setPicked(option);
+        }}
       />
+      {settingUpJev ? (
+        <JevSortingSetUp
+          choosing
+          choose={() => choose({ classifier: { kind: "jev" } }, { turnOn: true })}
+          onChosen={() => onDone(JEV_NAME)}
+          onCancel={() => {
+            setSettingUpJev(false);
+            document.getElementById("setup-sorting")?.focus();
+          }}
+        />
+      ) : (
+        <SortingChoiceButtons
+          chosen={chosen}
+          known={known}
+          loading={loading}
+          onUse={() => void use()}
+          onSkip={() => onDone(t("setup.step.skipped"))}
+        />
+      )}
+    </>
+  );
+}
+
+/** The step's line on what the choice sends, then Use this and Skip. */
+function SortingChoiceButtons({
+  chosen,
+  known,
+  loading,
+  onUse,
+  onSkip,
+}: {
+  chosen: SortingOptionLike | null;
+  known: SortingOptionLike | null;
+  loading: boolean;
+  onUse(): void;
+  onSkip(): void;
+}) {
+  const t = useT();
+  return (
+    <>
       <SortingLine option={chosen} holds={known} reading={loading && chosen === null} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           type="button"
           data-testid="setup-sorting-use"
           disabled={chosen === null || chosen.unresolved === true}
-          onClick={() => void use()}
+          onClick={onUse}
           className={buttonStyle("primary", "sm")}
         >
           {t("setup.step.useThis")}
@@ -310,7 +360,7 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
         <button
           type="button"
           data-testid="setup-sorting-skip"
-          onClick={() => onDone(t("setup.step.skipped"))}
+          onClick={onSkip}
           className={linkClass}
         >
           {t("setup.step.skip")}

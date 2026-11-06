@@ -2564,6 +2564,7 @@ export const zhCN = {
   "jev.settings.hosted": "TypeSafe",
   "jev.settings.keyMissing": "这台设备上没有 Jev 密钥，文档暂不打标签。请重新输入。",
   "jev.settings.setUp": "使用 TypeSafe Jev…",
+  "jev.setUp.line": "TypeSafe 用于整理和会议提示的模型，需使用你自己的密钥",
   "jev.settings.change": "更改",
   "jev.settings.remove": "停用 Jev",
   "jev.form.apiKey": "Jev API 密钥",
