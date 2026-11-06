@@ -18,7 +18,6 @@ import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analy
 import { nodeOf, topLevelBlocks } from "../../src/core/answers/blocks";
 import { CLAIM_CHECK_MARK, MIND_CONTENT_FIELD } from "../../src/core/api";
 import { writeXlsx } from "../../src/core/exports/xlsx";
-import type { ChatModelFactory } from "../../src/core/providers/models";
 import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { readClaimCheck } from "../../src/shared/claimChecks";
@@ -43,6 +42,7 @@ import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
 import { billedModels } from "../helpers/liveBilling";
+import { routedChecks } from "../helpers/liveChecks";
 import { connectToMind } from "../helpers/mindClient";
 import { resolveChanges } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
@@ -165,53 +165,6 @@ function analysisOf(held: NamingCase): { answer: FakeAnswer; code: string } {
   };
 }
 
-/** A check's request: everything else of the Answer is scripted, so only checks are billed. */
-const CHECKS = /^You check(ed)? (one|a) sentence/;
-/** A check's Figures line as the model wrote it, so a run can be read for what the judge said. */
-async function figuresLine(
-  stream: ReadableStream<{ type: string; delta?: string }>,
-  heard: string[],
-): Promise<void> {
-  let text = "";
-  const reader = stream.getReader();
-  for (let part = await reader.read(); !part.done; part = await reader.read())
-    if (part.value.type === "text-delta") text += part.value.delta ?? "";
-  const line = text.split("\n").findLast((each) => each.startsWith("Figures:"));
-  if (line) heard.push(line.slice(0, 1500));
-}
-
-function routed(scripted: ReturnType<typeof scriptedModel>, heard: string[]): ChatModelFactory {
-  return (spec) => {
-    const check = real(spec);
-    const systemOf = (options: unknown): string => {
-      const prompt = (options as { prompt?: { role?: string; content?: unknown }[] }).prompt ?? [];
-      const system = prompt.find((message) => message.role === "system")?.content;
-      return typeof system === "string" ? system : "";
-    };
-    return new Proxy(scripted, {
-      get(target, property, receiver) {
-        if (property === "doGenerate" || property === "doStream")
-          return (options: unknown) => {
-            const model = CHECKS.test(systemOf(options)) ? check : target;
-            const method = Reflect.get(model, property) as (options: unknown) => Promise<unknown>;
-            if (model !== check || property !== "doStream") return method.call(model, options);
-            return method.call(model, options).then((result) => {
-              const streamed = result as {
-                stream: ReadableStream<{ type: string; delta?: string }>;
-              };
-              const [given, read] = streamed.stream.tee();
-              void figuresLine(read, heard).catch(() => {
-                // A stream that failed leaves no Figures line to read.
-              });
-              return { ...streamed, stream: given };
-            });
-          };
-        return Reflect.get(target, property, receiver);
-      },
-    });
-  };
-}
-
 function answering(held: NamingCase, code: string) {
   const title = held.language === "en" ? "Orders analysis" : "订单分析";
   const content = [`# ${title}`, "", "[=table 1]", "", held.sentence].join("\n");
@@ -275,7 +228,7 @@ test.skipIf(KEY === undefined || WIDE).each(CASES.map((held) => ({ ...held })))(
     const { answer, code } = analysisOf(held);
     const heard: string[] = [];
     const core = startCore(await createTempDataFolder(), {
-      createChatModel: routed(answering(held, code), heard),
+      createChatModel: routedChecks(answering(held, code), real, heard),
       analysisRuntime: createFakeAnalysisRuntime({ answer: () => answer }),
     });
     core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
@@ -487,7 +440,7 @@ test.skipIf(KEY === undefined || !WIDE).each(WIDE_CASES.map((held) => ({ ...held
     const heard: string[] = [];
     const folder = await createTempDataFolder();
     const core = startCore(folder, {
-      createChatModel: routed(wideAnswering(held, code), heard),
+      createChatModel: routedChecks(wideAnswering(held, code), real, heard),
       analysisRuntime: createFakeAnalysisRuntime({ answer: () => answer }),
     });
     core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));

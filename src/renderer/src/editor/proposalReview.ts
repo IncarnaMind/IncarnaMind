@@ -477,6 +477,10 @@ export function setApplying(editor: Editor, applying: ReadonlySet<string>): void
 export const applyingIn = (state: EditorState): ReadonlySet<string> =>
   proposalReviewKey.getState(state)?.applying ?? new Set();
 
+/** The Proposals of the edits applying, drawn as the text they make. */
+export const appliedIn = (state: EditorState): readonly PendingProposal[] =>
+  proposalReviewKey.getState(state)?.applied ?? [];
+
 /** Marks text as waiting for Edit with AI, or clears it (null). */
 export function setEditTarget(editor: Editor, target: { from: number; to: number } | null): void {
   if (editor.isDestroyed) return;
