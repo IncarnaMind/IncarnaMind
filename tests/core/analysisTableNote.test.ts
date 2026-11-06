@@ -1765,6 +1765,84 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     }
   });
 
+  test("a heading typed above a typed table after the Answer is read by its cell's next Check (#2544)", async () => {
+    const table =
+      language === "en"
+        ? "| Region | Total amount |\n| --- | --- |\n| Central | [=6] |"
+        : "| 地区 | 金额合计 |\n| --- | --- |\n| 中部地区 | [=6] |";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right, table),
+      false,
+      null,
+      withFigures(),
+    );
+    expect(await scheduleStates(core, madeId)).toHaveLength(2);
+    const at = client.blocks
+      .toArray()
+      .findIndex((each) => each instanceof Y.XmlElement && each.nodeName === "table");
+    client.doc.transact(() => {
+      const heading = new Y.XmlElement("heading");
+      heading.setAttribute("id", randomUUID());
+      heading.setAttribute("level", "2");
+      heading.insert(0, [
+        new Y.XmlText(language === "en" ? "Amounts (in thousands)" : "金额（单位：千元）"),
+      ]);
+      client.blocks.insert(at, [heading]);
+    });
+    await client.settled();
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
+    core.close();
+  });
+
+  test("the judge reads the heading above as it is when the check runs, not as the Note was first read (#2544)", async () => {
+    const before = language === "en" ? "Northern figures" : "北方数字";
+    const after = language === "en" ? "Central figures" : "中部数字";
+    const prompts: string[] = [];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(`## ${before}`, words.right),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.includes("8,325")
+          ? {
+              reply: (call) => {
+                prompts.push(call.prompt);
+                return checkReply(call, {});
+              },
+            }
+          : undefined,
+    );
+    expect(await scheduleStates(core, madeId)).toHaveLength(1);
+    const heading = client.blocks
+      .toArray()
+      .find(
+        (each): each is Y.XmlElement =>
+          each instanceof Y.XmlElement &&
+          each.nodeName === "heading" &&
+          each.toString().includes(before),
+      );
+    const text = heading?.toArray().find((each): each is Y.XmlText => each instanceof Y.XmlText);
+    if (!text) throw new Error("No heading.");
+    client.doc.transact(() => {
+      text.delete(0, text.length);
+      text.insert(0, after);
+    });
+    await client.settled();
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(prompts.length).toBeGreaterThan(0);
+    expect(prompts.every((prompt) => prompt.includes(`"heading":"${after}"`))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes(before))).toBe(false);
+    expect(analysisVerdicts(client)).toEqual(["supported"]);
+    core.close();
+  });
+
   test("the lines above are its own section's, and a table's caption is its table's (#2544)", async () => {
     const scale =
       language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
