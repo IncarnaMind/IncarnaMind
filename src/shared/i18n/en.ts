@@ -5165,6 +5165,7 @@ export const en = {
     "Copied as plain text: this figure’s saved inputs are incomplete, so its check didn’t come with it. Check the figure again, then copy it.",
   "error.conversation.notFound": "That conversation doesn’t exist or has been deleted.",
   "error.question.empty": "Write the Question before asking it.",
+  "error.question.folderInFront": "The Folder in front must be a Folder’s id, or null for none.",
   "error.question.analyseChoice": "Whether a Question may analyse data must be true or false.",
   "error.estimate.searches": "An estimate counts from 0 to {max} web searches.",
   "error.estimate.each": "An estimate is for Answers or for checks.",
