@@ -485,3 +485,81 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 }
+
+// protects=once the User allows what checks send in Settings › Privacy, a write that waited is only not checked, with Check again, and the watch's line only says it checked nothing, with Close; Check again checks the whole write; fails_when="Checks now send more than when you allowed them · Review…" stays after the User allowed it.
+test("allowed in Settings › Privacy, what waited is only not checked, and Check again checks it", async () => {
+  const words = WAITING.en;
+  await writeFile(join(sources, "Harbour survey.txt"), "Harbour survey: the north wall.");
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
+  const serviceId = await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await bridge.saveChatProvider({
+      kind: "openai",
+      modelId: "gpt-6.1-sol",
+      apiKey: "key-not-real",
+    });
+    if (provider.service) await bridge.revokeConsent("checks", provider.service.id);
+    return provider.service?.id ?? null;
+  });
+  if (!serviceId) throw new Error("The cloud model has no service.");
+  await addDocuments(window, [join(sources, "Harbour survey.txt")]);
+  await setWindowSize(app, window, 1440, 900);
+  await newMind(window);
+  checkedAt = new Date().toISOString();
+  const waiting = (id: string, text: string) =>
+    paragraph(
+      id,
+      text,
+      checked(`${id}-check`, text, {
+        request: "waiting-write",
+        state: "not-checked",
+        reason: "consent-widened",
+      }),
+    );
+  await setContent(window, [
+    waiting("first", words.supported),
+    waiting("second", words.unsupported),
+  ]);
+  const settings = new Y.Doc();
+  writeContradictionWatch(settings.getMap("settings"), {
+    at: checkedAt,
+    documentName: "Harbour survey",
+    claims: 2,
+    checked: 0,
+    contradicted: 0,
+    cost: null,
+    stop: { reason: "consent-widened" },
+    smallModel: false,
+  });
+  await applySettings(window, Array.from(Y.encodeStateAsUpdate(settings)));
+  const watched = (await checkCard(window)).getByTestId("contradictions-watched");
+  await expect(watched.getByTestId("contradictions-watched-review")).toHaveText(words.review);
+  await window.keyboard.press("Escape");
+
+  await window.evaluate(
+    async (id) =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.allowDataFlow(
+        "checks",
+        id,
+      ),
+    serviceId,
+  );
+  const health = await checkCard(window);
+  await expect(health.getByTestId("contradictions-watched-close")).toBeVisible();
+  await expect(health.getByTestId("contradictions-watched")).not.toContainText(words.reason);
+  await pointAndClick(window, health.getByTestId("health-toCheck"));
+  const card = window.getByTestId("claim-card");
+  await expect(card).toHaveAttribute("data-check", "not-checked");
+  await expect(card.getByTestId("claim-review-consent")).toHaveCount(0);
+  await expect(card).not.toContainText(words.reason);
+  await screenshot(window, "allowed-not-checked-en");
+  await pointAndClick(window, card.getByTestId("claim-check-again"));
+
+  const marks = window.getByTestId("claim-mark");
+  await expect(marks).toHaveCount(2, { timeout: 30_000 });
+  await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
+  await expect(marks.nth(1)).toHaveAttribute("data-check", "unsupported");
+  await app.close();
+});

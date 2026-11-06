@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, MindChange } from "../../src/core/api";
-import { checkableOf, selfCheckLines, selfChecksOf } from "../../src/renderer/src/selfChecks";
+import {
+  checkableOf,
+  checksWaitIn,
+  selfCheckLines,
+  selfChecksOf,
+} from "../../src/renderer/src/selfChecks";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /*
@@ -313,5 +318,58 @@ describe("What a write's check left to do", () => {
       },
     ]);
     expect(lines("zh-CN", 1)[0]?.text).toBe("1 句未能核对：核对现在发送的内容比你当初允许的更多");
+
+    // Allowed since, in the dialog or Settings › Privacy: they only failed, with Check.
+    expect(
+      selfCheckLines(
+        {
+          mindId: "mind-1",
+          request: "w",
+          checkable: 2,
+          cited: 2,
+          sent: 2,
+          checked: 0,
+          failed: 2,
+          blocked: { reason: "consent-widened", count: 2 },
+        },
+        (key: MessageKey, params?: MessageParams) => translate("en", key, params),
+        "en",
+        new Date(),
+        undefined,
+        false,
+      ).map(({ kind, text, action }) => ({ kind, text, action })),
+    ).toEqual([
+      {
+        kind: "failed",
+        text: "2 sentences couldn’t be checked",
+        action: { label: "Check", does: "check" },
+      },
+    ]);
+  });
+
+  // protects=checks wait only while a service is not allowed what they send now; fails_when=the waiting line stays once the User allowed it, or shows for a service they declined.
+  test("checks wait only while a service is not allowed what they send now", () => {
+    const flows = (consent: "accepted" | "declined" | "not-asked", decidedAt: string | null) => [
+      {
+        id: "checks" as const,
+        sends: [],
+        services: [
+          {
+            flow: {
+              id: "checks" as const,
+              service: { id: "api.anthropic.com", name: "Anthropic" },
+              sends: [],
+            },
+            consent,
+            decidedAt,
+            chosen: false,
+          },
+        ],
+      },
+    ];
+    expect(checksWaitIn(flows("not-asked", "2026-11-01T09:00:00.000Z"))).toBe(true);
+    expect(checksWaitIn(flows("accepted", "2026-11-06T09:00:00.000Z"))).toBe(false);
+    expect(checksWaitIn(flows("not-asked", null))).toBe(true);
+    expect(checksWaitIn(flows("declined", "2026-11-06T09:00:00.000Z"))).toBe(false);
   });
 });

@@ -4,12 +4,22 @@
  * check reads the sentences with Citations; the claims with none are left to
  * the one count and the one Check. Only data.
  */
-import type { AnswerToolCall, MindChange } from "../../core/api";
+import type { AnswerToolCall, MindChange, RegisteredDataFlow } from "../../core/api";
 import type { Language } from "../../core/language";
 import { formatResetTime } from "./cost";
 import type { Translate } from "./objects";
 
 export type SelfCheck = NonNullable<MindChange["selfCheck"]> & { mindId: string };
+
+/**
+ * Whether checks to a service still wait for the User's OK (#2525): allowed before checks sent
+ * more and not the more yet, or not allowed since. A declined service waits for nothing: it sends
+ * nothing.
+ */
+export const checksWaitIn = (flows: readonly RegisteredDataFlow[]): boolean =>
+  flows.some(
+    (flow) => flow.id === "checks" && flow.services.some((use) => use.consent === "not-asked"),
+  );
 
 /** How many sentences the write holds that a check reads; a check recorded before #1909 kept only the cited ones. */
 export const checkableOf = (check: NonNullable<MindChange["selfCheck"]>): number =>
@@ -60,8 +70,12 @@ export function selfCheckLines(
   now = new Date(),
   /** The claims this write still has to check now, live from its Mind; null: not known (nothing is re-shown from the record). */
   left?: number | null,
+  /** Whether checks still wait for the User to allow what they send now: once allowed, sentences that waited only failed. */
+  consentWaiting = true,
 ): SelfCheckLine[] {
-  const { failed, stop, blocked } = check;
+  const { failed, stop } = check;
+  const blocked =
+    check.blocked?.reason === "consent-widened" && !consentWaiting ? undefined : check.blocked;
   const lines: SelfCheckLine[] = [];
   const one = failed === 1;
   if (failed > 0 && stop?.reason === "cost-cap") {

@@ -43,6 +43,7 @@ import {
   useChecks,
   widenCitation,
 } from "../checks";
+import { useChecksWaitForConsent } from "../checksConsent";
 import { useCitesWorks } from "../citationFormatting";
 import { CountItLine } from "../components/CountItLine";
 import { MetaLine } from "../components/MetaLine";
@@ -763,8 +764,11 @@ export function ClaimCard({
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
-  // Review… is the Check, which asks the User to allow what checks send now (#2525).
-  const waitingConsent = shown.state === "not-checked" && shown.reason === "consent-widened";
+  // Review… is the Check, which asks the User to allow what checks send now (#2525); allowed
+  // since, the sentence is only not checked.
+  const consentWaiting = useChecksWaitForConsent();
+  const widened = shown.state === "not-checked" && shown.reason === "consent-widened";
+  const waitingConsent = widened && consentWaiting;
   // A description of the Library its facts can't settle: no check can change it, so none is offered.
   const described = shown.state === "not-checked" && shown.reason === "library-unsettled";
   const lineAction = pastCap
@@ -793,7 +797,9 @@ export function ClaimCard({
   const unreadLocation = unread ? citationLocation(unread) : null;
   const reason =
     shown.state === "not-checked"
-      ? reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
+      ? widened && !consentWaiting
+        ? null
+        : reasonText(t, language, shown.reason, check.detail, { cap: SENTENCES_CHECKED_AT_MOST })
       : shown.state === "needs-recheck"
         ? t(`claim.recheck.${shown.why}`)
         : null;

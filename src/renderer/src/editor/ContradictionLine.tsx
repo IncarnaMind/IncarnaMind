@@ -5,6 +5,7 @@ import {
   MIND_SETTINGS_FIELD,
 } from "../../../core/api";
 import { clearContradictionWatch } from "../../../shared/contradictionWatch";
+import { useChecksWaitForConsent } from "../checksConsent";
 import { ProblemLine } from "../components/ProblemLine";
 import {
   checkContradictions,
@@ -26,20 +27,23 @@ export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string 
   const t = useT();
   const language = useLanguage();
   const shown = useContradictionLine(doc, mindId);
+  const consentWaiting = useChecksWaitForConsent();
   const outcome = (run: ContradictionCheckOutcome | ContradictionWatchRun) =>
     contradictionOutcomeParts(run, t, language);
 
   // Only a Document's new version says "After X changed": a run a Folder's other changes or the
   // User started has no Document to name, and its marks are the result (#1941).
   if (shown?.kind === "watched" && shown.run.documentName !== null) {
-    const watched = shown.run;
+    // Allowed since it waited, the watch only checked nothing: its line says so, with Close.
+    const widened = shown.run.stop?.reason === "consent-widened";
+    const watched = widened && !consentWaiting ? { ...shown.run, stop: null } : shown.run;
     const [first = "", ...rest] = outcome(watched);
     const cost = watched.cost ? [formatMoney(watched.cost, language)] : [];
     const after = saidInLine(t, (t) =>
       t("contradictions.after", { document: watched.documentName ?? "", result: first }),
     );
     // Waiting for the User's OK, the line's action is the check that asks it (#2525).
-    const waiting = watched.stop?.reason === "consent-widened";
+    const waiting = widened && consentWaiting;
     return (
       <>
         <div className="check-card-sep" />

@@ -1054,8 +1054,8 @@ describe("the words for what a check sends", () => {
     );
     const kinds = {
       "library-counts": [
-        "For a sentence about your Library: how many Documents in all, not in a Folder and of each kind, how many Folders, Tags and other notes, and how many more items the note’s search has",
-        "句子说的是你的资料库时：文档总数、不在文件夹中的文档数和各类型文档数，文件夹、标签和其他笔记的数量，以及笔记搜索范围中其余项目的数量",
+        "For a sentence about your Library: how many Documents in all, not in a Folder and of each kind, how many Folders, Tags and other notes, how many names are shared by several Documents, and how many more items the note’s search has",
+        "句子说的是你的资料库时：文档总数、不在文件夹中的文档数和各类型文档数，文件夹、标签和其他笔记的数量，由多个文档共用的名称数量，以及笔记搜索范围中其余项目的数量",
       ],
       "library-names": [
         "For a sentence about your Library: the name of the Folder, Tag or Document the note searches, and the names of Documents, Folders, Tags and notes that match the sentence’s words, with each one’s kind and count and how many more matched",
@@ -1088,7 +1088,7 @@ describe("the words for what a check sends", () => {
   test("the privacy pages, in English and Chinese", () => {
     const privacy = read("docs/privacy.md");
     expect(privacy).toContain(
-      "A sentence about a file itself sends the file's name, its own created and modified dates (or this computer's when it records none), author, page, slide or sheet count and size. A sentence about your Library sends the Library's counts (Documents in all, not in a Folder and per kind, and the numbers of Folders, Tags and other notes), the name of the Folder, Tag or Document the note searches and how many more items its search has, and the names of Documents, Folders and Tags with their kinds and counts, and the names of other notes, that share a word with the sentence, with how many more matched past 200. A Folder that keeps its work inside it is sent only as a number to a note outside it. Never sent in a check: ids, file paths, Folder or Tag descriptions, the rest of your notes' text, or which Document is in which Folder or has which Tag beyond the Folder or Tag the note searches.",
+      "A sentence about a file itself sends the file's name, its own created and modified dates (or this computer's when it records none), author, page, slide or sheet count and size. A sentence about your Library sends the Library's counts (Documents in all, not in a Folder and per kind, the numbers of Folders, Tags and other notes, and how many names are shared by several Documents), the name of the Folder, Tag or Document the note searches and how many more items its search has, and the names of Documents, Folders and Tags with their kinds and counts, and the names of other notes, that share a word with the sentence, with how many more matched past 200. A Folder that keeps its work inside it is sent only as a number to a note outside it. Never sent in a check: ids, file paths, Folder or Tag descriptions, the rest of your notes' text, or which Document is in which Folder or has which Tag beyond the Folder or Tag the note searches.",
     );
     expect(privacy).toContain(
       "then each claim with its paragraph and the Passages found or read for it. The passages come from the Folder or Tag the note searches, so their Document names show which Documents are in it.",
@@ -1282,33 +1282,44 @@ describe.each(["en", "zh-CN"] as const)("only what the sentence needs (%s)", (la
     for (const name of ["Tide log", "Crew roster"]) expect(facts).not.toContain(name);
   });
 
-  // protects=a sentence about duplicates is sent the names two or more Documents share, with counts and kinds, and no single name; fails_when="report.pdf appears twice" can't be checked, or every name goes.
-  test("a duplicate sentence sends only the duplicated names", async () => {
-    const sentence = zh
+  // protects=a sentence about duplicates is sent the count of shared names and only the names it names: "report.pdf appears twice" sends its own name's line, "Some of your Documents appear twice." none; fails_when=a duplicate phrase sends every shared name though the sentence names none of them.
+  test("a duplicate sentence sends the shared-names count and only the names it names", async () => {
+    const shared = [
+      { name: "report.txt", contents: "The report, first draft." },
+      { name: "report.md", contents: "# Report\n\nThe second draft." },
+      { name: "Marlow budget.txt", contents: "Marlow budget: crew and timber." },
+      { name: "Marlow budget.md", contents: "# Marlow budget\n\nThe second draft." },
+      { name: "Tide log.txt", contents: "Tide log: high water at 04:12." },
+    ];
+    const named = zh
       ? "report.pdf 在你的文件列表中出现了两次。"
       : "report.pdf appears twice in your file list.";
-    const setup = await setUp(
-      [
-        { name: "report.txt", contents: "The report, first draft." },
-        { name: "report.md", contents: "# Report\n\nThe second draft." },
-        { name: "Budget.txt", contents: "Budget: crew and timber." },
-        { name: "Budget.md", contents: "# Budget\n\nThe second draft." },
-        { name: "Tide log.txt", contents: "Tide log: high water at 04:12." },
-      ],
+    const naming = await setUp(
+      shared,
+      { [named]: { verdict: "supported", quote: "Documents named “report”: 2", line: "name" } },
+      language,
+    );
+    expect((await checkInNote(naming.core, named)).check.state).toBe("supported");
+    expect(naming.factsSent()).toContain("Documents named “report”: 2 (");
+    expect(naming.factsSent()).toContain("Names more than one Document shares: 2");
+    for (const other of ["Marlow budget", "Tide log"])
+      expect(naming.factsSent()).not.toContain(other);
+
+    const unnamed = zh ? "有些文档出现了两次。" : "Some of your Documents appear twice.";
+    const counting = await setUp(
+      shared,
       {
-        [sentence]: {
+        [unnamed]: {
           verdict: "supported",
-          quote: "Documents named “report”: 2",
-          line: "name",
+          quote: "Names more than one Document shares: 2",
+          line: "shared",
         },
       },
       language,
     );
-    expect((await checkInNote(setup.core, sentence)).check.state).toBe("supported");
-    const facts = setup.factsSent();
-    expect(facts).toContain("Documents named “report”: 2 (");
-    expect(facts).toContain("Documents named “Budget”: 2 (");
-    expect(facts).not.toContain("Tide log");
+    expect((await checkInNote(counting.core, unnamed)).check.state).toBe("supported");
+    expect(counting.factsSent()).toContain("Names more than one Document shares: 2");
+    expect(counting.factsSent()).not.toContain("Documents named");
   });
 
   // protects=a "this folder" sentence is checked against the count of the Folder the note searches, which keeps its name; fails_when="this folder has 2 Documents" names no Folder and finds nothing to rest on.
@@ -1536,15 +1547,17 @@ describe("the facts' text", () => {
       expect(lines.join("\n")).not.toContain(other);
   });
 
-  // protects=a sentence about duplicates is sent the names more than one Document shares, and no single one; fails_when=it sees no shared name, or every name.
-  test.each(["Two of your files share a name.", "你有两份同名文件。"])(
-    "about duplicates, sends only the shared names: %s",
-    (sentence) => {
-      const lines = linesOf(["Kestrel plan", "Kestrel plan", "Harbour"], sentence);
-      expect(lines).toContain("Documents named “Kestrel plan”: 2 (PDF, PDF)");
-      expect(lines.join("\n")).not.toContain("Harbour");
-    },
-  );
+  // protects=a sentence about duplicates that names none is sent the count of shared names and no name; fails_when=a duplicate phrase brings every shared name.
+  test.each([
+    "Two of your files share a name.",
+    "Some of your Documents appear twice.",
+    "你有两份同名文件。",
+    "有些文档出现了两次。",
+  ])("about duplicates, sends the count and no name it doesn't name: %s", (sentence) => {
+    const lines = linesOf(["Kestrel plan", "Kestrel plan", "Harbour"], sentence);
+    expect(lines).toContain("Names more than one Document shares: 1");
+    expect(lines.join("\n")).not.toContain("Documents named");
+  });
 
   // protects=how many names more than one Document shares goes with every sentence, so one about duplicates in any words can be decided; fails_when=the count goes only with the words a list knows, and "shared by", "share the name" or 重名 send none.
   test.each([

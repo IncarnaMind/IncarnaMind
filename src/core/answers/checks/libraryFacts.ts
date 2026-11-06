@@ -270,25 +270,17 @@ function wordsOf(text: string): Set<string> {
 }
 
 /**
- * A sentence about Documents that share a name ("appears twice", "两份"): only then are the names
- * more than one Document shares sent, whatever the sentence names (#2525).
- */
-const ABOUT_DUPLICATES =
-  /\b(?:twice|thrice|duplicat\w*|cop(?:y|ies)|same name|share a name|\w+ times)\b|两次|两份|重复|同名|副本|[两三四五六七八九十\d]+\s*(?:次|份)/iu;
-
-/**
- * The facts' text for the model and where each fact's line is in it. Every count is there. A name
- * is there only when it shares a word with `sentence`, the sentence under check, or is the Folder,
- * Tag or Document the note searches (`LibraryListing.searches`), with its count; and for a sentence
- * about duplicates, each name more than one Document shares. The match is made here, before the
- * request, so the model never sees a name the sentence doesn't need. `MOST_NAMES` bounds the names.
+ * The facts' text for the model and where each fact's line is in it. Every count is there, how
+ * many names more than one Document shares among them. A name is there only when it shares a word
+ * with `sentence`, the sentence under check, or is the Folder, Tag or Document the note searches
+ * (`LibraryListing.searches`), with its count. The match is made here, before the request, so the
+ * model never sees a name the sentence doesn't need. `MOST_NAMES` bounds the names.
  */
 export function libraryText(
   listing: LibraryListing,
   sentence: string,
 ): { text: string; lines: Line[] } {
   const words = wordsOf(sentence);
-  const duplicates = ABOUT_DUPLICATES.test(sentence);
   const matches = (name: string) => [...wordsOf(name)].some((word) => words.has(word));
   const searched = (kind: ScopeKind, name: string) =>
     listing.searches?.kind === kind && listing.searches.name === name;
@@ -301,9 +293,7 @@ export function libraryText(
       case "note":
         return matches(fact.name);
       case "name":
-        return (
-          matches(fact.name) || searched("document", fact.name) || (duplicates && fact.count > 1)
-        );
+        return matches(fact.name) || searched("document", fact.name);
       default:
         return true;
     }
@@ -312,7 +302,7 @@ export function libraryText(
   const named = all.filter((fact) => fact.kind === "name");
   const listed = named.slice(0, MOST_NAMES);
   const facts = [...all.filter((fact) => fact.kind !== "name"), ...listed];
-  let text = `Library facts of ${englishSource(listing.source)}: what IncarnaMind's Library lists for this check's scope, not what any Document says. Every count covers the whole scope; a name is listed only when it shares a word with the sentence or is what this check searches${duplicates ? ", or when more than one Document shares it" : ""}.`;
+  let text = `Library facts of ${englishSource(listing.source)}: what IncarnaMind's Library lists for this check's scope, not what any Document says. Every count covers the whole scope; a name is listed only when it shares a word with the sentence or is what this check searches.`;
   const lines: Line[] = [];
   for (const fact of facts) {
     text += "\n";
