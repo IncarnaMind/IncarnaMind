@@ -110,6 +110,8 @@ async function pressed(
       grade: async () => "unread",
       claimsJudge: judging(judge.grade, judge.unstated, judged, judge.prose),
     });
+    if (run.status === "failed")
+      console.error("call-help press failed:", JSON.stringify(run.error));
     return { run, calls, judged };
   } finally {
     await opened.close();
