@@ -54,6 +54,7 @@ import {
   type FlowTimes,
   firstVerdictMs,
   type Landed,
+  repeatCounter,
   shownState,
 } from "./checkTimes";
 import { env, list, modelsAsked, spentUsd } from "./settings";
@@ -62,13 +63,17 @@ import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
 const ROOT = resolve(__dirname, "../..");
 type Language = "en" | "zh-CN";
 
-const sentencesOf = (...ids: string[]) =>
-  ids.flatMap((id) => SETS.find((set) => set.id === id)?.sentences.map((each) => each.text) ?? []);
+const noteOf = (...ids: string[]) =>
+  ids.flatMap((id) => SETS.find((set) => set.id === id)?.sentences ?? []).slice(0, 10);
 
 /** Ten sentences of a Note: what the agreement states, contradicts, partly states and doesn't. */
+const NOTE_SENTENCES = {
+  en: noteOf("en", "en-paraphrases"),
+  "zh-CN": noteOf("zh", "zh-paraphrases"),
+};
 const NOTE: Record<Language, string[]> = {
-  en: sentencesOf("en", "en-paraphrases").slice(0, 10),
-  "zh-CN": sentencesOf("zh", "zh-paraphrases").slice(0, 10),
+  en: NOTE_SENTENCES.en.map((each) => each.text),
+  "zh-CN": NOTE_SENTENCES["zh-CN"].map((each) => each.text),
 };
 
 /** Thirty sentences over the membership rules, each with the quote it cites. */
@@ -389,11 +394,12 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       await writeFile(path, buildPdf(document.pages));
       documents.push({ key: document.file, path });
     }
+    const repeats = repeatCounter(createWorkerCrossEncoder(config.rerankOnCpu));
     const library: Library = await openLibrary({
       name: "check-times",
       embedder: createWorkerEmbedder(),
       modelCache: join(config.cacheDir, "models"),
-      reranker: createWorkerCrossEncoder(config.rerankOnCpu),
+      reranker: repeats.crossEncoder,
       documents,
       embeddings: false,
       keep: config.keepData,
@@ -434,9 +440,13 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               break matrix;
             }
             const load = loadavg()[0] ?? 0;
-            log(`${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}`);
+            const load15 = loadavg()[2] ?? 0;
+            log(
+              `${name} · ${flow} · ${language} · ${run}/${runs} · load ${load.toFixed(1)}, ${load15.toFixed(1)} over 15 minutes`,
+            );
             current = { flow, items: CITED(language) };
             const startedAt = new Date().toISOString();
+            repeats.begin();
             const times =
               flow === "note"
                 ? await noteFlow(core, choice, language, recorder, run)
@@ -460,6 +470,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               language,
               run,
               load,
+              load15,
               checkStartMs: times.checkStartMs,
               firstMarkMs: landed[0]?.ms ?? null,
               firstVerdictMs: firstVerdictMs(landed),
@@ -467,6 +478,10 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               landed,
               requests: recorder.end(),
               reranks,
+              rerankRepeats: repeats.end(),
+              ...(flow === "note" && {
+                stated: NOTE_SENTENCES[language].map((each) => each.expected === "supported"),
+              }),
               spentUsd: after - spent,
             });
             log(
