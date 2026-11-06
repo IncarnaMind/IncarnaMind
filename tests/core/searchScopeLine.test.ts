@@ -605,7 +605,6 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
     });
     await core.moveToFolder({ mindIds: [mind.id], folderId: open.id });
     const first = await ask(core, { text: "A question before the move.", mindId: mind.id });
-    const beforeRetry = model.doStreamCalls.length;
 
     writeMind(client, [note("A marker only the wall holds.")]);
     await client.settled();
