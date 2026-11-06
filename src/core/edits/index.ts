@@ -1255,9 +1255,7 @@ export function createEdits(options: EditsOptions) {
         const asked = input.requested !== null && ownAsked(mind, own);
         const doc = mind.doc;
         // A revision of a removal asked only to take text out is held to it, as the removal was.
-        const removing =
-          input.removesOnly === true ||
-          (doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each)));
+        const removing = doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
         const ids = replaceOwn(mind, own, revised, request, input.ownRequests);
         if (ids && doc) {
           recordProposalRequest(doc, request, {

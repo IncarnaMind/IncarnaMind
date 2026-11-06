@@ -725,3 +725,46 @@ describe("A held removal stays the User's to decide (#2356)", { timeout: 30_000 
     },
   );
 });
+
+describe("A cut the reply revises by instruction is held to the cut (#2356)", {
+  timeout: 30_000,
+}, () => {
+  // protects=a removal asked only to take one sentence out, then revised by an instruction into a rewrite that joins the two kept sentences, its own removes_only false, waits as the same rewrite would from one edit; English and Chinese; fails_when=the revision applies at once because its request isn't held to the cut it revises; no_claim=what a real model writes.
+  test.each([
+    {
+      language: "en",
+      cut: "¶1 Parking: the tenant may use six underground spaces. Each costs 800 a month.",
+    },
+    {
+      language: "zh",
+      cut: "¶1 停车位：承租方可使用地下停车位 6 个。每个车位每月 800 元。",
+    },
+  ] as const)(
+    "$language, the last sentence cut, then the paragraph rewritten into a join",
+    async ({ language, cut }) => {
+      const model = stepping([
+        removal(language, cut),
+        {
+          tool: "edit_mind",
+          input: {
+            part: LEASE[language].part,
+            instruction: LEASE[language].asked,
+            removes_only: false,
+          },
+          edit: `¶1 ${JOINED[language]}`,
+        },
+      ]);
+      const { core, mind, client, answer } = await setUp(language, model);
+
+      const requests = changesIn(answer).map((change) => change.request);
+      expect(requests).toHaveLength(2);
+      expect(whyItWaits(client.doc, new Set(requests))?.why).toBe("more-than-taken-out");
+      const applied = await core.applyAskedChanges({
+        answerId: answer.id,
+        mindId: mind.id,
+        requests,
+      });
+      expect(applied?.held).toBe(true);
+    },
+  );
+});
