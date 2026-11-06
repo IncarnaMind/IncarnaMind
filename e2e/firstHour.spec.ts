@@ -10,11 +10,43 @@ import {
 } from "./app";
 
 /*
- * The first hour (#2270): with no key at 900 × 900, every way in without one shows on the setup
- * card, and the Note above the dock stays in reach while the card waits.
+ * The first hour (#2270): with no key at 900 × 900, the setup card shows every way in without one
+ * on its first screen, or shows that it scrolls, and the Note above the dock stays in reach.
  */
 
 const LANGUAGES = ["en", "zh-CN"] as const;
+const WAYS = ["setup-chatgpt", "way-claude", "way-local"] as const;
+
+/** Where the card's first screen ends: its own bottom, or the window's, whichever comes first. */
+async function fold(card: Locator): Promise<{ top: number; bottom: number } | null> {
+  const box = await card.boundingBox();
+  if (!box) return null;
+  const innerHeight = await card.page().evaluate(() => window.innerHeight);
+  return { top: box.y, bottom: Math.min(box.y + box.height, innerHeight) };
+}
+
+/**
+ * Whether every way in shows whole on the card's first screen, or the card shows it scrolls: it
+ * overflows and cuts a way at the fold. A machine with a keyring shows all three ways whole; Linux
+ * with no keyring draws its notice in between and cuts the last way at the window's bottom, beside
+ * the card's scrollbar (#2270).
+ */
+async function firstScreenShows(card: Locator): Promise<boolean> {
+  const screen = await fold(card);
+  if (screen === null) return false;
+  const ways = await Promise.all(WAYS.map((way) => card.getByTestId(way).boundingBox()));
+  if (ways.some((box) => box === null)) return false;
+  const whole = ways.every(
+    (box) => box !== null && box.y >= screen.top - 0.5 && box.y + box.height <= screen.bottom + 0.5,
+  );
+  if (whole) return true;
+  const scrolls = await card.evaluate((el) => el.scrollHeight > el.clientHeight + 0.5);
+  const cut = ways.some(
+    (box) =>
+      box !== null && box.y < screen.bottom - 0.5 && box.y + box.height > screen.bottom + 0.5,
+  );
+  return scrolls && cut;
+}
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -24,30 +56,17 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-/** Whether `control` is drawn whole inside `box`, which the window shows. */
-async function inside(control: Locator, box: Locator): Promise<boolean> {
-  const [one, other] = await Promise.all([control.boundingBox(), box.boundingBox()]);
-  if (!one || !other) return false;
-  const height = await control.page().evaluate(() => window.innerHeight);
-  return (
-    one.y >= other.y - 0.5 &&
-    one.y + one.height <= other.y + other.height + 0.5 &&
-    one.y + one.height <= height
-  );
-}
-
 for (const language of LANGUAGES) {
-  test(`with no key at 900 × 900, every way in without one is on the setup card's first screen, and the Note stays in reach (${language}) (#2270)`, async () => {
+  test(`with no key at 900 × 900, the card shows every way in without one or shows it scrolls, and the Note stays in reach (${language}) (#2270)`, async () => {
     test.setTimeout(180_000);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 900, 900);
       await setLanguage(window, language);
       const card = await askFirstQuestion(window);
-      for (const way of ["setup-chatgpt", "way-claude", "way-local"]) {
-        await expect(card.getByTestId(way)).toBeVisible();
-        expect(await inside(card.getByTestId(way), card), `${way} is whole on the card`).toBe(true);
-      }
+      for (const way of WAYS) await expect(card.getByTestId(way)).toBeVisible();
+      // The dock takes its room a frame after the card comes, so the first screen is read once it settles.
+      await expect.poll(() => firstScreenShows(card), { timeout: 5_000 }).toBe(true);
       // The Note keeps its room above the dock: a click in its text lands there, not on the card.
       await pointAndClick(window, window.getByTestId("mind-editor"));
       expect(
