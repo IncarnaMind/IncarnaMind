@@ -1,10 +1,11 @@
-import { join } from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
   addFilesLabel,
+  capture,
   createDataFolder,
   dismissChatSetup,
+  film,
   launchApp,
   placeAssistant,
   pointAndClick,
@@ -823,39 +824,42 @@ test("the Folder the Library shows in the composer's scope chip, before and afte
   test.skip(shots === undefined, "Only for the screenshots.");
   const { app, window } = await launchApp(dataDir);
   try {
-    await setWindowSize(app, window, 1600, 660);
-    const library = await openFullLibrary(window, sources);
+    await setWindowSize(app, window, 1440, 900);
+    await openFullLibrary(window, sources);
     await window.keyboard.press("ControlOrMeta+j");
     const composer = window.getByTestId("composer");
-    await expect(composer.getByTestId("composer-scope-all")).toBeVisible();
-    await window.screenshot({ path: join(shots ?? "", "library-folder-before-en-1600.png") });
-    await setWindowSize(app, window, 900, 660);
-    await window.screenshot({ path: join(shots ?? "", "library-folder-before-en-900.png") });
-    await setWindowSize(app, window, 1600, 660);
-    const folder = sidebarFolder(window, "财务报表");
-    await pointAt(window, folder.getByTestId("folder-row"));
-    await pointAndClick(window, folder.getByTestId("folder-menu"));
-    await pointAndClick(window, folder.getByTestId("folder.open"));
-    await expect(composer.getByTestId("scope-chip")).toContainText("财务报表");
-    await window.screenshot({ path: join(shots ?? "", "library-folder-after-en-1600.png") });
-    await setWindowSize(app, window, 900, 660);
-    await window.screenshot({ path: join(shots ?? "", "library-folder-after-en-900.png") });
-    await setLanguage(window, "zh-CN");
-    await expect(composer.getByTestId("scope-chip")).toContainText("财务报表");
-    await window.screenshot({ path: join(shots ?? "", "library-folder-after-zh-900.png") });
-    await setWindowSize(app, window, 1600, 660);
-    await window.screenshot({ path: join(shots ?? "", "library-folder-after-zh-1600.png") });
-    await pointAndClick(window, composer.getByTestId("scope-chip-remove"));
-    await expect(composer.getByTestId("composer-scope-all")).toHaveText("全部文档");
-    await window.screenshot({ path: join(shots ?? "", "library-folder-before-zh-1600.png") });
-    await setWindowSize(app, window, 900, 660);
-    await window.screenshot({ path: join(shots ?? "", "library-folder-before-zh-900.png") });
-    expect(library).toBeDefined();
+    const sizes = [
+      ["en", 1440, 900],
+      ["en", 900, 760],
+      ["zh-CN", 1440, 900],
+      ["zh-CN", 900, 760],
+    ] as const;
+    for (const [language, width, height] of sizes) {
+      await setLanguage(window, language);
+      await setWindowSize(app, window, width, height);
+      await expect(composer.getByTestId("composer-scope-all")).toBeVisible();
+      await capture(window, `library-folder-before-${language}-${width}`);
+    }
+    await setLanguage(window, "en");
+    await setWindowSize(app, window, 1440, 900);
+    // The flow: opening the Folder in the Library, which puts its name in the composer's chip.
+    await film(window, async () => {
+      const folder = sidebarFolder(window, "财务报表");
+      await pointAt(window, folder.getByTestId("folder-row"));
+      await pointAndClick(window, folder.getByTestId("folder-menu"));
+      await pointAndClick(window, folder.getByTestId("folder.open"));
+      await expect(composer.getByTestId("scope-chip")).toContainText("财务报表");
+    });
+    for (const [language, width, height] of sizes) {
+      await setLanguage(window, language);
+      await setWindowSize(app, window, width, height);
+      await expect(composer.getByTestId("scope-chip")).toContainText("财务报表");
+      await capture(window, `library-folder-after-${language}-${width}`);
+    }
   } finally {
     await app.close();
   }
 });
-
 test("as the window narrows the columns give way, Added first, then Format, then Tags, and names never break by letter", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
