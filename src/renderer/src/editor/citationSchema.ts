@@ -132,14 +132,12 @@ export const Citation = Node.create<CitationOptions>({
       // Only quoted words that run on past the cited page set it (#2504).
       quotedWordsRunOn: {
         default: undefined,
-        parseHTML: (element: HTMLElement) => {
-          const page = Number(element.getAttribute("data-quoted-words-run-on"));
-          return Number.isInteger(page) && page > 0 ? page : undefined;
+        parseHTML: (element: HTMLElement) =>
+          parseLocation(element.getAttribute("data-quoted-words-run-on")) ?? undefined,
+        renderHTML: (attributes: Record<string, unknown>) => {
+          const place = parseLocation(attributes.quotedWordsRunOn);
+          return place ? { "data-quoted-words-run-on": JSON.stringify(place) } : {};
         },
-        renderHTML: (attributes: Record<string, unknown>) =>
-          typeof attributes.quotedWordsRunOn === "number"
-            ? { "data-quoted-words-run-on": String(attributes.quotedWordsRunOn) }
-            : {},
       },
       // Only an Answer whose quoted words weren't found sets it (#483), as JSON in the HTML.
       quotedWords: {

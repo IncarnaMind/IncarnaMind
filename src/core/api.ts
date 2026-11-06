@@ -349,8 +349,13 @@ export interface CreateMindInput {
  *   typed table, checked as one. A figure check of an Analysis's figure also
  *   records whether the claim judge read its sentence as naming it (`named`);
  *   one without it shows Not checked until the next Check.
+ * - 53: a Citation records the page the Answer's quoted words run on to past
+ *   the one it cites (`quotedWordsRunOn`, #2504), as a Location, so its card
+ *   says where the quote continues. An older editor would strip it, so it
+ *   opens these Notes read-only. Older content is version 52 content as it
+ *   is: a Citation without it says nothing of a next page.
  */
-export const CONTENT_SCHEMA_VERSION = 52;
+export const CONTENT_SCHEMA_VERSION = 53;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -2644,7 +2649,7 @@ export interface CitationAttributes {
   /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
   quotedWords?: QuotedWords | null;
   /** The page the Answer's quoted words run on to, past the one the Citation cites (#2504). */
-  quotedWordsRunOn?: number | null;
+  quotedWordsRunOn?: CitationLocation | null;
   /**
    * The Document's version the User chose to keep citing the old one over (Keep citing the old
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
@@ -2675,7 +2680,7 @@ export interface Citation {
   unsure?: string[];
   quotedWords?: QuotedWords;
   /** The page the Answer's quoted words run on to, past the one the Citation cites (#2504). */
-  quotedWordsRunOn?: number | null;
+  quotedWordsRunOn?: CitationLocation | null;
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }

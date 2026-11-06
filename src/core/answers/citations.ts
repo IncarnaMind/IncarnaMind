@@ -51,7 +51,7 @@ import {
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
-import { foldRadicals, nameKey } from "../../shared/text";
+import { CJK, foldRadicals, nameKey } from "../../shared/text";
 import { sameRun } from "../../shared/units";
 import {
   type AskedQuote,
@@ -1317,7 +1317,7 @@ interface Accepted {
   /** The Answer's quoted words that its sentence's Citations don't have, when they made `result` not found (#483). */
   quotedWords?: QuotedWords;
   /** The page the Answer's quoted words of this record's sentence run on to, past the one it cites (#2504). */
-  quotedWordsRunOn?: number;
+  quotedWordsRunOn?: CitationLocation;
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
 }
@@ -1388,11 +1388,11 @@ export interface CitationSessionEvents {
  * typographic, so it names no content: a repeated line without one is never left out.
  */
 const CONTINUED =
-  /\s*(?:\((?:continued|continued from previous page|cont\.|cont'd|contd\.?|续|續)\)|（(?:续|續|续上页|續上頁|接上页|接上頁|承上页|承上頁)）)$/iu;
+  /\s*(?:\((?:continued|continued from previous page|cont\.|cont['’]d|contd\.?|续|續)\)|（(?:continued|续|續|续上页|續上頁|接上页|接上頁|承上页|承上頁)）)$/iu;
 /** The most lines, and characters, of a heading a next page repeats that may be left out. */
 const MAX_HEADING_LINES = 3;
 const MAX_HEADING_CHARACTERS = 200;
-const CJK_CHARACTER = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
+const CJK_CHARACTER = new RegExp(`[${CJK}]`, "gu");
 
 const lineKey = (line: string) => line.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -2359,9 +2359,13 @@ export function createCitationSession(
        * record's quote ends where its page does, as a Passage may, and the Answer may quote on
        * (#2504). Only a document's pages run on; a slide or a section is a place of its own.
        */
-      const runsOnToNextPage = (record: Accepted, words: string, matching: Matching) => {
+      const runsOnToNextPage = (
+        record: Accepted,
+        words: string,
+        matching: Matching,
+      ): PageText | null => {
         const { pageFrom, pageTo } = record.range;
-        if (pageFrom === null || pageFrom !== pageTo) return false;
+        if (pageFrom === null || pageFrom !== pageTo) return null;
         const units = documents.pageTexts(
           record.source.documentId,
           record.source.contentHash,
@@ -2369,24 +2373,22 @@ export function createCitationSession(
           pageTo + 1,
         );
         const next = units.findIndex((unit) => unit.page === pageTo + 1);
-        if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return false;
+        if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return null;
+        const nextPage = units[next] as PageText;
         const found = quoteInUnits(units, words, matching);
         const nextStarts = joinUnits(units).starts[next] ?? 0;
-        if (found?.every((range) => range.start < nextStarts)) return true;
+        if (found?.every((range) => range.start < nextStarts)) return nextPage;
         // A next page may open with the cited page's heading again, marked as continued.
         const onPage = units.slice(0, next);
-        const lifted = withoutContinuedHeading(
-          joinUnits(onPage).text,
-          (units[next] as PageText).text,
-        );
-        if (!lifted) return false;
-        const read = [...onPage, { ...(units[next] as PageText), text: lifted.text }];
+        const lifted = withoutContinuedHeading(joinUnits(onPage).text, nextPage.text);
+        if (!lifted) return null;
+        const read = [...onPage, { ...nextPage, text: lifted.text }];
         const again = quoteInUnits(read, words, matching);
         const starts = joinUnits(read).starts[next] ?? 0;
-        return (
-          again?.every((range) => range.start < starts) === true &&
+        return again?.every((range) => range.start < starts) === true &&
           (again[0] as TextRange).start >= lifted.headingEnds
-        );
+          ? nextPage
+          : null;
       };
       /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
       const titled = (
@@ -2421,12 +2423,13 @@ export function createCitationSession(
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
         if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
-        const runsOn = cited.find(({ record, matching }) =>
-          runsOnToNextPage(record, words, matching),
-        );
+        const runsOn = cited.flatMap(({ record, matching }) => {
+          const next = runsOnToNextPage(record, words, matching);
+          return next ? [{ record, next }] : [];
+        })[0];
         if (runsOn) {
-          // Its card names the next page: the quote's own place, which the User opens, is the cited one.
-          runsOn.record.quotedWordsRunOn = (runsOn.record.range.pageTo as number) + 1;
+          // Its card names the next page as the Document prints it: the place the User opens is the cited one.
+          runsOn.record.quotedWordsRunOn = locationOf([runsOn.next], null) ?? undefined;
           continue;
         }
         if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))

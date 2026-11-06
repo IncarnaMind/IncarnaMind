@@ -583,6 +583,8 @@ export function widenCitation(
     checkReason: null,
     verdict: evidence.verdict ?? null,
     quotedWords: evidence.quotedWords ?? null,
+    // The new quote's own place: where the Answer's quoted words ran on to was the old one's.
+    quotedWordsRunOn: null,
   });
 }
 
@@ -604,5 +606,6 @@ export function replaceCitation(
     checkReason: null,
     verdict: evidence.verdict ?? null,
     quotedWords: evidence.quotedWords ?? citation.attributes.quotedWords ?? null,
+    quotedWordsRunOn: null,
   });
 }

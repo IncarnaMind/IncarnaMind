@@ -152,6 +152,7 @@ describe("Widen the Citation and Replace the Citation", () => {
       passageId: "passage-OLD",
       verdict: "The contract says two days a week, p. 2",
       quotedWords: QUOTED_WORDS,
+      quotedWordsRunOn: { kind: "page", from: 3, to: 3 },
       pageChecked: true,
       unsure: ["2o25"],
     });
@@ -184,6 +185,8 @@ describe("Widen the Citation and Replace the Citation", () => {
       unsure: null,
       verdict: null,
       quotedWords: null,
+      // Where the Answer's quoted words ran on to was the old quote's page: the card says nothing of it.
+      quotedWordsRunOn: null,
     });
   });
 
@@ -194,6 +197,7 @@ describe("Widen the Citation and Replace the Citation", () => {
       checkReason: "quoted-words-not-on-pages",
       verdict: "The contract says three months, p. 2",
       quotedWords: QUOTED_WORDS,
+      quotedWordsRunOn: { kind: "page", from: 3, to: 3 },
     });
     expect(
       replaceCitation(editor, {
@@ -221,6 +225,7 @@ describe("Widen the Citation and Replace the Citation", () => {
       checkReason: null,
       verdict: null,
       quotedWords: QUOTED_WORDS,
+      quotedWordsRunOn: null,
     });
   });
 
