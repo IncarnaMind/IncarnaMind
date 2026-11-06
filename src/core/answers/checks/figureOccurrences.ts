@@ -143,7 +143,6 @@ function inSentence(
   sentence: SelectedSentence,
   grids: Map<Y.XmlElement, SourceGrid>,
   note: FigureContext,
-  above: () => Above,
 ): FigureOccurrence[] {
   if (sentence.element.nodeName !== "paragraph") return [];
   const table = tableContext(sentence.element, grids);
@@ -245,7 +244,7 @@ function inSentence(
     const reading = readings[0];
     if (readings.length !== 1 || !reading) continue;
     const { context, stretch } = around(start, start + 1);
-    const analysisRecord = calculated.figure.analysis ? recordOf(node, above) : undefined;
+    const analysisRecord = calculated.figure.analysis ? recordOf(node) : undefined;
     found.push({
       ...common,
       sentence: stretch,
@@ -267,7 +266,6 @@ function inSentence(
 /** How much of a run's code the claim judge reads as its rule: a long run's first lines hold its inputs. */
 const JUDGED_CODE = 3000;
 
-/** The top-level Block that holds `node`. */
 function topBlockOf(node: Y.XmlElement): Y.XmlElement {
   let block: Y.XmlElement = node;
   while (block.parent instanceof Y.XmlElement) block = block.parent;
@@ -306,7 +304,8 @@ function linesAbove(block: Y.XmlElement): string[] {
       if (level < under) {
         under = level;
         lines.push(plainText(at).trim(), ...pending);
-      }
+      } else read -= pending.reduce((sum, each) => sum + each.length, 0);
+      // A sibling section's lines aren't the sentence's, and take nothing from the bound.
       pending = [];
       continue;
     }
@@ -322,31 +321,38 @@ function linesAbove(block: Y.XmlElement): string[] {
   return [...lines, ...pending].filter(Boolean);
 }
 
-/** What an Analysis figure's check reads above its Block: the heading, and the lines that state a scale, currency or percent. */
-type Above = Pick<NonNullable<CheckFigure["analysisRecord"]>, "heading" | "above">;
+/** A record without what it read above its Block, which `withAboveNow` reads again. */
+const withoutAbove = ({
+  heading: _heading,
+  above: _above,
+  ...record
+}: NonNullable<CheckFigure["analysisRecord"]>) => record;
 
-/** `lines` from `linesAbove`; only those that state a frame are kept, since the check's record keeps them. */
-function aboveOf(block: Y.XmlElement, lines: readonly string[] = linesAbove(block)): Above {
-  const framing = lines.filter(statesAFrame);
-  return { ...headingAbove(block), ...(framing.length > 0 && { above: framing.join("\n") }) };
-}
-
-const holdsCalculatedFigure = (element: Y.XmlElement): boolean =>
-  element
-    .toArray()
-    .some(
-      (part) =>
-        part instanceof Y.XmlElement &&
-        (part.nodeName === CALCULATED_FIGURE_NODE || holdsCalculatedFigure(part)),
-    );
-
-/** `read` once, when first asked. */
-function once<T>(read: () => T): () => T {
-  let value: { read: T } | null = null;
-  return () => {
-    value ??= { read: read() };
-    return value.read;
-  };
+/**
+ * `figures` with each Analysis figure's heading and lines above read from the Note as it is now,
+ * when a check sends its sentence (#2544): a heading or line typed above since the Block's
+ * figures were read is the sentence's too. Only the lines that state a scale, currency or percent
+ * are kept, since the check's record keeps them.
+ */
+export function withAboveNow<Figure extends CheckFigure>(
+  figures: readonly Figure[],
+  element: Y.XmlElement,
+): Figure[] {
+  if (!figures.some((figure) => figure.analysisRecord)) return [...figures];
+  const block = topBlockOf(element);
+  const framing = linesAbove(block).filter(statesAFrame);
+  return figures.map((figure) =>
+    figure.analysisRecord
+      ? {
+          ...figure,
+          analysisRecord: {
+            ...withoutAbove(figure.analysisRecord),
+            ...headingAbove(block),
+            ...(framing.length > 0 && { above: framing.join("\n") }),
+          },
+        }
+      : figure,
+  );
 }
 
 /** A line of the Note's own text, not a table, a chart or a table's caption. */
@@ -359,7 +365,7 @@ const saysOfText = (line: Y.XmlElement) =>
     .some((part) => part instanceof Y.XmlElement && part.nodeName === ANALYSIS_TABLE_NODE);
 
 /** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
-function recordOf(node: Y.XmlElement, above: () => Above): CheckFigure["analysisRecord"] {
+function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
   const doc = node.doc;
   const figure = readCalculatedFigureAttributes(node.getAttributes());
   if (!doc || !figure?.figure.analysis) return { recalculated: false, citations: [] };
@@ -379,7 +385,7 @@ function recordOf(node: Y.XmlElement, above: () => Above): CheckFigure["analysis
       ],
       code: run.code.slice(0, JUDGED_CODE),
       unit: value.unit ?? null,
-      ...above(),
+      ...headingAbove(topBlockOf(node)),
     };
   } catch (error) {
     console.error("Reading an Analysis figure's record for its check failed:", error);
@@ -388,12 +394,7 @@ function recordOf(node: Y.XmlElement, above: () => Above): CheckFigure["analysis
 }
 
 export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[] {
-  return inSentence(
-    sentence,
-    new Map(),
-    documentFigureContext([{ text: sentence.context }]),
-    once(() => aboveOf(topBlockOf(sentence.element))),
-  );
+  return inSentence(sentence, new Map(), documentFigureContext([{ text: sentence.context }]));
 }
 
 /**
@@ -520,14 +521,8 @@ function figuresOfBlock(
     keptBinding(block.doc, block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
   )
     return [];
-  // An Analysis figure's check reads the heading and the lines above its Block, which a change
-  // above leaves the Block itself untouched by: they are part of what the Block was read with.
-  const lines = holdsCalculatedFigure(block) ? linesAbove(block) : null;
-  const heading = lines ? (headingAbove(block).heading ?? "") : "";
-  const readWith = lines ? `${key}\u0000${heading}\u0000${lines.join("\n")}` : key;
   const read = readFiguresOf(block);
-  if (read.readWith === readWith) return read.figures;
-  const above = once(() => aboveOf(block, lines ?? []));
+  if (read.readWith === key) return read.figures;
   const grids = new Map<Y.XmlElement, SourceGrid>();
   const found: FigureOccurrence[] = [];
   for (const { element, busy } of textBlocksOf(block, { charts: true })) {
@@ -551,7 +546,6 @@ function figuresOfBlock(
           },
           grids,
           note,
-          above,
         );
         for (const figure of figures) found.push(figure);
       } catch (error) {
@@ -562,7 +556,7 @@ function figuresOfBlock(
       }
     }
   }
-  read.readWith = readWith;
+  read.readWith = key;
   read.figures = found;
   return found;
 }

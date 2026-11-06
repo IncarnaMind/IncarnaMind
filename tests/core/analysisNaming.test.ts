@@ -527,6 +527,7 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
       "We track percentages elsewhere.",
       "North has units of 1,000 staff.",
       "The bus fare is 99 cents.",
+      "Prices end in 99 cents.",
       "The Dollar Lane branch opened.",
     ])
       expect(holds(said(), "9,450", north, `${before} ${said()}`), before).toBe(true);
@@ -570,6 +571,12 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
       "距离单位为千米。",
       "用电量以千瓦时计。",
       "上千人下单。",
+      "这项服务已走进千家万户。",
+      "万家路店本月开业。",
+      "千户街店本月开业。",
+      "千台村门店本月开业。",
+      "万名街店本月开业。",
+      "成千上万的客户下了单。",
     ])
       expect(holds(zh, "40", zhOrders, `${before}${zh}`), before).toBe(true);
     expect(holds(en, "40", orders, `Parcels are weighed in kilograms. ${en}`)).toBe(true);

@@ -1699,6 +1699,39 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     core.close();
   });
 
+  test("a long sibling section between the title's units line and the sentence doesn't hide it (#2544)", async () => {
+    const scale =
+      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
+    const long =
+      language === "en"
+        ? `${"the regions kept their records by month, ".repeat(56)}as before.`
+        : `${"各地区按月记录数据，".repeat(230)}与往常一样。`;
+    expect(long.length).toBeGreaterThan(2_200);
+    const { core, madeId, client } = await walked(
+      language,
+      lines(scale, "## A", long, "## B", words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["not-checked analysis-unnamed"]);
+    core.close();
+    // The same Note without the units line keeps its Supported.
+    const plain = await walked(
+      language,
+      lines("## A", long, "## B", words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await plain.core.checkMind({ requestId: randomUUID(), mindId: plain.madeId, mode: "all" });
+    await plain.client.settled();
+    expect(analysisVerdicts(plain.client)).toEqual(["supported"]);
+    plain.core.close();
+  });
+
   test("a heading or a line the User types above the sentence after the Answer is read by its first Check (#2544)", async () => {
     for (const [kind, words_] of [
       ["heading", language === "en" ? "Amounts (in thousands)" : "金额（单位：千元）"],

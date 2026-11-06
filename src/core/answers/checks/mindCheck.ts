@@ -54,7 +54,7 @@ import { parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
 import { recordCiteSpans } from "../../recordCites/parser";
 import type { CheckedCitation } from "./claimCheck";
-import { cellHeadings, inTableCell, inValueCell } from "./figureOccurrences";
+import { cellHeadings, inTableCell, inValueCell, withAboveNow } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import { pendingParts, type QueuedClaim, type RunChecksOptions, runChecks } from "./runChecks";
@@ -675,7 +675,12 @@ export function createMindCheck(options: MindCheckOptions) {
         return [
           {
             id: mark.id,
-            ...(row ? { ...row, figures: sentence.figures } : checkText(sentence)),
+            ...(row
+              ? {
+                  ...row,
+                  figures: sentence.figures && withAboveNow(sentence.figures, sentence.element),
+                }
+              : checkText(sentence)),
             cited: options.citedNow(sentence.cited),
             recordClaim: noteTextOf(sentence),
             place: { blockId: sentence.blockId, from: sentence.from },

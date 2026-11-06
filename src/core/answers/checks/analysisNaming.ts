@@ -312,14 +312,20 @@ const SCALE_WORDS = new RegExp(
   `(?<!\\p{L})(?:(?<=(?:\\bin|\\bas|[(（])\\s*)(?:thousands?|millions?|billions?|trillions?|hundreds?|lakhs?|crores?)|(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?)(?!\\s+of\\b(?!\\s+(?:${CURRENCY_ISO_CODES}|dollars?|euros?|pounds?|yuan|yen|rupees?|francs?)\\b))|bn|mn|['’]000s?|000s)(?!\\p{L})`,
   "giu",
 );
-// 千, 万 and 亿 are a scale only before a unit or the end of their words, after a bracket, a colon,
-// 以, 为 or 单位, or before a currency or a counted unit: never inside a name (万和路, 千禧店), as a
-// unit's own prefix (千克, 千米, 千瓦时) or in a rough count (数以万计, 上千人).
-// A count's units are scaled too ("单位为千人", "以万户计"); 克, 米 and 瓦 after 千 make a unit of their own.
-const HAN_UNIT =
-  "元|美元|欧元|英镑|日元|港元|港币|人民币|美金|台币|人次|人|位|名|户|家|笔|单|件|次|个|台|条|项|张|份|辆|间|座|套|箱|批|吨|包|小时|为单位|计";
+// 千, 万 and 亿 are a scale before a unit or the end of their words after a bracket, a colon, 以, 为
+// or 单位, and before a currency or 为单位 / 计 anywhere; a count's units (人, 户, 家, 笔…) only where
+// a line states a unit ("单位为千人", "以万户计"). Never inside a name (万和路, 千户街, 万家路店), as a
+// unit's own prefix (千克, 千米, 千瓦时), or in a rough count (数以万计, 上千人, 千家万户).
+const HAN_CURRENCY_UNIT = "元|美元|欧元|英镑|日元|港元|港币|人民币|美金|台币";
+const HAN_COUNT_UNIT =
+  "人次|人|位|名|户|家|笔|单|件|次|个|台|条|项|张|份|辆|间|座|套|箱|批|吨|包|小时";
+const HAN_SCALE = "(?:十亿|千万|百万|亿|万|千)";
+const NOT_ROUGH = "(?<![上数近逾几成])(?!(?<=数以)(?:十亿|千万|百万|亿|万|千)计)";
 const HAN_SCALES = new RegExp(
-  `(?<![上数近逾几成])(?!(?<=数以)(?:十亿|千万|百万|亿|万|千)计)(?<=(?:[（(：:为以]|单位)\\s*)(?:十亿|千万|百万|亿|万|千)(?=${HAN_UNIT}|[）)\\s，。；：、,.;:]|$)|(?<![上数近逾几成])(?!(?<=数以)(?:十亿|千万|百万|亿|万|千)计)(?:十亿|千万|百万|亿|万|千)(?=${HAN_UNIT})`,
+  [
+    `${NOT_ROUGH}(?<=(?:[（(：:为以]|单位)\\s*)${HAN_SCALE}(?=${HAN_CURRENCY_UNIT}|(?:${HAN_COUNT_UNIT})?(?:为单位|计|[）)\\s，。；：、,.;:]|$))`,
+    `${NOT_ROUGH}${HAN_SCALE}(?=${HAN_CURRENCY_UNIT}|(?:${HAN_COUNT_UNIT})?(?:为单位|计))`,
+  ].join("|"),
   "gu",
 );
 /** A scale written as its number: "in units of 1,000", "×1,000", "单位：10,000元", "以 1,000 元为单位". */
@@ -426,7 +432,8 @@ function readFramesIn(text: string): Frame[] {
           : (currencyNamed(word) ?? currencyNamed(`${word}s`) ?? word),
       }),
     ),
-    ...named(SUBUNITS, () => ({ kind: "unsure" })),
+    // "Prices end in 99 cents." gives a price; "Fares are in cents." gives the text's unit.
+    ...[...text.matchAll(SUBUNITS)].map((): Frame => ({ kind: "unsure" })),
     ...named(PERCENT_WORDS, () => ({ kind: "percent" })),
     ...unsettledScales(text).map((): Frame => ({ kind: "unsure" })),
   ];
