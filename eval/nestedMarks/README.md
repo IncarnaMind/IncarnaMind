@@ -103,3 +103,19 @@ After the run, one shuffled file for the blind judgment, with these fields per a
 
 It carries no family, model, label or outcome. Its path and the run's output go to the reviewer,
 who posts the verdict on the pull request.
+
+## Note after the run, 2026-11-06
+
+The run at this head, `2026-11-06T13-22-58-487Z`, cost $0.010, the yuan at the app's fixed rate of 7.1. Each trust bar passed:
+
+- no false Supported, 0 of 16;
+- 0 asks failed;
+- 0 replies stale since the ask;
+- an added wait of 1.36 s at p95 in English and 1.30 s in Chinese.
+
+The fire-rate bar failed as written: the ask fired on 2 of the 20 `plain` cases. Both cases' frozen texts nest a pair of the other kind, so they were mislabelled when they were written. `cases.json` is unchanged (sha256 `8f1ce36e…`), and its labels are not edited.
+
+- `en-plain-07`: the Answer writes `The board records that “she said ‘we ship on Friday’ and left the room before the vote”[^1].` against the page's `She said “we ship on Friday” and left the room before the vote.`
+- `zh-plain-17`: the Answer writes `留言板记录“她说‘我们周五发货’，然后在表决前离开了会议室”[^1]。` against the page's `她说“我们周五发货”，然后在表决前离开了会议室。`
+
+On the 18 cases with no nested pair, the ask fired 0 times. It also fired 0 times on the 39 saved DeepSeek Answers, counted offline. This is a bar on cost, not trust, and the model is listed on this note once the blind same-claim judgment is clean.
