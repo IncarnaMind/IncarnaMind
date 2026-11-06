@@ -61,6 +61,9 @@ function setUp(places: number) {
   return { run, limit, sent, finish, early: earlyChecks(claimCheck, run, limit) };
 }
 
+/** What a check reads besides its request, never changing. */
+const unchanged = () => "library 1";
+
 const claim = (words: string, context = words): QueuedClaim => ({
   id: words,
   claim: words,
@@ -71,9 +74,9 @@ const claim = (words: string, context = words): QueuedClaim => ({
 test("starts a check early only while the run has a free place", () => {
   const { early, sent } = setUp(2);
 
-  early.start(claim("Spring tides come at new moon."));
-  early.start(claim("Neap tides come at the quarter moons."));
-  early.start(claim("High water comes twice a day."));
+  early.start(claim("Spring tides come at new moon."), unchanged);
+  early.start(claim("Neap tides come at the quarter moons."), unchanged);
+  early.start(claim("High water comes twice a day."), unchanged);
 
   expect(sent.map((request) => request.claim)).toEqual([
     "Spring tides come at new moon.",
@@ -86,8 +89,8 @@ test("the run takes an early check that sends the same, and the others stop at o
   const { early, sent, finish, run, limit } = setUp(3);
   const same = claim("Spring tides come at new moon.");
   const changed = claim("Neap tides come at the quarter moons.");
-  early.start(same);
-  early.start(changed);
+  early.start(same, unchanged);
+  early.start(changed, unchanged);
   const [kept, stopped] = sent;
 
   const now = { ...changed, context: `${changed.context} Their range is smallest then.` };
@@ -102,4 +105,23 @@ test("the run takes an early check that sends the same, and the others stop at o
   for (const done of finish) done();
   expect(await taken).toBe(RESULT);
   expect(await fresh).toBe(RESULT);
+});
+
+// protects=an early check whose request is the same but whose sources changed meanwhile (a Document renamed so a record cite's source is no longer one, a source chosen in the Note) is stopped and checked again, not taken (#2532); fails_when=only the request decides what is taken; no_claim=which changes count, which the core's Library revision and the Note's record-cite inputs say.
+test("an early check is stopped, not taken, when what it reads besides its request changed", async () => {
+  const { early, sent, finish, run, limit } = setUp(3);
+  let library = 1;
+  const reads = () => `library ${library}`;
+  const tides = claim("Spring tides come at new moon. Ex. 7 at 2.");
+  early.start(tides, reads);
+  const [first] = sent;
+
+  library = 2;
+  early.keep([tides]);
+
+  expect(first?.signal.aborted).toBe(true);
+  const again = early.claimCheck(checkRequestOf(tides, run, limit, run.signal));
+  expect(sent).toHaveLength(2);
+  for (const done of finish) done();
+  expect(await again).toBe(RESULT);
 });

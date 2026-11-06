@@ -160,8 +160,9 @@ function requestKey({ signal: _signal, slots: _slots, model: _model, ...sent }: 
  * claims are checked while the model is still naming the rest. Only as many start as the run's
  * limit has free places, so none waits outside the run, where a provider's rate limit wouldn't
  * slow it (#1618). Once the run's queue is made from the Note as it is then, a check it would send
- * is taken from those started early only if it sends exactly the same; every other early check is
- * stopped at once and its result dropped, so no result lands that the run wouldn't have got.
+ * is taken from those started early only if it sends exactly the same, and what it reads besides
+ * (the Library, a record cite's sources) hasn't changed; every other early check is stopped at
+ * once and its result dropped, so no result lands that the run wouldn't have got.
  */
 export function earlyChecks(
   claimCheck: RunChecksOptions["claimCheck"],
@@ -171,15 +172,24 @@ export function earlyChecks(
   interface Early {
     result: Promise<ClaimCheckResult>;
     stop: AbortController;
+    /** What the check reads besides its request, as it was when it started, and as it is now. */
+    read: string;
+    readNow(): string;
   }
   const started = new Map<string, Early[]>();
   return {
-    start(claim: QueuedClaim): void {
+    /** `readNow` says what the check reads besides its request (the Library, the Note's record choices): it is taken only if that is unchanged. */
+    start(claim: QueuedClaim, readNow: () => string): void {
       if (limit.free() === 0) return;
       const stop = new AbortController();
       const request = checkRequestOf(claim, run, limit, AbortSignal.any([run.signal, stop.signal]));
       const key = requestKey(request);
-      const early: Early = { result: checkClaim(claimCheck, request), stop };
+      const early: Early = {
+        result: checkClaim(claimCheck, request),
+        stop,
+        read: readNow(),
+        readNow,
+      };
       early.result.catch((error: unknown) => {
         // A check the run takes fails there, as any other does.
         if (stop.signal.aborted || !started.get(key)?.includes(early)) return;
@@ -194,7 +204,12 @@ export function earlyChecks(
         const key = requestKey(checkRequestOf(claim, run, limit, run.signal));
         wanted.set(key, (wanted.get(key) ?? 0) + 1);
       }
-      for (const [key, each] of started) {
+      for (const [key, all] of started) {
+        const each = all.filter((early) => {
+          const same = early.readNow() === early.read;
+          if (!same) early.stop.abort();
+          return same;
+        });
         const kept = wanted.get(key) ?? 0;
         for (const { stop } of each.slice(kept)) stop.abort();
         started.set(key, each.slice(0, kept));

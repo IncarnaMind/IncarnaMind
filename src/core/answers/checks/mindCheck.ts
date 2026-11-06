@@ -32,6 +32,7 @@ import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mind
 import { mindModelOf } from "../../../shared/mindModel";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { readOpinionSentences, resolveOpinions } from "../../../shared/opinions";
+import { readRecordCiteChoices } from "../../../shared/recordCiteChoices";
 import { oneFolderOf } from "../../../shared/searchScope";
 import { isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -79,6 +80,7 @@ import {
   noteTextOf,
   noteTextOfMarked,
   recordCiteNote,
+  recordCiteParagraphs,
   type SelectedSentence,
 } from "./sentences";
 import type { MindCheckScope, VerifyOptions } from "./verify";
@@ -113,6 +115,8 @@ export interface MindCheckOptions extends RunChecksOptions {
   isRunning(requestId: string): boolean;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
+  /** Grows whenever what a check reads of the Library at run time may have changed. */
+  libraryRevision(): number;
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
@@ -735,13 +739,28 @@ export function createMindCheck(options: MindCheckOptions) {
         },
       };
     };
+    /**
+     * What a claim's check reads besides its request: the Library, and for a record cite the
+     * Note's source choices and the paragraphs an `Id.` or `supra` refers back to.
+     */
+    const readsNow = (claim: SelectedSentence) => {
+      const cites = recordCiteSpans(noteTextOf(claim)).length > 0;
+      return () =>
+        cites
+          ? JSON.stringify([
+              options.libraryRevision(),
+              content.readSettings(mindId, readRecordCiteChoices),
+              content.read(mindId, recordCiteParagraphs),
+            ])
+          : String(options.libraryRevision());
+    };
     /** Starts a claim's check before the run's marks are written (`earlyChecks`). */
     const startEarly = (claim: SelectedSentence, named?: readonly ClaimPartPlan[]) => {
       try {
         const found = content.read(mindId, (blocks) =>
           placed(blocks, nowOf(blocks), claim, options.now().toISOString(), named),
         );
-        if (found) early.start(found.queued);
+        if (found) early.start(found.queued, readsNow(claim));
       } catch (error) {
         // The run still checks it, once the claims are named.
         console.error(`A sentence of Note ${mindId} couldn't be checked early:`, error);

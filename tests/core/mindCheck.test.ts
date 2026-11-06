@@ -8,7 +8,7 @@ import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
-import type { CheckMindInput, Core } from "../../src/core";
+import type { CheckMindInput, Core, Reranker } from "../../src/core";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { claimPartsReader } from "../../src/core/answers/checks/claims";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
@@ -17,6 +17,7 @@ import {
   type ClaimCheckAttributes,
   MIND_SETTINGS_FIELD,
 } from "../../src/core/api";
+import { createRerankQueue } from "../../src/core/reranking/order";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { keepCheckAsView } from "../../src/shared/claimParts";
@@ -1643,19 +1644,28 @@ describe("Check this note starts each sentence's check once its claims are named
   const SECOND = "Spring tide 2 comes at new moon.";
 
   /** `held`: the first sentence's checks, by their order, wait at their first request until each is resolved. */
+  /** A call checks `sentence`: by its words, or, for a record cite's sentence, by its paragraph's. */
+  const checking = (sentence: string) => (call: ModelCall) =>
+    sentenceOf(call) === sentence || call.prompt.includes(sentence);
+
   async function noteOfTwo(
     then: "held" | "fails",
     held: readonly Promise<void>[] = [],
     onService = true,
+    first = MOON,
   ) {
     const checks: ModelCall[] = [];
-    const plans: Record<string, Plan> = { ...PLANS, [SECOND]: { verdict: "unsupported" } };
+    const plans: Record<string, Plan> = {
+      [first]: { verdict: "unsupported" },
+      ...PLANS,
+      [SECOND]: { verdict: "unsupported" },
+    };
     const scripted = scriptedModel(
       (call) => {
         checks.push(call);
         const reply = checkReply(call, plans);
-        if (call.results.length > 0 || !isCheckRun(call) || sentenceOf(call) !== MOON) return reply;
-        const until = held[runsIn(checks).filter((each) => sentenceOf(each) === MOON).length - 1];
+        if (call.results.length > 0 || !isCheckRun(call) || !checking(first)(call)) return reply;
+        const until = held[runsIn(checks).filter(checking(first)).length - 1];
         return until ? { ...reply, pause: { after: 0, until } } : reply;
       },
       { generate: checkGenerate(plans) },
@@ -1678,12 +1688,11 @@ describe("Check this note starts each sentence's check once its claims are named
     const mind = await core.createMind({ title: "Tide notes" });
     const client = await connectToMind(core, mind.id);
     writeMind(client, [
-      { type: "paragraph", attrs: { id: "first" }, content: [text(MOON)] },
+      { type: "paragraph", attrs: { id: "first" }, content: [text(first)] },
       { type: "paragraph", attrs: { id: "second" }, content: [text(SECOND)] },
     ]);
     await client.settled();
-    const runsOf = (sentence: string) =>
-      runsIn(checks).filter((each) => sentenceOf(each) === sentence);
+    const runsOf = (sentence: string) => runsIn(checks).filter(checking(sentence));
     return { core, client, mindId: mind.id, sort: sort.state, runsOf };
   }
 
@@ -1736,6 +1745,56 @@ describe("Check this note starts each sentence's check once its claims are named
     expect(shown.find((each) => each.sentence === MOON)?.shown.state).toBe("supported");
   });
 
+  // protects=a check started early is stopped and sent again when the Library changed while the claims were named (a Document renamed, so a record cite's source or a search's names may differ), though its request is the same (#2532); fails_when=only the request decides what is taken; no_claim=which Library changes count beyond a rename.
+  test("a check started early is sent again when a Document is renamed before the claims are named", async () => {
+    const firstRun = Promise.withResolvers<void>();
+    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held", [firstRun.promise]);
+
+    const checking = core.checkMind(request(mindId, "all"));
+    await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
+    const [tides] = await core.listDocuments();
+    if (!tides) throw new Error("The Document is missing.");
+    await core.renameDocument(tides.id, "Tide tables.md");
+    sort.release();
+    await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(2));
+    expect(runsOf(MOON)[0]?.options.abortSignal?.aborted).toBe(true);
+    firstRun.resolve();
+
+    expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
+    expect(runsOf(MOON)[1]?.options.abortSignal?.aborted).toBe(false);
+    const shown = await shownChecks(core, client, mindId, null);
+    expect(shown.find((each) => each.sentence === MOON)?.shown.state).toBe("supported");
+  });
+
+  // protects=a record cite's check started early is stopped and sent again when the Note changed elsewhere while the claims were named, since its `Id.`, `supra` and source choices read the Note's other paragraphs and settings; a sentence with no record cite is kept (#2532); fails_when=an edit elsewhere in the Note leaves a record cite's early check taken, or stops one with no record cite; no_claim=what the record cite resolves to.
+  test.each([
+    ["a sentence with a record cite", "Spring tides come at new moon (Tide Dep. 4:1–2).", 2],
+    ["a sentence with none", MOON, 1],
+  ] as const)(
+    "after an edit in another paragraph, %s is checked again only if it cites the record",
+    async (_, first, runs) => {
+      const firstRun = Promise.withResolvers<void>();
+      const { core, client, mindId, sort, runsOf } = await noteOfTwo(
+        "held",
+        [firstRun.promise],
+        true,
+        first,
+      );
+
+      const checking = core.checkMind(request(mindId, "all"));
+      await vi.waitFor(() => expect(runsOf(first)).toHaveLength(1));
+      typeInto(client, 1, SECOND.length, " Neap tides come at the quarter moons.");
+      await client.settled();
+      sort.release();
+      if (runs === 2) await vi.waitFor(() => expect(runsOf(first)).toHaveLength(2));
+      firstRun.resolve();
+
+      expect(await checking).toMatchObject({ kind: "checked" });
+      expect(runsOf(first)).toHaveLength(runs);
+      expect(runsOf(first)[0]?.options.abortSignal?.aborted).toBe(runs === 2);
+    },
+  );
+
   // protects=when the reply naming the claims fails after naming one, the check started early is stopped and nothing lands, as when no check had started (#2532); fails_when=the early check's verdict lands, or it goes on; no_claim=the Problem the window shows, which the run's failure gives as before.
   test.each(["fails", "stopped"] as const)(
     "when naming the claims %s after the first, the check started early is stopped and nothing is marked",
@@ -1757,4 +1816,42 @@ describe("Check this note starts each sentence's check once its claims are named
       expect(claimSpans(readMind(client))).toEqual([]);
     },
   );
+});
+
+// protects=a check's searches wait behind a search the User asked for, from whichever flow the check comes (here the public checkClaim), while the searches outside any check go by when they are asked (#2532); fails_when=a check from some flow isn't counted as a check, so its search goes before a Cite… search asked after it; no_claim=how long a search takes.
+test("a check's search, from any flow, waits behind a Cite… search asked after it", async () => {
+  const inTurn = createRerankQueue();
+  const asked: string[] = [];
+  const scored: string[] = [];
+  const held = Promise.withResolvers<void>();
+  const reranker: Reranker = (query, candidates) => {
+    asked.push(query);
+    return inTurn(async () => {
+      scored.push(query);
+      if (scored.length === 1) await held.promise;
+      return [...candidates];
+    });
+  };
+  const model = scriptedModel((call) => checkReply(call, PLANS), {
+    generate: checkGenerate(PLANS),
+  });
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+    reranker,
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const sources = await createTempDataFolder();
+  await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+
+  const first = core.findPassages({ text: "spring tides", mindId: null, scope: null });
+  await vi.waitFor(() => expect(scored).toEqual(["spring tides"]));
+  const checked = core.checkClaim({ claim: MOON });
+  await vi.waitFor(() => expect(asked).toHaveLength(2));
+  const second = core.findPassages({ text: "full moon", mindId: null, scope: null });
+  await vi.waitFor(() => expect(asked).toHaveLength(3));
+  held.resolve();
+  await Promise.all([first, second, checked]);
+
+  expect(scored.slice(0, 3)).toEqual(["spring tides", "full moon", asked[1]]);
+  core.close();
 });
