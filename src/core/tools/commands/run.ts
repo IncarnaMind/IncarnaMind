@@ -800,7 +800,7 @@ export const LIBRARY_CHECKERS = {
                 previous: shown,
               })
             : false;
-          if (!allowed) throw new InvalidInputError({ key: "commands.denied" });
+          if (!allowed) throw new InvalidInputError({ key: "error.commands.exportDenied" });
           shown = { fileName: now.fileName, pictures: [...now.pictures] };
         }
         const { file, marking } = await host.exportMind(mind.id, input.format, into, elsewhere, {

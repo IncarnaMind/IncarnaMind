@@ -4839,6 +4839,7 @@ export const zhCN = {
   "error.commands.undoGone": "这些改动已无法撤销：IncarnaMind 之后重启过。",
   "error.commands.wordLoses":
     "Word 文件无法保留这篇笔记的全部内容。请先从笔记的菜单导出，查看会丢失什么。",
+  "error.commands.exportDenied": "未允许更改后的文件，因此没有写入任何文件。",
   "error.commands.noFolderId": "没有 id 为 {id} 的文件夹。",
   "error.commands.noTagId": "没有 id 为 {id} 的标签。",
   "error.commands.noTarget": "没有 id 为 {id}、可供这个命令处理的项目。",

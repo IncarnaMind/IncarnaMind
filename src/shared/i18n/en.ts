@@ -5083,6 +5083,7 @@ export const en = {
     "These changes can’t be undone any more: IncarnaMind has restarted since.",
   "error.commands.wordLoses":
     "A Word file can’t keep everything in this note. Export it from the note’s menu to see what first.",
+  "error.commands.exportDenied": "You didn’t allow the changed files, so nothing was written.",
   "error.commands.noFolderId": "There is no Folder with the id {id}.",
   "error.commands.noTagId": "There is no Tag with the id {id}.",
   "error.commands.noTarget": "There is nothing with the id {id} that this command acts on.",

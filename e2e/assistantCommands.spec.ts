@@ -295,13 +295,14 @@ test("a file that appears while the export card waits refreshes it, marks the ne
 
   const card = await askAndWait(window, `Export this Mind as Word to ${elsewhere}`);
   await expect(card.getByTestId("approval-file")).toHaveText(["Deal notes.docx"]);
-  await writeFile(join(elsewhere, "Deal notes.docx"), "A file that appeared while the card waited.");
+  await writeFile(
+    join(elsewhere, "Deal notes.docx"),
+    "A file that appeared while the card waited.",
+  );
   await pointAndClick(window, card.getByTestId("approval-allow-once"));
 
   const refreshed = window.getByTestId("approval-card").last();
-  await expect(refreshed).toContainText(
-    "The files changed since you looked. Allow these instead?",
-  );
+  await expect(refreshed).toContainText("The files changed since you looked. Allow these instead?");
   await expect(refreshed.getByTestId("approval-file")).toContainText("Deal notes 2.docx");
   await expect(refreshed.getByTestId("approval-file-new")).toHaveText("New");
   await expect(refreshed.getByTestId("approval-allow-once")).toBeDisabled();

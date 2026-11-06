@@ -6167,7 +6167,8 @@ export function createCore(adapters: CoreAdapters): Core {
       const pictures: string[] = [];
       for (const name of preview.pictures) {
         // A picture the folder already holds is linked, not written (#1937).
-        if (await outputs.holdsMatching(folder, name, (bytes) => isPictureFile(name, bytes))) continue;
+        if (await outputs.holdsMatching(folder, name, (bytes) => isPictureFile(name, bytes)))
+          continue;
         pictures.push(await free(name));
       }
       return { ...preview, fileName, pictures };
