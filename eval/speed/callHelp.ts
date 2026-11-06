@@ -283,6 +283,9 @@ async function press(
   firstOptionMs: number | null;
 }> {
   let stopPhase: () => void = () => undefined;
+  let snapshot: ReturnType<typeof setTimeout> | undefined;
+  let snapshotting = false;
+  let beforeCheck: string | null = null;
   const shape = HELP_SHAPE[each.kind];
   const seen = new Map<string, { firstWordsMs: number | null; firstOptionMs: number | null }>();
   let start = 0;
@@ -290,6 +293,7 @@ async function press(
   const stop = core.on("conversation.message", (message) => {
     if (message.kind !== "answer") return;
     latestText = message.text;
+    if (snapshotting) beforeCheck = message.text;
     const at = performance.now() - start;
     const shown = shownItems(readHelpReply(message.text), {
       shape,
@@ -315,10 +319,15 @@ async function press(
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
     // The check of the changes a reply claims runs once it is written: what it shows as it runs
     // is the text before the check, and what the Answer then holds is the text after it.
-    let beforeCheck: string | null = null;
     stopPhase = core.on("answer.phase", (event) => {
-      if (event.answerId === asked.answerId && event.phase === "checking-claims")
-        beforeCheck = latestText;
+      if (event.answerId !== asked.answerId || event.phase !== "checking-claims") return;
+      // The panel's text is written in batches of up to 50 ms: taken when the check starts, it can
+      // miss the reply's last words, so it follows the batches for a moment, before the rewrite.
+      beforeCheck = latestText;
+      snapshotting = true;
+      snapshot = setTimeout(() => {
+        snapshotting = false;
+      }, 800);
     });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<"late">((resolve) => {
@@ -344,6 +353,7 @@ async function press(
   } finally {
     stop();
     stopPhase();
+    if (snapshot !== undefined) clearTimeout(snapshot);
   }
 }
 
