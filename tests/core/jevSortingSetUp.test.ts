@@ -120,6 +120,30 @@ describe("Jev set up from the sorting picker (#2615)", { timeout: 30_000 }, () =
     expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "jev" });
   });
 
+  test("left while the key is tried (Cancel, another row), the press saves and chooses nothing", async () => {
+    const { core, jev, keychain } = await startWithFakeTypeSafe();
+    const before = (await core.getLibrary()).settings;
+    let chosen = false;
+
+    expect(
+      await setUpJevForSorting(
+        core,
+        { apiKey: JEV_KEY, endpoint: null, model: null, reviewBand: { low: 0.35, high: 0.65 } },
+        async () => {
+          chosen = true;
+          return true;
+        },
+        () => false,
+      ),
+    ).toEqual({ kind: "given-up" });
+
+    expect(jev.requests).toHaveLength(1);
+    expect(chosen).toBe(false);
+    expect(keychain.secrets.has("jev:api-key")).toBe(false);
+    expect((await core.getLibrary()).settings).toEqual(before);
+    expect(await typeSafeFlows(core)).toEqual([]);
+  });
+
   test("in Local mode the key goes to no cloud server, and a Jev server on this computer is tried", async () => {
     const { core, jev } = await startWithFakeTypeSafe();
     await core.setLocalOnly(true);

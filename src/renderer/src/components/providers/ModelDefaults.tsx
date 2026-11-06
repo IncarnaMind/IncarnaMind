@@ -141,7 +141,7 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
 
 function SortingRow({ id }: { id: string }) {
   const t = useT();
-  const { options, current, choose, read, library, jevSetUp } = useSorting();
+  const { options, current, choose, read, library, jevSetUp, jevSettings } = useSorting();
   const [settingUpJev, setSettingUpJev] = useState(false);
   const closeJev = () => {
     setSettingUpJev(false);
@@ -179,9 +179,10 @@ function SortingRow({ id }: { id: string }) {
               void choose(option);
             }}
           />
-          {settingUpJev ? (
+          {settingUpJev && jevSettings ? (
             // Choosing here never turns tagging on: Turn on… does, once Jev is chosen (#2308).
             <JevSortingSetUp
+              jev={jevSettings}
               choosing={false}
               choose={() => choose({ classifier: { kind: "jev" } })}
               onChosen={closeJev}

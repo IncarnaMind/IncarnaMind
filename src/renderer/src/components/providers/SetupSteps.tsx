@@ -1,5 +1,6 @@
 import { type ReactNode, useId, useLayoutEffect, useRef, useState } from "react";
 import type { TranscriptionRoute } from "../../../../core/api";
+import { JEV_SERVICE } from "../../../../core/providers/jev";
 import { useT } from "../../i18n";
 import { finishSetupStep, openSetupStep, useModelSetup } from "../../modelSetup";
 import { useAppStore } from "../../store";
@@ -10,7 +11,7 @@ import { TranscriptionRouteConsent } from "../meetings/TranscriptionSettings";
 import { ReadProblem } from "../ReadProblem";
 import { STEP_BUTTON_CLASS, StepNumber } from "../StepNumber";
 import { buttonStyle, fieldClass, hintClass } from "../ui";
-import { JEV_NAME, JevSortingSetUp } from "./JevSortingSetUp";
+import { JevSortingSetUp } from "./JevSortingSetUp";
 import { SortingLine, SortingSelect, useSorting } from "./SortingChoice";
 
 const linkClass =
@@ -265,7 +266,7 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
 /** What sorts Tags and Folders and names meeting hints, the best the keys reach picked first. */
 function SortingStep({ onDone }: { onDone(choice: string): void }) {
   const t = useT();
-  const { options, current, choose, known, loading, read, jevSetUp } = useSorting();
+  const { options, current, choose, known, loading, read, jevSetUp, jevSettings } = useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
   const [settingUpJev, setSettingUpJev] = useState(false);
   const chosen = picked ?? current;
@@ -306,11 +307,12 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
           setPicked(option);
         }}
       />
-      {settingUpJev ? (
+      {settingUpJev && jevSettings ? (
         <JevSortingSetUp
+          jev={jevSettings}
           choosing
           choose={() => choose({ classifier: { kind: "jev" } }, { turnOn: true })}
-          onChosen={() => onDone(JEV_NAME)}
+          onChosen={() => onDone(JEV_SERVICE.name)}
           onCancel={() => {
             setSettingUpJev(false);
             document.getElementById("setup-sorting")?.focus();
@@ -329,7 +331,6 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
   );
 }
 
-/** The step's line on what the choice sends, then Use this and Skip. */
 function SortingChoiceButtons({
   chosen,
   known,

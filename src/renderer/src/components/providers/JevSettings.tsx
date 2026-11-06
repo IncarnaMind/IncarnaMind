@@ -132,11 +132,16 @@ export interface JevSortingForm {
   choose(): Promise<boolean>;
 }
 
-/** The service a server typed in the form sends to: TypeSafe's when there is none, null on this computer. */
+/**
+ * The service a server typed in the form sends to: TypeSafe's when there is none, null on this
+ * computer. Anything that isn't a web address is named as typed, never taken for this computer.
+ */
 function serviceOfEndpoint(endpoint: string): string | null {
   const typed = endpoint.trim();
   if (typed === "") return JEV_SERVICE.name;
   try {
+    const url = new URL(typed);
+    if (!/^https?:$/.test(url.protocol) || url.hostname === "") return typed;
     return serviceForUrl(typed)?.name ?? null;
   } catch {
     return typed;
@@ -171,12 +176,18 @@ export function JevForm({
   const [error, setError] = useState<string | null>(null);
   const [secretStorage, setSecretStorage] = useState<SecretStorageStatus | null>(null);
   const keyField = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   useEffect(() => {
     core.getSecretStorage().then(setSecretStorage, () => undefined);
   }, []);
   const fromPicker = sorting !== undefined;
-  // Chosen from the picker, the key entry is where the User goes next.
   useEffect(() => {
     if (fromPicker) keyField.current?.focus();
   }, [fromPicker]);
@@ -201,7 +212,13 @@ export function JevForm({
         setTest(await core.testJevConnection(input()));
       } else if (sorting) {
         setTest(null);
-        const outcome = await setUpJevForSorting(core, settings, sorting.choose);
+        const outcome = await setUpJevForSorting(
+          core,
+          settings,
+          sorting.choose,
+          () => mounted.current,
+        );
+        if (outcome.kind === "given-up") return;
         if (outcome.kind === "failed") {
           setTest(outcome.result);
           return;
@@ -257,7 +274,7 @@ export function JevForm({
         if (!sorting || event.key !== "Escape") return;
         event.preventDefault();
         event.stopPropagation();
-        onCancel();
+        if (busy === null) onCancel();
       }}
       className="flex flex-col gap-3"
     >
@@ -272,7 +289,7 @@ export function JevForm({
           spellCheck={false}
           aria-invalid={key.stray ? true : undefined}
           aria-describedby={key.stray ? `${id}-stray` : undefined}
-          className={inputClass}
+          className={sorting ? `${inputClass} max-w-[26rem]` : inputClass}
         />
         {key.stray && <KeyCharacterLine id={`${id}-stray`} stray={key.stray} />}
         {current.hasApiKey && <span className={hintClass}>{t("providers.form.apiKeySaved")}</span>}
@@ -347,7 +364,12 @@ export function JevForm({
             {busy === "testing" ? t("providers.form.testing") : t("providers.form.test")}
           </button>
         )}
-        <button type="button" onClick={onCancel} className={ghostButtonClass}>
+        <button
+          type="button"
+          disabled={sorting !== undefined && busy !== null}
+          onClick={onCancel}
+          className={ghostButtonClass}
+        >
           {t("providers.settings.cancel")}
         </button>
       </div>

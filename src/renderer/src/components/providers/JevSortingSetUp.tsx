@@ -1,13 +1,9 @@
+import type { JevSettings } from "../../../../core/api";
+import { JEV_PRICING_URL, JEV_SERVICE } from "../../../../core/providers/jev";
 import { useT } from "../../i18n";
 import { hintClass } from "../ui";
 import { JevForm } from "./JevSettings";
 import { SortingLine } from "./SortingChoice";
-import { useJevSettings } from "./useJevSettings";
-
-export const JEV_NAME = "TypeSafe Jev";
-
-/** Where TypeSafe gives Jev's price, which the app links to and never states. */
-const JEV_PRICING_URL = "https://docs.typesafe.ai/models";
 
 /**
  * "Use TypeSafe Jev…" chosen in the sorting picker (#2615): what Jev is, then the one Jev key
@@ -15,18 +11,19 @@ const JEV_PRICING_URL = "https://docs.typesafe.ai/models";
  * sorts. `choosing`: the setup card's step, where choosing it turns tagging on, as its line says.
  */
 export function JevSortingSetUp({
+  jev,
   choosing,
   choose,
   onChosen,
   onCancel,
 }: {
+  jev: JevSettings;
   choosing: boolean;
   choose(): Promise<boolean>;
   onChosen(): void;
   onCancel(): void;
 }) {
   const t = useT();
-  const [jev] = useJevSettings();
   return (
     <div data-testid="jev-sorting-set-up" className="flex flex-col gap-2">
       <p data-testid="jev-sorting-line" className={`${hintClass} mt-0`}>
@@ -41,29 +38,27 @@ export function JevSortingSetUp({
           {t("providers.form.pricing")} ↗
         </a>
       </p>
-      {jev && (
-        <JevForm
-          current={jev}
-          sorting={{
-            consent: (service) => (
-              <SortingLine
-                option={{
-                  classifier: { kind: "jev" },
-                  label: JEV_NAME,
-                  provider: service,
-                  decisionModel: true,
-                }}
-                choosing={choosing}
-              />
-            ),
-            choose,
-          }}
-          onSaved={(_saved, chosen) => {
-            if (chosen) onChosen();
-          }}
-          onCancel={onCancel}
-        />
-      )}
+      <JevForm
+        current={jev}
+        sorting={{
+          consent: (service) => (
+            <SortingLine
+              option={{
+                classifier: { kind: "jev" },
+                label: JEV_SERVICE.name,
+                provider: service,
+                decisionModel: true,
+              }}
+              choosing={choosing}
+            />
+          ),
+          choose,
+        }}
+        onSaved={(_saved, chosen) => {
+          if (chosen) onChosen();
+        }}
+        onCancel={onCancel}
+      />
     </div>
   );
 }

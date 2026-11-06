@@ -150,6 +150,7 @@ export function useSorting() {
     read,
     library,
     jevSetUp: offersJevSetUp(jev, localMode),
+    jevSettings,
   };
 }
 
@@ -187,9 +188,10 @@ export function SortingSelect({
   const noPlaceholder = t("setup.sorting.noChoice");
   const field = useRef<HTMLSelectElement>(null);
   // It can't take the focus while it waits for the list, so it does once the list comes.
+  const settingUp = setUp?.open === true;
   useEffect(() => {
-    if (autoFocus && options.length > 0) field.current?.focus();
-  }, [autoFocus, options.length]);
+    if (autoFocus && options.length > 0 && !settingUp) field.current?.focus();
+  }, [autoFocus, options.length, settingUp]);
   return (
     <select
       ref={field}

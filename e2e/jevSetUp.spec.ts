@@ -120,7 +120,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const setUp = translate(language, "jev.settings.setUp");
 
         // The last row, after the choice that can run.
-        expect(await rowsOf(picker)).toEqual([chat, setUp]);
+        await expect(picker.locator("option")).toHaveText([chat, setUp]);
         await expect(picker.locator("option:checked")).toHaveText(chat);
 
         // Chosen, it opens the Jev key entry in place, with the field in hand, what Jev is, a
@@ -195,9 +195,12 @@ for (const language of ["en", "zh-CN"] as const) {
   }
 }
 
-for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › Models offers Jev until its key is saved, then lists it first (${language}) (#2615)`, async () => {
-    const { app, window } = await launch("en", 1440, 900);
+for (const [language, width, height] of [
+  ["en", 1440, 900],
+  ["zh-CN", 900, 800],
+] as const) {
+  test(`Settings › Models offers Jev until its key is saved, then lists it first (${language}, ${width} × ${height}) (#2615)`, async () => {
+    const { app, window } = await launch("en", width, height);
     try {
       await setLocalChatModel(window);
       // The button that opens Settings is named in English until the language is changed inside it.
@@ -208,6 +211,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const setUp = translate(language, "jev.settings.setUp");
       await expect(picker.locator("option").last()).toHaveText(setUp);
       const before = await rowsOf(picker);
+      expect(before.length).toBeGreaterThan(1);
       const chosen = await picker.locator("option:checked").textContent();
 
       await picker.selectOption({ label: setUp });
@@ -218,6 +222,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(form.getByTestId("models-sorting-line")).toContainText(
         translate(language, "setup.sorting.sendsWhenOn", { service: "TypeSafe Jev" }),
       );
+      expect(await fitsIn(form, settings)).toBe(true);
       expect(typeSafe.requests).toEqual([]);
 
       // Esc is Cancel: the choice is as it was.
