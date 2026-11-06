@@ -4,7 +4,14 @@ import { mindName } from "../../../../shared/naming";
 import { type ArrivingInMind, arrivingInMind } from "../../arrivingChanges";
 import { useArrivingAnswers, useAskedChanges } from "../../askedChanges";
 import { type ChangedMind, changedMinds } from "../../changedMinds";
-import { changeFact, inNoteText, keptText, leftText, ownWaiting } from "../../changeFacts";
+import {
+  changeFact,
+  inNoteText,
+  keptText,
+  leftText,
+  ownWaiting,
+  stillWaiting,
+} from "../../changeFacts";
 import { askInAssistant, useConversations } from "../../conversations";
 import { useT } from "../../i18n";
 import {
@@ -35,7 +42,8 @@ function factText(t: Translate, row: ChangedMind, name: string, waiting: Waiting
  * "2 Minds changed · Review", a row for each Mind ("Edited: Q3 review · 4
  * waiting") with Open, then Accept all · Reject all while changes wait. For
  * one Mind, its row is the card's head: "Changed 3 places in “Q3 review” · 3
- * waiting · Review". Review and Open show the Mind at its first change;
+ * waiting · Review", or Open while its changes there apply at once and nothing waits. Review and
+ * Open show the Mind at its first change;
  * Accept all and Reject all offer Undo on the Answer's line. Rejecting a Mind
  * the Answer made removes it.
  */
@@ -96,7 +104,7 @@ export function MindChangesCard({
     );
   }
   const counted = (index: number) => {
-    const count = waiting[index]?.count;
+    const count = stillWaiting(waiting[index]);
     return typeof count === "number" ? count : 0;
   };
   const total = rows.reduce((sum, _, index) => sum + counted(index), 0);
@@ -106,9 +114,13 @@ export function MindChangesCard({
     rows.length === 1 && only
       ? factText(t, only, nameOf(only), waiting[0]?.count ?? null)
       : t("mindChanges.minds", { count: rows.length });
-  const headLeft = rows.length === 1 && only ? leftText(t, only, waiting[0]?.count ?? null) : null;
+  const headLeft = rows.length === 1 && only ? leftText(t, only, stillWaiting(waiting[0])) : null;
   const headKept = rows.length === 1 && only ? keptText(t, only) : null;
   const headInNote = rows.length === 1 ? inNoteText(t, noteTotal, ownWaiting(waiting[0])) : null;
+  // Its changes apply at once, so none waits: Open reaches the write until Review changes comes
+  // when the Answer ends, as one Undo for the turn (#1358).
+  const openWritten =
+    !first && !headInNote && only !== undefined && (waiting[0]?.applying ?? 0) > 0;
 
   return (
     <section
@@ -173,6 +185,22 @@ export function MindChangesCard({
                 </button>
               </>
             )}
+            {openWritten && only && (
+              <>
+                <span aria-hidden="true" className="mind-changes-dot">
+                  {" · "}
+                </span>
+                <button
+                  type="button"
+                  data-testid="mind-changes-open"
+                  aria-label={`${t("mindChanges.open")} ${nameOf(only)}`}
+                  onClick={() => showChanges(only)}
+                  className="mind-changes-review"
+                >
+                  {t("mindChanges.open")}
+                </button>
+              </>
+            )}
           </p>
           {rows.length === 1 && only && (
             <AppliedLine
@@ -200,7 +228,7 @@ export function MindChangesCard({
                 });
           const kept = keptText(t, row);
           const fact = [factText(t, row, name, count), kept].filter(Boolean).join(" ");
-          const left = leftText(t, row, count);
+          const left = leftText(t, row, stillWaiting(waiting[index]));
           return (
             <div
               key={row.mindId}
