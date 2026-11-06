@@ -48,7 +48,10 @@ function markerOf(state: EditorState): number | null {
 export function openAnalysisTableCard(editor: Editor): boolean {
   const at = markerOf(editor.state);
   const marker = at === null ? null : editor.view.nodeDOM(at);
-  const button = marker instanceof HTMLElement ? marker.querySelector("button") : null;
+  const button =
+    marker instanceof HTMLElement
+      ? marker.querySelector<HTMLButtonElement>("button.citation-marker")
+      : null;
   button?.click();
   return button !== null;
 }

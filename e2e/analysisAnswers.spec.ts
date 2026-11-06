@@ -367,7 +367,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, window.getByTestId("error-notice-dismiss"));
 
       // Its card says how each column was worked out, in the figure card's words.
-      await pointAndClick(window, marker.locator("button"));
+      await pointAndClick(window, marker.getByTestId("analysis-table-marker-open"));
       const card = window.locator(".calculated-figure-card");
       await expect(card).toBeVisible();
       await expect(card.getByTestId("analysis-table-column")).toHaveText([
@@ -381,7 +381,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await window.screenshot({ path: join(evidence, `${language}-note-table-wide.png`) });
         await window.keyboard.press("Escape");
         await setWindowSize(app, window, 900, 660);
-        await pointAndClick(window, marker.locator("button"));
+        await pointAndClick(window, marker.getByTestId("analysis-table-marker-open"));
         await expect(card).toHaveCSS("opacity", "1");
         await window.screenshot({ path: join(evidence, `${language}-note-table-narrow.png`) });
         await setWindowSize(app, window, 1200, 660);
@@ -405,7 +405,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const editor = window.getByTestId("mind-editor");
       const marker = editor.getByTestId("analysis-table-marker");
       await expect(marker).toHaveCount(1);
-      await pointAndClick(window, marker.locator("button"));
+      await pointAndClick(window, marker.getByTestId("analysis-table-marker-open"));
       const card = window.locator(".calculated-figure-card");
       await expect(card).toBeVisible();
       await expect(card.getByTestId("analysis-table-column")).toHaveText(

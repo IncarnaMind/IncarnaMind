@@ -148,6 +148,7 @@ export function AnalysisTableView({
         ref={marker}
         type="button"
         className="citation-marker"
+        data-testid="analysis-table-marker-open"
         aria-label={label}
         aria-expanded={open}
         onPointerEnter={() => hold("marker", true)}
