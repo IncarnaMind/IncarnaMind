@@ -24,6 +24,7 @@ import type { ChatProviderKind, ConversationAnswer, Core } from "../../src/core"
 import { GENERATED_MARK } from "../../src/core/api";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
+import { requestedRequests, whyItWaits } from "../../src/shared/askedChanges";
 import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
@@ -246,7 +247,18 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
           .filter((followUp) => !only || only.some((words) => followUp.ask.includes(words)))
           .flatMap((followUp) => Array.from({ length: runs }, () => ({ each, followUp }))),
       );
-      const tally = new Map<FollowUp, { made: number; flagged: number; denied: number }>();
+      const tally = new Map<
+        FollowUp,
+        {
+          made: number;
+          flagged: number;
+          denied: number;
+          removing: number;
+          clean: number;
+          held: number;
+          notCleanHeld: number;
+        }
+      >();
       const kept: string[] = [];
       let next = 0;
       const one = async () => {
@@ -280,6 +292,25 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
               const before = textsOf();
               judged.getStore()?.record.splice(0);
               const second = await ask(core, followUp.ask, mind.id, conversationId);
+              await client.settled();
+              const edits = second.answer.toolCalls.filter(
+                (call) => call.tool === "edit_mind" && call.mindChange?.mindId === mind.id,
+              );
+              const removes = edits.map((call) => call.input.removes_only ?? "absent");
+              const sentences = edits.at(-1)?.mindChange?.sentences ?? null;
+              const requested = requestedRequests(
+                client.doc,
+                new Set(
+                  edits.flatMap((call) => (call.mindChange ? [call.mindChange.request] : [])),
+                ),
+              );
+              const held = requested.size === 0 ? null : whyItWaits(client.doc, requested);
+              const clean =
+                sentences !== null &&
+                sentences.takenOut === 1 &&
+                sentences.shortened === 0 &&
+                sentences.rewritten === 0 &&
+                sentences.written === 0;
               await apply(core, second.answer, mind.id);
               await client.settled();
               const after = textsOf();
@@ -291,15 +322,27 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
               }
               const flagged = (second.answer.steps?.unbackedClaims ?? []).length > 0;
               const denied = DENIES.test(second.answer.text);
-              const counts = tally.get(followUp) ?? { made: 0, flagged: 0, denied: 0 };
+              const counts = tally.get(followUp) ?? {
+                made: 0,
+                flagged: 0,
+                denied: 0,
+                removing: 0,
+                clean: 0,
+                held: 0,
+                notCleanHeld: 0,
+              };
               if (made) counts.made++;
               if (made && flagged) counts.flagged++;
               if (made && denied) counts.denied++;
+              if (removes.some((value) => value === true)) counts.removing++;
+              if (clean) counts.clean++;
+              if (held !== null) counts.held++;
+              if (held !== null && !clean) counts.notCleanHeld++;
               tally.set(followUp, counts);
               if (process.env.INCARNAMIND_LIVE_REPORT) {
                 await appendFile(
                   process.env.INCARNAMIND_LIVE_REPORT,
-                  `run ${each.language} “${followUp.ask}”: made ${made}, status says not all done ${flagged}, reply says waits or not made ${denied}: ${JSON.stringify(second.answer.text).slice(0, 300)}\n`,
+                  `run ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, status says not all done ${flagged}, reply says waits or not made ${denied}, removes_only ${JSON.stringify(removes)}, sentences ${JSON.stringify(sentences)}, held ${held?.why ?? "no"}: ${JSON.stringify(second.answer.text).slice(0, 300)}\n`,
                 );
               }
               if (made && (flagged || denied)) {
@@ -321,20 +364,34 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
       let made = 0;
       let flagged = 0;
       let denied = 0;
+      let removing = 0;
+      let clean = 0;
+      let held = 0;
       for (const each of LANGUAGES) {
         for (const followUp of each.followUps) {
           if (!jobs.some((job) => job.followUp === followUp)) continue;
-          const counts = tally.get(followUp) ?? { made: 0, flagged: 0, denied: 0 };
+          const counts = tally.get(followUp) ?? {
+            made: 0,
+            flagged: 0,
+            denied: 0,
+            removing: 0,
+            clean: 0,
+            held: 0,
+            notCleanHeld: 0,
+          };
           made += counts.made;
           flagged += counts.flagged;
           denied += counts.denied;
+          removing += counts.removing;
+          clean += counts.clean;
+          held += counts.held;
           report.push(
-            `  ${each.language} “${followUp.ask}”: made ${counts.made}/${runs}; of those, status says not all done ${counts.flagged}, reply says waits or not made ${counts.denied}`,
+            `  ${each.language} “${followUp.ask}”: made ${counts.made}/${runs}; removes_only true ${counts.removing}/${runs}; one sentence out and nothing else changed ${counts.clean}/${runs}; held ${counts.held}, not clean and held ${counts.notCleanHeld}; of those made, status says not all done ${counts.flagged}, reply says waits or not made ${counts.denied}`,
           );
         }
       }
       report.push(
-        `  all: made ${made}/${jobs.length}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; questions asked and answered ${questions}; Answers that never ended ${unended}`,
+        `  all: made ${made}/${jobs.length}; removes_only true ${removing}; one sentence out and nothing else changed ${clean}; held ${held}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; questions asked and answered ${questions}; Answers that never ended ${unended}`,
         ...spentBy(dataDir),
         ...kept,
       );
