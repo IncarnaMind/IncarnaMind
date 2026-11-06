@@ -2127,65 +2127,82 @@ function onlyNumbersDiffer(segment: Segment, paragraph: NewParagraph): boolean {
   return old.join("\n") !== now.join("\n") && rest(old) === rest(now);
 }
 
-/**
- * Words and signs as one reading compares them, each character with where it is: any case, unless
- * `asWritten`, and no spaces but one between two letters or digits they part, as they part "now
- * here" from "nowhere" (#2589). Beside a Chinese character a space parts nothing, so "使用 Excel"
- * reads as "使用Excel".
- */
-function readChars(
-  characters: Iterable<{ char: string; at: number }>,
-  asWritten = false,
-): {
+/** How a text reads to compare it with another: each character, where it starts and where it ends. */
+interface Reading {
   chars: string;
   at: number[];
-} {
-  let chars = "";
-  const at: number[] = [];
-  let last: { char: string; at: number } | null = null;
-  for (const each of characters) {
-    if (/\s/.test(each.char)) continue;
-    if (last && each.at - last.at > 1 && partsWords(last.char, each.char)) {
-      chars += " ";
-      at.push(last.at + 1);
-    }
-    const lower = asWritten ? each.char : each.char.toLowerCase();
-    chars += lower;
-    for (let unit = 0; unit < lower.length; unit++) at.push(each.at);
-    last = each;
-  }
-  return { chars, at };
+  ends: number[];
 }
 
-/** Each UTF-16 unit of a text, with where it is: positions in a Block count units. */
-const unitsOf = (text: string, from: number) =>
-  Array.from({ length: text.length }, (_, index) => ({
-    char: text[index] as string,
-    at: from + index,
-  }));
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
+ * Words and signs as one reading compares them: any case, unless `asWritten`; each character as
+ * Unicode composes it, so "résumé" typed either way reads the same; and no spaces but one where
+ * a real space parts two letters or digits, as it parts "now here" from "nowhere" (#2589). Beside
+ * a Chinese character a space parts nothing, so "使用 Excel" reads as "使用Excel", and an inline
+ * node (a Citation, a formula, a line break) parts nothing either: it is no space. Each character
+ * of the reading keeps where its character starts and ends in the text, in UTF-16 units.
+ */
+function readChars(characters: Iterable<{ char: string; at: number }>, asWritten = false): Reading {
+  const read: Reading = { chars: "", at: [], ends: [] };
+  let last: string | null = null;
+  let spaced: number | null = null;
+  for (const each of characters) {
+    if (/^\s+$/u.test(each.char)) {
+      spaced ??= each.at;
+      continue;
+    }
+    if (last !== null && spaced !== null && partsWords(last, each.char)) {
+      read.chars += " ";
+      read.at.push(spaced);
+      read.ends.push(spaced + 1);
+    }
+    spaced = null;
+    const char = (asWritten ? each.char : each.char.toLowerCase()).normalize("NFC");
+    read.chars += char;
+    for (let unit = 0; unit < char.length; unit++) {
+      read.at.push(each.at);
+      read.ends.push(each.at + each.char.length);
+    }
+    last = each.char;
+  }
+  return read;
+}
+
+/** Each character of a text as one sees it, with where it starts: positions in a Block count UTF-16 units. */
+const graphemesOf = (text: string, from: number) =>
+  [...GRAPHEMES.segment(text)].map(({ segment, index }) => ({ char: segment, at: from + index }));
 
 /** A paragraph's words and signs as `readChars` reads them, each character where it is in its Block. */
-function charsOf(tokens: readonly OldToken[], asWritten = false): { chars: string; at: number[] } {
+function charsOf(tokens: readonly OldToken[], asWritten = false): Reading {
   return readChars(
-    tokens.flatMap((token) => (token.text === undefined ? [] : unitsOf(token.text, token.from))),
+    tokens.flatMap((token) =>
+      token.text === undefined ? [] : graphemesOf(token.text, token.from),
+    ),
     asWritten,
   );
 }
 
 /** New text's words and signs as `charsOf` reads a paragraph's, each character where it is in that text. */
-function newCharsOf(
-  tokens: readonly NewToken[],
-  asWritten = false,
-): { chars: string; at: number[] } {
-  return readChars(unitsOf(tokens.map((token) => token.text ?? "").join(""), 0), asWritten);
+function newCharsOf(tokens: readonly NewToken[], asWritten = false): Reading {
+  return readChars(graphemesOf(tokens.map((token) => token.text ?? "").join(""), 0), asWritten);
 }
 
-/** A letter or digit of a word that runs on without spaces, unlike a Chinese character. */
-const IN_WORD = /^[\p{L}\p{N}]$/u;
+/** A Chinese character: words run on without spaces there. */
 const HAN_CHAR = /^\p{Script=Han}$/u;
-/** Two characters a space between parts into two words: letters or digits, neither of them Chinese. */
+/** A character that starts with a letter or a digit, its marks with it: one of a word's. */
+const WORD_START = /^[\p{L}\p{N}]/u;
+const HAN_START = /^\p{Script=Han}/u;
+/** Two characters a space between parts into two words: of words, neither of them Chinese. */
 const partsWords = (a: string, b: string) =>
-  IN_WORD.test(a) && IN_WORD.test(b) && !HAN_CHAR.test(a) && !HAN_CHAR.test(b);
+  WORD_START.test(a) && WORD_START.test(b) && !HAN_START.test(a) && !HAN_START.test(b);
+/** The character of a reading at `index`, whole where it takes two UTF-16 units. */
+const charOf = (chars: string, index: number) => {
+  const unit = chars.charCodeAt(index);
+  const start = unit >= 0xdc00 && unit <= 0xdfff && index > 0 ? index - 1 : index;
+  return String.fromCodePoint(chars.codePointAt(start) ?? 0x20);
+};
 /** A sentence or clause mark, a closing bracket or quote: it closes onto the word before it. */
 const CLOSING = /^[.,;:!?…)\]}»”’"'。，、；：！？）】》」』]$/u;
 /** An opening bracket or quote: the word after it starts there. */
@@ -2197,10 +2214,7 @@ const CELLS: ReadonlySet<string> = new Set(["tableCell", "tableHeader"]);
  * Where a quote's words are in a paragraph, as characters of `charsOf` (#2180): the one place
  * they are, word for word and never cutting a word; null when they are nowhere, or in more than one place.
  */
-function placeQuote(
-  paragraph: { chars: string; at: number[] },
-  quote: string,
-): { first: number; end: number } | null {
+function placeQuote(paragraph: Reading, quote: string): { first: number; end: number } | null {
   const places = placesOf(paragraph, quote);
   const [only] = places;
   return places.length === 1 && only !== undefined
@@ -2209,7 +2223,7 @@ function placeQuote(
 }
 
 /** Every place a quote's words are in a paragraph, word for word, never cutting a word: "draft" isn't in "drafts". */
-function placesOf(paragraph: { chars: string; at: number[] }, quote: string): number[] {
+function placesOf(paragraph: Reading, quote: string): number[] {
   if (quote === "") return [];
   const places: number[] = [];
   for (
@@ -2219,11 +2233,10 @@ function placesOf(paragraph: { chars: string; at: number[] }, quote: string): nu
   ) {
     const end = at + quote.length;
     const runsOn = (inside: number, outside: number) => {
-      const a = paragraph.chars[inside] ?? "";
-      const b = paragraph.chars[outside] ?? "";
-      const touching = Math.abs((paragraph.at[inside] ?? 0) - (paragraph.at[outside] ?? 0)) === 1;
+      const [before, after] = inside < outside ? [inside, outside] : [outside, inside];
       return (
-        touching && IN_WORD.test(a) && IN_WORD.test(b) && !HAN_CHAR.test(a) && !HAN_CHAR.test(b)
+        paragraph.ends[before] === paragraph.at[after] &&
+        partsWords(charOf(paragraph.chars, inside), charOf(paragraph.chars, outside))
       );
     };
     if (at > 0 && runsOn(at, at - 1)) continue;
@@ -2674,7 +2687,7 @@ export function createRewriteStream(
   /** Paragraphs added anew: a left-out paragraph much like one of them was moved there. */
   const addedAnew: NewParagraph[] = [];
   /** The selection's paragraphs the text wrote over or moved, each with its new words as a quote is compared. */
-  const writtenOver = new Map<Segment, { chars: string; at: number[] }>();
+  const writtenOver = new Map<Segment, Reading>();
 
   const pairWith = (paragraph: NewParagraph, index: number) => {
     const segment = segments[index];
@@ -3025,7 +3038,7 @@ export function createRewriteStream(
     }
     const read = new Map(segments.map((segment) => [segment, charsOf(segment.tokens)] as const));
     const stretches = new Map<Segment, { first: number; end: number; quote: string }[]>();
-    const none = { chars: "", at: [] };
+    const none: Reading = { chars: "", at: [], ends: [] };
     for (const quote of quotes) {
       const holds = (segment: Segment) =>
         placesOf(read.get(segment) ?? none, quote.chars).length > 0;
@@ -3058,7 +3071,7 @@ export function createRewriteStream(
     }
     const whole: Segment[] = [];
     for (const [segment, places] of stretches) {
-      const { chars, at } = read.get(segment) ?? { chars: "", at: [] };
+      const { chars, at, ends } = read.get(segment) ?? { chars: "", at: [], ends: [] };
       const taken = new Array<boolean>(chars.length).fill(false);
       for (const { first, end } of places) taken.fill(true, first, end);
       // The space between two quoted stretches goes with them: they are one stretch, as a quote
@@ -3074,7 +3087,7 @@ export function createRewriteStream(
         let end = first;
         while (taken[end]) end++;
         const from = at[first] ?? segment.start;
-        const part = partOf(segment, from, (at[end - 1] ?? from) + 1);
+        const part = partOf(segment, from, ends[end - 1] ?? from + 1);
         if (part) {
           removePart(segment, part);
           quotedOutOf.add(segment);
