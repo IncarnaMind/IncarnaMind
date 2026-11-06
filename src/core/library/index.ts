@@ -498,7 +498,8 @@ export function createLibrary(options: {
     /** The failure the continuation leaves in place if Organize's destination no longer matches. */
     failure: { status: "failed" | "waiting"; error: ProviderError | null } | null;
   }
-  const OWN_REQUEST: AskedRequest = { service: null, failure: null };
+  /** A new request's own object: an attempt may act only while `asked` still holds it. */
+  const ownRequest = (): AskedRequest => ({ service: null, failure: null });
   const asked = new Map<string, AskedRequest>();
   const checkClassifier = (selected: Record<string, unknown>) => {
     if (selected.kind === "chat") {
@@ -987,6 +988,7 @@ export function createLibrary(options: {
     background.add({
       kind: "classification",
       async run(call) {
+        const requestAtStart = asked.get(id);
         try {
           await classifyOne(id, { signal: call.signal, runsLocally: () => call.runsLocally() });
         } finally {
@@ -997,7 +999,7 @@ export function createLibrary(options: {
               const status = assignment(id)?.status;
               // Waiting to be allowed, it is still the User's request when it goes.
               if (status === "pending") enqueue(id);
-              else if (status !== "waiting") asked.delete(id);
+              else if (status !== "waiting" && asked.get(id) === requestAtStart) asked.delete(id);
             }
           }
         }
@@ -1024,11 +1026,12 @@ export function createLibrary(options: {
   ): Promise<void> {
     const initial = assignment(id);
     const request = asked.get(id);
+    const abandoned = () => asked.get(id) !== request;
     const binding = request?.service ?? null;
     const destinationChanged = () =>
       binding !== null && options.organizeService(getSettings())?.id !== binding;
     const stopForDestination = () => {
-      if (binding === null) return;
+      if (binding === null || abandoned()) return;
       asked.delete(id);
       state(id, request?.failure?.status ?? "failed", request?.failure?.error ?? undefined);
     };
@@ -1067,6 +1070,7 @@ export function createLibrary(options: {
         state(id, "waiting", refusal);
         return;
       }
+      if (abandoned()) return;
       if (destinationChanged()) {
         stopForDestination();
         return;
@@ -1076,6 +1080,7 @@ export function createLibrary(options: {
       const classifier = await options.prepare(settingsNow, call.permit);
       if (classifier.local) call.runsLocally();
       if (stale()) return;
+      if (abandoned()) return;
       // Checked on where this request goes, as prepared; the User's own Organize goes.
       const service = options.organizeService(settingsNow);
       if (destinationChanged()) {
@@ -1098,6 +1103,7 @@ export function createLibrary(options: {
         ? await options.pageImages(id, current.content_hash ?? "", signal)
         : [];
       if (stale()) return;
+      if (abandoned()) return;
       if (destinationChanged()) {
         stopForDestination();
         return;
@@ -1110,6 +1116,7 @@ export function createLibrary(options: {
         images,
       );
       if (stale()) return;
+      if (abandoned()) return;
       options.rateLimit.succeeded();
       const latest = document(id);
       if (!hasContent(latest) || latest.content_hash !== current.content_hash) {
@@ -1139,9 +1146,13 @@ export function createLibrary(options: {
         );
         const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
         tagState(id, "classified");
-        const bound = asked.get(id)?.service ?? null;
-        // A clearance goes only to the service the request was authorized for (#2535).
-        if (asked.has(id) && (bound === null || services.some((each) => each.id === bound))) {
+        const current = asked.get(id);
+        // A clearance goes only to the service this attempt's own request was authorized for.
+        if (
+          current !== undefined &&
+          current === request &&
+          (current.service === null || services.some((each) => each.id === current.service))
+        ) {
           clearForService(db, id, services, now());
         }
         return applied;
@@ -1187,7 +1198,7 @@ export function createLibrary(options: {
     for (const doc of docs) {
       if (forService === undefined) {
         // A new request of the User's own replaces a continuation it supersedes for these Documents.
-        asked.set(doc.id, OWN_REQUEST);
+        asked.set(doc.id, ownRequest());
       } else {
         const existing = assignment(doc.id);
         asked.set(doc.id, {
@@ -1416,7 +1427,7 @@ export function createLibrary(options: {
         )
         .map((row) => row.id)
         .filter((id) => places.includes(placeOf(id)));
-      for (const id of ids) asked.set(id, OWN_REQUEST);
+      for (const id of ids) asked.set(id, ownRequest());
       db.transaction(() => {
         for (const id of ids) {
           const existing = assignment(id);

@@ -136,7 +136,7 @@ const clearedFor = (dataDir: string, id: string) =>
 
 describe("a billing continuation's destination (#2535)", () => {
   test("while Organize sends to B, a continuation for A sends nothing and clears nothing for B", async () => {
-    const { core, dataDir, openai, choose, currentService, add, sent } = await start();
+    const { core, dataDir, openai, choose, currentService, add, sent, namedSent } = await start();
     const serviceA = await currentService();
     const credit = await add("Credit report.txt", "The account is out of credit.");
     await failedFirst(core, credit.id);
@@ -151,6 +151,13 @@ describe("a billing continuation's destination (#2535)", () => {
     expect(clearedFor(dataDir, credit.id)).toEqual([serviceA]);
     expect(clearedFor(dataDir, credit.id)).not.toContain(serviceB);
     expect((await assignmentOf(core, credit.id))?.status).toBe("failed");
+
+    // A new explicit Organize of the same Document on B is the User's own request, and goes.
+    await core.classifyDocuments([credit.id]);
+    await vi.waitFor(async () => {
+      expect((await assignmentOf(core, credit.id))?.status).toBe("classified");
+    });
+    expect(namedSent("openai", "Credit report")).toBe(1);
   });
 
   test("the unchanged service still retries the Document once", async () => {
