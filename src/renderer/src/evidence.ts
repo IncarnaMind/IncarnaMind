@@ -48,8 +48,7 @@ async function choose(
   const ids = documents.map((document) => document.id);
   for (const id of ids) await choice.set(id, on);
   const [only] = documents;
-  const name =
-    ids.length === 1 ? (onlyName ?? (only ? displayName(only) : null)) : null;
+  const name = ids.length === 1 ? (onlyName ?? (only ? displayName(only) : null)) : null;
   const state = on ? "on" : "off";
   const undoable: Undoable = {
     said: (t) =>
