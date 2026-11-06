@@ -599,9 +599,12 @@ const STILL_PROCESSING: ReadonlySet<DocumentStatus> = new Set([
   "embedding",
 ]);
 
-/** The events that change what a check reads of the Library at run time: its Documents, names, Folders, Tags and search. */
+/**
+ * The events that change what a check reads of the Library at run time: its Documents, names,
+ * Folders and Tags. A Document counts once it is read (or can't be), not at each step of reading,
+ * and a model's own status (loading, downloading) changes nothing a search finds.
+ */
 const LIBRARY_EVENTS: ReadonlySet<CoreEventName> = new Set<CoreEventName>([
-  "document.status",
   "documents.renamed",
   "documents.removed",
   "documents.moved",
@@ -612,8 +615,11 @@ const LIBRARY_EVENTS: ReadonlySet<CoreEventName> = new Set<CoreEventName>([
   "folders.changed",
   "tags.changed",
   "settings.changed",
-  "embedding.changed",
-  "rerank.changed",
+]);
+const READ_STATES: ReadonlySet<DocumentStatus> = new Set<DocumentStatus>([
+  "ready",
+  "failed",
+  "no-text",
 ]);
 
 export function createCore(adapters: CoreAdapters): Core {
@@ -650,6 +656,9 @@ export function createCore(adapters: CoreAdapters): Core {
   let libraryRevision = 0;
   events.onAny((event) => {
     if (LIBRARY_EVENTS.has(event)) libraryRevision++;
+  });
+  events.on("document.status", (document) => {
+    if (READ_STATES.has(document.status)) libraryRevision++;
   });
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.

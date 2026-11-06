@@ -1766,6 +1766,22 @@ describe("Check this note starts each sentence's check once its claims are named
     expect(shown.find((each) => each.sentence === MOON)?.shown.state).toBe("supported");
   });
 
+  // protects=a check started early is kept when only a model's own status changes meanwhile (the reranking model loading, as it does at a session's first search), which changes nothing a search finds (#2532); fails_when=a model's status counts as a Library change and the early check is sent again; no_claim=a change of the reranker the User chooses.
+  test("a check started early is kept when the reranking model's status changes before the claims are named", async () => {
+    const { core, mindId, sort, runsOf } = await noteOfTwo("held");
+    const statuses: string[] = [];
+    core.on("rerank.changed", (settings) => statuses.push(settings.model.state));
+
+    const checking = core.checkMind(request(mindId, "all"));
+    await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
+    await core.downloadRerankingModel();
+    expect(statuses.length).toBeGreaterThan(0);
+    sort.release();
+
+    expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
+    expect(runsOf(MOON)).toHaveLength(1);
+  });
+
   // protects=a record cite's check started early is stopped and sent again when the Note changed elsewhere while the claims were named, since its `Id.`, `supra` and source choices read the Note's other paragraphs and settings; a sentence with no record cite is kept (#2532); fails_when=an edit elsewhere in the Note leaves a record cite's early check taken, or stops one with no record cite; no_claim=what the record cite resolves to.
   test.each([
     ["a sentence with a record cite", "Spring tides come at new moon (Tide Dep. 4:1–2).", 2],
