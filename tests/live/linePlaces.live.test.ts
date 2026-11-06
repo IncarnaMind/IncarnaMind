@@ -8,8 +8,11 @@
  * INCARNAMIND_LIVE_RUNS sets how many times each request runs on each path (2 by default),
  * INCARNAMIND_LIVE_CONCURRENCY how many run at once (4), INCARNAMIND_LIVE_ARM names the code under
  * test in the report; INCARNAMIND_LIVE_REPORT names the file the rows go to, one JSON object a line.
+ * INCARNAMIND_LIVE_ONLY runs only the requests it names ("en-14,zh-14"). Each row keeps the
+ * rewriting model's replies, to read why a line went.
  */
 import { appendFile } from "node:fs/promises";
+import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer, Core } from "../../src/core";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -69,7 +72,8 @@ describe("The place rules keep the User's lines and make the edits asked, live: 
     async () => {
       const runs = Number(process.env.INCARNAMIND_LIVE_RUNS ?? 2);
       const arm = process.env.INCARNAMIND_LIVE_ARM ?? "unnamed";
-      const jobs = PLACE_CASES.flatMap((each) =>
+      const only = process.env.INCARNAMIND_LIVE_ONLY?.split(",");
+      const jobs = PLACE_CASES.filter((each) => !only || only.includes(each.id)).flatMap((each) =>
         (["editWithAi", "assistant"] as const).flatMap((path) =>
           Array.from({ length: runs }, (_, index) => ({ each, path, run: index + 1 })),
         ),
@@ -79,7 +83,31 @@ describe("The place rules keep the User's lines and make the edits asked, live: 
       let next = 0;
       const worker = async () => {
         const dataDir = await createTempDataFolder();
-        const core = startCore(dataDir, { createChatModel: createAiSdkChatModel });
+        let replies: string[] = [];
+        const core = startCore(dataDir, {
+          createChatModel: (spec) =>
+            wrapLanguageModel({
+              model: createAiSdkChatModel(spec),
+              middleware: {
+                specificationVersion: "v4",
+                wrapStream: async ({ doStream, params }) => {
+                  const result = await doStream();
+                  if (!JSON.stringify(params.prompt).includes("<passage>")) return result;
+                  let text = "";
+                  const stream = result.stream.pipeThrough(
+                    new TransformStream({
+                      transform(part, controller) {
+                        if (part.type === "text-delta") text += part.delta;
+                        if (part.type === "finish") replies.push(text);
+                        controller.enqueue(part);
+                      },
+                    }),
+                  );
+                  return { ...result, stream };
+                },
+              },
+            }),
+        });
         core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
         core.on(
           "approval.requested",
@@ -88,6 +116,7 @@ describe("The place rules keep the User's lines and make the edits asked, live: 
         await core.saveChatProvider({ kind: "deepseek", apiKey: API_KEY, modelId: MODEL });
         while (next < jobs.length) {
           const { each, path, run } = jobs[next++] as { each: PlaceCase; path: Path; run: number };
+          replies = [];
           const row: Record<string, unknown> = {
             arm,
             id: each.id,
@@ -117,6 +146,7 @@ describe("The place rules keep the User's lines and make the edits asked, live: 
             const after = shownWithChanges(client);
             row.after = after;
             Object.assign(row, outcome(each, after));
+            row.rewrites = replies;
           } catch (error) {
             row.error = String(error);
           }
