@@ -23,9 +23,10 @@ is unchanged: found still means exact marks.
   the assistant does. One is a fail: the model stays off the list.
 - **Same claim: every accepted splice,** judged blind by a reviewer who is not the author, from the
   blind file below. One changed claim is a fail.
-- **The ask fires on Answers with no nested marks: 0** of the 20 `plain` cases, and 0 on the 39
-  saved DeepSeek Answers of #2504's live run, counted offline. One fire is reported with its text;
-  more than one is a fail.
+- **The ask fires on Answers with no nested marks: 0** of the 20 `plain` cases. On the 39 saved
+  DeepSeek Answers of #2504's live run, counted offline, every fire is reported with its text: one
+  on a quotation whose marks aren't nested in the other kind is a fail. Those Answers were asked
+  to quote nested marks, so a fire on a nested quotation there is expected.
 - **Added wait: p95 at most 5 s** over the Answers whose ask fired: the ask's own time, as the
   Answer reports it (`exactMarks.durationMs`), since the Answer waits for nothing else. Over it is
   a fail.
