@@ -100,3 +100,19 @@ The write, Verify and the background watch keep six: the write's failing cell in
 A check of the head (a9bc9b0bc, twelve, against 7cb76c42a, six; Claude Haiku 5.5, three runs per arm) gave not checked 2 → 7, past the bar's 6, where gate B gave 7 → 1. In its saved records none of the 7, and not gate B's 1, has a failed request, a stopped or restarted check, or a second look at the judge's reply: each check ran its requests to the end and gave Not checked itself. The records keep what a mark shows, not why, so the report now gives a Not checked mark's reason, and the head's two arms are run once more, alternating as above, to name each.
 
 **Rule:** if every Not checked is the model's own reply (malformed, empty or no evidence), and they fall on both arms in about the same number, that is the model's behaviour, not twelve's: twelve ships, with the pooled count on each arm (Haiku, gates B and the head: 8 of 240 on six, 8 of 240 on twelve) and the reasons in a dated note. If one reason shows up only at twelve, twelve waits.
+
+## Result of the head's rerun, 2026-11-06: Not checked is the model's own reply on both arms; Check this Note stays at six
+
+The runs were made at a9bc9b0bc (twelve) against 7cb76c42a (six), on Claude Haiku 5.5 with a direct Anthropic key, three runs per arm, alternating as above, with the 15-minute load at 12.1 to 12.5. The report now gives each Not checked mark's reason; both arms ran with that change to the report alone. The runs spent $0.43.
+
+| Arm | Not checked | Malformed reply | No evidence | Failed requests |
+|---|--:|---|---|--:|
+| Six | 4 of 120 | timing en 8, timing en 10 | mixed en 8, mixed en 10 | 0 |
+| Twelve | 4 of 120 | mixed en 10, mixed zh-CN 1, mixed zh-CN 3 | mixed en 10 | 0 |
+
+- **Not checked is cleared by the rule above.** Every one is the model's own reply, both reasons fall on both arms, and the count is the same. The rule's pooled count was misread when it was written. Over gate B and the head's two checks it is 9 of 240 on six and 8 of 240 on twelve; with this rerun, 13 of 360 and 12 of 360.
+- **Verdicts:** judged right 116 → 115 of 120. False Supported 0 → 1: Chinese sentence 3 on the mixed Library, in twelve's first run. `main` Supported that sentence in 2 of gate A's 3 runs; six did in none of its 12 runs, twelve in 1 of its 9.
+- **First verdict:** on the timing Library 6.0 → 4.9 s (en) and 4.7 → 5.0 s (zh-CN). On the mixed Library it came later at twelve: 6.2 → 9.7 s (en) and 7.2 → 8.0 s (zh-CN), with a rerank's median at 1.6 → 4.2 s and 1.0 → 4.4 s. In Chinese on the mixed Library twelve came later in all three comparisons: 0.4 s in gate B, 0.9 s at the head, 0.8 s here.
+- **The end:** 14.7 → 8.9, 11.5 → 7.9, 17.0 → 16.0 and 14.3 → 14.4 s.
+
+**Decision, 2026-11-06:** Check this Note stays at six, with steps 1 and 2. Twelve's end comes sooner, but the User sees the first verdict, and on a Library of real size twelve makes it later, because every search waits for the one reranker. A false Supported is no reason to hold it: `main` Supports that sentence too. What could bring twelve back is a staggered start, with the first sentence's searches scored first, or more rerank throughput. Twelve goes back to #2532.
