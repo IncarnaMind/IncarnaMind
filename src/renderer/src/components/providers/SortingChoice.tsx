@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
@@ -46,8 +46,9 @@ export function useSorting() {
   const jev = jevStateOf(jevSettings);
   const library = useAppStore((state) => state.library);
   const saved = library?.settings.classifier ?? null;
-  // Jev set up in place, then chosen, is in the list and is where the saved choice goes (#2615).
-  const read = useSortingModels([jev?.ready, JSON.stringify(saved)]);
+  // Read again only when asked: a read more as the step opens would overtake the one it shows.
+  const [rereads, setRereads] = useState(0);
+  const read = useSortingModels([rereads]);
   const models = read.state === "ready" ? read.data : null;
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -151,6 +152,8 @@ export function useSorting() {
     library,
     jevSetUp: offersJevSetUp(jev, localMode),
     jevSettings,
+    /** Reads the list again, once Jev is set up in place and chosen (#2615). */
+    reread: () => setRereads((count) => count + 1),
   };
 }
 

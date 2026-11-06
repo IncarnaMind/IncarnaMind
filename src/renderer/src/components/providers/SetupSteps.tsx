@@ -266,7 +266,8 @@ function TranscriptionStep({ onDone }: { onDone(choice: string): void }) {
 /** What sorts Tags and Folders and names meeting hints, the best the keys reach picked first. */
 function SortingStep({ onDone }: { onDone(choice: string): void }) {
   const t = useT();
-  const { options, current, choose, known, loading, read, jevSetUp, jevSettings } = useSorting();
+  const { options, current, choose, known, loading, read, jevSetUp, jevSettings, reread } =
+    useSorting();
   const [picked, setPicked] = useState<SortingOptionLike | null>(null);
   const [settingUpJev, setSettingUpJev] = useState(false);
   const chosen = picked ?? current;
@@ -311,7 +312,11 @@ function SortingStep({ onDone }: { onDone(choice: string): void }) {
         <JevSortingSetUp
           jev={jevSettings}
           choosing
-          choose={() => choose({ classifier: { kind: "jev" } }, { turnOn: true })}
+          choose={async () => {
+            const chosenJev = await choose({ classifier: { kind: "jev" } }, { turnOn: true });
+            reread();
+            return chosenJev;
+          }}
           onChosen={() => onDone(JEV_SERVICE.name)}
           onCancel={() => {
             setSettingUpJev(false);

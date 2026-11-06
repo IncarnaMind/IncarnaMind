@@ -141,7 +141,7 @@ function TranscriptionRow({ id, services }: { id: string; services: ServicesView
 
 function SortingRow({ id }: { id: string }) {
   const t = useT();
-  const { options, current, choose, read, library, jevSetUp, jevSettings } = useSorting();
+  const { options, current, choose, read, library, jevSetUp, jevSettings, reread } = useSorting();
   const [settingUpJev, setSettingUpJev] = useState(false);
   const closeJev = () => {
     setSettingUpJev(false);
@@ -184,7 +184,11 @@ function SortingRow({ id }: { id: string }) {
             <JevSortingSetUp
               jev={jevSettings}
               choosing={false}
-              choose={() => choose({ classifier: { kind: "jev" } })}
+              choose={async () => {
+                const chosen = await choose({ classifier: { kind: "jev" } });
+                reread();
+                return chosen;
+              }}
               onChosen={closeJev}
               onCancel={closeJev}
             />
