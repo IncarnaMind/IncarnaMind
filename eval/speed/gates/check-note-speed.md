@@ -70,7 +70,27 @@ The runs were made at 7cb76c42a against 08be5ac66, in the order above, on a dire
 - **The end bar in Sonnet's English cell is not met:** a median of 19.2 → 19.6 s, today's runs 18.1, 19.2 and 21.2 s against the step's 18.7, 19.6 and 20.2 s, today's spread of ends 3.1 s. Its cause is unproven.
 - **Every other bar holds.** The first verdict came sooner in all six cells. No request failed and no rate limit was met.
 - **Verdicts:** on Claude Haiku 5.5, judged right 114 → 119 of 120, false Supported 2 → 0, not checked 3 → 2; on Claude Sonnet 5.5, judged right 60 of 60 on both arms, with no false Supported. No sentence the Documents don't state was Supported more often on the step.
-- **Reranks that repeat one already scored in the same check:** 4 of 263 over both arms (1.5%), too few for a cache of them.
+- **Reranks that repeat one already scored in the same check:** 7 of 432 over both arms (1.6%; 4 of 215 on `main`), too few for a cache of them.
 - **DeepSeek V4.1 Flash 1017 (`deepseek-flash`), one run per arm, reported only:** first verdict 6.6 → 5.6 s (timing, en), 4.8 → 5.0 s (timing, zh-CN), 6.4 → 7.5 s (mixed, en), 7.0 → 6.2 s (mixed, zh-CN); end 13.4 → 12.4, 10.1 → 12.1, 16.5 → 18.0 and 16.5 → 12.8 s; judged right 39 → 37 of 40, no false Supported on either arm, not checked 1 → 0. $0.07.
 
 **Decision, 2026-11-06:** steps 1 and 2 ship as an exception that accepts the failed end bar in Sonnet's English cell, because it is a timing bar, not a quality bar, and no quality bar moved the wrong way. The bar stays failed. Gate B is run on this footing.
+
+## Result of gate B, 2026-11-06: met, so Check this Note takes twelve
+
+The runs were made at ebd66de0d (twelve) against 7cb76c42a (six), in the order above, on a direct Anthropic key, with the 15-minute load at 12.5 to 13.6. They spent $2.03. Medians are given six → twelve; the spread is six's runs' largest minus smallest first verdict.
+
+| Cell | First verdict | Spread | Done | Holds |
+|---|---|--:|---|---|
+| Haiku, timing Library, en | 6.0 → 4.5 s | 1.8 s | 13.3 → 8.5 s | yes |
+| Haiku, timing Library, zh-CN | 5.0 → 4.9 s | 0.9 s | 11.4 → 7.9 s | yes |
+| Haiku, mixed Library, en | 7.6 → 6.9 s | 1.3 s | 16.9 → 13.2 s | yes |
+| Haiku, mixed Library, zh-CN | 6.5 → 6.9 s | 1.3 s | 14.6 → 13.2 s | yes: 0.4 s later, within its spread |
+| Sonnet, timing Library, en | 7.9 → 8.0 s | 0.9 s | 18.3 → 14.9 s | yes: 0.1 s later, within its spread |
+| Sonnet, timing Library, zh-CN | 8.3 → 7.9 s | 1.6 s | 16.7 → 13.4 s | yes |
+
+- **No failure:** no request failed and no rate limit was met at twelve.
+- **Verdicts:** on Claude Haiku 5.5, judged right 115 → 119 of 120, false Supported 0 → 0, not checked 7 → 1; on Claude Sonnet 5.5, judged right 60 of 60 on both arms, no false Supported, not checked 1 → 0.
+- **The reranker at twelve:** a rerank's median rose on the mixed Library, 2.4 → 3.3 s in English and 0.6 → 3.4 s in Chinese, as more searches wait for the one GPU session. The first verdict still met its bar in every cell. Reranks that repeat one already scored: 5 of 434 (1.2%).
+- **DeepSeek V4.1 Flash 1017 (`deepseek-flash`), one run per arm, reported only:** first verdict 5.8 → 4.4 s (timing, en), 5.1 → 5.7 s (timing, zh-CN), 7.8 → 7.5 s (mixed, en), 7.3 → 6.4 s (mixed, zh-CN); end 13.0 → 10.6, 9.6 → 9.2, 17.5 → 13.3 and 16.5 → 12.5 s; judged right 37 of 40 on both arms, one false Supported on each arm: English sentence 5 on six's (timing Library), Chinese sentence 3 on twelve's (mixed Library). $0.07.
+
+The write, Verify and the background watch keep six: the write's failing cell in `check-speed-twelve.md` has a cause of its own, twelve requests to the key at once, and wasn't run here.
