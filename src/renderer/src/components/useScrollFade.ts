@@ -1,19 +1,24 @@
 import { type RefObject, useLayoutEffect } from "react";
 
 /**
- * Marks a `.scroll-fade` frame (`data-more-after`) while more of its content lies below what
- * shows, so the fade over its foot appears only when a line is cut there (#2616). A frame
- * scrolled to its end, or short enough to need no scroll, carries no mark and no fade.
+ * Marks a `.scroll-fade` frame (`data-more-after`) while content lies below its foot, so the
+ * fade shows only over a cut line (#2616). The room a frame's last child keeps blank under its
+ * own content, and the frame's padding, are not content: a thread resting 5px short of its end
+ * has all its text in view.
  */
 export function useScrollFade(frame: RefObject<HTMLElement | null>, active = true): void {
   useLayoutEffect(() => {
     const element = frame.current;
-    if (!active || !element || typeof ResizeObserver === "undefined") return;
-    const mark = () =>
-      element.toggleAttribute(
-        "data-more-after",
-        element.scrollHeight - element.scrollTop - element.clientHeight > 1,
-      );
+    if (!active || !element) return;
+    const mark = () => {
+      const last = element.lastElementChild;
+      const foot = element.getBoundingClientRect().top + element.clientTop + element.clientHeight;
+      const end = last
+        ? last.getBoundingClientRect().bottom -
+          (Number.parseFloat(getComputedStyle(last).paddingBottom) || 0)
+        : foot;
+      element.toggleAttribute("data-more-after", end - foot > 1);
+    };
     // A frame following its end (an Answer streaming in) grows first and scrolls in the same
     // frame; marking a frame later never shows the fade over a line that is about to be reached.
     let pending = 0;

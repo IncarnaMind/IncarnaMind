@@ -82,18 +82,37 @@ for (const language of ["en", "zh-CN"] as const) {
         await thread.screenshot({ path: join(SCREENSHOTS, `thread-${language}-${width}-end.png`) });
       }
 
-      // Scrolled up so the foot cuts a line in two, the line fades out over its whole height.
+      // A few px short of the end, only the thread's padding lies below: all its text shows.
+      await thread.evaluate((el) => {
+        el.scrollTop = el.scrollHeight - el.clientHeight - 6;
+      });
+      await expect.poll(marked, { message: `short of the end, ${at}` }).toBe(false);
+      expect((await footFadeOf(thread, READING)).fade, at).toBe(0);
+
+      // Scrolled so the foot barely cuts a line, the whole line is in the fade.
       await cutALineAtFoot(thread, READING);
       await expect.poll(marked, { message: `cut, ${at}` }).toBe(true);
       const cutting = await footFadeOf(thread, READING);
       if (!cutting.cut) throw new Error(`The foot cut no line, ${at}.`);
+      expect(cutting.position, at).toBe("sticky");
       expect(cutting.fadeBottom, at).toBeCloseTo(cutting.foot, 0);
       expect(cutting.fade, at).toBeGreaterThanOrEqual(1.5 * cutting.cut.lineHeight);
       expect(cutting.cut.top, at).toBeGreaterThanOrEqual(cutting.foot - cutting.fade - 0.5);
+      // The fade takes no room: the thread is as long with it as without.
+      expect(cutting.scrollHeight, at).toBe(end.scrollHeight);
       if (SCREENSHOTS) {
         await thread.screenshot({ path: join(SCREENSHOTS, `thread-${language}-${width}-cut.png`) });
       }
     }
+
+    // Its height is the frame's line height, not a number: lines of 40px give a fade of 60px.
+    const sized = await thread.evaluate((el) => {
+      el.style.lineHeight = "40px";
+      const height = getComputedStyle(el, "::after").height;
+      el.style.lineHeight = "";
+      return height;
+    });
+    expect(sized).toBe("60px");
     await app.close();
   });
 }

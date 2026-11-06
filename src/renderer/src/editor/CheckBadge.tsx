@@ -462,7 +462,7 @@ function BadgeFrame({
     const element = body.current;
     if (element) setHeldHeight(element.offsetHeight);
   }, [open, heldHeight]);
-  useScrollFade(body, open);
+  useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
   }, [ask, front, place]);

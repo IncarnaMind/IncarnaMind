@@ -2860,37 +2860,42 @@ export const stopSamples = (window: Page) =>
 
 /** What the foot of a `.scroll-fade` frame shows (#2616); the numbers are px, and `fade` is 0 when none is drawn. */
 export interface FootFade {
-  /** The frame says more lies below what shows (`data-more-after`). */
+  /** The frame says content lies below its foot (`data-more-after`). */
   marked: boolean;
   fade: number;
-  /** The frame's lower edge. */
   foot: number;
-  /** Where the fade ends, which is the foot when it is drawn. */
+  /** The fade's `position`, and where it ends: the foot when it is drawn as it should be. */
+  position: string;
   fadeBottom: number | null;
+  scrollHeight: number;
   /** The text line the foot cuts in two, with the line height its element sets. */
   cut: { top: number; bottom: number; lineHeight: number } | null;
-  /** The lowest edge of any text line. */
   last: number;
 }
 
-/** Scrolls a `.scroll-fade` frame until the foot cuts the middle of a line of `text`, the nearest one below it. */
+/**
+ * Scrolls a `.scroll-fade` frame until its foot barely cuts a line of `text`, with only a tenth of
+ * it below: the next line down, or at the frame's end the last one above. A line cut that little
+ * is the one a short fade leaves sharp.
+ */
 export const cutALineAtFoot = (frame: Locator, text: string) =>
   frame.evaluate((element, selector) => {
     const foot = element.getBoundingClientRect().bottom;
-    const middles: number[] = [];
+    const edges: number[] = [];
     for (const holder of element.querySelectorAll(selector)) {
       const words = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
       for (let node = words.nextNode(); node; node = words.nextNode()) {
         const range = document.createRange();
         range.selectNodeContents(node);
         for (const rect of range.getClientRects()) {
-          if (rect.width > 0 && rect.height > 0) middles.push(rect.top + rect.height / 2);
+          if (rect.width > 0 && rect.height > 0) edges.push(rect.top + rect.height * 0.9);
         }
       }
     }
-    const next = Math.min(...middles.filter((middle) => middle > foot));
-    if (!Number.isFinite(next)) throw new Error("No line lies below the foot.");
-    element.scrollTop += next - foot;
+    const below = edges.filter((edge) => edge > foot);
+    const nearest = below.length > 0 ? Math.min(...below) : Math.max(...edges);
+    if (!Number.isFinite(nearest)) throw new Error("The frame holds no line of text.");
+    element.scrollTop += nearest - foot;
   }, text);
 
 /** What the foot of a `.scroll-fade` frame shows now, for the lines of `text` in it. */
@@ -2918,11 +2923,11 @@ export const footFadeOf = (frame: Locator, text: string): Promise<FootFade> =>
         }
       }
     }
-    // A pseudo-element has no box to measure: a real element with its sticky rule stands in.
+    // A pseudo-element has no box to measure: a real element with its positioning stands in.
     let fadeBottom: number | null = null;
     if (edge.display !== "none") {
       const stand = document.createElement("div");
-      stand.style.cssText = `position: sticky; bottom: ${edge.bottom}; display: block; height: ${edge.height}; margin-top: ${edge.marginTop};`;
+      stand.style.cssText = `position: ${edge.position}; bottom: ${edge.bottom}; display: block; height: ${edge.height}; margin-top: ${edge.marginTop};`;
       element.append(stand);
       fadeBottom = stand.getBoundingClientRect().bottom;
       stand.remove();
@@ -2931,7 +2936,9 @@ export const footFadeOf = (frame: Locator, text: string): Promise<FootFade> =>
       marked: element.hasAttribute("data-more-after"),
       fade: edge.display === "none" ? 0 : Number.parseFloat(edge.height),
       foot,
+      position: edge.position,
       fadeBottom,
+      scrollHeight: element.scrollHeight,
       cut,
       last,
     };

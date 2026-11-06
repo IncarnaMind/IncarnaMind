@@ -454,7 +454,6 @@ for (const language of ["en", "zh-CN"] as const) {
     const fading = () => body.evaluate((element) => element.hasAttribute("data-more-after"));
     await expect.poll(fading).toBe(true);
     await cutALineAtFoot(body, "*");
-    await expect.poll(fading).toBe(true);
     const edge = await body.evaluate((element) => {
       const style = getComputedStyle(element, "::after");
       return { content: style.content, background: style.backgroundImage };
@@ -463,6 +462,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(edge.background).toContain("linear-gradient");
     const shown = await footFadeOf(body, "*");
     if (!shown.cut) throw new Error("The foot cut no line.");
+    expect(shown.position).toBe("sticky");
     expect(shown.fadeBottom).toBeCloseTo(shown.foot, 0);
     expect(shown.fade).toBeGreaterThanOrEqual(1.5 * shown.cut.lineHeight);
     expect(shown.cut.top).toBeGreaterThanOrEqual(shown.foot - shown.fade - 0.5);
