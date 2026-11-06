@@ -413,9 +413,11 @@ function useScopeChips(scope: SearchScope | null): ScopeChip[] {
   const deletedGroups = useAppStore((state) => state.library?.deletedGroups);
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
+  const minds = useAppStore((state) => state.minds);
+  const t = useT();
   return scope === null
     ? []
-    : scopeChips({ folders, groups, deletedGroups, tags, documents }, scope);
+    : scopeChips({ folders, groups, deletedGroups, tags, documents, minds, t }, scope);
 }
 
 /** What the next Question searches: the Search scope of the composer of the Mind in focus, or of the composer with none. */

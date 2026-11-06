@@ -41,6 +41,7 @@ import { cursorAtBlock } from "./editor/notePlace";
 import { type FindableKind, type FoundObject, findable } from "./finding";
 import { currentTabOf } from "./layoutSlice";
 import { matchName, type NameMatch, queryWords } from "./matcher";
+import { isListedDocument, noteOf, transcriptInNote } from "./meetingTranscript";
 import type { ObjectRef, Translate } from "./objects";
 import { useSelection } from "./selection";
 import { refKey } from "./selectionModel";
@@ -48,6 +49,7 @@ import { moveFromPalette } from "./sidebarMoves";
 import { useAppStore } from "./store";
 import { findTab } from "./tabs";
 import { taskAt } from "./taskFocus";
+import { openTranscriptOfNote } from "./transcripts";
 
 const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette" };
 
@@ -156,6 +158,8 @@ export type PaletteItem =
       key: string;
       documentId: string;
       documentKind: DocumentKind;
+      /** A Meeting's Transcript: its Note, whose hit this is (#2528). Null for any other Document. */
+      mindId: string | null;
       name: string;
       meta: string;
       pageFrom: number | null;
@@ -341,11 +345,15 @@ export function actionGroup(
   return shown.length > 0 ? [{ id: "actions", items: shown }] : [];
 }
 
-/** "In your notes": the Minds the core found the words in, with the Block that holds them. */
+/**
+ * "In your text": the Minds the core found the words in, with the Block that holds them, then the
+ * meetings whose Transcripts hold them (`meetingTextItems`), as a meeting is a Note (#2528).
+ */
 export function noteGroup(
   found: readonly MindTextMatch[],
   minds: readonly Mind[],
   t: Translate,
+  meetings: readonly PaletteItem[] = [],
 ): PaletteGroup[] {
   const byId = new Map(minds.map((mind) => [mind.id, mind]));
   const items = found.flatMap((match): PaletteItem[] => {
@@ -364,11 +372,12 @@ export function noteGroup(
       },
     ];
   });
-  return items.length > 0 ? [{ id: "notes", items: items.slice(0, SHOWN.words) }] : [];
+  const all = [...items, ...meetings];
+  return all.length > 0 ? [{ id: "notes", items: all.slice(0, SHOWN.words) }] : [];
 }
 
 /** A Document as the palette reads it. */
-export type NamedDocument = Pick<Document, "id" | "name" | "title" | "kind">;
+export type NamedDocument = Pick<Document, "id" | "name" | "title" | "kind" | "meetingMindId">;
 
 /** Where a Passage found is, for a PDF's page or a deck's slide; "" for the other kinds. */
 export function passagePlace(
@@ -398,7 +407,7 @@ export function atPassage(
   };
 }
 
-/** "In your Documents": the Documents the core found the words in, with the Passage that holds them. */
+/** "In your Documents": the Documents of the User's the core found the words in, with the Passage that holds them. */
 export function documentTextGroup(
   found: readonly DocumentTextMatch[],
   documents: readonly NamedDocument[],
@@ -407,16 +416,16 @@ export function documentTextGroup(
   const byId = new Map(documents.map((document) => [document.id, document]));
   const items = found.flatMap((match): PaletteItem[] => {
     const document = byId.get(match.documentId);
-    if (!document) return [];
-    const meta = passagePlace(document.kind, match, t);
+    if (!document || !isListedDocument(document)) return [];
     return [
       {
         kind: "passage",
         key: `passage:${match.passageId}`,
         documentId: match.documentId,
         documentKind: document.kind,
+        mindId: null,
         name: displayName(document),
-        meta,
+        meta: passagePlace(document.kind, match, t),
         pageFrom: match.pageFrom,
         pageTo: match.pageTo,
         excerpt: match.excerpt,
@@ -425,6 +434,39 @@ export function documentTextGroup(
     ];
   });
   return items.length > 0 ? [{ id: "documentText", items: items.slice(0, SHOWN.words) }] : [];
+}
+
+/**
+ * Words said in a meeting, as its Note's hits: "Weekly call · Transcript, 00:07", opening the
+ * Transcript beside its Note there (#2528). None for a Transcript whose Note isn't here.
+ */
+export function meetingTextItems(
+  found: readonly DocumentTextMatch[],
+  documents: readonly NamedDocument[],
+  minds: readonly Mind[],
+  t: Translate,
+): PaletteItem[] {
+  const byId = new Map(documents.map((document) => [document.id, document]));
+  return found.flatMap((match): PaletteItem[] => {
+    const document = byId.get(match.documentId);
+    const note = document && noteOf(document, minds);
+    if (!document || !note) return [];
+    return [
+      {
+        kind: "passage",
+        key: `passage:${match.passageId}`,
+        documentId: match.documentId,
+        documentKind: document.kind,
+        mindId: note.id,
+        name: transcriptInNote(note, match.atMs, t),
+        meta: "",
+        pageFrom: match.pageFrom,
+        pageTo: match.pageTo,
+        excerpt: match.excerpt,
+        highlights: match.highlights,
+      },
+    ];
+  });
 }
 
 /** "In your conversations": the conversations whose messages hold the words, with the first that does. */
@@ -519,6 +561,10 @@ export async function runItem(
       return;
     }
     case "passage":
+      if (item.mindId !== null) {
+        await openTranscriptOfNote(item.mindId, item.documentId, atPassage(item));
+        return;
+      }
       store.openDocument(
         { documentId: item.documentId, ...atPassage(item) },
         { as: inTab ? "here" : "list" },
