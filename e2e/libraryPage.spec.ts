@@ -810,7 +810,7 @@ test("a Folder opened from the sidebar brings its section into view, open, with 
     await window.keyboard.type(`@${picked}`);
     await expect(window.getByTestId("scope-picker")).toBeVisible();
     await window.keyboard.press("Enter");
-    await expect(composer.getByTestId("scope-chip")).toContainText(picked);
+    await expect(composer.getByTestId("scope-chip").filter({ hasText: picked })).toHaveCount(1);
     await pointAndClick(window, composer.getByTestId("scope-chip-remove").first());
     await expect(composer.getByTestId("composer-scope-all")).toHaveText("All Documents");
   } finally {
