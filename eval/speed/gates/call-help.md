@@ -44,6 +44,18 @@ After the review, the change this PR ships is call help's model thinking off, an
 
 **What counts as faster:** the seconds from the press to the first whole option's words (the panel's first useful words), per case, each language and model its own; the first streamed words are reported beside it but not held. **The spread:** the item-by-item difference. A model and language hold when the branch's median is at least 0.3 s sooner and no guard line above moves: cited, judged right, false Supported counted over the set, and the other guards. Any guard line that moves fails the step whatever the time. The arm differs from main by the claims check too, which the step below measured on its own (the reply was the same path sampled twice; the end came 1.2–1.3 s sooner; the check rewrote one reply in 90).
 
+## Main against this head (written 2026-11-06, committed before its first run)
+
+The change this PR ships is call help skipping the check of the changes a reply claims, and nothing else: the quick-tasks-model path is not in the product. This run compares origin/main (the check kept) with this head (the check skipped) on the call-help set, in a fresh worktree of each, each with a temporary HOME and its own data folders.
+
+- **Models:** Claude Haiku 5.5 and DeepSeek V4.1 Flash 1017 (`deepseek-flash`), each language its own. Judge: the same judge for both arms.
+- **Samples:** three per arm, alternating sample by sample (main 1, head 1, main 2, head 2, …), so drift over time meets both arms alike.
+- **The bar, per language, on each model:** the head's false Supported range does not sit above main's; its cited range does not sit below main's; and done is sooner. Ranges are over the three samples.
+- **Reported, not held:** the first whole option's words (first useful words) and the first streamed words.
+- **The check's rewrites:** in main's arm every reply the change-claim check rewrites is recorded with its text before and after, and listed here.
+
+The path-identity reading below stays a failed step as written: Haiku moved a guard line wrong (false Supported 10 → 13) and Sonnet another (cited 18 → 16), so the earlier claim that the check's step passed does not stand. The earlier Sonnet run is reported, not gated.
+
 ## A step found by the first measurement (written before its run, committed after it)
 
 The first press measured (Claude Haiku 5.5, en-answer-sso, a smoke run of the harness) showed the reply in one call, its first words at 0.9 s, and its end held 1.2 s more by a check of the changes it claims, which asks a model again. Call help is offered no Tool that changes a Note or runs a command, and its reply is lines for the User to say, so that check has nothing to protect there. The branch skips it for call help; over both runs the check rewrote one reply in 90, and call help's replies are written without it. The run that measured the step paired `help-claims-checked` (today's path, the check kept) against `today` (the branch), held to every line above.
