@@ -75,6 +75,13 @@ describe("Rewrite is offered", () => {
     ["The fee was paid 500 monthly.", "The fee was paid in 2025 monthly.", false],
     ["The grant was paid 500 in person.", "The grant was paid in 2025 in person.", false],
     ["The grant was paid 500 in shares.", "The grant was paid in 2025 in shares.", false],
+    ["The award was 500.", "The award was 2025.", false],
+    ["The award was 500.", "The award was ２０２５.", false],
+    [
+      "The hall seats 1800 people on the ground floor.",
+      "The hall seats 2020 people on the ground floor.",
+      false,
+    ],
     ["The hall seats 1800 people.", "The hall seats 2020 people. It opened last year.", true],
   ])("for %s from %s: %s", (sentence, quote, offered) => {
     expect(mayRewrite(sentence, quote)).toBe(offered);

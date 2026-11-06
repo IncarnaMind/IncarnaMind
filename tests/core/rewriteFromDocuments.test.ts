@@ -1145,6 +1145,14 @@ describe("rewriteFromDocuments", () => {
     ["The fee was paid 500 monthly.", "The fee was paid in 2025 monthly.", "500", "2025"],
     ["The grant was paid 500 in person.", "The grant was paid in 2025 in person.", "500", "2025"],
     ["The grant was paid 500 in shares.", "The grant was paid in 2025 in shares.", "500", "2025"],
+    ["The award was 500.", "The award was 2025.", "500", "2025"],
+    ["The award was 500.", "The award was ２０２５.", "500", "２０２５"],
+    [
+      "The hall seats 1800 people on the ground floor.",
+      "The hall seats 2020 people on the ground floor.",
+      "1800",
+      "2020",
+    ],
     [
       "The grant was 500 pending approval.",
       "The grant was in 2025 pending approval.",
