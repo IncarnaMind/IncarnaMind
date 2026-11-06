@@ -61,8 +61,8 @@ import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import {
   type ChecksRun,
-  claimsAtOnce,
   earlyChecks,
+  noteClaimsAtOnce,
   pendingParts,
   type QueuedClaim,
   type RunChecksOptions,
@@ -628,7 +628,8 @@ export function createMindCheck(options: MindCheckOptions) {
       prepared: ready.prepared,
       signal,
     };
-    const limit = slots(claimsAtOnce(ready.prepared));
+    const atOnce = noteClaimsAtOnce(ready.prepared);
+    const limit = slots(atOnce);
     const early = earlyChecks(options.claimCheck, run, limit);
     const nowOf = (blocks: Y.XmlFragment) => {
       const current = everySentence(blocks);
@@ -789,7 +790,7 @@ export function createMindCheck(options: MindCheckOptions) {
 
       const result = await runChecks(
         { ...options, claimCheck: early.claimCheck },
-        { ...run, queued, slots: limit },
+        { ...run, queued, atOnce, slots: limit },
       );
       ran = { ...result, sentences: queued.length };
     } finally {
