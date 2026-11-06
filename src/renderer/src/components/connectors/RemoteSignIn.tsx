@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type {
   ConnectorClientInput,
   RemoteConnector,
@@ -40,14 +40,22 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
   const [storageProblem, setStorageProblem] = useState<string | null>(null);
   const needsClient = signIn.error?.kind === "client-id-required";
   const errorKind = storageProblem !== null ? "secret-storage" : signIn.error?.kind;
+  const storageRead = useRef(0);
   const readStorage = useCallback(() => {
+    const read = ++storageRead.current;
     setStorageProblem(null);
     core.getSecretStorage().then(
       (next) => {
+        if (read !== storageRead.current) return;
         setStorage(next);
         setStorageProblem(null);
       },
-      (failure) => setStorageProblem(errorMessage(failure, t)),
+      (failure) => {
+        if (read !== storageRead.current) return;
+        // The old status can't stand for a failed read: the button waits on the next answer.
+        setStorage(null);
+        setStorageProblem(errorMessage(failure, t));
+      },
     );
   }, [t]);
   useEffect(() => {

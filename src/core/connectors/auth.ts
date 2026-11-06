@@ -272,8 +272,12 @@ export function createConnectorAuth(options: ConnectorAuthOptions) {
       throw new HeldBackError(HELD_BACK);
     }
     const response = await send(url, init);
-    // The SDK sometimes turns a refusal into its own error without the status: it is kept here.
-    if (!response.ok) lastRefusedStatus = response.status;
+    // The SDK sometimes turns a refusal of a token request into its own error without the status:
+    // it is kept here, and only for the token endpoint, so a metadata probe's or a challenge's
+    // status is never reported for a request that failed later for another reason.
+    const tokenEndpoint = discovery?.authorizationServerMetadata?.token_endpoint;
+    if (!response.ok && tokenEndpoint !== undefined && String(url) === tokenEndpoint)
+      lastRefusedStatus = response.status;
     return response;
   });
   let tokenRecord: TokenRecord | null = null;

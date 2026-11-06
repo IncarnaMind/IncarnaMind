@@ -70,6 +70,8 @@ export interface FakeRemote {
   refreshDelayMs: number;
   /** When set, refreshes are refused with this status and body. */
   refreshRefusal: { status: number; body: unknown } | null;
+  /** The secret the manual OAuth app must present; a test may use a shape the generic redactor keeps. */
+  manualSecret: string;
 
   /** Every request to each endpoint, by path, in order. */
   requests: { method: string; path: string; authorization: string | null }[];
@@ -217,7 +219,7 @@ export async function startFakeRemote(): Promise<FakeRemote> {
     const form = Object.fromEntries(new URLSearchParams(await readBody(request)));
     fake.tokenRequests.push(form);
     const { clientId, secret } = credentials(request, form);
-    if (!known(clientId) || (clientId === MANUAL_CLIENT_ID && secret !== MANUAL_CLIENT_SECRET)) {
+    if (!known(clientId) || (clientId === MANUAL_CLIENT_ID && secret !== fake.manualSecret)) {
       sendJson(response, 401, { error: "invalid_client" });
       return;
     }
@@ -385,6 +387,7 @@ export async function startFakeRemote(): Promise<FakeRemote> {
     expiresIn: 3600,
     refreshDelayMs: 0,
     refreshRefusal: null,
+    manualSecret: MANUAL_CLIENT_SECRET,
     requests: [],
     registrations: [],
     authorizeRequests: [],

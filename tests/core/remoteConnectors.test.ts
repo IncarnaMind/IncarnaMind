@@ -593,9 +593,13 @@ describe("Tokens", { timeout: 30_000 }, () => {
     const keychain = createMemoryKeychain();
     const setup = await setUp({ now: clock.now, keychain, paths: { dataDir } });
     const added = await addWiki(setup);
+    // Letters only, and short: the generic message scrubber keeps this shape, so only the
+    // Connector's own inventory can keep it out of a failure or a log.
+    const manualSecret = "quietseal";
+    setup.fake.manualSecret = manualSecret;
     await setup.core.setConnectorClient(added.id, {
       clientId: MANUAL_CLIENT_ID,
-      clientSecret: MANUAL_CLIENT_SECRET,
+      clientSecret: manualSecret,
     });
     const signed = await setup.core.signInToConnector(added.id);
     expect(signed).toMatchObject({ ok: true, connector: { state: "ready" } });
@@ -611,7 +615,7 @@ describe("Tokens", { timeout: 30_000 }, () => {
       status: 500,
       body: {
         error: "invalid_request",
-        error_description: `client_secret ${MANUAL_CLIENT_SECRET}`,
+        error_description: `client_secret ${manualSecret}`,
       },
     };
     await keychain.set(`connector:${id}:oauth-tokens`, JSON.stringify({ ...stored, expiresAt: 0 }));
@@ -628,8 +632,8 @@ describe("Tokens", { timeout: 30_000 }, () => {
     const failed = await connectorState(restarted, id, "error");
     expect(refreshes(fake)).toHaveLength(1);
     expect(failed.error).toMatchObject({ kind: "failed", step: "sign-in", status: 500 });
-    expect(JSON.stringify(failed)).not.toContain(MANUAL_CLIENT_SECRET);
-    expect(JSON.stringify(logged)).not.toContain(MANUAL_CLIENT_SECRET);
+    expect(JSON.stringify(failed)).not.toContain(manualSecret);
+    expect(JSON.stringify(logged)).not.toContain(manualSecret);
   });
 
   test("calls that find the token refused at the same time share one refresh", async () => {
