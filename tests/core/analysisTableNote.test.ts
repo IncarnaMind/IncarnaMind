@@ -1962,4 +1962,28 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     expect(home.health.supported).toBe(1);
     core.close();
   });
+
+  test("a reply whose Roles line gives a list item to someone else, while its figure's item names it, leaves the figure Not checked on the sentence, its row and the badge (#2584)", async () => {
+    const [item = ""] = words.listed;
+    const [subject, other] = language === "en" ? ["Central", "North"] : ["中部地区", "北部地区"];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.startsWith(subject)
+          ? { verdict: "unsupported", roles: `${subject} / ${other}, other` }
+          : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["not-checked malformed"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
+    expect((await reading(core, client))?.kind).toBe("not-checked");
+    expect((await homeOf(core, madeId)).state?.kind).toBe("not-checked");
+    core.close();
+  });
 });
