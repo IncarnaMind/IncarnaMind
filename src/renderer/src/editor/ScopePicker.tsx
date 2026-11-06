@@ -23,11 +23,13 @@ import {
   DocumentLineIcon,
   FolderLineIcon,
   LockLineIcon,
+  MindLineIcon,
   TagLineIcon,
 } from "../components/lineIcons";
 import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
-import { type ScopeChoice, scopeChoices } from "../scope";
+import { useTextSearch } from "../libraryTextSearch";
+import { blockedFrom, meetingChoices, type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
 import { takeTypedTrigger } from "./documentPicker";
 import { asOneStep } from "./editorUndo";
@@ -171,6 +173,7 @@ function ChoiceIcon({ choice }: { choice: ScopeChoice }) {
   if (choice.walled) return <LockLineIcon className={className} />;
   if (choice.kind === "folder") return <FolderLineIcon className={className} />;
   if (choice.kind === "tag") return <TagLineIcon className={className} />;
+  if (choice.meeting) return <MindLineIcon className={className} />;
   return <DocumentLineIcon kind={choice.documentKind ?? "text"} className={className} />;
 }
 
@@ -229,23 +232,15 @@ export function ScopeChoiceList({
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const assignments = useAppStore((state) => state.library?.assignments);
-  const library = { folders, groups, tags, documents, assignments };
-  const shown = scopeChoices(library, scope, query).filter(
+  const minds = useAppStore((state) => state.minds);
+  const library = { folders, groups, tags, documents, assignments, minds, t };
+  // Words said in a meeting find it as its Note's choice, as the Library's search does (#2528).
+  const inside = useTextSearch(query);
+  const named = scopeChoices(library, scope, query);
+  const shown = [...named, ...meetingChoices(library, scope, inside.matches, named)].filter(
     (choice) => !kinds || kinds.includes(choice.kind),
   );
-  const isBlocked = (item: ScopeChoice) => {
-    if (item.walled === undefined || item.walled === null) return false;
-    if (item.walled !== currentWalled) return true;
-    if (item.kind !== "document") return false;
-    const filings = (assignments ?? []).filter(
-      (each) =>
-        each.documentId === item.id &&
-        each.groupId !== null &&
-        groups !== undefined &&
-        folderWallOf(groups, each.groupId) === currentWalled,
-    );
-    return !filings.some((each) => each.source === "user");
-  };
+  const isBlocked = (item: ScopeChoice) => blockedFrom(library, item, currentWalled);
   const nothing = kinds
     ? documents.length === 0
     : folders.length + (groups?.length ?? 0) + tags.length + documents.length === 0;

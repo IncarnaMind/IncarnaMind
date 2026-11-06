@@ -12,12 +12,17 @@
  * found while it is full stops, waits its turn in the lane, and starts again
  * there. Each running job has a worker of its own, so a job that crashes its
  * worker fails alone.
+ *
+ * Every scan's first pages are read before any scan's later ones (#2308): a scan that has
+ * said its first pages (`onHead`) gives way, stopping to wait behind the others, while a scan
+ * whose first pages are unread waits; it reads on from where it was in its next turn.
  */
 import type { Worker } from "node:worker_threads";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentKind } from "../api";
 import type {
+  DocumentHead,
   KeywordsJob,
   MetadataJob,
   MetadataResult,
@@ -43,6 +48,8 @@ export interface ProcessorHandlers {
   onStart(job: ProcessingJob, warm: boolean): ProcessingJob | undefined;
   /** A job that reads scanned pages stopped to wait its turn in the scan lane. */
   onWaiting(job: ProcessingJob): void;
+  /** A job read the first pages of the version it reads (`ScanJob.head`). */
+  onHead(job: ProcessingJob, head: DocumentHead): void;
   onResult(job: ProcessingJob, result: ProcessingResult): void;
   onMetadata(job: MetadataJob, result: MetadataResult): void;
   /** A keyword job finished, or its worker crashed: the core writes what it got, if anything. */
@@ -113,10 +120,16 @@ export function createProcessor(
   const scanSlots = Math.max(1, handlers.scansAtOnce ?? 1);
   const queue: WorkerJob[] = [];
   /**
-   * Jobs that read scanned pages, in the order they were found to, waiting for the scan
-   * lane. `stopping`: its run is still stopping, and it can't start again until it has.
+   * Jobs that read scanned pages waiting for their turn: those whose first pages are unread,
+   * in the order they were found, then those that read them (`headRead`) and gave way.
+   * `stopping`: its run is still stopping, and it can't start again until it has.
    */
-  const scansWaiting: { job: ProcessingJob; stopping: boolean }[] = [];
+  const scansWaiting: { job: ProcessingJob; stopping: boolean; headRead: boolean }[] = [];
+  const wait = (entry: (typeof scansWaiting)[number]) => {
+    const after = entry.headRead ? -1 : scansWaiting.findIndex((each) => each.headRead);
+    if (after === -1) scansWaiting.push(entry);
+    else scansWaiting.splice(after, 0, entry);
+  };
   /**
    * Each job under way, by its run's id, with the worker it runs on. `posted`: it has gone
    * to the worker; until then (its PDF's password is being read) a stop is kept in
@@ -227,15 +240,29 @@ export function createProcessor(
    */
   function foundScan(run: Run): void {
     if (run.job.task !== "process") return;
-    // Those found before it go first.
-    if (scansWaiting.length === 0 && inLane("scan").length < scanSlots) {
+    // Those found before it go first; those past their first pages, after it.
+    if (scansWaiting.every((each) => each.headRead) && inLane("scan").length < scanSlots) {
       run.lane = "scan";
     } else {
       run.lane = "waiting";
-      scansWaiting.push({ job: run.job, stopping: true });
+      wait({ job: run.job, stopping: true, headRead: false });
       stop(run);
     }
+    giveWay();
     schedulePump();
+  }
+
+  /** A scan read past its first pages stops for each scan whose first pages are unread. */
+  function giveWay(): void {
+    let unread = scansWaiting.filter((each) => !each.headRead).length;
+    for (const run of inLane("scan")) {
+      if (unread === 0) return;
+      if (!run.headRead || run.job.task !== "process") continue;
+      run.lane = "waiting";
+      wait({ job: run.job, stopping: true, headRead: true });
+      stop(run);
+      unread--;
+    }
   }
 
   function stop(run: Run): void {
@@ -263,6 +290,15 @@ export function createProcessor(
         call(() => handlers.onLog(job, response.log));
         return;
       }
+      if ("head" in response) {
+        run.headRead = true;
+        call(() => handlers.onHead(job, response.head));
+        if (run.lane === "scan") {
+          giveWay();
+          schedulePump();
+        }
+        return;
+      }
       // Only a PDF's scanned pages go to the lane: a web page's pictures are few, and an
       // Answer may be waiting for them (#128).
       if (run.lane === "queue" && job.kind === "pdf") foundScan(run);
@@ -287,7 +323,7 @@ export function createProcessor(
     return held ? undefined : queue.shift();
   }
 
-  function start(queued: WorkerJob, lane: "queue" | "scan"): void {
+  function start(queued: WorkerJob, lane: "queue" | "scan", headRead = false): void {
     const id = nextId++;
     const worker = idle.pop() ?? startWorker();
     const warm = queued.task === "process" && worker.kinds.has(queued.kind);
@@ -299,6 +335,7 @@ export function createProcessor(
       posted: false,
       stopped: false,
       cancelled: false,
+      headRead,
     };
     running.set(id, run);
     if (queued.task === "process") {
@@ -344,7 +381,7 @@ export function createProcessor(
       const next = scansWaiting[0];
       if (!next || next.stopping) break;
       scansWaiting.shift();
-      start(next.job, "scan");
+      start(next.job, "scan", next.headRead);
     }
   }
 
@@ -425,4 +462,6 @@ interface Run {
   stopped: boolean;
   /** Cancelled: it ends with its result, even if it was stopping to wait for the scan lane. */
   cancelled: boolean;
+  /** It has read the first pages of its version (`onHead`), in this run or one before. */
+  headRead: boolean;
 }

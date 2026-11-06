@@ -12,7 +12,7 @@ import * as Y from "yjs";
 import { citedInputs } from "../../shared/calculatedFigures";
 import { readChartData, valueCitations } from "../../shared/charts";
 import { readClaimCheck, restsOn } from "../../shared/claimChecks";
-import { calculatedFiguresIn, figureRunsFor } from "../../shared/figureRuns";
+import { boundTablesIn, calculatedFiguresIn, figureRunsFor } from "../../shared/figureRuns";
 import { perBlock } from "../../shared/memo";
 import {
   CHART_NODE,
@@ -101,9 +101,12 @@ function figureCheckCitations(
 const figureBlock = perBlock((block) => {
   const node = nodeOf(block);
   const figures = calculatedFiguresIn([node]);
+  // An Analysis's own table rests on its run's inputs, as a figure of it does (#2378).
+  const tables = boundTablesIn([node]);
   return {
-    node: figures.length > 0 ? node : null,
+    node: figures.length > 0 || tables.length > 0 ? node : null,
     figures,
+    tables,
     checked: figureCheckCitations(block),
   };
 });
@@ -131,6 +134,7 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
             : {
                 node: null,
                 figures: [],
+                tables: [],
                 checked: child instanceof Y.XmlText ? figureCheckCitations(child) : [],
               },
         );
@@ -142,6 +146,7 @@ export function figureCitations(fragment: Y.XmlFragment | Y.XmlElement): Citatio
     const blocks = parts.flatMap(({ node }) => (node ? [node] : []));
     const runs = figureRunsFor(fragment.doc, blocks);
     const kept = new Set(runs.map((run) => run.id));
+    // A bound table whose run is gone is a typed table: it rests on nothing of a run's (#2378).
     if (
       parts
         .flatMap(({ figures }) => figures)

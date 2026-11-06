@@ -13,6 +13,7 @@ const libraryOf = (state: AppState): ScopeLibrary => ({
   tags: state.tags,
   documents: state.documents,
   assignments: state.library?.assignments,
+  minds: state.minds,
 });
 
 export const useFolderHoldsDocuments = (folderId: string | null): boolean =>

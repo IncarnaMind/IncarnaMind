@@ -34,7 +34,9 @@ export function contradictionOutcomeParts(
     parts.push(
       ...(run.stop.reason === "cancelled"
         ? [t("run.stopped.cancelled")]
-        : runStopParts(run.stop, t, language)),
+        : run.stop.reason === "consent-widened"
+          ? [t("claim.reason.consent-widened")]
+          : runStopParts(run.stop, t, language)),
     );
   }
   return parts;

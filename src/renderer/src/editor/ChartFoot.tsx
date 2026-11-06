@@ -34,7 +34,7 @@ export function ChartFoot({
 }) {
   const t = useT();
   const language = useLanguage();
-  const cited = sources.values - sources.uncited - sources.calculated;
+  const cited = sources.values - sources.uncited - sources.calculated - sources.analysis;
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
@@ -44,7 +44,7 @@ export function ChartFoot({
   const plural = (count: number) => (count === 1 ? "one" : "other");
 
   let said: string | null = null;
-  if (sources.values > 0 && cited === 0 && sources.calculated === 0) {
+  if (sources.values > 0 && cited === 0 && sources.calculated === 0 && sources.analysis === 0) {
     said = t(`chart.source.none.${plural(sources.values)}`, { count: sources.values });
   } else if (cited > 0 && sources.places.length === 1 && source?.where) {
     said = t(`chart.source.place.${plural(cited)}`, {
@@ -63,8 +63,14 @@ export function ChartFoot({
       ? calculatedFrom(sources.inputs, documents, t, language, sources.calculated)
       : null;
   if (calculated) said = said ? `${said} · ${calculated}` : calculated;
+  // An Analysis's values are its run's: never "each quoted" from the rows it read (#2378).
+  const byAnalysis =
+    sources.analysis > 0
+      ? t(`chart.source.byAnalysis.${plural(sources.analysis)}`, { count: sources.analysis })
+      : null;
+  if (byAnalysis) said = said ? `${said} · ${byAnalysis}` : byAnalysis;
   const more: ReactNode[] = [
-    cited + sources.calculated > 0 && sources.uncited > 0 ? (
+    cited + sources.calculated + sources.analysis > 0 && sources.uncited > 0 ? (
       // A way to find them, not a warning: quiet, as the rest of the line.
       <button
         key="uncited"
