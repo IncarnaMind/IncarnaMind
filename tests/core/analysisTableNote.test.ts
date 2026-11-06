@@ -1986,4 +1986,46 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     expect((await homeOf(core, madeId)).state?.kind).toBe("not-checked");
     core.close();
   });
+  test("a wrong name stays Unsupported on the sentence and its row when the reply's Roles line also gives the sentence to someone else (#2596)", async () => {
+    const [item, subject, roles] =
+      language === "en"
+        ? ["- North: total amount [=6]", "North", "North / Central, other"]
+        : ["- 北部地区：金额合计 [=6]", "北部地区", "北部地区 / 中部地区, other"];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.startsWith(subject)
+          ? { names: "other", verdict: "unsupported", roles }
+          : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["unsupported"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["unsupported"]);
+    expect((await reading(core, client))?.kind).toBe("needs-look");
+    core.close();
+  });
+
+  test("a figure that starts its list item has its sentence's verdict on its row (#2596)", async () => {
+    const item =
+      language === "en" ? "- [=6] is Central's total amount" : "- [=6] 是中部地区金额合计";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["supported"]);
+    expect((await reading(core, client))?.kind).toBe("checked");
+    core.close();
+  });
 });
