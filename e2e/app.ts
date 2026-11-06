@@ -2858,6 +2858,73 @@ export const stopSamples = (window: Page) =>
     return holder.samples;
   });
 
+/** What the foot of a `.scroll-fade` frame shows (#2616); the numbers are px, and `fade` is 0 when none is drawn. */
+export interface FootFade {
+  /** The frame says more lies below what shows (`data-more-after`). */
+  marked: boolean;
+  fade: number;
+  /** The frame's lower edge, where the fade ends. */
+  foot: number;
+  /** The text line the foot cuts in two, with the line height its element sets. */
+  cut: { top: number; bottom: number; lineHeight: number } | null;
+  /** The lowest edge of any text line. */
+  last: number;
+}
+
+/** Scrolls a `.scroll-fade` frame until the foot cuts the middle of a line of `text`, the nearest one below it. */
+export const cutALineAtFoot = (frame: Locator, text: string) =>
+  frame.evaluate((element, selector) => {
+    const foot = element.getBoundingClientRect().bottom;
+    const middles: number[] = [];
+    for (const holder of element.querySelectorAll(selector)) {
+      const words = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+      for (let node = words.nextNode(); node; node = words.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.width > 0 && rect.height > 0) middles.push(rect.top + rect.height / 2);
+        }
+      }
+    }
+    const next = Math.min(...middles.filter((middle) => middle > foot));
+    if (!Number.isFinite(next)) throw new Error("No line lies below the foot.");
+    element.scrollTop += next - foot;
+  }, text);
+
+/** What the foot of a `.scroll-fade` frame shows now, for the lines of `text` in it. */
+export const footFadeOf = (frame: Locator, text: string): Promise<FootFade> =>
+  frame.evaluate((element, selector) => {
+    const foot = element.getBoundingClientRect().bottom;
+    const edge = getComputedStyle(element, "::after");
+    let cut: FootFade["cut"] = null;
+    let last = Number.NEGATIVE_INFINITY;
+    for (const holder of element.querySelectorAll(selector)) {
+      const words = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+      for (let node = words.nextNode(); node; node = words.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          if (rect.width === 0 || rect.height === 0) continue;
+          last = Math.max(last, rect.bottom);
+          if (rect.top < foot - 0.5 && rect.bottom > foot + 0.5 && node.parentElement) {
+            cut = {
+              top: rect.top,
+              bottom: rect.bottom,
+              lineHeight: Number.parseFloat(getComputedStyle(node.parentElement).lineHeight),
+            };
+          }
+        }
+      }
+    }
+    return {
+      marked: element.hasAttribute("data-more-after"),
+      fade: edge.display === "none" ? 0 : Number.parseFloat(edge.height),
+      foot,
+      cut,
+      last,
+    };
+  }, text);
+
 /** The assistant's Answers (#201), in the conversation it shows. */
 export const assistantAnswers = (window: Page) =>
   window.getByTestId("assistant").getByTestId("assistant-answer");

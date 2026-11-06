@@ -7492,16 +7492,24 @@
       background: var(--color-rule-strong) padding-box;
     }
   }
-  /* A scrolling frame's last 12px fade to the sheet, so a cut line never meets its edge (#614). */
+  /*
+   * A scrolling frame's last line and a half fade to the sheet while more lies below, so a cut line
+   * fades out whole and never meets its edge (#614, #2616). `lh` is the frame's own line height,
+   * so the fade follows the text's size; without the mark (useScrollFade) nothing is cut and
+   * nothing fades.
+   */
   .scroll-fade::after {
     content: "";
     position: sticky;
     bottom: 0;
-    display: block;
-    height: 12px;
-    margin-top: -12px;
+    display: none;
+    height: 1.5lh;
+    margin-top: -1.5lh;
     background: linear-gradient(to bottom, transparent, var(--color-sheet));
     pointer-events: none;
+  }
+  .scroll-fade[data-more-after]::after {
+    display: block;
   }
   .assistant-empty {
     margin: 0;
