@@ -38,7 +38,7 @@ async function screenshot(window: Page, name: string): Promise<void> {
 const SENDS_EN = {
   lead: "Sends your questions and document text to OpenAI. · Details",
   onRequest:
-    "Tagging and sorting your Documents send each Document’s name and an excerpt, with your Folder and Tag names, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
+    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ and Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   items: [
     "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
     "each sentence you check",
@@ -49,7 +49,7 @@ const SENDS_EN = {
 const SENDS_ZH = {
   lead: "会把你的问题和文档内容发送给 OpenAI。 · 详情",
   onRequest:
-    "给文档打标签和整理，会发送每个文档的名称和摘录，以及你的文件夹和标签名称；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
+    "给文档打标签和整理，会发送每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹和标签的名称和描述；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
   items: [
     "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个）、会议的转写稿，以及你在笔记中选中要询问的图片",
     "你核对的每一句话",

@@ -21,6 +21,7 @@ describe("Processing jobs on workers", { timeout: 30_000 }, () => {
         return undefined;
       },
       onWaiting() {},
+      onHead() {},
       onResult(job, result) {
         finished.get(job.documentId)?.(result);
       },
