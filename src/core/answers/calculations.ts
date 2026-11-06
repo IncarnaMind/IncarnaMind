@@ -1481,9 +1481,12 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // that names another part refuses too (#2365).
     const named = partNames(line);
     const figureLine = lineUnit.text.lastIndexOf("\n", place.figureAt - 1) + 1;
-    const other = partNames(lineUnit.text.slice(figureLine, place.figureAt)).find(
-      (name) => !named.includes(name),
-    );
+    const other =
+      named.length === 0
+        ? undefined
+        : partNames(lineUnit.text.slice(figureLine, place.figureAt)).find(
+            (name) => !named.includes(name),
+          );
     if (other !== undefined || between.some((row) => !statesAmountRow(row, context))) return null;
     const verdict = judgeLine(
       quoted,
