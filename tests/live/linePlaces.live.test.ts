@@ -9,7 +9,7 @@
  * INCARNAMIND_LIVE_CONCURRENCY how many run at once (4), INCARNAMIND_LIVE_ARM names the code under
  * test in the report; INCARNAMIND_LIVE_REPORT names the file the rows go to, one JSON object a line.
  * INCARNAMIND_LIVE_ONLY runs only the requests it names ("en-14,zh-14"). Each row keeps the
- * rewriting model's replies, to read why a line went.
+ * rewriting model's replies and the assistant's calls, so a run can be replayed with a scripted model.
  */
 import { appendFile } from "node:fs/promises";
 import { wrapLanguageModel } from "ai";
@@ -139,6 +139,9 @@ describe("The place rules keep the User's lines and make the edits asked, live: 
             } else {
               const answer = await ask(core, each.ask, mind.id);
               row.reply = answer.text;
+              row.calls = answer.toolCalls
+                .filter((call) => call.source === "minds")
+                .map((call) => ({ tool: call.tool, input: call.input }));
             }
             await client.settled();
             await resolveChanges(client, "accept");
