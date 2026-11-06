@@ -171,6 +171,9 @@
     "vite": "7.3.7",
     "vitest": "5.0.3"
   },
+  "overrides": {
+    "node-forge": "^1.4.1"
+  },
   "allowScripts": {
     "esbuild": true,
     "onnxruntime-node": true,
