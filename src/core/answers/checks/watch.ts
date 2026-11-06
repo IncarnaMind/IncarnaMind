@@ -47,6 +47,7 @@ import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
+import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
 import { RunItemError, runItems } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
@@ -291,24 +292,26 @@ export function createContradictionWatch(options: WatchOptions) {
     const { stop } = await runItems(
       ready.claims,
       (claim) =>
-        currentTask.run({ id: runId }, async () => {
-          const result = await options.claimCheck({
-            claim: claim.projection?.text ?? comparableSentence(claim.text),
-            ...(claim.projection && { projection: claim.projection }),
-            recordClaim: claim.noteText,
-            context: claim.context,
-            scope: claim.scope,
-            ...(claim.figures && { figures: claim.figures }),
-            model: prepared,
-            mindId,
-            place: claim.place,
-            cacheKey: mindId,
-            signal,
-          });
-          const failure = runFailureOf(result);
-          if (failure) throw new RunItemError(failure);
-          return result;
-        }),
+        asCheckWork(() =>
+          currentTask.run({ id: runId }, async () => {
+            const result = await options.claimCheck({
+              claim: claim.projection?.text ?? comparableSentence(claim.text),
+              ...(claim.projection && { projection: claim.projection }),
+              recordClaim: claim.noteText,
+              context: claim.context,
+              scope: claim.scope,
+              ...(claim.figures && { figures: claim.figures }),
+              model: prepared,
+              mindId,
+              place: claim.place,
+              cacheKey: mindId,
+              signal,
+            });
+            const failure = runFailureOf(result);
+            if (failure) throw new RunItemError(failure);
+            return result;
+          }),
+        ),
       {
         concurrency: claimsAtOnce(prepared),
         signal,

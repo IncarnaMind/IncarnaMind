@@ -21,7 +21,7 @@ import type {
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { asRerankWork } from "../../reranking/order";
+import { asCheckWork } from "../../reranking/order";
 import { RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { updateCheck } from "./sentences";
@@ -146,7 +146,7 @@ export function checkRequestOf(
 export const checkClaim = (
   claimCheck: RunChecksOptions["claimCheck"],
   request: ClaimCheckRequest,
-): Promise<ClaimCheckResult> => asRerankWork(() => claimCheck(request));
+): Promise<ClaimCheckResult> => asCheckWork(() => claimCheck(request));
 
 /** A request as a key: what it sends, without its signal, its run's limit and its model (the run's own). */
 function requestKey({ signal: _signal, slots: _slots, model: _model, ...sent }: ClaimCheckRequest) {

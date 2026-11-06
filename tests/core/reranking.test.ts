@@ -28,7 +28,7 @@ import {
   pairIds,
   type SessionDevice,
 } from "../../src/core/reranking/onnx";
-import { asRerankWork, createRerankQueue } from "../../src/core/reranking/order";
+import { asCheckWork, createRerankQueue } from "../../src/core/reranking/order";
 import { createTempDataFolder, NO_MODEL_FILES } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
 import { recordingLog } from "../helpers/log";
@@ -313,8 +313,8 @@ describe("The built-in reranking model", () => {
 });
 
 describe("The order searches are scored in", () => {
-  // protects=a check's next search is scored before the searches of checks started after it, and the same check's searches keep their order (#2532); fails_when=searches waiting are scored first come, first served, or one check's searches change places; no_claim=how long a scoring takes.
-  test("a check's next search goes before the searches of checks started after it", async () => {
+  // protects=a search the User is waiting on goes before every check's, a check's next search before the searches of checks started after it, and one check's searches keep their order (#2532); fails_when=searches waiting are scored first come, first served, an Answer's search waits behind checks, or one check's searches change places; no_claim=how long a scoring takes.
+  test("a search outside any check goes first, then a check's next search before checks started after it", async () => {
     const inTurn = createRerankQueue();
     const started: string[] = [];
     const finish = new Map<string, () => void>();
@@ -326,7 +326,7 @@ describe("The order searches are scored in", () => {
     const othersAsked = Promise.withResolvers<void>();
     const askedAgain = Promise.withResolvers<void>();
 
-    const first = asRerankWork(async () => {
+    const first = asCheckWork(async () => {
       const search = inTurn(scoring("first check"));
       await othersAsked.promise;
       const again = inTurn(scoring("first check, again"));
@@ -334,23 +334,68 @@ describe("The order searches are scored in", () => {
       askedAgain.resolve();
       await Promise.all([search, again, third]);
     });
-    const second = asRerankWork(() => inTurn(scoring("second check")));
-    const outside = inTurn(scoring("a search of no check"));
+    const second = asCheckWork(() => inTurn(scoring("second check")));
+    const answer = inTurn(scoring("an Answer's search"));
     othersAsked.resolve();
     await askedAgain.promise;
     for (let count = 1; count <= 5; count++) {
       await vi.waitFor(() => expect(started).toHaveLength(count));
       finish.get(started[count - 1] ?? "")?.();
     }
-    await Promise.all([first, second, outside]);
+    await Promise.all([first, second, answer]);
 
     expect(started).toEqual([
       "first check",
+      "an Answer's search",
       "first check, again",
       "first check, third time",
       "second check",
-      "a search of no check",
     ]);
+  });
+
+  // protects=while Check this Note's ten sentences wait at the reranker, a search the User asks for meanwhile (an Answer's, Cite…'s) is scored next, not after them (#2532); fails_when=it waits behind the checks' searches; no_claim=how long the one being scored takes.
+  test("an Answer's search asked while ten sentences' searches wait is scored next", async () => {
+    const dataDir = await createTempDataFolder();
+    const scored: string[] = [];
+    const open: (() => void)[] = [];
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir,
+      crossEncoder: {
+        load: async () => ({ device: "gpu" }),
+        score: async (query, texts) => {
+          scored.push(query);
+          await new Promise<void>((resolve) => open.push(resolve));
+          return texts.map(() => 0);
+        },
+        close: () => {},
+      },
+      emitStatus: () => {},
+    });
+    const hits = [
+      { documentName: "Tides", text: "Spring tides come at new moon." },
+      { documentName: "Harbour", text: "The harbour office opens at nine." },
+    ];
+    const checks = Array.from({ length: 10 }, (_, index) =>
+      asCheckWork(() => model.rerank(`sentence ${index + 1}`, hits)),
+    );
+    await vi.waitFor(() => expect(scored).toEqual(["sentence 1"]));
+
+    const answer = model.rerank("When are spring tides?", hits);
+    open.shift()?.();
+
+    await vi.waitFor(() => expect(scored).toHaveLength(2));
+    expect(scored[1]).toBe("When are spring tides?");
+    while (scored.length < 11 || open.length > 0) {
+      await vi.waitFor(() => expect(open.length).toBeGreaterThan(0));
+      open.shift()?.();
+    }
+    await Promise.all([answer, ...checks]);
+    expect(scored.slice(2)).toEqual(
+      Array.from({ length: 9 }, (_, index) => `sentence ${index + 2}`),
+    );
+    model.close();
   });
 });
 
