@@ -13,8 +13,12 @@ describe("Rewrite is offered", () => {
     expect(mayRewrite("The pool fee is $30.", "The pool fee is $45.")).toBe(true);
   });
 
-  test("where the line's one figure reads as a year, as the rewrite writes it, but never for the sentence's year", () => {
+  test("where the line's figure is a measure whose digits look like a year, but never where it is a year, nor for the sentence's year", () => {
     expect(mayRewrite("The lot is 1,800 square feet.", "The lot is 2025 square feet.")).toBe(true);
+    expect(mayRewrite("The grant was 500.", "The grant was in 2025.")).toBe(false);
+    expect(mayRewrite("The opening balance was 500.", "The opening balance was in 2025.")).toBe(
+      false,
+    );
     expect(mayRewrite("The lot was sold in 2019.", "The lot was sold in 2021.")).toBe(false);
   });
 

@@ -14,6 +14,7 @@ import {
   differing,
   FIGURES,
   figuresIn,
+  givesAPeriod,
   isFigure,
   measuredAsQuoted,
   NUMBERS,
@@ -75,7 +76,9 @@ function changesOnlyTheValue(
   const outside = sentence.slice(0, at) + sentence.slice(at + from.length);
   if (isFigure(old) && isFigure(next)) {
     return (
-      figuresIn(quote) === 1 && measuredAsQuoted(rewritten, at, to.length, outside, quote, quotedAt)
+      figuresIn(quote) === 1 &&
+      !givesAPeriod(quote) &&
+      measuredAsQuoted(rewritten, at, to.length, outside, quote, quotedAt)
     );
   }
   return namedAsQuoted(sentence, at, from, to, quote, quotedAt);

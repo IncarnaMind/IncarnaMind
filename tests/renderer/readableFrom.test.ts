@@ -4,6 +4,7 @@ import {
   type ReadableLibrary,
   readableFrom,
 } from "../../src/renderer/src/components/documentOrFolder";
+import { documentOf } from "../helpers/storeDocuments";
 
 /*
  * What a sentence's Document actions may open or read for a Note (#1554): ⌘K, the assistant and
@@ -76,8 +77,19 @@ describe("A Document a Note's sentence may take now", () => {
     const { readableNow } = await import("../../src/renderer/src/readableDocuments");
     useAppStore.setState({
       minds: [note("meeting", "wall"), note("elsewhere", null)],
-      documents: [{ ...document("transcript"), meetingMindId: "meeting" } as never],
-      library: { groups: [folder("wall", "Client A", true)], assignments: [] } as never,
+      documents: [documentOf("transcript", { meetingMindId: "meeting" })],
+      library: {
+        groups: [folder("wall", "Client A", true)],
+        deletedGroups: [],
+        assignments: [],
+        settings: {
+          classifier: { kind: "automatic" },
+          automatic: false,
+          organizeWith: null,
+          taggingStopped: [],
+        },
+        automaticDefault: false,
+      },
     });
     expect(readableNow("meeting", { kind: "document", id: "transcript" })).toBe(true);
     expect(readableNow("elsewhere", { kind: "document", id: "transcript" })).toBe(false);

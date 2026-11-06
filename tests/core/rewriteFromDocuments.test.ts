@@ -58,7 +58,7 @@ describe("A rewrite is kept", () => {
     });
   });
 
-  test("when the line's one figure reads as a year, which is still the figure the line gives", () => {
+  test("when the line's one figure is a measure whose digits look like a year", () => {
     expect(
       rewritten(
         "The lot is 1,800 square feet.",
@@ -983,7 +983,7 @@ describe("A rewrite changes only the value that differs", () => {
 const SENTENCE = "Rent is 1100 dollars monthly.";
 const LINE = "Rent is 1250 dollars monthly.";
 
-/** A Note whose one sentence carries a check that found `LINE` saying something different. */
+/** A Note whose one sentence carries a check that found `line` saying something different. */
 async function noteWithCheck(
   generate: (call: GenerateCall) => { text: string },
   change:
@@ -991,6 +991,7 @@ async function noteWithCheck(
     | ((evidence: CitationAttributes) => Partial<ClaimCheckAttributes>) = {},
   text = SENTENCE,
   cites = false,
+  line = LINE,
 ) {
   const calls: GenerateCall[] = [];
   const model = scriptedModel(() => ({ text: "" }), {
@@ -1001,13 +1002,13 @@ async function noteWithCheck(
     },
   });
   const { core, client, mind, documents } = await setUpWithDocuments(model, [
-    { name: "Rent.md", contents: `# Rent\n\n${LINE}` },
+    { name: "Rent.md", contents: `# Rent\n\n${line}` },
   ]);
   const [rent] = documents;
   if (!rent) throw new Error("The Document wasn't added.");
   const cited = await core.citeSelection({
     documentId: rent.id,
-    parts: [{ unit: null, text: LINE }],
+    parts: [{ unit: null, text: line }],
   });
   const evidence: CitationAttributes = {
     ...cited,
@@ -1098,6 +1099,29 @@ describe("rewriteFromDocuments", () => {
       await same.core.rewriteFromDocuments({ mindId: same.mindId, checkId: "check-rent" }),
     ).toEqual({ kind: "same" });
     expect(same.calls).toHaveLength(1);
+  });
+
+  test("keeps an amount the Passage gives a year for, and writes a measure whose digits look like one", async () => {
+    const year = await noteWithCheck(
+      () => ({ text: "Change 1: 500\nTo 1: 2025" }),
+      { text: "The grant was 500." },
+      "The grant was 500.",
+      false,
+      "The grant was in 2025.",
+    );
+    expect(
+      await year.core.rewriteFromDocuments({ mindId: year.mindId, checkId: "check-rent" }),
+    ).toEqual({ kind: "kept" });
+    const measure = await noteWithCheck(
+      () => ({ text: "Change 1: 1,800\nTo 1: 2025" }),
+      { text: "The lot is 1,800 square feet." },
+      "The lot is 1,800 square feet.",
+      false,
+      "The lot is 2025 square feet.",
+    );
+    expect(
+      await measure.core.rewriteFromDocuments({ mindId: measure.mindId, checkId: "check-rent" }),
+    ).toMatchObject({ kind: "rewritten", correction: { choices: [{ wording: "2025" }] } });
   });
 
   test("keeps the sentence when the model's words aren't the Passage's", async () => {

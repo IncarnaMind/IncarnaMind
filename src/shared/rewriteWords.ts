@@ -327,6 +327,19 @@ const figuresAt = (text: string): { at: number; end: number; period: boolean }[]
   });
 };
 
+/**
+ * Whether the line's one figure is a period ("in 2025", 2025 年), which no rewrite writes for
+ * another figure, and not a measure whose digits only look like one: a unit after it ("2025
+ * square feet") makes it a measure.
+ */
+export function givesAPeriod(quote: string): boolean {
+  const [figure] = figuresAt(quote);
+  if (!figure?.period) return false;
+  const written = quote.slice(figure.at, figure.end);
+  const unit = /^\s*(\p{Script=Han}|\p{L}{2,})/u.exec(quote.slice(figure.end))?.[1];
+  return unit === undefined || isPeriod(`${written}${unit}`);
+}
+
 /** The numbers `text` writes outside `at` to `end`, which a rewrite there leaves as they are. */
 const numbersOutside = (text: string, at: number, end: number): string[] =>
   [...text.matchAll(NUMBERS)]
@@ -381,6 +394,7 @@ export function mayRewrite(sentence: string, quote: string): boolean {
   const aFigure =
     quoted !== undefined &&
     more.length === 0 &&
+    !givesAPeriod(quote) &&
     sameSet(directionsIn(sentence), directionsIn(quote)) &&
     figuresAt(sentence).some(
       ({ at, end, period }) =>
