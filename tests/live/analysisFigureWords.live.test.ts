@@ -458,6 +458,9 @@ test.skipIf(!RUNS || (!SCRIPTED && KEY === undefined)).each(CASES.map((held) => 
         REPORT,
         `${JSON.stringify({ name: held.name, language: held.language, kind: held.kind, source: set.kind, shape: held.shape.kind, right: held.right, outcome, disagrees, sentence: read.sentence, rows, badge, home, written: read.written, said: held.sentence, heard, spent: Number(spent().toFixed(4)) })}\n`,
       );
+    // A Note whose figure no check reached would read "held" while testing nothing.
+    expect(read.sentence).not.toBe("none");
+    expect(rows.length).toBeGreaterThan(0);
     if (!held.right) expect(outcome).toBe("held");
   },
 );
