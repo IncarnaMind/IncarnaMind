@@ -81,6 +81,7 @@ import { sentenceAround } from "./citationSentence";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
 import { CheckMarkIcon, CheckStateIcon, ClaimMarkIcon } from "./icons";
 import {
+  AssistantFoldedContext,
   InFootnoteContext,
   JudgedAnswerContext,
   MindIdContext,
@@ -181,6 +182,8 @@ export function CitationView({
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
   const keptInside = useKeptInside(attributes.documentId);
+  /** Its card waits while the assistant is folded, and comes back with it (#2270). */
+  const assistantFolded = useContext(AssistantFoldedContext);
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
   const state = citationState(attributes, documents, kept, keptInside);
@@ -585,6 +588,7 @@ export function CitationView({
         tabIndex={-1}
       />
       {open &&
+        !assistantFolded &&
         marker.current &&
         // In the body, not the editor: ProseMirror must not see the card's events.
         createPortal(

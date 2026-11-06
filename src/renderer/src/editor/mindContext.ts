@@ -18,6 +18,12 @@ export const JudgedAnswerContext = createContext<{ id: string; conversationId: s
 );
 
 /**
+ * The assistant this is drawn in is folded (#2270): its Citations keep their
+ * cards open but keep them out of sight, and they come back with the assistant.
+ */
+export const AssistantFoldedContext = createContext(false);
+
+/**
  * Where a Mind's composer is drawn: the assistant's composer slot, given only
  * to the Mind the assistant reads (see `MindTab`, `assistantTabOf`). Null for
  * every other Mind on screen, and until the slot is there.

@@ -29,6 +29,7 @@ import type {
   SettingsPatch,
   Skill,
   Tag,
+  WindowLayout,
 } from "../../core/api";
 import { EXAMPLE_GROUPS } from "../../core/api";
 import { TranslatableError } from "../../core/errors";
@@ -357,9 +358,10 @@ export interface AppState extends LayoutSlice {
   showSettingsPage(page: SettingsPage): void;
   /**
    * Shows a Document in a Document tab (see `OpenDocumentHow`), optionally at a
-   * page range, highlighting a quote (Citations).
+   * page range, highlighting a quote (Citations), with the layout once it is
+   * there (#2270 reads it when a Citation's page opens).
    */
-  openDocument(location: DocumentLocation, how?: OpenDocumentHow): void;
+  openDocument(location: DocumentLocation, how?: OpenDocumentHow): Promise<WindowLayout | null>;
   updateSettings(patch: SettingsPatch): Promise<void>;
   /** Changes pane widths on screen only, e.g. while dragging a divider. */
   previewLayout(layout: Partial<DeviceSettings>): void;
@@ -1679,7 +1681,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 where: { in: "side", ...(how.from && { from: how.from }) },
                 focus: merged && !how.stay,
               };
-      void get().changeLayout(change);
+      return get().changeLayout(change);
     },
 
     openSettings(page, at) {

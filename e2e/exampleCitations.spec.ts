@@ -10,6 +10,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  showAssistant,
   welcomeStep as step,
 } from "./app";
 
@@ -64,6 +65,13 @@ async function expectCitedPage(
 ): Promise<void> {
   const chip = answer.getByTestId("citation-chip").nth(index);
   await expect(chip).toHaveAttribute("data-check", "found");
+  await showAssistant(window);
+  // A card left open by the Citation before this one waits inside the folded assistant; close it.
+  const card = window.getByTestId("citation-card");
+  if ((await card.count()) > 0) {
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+  }
   await pointAndClick(window, chip);
   await expect(window.getByTestId("viewer-removed")).toHaveCount(0);
   await expect(window.getByTestId("viewer-title")).toHaveText(document);
