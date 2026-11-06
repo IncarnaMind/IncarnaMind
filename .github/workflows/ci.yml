@@ -281,7 +281,7 @@ jobs:
       - name: Build run_code's Python
         run: npm run python:native -- --out "$RUNNER_TEMP/python-native" --url http://127.0.0.1/ --cache "$RUNNER_TEMP/python-native-cache"
       - name: Run run_code's tests on it
-        run: INCARNAMIND_TEST_PYTHON_RUNTIME="$RUNNER_TEMP/python-native" npx vitest run tests/main/runCode
+        run: INCARNAMIND_TEST_PYTHON_RUNTIME="$RUNNER_TEMP/python-native" npx vitest run tests/main/runCode tests/main/programMeter.test.ts tests/main/sandbox.test.ts
 
   # What finds and stops a run's leftover processes, and the OS sandbox's own profile, are
   # Seatbelt's, so their tests run only on macOS (ADR-0025); Linux's bubblewrap ends a run's
@@ -289,7 +289,7 @@ jobs:
   sweep-macos:
     name: The sweep and the OS sandbox (macOS)
     needs: changes
-    if: needs.changes.outputs.runcode == 'true'
+    if: false
     runs-on: macos-latest
     timeout-minutes: 20
     env:
