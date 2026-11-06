@@ -27,6 +27,7 @@ The reports behind #2365's real-model evidence, produced by
 | `pre-currency-guard.txt` | after main's merge, before the bare-number currency guard | 8, one wrong (EN currency: £900,000,000) | $0.0124 |
 | `final-c381a8a37.txt` | the reviewed FIX head, all eight acceptable | 8 | $0.0129 |
 | `final-bf6caf571.txt` | the Delta FIX head (before the part-prefix guard, which doesn't touch these cases), all eight acceptable | 8 | $0.0130 |
+| `final-12fdac05b.txt` | the pushed head, all eight acceptable | 8 | $0.0127 |
 
-Total for the five runs: **$0.0739**. Each report ends with its run's requests, input and output
+Total for the six runs: **$0.0866**. Each report ends with its run's requests, input and output
 tokens and spend; that last line is the ledger.
