@@ -293,6 +293,50 @@ test.each([
   },
 );
 
+// protects=under the heading a next page repeats, its first line may be the short end of the sentence that ran on, and the quote across it is found (#2504), in English and Chinese; fails_when=a short end reads not found; no_claim=a real end of about the heading's own length, the named cost below.
+test.each([
+  [
+    "en",
+    EN,
+    "(continued)",
+    ["returned.", "Goods must be sent back with a receipt within 30 days of delivery."],
+    "The notice says “no fee is charged when goods are returned” [^1].",
+  ],
+  [
+    "zh",
+    ZH,
+    "（续）",
+    ["费用。", "退回时须出示收据；收据丢失的，可凭订单号到门店服务台补开收据后再办理退货手续。"],
+    "通知写明“退回货物时不收取任何费用”[^1]。",
+  ],
+] as const)(
+  "the short end of the sentence under the repeated heading (%s): found",
+  async (language, text, mark, rest, quoted) => {
+    const file = twoPages(language, text.first, [`${text.heading} ${mark}`], rest);
+    const citation = await citationOf(
+      { file, query: text.query, question: text.question, quote: text.quote },
+      quoted,
+    );
+    expect(citation).toMatchObject(FOUND);
+    expect(citation.quotedWords).toMatchObject({ runsOnTo: { kind: "page", from: 2 } });
+  },
+);
+
+// protects=the cost of telling a list's next item from the end of a sentence (#2504): a real end of about the heading's own length under it on the next page reads as a list's next item, and the quote stays not found, as on main; fails_when=it reads found, so a list item of that length would too; no_claim=none beyond protects.
+test("a real end of the sentence of about the heading's own length under it: not found, the named cost", async () => {
+  const file = twoPages(
+    "en",
+    EN.first,
+    [`${EN.heading} (continued)`],
+    ["returned within 30 days.", "A receipt is required for every return and every refund."],
+  );
+  const citation = await citationOf(
+    { file, query: EN.query, question: EN.question, quote: EN.quote },
+    EN.quoted,
+  );
+  expect(citation).toMatchObject(NOT_FOUND);
+});
+
 test("a short list on the cited page, an item above an item of about its length: not found", async () => {
   const first = [
     "Section 4 Returns and refunds",

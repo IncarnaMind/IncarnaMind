@@ -1394,9 +1394,10 @@ const CONTINUED =
 const MAX_HEADING_LINES = 3;
 const MAX_HEADING_CHARACTERS = 200;
 /**
- * How much longer than a heading the line under it is, on both pages: a paragraph comes under a
- * heading, while a list's lines follow each other at about one length ("Aspirin 81 mg" above
- * "Lisinopril 10 mg"), so a list item is never left out.
+ * How much longer than a heading the line under it on the cited page is, a paragraph's, while a
+ * list's lines follow each other at about one length ("Aspirin 81 mg" above "Lisinopril 10 mg").
+ * On the next page the line under it may be the short end of the sentence that ran on, or a
+ * paragraph's, but not a line of about its own length, a list's next item.
  */
 const UNDER_HEADING = 1.5;
 const CJK_CHARACTER = new RegExp(`[${CJK}]`, "gu");
@@ -1431,14 +1432,14 @@ function withoutContinuedHeading(
   const heading = read.slice(0, count).map((line) => line.replace(CONTINUED, ""));
   if (heading.join("").length > MAX_HEADING_CHARACTERS || !heading.every(headingSized)) return null;
   const last = (heading[count - 1] as string).trim().length;
-  const under = (line: string | undefined) => (line ?? "").trim().length >= last * UNDER_HEADING;
-  // Heading-shaped on the next page: a paragraph, not a list's next item, comes under it.
-  if (!under(read[count])) return null;
+  const length = (line: string | undefined) => (line ?? "").trim().length;
+  const after = length(read[count]);
+  if (after > last / UNDER_HEADING && after < last * UNDER_HEADING) return null;
   const own = cited.split("\n");
   const at = own.findIndex(
     (_, start) =>
       heading.every((line, index) => lineKey(own[start + index] ?? "") === lineKey(line)) &&
-      under(own[start + count]),
+      length(own[start + count]) >= last * UNDER_HEADING,
   );
   if (at < 0) return null;
   return {
