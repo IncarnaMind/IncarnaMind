@@ -2169,10 +2169,7 @@ function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
 
 /** New text's words and signs as `charsOf` reads a paragraph's, each character where it is in that text. */
 function newCharsOf(tokens: readonly NewToken[]): { chars: string; at: number[] } {
-  const text = tokens
-    .map((token) => token.text ?? (token.node?.name === BREAK ? "\n" : ""))
-    .join("");
-  return readChars(unitsOf(text, 0));
+  return readChars(unitsOf(tokens.map((token) => token.text ?? "").join(""), 0));
 }
 
 /** A letter or digit of a word that runs on without spaces, unlike a Chinese character. */
