@@ -1,6 +1,6 @@
 /**
  * Held-out cases for the rules a rewrite with what the Documents say keeps to (#1554), written
- * from the rules alone, before they changed, in four rounds (the later three marked below): each pairs a sentence and a scripted reply with the
+ * from the rules alone, before they changed, in five rounds (the later four marked below): each pairs a sentence and a scripted reply with the
  * quote the check found, and says what a careful reader would allow. A figure or a name is
  * written only when the quote says it of the same thing, in the same terms; "same" only when the
  * sentence already gives the quote's value; otherwise the sentence stays. The names are invented.
@@ -671,6 +671,65 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     quote: "展厅面积为 2020 平方米。",
     kind: "rewritten",
   },
+  // Written after the eighth review, before the rules changed again: a year-shaped figure is a
+  // measure only with a measure's mark, a currency before it or a unit after it; prose after
+  // it, a calendar word around it or full-width digits keep it a year.
+  {
+    id: "a-year-before-prose",
+    language: "en",
+    sentence: "The bonus was 300 after the review.",
+    reply: "Change 1: 300\nTo 1: 2024",
+    quote: "The bonus was in 2024 after the review.",
+    kind: "kept",
+  },
+  {
+    id: "a-year-in-full-width-digits",
+    language: "en",
+    sentence: "The fee was 600.",
+    reply: "Change 1: 600\nTo 1: ２０２４",
+    quote: "The fee was in ２０２４.",
+    kind: "kept",
+  },
+  {
+    id: "a-year-before-a-quarter",
+    language: "en",
+    sentence: "Sales peaked at 400 units.",
+    reply: "Change 1: 400\nTo 1: 2023",
+    quote: "Sales peaked at 2023 Q3.",
+    kind: "kept",
+  },
+  {
+    id: "a-fiscal-year-zh",
+    language: "zh-CN",
+    sentence: "预算期为 3 财年。",
+    reply: "Change 1: 3\nTo 1: 2026",
+    quote: "预算期为 2026 财年。",
+    kind: "kept",
+  },
+  {
+    id: "an-amount-in-a-currency",
+    language: "en",
+    sentence: "The filing fee is $1,800.",
+    reply: "Change 1: $1,800\nTo 1: $2025",
+    quote: "The filing fee is $2025.",
+    kind: "rewritten",
+  },
+  {
+    id: "a-length-in-one-letter",
+    language: "en",
+    sentence: "The track is 1800 m long.",
+    reply: "Change 1: 1800\nTo 1: 2025",
+    quote: "The track is 2025 m long.",
+    kind: "rewritten",
+  },
+  {
+    id: "a-count-of-people-zh",
+    language: "zh-CN",
+    sentence: "礼堂可容纳 1800 人。",
+    reply: "Change 1: 1800\nTo 1: 2020",
+    quote: "礼堂可容纳 2020 人。",
+    kind: "rewritten",
+  },
 ];
 
 /**
@@ -788,6 +847,36 @@ export const REWRITE_OFFER_CASES: readonly RewriteOfferCase[] = [
     id: "a-measure-that-looks-like-a-year-zh",
     sentence: "展厅面积为 1800 平方米。",
     quote: "展厅面积为 2020 平方米。",
+    offered: true,
+  },
+  {
+    id: "a-year-before-prose",
+    sentence: "The bonus was 300 after the review.",
+    quote: "The bonus was in 2024 after the review.",
+    offered: false,
+  },
+  {
+    id: "a-year-in-full-width-digits",
+    sentence: "The fee was 600.",
+    quote: "The fee was in ２０２４.",
+    offered: false,
+  },
+  {
+    id: "a-fiscal-year-zh",
+    sentence: "预算期为 3 财年。",
+    quote: "预算期为 2026 财年。",
+    offered: false,
+  },
+  {
+    id: "an-amount-in-a-currency",
+    sentence: "The filing fee is $1,800.",
+    quote: "The filing fee is $2025.",
+    offered: true,
+  },
+  {
+    id: "a-length-in-one-letter",
+    sentence: "The track is 1800 m long.",
+    quote: "The track is 2025 m long.",
     offered: true,
   },
 ];
