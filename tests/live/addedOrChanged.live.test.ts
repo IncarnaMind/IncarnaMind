@@ -284,9 +284,14 @@ describe.each(LIVE)("Added or changed, live: $name", (live) => {
             const answer = await ask(core, request.ask, mind.id);
             await client.settled();
             const did = didOf(client.doc.getXmlFragment(MIND_CONTENT_FIELD));
+            // None of these asks only for text to go, so an edit that says it does is wrong (#2356).
+            const removesOnly = answer.toolCalls
+              .filter((call) => call.tool === "edit_mind")
+              .map((call) => call.input.removes_only ?? "absent");
             rows.push(
               [
                 `- ${request.name} (asks ${request.asks}): did ${did}`,
+                `removes_only ${JSON.stringify(removesOnly)}`,
                 `marks added ${SAYS_ADDED.test(answer.text)}, changed ${SAYS_CHANGED.test(answer.text)}`,
                 `reply ${JSON.stringify(answer.text)}`,
               ].join(" · "),
