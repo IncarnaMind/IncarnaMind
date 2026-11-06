@@ -86,4 +86,3 @@ export const retrievesFirst = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);
-
