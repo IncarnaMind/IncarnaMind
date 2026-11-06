@@ -653,6 +653,15 @@ export function decisionsOn(doc: Y.Doc, request: string): { accepted: number; re
   return { accepted: count(DECISION_KEYS.accept), rejected: count(DECISION_KEYS.reject) };
 }
 
+/** Whether the assistant said a request's change was asked only to take text out, or revises one that was (#2356). */
+export function removesOnlyAsked(doc: Y.Doc, request: string): boolean {
+  const made = proposalRequestOf(doc, request);
+  return (
+    (made?.source === "edit-with-ai" || made?.source === "answer-added") &&
+    made.removesOnly === true
+  );
+}
+
 /** Records what made a request's Proposals, in the Mind's document beside its Blocks. */
 export function recordProposalRequest(doc: Y.Doc, request: string, made: ProposalRequest): void {
   requestsOf(doc).set(request, { ...made });
@@ -691,6 +700,7 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
       ...(requested && { requested }),
       ...(action && { action }),
       ...(typeof record.instruction === "string" && { instruction: record.instruction }),
+      ...(record.removesOnly === true && { removesOnly: true }),
     };
   }
   if (source === "comparison-table") {

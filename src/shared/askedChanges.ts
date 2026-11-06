@@ -18,7 +18,12 @@ import {
   type SentenceChanges,
 } from "../core/api";
 import { diffSteps, splitWords } from "../core/proposals/diff";
-import { proposalRequestOf, readProposalAttribute, readProposalRef } from "./proposals";
+import {
+  proposalRequestOf,
+  readProposalAttribute,
+  readProposalRef,
+  removesOnlyAsked,
+} from "./proposals";
 import {
   changedText,
   sentenceChanges,
@@ -179,8 +184,7 @@ export function whyItWaits(
     return { why: "most-of-their-text" };
   }
   for (const request of requests) {
-    const made = proposalRequestOf(doc, request);
-    if (made?.source !== "edit-with-ai" || made.removesOnly !== true) continue;
+    if (!removesOnlyAsked(doc, request)) continue;
     const { before, after } = changedText(blocks, request);
     // A removal the reply revised in place left no Proposals of its own: its revision is judged instead.
     if (before.length === 0 && after.length === 0) continue;

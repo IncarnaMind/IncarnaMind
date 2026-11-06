@@ -62,6 +62,7 @@ import {
   pendingProposals,
   readProposalAttribute,
   recordProposalRequest,
+  removesOnlyAsked,
   resolveProposals,
   waitingChanges,
 } from "../../../shared/proposals";
@@ -2128,11 +2129,14 @@ export function mindTools(options: MindToolsOptions): {
       again = "call edit_mind again",
       remade,
       action,
+      removesOnly = false,
     }: {
       again?: string;
       // Written again from every Document (#1149): over words the User typed in since, it waits.
       remade?: { typedSince: boolean };
       action?: EditAction;
+      /** The assistant said the User asked only for text to go (#2356). */
+      removesOnly?: boolean;
     } = {},
   ): Written & { change: MindChange; dropped: number } => {
     const alone = withoutPointersBack(markdown);
@@ -2152,12 +2156,18 @@ export function mindTools(options: MindToolsOptions): {
     const ids = minds.edit(mind.id, (note) => {
       const asked =
         over.kind === "own" ? ownAsked(note, over) : remade === undefined || !remade.typedSince;
+      const doc = note.doc;
+      // A revision of a removal asked only to take text out is held to it, as the removal was.
+      const removing =
+        removesOnly ||
+        (over.kind === "own" &&
+          doc !== null &&
+          over.requests.some((each) => removesOnlyAsked(doc, each)));
       // `settle` writes Citations recorded later into the Blocks written, which only Blocks added whole can take.
       const written =
         over.kind === "own"
           ? replaceOwn(note, over, blocks.map(createElement), request, ownRequests)
           : replaceApplied(note, over, blocks, request, { whole: unrecorded > 0 });
-      const doc = note.doc;
       if (!written || !doc) return written;
       setOriginsOf(doc, request, written, options.origin);
       recordProposalRequest(doc, request, {
@@ -2167,6 +2177,7 @@ export function mindTools(options: MindToolsOptions): {
         createdAt: options.now().toISOString(),
         ...(action && { action }),
         ...(asked && { requested: remade ? ("write" as const) : ("edit" as const) }),
+        ...(removing && { removesOnly: true }),
       });
       return written;
     });
@@ -2357,7 +2368,10 @@ export function mindTools(options: MindToolsOptions): {
           addedRefused = true;
           throw new Refusal({ kind: "uncited", mindId: mind.id }, addedUncitedMessage(mind, added));
         }
-        const written = writeOver(toolCallId, mind, over, newText, retry, { action });
+        const written = writeOver(toolCallId, mind, over, newText, retry, {
+          action,
+          removesOnly: input.removes_only === true,
+        });
         const checked = await checkWritten(toolCallId, written, signal);
         const went = ` (${lengthSaid(before, newText, times)})`;
         return [

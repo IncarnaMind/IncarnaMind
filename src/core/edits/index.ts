@@ -35,6 +35,7 @@ import {
   pendingProposals,
   proposalRequestOf,
   recordProposalRequest,
+  removesOnlyAsked,
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
@@ -1252,11 +1253,17 @@ export function createEdits(options: EditsOptions) {
       input.beforeWriting();
       const blockIds = content.edit(input.mindId, (mind) => {
         const asked = input.requested !== null && ownAsked(mind, own);
+        const doc = mind.doc;
+        // A revision of a removal asked only to take text out is held to it, as the removal was.
+        const removing =
+          input.removesOnly === true ||
+          (doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each)));
         const ids = replaceOwn(mind, own, revised, request, input.ownRequests);
-        if (ids && mind.doc) {
-          recordProposalRequest(mind.doc, request, {
+        if (ids && doc) {
+          recordProposalRequest(doc, request, {
             ...made,
             ...(asked && { requested: "edit" }),
+            ...(removing && { removesOnly: true }),
           });
         }
         return ids;

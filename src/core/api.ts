@@ -673,6 +673,8 @@ export type ProposalRequest =
       requested?: RequestedChange;
       action?: EditAction;
       instruction?: string;
+      /** It revises a change the assistant said was asked only to take text out, and is held to it (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
