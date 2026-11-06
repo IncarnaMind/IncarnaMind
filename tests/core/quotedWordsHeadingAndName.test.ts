@@ -1,13 +1,11 @@
 /**
- * Two more readings of the words an Answer puts in quotation marks (#2504), written before the
- * code they gate: words that run on to the next page across a heading it repeats with a
- * continuation mark, and a Document's name in quotation marks, a part of it at a separator. Each
- * positive has decoys in the same state, which stay not found.
+ * One more reading of the words an Answer puts in quotation marks (#2504), written before the code
+ * it gates: words that run on to the next page across a heading it repeats with a continuation
+ * mark. Each positive has decoys in the same state, which stay not found.
  */
 import { describe, expect, test } from "vitest";
 import {
   askAndFinish,
-  citationsIn,
   citingModel,
   onlyCitation,
   type ShownPassage,
@@ -196,140 +194,22 @@ test("a heading the cited page doesn't have, the quote starting late on its last
   expect(citation).toMatchObject(NOT_FOUND);
 });
 
-describe("A Document's name in quotation marks: a part of it at a separator", () => {
-  const named = (name: string, body: string, quote: string): Case => ({
-    file: { name: `${name}.md`, contents: `# Entry\n\n${body}\n` },
-    query: quote.slice(0, 12),
-    question: "What does it say?",
-    quote,
-  });
-  const ESG = named(
-    "维基百科-环境、社会和公司治理",
-    "赤道原則是金融機構採用的風險管理框架，用於確定和評估專案融資中的風險。",
-    "赤道原則是金融機構採用的風險管理框架",
-  );
-  const bank = named(
-    "Annual Climate Risk Report - Northwind Bank",
-    "The bank expects physical climate risk to rise in every region it lends to.",
-    "The bank expects physical climate risk to rise",
-  );
-
-  test("a part of the shown name, split at a dash between CJK words: a name, not a quote", async () => {
-    expect(
-      await citationOf(
-        ESG,
-        "按照“环境、社会和公司治理”条目，“赤道原則是金融機構採用的風險管理框架”[^1]。",
-      ),
-    ).toMatchObject(FOUND);
-  });
-
-  test("a part of the shown name, split at a spaced dash: a name, not a quote", async () => {
-    expect(
-      await citationOf(
-        bank,
-        "The “Annual Climate Risk Report” says “the bank expects physical climate risk to rise” [^1].",
-      ),
-    ).toMatchObject(FOUND);
-  });
-
-  test("a part with a word or a number changed: not found", async () => {
-    expect(
-      await citationOf(
-        ESG,
-        "按照“环境、社会和公司监督”条目，“赤道原則是金融機構採用的風險管理框架”[^1]。",
-      ),
-    ).toMatchObject(NOT_FOUND);
-    expect(
-      await citationOf(
-        bank,
-        "The “Annual Climate Risk Review” says “the bank expects physical climate risk to rise” [^1].",
-      ),
-    ).toMatchObject(NOT_FOUND);
-  });
-
-  test("only a piece of a part: not found", async () => {
-    expect(
-      await citationOf(
-        ESG,
-        "按照“社会和公司治理”条目，“赤道原則是金融機構採用的風險管理框架”[^1]。",
-      ),
-    ).toMatchObject(NOT_FOUND);
-  });
-
-  test("a hyphen inside a word doesn't split, nor does a middle dot", async () => {
-    const guide = named(
-      "Cooling-off Period Guide for Buyers",
-      "A buyer may cancel within fourteen days of signing the contract.",
-      "A buyer may cancel within fourteen days",
+test.each([["(continued from previous page)"], ["(续)"]])(
+  "the continuation mark %s counts too",
+  async (mark) => {
+    // A Chinese mark is drawn with the Chinese font, which draws the English heading too.
+    const next = [`${EN.heading} ${mark}`, ...EN.rest];
+    const file: SourceFile = {
+      name: "Returns policy.pdf",
+      contents: buildPdf([
+        { lines: EN.first },
+        mark === "(续)" ? { chineseLines: next } : { lines: next },
+      ]),
+    };
+    const citation = await citationOf(
+      { file, query: EN.query, question: EN.question, quote: EN.quote },
+      EN.quoted,
     );
-    expect(
-      await citationOf(
-        guide,
-        "The “off Period Guide for Buyers” says “a buyer may cancel within fourteen days” [^1].",
-      ),
-    ).toMatchObject(NOT_FOUND);
-    const works = named(
-      "列夫·托尔斯泰作品选集",
-      "这部选集收录了作者晚年写成的十二篇短篇小说。",
-      "这部选集收录了作者晚年写成的十二篇短篇小说",
-    );
-    expect(
-      await citationOf(
-        works,
-        "按照“托尔斯泰作品选集”的介绍，“这部选集收录了作者晚年写成的十二篇短篇小说”[^1]。",
-      ),
-    ).toMatchObject(NOT_FOUND);
-  });
-
-  test("only the name of the Document its own record cites: another cited Document's name part is not found", async () => {
-    const model = citingModel({
-      query: "Equator Principles physical climate risk",
-      records: (passages: ShownPassage[]) => [
-        {
-          marker: 1,
-          passage: passages.find((each) => each.text.includes("Equator"))?.id,
-          quote: "The Equator Principles are a risk management framework",
-        },
-        {
-          marker: 2,
-          passage: passages.find((each) => each.text.includes("physical climate"))?.id,
-          quote: "The bank expects physical climate risk to rise",
-        },
-      ],
-      answer:
-        "As the “Annual Climate Risk Report” puts it, “the Equator Principles are a risk management framework” [^1]. The bank expects that risk to rise [^2].",
-    });
-    const { core, client, mind } = await setUpWithDocuments(model, [
-      {
-        name: "Project finance notes.md",
-        contents:
-          "# Notes\n\nThe Equator Principles are a risk management framework for project finance.\n",
-      },
-      {
-        name: "Annual Climate Risk Report - Northwind Bank.md",
-        contents: "# Report\n\nThe bank expects physical climate risk to rise.\n",
-      },
-    ]);
-    const { answerId } = await askAndFinish(
-      core,
-      client,
-      mind.id,
-      "What are the Equator Principles?",
-    );
-    expect(citationsIn(client, answerId)[0]).toMatchObject(NOT_FOUND);
-  });
-
-  test("a fullwidth dash splits", async () => {
-    const fullwidth = named(
-      "资料－环境、社会和公司治理",
-      "赤道原則是金融機構採用的風險管理框架，用於確定和評估專案融資中的風險。",
-      "赤道原則是金融機構採用的風險管理框架",
-    );
-    expect(
-      await citationOf(
-        fullwidth,
-        "按照“环境、社会和公司治理”条目，“赤道原則是金融機構採用的風險管理框架”[^1]。",
-      ),
-    ).toMatchObject(FOUND);
-  });
-});
+    expect(citation).toMatchObject(FOUND);
+  },
+);

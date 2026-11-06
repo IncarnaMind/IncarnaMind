@@ -1388,7 +1388,7 @@ export interface CitationSessionEvents {
  * typographic, so it names no content: a repeated line without one is never left out.
  */
 const CONTINUED =
-  /\s*(?:\((?:continued|cont\.|cont'd|contd\.?)\)|（(?:续|續|续上页|續上頁|接上页|接上頁)）)$/iu;
+  /\s*(?:\((?:continued|continued from previous page|cont\.|cont'd|contd\.?|续|續)\)|（(?:续|續|续上页|續上頁|接上页|接上頁|承上页|承上頁)）)$/iu;
 /** The most lines, and characters, of a heading a next page repeats that may be left out. */
 const MAX_HEADING_LINES = 3;
 const MAX_HEADING_CHARACTERS = 200;
@@ -1428,21 +1428,6 @@ function withoutContinuedHeading(
     text: lines.slice(count).join("\n"),
     headingEnds: own.slice(0, at + count).join("\n").length,
   };
-}
-
-/**
- * The parts of a Document's name, as the app shows it, at a separator (#2504), each as `nameKey`
- * reads it: its extension taken off, split at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and
- * "_", and at "-" or "–" next to a CJK character, never inside a Latin word ("Cooling-off"). A
- * middle dot doesn't split: it joins a name ("列夫·托尔斯泰").
- */
-function nameParts(name: string): Set<string> {
-  const parts = name
-    .replace(/\.[A-Za-z0-9]{1,5}$/u, "")
-    .split(
-      /\s[-–—―]\s|[|｜－—―_]|(?<=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[-–]|[-–](?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/u,
-    );
-  return new Set(parts.length > 1 ? parts.map(nameKey).filter((part) => part !== "") : []);
 }
 
 export function createCitationSession(
@@ -2422,15 +2407,6 @@ export function createCitationSession(
       );
       for (const { words, markers } of quoted) {
         if (names.has(nameKey(words))) continue;
-        // A part of the name of a Document the sentence's own records cite is a name too.
-        const key = nameKey(words);
-        if (
-          markers.some((marker) => {
-            const record = records.get(marker);
-            return record !== undefined && nameParts(record.source.documentName).has(key);
-          })
-        )
-          continue;
         const cited = [...new Set(markers)].flatMap((marker) => {
           const record = records.get(marker);
           return record
