@@ -378,6 +378,9 @@ test.skipIf(!RUNS || (!SCRIPTED && KEY === undefined)).each(CASES.map((held) => 
     const core = startCore(await createTempDataFolder(), {
       createChatModel: SCRIPTED ? () => scripted : routedChecks(scripted, real, heard),
       analysisRuntime: createFakeAnalysisRuntime({ answer: (job) => answerFor(held, job) }),
+      // The catalog offers the Analysis Tool only to models measured with it; the Answer here is
+      // scripted, and only the check runs on the model.
+      ...(!SCRIPTED && PROVIDER === "deepseek" && { modelFacts: () => ({ analysisTool: true }) }),
     });
     core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
     const saved = await core.saveChatProvider({
