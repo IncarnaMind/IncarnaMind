@@ -17,7 +17,7 @@ interface Given {
   headings?: string;
   /** The figure's unit as the Analysis gave it, and its words for its input and columns. */
   unit?: string;
-  vocabulary?: string[];
+  vocabulary?: readonly string[];
   /** The heading above the sentence, and the lines above it in its section. */
   heading?: string;
   above?: string;
@@ -51,7 +51,7 @@ function figureIn(
         ? { input: "orders", columns: ["amount"], rows: [[2, 41]], count: 40, how: given.how }
         : null,
       code: "",
-      ...(given.vocabulary && { vocabulary: given.vocabulary }),
+      ...(given.vocabulary && { vocabulary: [...given.vocabulary] }),
       ...(given.unit !== undefined && { unit: given.unit }),
       ...(given.heading !== undefined && { heading: given.heading }),
       ...(given.above !== undefined && { above: given.above }),
@@ -302,6 +302,9 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
       holds("North-West's total amount is 9,450.", "9,450", { label: "Total amount, North West" }),
     ).toBe(true);
     expect(holds("North's share (%) is 26.6.", "26.6", { label: "Share (%), North" })).toBe(true);
+    expect(
+      holds("North's amount/order is 236.", "236", { label: "Amount/order, North", how: "mean" }),
+    ).toBe(true);
     expect(holds("9,450", "9,450", { ...north, headings: "North · Total amount" })).toBe(true);
   });
 
@@ -407,6 +410,96 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
       }),
     ).toBe(true);
     expect(holds(said(), "9,450", { ...north, unit: "%", heading: "Growth (%)" })).toBe(true);
+    expect(holds(said(), "9,450", { ...north, unit: "GBP", heading: "Amounts (GBP)" })).toBe(true);
+    expect(holds(said(), "9,450", { ...north, unit: "kg", heading: "Amounts (GBP)" })).toBe(false);
+  });
+
+  test("any symbol, the accounts' minus and a dash or bracket that touches the figure; never one that only punctuates", () => {
+    for (const sentence of [
+      "North's total amount is ▼9,450.",
+      "North's total amount is △9,450.",
+      "North's total amount is ˗9,450.",
+      "North's total amount is 〜9,450.",
+      "North's total amount is 9,450٪.",
+      "North's total amount is (9,450).",
+      "North's total amount is – 9,450.",
+      "North's total amount is 9,450–9,800.",
+    ])
+      expect(holds(sentence, "9,450", north), sentence).toBe(false);
+    expect(holds("北部地区金额合计为▼9,450。", "9,450", zhNorth)).toBe(false);
+    expect(holds("北部地区金额合计为（9,450）。", "9,450", zhNorth)).toBe(false);
+    for (const sentence of [
+      "North — total amount: 9,450.",
+      "Total amount – North: 9,450.",
+      "North's total amount (all orders) is 9,450.",
+    ])
+      expect(holds(sentence, "9,450", north), sentence).toBe(true);
+    // A range's dash after the figure, up to the typed number that ends it, makes it one end.
+    const range = "North's total amount is 9,450–9,800.";
+    const first = figureIn(range, "9,450", north);
+    const end = { ...figureIn(range, "9,800", north, "typed"), analysisRecord: undefined };
+    expect(namingHolds(range, first, [first, end])).toBe(false);
+    const both = "North's total amount is 9,450, against 9,800.";
+    const alone = figureIn(both, "9,450", north);
+    const other = { ...figureIn(both, "9,800", north, "typed"), analysisRecord: undefined };
+    expect(namingHolds(both, alone, [alone, other])).toBe(true);
+    // A dash in one of the Analysis's own words is no sign for the figure.
+    const dated = { ...north, vocabulary: [...vocabulary, "2025-26"] };
+    expect(holds("North's total amount is -9,450.", "9,450", dated)).toBe(false);
+  });
+
+  test("the figure's own currency's sign is its own, in a cell's headings too", () => {
+    const euros = { label: "Total amount, North", how: "sum", unit: "EUR", vocabulary } as const;
+    const shown = "€9.45 thousand";
+    expect(holds(shown, shown, { ...euros, headings: "North · Total amount (€)" })).toBe(true);
+    expect(holds(shown, shown, { ...euros, headings: "North · Total amount ($)" })).toBe(false);
+    expect(holds("9,450", "9,450", { ...north, headings: "North · Total amount (€)" })).toBe(false);
+  });
+
+  test("a target in any verb, and one item's total only where the item stands for one", () => {
+    expect(holds("North's total amount is to total 9,450.", "9,450", north)).toBe(false);
+    for (const [sentence, given] of [
+      ["North recorded an order total amount of 9,450.", north],
+      ["North had a sales total amount of 9,450.", { ...north, vocabulary: ["sales", "amount"] }],
+      [
+        "North had an order count of 40.",
+        { label: "Order count, North", how: "count", vocabulary },
+      ],
+    ] as const)
+      expect(holds(sentence, sentence.match(/\d[\d,]*/u)?.[0] ?? "", given), sentence).toBe(true);
+  });
+
+  test("more ways a text says its scale or currency, and words that only look like one", () => {
+    const zh = "北部地区金额合计为 9,450。";
+    for (const before of [
+      "Amounts are in units of 1,000.",
+      "Figures ×1,000.",
+      "Amounts are in US dollar terms.",
+      "Fares are in cents.",
+      "Changes are in basis points.",
+      "Figures are in hundreds.",
+    ])
+      expect(holds(said(), "9,450", north, `${before} ${said()}`), before).toBe(false);
+    for (const before of [
+      "以下金额以 1,000 元为单位。",
+      "单位：10,000元",
+      "以下金额以美金计。",
+      "金额单位为分。",
+    ])
+      expect(holds(zh, "9,450", zhNorth, `${before}${zh}`), before).toBe(false);
+    for (const before of [
+      "Thousands of customers ordered.",
+      "Margins rose by a few percent.",
+      "Our PHP storefront and CAD team moved.",
+    ])
+      expect(holds(said(), "9,450", north, `${before} ${said()}`), before).toBe(true);
+    for (const before of [
+      "数以万计的客户下了单。",
+      "上千人下单。",
+      "以万和店为例，",
+      "北部（千禧店）成为千万用户的选择。",
+    ])
+      expect(holds(zh, "9,450", zhNorth, `${before}${zh}`), before).toBe(true);
   });
 });
 

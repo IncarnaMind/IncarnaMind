@@ -1668,6 +1668,8 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       [
         `# ${WORDS[language].title} (${language === "en" ? "in thousands" : "单位：千元"})`,
         "",
+        `## ${WORDS[language].caption}`,
+        "",
         words.right,
       ].join("\n\n"),
       false,
@@ -1678,6 +1680,24 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     await titled.client.settled();
     expect(analysisVerdicts(titled.client)).toEqual(["not-checked analysis-unnamed"]);
     titled.core.close();
+  });
+
+  test("the lines above are its own section's, and a table's caption is its table's (#2544)", async () => {
+    const scale =
+      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
+    const caption = language === "en" ? "Totals (in thousands)" : "合计（单位：千元）";
+    const table = "| A | B |\n| --- | --- |\n| x | 1 |";
+    const { core, madeId, client } = await walked(
+      language,
+      lines("## A", scale, "## B", words.right, caption, table, words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "supported"]);
+    core.close();
   });
 
   test("code never makes a Supported: the judge's other stays Unsupported and its unclear Not checked, whatever the sentence's symbols (#2544)", async () => {

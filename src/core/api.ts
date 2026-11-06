@@ -6881,7 +6881,7 @@ export interface CheckFigure {
     heading?: string;
     /**
      * The lines above the sentence in its section and every heading it is under, nearest first,
-     * which may state a scale, currency or unit for its numbers too (#2544).
+     * that state a scale, currency or percent, which a reader takes for its numbers too (#2544).
      */
     above?: string;
   };

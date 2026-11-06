@@ -114,18 +114,24 @@ const HAN_LINKING = [
 ];
 
 /** "Has to reach", "is to be", "was to have reached": what the figure must be or was to be, never what it is. */
-const AFTER_TO = new Set([...LINKING_VERBS, "reach"]);
+const AFTER_TO = new Set([...LINKING_VERBS, "reach", "total", "totals", "amount", "sum"]);
 
 /** Words before an item of the input that make the figure one item's ("a North order's total"), or a rate per item. */
 const ONE_ITEM = new Set(["a", "an", "one", "each", "per", "every"]);
 
 /**
- * A sign, a symbol or a unit's mark: none links a figure to its name, so each is read as a word the
- * Analysis's own words must account for (#2544). "=" says what "equals" does. A dash between two
- * letters joins a word ("North-West"); anywhere else it is a sign.
+ * A sign, a symbol or a unit's mark ("▼", "△" and "±" too): none links a figure to its name, so each
+ * is read as a word the Analysis's own words must account for (#2544). "=" says what "equals" does.
  */
-const SYMBOL = /[\p{Sm}\p{Sc}%％‰‱#＃°℃℉^/／\\]|(?<!\p{L})[-‐‑‒–—―﹣－]|[-‐‑‒–—―﹣－](?!\p{L})/gu;
+const SYMBOL = /[\p{S}%％‰‱٪﹪#＃/／\\]/gu;
 const SAYS_EQUALS = /[=＝]/u;
+/**
+ * A dash or a bracket is punctuation ("North — total amount: 9,450") until it touches the figure:
+ * "- 9,450" and "8,000–9,450" give it a sign or make it a range, and "(9,450)" is the accounts' minus.
+ */
+const DASH_BEFORE = /[\p{Pd}−]\s*$/u;
+const DASH_AFTER = /^\s*[\p{Pd}−]/u;
+const BRACKETED = { before: /[(（]\s*$/u, after: /^\s*[)）]/u };
 
 const symbolsIn = (text: string) =>
   [...text.matchAll(SYMBOL)].map(([symbol]) => symbol).filter((each) => !SAYS_EQUALS.test(each));
@@ -234,7 +240,7 @@ function clauseOf(
   claim: string,
   target: CheckFigure,
   figures: readonly CheckFigure[],
-): string | undefined {
+): { before: string; after: string } | undefined {
   const places = placesOf(claim, target, figures);
   const index = places.findIndex((place) => place.id === target.id);
   const place = places[index];
@@ -248,7 +254,7 @@ function clauseOf(
   const cut = before ? breakAfter(before.to, place.from) : 0;
   const from = before ? (cut < place.from ? cut + 1 : before.to) : 0;
   const to = next ? breakAfter(place.to, next.from) : claim.length;
-  return `${claim.slice(from, place.from)} ${claim.slice(place.to, to)}`;
+  return { before: claim.slice(from, place.from), after: claim.slice(place.to, to) };
 }
 
 /** "Has to reach", "is to be": the clause makes the figure a target, not its value. */
@@ -264,15 +270,19 @@ function saysTarget(clause: string): boolean {
 function saysOneItem(
   clause: string,
   items: readonly string[],
-  terms: readonly { term: string; exact: boolean }[],
+  known: readonly { term: string; exact: boolean }[],
 ): boolean {
   const tokens = tokensOf(clause);
+  const isKnown = (token: string | undefined) =>
+    token !== undefined &&
+    known.some(({ term, exact }) => !HAN.test(term) && isTerm(token, term, exact));
   return tokens.some((token, at) => {
     if (!ONE_ITEM.has(token.toLowerCase())) return false;
-    for (const next of tokens.slice(at + 1)) {
-      if (items.some((item) => isTerm(next, item, false))) return true;
-      if (!terms.some(({ term, exact }) => !HAN.test(term) && isTerm(next, term, exact)))
-        return false;
+    for (let next = at + 1; next < tokens.length; next++) {
+      const word = tokens[next] ?? "";
+      // "an order total" and "a sales total" name the total; "an order's total" is one order's.
+      if (items.some((item) => isTerm(word, item, false))) return !isKnown(tokens[next + 1]);
+      if (!isKnown(word)) return false;
     }
     return false;
   });
@@ -285,19 +295,42 @@ type Frame =
   | { kind: "percent" }
   | { kind: "unsure" };
 
+/** A scale word said of the text: "in thousands", "as millions of litres", "(bn)"; never "thousands of customers". */
 const SCALE_WORDS =
-  /(?<!\p{L})(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?|bn|mn|['’]000s?|000s)(?!\p{L})/giu;
-// 千, 万 and 亿 are a scale after a bracket, a colon, 以, 为 or 单位, or before a unit, never inside a
-// name (万和路) or as a unit's own prefix (千克, 千米, 千瓦时).
-const HAN_SCALES =
-  /(?<=(?:[（(：:为以]|单位)\s*)(?:十亿|千万|百万|亿|万|千)(?![克米瓦升焦卡伏赫帕兆])|(?:十亿|千万|百万|亿|万|千)(?=元|美元|欧元|英镑|日元|港元|港币|人民币|人次|人|件|次|个|吨|包|单|小时|为单位|计|[）)])/gu;
+  /(?<!\p{L})(?:(?<=(?:\bin|\bas|[(（])\s*)(?:thousands?|millions?|billions?|trillions?|hundreds?|lakhs?|crores?)|(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?)(?!\s+of\b)|bn|mn|['’]000s?|000s)(?!\p{L})/giu;
+// 千, 万 and 亿 are a scale only before a unit or the end of their words, after a bracket, a colon,
+// 以, 为 or 单位, or before a currency or a counted unit: never inside a name (万和路, 千禧店), as a
+// unit's own prefix (千克, 千米, 千瓦时) or in a rough count (数以万计, 上千人).
+const HAN_UNIT =
+  "元|美元|欧元|英镑|日元|港元|港币|人民币|美金|台币|人次|人|件|次|个|吨|包|单|小时|为单位|计";
+const HAN_SCALES = new RegExp(
+  `(?<![上数近逾几成])(?<!数以)(?<=(?:[（(：:为以]|单位)\\s*)(?:十亿|千万|百万|亿|万|千)(?=${HAN_UNIT}|[）)\\s，。；：、,.;:]|$)|(?<![上数近逾几成])(?<!数以)(?:十亿|千万|百万|亿|万|千)(?=${HAN_UNIT})`,
+  "gu",
+);
+/** A scale written as its number: "in units of 1,000", "×1,000", "单位：10,000元", "以 1,000 元为单位". */
+const NUMBER_SCALES =
+  /(?:(?<!\p{L})units? of|(?<!\p{L})[x×✕]|单位[:：为是]?)\s*(1(?:[,，]?000)+|10[,，]?000|100)(?!\d)|以\s*(1(?:[,，]?000)+|10[,，]?000|100)\s*(?:元|美元)?\s*(?:为单位|计)/giu;
 const CURRENCY_SIGNS = /(?:US|HK|NZ|NT|A|C|S)?[$＄]|[€£¥￥₹₩₽₺฿₫₱]/gu;
-const CURRENCY_CODES = new RegExp(`(?<![A-Za-z])(?:${CURRENCY_ISO_CODES})(?![A-Za-z])`, "gu");
+/** A currency's code said of the text ("in USD", "(GBP)", "USD millions"); "a PHP storefront" names none. */
+const CURRENCY_CODES = new RegExp(
+  `(?<=(?:\\bin|\\bof|[(（]|单位[:：]?|以)\\s*)(?:${CURRENCY_ISO_CODES})(?![A-Za-z])|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES})(?=\\s*(?:[)）]|thousands?|millions?|billions?|bn\\b|mn\\b|m\\b|k\\b|['’]?000))`,
+  "gu",
+);
 const HAN_CURRENCIES =
-  /新加坡元|瑞士法郎|新台币|人民币|美元|港币|港元|欧元|日元|英镑|澳元|加元|韩元|卢布|(?<=(?:[十百千万亿以：:（(]|单位[为是]?)\s*)元|元(?=为单位|计|[）)])/gu;
+  /新加坡元|瑞士法郎|新台币|人民币|美元|美金|港币|港元|欧元|日元|日币|英镑|澳元|加元|韩元|韩币|卢布|台币|(?<=(?:[十百千万亿以：:（(]|单位[为是]?)\s*)元|元(?=为单位|计|[）)])/gu;
+const HAN_CURRENCY_CODES: Readonly<Record<string, string>> = {
+  美金: "USD",
+  台币: "TWD",
+  日币: "JPY",
+  韩币: "KRW",
+};
 const CURRENCY_NAMES =
-  /(?<![A-Za-z])(?:in|of)\s+((?:US |U\.S\. |Hong Kong |Australian |Canadian |Singapore )?dollars|euros?|pounds(?: sterling)?|sterling|yen|yuan|renminbi|rupees)(?![A-Za-z])/giu;
-const PERCENT_WORDS = /[%％‰]|(?<!\p{L})(?:per ?cent|percentages?)(?!\p{L})|百分/giu;
+  /(?<![A-Za-z])((?:US |U\.S\. |Hong Kong |Australian |Canadian |Singapore )?dollars?|euros?|(?:Swiss )?francs?|sterling|yen|yuan|renminbi|rupees?|(?<=\b(?:in|of)\s+)pounds?(?: sterling)?)(?![A-Za-z])/giu;
+/** A currency's smaller unit, "in cents", "以分计": never what an Analysis's figure is in. */
+const SUBUNITS =
+  /(?<![A-Za-z])(?:cents?|pence)(?![A-Za-z])|(?<=(?:以|单位[为是:：]?)\s*)分(?=计|[）)\s，。；：]|$)/gu;
+const PERCENT_WORDS =
+  /[%％‰٪﹪]|(?<!\p{L})(?:percentages|percentage points?|basis points?|bps|(?:in|as) (?:a )?(?:percent(?:ages?)?|per ?cent))(?!\p{L})|百分比|百分点/giu;
 
 const unitFrames = (unit: FigureUnit): Frame[] =>
   unit.kind === "currency"
@@ -332,15 +365,30 @@ function framesIn(text: string): Frame[] {
         : []),
       ...unitFrames(stated.unit),
     ]),
-    ...named(SCALE_WORDS, (word) => ({ kind: "scale", exponent: scaleExponent(word) })),
+    ...named(SCALE_WORDS, (word) => ({
+      kind: "scale",
+      exponent: /^hundreds?$/iu.test(word) ? 2 : scaleExponent(word),
+    })),
     ...named(HAN_SCALES, (word) => ({ kind: "scale", exponent: scaleExponent(word) })),
+    ...[...text.matchAll(NUMBER_SCALES)].map(
+      ([, number, after]): Frame => ({
+        kind: "scale",
+        exponent: (number ?? after ?? "").replace(/[^0]/gu, "").length,
+      }),
+    ),
     ...named(CURRENCY_SIGNS, (sign) => ({ kind: "currency", code: signCode(sign) })),
     ...named(CURRENCY_CODES, (code) => ({ kind: "currency", code: currencyNamed(code) ?? code })),
-    ...named(HAN_CURRENCIES, (word) => ({ kind: "currency", code: currencyNamed(word) ?? "CNY" })),
+    ...named(HAN_CURRENCIES, (word) => ({
+      kind: "currency",
+      code: HAN_CURRENCY_CODES[word] ?? currencyNamed(word) ?? "CNY",
+    })),
     ...named(CURRENCY_NAMES, (word) => ({
       kind: "currency",
-      code: /dollars$/iu.test(word) ? (currencyNamed(word) ?? "$") : (currencyNamed(word) ?? word),
+      code: /dollars?$/iu.test(word)
+        ? (currencyNamed(word) ?? currencyNamed(`${word}s`) ?? "$")
+        : (currencyNamed(word) ?? currencyNamed(`${word}s`) ?? word),
     })),
+    ...named(SUBUNITS, () => ({ kind: "unsure" })),
     ...named(PERCENT_WORDS, () => ({ kind: "percent" })),
     ...unsettledScales(text).map((): Frame => ({ kind: "unsure" })),
   ];
@@ -364,24 +412,25 @@ const sameFrame = (a: Frame, b: Frame) =>
       : a.kind === "percent" && b.kind === "percent";
 
 /**
- * Whether every scale, currency and percent said around `figure` (`around`: its paragraph, and the
- * heading, caption and lines above it) is its own, as its shown number, its unit or the Analysis's
- * own words for it, its input and its columns say (#2544). One its run doesn't back makes it
+ * The scale, currency and percent a figure is in, as its shown number, its unit and the Analysis's
+ * own words for it, its input and its columns say (#2544): any other said around it makes it
  * another figure.
  */
-function framesBacked(figure: CheckFigure, around: readonly string[]): boolean {
+function ownFrames(figure: CheckFigure): Frame[] {
   const record = figure.analysisRecord;
-  const own = [
+  return [
     ...(figure.reading.scale !== 1
       ? [{ kind: "scale" as const, exponent: Math.round(Math.log10(figure.reading.scale)) }]
       : []),
     ...unitFrames(figure.reading.unit),
-    ...[record?.label ?? "", ...(record?.vocabulary ?? []), record?.unit ?? ""].flatMap(framesIn),
+    ...[record?.label ?? "", ...(record?.vocabulary ?? [])].flatMap(framesIn),
+    // The run's unit is a unit by itself: "GBP" says what "(GBP)" does.
+    ...(record?.unit ? framesIn(`(${record.unit})`) : []),
   ];
-  return around.every((text) =>
-    framesIn(text).every((frame) => own.some((each) => sameFrame(frame, each))),
-  );
 }
+
+const backedBy = (frame: Frame, own: readonly Frame[]) =>
+  own.some((each) => sameFrame(frame, each));
 
 /** What of `clause` no label word, word of the Analysis's or linking word accounts for. */
 function unaccounted(clause: string, known: readonly { term: string; exact: boolean }[]): string[] {
@@ -422,7 +471,10 @@ export function namingHolds(
   } catch (error) {
     // The figure reader gave up on a text around it: what it says there is unknown, which never
     // keeps a Supported.
-    console.error("Reading an Analysis figure's words for its check failed:", error);
+    console.error(
+      `Reading the words around Analysis figure ${figure.id} for its check failed:`,
+      error,
+    );
     return false;
   }
 }
@@ -437,8 +489,9 @@ function holdsAsNamed(
   const label = record?.label ?? figure.calculated?.figure.label ?? "";
   const terms = allTerms(termsOf(label));
   if (terms.length === 0) return false;
-  const found = clauseOf(claim, figure, figures);
-  if (found === undefined) return false;
+  const parts = clauseOf(claim, figure, figures);
+  if (parts === undefined) return false;
+  const found = `${parts.before} ${parts.after}`;
   const headings = figure.label ?? "";
   const clause = `${found} ${headings}`;
   if (!terms.every(({ term, exact }) => holds(clause, term, exact))) return false;
@@ -454,6 +507,9 @@ function holdsAsNamed(
     exact: false,
   }));
   const ownSymbols = new Set(symbolsIn([label, ...(record?.vocabulary ?? [])].join(" ")));
+  const own = ownFrames(figure);
+  const symbolBacked = (symbol: string) =>
+    ownSymbols.has(symbol) || framesIn(symbol).some((frame) => backedBy(frame, own));
   const items = [record?.of?.input ?? "", record?.unit ?? ""]
     .flatMap(tokensOf)
     .filter((token) => [...token].length >= 3);
@@ -461,9 +517,14 @@ function holdsAsNamed(
   return (
     unaccounted(found, [...known, ...besideItsNumber]).length === 0 &&
     unaccounted(headings, [...known, ...HEADING_WORDS]).length === 0 &&
-    symbolsIn(`${found} ${headings}`).every((symbol) => ownSymbols.has(symbol)) &&
+    symbolsIn(`${found} ${headings}`).every(symbolBacked) &&
+    !DASH_BEFORE.test(parts.before) &&
+    !DASH_AFTER.test(parts.after) &&
+    !(BRACKETED.before.test(parts.before) && BRACKETED.after.test(parts.after)) &&
     !saysTarget(found) &&
-    !(totals && saysOneItem(found, items, terms)) &&
-    framesBacked(figure, [paragraph, record?.heading ?? "", record?.above ?? ""])
+    !(totals && saysOneItem(found, items, known)) &&
+    [paragraph, record?.heading ?? "", record?.above ?? ""].every((text) =>
+      framesIn(text).every((frame) => backedBy(frame, own)),
+    )
   );
 }

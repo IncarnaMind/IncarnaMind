@@ -24,6 +24,7 @@ import { perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   CALCULATED_FIGURE_NODE,
   type CellFigurePlace,
   CHART_NODE,
@@ -284,35 +285,39 @@ const ABOVE_CHARACTERS = 2000;
  * The lines above the Block holding `node` in its section, and each heading it is under up to the
  * Note's title, nearest first, that state a scale, currency or percent: "All amounts below are in
  * thousands" there is said of its figures too (#2544). Only those are kept, since the check's record
- * keeps them. A table or chart above states its own cells' units, not the sentence's.
+ * keeps them. A table or chart above, with its caption, states its own cells' units, not the
+ * sentence's. The section's lines are read up to a bound; the headings above it always are.
  */
 function linesAbove(node: Y.XmlElement): { above?: string } {
   let block: Y.XmlElement = node;
   while (block.parent instanceof Y.XmlElement) block = block.parent;
   const lines: string[] = [];
   let under = Number.POSITIVE_INFINITY;
-  let length = 0;
-  for (let at = block.prevSibling; at && length < ABOVE_CHARACTERS; at = at.prevSibling) {
+  let read = 0;
+  for (let at = block.prevSibling; at && under > 1; at = at.prevSibling) {
     if (!(at instanceof Y.XmlElement)) continue;
     if (at.nodeName === "heading") {
       const level = Number(at.getAttribute("level")) || 1;
       if (level >= under) continue;
       under = level;
-    } else if (
-      under !== Number.POSITIVE_INFINITY ||
-      at.nodeName === "table" ||
-      at.nodeName === CHART_NODE
-    )
+    } else if (under !== Number.POSITIVE_INFINITY || read >= ABOVE_CHARACTERS || !saysOfText(at))
       continue;
-    const words = plainText(at)
-      .trim()
-      .slice(0, ABOVE_CHARACTERS - length);
-    if (words && statesAFrame(words)) lines.push(words);
-    length += words.length;
-    if (under === 1) break;
+    const words = plainText(at).trim();
+    const near = at.nodeName === "heading" ? words : words.slice(-(ABOVE_CHARACTERS - read));
+    if (at.nodeName !== "heading") read += near.length;
+    if (near && statesAFrame(near)) lines.push(near);
   }
   return lines.length > 0 ? { above: lines.join("\n") } : {};
 }
+
+/** A line of the Note's own text, not a table, a chart or a table's caption. */
+const saysOfText = (line: Y.XmlElement) =>
+  line.nodeName !== "table" &&
+  line.nodeName !== CHART_NODE &&
+  !(line.nextSibling instanceof Y.XmlElement && line.nextSibling.nodeName === "table") &&
+  !line
+    .toArray()
+    .some((part) => part instanceof Y.XmlElement && part.nodeName === ANALYSIS_TABLE_NODE);
 
 /** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
 function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
