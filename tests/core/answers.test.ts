@@ -594,6 +594,28 @@ describe("Stopping and regenerating", () => {
     expect(promptOf(model, 1)).toEqual(promptOf(model, 0));
   });
 
+  // protects=a regenerated Answer over one the User added a sentence to reads in Chinese as in English: one word replaced and their sentence taken out are most of its words, so it reads whole, before and after (#1028, #2356); fails_when=the two languages read it differently; no_claim=what a real model writes.
+  test("regenerating an Answer the User has edited reads whole in Chinese too", async () => {
+    const model = streamingModel(["港口六点开放。", "港口七点开放。"]);
+    const { core, mind, writer, reader } = await setUp(model);
+    const asked = question("港口几点开放？");
+    writeMind(writer, [asked]);
+    const answerId = await askAndWait(core, writer, mind.id, asked.attrs.id);
+    const answerElement = writer.blocks.get(1) as Y.XmlElement;
+    const paragraph = answerElement.get(0) as Y.XmlElement;
+    (paragraph.get(0) as Y.XmlText).insert("港口六点开放。".length, "这是我自己向港务处确认的。");
+    await writer.settled();
+
+    await core.regenerateAnswer({ mindId: mind.id, answerId });
+    await answerEnded(core, answerId);
+
+    expect(shownWithChanges(reader).slice(1, 2)).toEqual([
+      "[-港口六点开放。这是我自己向港务处确认的。-]{+港口七点开放。+}",
+    ]);
+    await resolveChanges(writer, "reject");
+    expect(answerText(reader, answerId)).toBe("港口六点开放。这是我自己向港务处确认的。");
+  });
+
   test("regenerating an Answer the User has edited gives changes over their version, which stays until they accept one", async () => {
     const model = streamingModel([
       "Generated text.",

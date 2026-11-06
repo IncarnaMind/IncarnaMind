@@ -512,7 +512,7 @@ test("asked to write in a Mind not in view, the assistant opens it in a tab besi
 
   const answer = await askInAssistant(window, "Add a note about the meeting to Project plan");
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
   );
   await expect(tabs.filter({ hasText: "Q3 review" })).toHaveCount(1);
   await expect(tabs.filter({ hasText: "Project plan" })).toHaveCount(1);
@@ -522,7 +522,7 @@ test("asked to write in a Mind not in view, the assistant opens it in a tab besi
     "Hire a designer.",
     "a note about the meeting",
   ]);
-  await expect(editor.getByTestId("applied-count")).toHaveText("Wrote 1 paragraph");
+  await expect(editor.getByTestId("applied-count")).toHaveText("Added 1 paragraph");
   await expect(answer.getByTestId("mind-changes-review")).toHaveText("Review changes");
   await pointAndClick(window, answer.getByTestId("mind-changes-review"));
   await expect(editor.locator(".applied-new")).toHaveText("a note about the meeting");
@@ -634,7 +634,7 @@ test("a core-applied Answer can be written again without losing or duplicating t
     "Q3 review",
   );
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
   );
   const firstRequest = await changeRequestOf(window);
   await openSteps(window, answer);
@@ -655,7 +655,7 @@ test("a core-applied Answer can be written again without losing or duplicating t
   ]);
   await expect(editor.locator("ins.proposal-insert, del.proposal-delete")).toHaveCount(0);
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
   );
   await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
   await expect(editor.locator(":scope > p")).toHaveText(["Hire a designer."]);
@@ -681,7 +681,7 @@ test("a change in a Mind that isn't open applies in the core and survives a rest
   await writeMind(window, "Q3 review", ["The quarter was good."]);
   const answer = await askInAssistant(window, "Add a note about the meeting to Project plan");
   await expect(answer.getByTestId("mind-changes-title")).toHaveText(
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
   );
   await pointAndClick(window, answer.getByTestId("mind-changes-undo"));
   await expect(window.getByTestId("mind-editor").locator(":scope > p")).toHaveText([
