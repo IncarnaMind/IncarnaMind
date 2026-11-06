@@ -1341,7 +1341,36 @@ console.log(JSON.stringify(results));
         .toEqual([]);
     }, 600_000);
 
-    test("one run can't blind or delay another: a descriptor flood is stopped at its folder limit, and a memory hog beside a many-file run is stopped at its memory limit", async () => {
+    test("the file-descriptor cap keeps a flood from hiding a run's unlinked files, so it is stopped at its folder limit", async () => {
+      const { tempDir, home, data } = await setUp();
+      const reports: string[] = [];
+      const executor = osExecutor({
+        tempDir,
+        denyRead: [home, data],
+        env: environment(),
+        reportError: (error) => reports.push(String(error)),
+      });
+      const random = 'open(my $r, "<", "/dev/urandom") or die;';
+      // Five helpers each duplicate an unlinked regular file far past the 1024 cap, then it writes
+      // 250 MB of unlinked files against a 200 MB folder limit. Without the cap the open files
+      // overflow lsof's buffer and hide the unlinked bytes; with it, lsof stays readable and the
+      // run is stopped at the folder limit. run_code always sets a file limit, as this does.
+      const flood = [
+        "for i in 1 2 3 4 5; do",
+        '  perl -e \'open(my $b, "+>", "base") or die; unlink "base"; my @d; for (1..120000) { open(my $c, "<&", $b) or last; push @d, $c; } sleep 40\' &',
+        "done",
+        `perl -e '${random} my @f; for my $i (1..5) { open(my $g, ">", "gone$i") or die; read($r, my $b, 50_000_000); syswrite($g, $b) or die; unlink "gone$i"; push @f, $g; } sleep 40'`,
+      ].join("\n");
+      const flooded = await executor.run({
+        ...shell(flood),
+        timeoutMs: 30_000,
+        limits: { fileBytes: 100_000_000, folderBytes: 200_000_000 },
+      });
+      expect(flooded).toMatchObject({ limit: "folder", timedOut: false });
+      expect(reports).toEqual([]);
+    }, 600_000);
+
+    test("a memory hog beside a run that makes 150,000 files is stopped at its memory limit, not left to its timeout", async () => {
       const { tempDir, home, data } = await setUp();
       const reports: string[] = [];
       const executor = osExecutor({
@@ -1353,26 +1382,11 @@ console.log(JSON.stringify(results));
       const run = (script: string, limits: { memoryBytes?: number; folderBytes?: number }) =>
         executor.run({ ...shell(script), timeoutMs: 30_000, limits });
       const random = 'open(my $r, "<", "/dev/urandom") or die;';
-      // Five helpers each try to duplicate one descriptor far past the 1024 cap, then it writes
-      // unlinked files past the folder limit: the cap keeps lsof readable, so it is stopped.
-      const flood = [
-        "for i in 1 2 3 4 5; do",
-        '  perl -e \'open(my $f, "<", "/dev/null") or die; my @d; for (1..120000) { open(my $c, "<&", $f) or last; push @d, $c; } sleep 40\' &',
-        "done",
-        `perl -e '${random} my @f; for my $i (1..20) { open(my $g, ">", "gone$i") or die; read($r, my $b, 50_000_000); syswrite($g, $b) or die; unlink "gone$i"; push @f, $g; } sleep 40'`,
-      ].join("\n");
-      const flooded = await run(flood, { folderBytes: 200_000_000 });
-      expect(flooded).toMatchObject({ limit: "folder", timedOut: false });
-
-      // While one run makes 150,000 empty files (far under its limit), a memory hog beside it is
-      // still stopped at its memory limit, not left to run to its timeout.
       const [many, hog] = await Promise.all([
         run("for i in $(seq 1 150000); do : > f$i; done; sleep 20", { folderBytes: 200_000_000 }),
         run(
           `perl -e '${random} my @h; for (1..80) { read($r, my $b, 100_000_000); push @h, $b; } sleep 20'`,
-          {
-            memoryBytes: 2_000_000_000,
-          },
+          { memoryBytes: 2_000_000_000 },
         ),
       ]);
       expect(hog).toMatchObject({ limit: "memory", timedOut: false });

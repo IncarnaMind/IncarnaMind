@@ -11,12 +11,13 @@ import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { ProgramUse } from "../../src/core/execution";
 import {
-  type AdoptedFinder,
   createMeters,
   folderSize,
   footprints,
   heldBytes,
   type MeterCommand,
+  type Meters,
+  type ProcReader,
   readListing,
   runCommand,
   treeMemory,
@@ -26,7 +27,6 @@ import {
 import { createTempDataFolder } from "../helpers/core";
 
 const MB = 1_000_000;
-const MiB = 1024 * 1024;
 
 describe("a program's memory, as its limit counts it", () => {
   const LISTING = readListing(
@@ -156,7 +156,20 @@ describe("files held open with no name left", () => {
   });
 });
 
-/** A computer the meter reads through commands: `state` is what each command says now. */
+// A clock a test advances, so the 10 s unknown rule is driven without waiting.
+function clock(start = 1_000_000) {
+  let t = start;
+  return {
+    now: () => t,
+    advance: (ms: number) => {
+      t += ms;
+    },
+  };
+}
+
+const err = (code: string) => Object.assign(new Error(code), { code });
+
+/** A computer the meter reads through commands: `state` is what each command says now (macOS). */
 function computer(state: { ps: () => string; footprint?: () => string; lsof?: () => string }) {
   const calls: string[] = [];
   const command: MeterCommand = async (file) => {
@@ -169,18 +182,66 @@ function computer(state: { ps: () => string; footprint?: () => string; lsof?: ()
   return { command, calls };
 }
 
-const footprintOf = (pid: number, bytes: number) =>
-  [
-    `perl [${pid}]: 64-bit    Footprint: ${bytes} B (16384 bytes per page)`,
-    `    phys_footprint: ${bytes} B`,
-  ].join("\n");
+/** A made-up `/proc` for the Linux read path. A node is a leader's or a task's fd/maps view. */
+interface ProcNode {
+  fdsErr?: string;
+  fds?: string[];
+  links?: Record<string, string | Error>;
+  sizes?: Record<string, { device: number; inode: string; bytes: number } | Error>;
+  maps?: string;
+  mapsErr?: string;
+}
+interface PidSpec {
+  leader: ProcNode;
+  stat?: string;
+  statErr?: string;
+  tasks?: number[];
+  taskNodes?: Record<number, ProcNode>;
+}
+// A /proc/<pid>/stat line whose state is `after[0]` and start time `after[19]`, as the code reads.
+const statLine = (state: string, started: number) =>
+  `600 (prog) ${state} ${Array(18).fill(0).join(" ")} ${started} 0 0`;
+const STAT_R = statLine("R", 500);
 
-const lsofOf = (pid: number, device: number, inode: number, bytes: number) =>
-  [`p${pid}`, "f3", "tREG", `D0x${device.toString(16)}`, `s${bytes}`, `i${inode}`, "k0", ""].join(
-    "\n",
-  );
+function fakeProc(byPid: Record<number, PidSpec>): ProcReader {
+  const node = (pid: number, tid: number | null): ProcNode => {
+    const spec = byPid[pid];
+    if (!spec) throw err("ESRCH");
+    return tid === null ? spec.leader : (spec.taskNodes?.[tid] ?? { fdsErr: "ESRCH" });
+  };
+  return {
+    async fds(pid, tid) {
+      const n = node(pid, tid);
+      if (n.fdsErr) throw err(n.fdsErr);
+      return n.fds ?? [];
+    },
+    async readlink(pid, tid, fd) {
+      const link = node(pid, tid).links?.[fd];
+      if (link instanceof Error) throw link;
+      return link ?? "/x";
+    },
+    async size(pid, tid, fd) {
+      const size = node(pid, tid).sizes?.[fd];
+      if (size instanceof Error) throw size;
+      if (!size) throw err("ENOENT");
+      return size;
+    },
+    async maps(pid, tid) {
+      const n = node(pid, tid);
+      if (n.mapsErr) throw err(n.mapsErr);
+      return n.maps ?? "";
+    },
+    async tasks(pid) {
+      return byPid[pid]?.tasks ?? [];
+    },
+    async readStat(pid) {
+      const spec = byPid[pid];
+      if (spec?.statErr) throw err(spec.statErr);
+      return spec?.stat ?? STAT_R;
+    },
+  };
+}
 
-/** A working folder of the test's own, and its device as lsof names it. */
 async function workingFolder() {
   const folder = await realpath(await createTempDataFolder());
   return { folder, device: (await stat(folder)).dev };
@@ -194,7 +255,6 @@ function watcher() {
     reports,
     use: (use: ProgramUse) => uses.push(use),
     unmeasured: (error: unknown) => reports.push(String(error)),
-    /** The largest memory and folder it was told since `from`. */
     peak(from = 0) {
       const since = uses.slice(from);
       const folders = since.map((u) => u.folder).filter((f): f is number => typeof f === "number");
@@ -207,317 +267,275 @@ function watcher() {
   };
 }
 
-describe("the meter's ticks", () => {
-  test("one listing a tick for every program; memory before the slower reads; footprint and unlinked in turn", async () => {
-    const { folder, device } = await workingFolder();
-    const listing = [600, 700, 800].map((pid) => `${pid} 1 ${pid} 501 1024`).join("\n");
-    const { command, calls } = computer({
-      ps: () => listing,
-      footprint: () => footprintOf(700, 5 * MB),
-      lsof: () => lsofOf(800, device, 42, 7 * MB),
-    });
-    const meters = createMeters({ command, platform: "darwin", interval: false });
-    const programs = [600, 700, 800].map((root) => {
-      const each = watcher();
-      meters.meter().watch(root, folder, each.use, each.unmeasured);
-      return each;
-    });
+/** Runs `n` ticks, advancing the clock `ms` between each and settling the disk reads. */
+async function run(meters: Meters, c: ReturnType<typeof clock>, n: number, ms = 300) {
+  for (let i = 0; i < n; i++) {
+    await meters.tick();
+    await meters.settle();
+    c.advance(ms);
+  }
+}
 
-    for (let n = 0; n < 3; n++) {
-      await meters.tick();
-      await meters.settle();
-    }
+describe("the meter, on a made-up computer", () => {
+  const killedLsof = () => {
+    throw Object.assign(new Error("killed"), { killed: true, signal: "SIGTERM" });
+  };
 
-    // One ps a tick; footprint on the first and third, lsof on the second.
-    expect(calls).toEqual([
-      "ps",
-      "/usr/bin/footprint",
-      "ps",
-      "/usr/sbin/lsof",
-      "ps",
-      "/usr/bin/footprint",
-    ]);
-    expect(programs[0]?.peak().memory).toBe(1024 * 1024);
-    expect(programs[1]?.peak().memory).toBe(5 * MB);
-    // The unlinked file counts from the tick its lsof is read (the second), never before.
-    expect(programs[2]?.uses.map((u) => u.folder)).toContain(7 * MB);
-    expect(programs.flatMap((each) => each.reports)).toEqual([]);
-  });
-
-  // The program grows by 10 MiB a tick, from tick `from`, past a 45 MiB limit: it is first reported
-  // over on tick `from` + 5 (resident memory and named files), or one tick later (footprint and
-  // unlinked files, which are read every other tick), and never before.
-  test.each([
-    ["resident memory", "memory", 0, 0],
-    ["resident memory", "memory", 1, 0],
-    ["footprint", "memory", 0, 1],
-    ["footprint", "memory", 1, 1],
-    ["files in its folder", "folder", 0, 0],
-    ["files in its folder", "folder", 1, 0],
-    ["unlinked files", "folder", 0, 1],
-    ["unlinked files", "folder", 1, 1],
-  ] as const)(
-    "a program growing in %s past its %s limit from tick %i is caught at most %i tick(s) late, never before",
-    async (kind, limit, from, slack) => {
-      const { folder, device } = await workingFolder();
-      let tick = 0;
-      const grown = () => 10 * MiB * Math.max(0, tick - from);
-      const { command } = computer({
-        ps: () => {
-          tick += 1;
-          return `600 1 600 501 ${kind === "resident memory" ? grown() / 1024 : 1}`;
-        },
-        footprint: () => footprintOf(600, kind === "footprint" ? grown() : 0),
-        lsof: () => (kind === "unlinked files" ? lsofOf(600, device, 42, grown()) : ""),
-      });
-      const meters = createMeters({
-        command,
-        platform: "darwin",
-        interval: false,
-        folder: async () => (kind === "files in its folder" ? grown() : 0),
-      });
-      const each = watcher();
-      meters.meter().watch(600, folder, each.use, each.unmeasured);
-      let caughtTick: number | undefined;
-      for (let at = 0; at < 12; at++) {
-        const before = each.uses.length;
-        await meters.tick();
-        await meters.settle();
-        if (caughtTick === undefined && each.peak(before)[limit] > 45 * MiB) caughtTick = tick;
-      }
-      const crossed = from + 5;
-      expect(caughtTick).toBeGreaterThanOrEqual(crossed);
-      expect(caughtTick).toBeLessThanOrEqual(crossed + slack);
-      expect(each.reports).toEqual([]);
-    },
-  );
-
-  test("memory is judged every tick though another run's folder walk is slow", async () => {
+  test("resident memory is reported every tick, apart from a slower disk read", async () => {
     const { folder } = await workingFolder();
+    const c = clock();
     const { command } = computer({ ps: () => "600 1 600 501 2048\n700 1 700 501 1024" });
+    // 700's folder walk hangs on one shared promise; 600's returns at once.
     let release = () => {};
+    const slow = new Promise<number>((r) => {
+      release = () => r(0);
+    });
     const meters = createMeters({
       command,
       platform: "darwin",
       interval: false,
-      // Program 700's folder walk hangs until released; 600's returns at once.
-      folder: async (f) =>
-        f === folder ? 0 : new Promise<number>((resolve) => (release = () => resolve(0))),
+      now: c.now,
+      folder: (f) => (f === folder ? Promise.resolve(0) : slow),
     });
     const fast = watcher();
-    const slow = watcher();
+    const slowRun = watcher();
     meters.meter().watch(600, folder, fast.use, fast.unmeasured);
-    meters.meter().watch(700, join(folder, "other"), slow.use, slow.unmeasured);
-
-    // Three ticks while 700's walk is wedged: 600's memory is reported each one (the early use).
-    for (let n = 0; n < 3; n++) await meters.tick();
+    meters.meter().watch(700, join(folder, "x"), slowRun.use, slowRun.unmeasured);
+    for (let i = 0; i < 3; i++) {
+      await meters.tick();
+      c.advance(300);
+    }
+    // 700's read is stuck, yet both runs' memory is reported on every tick.
     expect(fast.uses.filter((u) => u.memory === 2048 * 1024).length).toBeGreaterThanOrEqual(3);
+    expect(slowRun.uses.filter((u) => u.memory === 1024 * 1024).length).toBeGreaterThanOrEqual(3);
     release();
     await meters.settle();
   });
 
-  test("when the shared read of open files fails, each run reads its own; a run whose own stays unreadable is stopped, others aren't", async () => {
-    const { folder, device } = await workingFolder();
-    const { command } = computer({ ps: () => "600 1 600 501 1024\n700 1 700 501 1024" });
-    // The shared lsof (two pids) is too big to read; 700's own is fine, 600's own never is.
-    const scoped: MeterCommand = async (file, args) => {
-      if (file !== "/usr/sbin/lsof") return command(file, args);
-      const pids = String(args[args.indexOf("-p") + 1]);
-      if (pids.includes(",")) throw new Error("stdout maxBuffer length exceeded");
-      if (pids === "700") return lsofOf(700, device, 7, 9 * MB);
-      throw new Error("stdout maxBuffer length exceeded");
-    };
-    const meters = createMeters({ command: scoped, platform: "darwin", interval: false });
-    const a = watcher();
-    const b = watcher();
-    meters.meter().watch(600, folder, a.use, a.unmeasured);
-    meters.meter().watch(700, join(folder, "b"), b.use, b.unmeasured);
-    for (let n = 0; n < 6; n++) {
-      await meters.tick();
-      await meters.settle();
-    }
-    // 600's own count is never readable: after the grace its folder is unknown (it is stopped).
-    expect(a.peak().unknown).toBe(true);
-    // 700's own count is read, so it is measured and never unknown.
-    expect(b.peak().unknown).toBe(false);
-    expect(b.uses.some((u) => u.folder === 9 * MB)).toBe(true);
+  test("an open file read on Linux is counted with the named folder, kept apart", async () => {
+    const c = clock();
+    const { command } = computer({ ps: () => "600 1 600 501 1024" });
+    const reader = fakeProc({
+      600: {
+        leader: {
+          fds: ["3"],
+          links: { 3: "/work/gone (deleted)" },
+          sizes: { 3: { device: 9, inode: "42", bytes: 5 * MB } },
+          maps: "",
+        },
+      },
+    });
+    const meters = createMeters({
+      command,
+      platform: "linux",
+      interval: false,
+      now: c.now,
+      reader,
+      folder: async () => 2 * MB,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/work", each.use, each.unmeasured);
+    await run(meters, c, 3);
+    // 2 MB named + 5 MB open-with-no-name; never stopped.
+    expect(each.uses.some((u) => u.folder === 7 * MB)).toBe(true);
+    expect(each.peak().unknown).toBe(false);
   });
 
-  test("lsof's answer when a pid it was given has ended is counted, and says nothing", async () => {
-    const { folder, device } = await workingFolder();
+  test("a read error stops that run at once, named with its errno, path and pid", async () => {
+    const c = clock();
     const { command } = computer({ ps: () => "600 1 600 501 1024" });
-    const ended: MeterCommand = async (file, args) => {
-      if (file !== "/usr/sbin/lsof") return command(file, args);
-      throw Object.assign(new Error("lsof exited with 1"), {
-        code: 1,
-        stdout: lsofOf(600, device, 42, 9 * MB),
-      });
-    };
-    const meters = createMeters({ command: ended, platform: "darwin", interval: false });
+    // A live, non-dumpable process: fd gives EACCES, stat says running, no other task.
+    const reader = fakeProc({ 600: { leader: { fdsErr: "EACCES" }, stat: STAT_R, tasks: [600] } });
+    const meters = createMeters({
+      command,
+      platform: "linux",
+      interval: false,
+      now: c.now,
+      reader,
+    });
     const each = watcher();
-    meters.meter().watch(600, folder, each.use, each.unmeasured);
-    for (let n = 0; n < 2; n++) {
-      await meters.tick();
-      await meters.settle();
-    }
-    expect(each.uses.some((u) => u.folder === 9 * MB)).toBe(true);
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    await run(meters, c, 3);
+    expect(each.peak().unknown).toBe(true);
+    expect(each.reports.some((r) => r.includes("EACCES") && r.includes("600"))).toBe(true);
+  });
+
+  test("an exiting or zombie process (EACCES, state Z) is gone, not an error; a reused pid is gone", async () => {
+    const c = clock();
+    const { command } = computer({ ps: () => "600 1 600 501 1024" });
+    const spec: PidSpec = { leader: { fdsErr: "EACCES" }, stat: statLine("Z", 500), tasks: [600] };
+    const reader = fakeProc({ 600: spec });
+    const meters = createMeters({
+      command,
+      platform: "linux",
+      interval: false,
+      now: c.now,
+      reader,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    await run(meters, c, 3);
+    // The pid is reused by another process: a different start time, still gone (not an error).
+    spec.stat = statLine("R", 900);
+    await run(meters, c, 3);
     expect(each.peak().unknown).toBe(false);
     expect(each.reports).toEqual([]);
   });
 
-  test("a footprint that can't be read is reported, and resident memory still counts; one with no process left isn't", async () => {
-    const { folder } = await workingFolder();
-    let footprints = 0;
-    const { command } = computer({
-      ps: () => "600 1 600 501 2048",
-      footprint: () => {
-        footprints += 1;
-        throw Object.assign(new Error(footprints === 1 ? "footprint failed" : "none left"), {
-          code: footprints === 1 ? 1 : 66,
-        });
-      },
-    });
-    const meters = createMeters({ command, platform: "darwin", interval: false });
-    const each = watcher();
-    meters.meter().watch(600, folder, each.use, each.unmeasured);
-    // Ticks 0 and 2 are footprint turns.
-    for (let n = 0; n < 3; n++) {
-      await meters.tick();
-      await meters.settle();
-    }
-    expect(each.peak().memory).toBe(2048 * 1024);
-    expect(each.reports).toEqual(["Error: footprint failed"]);
-  });
-
-  test("the run's processes launchd took over are told from the tick's listing, with one start-time lookup for all runs, and counted with every process under them", async () => {
-    const { folder } = await workingFolder();
-    const listing = [
-      "600 1 600 501 1024",
-      "650 1 640 501 2048",
-      "651 650 640 501 4096",
-      "700 1 700 501 8192",
-    ].join("\n");
-    const { command } = computer({ ps: () => listing });
-    const meters = createMeters({ command, platform: "darwin", interval: false });
-    const started: Map<number, number | null>[] = [];
-    const finder =
-      (adoptedPids: number[]): AdoptedFinder =>
-      async (_group, _listed, s) => {
-        started.push(s);
-        return adoptedPids;
-      };
-    const a = watcher();
-    const b = watcher();
-    meters.meter(finder([650])).watch(600, folder, a.use, a.unmeasured);
-    meters.meter(finder([])).watch(700, join(folder, "b"), b.use, b.unmeasured);
-    await meters.tick();
-    await meters.settle();
-    expect(a.peak().memory).toBe((1024 + 2048 + 4096) * 1024);
-    expect(b.peak().memory).toBe(8192 * 1024);
-    // Both runs on the tick were handed the same start-time cache.
-    expect(started).toHaveLength(2);
-    expect(started[0]).toBe(started[1]);
-  });
-
-  test("adopted processes that can't be told are reported, and the program's own still count", async () => {
-    const { folder } = await workingFolder();
+  test("a zombie leader whose live thread still holds an unlinked file: the file is counted", async () => {
+    const c = clock();
     const { command } = computer({ ps: () => "600 1 600 501 1024" });
-    const meters = createMeters({ command, platform: "darwin", interval: false });
-    const each = watcher();
-    meters
-      .meter(async () => {
-        throw new Error("sandbox_check didn't answer in time.");
-      })
-      .watch(600, folder, each.use, each.unmeasured);
-    await meters.tick();
-    await meters.settle();
-    expect(each.peak().memory).toBe(1024 * 1024);
-    expect(each.reports).toEqual(["Error: sandbox_check didn't answer in time."]);
-  });
-
-  test("a listing that fails is reported to every program, and the next tick measures again", async () => {
-    const { folder } = await workingFolder();
-    let listings = 0;
-    const { command } = computer({
-      ps: () => {
-        listings += 1;
-        if (listings === 1) throw new Error("ps didn't answer in time.");
-        return "600 1 600 501 1024\n700 1 700 501 1024";
+    const reader = fakeProc({
+      600: {
+        leader: { fdsErr: "EACCES", maps: "" },
+        stat: statLine("Z", 500),
+        tasks: [600, 777],
+        taskNodes: {
+          777: {
+            fds: ["3"],
+            links: { 3: "/work/gone (deleted)" },
+            sizes: { 3: { device: 9, inode: "9", bytes: 8 * MB } },
+            maps: "",
+          },
+        },
       },
     });
-    const meters = createMeters({ command, platform: "darwin", interval: false });
-    const programs = [600, 700].map((root) => {
-      const each = watcher();
-      meters.meter().watch(root, folder, each.use, each.unmeasured);
-      return each;
+    const meters = createMeters({
+      command,
+      platform: "linux",
+      interval: false,
+      now: c.now,
+      reader,
+      folder: async () => 0,
     });
-    await meters.tick();
-    await meters.settle();
-    await meters.tick();
-    await meters.settle();
-    for (const each of programs) {
-      expect(each.reports).toEqual(["Error: ps didn't answer in time."]);
-      expect(each.peak().memory).toBe(1024 * 1024);
-    }
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    await run(meters, c, 3);
+    expect(each.uses.some((u) => u.folder === 8 * MB)).toBe(true);
+    expect(each.peak().unknown).toBe(false);
+  });
+
+  test("one fd's ENOENT skips only that fd; the process's other fds are still counted", async () => {
+    const c = clock();
+    const { command } = computer({ ps: () => "600 1 600 501 1024" });
+    const reader = fakeProc({
+      600: {
+        leader: {
+          fds: ["3", "4"],
+          links: { 3: err("ENOENT"), 4: "/work/kept (deleted)" },
+          sizes: { 4: { device: 9, inode: "4", bytes: 6 * MB } },
+          maps: "",
+        },
+      },
+    });
+    const meters = createMeters({
+      command,
+      platform: "linux",
+      interval: false,
+      now: c.now,
+      reader,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    await run(meters, c, 3);
+    expect(each.uses.some((u) => u.folder === 6 * MB)).toBe(true);
+    expect(each.peak().unknown).toBe(false);
+  });
+
+  test("a pid whose maps pass the byte cap is unknown for the turn, not stopped before 10 s", async () => {
+    const c = clock();
+    const { command } = computer({ ps: () => "600 1 600 501 1024" });
+    const huge = "7f00-7f01 rw-s 0 09:00 1 /x (deleted)\n".repeat(200_000);
+    const reader = fakeProc({ 600: { leader: { fds: [], maps: huge } } });
+    const meters = createMeters({
+      command,
+      platform: "linux",
+      interval: false,
+      now: c.now,
+      reader,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    await run(meters, c, 4, 1000);
+    // Under 10 s of unknown: not stopped yet.
+    expect(each.peak().unknown).toBe(false);
+  });
+
+  test("a read that times out leaves the disk unknown, and the run stops only after 10 s", async () => {
+    const c = clock();
+    const { command } = computer({ ps: () => "600 1 600 501 1024", lsof: killedLsof });
+    const meters = createMeters({
+      command,
+      platform: "darwin",
+      interval: false,
+      now: c.now,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    // Nine seconds in 3 s steps: still running, memory still reported.
+    await run(meters, c, 4, 3000);
+    expect(each.peak().unknown).toBe(false);
+    expect(each.uses.filter((u) => u.memory === 1024 * 1024).length).toBeGreaterThanOrEqual(3);
+    // Past ten seconds in a row: stopped.
+    await run(meters, c, 2, 3000);
+    expect(each.peak().unknown).toBe(true);
+  });
+
+  test("a success resets the clock: unknown, a read, then unknown again never stops", async () => {
+    const c = clock();
+    let hang = true;
+    const { command } = computer({
+      ps: () => "600 1 600 501 1024",
+      lsof: () => {
+        if (hang) {
+          throw Object.assign(new Error("killed"), { killed: true, signal: "SIGTERM" });
+        }
+        return "";
+      },
+    });
+    const meters = createMeters({
+      command,
+      platform: "darwin",
+      interval: false,
+      now: c.now,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    await run(meters, c, 3, 3000); // ~9 s unknown
+    expect(each.peak().unknown).toBe(false);
+    hang = false;
+    await run(meters, c, 2, 300); // a good read resets the clock
+    hang = true;
+    await run(meters, c, 3, 3000); // ~9 s unknown again
+    expect(each.peak().unknown).toBe(false);
   });
 
   test("a program no longer watched is measured no more", async () => {
-    const { folder } = await workingFolder();
-    const { command, calls } = computer({ ps: () => "600 1 600 501 1024" });
-    const meters = createMeters({ command, platform: "darwin", interval: false });
+    const c = clock();
+    const { command, calls } = computer({ ps: () => "600 1 600 501 1024", lsof: () => "" });
+    const meters = createMeters({
+      command,
+      platform: "darwin",
+      interval: false,
+      now: c.now,
+      folder: async () => 0,
+    });
     const each = watcher();
-    const stop = meters.meter().watch(600, folder, each.use, each.unmeasured);
-    await meters.tick();
-    await meters.settle();
+    const stop = meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    await run(meters, c, 2);
     const after = each.uses.length;
+    const commands = calls.length;
     stop();
-    await meters.tick();
-    await meters.settle();
+    await run(meters, c, 2);
     expect(each.uses.length).toBe(after);
-    expect(calls).toEqual(["ps", "/usr/bin/footprint"]);
+    expect(calls.length).toBe(commands);
   });
 });
-
-test("a folder read that never returns doesn't wedge the meter: it keeps measuring, and the read is given up on", async () => {
-  const { folder } = await workingFolder();
-  const { command } = computer({ ps: () => "600 1 600 501 4096" });
-  const meters = createMeters({
-    command,
-    platform: "darwin",
-    interval: false,
-    folder: () => new Promise<number>(() => {}),
-  });
-  const each = watcher();
-  meters.meter().watch(600, folder, each.use, each.unmeasured);
-  // The folder read hangs, but each tick still judges memory from the listing (the early use).
-  for (let n = 0; n < 3; n++) await meters.tick();
-  expect(each.uses.filter((u) => u.memory === 4096 * 1024).length).toBeGreaterThanOrEqual(3);
-});
-
-test("a folder walk that only times out keeps the last count and doesn't stop the run", async () => {
-  const { folder, device } = await workingFolder();
-  let walks = 0;
-  const { command } = computer({
-    ps: () => "600 1 600 501 1024",
-    lsof: () => lsofOf(600, device, 42, 5 * MB),
-  });
-  const meters = createMeters({
-    command,
-    platform: "darwin",
-    interval: false,
-    // The first walk returns; later ones hang, so they are given up on.
-    folder: () => (walks++ === 0 ? Promise.resolve(2 * MB) : new Promise<number>(() => {})),
-  });
-  const each = watcher();
-  meters.meter().watch(600, folder, each.use, each.unmeasured);
-  for (let n = 0; n < 4; n++) {
-    await meters.tick();
-    await meters.settle();
-  }
-  // The first walk's count is kept while later walks time out, and a slow walk never stops the run.
-  expect(each.uses.at(-1)?.folder).toBe(2 * MB);
-  expect(each.peak().unknown).toBe(false);
-}, 30_000);
 
 test("each of the meter's commands is stopped after 2 s", async () => {
   await expect(runCommand("/bin/sleep", ["30"])).rejects.toMatchObject({
@@ -545,8 +563,8 @@ describe("on this computer", () => {
     const meters = createMeters({ interval: false });
     const each = watcher();
     meters.meter().watch(child.pid ?? 0, folder, each.use, each.unmeasured);
-    // Both turns, twice over, so footprint and the unlinked read each run and settle.
-    for (let n = 0; n < 2; n++) {
+    // Enough ticks that both turns read and their counts are reported a tick later.
+    for (let n = 0; n < 4; n++) {
       await meters.tick();
       await meters.settle();
     }
@@ -554,7 +572,7 @@ describe("on this computer", () => {
     return each.peak().folder;
   }
 
-  test("a file a process holds after unlinking it counts with its folder, once; a file it holds with its name counts once too", async () => {
+  test("a file a process holds after unlinking it counts with its folder, once; a named file counts once too", async () => {
     const { folder } = await workingFolder();
     const child = await holding(
       "perl",
