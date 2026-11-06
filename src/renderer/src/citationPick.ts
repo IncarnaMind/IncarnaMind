@@ -17,7 +17,7 @@ import {
   type TabItem,
   type WindowLayout,
 } from "../../core/api";
-import { checkAgain, citationClosingLength } from "./checks";
+import { checkAgain, citationClosingLength, fixesFree, restoreCheck } from "./checks";
 import { citationAttributesOf } from "./citedSelection";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
@@ -27,7 +27,7 @@ import { noteBusy } from "./editWithAi";
 import { translateNow } from "./i18n";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
-import { fixesFree, offersNotFound, restoreCheck } from "./unsupportedFixes";
+import { offersNotFound } from "./unsupportedFixes";
 
 /** A sentence waiting for its Citation, its words, and the Document it is chosen in. */
 export interface CitationPick {

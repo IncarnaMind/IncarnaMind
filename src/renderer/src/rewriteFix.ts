@@ -13,7 +13,14 @@ import { showsPartRows } from "../../shared/claimChecks";
 import { checkedCitation } from "../../shared/claimParts";
 import { mayRewrite } from "../../shared/rewriteWords";
 import { verificationOf } from "../../shared/verification";
-import { checkAgain, setCheckProblem, setRewriting, useChecks } from "./checks";
+import {
+  checkAgain,
+  fixesFree,
+  restoreCheck,
+  setCheckProblem,
+  setRewriting,
+  useChecks,
+} from "./checks";
 import { core } from "./core";
 import { planEdits, recordCorrections, writeCorrections } from "./correctionFixes";
 import { citationsOf } from "./editor/alreadyCited";
@@ -23,7 +30,6 @@ import { providerErrorText } from "./errors";
 import { translateNow } from "./i18n";
 import { modelInUseOf } from "./modelInUse";
 import { useNotices } from "./notices";
-import { fixesFree, restoreCheck } from "./unsupportedFixes";
 
 /**
  * Whether a sentence's card offers the rewrite: unsupported as it reads now, with no Citation,
