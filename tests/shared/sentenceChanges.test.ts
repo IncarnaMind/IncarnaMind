@@ -156,6 +156,17 @@ describe("A removal that also rewrites the sentences it keeps is no removal alon
     expect(takesOnlyOut(read)).toBe(true);
   });
 
+  // protects=a sentence kept but for a mark written into it is rewritten, not kept, so a removal that also changes a kept sentence's marks is no removal alone; fails_when=marks don't count, so it reads as only taken out; no_claim=what a real model writes.
+  test("a mark changed in a kept sentence is a rewrite", () => {
+    const changes = sentenceChanges(
+      [PARKING.en],
+      ["Parking: the tenant may use six underground spaces! Each costs 800 a month."],
+    );
+
+    expect(changes).toMatchObject({ kept: 1, takenOut: 1, rewritten: 1, written: 1 });
+    expect(takesOnlyOut(changes)).toBe(false);
+  });
+
   // protects=an edit that takes nothing out is no removal, whether it changes nothing or only adds; fails_when=either reads as only taking text out; no_claim=what a real model writes.
   test("nothing taken out, or a sentence added, is no removal", () => {
     expect(takesOnlyOut(sentenceChanges([PARKING.en], [PARKING.en]))).toBe(false);

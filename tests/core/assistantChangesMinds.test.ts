@@ -101,7 +101,21 @@ describe("The assistant changes Minds as Proposals", { timeout: 30_000 }, () => 
     const [checkpoint] = await checkpointsOf(core, mind.id);
     expect(checkpoint?.reason).toBe("accept");
     expect(changesIn(answer)).toEqual([
-      { mindId: mind.id, created: false, request: expect.any(String), proposals: 2, changed: 1 },
+      {
+        mindId: mind.id,
+        created: false,
+        request: expect.any(String),
+        proposals: 2,
+        changed: 1,
+        sentences: {
+          kept: 0,
+          takenOut: 0,
+          shortened: 1,
+          rewritten: 0,
+          written: 0,
+          named: { takenOut: [], rewritten: [] },
+        },
+      },
     ]);
     expect(mindCalls(answer)[0]?.status).toBe("done");
     expect(answer.text).toBe("Shortened the summary in “Q3 review”: dropped two fillers.");
@@ -661,7 +675,7 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
 
     const told = lastResult(model);
     expect(told).toContain(
-      "no longer in the text as they were (taken out or reworded): “Work is full time.”",
+      "What it does to the User's sentences there: 1 taken out whole (“Work is full time.”); 2 kept word for word.",
     );
     expect(told).not.toContain("“Pay is monthly.”");
   });
@@ -705,9 +719,9 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
       expect(told.includes(`What the rewrite didn't name stays as it was: “${notes[1]}”`)).toBe(
         stays,
       );
-      expect(told.includes(`(taken out or reworded): “${notes[1]}”`)).toBe(!stays);
+      expect(told.includes(`taken out whole (“${notes[1]}”)`)).toBe(!stays);
       expect(told).not.toContain("they are still in the text");
-      expect(told.includes("no longer in the text as they were")).toBe(!stays);
+      expect(told.includes("What it does to the User's sentences there")).toBe(!stays);
       expect(shownWithChanges(client).join(" ").includes(`- ${notes[1]}`)).toBe(!stays);
     },
   );
@@ -752,7 +766,9 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
 
     await client.settled();
     const told = lastResult(model);
-    expect(told).toContain(`no longer in the text as they were (taken out or reworded): “${gone}”`);
+    expect(told).toContain(
+      `What it does to the User's sentences there: 1 taken out whole (“${gone}”)`,
+    );
     expect(told).not.toContain("they are still in the text");
     expect(told).not.toContain(`“${kept}”`);
     expect(told).not.toContain(`“${also}”`);
@@ -798,7 +814,7 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
       expect(told).toContain(
         `the rewrite marked text to take out that isn't there word for word in one place: “${quote}”`,
       );
-      expect(told).not.toContain("no longer in the text as they were");
+      expect(told).not.toContain("What it does to the User's sentences there");
       expect(shownWithChanges(client)).toEqual(lines);
     },
   );
@@ -2203,8 +2219,8 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     expect(told.includes(`What the rewrite didn't name stays as it was: “${lines[1]}”`)).toBe(
       reply.startsWith("¶"),
     );
-    expect(told).not.toContain(`(taken out or reworded): “${lines[1]}”`);
-    expect(told).toContain("no longer in the text as they were");
+    expect(told).not.toContain(`taken out whole (“${lines[1]}”`);
+    expect(told).toContain("What it does to the User's sentences there");
   });
 
   // protects=a reply written without names that leaves a whole paragraph out is still told that paragraph stayed, as the edit counts it left out and kept (#2180); fails_when=the model isn't told, or is told it went; no_claim=how a real model words its reply.
@@ -2228,7 +2244,7 @@ describe("An edit's reply tells the change made (#2356)", { timeout: 30_000 }, (
     expect(told).toContain(
       `they are still in the text, as it didn't mark them as taken out: “${lines[1]}”`,
     );
-    expect(told).not.toContain(`(taken out or reworded): “${lines[1]}”`);
+    expect(told).not.toContain(`taken out whole (“${lines[1]}”`);
   });
 
   // protects=a reply without names that rewrites one paragraph and quotes a sentence out of another is told that sentence went and that the paragraph it never spoke of stayed, but nothing of the paragraph it quoted from as left out, which would read as contradicting the quote (#2356); English and Chinese; fails_when=the rest of the paragraph it quoted from is told as left out and still there; no_claim=how a real model words its reply.

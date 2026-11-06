@@ -206,6 +206,8 @@ interface Ask {
   instruction: string;
   model: ChatModelChoice | null;
   requested?: RequestedChange;
+  /** The User asked only for text to go, as the assistant says (#2356). */
+  removesOnly?: true;
 }
 
 interface ParsedInput extends Ask {
@@ -378,6 +380,8 @@ export interface ProposeInput {
   requested: RequestedChange | null;
   /** Requests started by this Answer, whose own changes a later call in the same turn may revise. */
   ownRequests?: ReadonlySet<string>;
+  /** The User asked only for text to go, as the assistant says: a change that does more waits for them (#2356). */
+  removesOnly?: boolean;
 }
 
 export interface Proposed {
@@ -393,6 +397,7 @@ const askOf = (input: ProposeInput): Ask => ({
   instruction: input.instruction,
   model: { providerId: input.prepared.provider.id, modelId: input.prepared.modelId },
   ...(input.requested && { requested: input.requested }),
+  ...(input.removesOnly && { removesOnly: true }),
 });
 
 interface EditCall {
@@ -851,6 +856,7 @@ export function createEdits(options: EditsOptions) {
       action: ask.action,
       instruction: ask.instruction,
       ...(ask.requested && { requested: ask.requested }),
+      ...(ask.removesOnly && { removesOnly: true }),
     };
     const mine = (mind: Y.XmlFragment) =>
       pendingProposals(mind).filter((each) => each.request === request);

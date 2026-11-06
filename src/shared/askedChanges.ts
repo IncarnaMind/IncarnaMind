@@ -1,9 +1,10 @@
 /**
  * Whether the changes the User asked the assistant for wait for them instead
  * of applying (#880): when they would take out most of the User's own text in
- * the Mind, unless they translate it, which rewrites all of it by asking. The
- * core tells the model so in a call's result, and the window holds them back,
- * by this one measure.
+ * the Mind, unless they translate it, which rewrites all of it by asking, or
+ * when the User asked only for text to go and they do more (#2356). The core
+ * tells the model so in a call's result, and the window holds them back, by
+ * this one measure.
  */
 import * as Y from "yjs";
 import {
@@ -14,9 +15,11 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
+  type SentenceChanges,
 } from "../core/api";
 import { diffSteps, splitWords } from "../core/proposals/diff";
 import { proposalRequestOf, readProposalAttribute, readProposalRef } from "./proposals";
+import { changedText, sentenceChanges, takesOnlyOut } from "./sentenceChanges";
 
 const MOST_OF_YOUR_TEXT = 0.5;
 
@@ -148,12 +151,35 @@ export function translationRequested(doc: Y.Doc, requests: ReadonlySet<string>):
   });
 }
 
-export function waitsForUser(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
-  return (
-    requests.size > 0 &&
+/**
+ * Why the requests' changes wait for the User, or null when they apply: they take out most of the
+ * User's own text, or one the assistant said was asked only to take text out does more (#2356),
+ * as `changes` says.
+ */
+export function whyItWaits(
+  doc: Y.Doc,
+  requests: ReadonlySet<string>,
+): { why: "most-of-their-text" } | { why: "more-than-taken-out"; changes: SentenceChanges } | null {
+  if (requests.size === 0) return null;
+  const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+  if (
     !translationRequested(doc, requests) &&
-    ownTextRemoved(doc.getXmlFragment(MIND_CONTENT_FIELD), requests) > MOST_OF_YOUR_TEXT
-  );
+    ownTextRemoved(blocks, requests) > MOST_OF_YOUR_TEXT
+  ) {
+    return { why: "most-of-their-text" };
+  }
+  for (const request of requests) {
+    const made = proposalRequestOf(doc, request);
+    if (made?.source !== "edit-with-ai" || made.removesOnly !== true) continue;
+    const { before, after } = changedText(blocks, request);
+    const changes = sentenceChanges(before, after);
+    if (!takesOnlyOut(changes)) return { why: "more-than-taken-out", changes };
+  }
+  return null;
+}
+
+export function waitsForUser(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
+  return whyItWaits(doc, requests) !== null;
 }
 
 /**

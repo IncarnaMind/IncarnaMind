@@ -38,7 +38,7 @@ import {
   analysisTableFor,
   analysisTablesOf,
 } from "../../../shared/analysisTables";
-import { askedFor, translationRequested, waitsForUser } from "../../../shared/askedChanges";
+import { askedFor, translationRequested, whyItWaits } from "../../../shared/askedChanges";
 import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
 import {
   type ChartData,
@@ -64,6 +64,7 @@ import {
   resolveProposals,
   waitingChanges,
 } from "../../../shared/proposals";
+import { changedText, sentenceChanges } from "../../../shared/sentenceChanges";
 import { sentenceSpans } from "../../../shared/sentences";
 import { countText } from "../../../shared/wordCount";
 import {
@@ -128,6 +129,7 @@ import {
   chartProperty,
 } from "./charts";
 import { addedUncited, lengthSaid, lengthToWrite, offLength, timesAsked } from "./lengthAsked";
+import { moreThanTakenOut, sentencesSaid } from "./sentencesSaid";
 import { textKey, tokensOf } from "./words";
 
 const PROVIDER: ToolProviderInfo = { kind: "minds", id: "minds", name: "Notes" };
@@ -198,6 +200,7 @@ export interface MindsForTools {
     written(request: string, count: number): void;
     requested: RequestedChange | null;
     ownRequests?: ReadonlySet<string>;
+    removesOnly?: boolean;
   }): Promise<{
     result: EditWithAiResult;
     length: { before: string; after: string } | null;
@@ -706,12 +709,12 @@ const quotesSaid = (quotes: readonly string[]) =>
     .join(", ");
 
 /**
- * What a rewrite took out, as the model is told so it reports what happened and not what it
- * meant to do: the sentences of the old text the new one doesn't hold, those of the parts it
- * left out (`leftOut`) that stay, and those of the paragraphs a reply by names didn't name
- * (`unnamed`). Null when none went or stayed.
+ * What a rewrite left as it was, as the model is told so it reports what happened and not what it
+ * meant to do: the sentences of the parts it left out (`leftOut`) that stay, and those of the
+ * paragraphs a reply by names didn't name (`unnamed`). Null when none stayed. What it did to the
+ * rest is `sentencesSaid`.
  */
-function takenOut(before: string, after: string, leftOut = "", unnamed = ""): string | null {
+function stayedSaid(after: string, leftOut = "", unnamed = ""): string | null {
   const sentencesOf = (text: string) =>
     text
       .split(/\n+/)
@@ -733,9 +736,7 @@ function takenOut(before: string, after: string, leftOut = "", unnamed = ""): st
       sentences.length > shown.length ? ` and ${sentences.length - shown.length} more` : "";
     return `${shown.join(", ")}${more}`;
   };
-  const was = [...new Set(sentencesOf(before))];
   const now = new Set(sentencesOf(after));
-  const gone = was.filter((sentence) => !now.has(sentence));
   // A paragraph the rewrite left out stays unless it quoted it as taken out (#2180): said plainly,
   // so its own "removed" is not repeated. Only those the edit itself counts as left out: one a
   // reply by names didn't name, or one it quoted words from, it never spoke of (#2356).
@@ -743,11 +744,6 @@ function takenOut(before: string, after: string, leftOut = "", unnamed = ""): st
   // Said without "left out", which a reply by names reported as contradicting the change (#2356).
   const unchanged = [...new Set(sentencesOf(unnamed))].filter((sentence) => now.has(sentence));
   const told = [
-    ...(gone.length > 0
-      ? [
-          `Sentences no longer in the text as they were (taken out or reworded): ${quoted(gone)}. Report what this shows, and say plainly if part of what the User asked to remove is still there.`,
-        ]
-      : []),
     ...(stayed.length > 0
       ? [
           `The rewrite left these sentences out, but they are still in the text, as it didn't mark them as taken out: ${quoted(stayed)}. Say they stayed, whatever the rewrite says it removed.`,
@@ -1141,7 +1137,11 @@ export function mindTools(options: MindToolsOptions): {
     const asked = askedIn.get(mind.id) ?? new Set<string>();
     asked.add(request);
     askedIn.set(mind.id, asked);
-    return waitsForUser(doc, asked) ? held(mind.name) : APPLIES;
+    const wait = whyItWaits(doc, asked);
+    if (wait === null) return APPLIES;
+    return wait.why === "more-than-taken-out"
+      ? moreThanTakenOut(mind.name, wait.changes)
+      : held(mind.name);
   };
 
   /** The Mind a call means: the one it names, else the one in focus; or why there is none. */
@@ -2235,7 +2235,7 @@ export function mindTools(options: MindToolsOptions): {
   const edit: Tool = {
     name: MIND_TOOLS.edit,
     description:
-      "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: new text off that length is refused once, and the result says how long it came out, to say as it says. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, which then waits for them: the result says which.",
+      "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: new text off that length is refused once, and the result says how long it came out, to say as it says. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2259,6 +2259,11 @@ export function mindTools(options: MindToolsOptions): {
           type: "number",
           description:
             'Give it on every call: how long the new text should be, as a multiple of the text now, read from the User\'s words: 1.5 for "a bit longer", 2 for "twice as long", 0.5 for "half as long", and 1 when they ask for no length.',
+        },
+        removes_only: {
+          type: "boolean",
+          description:
+            'Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in "Delete the last sentence" or "Take out the deposit line"; false when they ask to shorten, rewrite or change it in any other way.',
         },
       },
       additionalProperties: false,
@@ -2383,6 +2388,7 @@ export function mindTools(options: MindToolsOptions): {
           options.changed(toolCallId, { mindId: mind.id, created: false, request, proposals }),
         requested: "edit",
         ownRequests,
+        removesOnly: input.removes_only === true,
       });
       if (result.kind !== "proposed") {
         const why = notProposed(result, mind, unmadeSaid(mind.name));
@@ -2406,6 +2412,13 @@ export function mindTools(options: MindToolsOptions): {
       }));
       const changed = countChanged(kinds);
       const added = addsOnly(kinds);
+      const sentences = revised
+        ? null
+        : minds.read(mind.id, (note) => {
+            const { before, after } = changedText(note, result.request);
+            const read = sentenceChanges(before, after);
+            return read.takenOut + read.shortened + read.rewritten > 0 ? read : null;
+          });
       const notes = someTableNotes({
         unlinkedSources: result.unlinkedSources ?? 0,
         extraCells: result.extraCells ?? 0,
@@ -2420,6 +2433,7 @@ export function mindTools(options: MindToolsOptions): {
             ...(changed > 0 && { changed }),
             ...(added && { added: true }),
             ...(tables > 0 && { tables }),
+            ...(sentences && { sentences }),
             ...notes,
           };
       if (revised) {
@@ -2433,20 +2447,21 @@ export function mindTools(options: MindToolsOptions): {
       const around = revised
         ? length
         : minds.read(mind.id, (note) => textAround(note, stretch.from, stretch.to, result.request));
-      const gone = around
-        ? takenOut(
-            around.before,
+      const stayed = around
+        ? stayedSaid(
             around.after,
             minds.read(mind.id, (note) => leftOutText(note, result.leftOut ?? [], result.request)),
             minds.read(mind.id, (note) => leftOutText(note, result.unnamed ?? [], result.request)),
           )
         : null;
+      const done = change.sentences ? sentencesSaid(change.sentences) : null;
       const span = around ?? length;
       const went = span ? ` (${lengthSaid(span.before, span.after, times)})` : "";
       return [
         revised ? revisedText(mind, change, went) : editedText(mind, change, went),
         ...tableNotes(change, result.unmatchedMarkers),
-        ...(gone ? [gone] : []),
+        ...(done ? [done] : []),
+        ...(stayed ? [stayed] : []),
         ...(reason ? [`Why, as the rewrite says: ${reason}`] : []),
         ...droppedSaid(result.droppedCitations),
         ...(result.outOfDate > 0

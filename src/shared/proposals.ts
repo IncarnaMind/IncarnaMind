@@ -483,7 +483,7 @@ export function appliedWaiting(
   };
 }
 
-const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
+export const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
 /**
  * What a paragraph or heading came to in a change: its words changed where they stand; the whole
@@ -698,6 +698,7 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
     ...(typeof record.instruction === "string" && { instruction: record.instruction }),
     ...(isText(record.reason) && { reason: record.reason }),
     ...(requested && { requested }),
+    ...(record.removesOnly === true && { removesOnly: true }),
   };
 }
 

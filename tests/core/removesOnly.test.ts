@@ -200,7 +200,7 @@ describe("What an edit did to the User's sentences is said from the change, not 
       parking: "地下停车位 6 个，每车位月租 800 元，由出租方分配。",
       reply:
         "已在「租赁条款」的停车位一段删去关于车位数量的一句话；其余两句（车位费用、车位由出租方分配）保留。",
-      said: "What it does to the User's sentences there: none taken out whole; 3 joined and rewritten as 1 (“停车位：承租方可使用地下停车位 6 个。”, “每个车位每月 800 元。”, “车位由出租方分配。”). None of them went: don't say one was taken out.",
+      said: "What it does to the User's sentences there: none taken out whole; 3 joined and rewritten as 1 (“停车位：承租方可使用地下停车位 6 个。”, “每个车位每月 800 元。”, “车位由出租方分配。”). None of them went.",
       counts: { takenOut: 0, rewritten: 3, written: 1, kept: 0 },
       card: "已修改“租赁条款”中的 1 段",
       line: "修改了 1 个段落",
