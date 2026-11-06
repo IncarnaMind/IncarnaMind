@@ -202,6 +202,7 @@ function recordOf(calls: readonly AnswerToolCall[], names: MindNames, states?: C
           charts: change.charts ?? 0,
           ...(change.chartNotDrawn && { chartNotDrawn: change.chartNotDrawn }),
           revised: change.revised === true,
+          ...(change.sentences && { sentences: change.sentences }),
           state,
         },
       }),
