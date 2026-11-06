@@ -931,3 +931,202 @@ describe("A removal's rewrite that answers in words of its own is never written 
     expect(edited).toMatchObject({ kind: "proposed" });
   });
 });
+
+describe("A revision the assistant says is asked only to take text out is held to it (#2356)", {
+  timeout: 30_000,
+}, () => {
+  // protects=a cut made without removes_only, then revised into a join by a call that says the User asked only for text to go, waits, by content or by instruction, English and Chinese: the revising call's own flag counts as the removal's would; fails_when=the revision applies at once because the cut it revises had no flag; no_claim=what a real model writes.
+  test.each([
+    { language: "en", by: "content" },
+    { language: "en", by: "instruction" },
+    { language: "zh", by: "content" },
+    { language: "zh", by: "instruction" },
+  ] as const)(
+    "$language, an unflagged cut revised by $by with its own flag",
+    async ({ language, by }) => {
+      const lease = LEASE[language];
+      const model = stepping([
+        {
+          tool: "edit_mind",
+          input: { part: lease.part, instruction: lease.asked },
+          edit: CUT[language],
+        },
+        by === "content"
+          ? {
+              tool: "edit_mind",
+              input: { part: lease.part, content: JOINED[language], removes_only: true },
+            }
+          : {
+              tool: "edit_mind",
+              input: { part: lease.part, instruction: lease.asked, removes_only: true },
+              edit: `¶1 ${JOINED[language]}`,
+            },
+      ]);
+      const { core, mind, client, answer } = await setUp(language, model);
+
+      const requests = changesIn(answer).map((change) => change.request);
+      expect(requests).toHaveLength(2);
+      expect(whyItWaits(client.doc, new Set(requests))?.why).toBe("more-than-taken-out");
+      const applied = await core.applyAskedChanges({
+        answerId: answer.id,
+        mindId: mind.id,
+        requests,
+      });
+      expect(applied?.held).toBe(true);
+    },
+  );
+});
+
+/** A Note of `lines`, the request `asked` put to the assistant answered by `model`. */
+async function askOn(
+  model: MockLanguageModelV4,
+  name: string,
+  lines: readonly string[],
+  asked: string,
+) {
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const mind = await core.createMind({ title: name });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [heading(1, name), ...lines.map((line) => note(line))]);
+  await client.settled();
+  const answer = await askAssistant(core, { text: asked, mindId: mind.id });
+  await client.settled();
+  return { core, mind, client, answer };
+}
+
+const SET_ASIDE = "the rewrite answered in words of its own instead of new text";
+
+describe("Only an edit asked only to take text out sets a reply aside, never a real cut (#2356)", {
+  timeout: 30_000,
+}, () => {
+  // protects=a real cut, its reply unnamed and asked only to take text out, applies: the second sentence out, only the first kept, a word out of a 3-word paragraph, a short Chinese cut, one figure out of a line of figures, in English and Chinese where they have twins; fails_when=a reply made of the paragraph's own words is set aside as the model's talk; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "en, the second sentence out",
+      name: "Lease terms",
+      line: LEASE.en.lines[1],
+      part: LEASE.en.part,
+      cut: "Parking: the tenant may use six underground spaces. Spaces are allocated by the landlord.",
+    },
+    {
+      case: "zh, the second sentence out",
+      name: "租赁条款",
+      line: LEASE.zh.lines[1],
+      part: LEASE.zh.part,
+      cut: "停车位：承租方可使用地下停车位 6 个。车位由出租方分配。",
+    },
+    {
+      case: "en, only the first sentence kept",
+      name: "Lease terms",
+      line: LEASE.en.lines[1],
+      part: LEASE.en.part,
+      cut: "Parking: the tenant may use six underground spaces.",
+    },
+    {
+      case: "zh, only the first sentence kept",
+      name: "租赁条款",
+      line: LEASE.zh.lines[1],
+      part: LEASE.zh.part,
+      cut: "停车位：承租方可使用地下停车位 6 个。",
+    },
+    {
+      case: "en, a word out of three",
+      name: "Lease terms",
+      line: "Parking is free.",
+      part: "Parking is free",
+      cut: "Parking is.",
+    },
+    {
+      case: "zh, a short cut",
+      name: "租赁条款",
+      line: "地下停车场免费。",
+      part: "地下停车场免费",
+      cut: "地下停车场。",
+    },
+    {
+      case: "en, one figure out",
+      name: "Lease terms",
+      line: "Rent by year: 2025: 1,200. 2026: 1,300. 2027: 1,400.",
+      part: "Rent by year",
+      cut: "Rent by year: 2025: 1,200. 2027: 1,400.",
+    },
+  ])("$case", async (each) => {
+    const kept = each.name === "租赁条款" ? "押金：三个月租金，由出租方保管。" : LEASE.en.lines[2];
+    const model = stepping([
+      {
+        tool: "edit_mind",
+        input: { part: each.part, instruction: "Delete part of it.", removes_only: true },
+        edit: each.cut,
+      },
+    ]);
+    const { core, mind, client, answer } = await askOn(
+      model,
+      each.name,
+      [each.line, kept],
+      "Delete part of it.",
+    );
+
+    const told = lastResult(model);
+    expect(told).not.toContain(SET_ASIDE);
+    expect(told).toContain("It applies in the Note at once");
+    const requests = changesIn(answer).map((change) => change.request);
+    expect(requests).toHaveLength(1);
+    await core.applyAskedChanges({ answerId: answer.id, mindId: mind.id, requests });
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([each.name, each.cut, kept]);
+  });
+
+  // protects=a first edit asked only to take text out whose rewrite answers in a line of its own is set aside: nothing is written or held, and the model is told what the rewrite said; English and Chinese; fails_when=the line is written as the paragraph, even waiting; no_claim=what a real model writes.
+  test.each([{ language: "en" }, { language: "zh" }] as const)(
+    "$language, a first call's talk",
+    async ({ language }) => {
+      const model = stepping([
+        {
+          tool: "edit_mind",
+          input: {
+            part: LEASE[language].part,
+            instruction: LEASE[language].asked,
+            removes_only: true,
+          },
+          edit: PROSE[language],
+        },
+      ]);
+      const { client, answer } = await setUp(language, model);
+
+      expect(lastResult(model)).toContain(
+        `${SET_ASIDE}, and they were not written: “${PROSE[language]}”`,
+      );
+      expect(changesIn(answer)).toHaveLength(0);
+      expect(shownWithChanges(client)).toEqual([LEASE[language].name, ...LEASE[language].lines]);
+    },
+  );
+
+  // protects=after a cut, a later edit on the same paragraph not asked only to take text out ("Make the rest formal.") writes its real rewrite, unnamed, never set aside as talk, and waits with the cut it revises; English and Chinese; fails_when=an inherited flag sets a real rewrite aside and the model is told the rewrite answered in words of its own; no_claim=what a real model writes.
+  test.each([
+    {
+      language: "en",
+      formal:
+        "Parking: subterranean bays are available to the lessee at a monthly charge of 800 apiece.",
+    },
+    { language: "zh", formal: "泊位：承租人享有地库泊位，月费每处 800 元。" },
+  ] as const)("$language, a cut, then the rest made formal", async ({ language, formal }) => {
+    const lease = LEASE[language];
+    const model = stepping([
+      removal(language, CUT[language]),
+      {
+        tool: "edit_mind",
+        input: { part: lease.part, instruction: "Make the rest formal.", removes_only: false },
+        edit: formal,
+      },
+    ]);
+    const { client, answer } = await setUp(language, model);
+
+    expect(lastResult(model)).not.toContain(SET_ASIDE);
+    expect(changesIn(answer)).toHaveLength(2);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)[2]).toBe(formal);
+  });
+});

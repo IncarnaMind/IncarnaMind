@@ -1228,16 +1228,19 @@ export function createEdits(options: EditsOptions) {
       if (unclear.length > 0) return nothing({ kind: "unplaced", quotes: unclear });
       if (sameText(reply, passage)) return nothing({ kind: "unchanged" });
       const request = randomUUID();
-      // A revision of a removal asked only to take text out is held to it, as the removal was.
-      const removing = content.read(input.mindId, (mind) => {
-        const doc = mind.doc;
-        return doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
-      });
+      // A revision asked only to take text out, or of a removal that was, is held to it.
+      const removing =
+        input.removesOnly === true ||
+        content.read(input.mindId, (mind) => {
+          const doc = mind.doc;
+          return doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
+        });
       const written = fork.transact(() => {
         const fresh = freshCitations(selection, options.recheck)(reply);
+        // Only the call's own word sets a reply aside: an inherited one only holds it (#2356).
         const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh, {
           named,
-          removesOnly: removing,
+          removesOnly: input.removesOnly === true,
         });
         resolveProposals(blocks, (each) => each.request === request, "accept");
         return rewritten;
