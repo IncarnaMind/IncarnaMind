@@ -2127,50 +2127,60 @@ function onlyNumbersDiffer(segment: Segment, paragraph: NewParagraph): boolean {
   return old.join("\n") !== now.join("\n") && rest(old) === rest(now);
 }
 
-/** A paragraph's text as it reads: its spaces kept, as one between words, so "Now here." is not "Nowhere.". */
-function readText(tokens: readonly { text?: string }[]): string {
-  return tokens
-    .map((token) => token.text ?? "")
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** A paragraph's words and signs as compared with a quote: no spaces, any case, each character where it is in its Block. */
-function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
+/**
+ * Words and signs as one reading compares them, each character with where it is: any case, and no
+ * spaces but one between two letters or digits they part, as they part "now here" from "nowhere"
+ * (#2589). Beside a Chinese character a space parts nothing, so "使用 Excel" reads as "使用Excel".
+ */
+function readChars(characters: Iterable<{ char: string; at: number }>): {
+  chars: string;
+  at: number[];
+} {
   let chars = "";
   const at: number[] = [];
-  for (const token of tokens) {
-    if (token.text === undefined) continue;
-    for (let index = 0; index < token.text.length; index++) {
-      const char = token.text[index] as string;
-      if (/\s/.test(char)) continue;
-      const lower = char.toLowerCase();
-      chars += lower;
-      for (let unit = 0; unit < lower.length; unit++) at.push(token.from + index);
+  let last: { char: string; at: number } | null = null;
+  for (const each of characters) {
+    if (/\s/.test(each.char)) continue;
+    if (last && each.at - last.at > 1 && partsWords(last.char, each.char)) {
+      chars += " ";
+      at.push(last.at + 1);
     }
+    const lower = each.char.toLowerCase();
+    chars += lower;
+    for (let unit = 0; unit < lower.length; unit++) at.push(each.at);
+    last = each;
   }
   return { chars, at };
+}
+
+/** Each UTF-16 unit of a text, with where it is: positions in a Block count units. */
+const unitsOf = (text: string, from: number) =>
+  Array.from({ length: text.length }, (_, index) => ({
+    char: text[index] as string,
+    at: from + index,
+  }));
+
+/** A paragraph's words and signs as `readChars` reads them, each character where it is in its Block. */
+function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
+  return readChars(
+    tokens.flatMap((token) => (token.text === undefined ? [] : unitsOf(token.text, token.from))),
+  );
 }
 
 /** New text's words and signs as `charsOf` reads a paragraph's, each character where it is in that text. */
 function newCharsOf(tokens: readonly NewToken[]): { chars: string; at: number[] } {
-  const text = tokens.map((token) => token.text ?? "").join("");
-  let chars = "";
-  const at: number[] = [];
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index] as string;
-    if (/\s/.test(char)) continue;
-    const lower = char.toLowerCase();
-    chars += lower;
-    for (let unit = 0; unit < lower.length; unit++) at.push(index);
-  }
-  return { chars, at };
+  const text = tokens
+    .map((token) => token.text ?? (token.node?.name === BREAK ? "\n" : ""))
+    .join("");
+  return readChars(unitsOf(text, 0));
 }
 
 /** A letter or digit of a word that runs on without spaces, unlike a Chinese character. */
 const IN_WORD = /^[\p{L}\p{N}]$/u;
 const HAN_CHAR = /^\p{Script=Han}$/u;
+/** Two characters a space between parts into two words: letters or digits, neither of them Chinese. */
+const partsWords = (a: string, b: string) =>
+  IN_WORD.test(a) && IN_WORD.test(b) && !HAN_CHAR.test(a) && !HAN_CHAR.test(b);
 /** A sentence or clause mark, a closing bracket or quote: it closes onto the word before it. */
 const CLOSING = /^[.,;:!?…)\]}»”’"'。，、；：！？）】》」』]$/u;
 /** An opening bracket or quote: the word after it starts there. */
@@ -2439,7 +2449,6 @@ export function createRewriteStream(
   const numbersOnly = (segment: Segment, paragraph: NewParagraph) =>
     segments.length > 1 && onlyNumbersDiffer(segment, paragraph);
   const sameAs = segments.map((segment) => charsOf(segment.tokens).chars);
-  const texts = segments.map((segment) => readText(segment.tokens));
   /**
    * How alike a new paragraph is to each of the selection's, whether it says words of that one's
    * own, what share of them (1 for one with none) and what share of its own words they are, how
@@ -2485,20 +2494,24 @@ export function createRewriteStream(
     const index = indexOf.get(segment) ?? -1;
     return (ownShare[index] ?? 0) > HALF_ITS_OWN || (ofOwn[index] ?? 0) >= HALF_ITS_OWN;
   };
+  /** Says more than half of the words only this paragraph has, amounts left out. */
+  const saysMostOfItsOwn = (segment: Segment, paragraph: NewParagraph) =>
+    (nearnessOf(paragraph).ownShare[indexOf.get(segment) ?? -1] ?? 0) > HALF_ITS_OWN;
   /**
    * Whether anything can say a new paragraph is this one of the selection's rather than one added
-   * beside it: this is the selection's first, which takes the text's first (#2333); it has words
-   * no other has, amounts left out; or the new one reads as it, word for word. One with none, each
-   * of its words also in another's, can't be told from a line added there, however alike, or
-   * however much of it the line says (#2356). Every rule that lets a new paragraph take one of the
-   * selection's places, or read as one moved, asks this first.
+   * beside it: it has words no other has, amounts left out; the new one reads as it, word for
+   * word; or, `renamed`, it is the selection's first and the text rewrites the paragraph after it
+   * too, as a rename does (#2333). One with none, each of its words also in another's, can't be
+   * told from a line added there, however alike, or however much of it the line says (#2356,
+   * #2589). Every rule that lets a new paragraph take one of the selection's places, or read as
+   * one moved, asks this first.
    */
-  const mayTakePlace = (segment: Segment, paragraph: NewParagraph) => {
+  const mayTakePlace = (segment: Segment, paragraph: NewParagraph, renamed = false) => {
     const index = indexOf.get(segment) ?? -1;
     return (
-      index === 0 ||
+      (renamed && index === 0) ||
       [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word)) ||
-      readText(paragraph.tokens) === texts[index]
+      newCharsOf(paragraph.tokens).chars === sameAs[index]
     );
   };
   /** Much like one of the selection's paragraphs, whichever it is. */
@@ -2705,15 +2718,19 @@ export function createRewriteStream(
    * The paragraphs held, written: paired with the selection's from `at` to `to` as `pairUp`
    * pairs them. `bounded`: the text pairs a paragraph with the selection's at `to` next.
    */
-  const writeHeld = (to: number, bounded = false) => {
+  const writeHeld = (to: number, bounded = false, next?: NewParagraph) => {
     const from = at;
     const between = segments.slice(from, to);
     const whole = translating();
+    const renamed =
+      from === 0 && next !== undefined && newCharsOf(next.tokens).chars !== sameAs[to];
     // Where the text may leave paragraphs out, a paragraph it doesn't name is never written over
     // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
     // old, each written as their kind. Between two places the text holds, where it pairs with
     // the selection's paragraphs or starts as the selection does, that is one in the place of
-    // one that says more than half of that one's own words, or several each more than half like
+    // one that says more than half of that one's own words (at the start, or is made at least half
+    // of them, as a short summary is: between two lines the text keeps, a new line that repeats
+    // part of one is as likely an addition, #2589), or several each more than half like
     // the one in its place, since a stray line such as "Changed to:" beside a new one names none,
     // and a new line on the pattern of the two around it says nothing of the one between (#2356). After the last (a partial text stops early, so
     // its end holds no place), each must also say in its words which it is: `TELLING_WORDS` of
@@ -2725,11 +2742,14 @@ export function createRewriteStream(
       held.every((paragraph) => !paragraph.asOther) &&
       (bounded
         ? held.length === 1
-          ? mayTakePlace(between[0] as Segment, held[0] as NewParagraph) &&
-            saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
+          ? mayTakePlace(between[0] as Segment, held[0] as NewParagraph, renamed) &&
+            (from === 0 ? saysItsOwn : saysMostOfItsOwn)(
+              between[0] as Segment,
+              held[0] as NewParagraph,
+            )
           : held.every(
               (paragraph, index) =>
-                mayTakePlace(between[index] as Segment, paragraph) &&
+                mayTakePlace(between[index] as Segment, paragraph, renamed) &&
                 placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
             )
         : held.every(
@@ -2827,7 +2847,7 @@ export function createRewriteStream(
     const like =
       near !== null && keeps && !readsAs(segments[near] as Segment, paragraph) ? null : near;
     if (like !== null && like - at <= LOOKAHEAD + held.length) {
-      writeHeld(like, true);
+      writeHeld(like, true, paragraph);
       pairWith(paragraph, like);
       anchored = true;
       return;
@@ -3034,6 +3054,11 @@ export function createRewriteStream(
       const { chars, at } = read.get(segment) ?? { chars: "", at: [] };
       const taken = new Array<boolean>(chars.length).fill(false);
       for (const { first, end } of places) taken.fill(true, first, end);
+      // The space between two quoted stretches goes with them: they are one stretch, as a quote
+      // cut at a line break is (#2589).
+      for (let index = 1; index + 1 < chars.length; index++) {
+        if (chars[index] === " " && taken[index - 1] && taken[index + 1]) taken[index] = true;
+      }
       if (taken.every(Boolean)) {
         whole.push(segment);
         continue;
