@@ -247,9 +247,20 @@ test("a remote Connector added by URL needs a sign-in, which goes through the br
     expect(await urlsOpened(app)).toEqual([]);
     expect(fake.registrations).toEqual([]);
 
-    // The service's tokens are kept with the keys: on Linux with no keyring, the User has
-    // accepted that first (in a form that saves a key; the sign-in doesn't offer it yet, #342).
-    await acceptPlainTextKeys(window);
+    // The service's tokens are kept with the keys: on Linux with no keyring, the sign-in
+    // itself offers the plain-text notice, and holds Sign in until it is accepted (#342).
+    const needsPlainText = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { protection, plainTextAccepted } = await bridge.getSecretStorage();
+      return protection === "plain-text" && !plainTextAccepted;
+    });
+    if (needsPlainText) {
+      const notice = connector.getByTestId("connector-sign-in-notice");
+      await expect(notice.getByTestId("plain-text-secrets")).toBeVisible();
+      await expect(connector.getByTestId("connector-sign-in")).toBeDisabled();
+      await acceptPlainTextKeys(window, notice);
+      await expect(connector.getByTestId("connector-sign-in")).toBeEnabled();
+    }
     // Signing in opens the authorization request and waits for the browser.
     await connector.getByTestId("connector-sign-in").click();
     await expect(connector).toHaveAttribute("data-state", "signing-in");

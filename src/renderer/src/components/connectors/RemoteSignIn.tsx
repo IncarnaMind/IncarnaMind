@@ -1,11 +1,16 @@
-import { type FormEvent, useState } from "react";
-import type { ConnectorClientInput, RemoteConnector } from "../../../../core/api";
+import { type FormEvent, useEffect, useState } from "react";
+import type {
+  ConnectorClientInput,
+  RemoteConnector,
+  SecretStorageStatus,
+} from "../../../../core/api";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { DetailsLine } from "../DetailsLine";
 import { ProblemMark } from "../ProblemLine";
+import { SecretStorageNotice } from "../providers/ProviderForm";
 import { buttonStyle, fieldLabelClass, hintClass, inputClass, noticeClass } from "../ui";
 
 /** A text button inside a line, e.g. "Sign out". */
@@ -30,7 +35,12 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
   const t = useT();
   const { id, state, signIn, clientId } = connector;
   const [editingClient, setEditingClient] = useState(false);
+  const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   const needsClient = signIn.error?.kind === "client-id-required";
+  useEffect(() => {
+    if (state !== "needs-sign-in") return;
+    core.getSecretStorage().then(setStorage, () => undefined);
+  }, [state]);
 
   // The page's head shows the wait, with Cancel.
   if (state === "signing-in") return null;
@@ -68,11 +78,19 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
             ? t("remoteConnectors.signIn.expired")
             : t("remoteConnectors.signIn.required")}
         </p>
-        {signIn.error && (
+        {signIn.error && (signIn.error.kind !== "secret-storage" || storage === null) && (
           <p role="alert" data-testid="connector-sign-in-error" className="mt-1 text-ink">
             <ProblemMark />
             {t(`remoteConnectors.signIn.error.${signIn.error.kind}`)}
           </p>
+        )}
+        {storage && !storage.canSave && (
+          <SecretStorageNotice
+            status={storage}
+            onAccept={() =>
+              void act(async () => setStorage(await core.acceptPlainTextSecretStorage()))
+            }
+          />
         )}
         {needsClient || editingClient ? (
           <ClientForm
@@ -91,6 +109,7 @@ export function RemoteSignIn({ connector }: { connector: RemoteConnector }) {
               type="button"
               data-testid="connector-sign-in"
               onClick={() => void act(() => core.signInToConnector(id))}
+              disabled={storage?.canSave === false}
               className={buttonStyle("primary", "sm")}
             >
               {signIn.expired ? t("remoteConnectors.signInAgain") : t("remoteConnectors.signIn")}

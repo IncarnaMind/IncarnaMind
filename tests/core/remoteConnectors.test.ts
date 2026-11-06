@@ -741,6 +741,32 @@ describe("Consent and removal", { timeout: 30_000 }, () => {
     const [connector] = await setup.core.listConnectors();
     expect(connector).toMatchObject({ signIn: { error: { kind: "secret-storage" } } });
   });
+
+  test("plain-text storage held back, the sign-in says so and starts once it is accepted (#342)", async () => {
+    const setup = await setUp({ keychain: createMemoryKeychain("plain-text") });
+    const added = await addWiki(setup);
+
+    expect(await setup.core.getSecretStorage()).toEqual({
+      protection: "plain-text",
+      plainTextAccepted: false,
+      canSave: false,
+    });
+    const refused = await setup.core.signInToConnector(added.id);
+    expect(refused).toMatchObject({ ok: false, error: { kind: "secret-storage" } });
+    expect(setup.browser.opened).toEqual([]);
+
+    expect(await setup.core.acceptPlainTextSecretStorage()).toEqual({
+      protection: "plain-text",
+      plainTextAccepted: true,
+      canSave: true,
+    });
+    const signedIn = await setup.core.signInToConnector(added.id);
+    expect(signedIn).toMatchObject({
+      ok: true,
+      connector: { state: "ready", signIn: { signedIn: true, error: null } },
+    });
+    expect(setup.browser.opened).toHaveLength(1);
+  });
 });
 
 describe("Approvals and privacy", { timeout: 30_000 }, () => {
