@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { InvalidInputError, NotFoundError } from "../../src/core/errors";
+import { InvalidInputError, NotFoundError, TranslatableError } from "../../src/core/errors";
 import type { Language } from "../../src/core/language";
 import { describeError, errorMessage, providerErrorText } from "../../src/renderer/src/errors";
 import { errorForWindow } from "../../src/shared/errorWording";
@@ -121,6 +121,13 @@ describe("an error the core gave a wording", () => {
 });
 
 describe("an error that did not cross the bridge", () => {
+  test("says its wording in the interface language when this window threw it", () => {
+    const thrown = new TranslatableError({ key: "mindCheck.nothingToCheck" });
+    expect(errorMessage(thrown, words("zh-CN"))).toBe("没有需要核对的内容");
+    expect(errorMessage(thrown, english)).toBe("Nothing to check");
+    expect(describeError(thrown).message).toBe("Nothing to check");
+  });
+
   test("loses its class's name in its message, and keeps it for the Details", () => {
     const { message, detail } = describeError(new TypeError("Cannot read properties of undefined"));
     expect(message).toBe("Cannot read properties of undefined");

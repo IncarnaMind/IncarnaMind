@@ -14,6 +14,7 @@ import { formatDateTime } from "../../../shared/dates";
 import type { MessageKey } from "../../../shared/i18n";
 import { organizeHeld, organizes, organizesNewDocuments } from "../../../shared/libraryModels";
 import { mindName } from "../../../shared/naming";
+import { allowAndSort } from "../allowSorting";
 import { commands } from "../commands/registry";
 import { core } from "../core";
 import { Popover } from "../editor/Popover";
@@ -1152,6 +1153,39 @@ function useStatuses(): Status[] {
         action: stop,
       });
     }
+  }
+
+  // Dropped Documents a cloud service may not read yet wait for the User (#2308, ADR-0022): the
+  // row names the service, and its Allow is the consent for that service only. It asks, so it
+  // comes first, never behind "+N".
+  const waitsFor = library?.sortWaitsFor;
+  const toSort = waitsFor
+    ? ownDocuments
+        .filter(
+          (doc, at) => !liveStates[at]?.item && doc.tagging === "off" && isListedDocument(doc),
+        )
+        .map((doc) => doc.id)
+    : [];
+  if (waitsFor && toSort.length > 0 && !capturing) {
+    const count = toSort.length;
+    const service = waitsFor.name;
+    const sends =
+      count === 1
+        ? t("library.toSort.sends.one", { service })
+        : t("library.toSort.sends.other", { count, service });
+    statuses.unshift({
+      testId: "sort-consent",
+      tone: "waiting",
+      asks: true,
+      short: count === 1 ? t("library.toSort.one") : t("library.toSort.other", { count }),
+      full: sends,
+      sends,
+      action: {
+        label: t("library.toSort.allow", { service }),
+        testId: "sort-consent-allow",
+        run: () => void allowAndSort(toSort),
+      },
+    });
   }
   return statuses;
 }

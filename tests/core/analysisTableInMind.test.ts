@@ -1,6 +1,7 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test } from "vitest";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { ANALYSIS_TABLE_ATTRIBUTE, ANALYSIS_TABLE_NODE } from "../../src/core/api";
 import { type AnalysisJob, noAnalysisOutput } from "../../src/shared/analysis";
 import { askAssistant } from "../helpers/assistant";
 import { shownPassages } from "../helpers/citations";
@@ -133,7 +134,7 @@ function tableIn(doc: ProseMirrorNode): ProseMirrorNode | null {
 
 describe("an Analysis's own result table written into a Note (#2378)", () => {
   test.each(["en", "zh-CN"] as const)(
-    "%s: [=table 1] writes the Analysis's table, each numeric column citing the rows it read",
+    "%s: [=table 1] writes the Analysis's table, bound to its run under its caption and marker",
     async (language) => {
       const model = writingModel(
         (each) =>
@@ -165,14 +166,21 @@ describe("an Analysis's own result table written into a Note (#2378)", () => {
           (call) => call.tool === "add_to_mind" && call.mindChange?.tables === 1,
         ),
       ).toBe(true);
-      const cited = citationsInTable(table);
-      expect(cited).toEqual([
-        expect.objectContaining({
-          documentId: expect.any(String),
-          location: { kind: "rows", sheet: null, from: 1, to: 5 },
-          check: "found",
-        }),
-      ]);
+      // One calculated object: no heading carries a Citation of its own; the caption's marker
+      // and the table both name the run the Note keeps.
+      expect(citationsInTable(table)).toEqual([]);
+      expect(table.attrs[ANALYSIS_TABLE_ATTRIBUTE]).toMatchObject({
+        table: { result: "by_region" },
+      });
+      let marker: ProseMirrorNode | null = null;
+      note.descendants((node) => {
+        if (node.type.name === ANALYSIS_TABLE_NODE) marker = node;
+        return marker === null;
+      });
+      expect((marker as ProseMirrorNode | null)?.attrs[ANALYSIS_TABLE_ATTRIBUTE]).toEqual(
+        table.attrs[ANALYSIS_TABLE_ATTRIBUTE],
+      );
+      expect(note.textContent).toContain("Revenue by region");
       core.close();
     },
   );

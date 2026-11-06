@@ -483,7 +483,11 @@ test("a missing remainder cannot make the parent all supported", async () => {
     figures: [target("f1")],
     text: `Figures: ${JSON.stringify({ items: [item()] })}`,
   });
-  expect(result.figures?.[0]?.result.verdict).toBe("supported");
+  // One verdict everywhere: a reply that can't be read backs none of its figures either (#2378).
+  expect(result.figures?.[0]?.result).toMatchObject({
+    verdict: "not-checked",
+    reason: "malformed",
+  });
   expect(result.remainder).toBeUndefined();
   expect(result.verdict).toBe("not-checked");
 });
@@ -762,9 +766,10 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
     body,
     text: reply([{ ...item(), source: null }]),
   });
+  // An Analysis's figure with no record of its run: the Analysis it came from is gone (#2378).
   expect(retained.result.figures?.[0]?.result).toMatchObject({
     verdict: "not-checked",
-    reason: "no-evidence",
+    reason: "analysis-gone",
   });
   expect(retained.result.figures?.[0]?.sourceInput).toBeNull();
 });
@@ -1392,7 +1397,9 @@ test.each(["same", "neither", "malformed"])(
         citation: 2,
       }),
     });
-    expect(result.figures?.[0]?.result.verdict).toBe("supported");
+    expect(result.figures?.[0]?.result.verdict).toBe(
+      judgement === "malformed" ? "not-checked" : "supported",
+    );
     expect(result.remainder?.verdict).toBe(
       judgement === "malformed" ? "not-checked" : "unsupported",
     );

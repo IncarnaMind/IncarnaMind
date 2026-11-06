@@ -24,7 +24,11 @@ import {
   formattingClusters,
 } from "../../src/renderer/src/editor/citationClusters";
 import { citationNumbersPlugin } from "../../src/renderer/src/editor/citationNumbers";
-import { figureShownIn } from "../../src/renderer/src/editor/claimChecks";
+import {
+  ClaimChecks,
+  figureShownIn,
+  setClaimContext,
+} from "../../src/renderer/src/editor/claimChecks";
 import { FigureEvidence } from "../../src/renderer/src/editor/figureEvidence";
 import { figureHandle } from "../../src/renderer/src/editor/figureHandle";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
@@ -435,7 +439,7 @@ test.each(["en", "zh-CN"] as const)(
       figure: analysis,
       shown: analysisFigureShown(
         { state: "supported" },
-        { checked: true, run: null, result: "total", versions: null },
+        { run: null, result: "total", versions: null },
       ),
       replayed: false,
       // The Note from an earlier build: it names an Analysis the record was already lost for.
@@ -495,6 +499,7 @@ const checkFinding = (
 function checkedFigureInText(
   child: Partial<FigureCheckAttributes> | null,
   checkedText: string | null = null,
+  keptInside: ((documentId: string) => string | null) | null = null,
 ) {
   const doc = new Y.Doc();
   docs.push(doc);
@@ -531,10 +536,13 @@ function checkedFigureInText(
     editorProps: { handleScrollToSelection: () => true },
     extensions: [
       ...noteExtensions(),
+      ClaimChecks,
       Collaboration.configure({ document: doc, field: MIND_CONTENT_FIELD }),
     ],
   });
   editors.push(editor);
+  if (keptInside)
+    setClaimContext(editor.view, { versions: null, folderId: null, scope: null, keptInside });
   return figureShownIn(
     editor.state,
     "figure",
@@ -543,23 +551,49 @@ function checkedFigureInText(
   );
 }
 
-test("a claim check that left the figure unread keeps the figure in the text from showing checked", () => {
-  expect(checkedFigureInText({ state: "not-checked", reason: "unread" })).toEqual({
-    state: "not-checked",
-    reason: "unread",
-  });
+test("a figure in the text has no verdict of its own until its sentence's check reads it as named (#2378)", () => {
+  const unread = { state: "not-checked", reason: "unread" };
+  expect(checkedFigureInText({ state: "not-checked", reason: "unread" })).toEqual(unread);
+  expect(checkedFigureInText({ state: "unsupported" })).toEqual(unread);
+  expect(checkedFigureInText(null)).toEqual(unread);
+  expect(checkedFigureInText({ state: "supported", named: true })).toEqual({ state: "supported" });
+  // The check was made on other words: it waits for the next Check.
+  expect(
+    checkedFigureInText({ state: "supported", named: true }, "Total revenue 300 kg, as checked."),
+  ).toEqual({ state: "needs-recheck", why: "edited" });
 });
 
-test("a whole-sentence check with no figure child is no evidence against the core's own check", () => {
-  expect(checkedFigureInText(null)).toEqual({ state: "supported" });
-});
-
-test("a whole-sentence check that no longer holds shows on the figure in the text", () => {
-  // The check was made on other words: its result must show, not the core's own check (#2378).
-  expect(checkedFigureInText(null, "Total revenue 300 kg, as checked.")).toEqual({
-    state: "needs-recheck",
-    why: "edited",
+test("a figure its sentence misnames reads Unsupported on its marker, and one behind a wall Not checked", () => {
+  const misnamed = {
+    kind: "analysis-name" as const,
+    reason: "The sentence doesn’t say this figure is Total revenue",
+    covered: null,
+    uncovered: null,
+    found: true as const,
+  };
+  expect(checkedFigureInText({ state: "unsupported", unsupported: misnamed })).toEqual({
+    state: "unsupported",
   });
+  expect(
+    checkedFigureInText({ state: "not-checked", reason: "unread" }, null, (documentId) =>
+      documentId === "source" ? "Matter" : null,
+    ),
+  ).toEqual({ state: "not-checked", reason: "kept-inside" });
+  // Any input of its run behind the wall, not only the first its check names (#2378).
+  expect(
+    checkedFigureInText(
+      {
+        state: "supported",
+        named: true,
+        versions: [
+          { documentId: "open", contentHash: "v1" },
+          { documentId: "copy", contentHash: "v1" },
+        ],
+      },
+      null,
+      (documentId) => (documentId === "copy" ? "Matter" : null),
+    ),
+  ).toEqual({ state: "not-checked", reason: "kept-inside" });
 });
 
 const rangeCitation: Citation = {
@@ -622,19 +656,25 @@ function tracedDoc(check?: NonNullable<RetainedFigureAnalysis["values"][number][
   installFigureRuns(doc, [tracedRecords(check)]);
   return doc;
 }
+/** The figure's own check once the claim judge read its sentence as naming it. */
+const named = { state: "supported", unsupported: null, named: true } as const;
+
 async function tracedCard(
   check: NonNullable<RetainedFigureAnalysis["values"][number]["check"]> | undefined,
   shown: ClaimCheckShown = { state: "not-checked", reason: "unread" },
   {
-    checked = false,
     versions = new Map([["source", "v2"]]),
-  }: { checked?: boolean; versions?: ReadonlyMap<string, string> | null } = {},
+    own = null,
+  }: {
+    versions?: ReadonlyMap<string, string> | null;
+    own?: Parameters<typeof analysisFigureShown>[1]["check"];
+  } = {},
 ) {
   const run = tracedRecords(check);
   const sources = calculatedSources(attrs(summed), tracedDoc(check));
   await card({
     figure: summed,
-    shown: analysisFigureShown(shown, { checked, run, result: "summed", versions }),
+    shown: analysisFigureShown(shown, { run, result: "summed", versions, check: own }),
     replayed: false,
     sources,
     problem: false,
@@ -643,14 +683,22 @@ async function tracedCard(
 }
 
 test.each(["en", "zh-CN"] as const)(
-  "%s card shows the core's own recalculation of a figure() figure as checked",
+  "%s card shows the core's own recalculation of a figure() figure, and Supported only once a check read its sentence as naming it",
   async (language) => {
     state.language = language;
     await tracedCard({ kind: "same", value: 300 });
-    const stateLine = container.querySelector(".calculated-figure-state");
+    let stateLine = container.querySelector(".calculated-figure-state");
+    expect(stateLine?.getAttribute("data-state")).toBe("not-checked");
+    expect(stateLine?.textContent).not.toContain(translate(language, "claim.state.supported"));
+    expect(container.textContent).toContain(
+      translate(language, "figures.analysisRows.recalculated"),
+    );
+    await act(() => root?.unmount());
+    root = null;
+    await tracedCard({ kind: "same", value: 300 }, { state: "supported" }, { own: named });
+    stateLine = container.querySelector(".calculated-figure-state");
     expect(stateLine?.textContent).toContain(translate(language, "claim.state.supported"));
     expect(stateLine?.getAttribute("data-state")).toBe("supported");
-    expect(stateLine?.textContent).not.toContain(translate(language, "claim.state.not-checked"));
     expect(container.textContent).toContain(
       translate(language, "figures.analysisRows.recalculated"),
     );
@@ -681,26 +729,20 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
-test("a check the Note's own Check gave the figure stays what its card says", async () => {
-  await tracedCard(
-    { kind: "same", value: 300 },
-    { state: "needs-recheck", why: "edited" },
-    {
-      checked: true,
-    },
-  );
-  expect(container.textContent).toContain(translate("en", "claim.state.needs-recheck"));
-  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
-});
-
-test("a claim check that ran and left the figure unread never shows it checked", async () => {
-  await tracedCard(
-    { kind: "same", value: 300 },
-    { state: "not-checked", reason: "unread" },
-    { checked: true },
-  );
-  expect(container.textContent).toContain(translate("en", "claim.state.not-checked"));
-  expect(container.textContent).not.toContain(translate("en", "claim.state.supported"));
+test("a sentence's check stands for the figure only as the claim judge read its naming (#2378)", async () => {
+  for (const [claim, own, shows] of [
+    [{ state: "needs-recheck", why: "edited" }, named, "needs-recheck"],
+    [{ state: "not-checked", reason: "unread" }, null, "not-checked"],
+    [{ state: "unsupported" }, null, "not-checked"],
+    [{ state: "supported" }, { state: "supported", unsupported: null }, "not-checked"],
+  ] as const) {
+    await tracedCard({ kind: "same", value: 300 }, claim, { own });
+    const stateLine = container.querySelector(".calculated-figure-state");
+    expect(stateLine?.getAttribute("data-state")).toBe(shows);
+    expect(stateLine?.textContent).not.toContain(translate("en", "claim.state.supported"));
+    await act(() => root?.unmount());
+    root = null;
+  }
 });
 
 test("a figure needs a re-check once a Document its Analysis read changed", async () => {
