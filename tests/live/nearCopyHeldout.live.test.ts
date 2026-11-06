@@ -13,7 +13,7 @@
  * Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY; the model is INCARNAMIND_LIVE_ANTHROPIC_MODEL
  * (Claude Haiku 5.5 by default), INCARNAMIND_LIVE_RUNS the checks of each case (1),
  * INCARNAMIND_LIVE_LANGUAGES the languages (`en,zh-CN`), INCARNAMIND_LIVE_CASES the files to run,
- * by origin (`held-out,two-part,reported,amended,beyond,second-look,condition-forms,ask-paths`; all of them when unset),
+ * by origin (`held-out,two-part,reported,amended,beyond,second-look,condition-forms,ask-paths,root-cause`; all of them when unset),
  * INCARNAMIND_LIVE_DOCUMENTS the Documents whose cases run, by key (all when unset), and
  * INCARNAMIND_LIVE_BUDGET the dollars after which no further
  * case starts (3), at the app's own count. The report, every check with its path and each part's
@@ -34,6 +34,7 @@ import { BEYOND_EXAMPLES_SETS } from "./nearCopyBeyondExamples.cases";
 import { CONDITION_FORMS_SETS } from "./nearCopyConditionForms.cases";
 import { CONFIRMED_SETS } from "./nearCopyConfirmed.cases";
 import { NEAR_COPY_SETS, type NearCopyDocument } from "./nearCopyHeldout.cases";
+import { ROOT_CAUSE_SETS } from "./nearCopyRootCause.cases";
 import { SECOND_LOOK_SETS } from "./nearCopySecondLook.cases";
 import { WALK_SHAPE_SETS } from "./nearCopyWalkShape.cases";
 
@@ -50,7 +51,8 @@ type Origin =
   | "beyond"
   | "second-look"
   | "condition-forms"
-  | "ask-paths";
+  | "ask-paths"
+  | "root-cause";
 const ORIGINS = process.env.INCARNAMIND_LIVE_CASES?.split(",") ?? null;
 const DOCUMENTS = process.env.INCARNAMIND_LIVE_DOCUMENTS?.split(",") ?? null;
 const BUDGET = Number(process.env.INCARNAMIND_LIVE_BUDGET ?? 3) || 3;
@@ -416,6 +418,18 @@ describe("held-out near copies on the judge", () => {
           probe: each.text,
           decoy: each.decoy,
         }));
+        const roots = ROOT_CAUSE_SETS.find((each) => each.language === set.language);
+        const rootCases: Case[] = (roots?.cases ?? []).map((each) => ({
+          key: `root-${each.key}`,
+          kind: each.kind,
+          shape: "whole",
+          origin: "root-cause",
+          document: `root-${each.document}`,
+          sentence: each.text,
+          parts: [each.text],
+          probe: each.text,
+          decoy: each.decoy,
+        }));
         const cases = [
           ...earlier,
           ...added,
@@ -423,6 +437,7 @@ describe("held-out near copies on the judge", () => {
           ...lookCases,
           ...formCases,
           ...askCases,
+          ...rootCases,
         ].filter(
           (each) =>
             (!ORIGINS || ORIGINS.includes(each.origin)) &&
@@ -450,6 +465,10 @@ describe("held-out near copies on the judge", () => {
           ...(asks?.documents ?? []).map((document) => ({
             ...document,
             key: `asks-${document.key}`,
+          })),
+          ...(roots?.documents ?? []).map((document) => ({
+            ...document,
+            key: `root-${document.key}`,
           })),
         ].filter((document) => cases.some((each) => each.document === document.key));
         const done: Awaited<ReturnType<typeof checkLibrary>>[] = [];
