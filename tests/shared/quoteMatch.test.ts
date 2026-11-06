@@ -526,10 +526,21 @@ describe("which double marks are quotation marks (#2504)", () => {
     );
     const notes = "He read ‘the girls’ notes’ aloud.";
     expect(findQuote(notes, "he read “the girls” notes")).toBeNull();
+    expect(
+      findQuote('He read ‘the girls’ 6" notes’ aloud.', 'he read “the girls” 6" notes'),
+    ).toBeNull();
+    const plan = "‘The bosses’ 2024 plan failed,’ she said.";
+    expect(findQuote(plan, "“the bosses” 2024 plan failed")).toBeNull();
+    expect(covered(plan, "“the bosses’ 2024 plan failed,” she said")).toBe(plan.slice(0, -1));
     expect(covered(notes, "he read “the girls’ notes” aloud")).toBe(notes.slice(0, -1));
     expect(
       covered("“He said ‘the experts’ disagree” today.", "‘he said “the experts” disagree’ today"),
     ).toBe("“He said ‘the experts’ disagree” today");
+    for (const gap of ["  ", "\r\n", "\t", " \n "]) {
+      const missing = `The ‘girls’${gap}notes’ are missing.`;
+      expect(findQuote(missing, `the “girls”${gap}notes’ are missing`)).toBeNull();
+      expect(covered(missing, `the “girls’${gap}notes” are missing`)).toBe(missing.slice(0, -1));
+    }
   });
 
   test("a pair around code, or set in code, matches only itself", () => {
@@ -539,14 +550,51 @@ describe("which double marks are quotation marks (#2504)", () => {
     expect(findQuote("Type ‘ls -la’ to list.", "type “ls -la” to list")).toBeNull();
     expect(findQuote("Write print(‘hi’) here.", "write print(“hi”) here")).toBeNull();
     expect(findQuote("Set x = ‘a’; then run it.", "set x = “a”; then run it")).toBeNull();
+    const assigned = "Set name = ‘total’; then run it.";
+    expect(findQuote(assigned, "set name = “total”; then run it")).toBeNull();
+    expect(covered(assigned, "set name = ‘total’; then run it")).toBe(assigned.slice(0, -1));
+    const compared = "Let ‘total’ = 5 in the sheet.";
+    expect(findQuote(compared, "let “total” = 5 in the sheet")).toBeNull();
+    expect(covered(compared, "let ‘total’ = 5 in the sheet")).toBe(compared.slice(0, -1));
     expect(covered("The value is ‘null’ here.", "the value is “null” here")).toBe(
       "The value is ‘null’ here",
     );
+    const backticks = "Run echo ‘hello `whoami` there’ now.";
+    expect(findQuote(backticks, "run echo “hello `whoami` there” now")).toBeNull();
+    expect(covered(backticks, "run echo ‘hello `whoami` there’ now")).toBe(backticks.slice(0, -1));
+    const backticksZh = "在终端运行 echo ‘你好`whoami`’。";
+    expect(findQuote(backticksZh, "在终端运行 echo “你好`whoami`”")).toBeNull();
+    expect(covered(backticksZh, "在终端运行 echo ‘你好`whoami`’")).toBe(backticksZh.slice(0, -1));
+    const curledSql = "Run SELECT “name” FROM users to read each stored name.";
+    expect(
+      findQuote(curledSql, "run select ‘name’ from users to read each stored name"),
+    ).toBeNull();
+    expect(covered(curledSql, "run select “name” from users to read each stored name")).toBe(
+      curledSql.slice(0, -1),
+    );
+    const curledSqlZh = "运行 SELECT “name” FROM users 读取每个名字。";
+    expect(findQuote(curledSqlZh, "运行 SELECT ‘name’ FROM users 读取每个名字")).toBeNull();
+    expect(covered(curledSqlZh, "运行 SELECT “name” FROM users 读取每个名字")).toBe(
+      curledSqlZh.slice(0, -1),
+    );
   });
 
-  test("straight marks of a clear pair are quotation marks too", () => {
-    expect(covered('He said "go" twice.', "he said ‘go’ twice")).toBe('He said "go" twice');
-    expect(covered("He said 'go' twice.", "he said “go” twice")).toBe("He said 'go' twice");
+  test("straight marks match only their own kind: they delimit code as often as prose", () => {
+    const sql = 'Run SELECT "name" FROM users to read each stored name.';
+    expect(findQuote(sql, "run select 'name' from users to read each stored name")).toBeNull();
+    expect(covered(sql, 'run select "name" from users to read each stored name')).toBe(
+      sql.slice(0, -1),
+    );
+    const sqlZh = '运行 SELECT "name" FROM users 读取每个名字。';
+    expect(findQuote(sqlZh, "运行 SELECT 'name' FROM users 读取每个名字")).toBeNull();
+    expect(covered(sqlZh, '运行 SELECT "name" FROM users 读取每个名字')).toBe(sqlZh.slice(0, -1));
+    const shell = 'Run echo "hello `whoami` there" now.';
+    expect(findQuote(shell, "run echo 'hello `whoami` there' now")).toBeNull();
+    expect(covered(shell, 'run echo "hello `whoami` there" now')).toBe(shell.slice(0, -1));
+    const shellZh = '在终端运行 echo "你好`whoami`"。';
+    expect(findQuote(shellZh, "在终端运行 echo '你好`whoami`'")).toBeNull();
+    expect(covered(shellZh, '在终端运行 echo "你好`whoami`"')).toBe(shellZh.slice(0, -1));
+    expect(findQuote('He said "go" twice.', "he said ‘go’ twice")).toBeNull();
     expect(findQuote("It's 6\" long.", "it's 6’ long")).toBeNull();
     expect(findQuote("f'(x) is positive.", "f”(x) is positive")).toBeNull();
     expect(covered('Write print("go") here.', "“go”")).toBe('"go"');

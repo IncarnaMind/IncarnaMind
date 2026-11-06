@@ -5,13 +5,17 @@
  * shared normaliser reads it, so a quotation mark matches it only as its own kind.
  *
  * A mark is a quotation mark only when it is one of a pair around plain words:
- * - a “ ” ‘ ’ ‚ or straight " ' must clearly open or close: whitespace, punctuation, CJK text or the
- *   text's edge outside it, and a letter inside it. A mark touching a digit, a fraction or a letter
- *   outside it is an inch, a second, a prime or an apostrophe ("6”", "¼”", "f”(x)", "it’s");
+ * - a “ ” ‘ ’ ‚ must clearly open or close: whitespace, punctuation, CJK text or the text's edge
+ *   outside it, and a letter inside it. A mark touching a digit, a fraction or a letter outside it
+ *   is an inch, a second, a prime or an apostrophe ("6”", "¼”", "f”(x)", "it’s");
  * - a closing mark closes only the innermost open quote, and only its own kind („ closes with ” or
  *   “, ‚ with ’ or ‘, and guillemets point either way). Guillemets and corner brackets are never a
  *   measure's, so they need no clear side;
- * - the words between the pair have no code symbols ("echo ‘$HOME’", "sed ‘s/a/b/’").
+ * - the words between the pair have no code symbols ("echo ‘$HOME’", "sed ‘s/a/b/’"), and the pair
+ *   doesn't follow a word in capitals, as SQL's do ("SELECT “name” FROM").
+ *
+ * Straight marks " and ' are never quotation marks here: they delimit code as often as prose, where
+ * one kind isn't the other ("SELECT "name"" names a column, "SELECT 'name'" is a string).
  *
  * A mark that is not one of such a pair matches only itself, as on main, so a quote with a single
  * mark is found for the page's double one only where both are quotation marks.
@@ -50,6 +54,8 @@ const CJK = 16;
 const CODE = 32;
 /** Marks that need a clear side: they are also inches, seconds, primes and apostrophes. */
 const AMBIGUOUS = 64;
+/** The typographic quote marks: only these open or close a quote. */
+const QUOTE_MARK = 8192;
 /** What a clear side may run past to its word: “‘nested’”, “Go home.” */
 const BEFORE_WORD = 128;
 const AFTER_WORD = 256;
@@ -60,7 +66,8 @@ const KNOWN = 4096;
 
 const LISTED: readonly [number, string][] = [
   [CODE, "$`\\{}<>|=^~@#/*+_[]"],
-  [AMBIGUOUS, "“”‘’‚\"'"],
+  [AMBIGUOUS, "“”‘’‚"],
+  [QUOTE_MARK, "“”„‘’‚«»‹›「」『』"],
   [BEFORE_WORD, "‘“„‚«‹「『([¿¡（"],
   [AFTER_WORD, ".,!?;:…’”»›」』)]。，！？；：、）"],
   [OPENING_BRACKET, "([{“‘„‚«‹「『"],
@@ -98,11 +105,29 @@ function at(text: string, index: number): number {
   return (CLASSES[code] as number) || classify(code);
 }
 
+/** The first index from `index` on, stepping by `step`, that isn't whitespace: a run of it is one gap. */
+function pastSpace(text: string, index: number, step: 1 | -1): number {
+  let past = index;
+  while (at(text, past) & SPACE) past += step;
+  return past;
+}
+
+/** Whether a word of two or more capitals ends at `index`, as an SQL keyword does. */
+function capitalsEndAt(text: string, index: number): boolean {
+  let start = index;
+  while (at(text, start) & LETTER && !(at(text, start) & CJK)) start--;
+  const word = text.slice(start + 1, index + 1);
+  return word.length >= 2 && word === word.toUpperCase() && word !== word.toLowerCase();
+}
+
 /** Whether the code unit at `index`, just outside an opening mark, ends a word rather than code or a number. */
 function opensAfter(text: string, index: number): boolean {
   const outside = at(text, index);
   if (outside & (EDGE | CJK)) return true;
-  if (outside & SPACE) return !(at(text, index - 1) & CODE);
+  if (outside & SPACE) {
+    const before = pastSpace(text, index, -1);
+    return !(at(text, before) & CODE) && !capitalsEndAt(text, before);
+  }
   if (outside & (CODE | CLOSING_BRACKET) || !(outside & PUNCTUATION)) return false;
   // A bracket against a word is a call: print(‘hi’).
   return !(outside & OPENING_BRACKET) || !(at(text, index - 1) & (LETTER | NUMBER));
@@ -112,7 +137,7 @@ function opensAfter(text: string, index: number): boolean {
 function closesBefore(text: string, index: number): boolean {
   const outside = at(text, index);
   if (outside & (EDGE | CJK)) return true;
-  if (outside & SPACE) return !(at(text, index + 1) & CODE);
+  if (outside & SPACE) return !(at(text, pastSpace(text, index, 1)) & CODE);
   return (outside & PUNCTUATION) !== 0 && !(outside & (CODE | OPENING_BRACKET));
 }
 
@@ -126,8 +151,8 @@ function clearlyOpens(text: string, index: number): boolean {
 /**
  * Whether the mark at `index` closes: "yes" with a word's end inside it and a boundary outside, "no"
  * when a one-letter word or a name of up to three capitals ends in a prime ("A’", "AB’", "4K”"), and
- * "maybe" for a single mark after an "s" with a word after it: a possessive or a quote's end ("the
- * girls’ room", "‘soft weights’ property").
+ * "maybe" for a single mark after an "s" with a word or a number after it, past any whitespace: a
+ * possessive or a quote's end ("the girls’ room", "the bosses’ 2024 plan", "‘soft weights’ property").
  */
 function closing(text: string, index: number, single: boolean): "yes" | "no" | "maybe" {
   let inside = index - 1;
@@ -147,7 +172,7 @@ function closing(text: string, index: number, single: boolean): "yes" | "no" | "
     inside === index - 1 &&
     (s === 0x73 || s === 0x53) &&
     at(text, index + 1) & SPACE &&
-    at(text, index + 2) & LETTER;
+    at(text, pastSpace(text, index + 1, 1)) & (LETTER | NUMBER);
   return possessive ? "maybe" : "yes";
 }
 
@@ -159,8 +184,6 @@ const CLOSED_BY: ReadonlyMap<string, string> = new Map([
   ["‘", "’"],
   ["’", "’"],
   ["‚", "’‘"],
-  ['"', '"'],
-  ["'", "'"],
   ["«", "»"],
   ["»", "«"],
   ["‹", "›"],
@@ -202,13 +225,15 @@ export function markQuotationMarks(text: string, units: NormalisedUnit[]): void 
   for (const unit of units) {
     const char = unit.char;
     if (char === "-" && afterSpace && at(text, unit.end) & LETTER) code++;
-    else if (char.length === 1 && at(char, 0) & CODE) code++;
+    // The text's own character: the normaliser has made a backtick an apostrophe.
+    else if (at(text, unit.start) & CODE || (char.length === 1 && at(char, 0) & CODE)) code++;
     afterSpace = char === " ";
     if ((char !== '"' && char !== "'") || unit.end !== unit.start + 1) continue;
     const mark = text.charAt(unit.start);
     const ambiguous = (at(text, unit.start) & AMBIGUOUS) !== 0;
     const single = char === "'";
     let top = opened.at(-1);
+    if (!(at(text, unit.start) & QUOTE_MARK)) continue;
     if (top?.maybe && !CLOSED_BY.get(top.mark)?.includes(mark)) {
       const acts =
         !ambiguous ||

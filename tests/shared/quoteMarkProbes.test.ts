@@ -30,8 +30,8 @@ const covered = ({ page, quote }: Probe) =>
     .join(" … ") ?? null;
 
 describe.each([
-  ["quote-mark-probes.json", 25],
-  ["quote-mark-dev-probes.json", 72],
+  ["quote-mark-probes.json", 24],
+  ["quote-mark-dev-probes.json", 64],
 ] as const)("%s", (name, foundIn) => {
   const all = probes(name);
 
