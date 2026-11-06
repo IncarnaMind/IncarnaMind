@@ -10,7 +10,12 @@ import { describe, expect, test, vi } from "vitest";
 import type { Core, LibraryClassifier } from "../../src/core";
 import type { ChatModelSpec } from "../../src/core/providers/models";
 import { translate } from "../../src/shared/i18n";
-import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
+import {
+  createMemoryKeychain,
+  createTempDataFolder,
+  startCore,
+  turnOnAutomaticTagging,
+} from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -23,12 +28,15 @@ function perProvider() {
   const sent: Record<string, number> = {};
   const failing = new Set<string>();
   const models = new Map<string, MockLanguageModelV4>();
+  let gate: Promise<void> | null = null;
+  let open = () => {};
   const createChatModel = (spec: ChatModelSpec) => {
     const known = models.get(spec.kind);
     if (known) return known;
     const model = new MockLanguageModelV4({
       doGenerate: async (options) => {
         sent[spec.kind] = (sent[spec.kind] ?? 0) + 1;
+        if (gate) await gate;
         if (failing.has(spec.kind)) throw new Error("fetch failed");
         const format = options.responseFormat;
         const group = (
@@ -54,6 +62,16 @@ function perProvider() {
   return {
     sent: (kind: string) => sent[kind] ?? 0,
     fail: (kind: string) => failing.add(kind),
+    /** Holds every answer until `release`. */
+    hold: () => {
+      gate = new Promise((resolve) => {
+        open = resolve;
+      });
+    },
+    release: () => {
+      gate = null;
+      open();
+    },
     createChatModel,
   };
 }
@@ -286,6 +304,91 @@ describe("Dropped Documents wait for the User's Allow (#2308)", { timeout: 120_0
     );
     expect((await waiting(reopened)).ids).not.toContain(failed.id);
     expect(models.sent("anthropic")).toBeGreaterThan(2);
+  });
+
+  // protects=the row asks only when the Allow would turn sorting on for the one service it names: with tagging sending to another service, no row shows and nothing goes to either; fails_when=the Allow turns sending on, or records consent, for a service the row doesn't name; no_claim=how such a User turns it on, which Settings does.
+  test("no row when the Allow would turn on a service it doesn't name", async () => {
+    const { core, models, anthropic, drop } = await setup();
+    const openai = await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+    });
+    // Tags on Automatic, which picks the chat model's service; Organize on another one.
+    await core.updateSettings({
+      user: { chatModel: { providerId: openai.id, modelId: "gpt-6-luna" } },
+    });
+    const { settings } = await core.getLibrary();
+    await core.saveLibrarySettings({
+      ...settings,
+      classifier: { kind: "automatic" },
+      organizeWith: {
+        kind: "chat",
+        choice: { providerId: anthropic.id, modelId: "claude-haiku-5-5" },
+      },
+    });
+    const held = await drop();
+    expect(await waiting(core)).toEqual({ service: null, ids: [held] });
+    expect([models.sent("anthropic"), models.sent("openai")]).toEqual([0, 0]);
+
+    await core.saveLibrarySettings({
+      ...(await core.getLibrary()).settings,
+      classifier: chat(anthropic.id, "claude-haiku-5-5"),
+      organizeWith: null,
+    });
+    expect((await waiting(core)).service).toBe("Anthropic");
+  });
+
+  // protects=automatic tagging, with Organize having no model, sends nothing of a Document filed in a walled Folder while one dropped beside it is tagged; fails_when=tagging sends a walled Document's name or text to a cloud model by itself; no_claim=Organize's own wall check, tested above.
+  test("automatic tagging sends nothing of a walled Document", async () => {
+    const models = perProvider();
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: models.createChatModel,
+    });
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    await turnOnAutomaticTagging(core);
+    await core.createTag({ name: "Survey", description: "Measurements taken on site." });
+    const walled = await core.createLibraryGroup({
+      name: "Matter kept apart",
+      description: "Kept apart.",
+      keepInside: true,
+    });
+    expect((await core.getLibrary()).settings.automatic).toBe(true);
+    const sources = await createSourceFolder();
+    const insidePath = await writeSourceFile(sources, "Inside.txt", TEXTS.en(1));
+    const { documents } = await core.addDocuments([insidePath], { groupId: walled.id });
+    const [inside] = await waitForProcessing(
+      core,
+      documents.map((each) => each.id),
+    );
+    const [beside] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Beside.txt", TEXTS.en(2)),
+    ]);
+    if (!inside || !beside) throw new Error("Not added.");
+    await vi.waitFor(async () => {
+      const listed = await core.listDocuments();
+      expect(listed.find((each) => each.id === beside.id)?.tagging).toBe("tagged");
+      expect(listed.find((each) => each.id === inside.id)?.tagging).toBe("off");
+    }, WAIT);
+    expect(models.sent("anthropic")).toBe(1);
+  });
+
+  // protects=quitting after the Allow, while its run is still out, the next start organizes the Documents that waited, as the User asked; fails_when=they are left in no Folder with nothing saying why; no_claim=what a request cut off mid-way costs.
+  test("a quit between the Allow and its run still organizes them", async () => {
+    const { core, dataDir, keychain, models, harbour, drop } = await setup();
+    const first = [await drop(), await drop()];
+    models.hold();
+    await allow(core, first);
+    await vi.waitFor(() => expect(models.sent("anthropic")).toBeGreaterThan(0), WAIT);
+    core.close();
+    models.release();
+
+    const reopened = startCore(dataDir, { createChatModel: models.createChatModel, keychain });
+    await sorted(reopened, first, harbour.id);
   });
 
   // protects=an empty Library has nothing to sort and sends nothing, while the service it would ask for is named; fails_when=the row counts Documents that aren't there; no_claim=the row, which shows only with a Document to sort.

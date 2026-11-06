@@ -38,5 +38,5 @@ A Folder's **Keep this Folder's work inside it** switch adds an information barr
 
 Organize offers every Folder as a place for a Document, a walled one included: its name and description go to the Organize service, with the others, and one choice comes back. A work wall keeps one Folder's Documents out of other Notes' answers. Organize writes no Note's answer: it sends the Folder list only to the service the User allowed for Organize, and filing a new Document into its matter's walled Folder is what the User wants. The Library's Organize already did so, and the wall above doesn't list Organize among the paths it closes.
 
-- **A Document inside a wall is never sent from it by itself.** Organize sends nothing of a Document filed in a walled Folder to a cloud service by itself; the User's own Organize of it still goes.
+- **A Document inside a wall is never sent from it by itself.** Neither Organize nor automatic tagging sends anything of a Document filed in a walled Folder to a cloud service by itself; the User's own Organize or re-tag of it, "Organize this Folder" on that Folder included, still goes.
 - **A Document Organize files into a wall comes back with the one Undo**, as any Organize filing does.

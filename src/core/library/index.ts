@@ -1114,6 +1114,9 @@ export function createLibrary(options: {
   const queueClassification = (ids: readonly string[]) => {
     const docs = ids.map(document);
     for (const doc of docs) asked.add(doc.id);
+    // The User's own request goes to this service, after a quit too: kept, not only in memory.
+    const service = options.organizeService(getSettings());
+    if (service) for (const doc of docs) clearForService(db, doc.id, [service], now());
     db.transaction(() => {
       for (const doc of docs) {
         const existing = assignment(doc.id);
@@ -1254,11 +1257,17 @@ export function createLibrary(options: {
     announce([id]);
   }
 
-  /** The cloud service new Documents wait to be allowed on (`LibrarySnapshot.sortWaitsFor`). */
+  /**
+   * The cloud service new Documents wait to be allowed on (`LibrarySnapshot.sortWaitsFor`). None
+   * when turning sorting on would turn it on for another service too (tagging's, say a Jev key's):
+   * the row's Allow names one service, and is the consent for that one only.
+   */
   function sortWaitsFor(): ExternalService | null {
     const now = getSettings();
     if (now.automatic || options.localOnly?.() || groups().length === 0) return null;
-    return options.organizeService(now);
+    const service = options.organizeService(now);
+    if (!service || options.sendsTo(now).some((each) => each.id !== service.id)) return null;
+    return service;
   }
 
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
@@ -1388,6 +1397,7 @@ export function createLibrary(options: {
       settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       changed();
     },
+    inWall,
     /** A live Folder, or NotFoundError. */
     folder: group,
     /** The live Folders, by name. */

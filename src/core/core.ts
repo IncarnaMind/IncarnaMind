@@ -3348,7 +3348,9 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const tagger = createTagger({
-    maySend: (id, service) => mayBackgroundSend(db, id, [service], library.turnedOnAt),
+    // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
+    maySend: (id, service) =>
+      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnAt),
     db,
     now,
     tags,

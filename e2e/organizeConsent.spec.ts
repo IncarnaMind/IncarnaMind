@@ -48,7 +48,7 @@ test.afterEach(async () => {
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`${language}: the footer asks, the press organizes with one Undo, and off asks again`, async () => {
+  test(`${language}: the footer asks, the press turns organizing on and organizes with one Undo, off asks again`, async () => {
     test.setTimeout(120_000);
     const words = CASES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -96,19 +96,38 @@ for (const language of ["en", "zh-CN"] as const) {
         );
       expect(await filed()).toBe(0);
 
-      // What goes, readable before the press.
+      // What goes, readable before the press: on a click, and on the keyboard's focus.
       await pointAndClick(window, row.getByTestId("status-label"));
       await expect(window.getByTestId("status-sends")).toHaveText(words.sends);
       await window.keyboard.press("Escape");
       await expect(window.getByTestId("status-sends")).toHaveCount(0);
+      await row.getByTestId("status-label").blur();
+      await row.getByTestId("status-label").focus();
+      await expect(window.getByTestId("status-sends")).toHaveText(words.sends);
 
-      await pointAndClick(window, allow);
+      // Tab reaches Allow, and Enter is the press.
+      await window.keyboard.press("Tab");
+      await expect(allow).toBeFocused();
+      await window.keyboard.press("Enter");
       await expect(row).toHaveCount(0);
       await expect.poll(filed, { timeout: 60_000 }).toBe(4);
 
-      // One Undo takes the run back; the switch is on now, so no row asks.
+      // The press turned organizing on for that service: a Document dropped now goes by itself.
+      const add = (index: number) =>
+        window.evaluate(
+          async (path) => {
+            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            await core.addDocuments([path]);
+          },
+          join(sources, `Survey ${index}.md`),
+        );
+      await writeFile(join(sources, "Survey 5.md"), `# Survey 5\n\n${words.text(5)}\n`);
+      await add(5);
+      await expect.poll(filed, { timeout: 60_000 }).toBe(5);
+
+      // One Undo takes the press's run back; the switch stays on, so no row asks.
       await window.keyboard.press("ControlOrMeta+z");
-      await expect.poll(filed, { timeout: 30_000 }).toBe(0);
+      await expect.poll(filed, { timeout: 30_000 }).toBe(1);
       await expect(row).toHaveCount(0);
 
       // Off again: a Document dropped now waits, and the row asks once more.
@@ -116,14 +135,16 @@ for (const language of ["en", "zh-CN"] as const) {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
       });
-      const fifth = join(sources, "Survey 5.md");
-      await writeFile(fifth, `# Survey 5\n\n${words.text(5)}\n`);
-      await window.evaluate(async (path) => {
-        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        await core.addDocuments([path]);
-      }, fifth);
+      await writeFile(join(sources, "Survey 6.md"), `# Survey 6\n\n${words.text(6)}\n`);
+      await add(6);
       await expect(row.getByTestId("status-label")).toHaveText(words.one, { timeout: 30_000 });
       await expect(allow).toHaveText(words.allow);
+
+      // Local mode sends nothing to a cloud service, so nothing asks.
+      await window.evaluate(async () => {
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setLocalOnly(true);
+      });
+      await expect(row).toHaveCount(0);
     } finally {
       await app.close();
     }
