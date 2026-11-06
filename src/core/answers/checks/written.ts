@@ -614,11 +614,6 @@ function paragraphIn(
   return element?.nodeName === "paragraph" ? element : undefined;
 }
 
-/**
- * Lands one sentence in the Mind: cut or marked while it reads as it was
- * written; once the User has changed it, only marked, so its words stay and
- * its check shows it needs doing again.
- */
 // The same words nearest where they were written, else, once the User has changed them, the
 // sentence in the same place.
 function placeOf(
@@ -637,6 +632,11 @@ function placeOf(
   return now ? { ...now, same: false } : null;
 }
 
+/**
+ * Lands one sentence in the Mind: cut or marked while it reads as it was
+ * written; once the User has changed it, only marked, so its words stay and
+ * its check shows it needs doing again.
+ */
 function land(blocks: Y.XmlFragment, ids: readonly string[], landing: Landing): void {
   const { sentence } = landing;
   const element = paragraphIn(blocks, ids, sentence.path);
@@ -854,9 +854,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       contradicted: 0,
     };
     let landingFailed: unknown = null;
+    // A Note a newer version wrote refuses every edit, so once one is refused the rest aren't tried.
+    let refused = false;
     const landAll = (landings: readonly Landing[]) => {
-      // A Note a newer version wrote refuses every edit, so the rest aren't tried.
-      if (landings.length === 0 || landingFailed instanceof MindReadOnlyError) return;
+      if (landings.length === 0 || refused) return;
       input.edit((note) => {
         for (const landing of landings) land(note, input.ids, landing);
       });
@@ -1039,6 +1040,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           } catch (error) {
             couldNotLand(error);
             landingFailed ??= error;
+            if (error instanceof MindReadOnlyError) refused = true;
           }
         },
       },

@@ -38,7 +38,7 @@ The runs were made at 32dc8ee60 against 9d23dc0a4, in the order above, on a dire
 | Sonnet, Chinese | 22.3 → 4.8 s | 23.4 → 20.6 s | 1.4 s | holds |
 
 - **Sonnet's first runs don't count.** They ran while other work on this computer took the load to 35–134, past the 24 these runs are held to, so Sonnet's cells were run again, alternating, each process waiting for the load to fall to 24. Those are the rows above. The first runs gave English 31.5 → 21.3 s and Chinese 29.4 → 25.1 s to the end.
-- **Where the end goes:** in every run of both arms the end comes 0.01–0.09 s after the last model request ends, so the end is set by how long the slowest check's requests take, not by the marks landing. The step's runs made 1–6 more requests than today's (more cuts and their checks; a run cut 0–3 sentences on either arm).
+- **Where the end goes:** in every run of both arms the end comes 0.01–0.09 s after the last model request ends. That measures only the tail: it doesn't show what made the last request end when it did. The step's runs made 1–6 more requests than today's (more cuts and their checks; a run cut 0–3 sentences on either arm).
 - **No failure:** no request failed and no rate limit was met.
 - **Verdicts:** six sentences' marks differed between the arms over all the runs. One counts against the step under the bar: `h2-zh-copy-damage`, which the rules don't state, was Supported in 3 of 3 of the step's Haiku runs in Chinese and in 1 of 3 of today's. In English the same sentence went the other way: 3 of 3 today, 1 of 3 on the step. The other five were Supported no more often on the step.
 - **Spent:** $2.78 on these runs, and $0.06 on one Check this Note for the reranker's waits.
@@ -47,10 +47,6 @@ So the step doesn't hold every bar: the end in Sonnet's English cell, and the ve
 
 ## Decision, 2026-11-06
 
-The end-time line is not met in one cell, Sonnet 5.5 English, where it ended 4.1 s later against a 0.8 s spread. The step ships anyway, because the mechanism rules the step out as the cause:
+Two bars are not met and stay failed: Sonnet 5.5 English ended 4.1 s later against a 0.8 s spread, and h2-zh-copy-damage was Supported 3/3 against 1/3 on main in Haiku Chinese. Their cause is unproven. The step ships as an exception that accepts this risk, because the first mark comes 9.8–17.5 s sooner in all four cells.
 
-- every request matches main byte for byte, so no verdict can differ because of the step;
-- in every run of both arms, the end came 0.01–0.09 s after the last model request, so the end is set by the slowest check's requests, not by the landing;
-- the runs differed in how many sentences were cut, 0 to 3, and each cut adds a check.
-
-The first mark comes 9.8–17.5 s sooner in all four cells, and the end is no later in the other three. The one decoy that differs, h2-zh-copy-damage, is sampling noise on identical requests. It went the other way in English, and it is a false Supported on main too.
+What landing costs, read from these runs' saved requests with no new run: a mark that doesn't wait shows on the page a median 4–9 ms after its sentence's last request ends, and a worker that finishes a sentence starts its next one a median 10 ms later on Haiku and 6 ms on Sonnet, where `main` takes 6 ms and 3 ms (90th percentile 21 and 19 ms, against 13 and 17 ms). That is a few milliseconds a landing, too little to account for 4.1 s, but it doesn't prove the cause either.

@@ -48,7 +48,13 @@ import { type Library, openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { SETS, writeDocuments } from "../repeats/cases";
-import { checkRecorder, checkTimesReport, type FlowTimes, type Landed } from "./checkTimes";
+import {
+  checkRecorder,
+  checkTimesReport,
+  type FlowTimes,
+  firstVerdictMs,
+  type Landed,
+} from "./checkTimes";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
 
@@ -442,7 +448,8 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               run,
               load,
               checkStartMs: times.checkStartMs,
-              firstVerdictMs: landed[0]?.ms ?? null,
+              firstMarkMs: landed[0]?.ms ?? null,
+              firstVerdictMs: firstVerdictMs(landed),
               doneMs: times.doneMs,
               landed,
               requests: recorder.end(),
@@ -450,7 +457,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               spentUsd: after - spent,
             });
             log(
-              `  first verdict ${((landed[0]?.ms ?? 0) / 1000).toFixed(1)} s, done ${(times.doneMs / 1000).toFixed(1)} s, ${landed.length} landed, $${(after - spent).toFixed(4)}`,
+              `  first mark ${((landed[0]?.ms ?? 0) / 1000).toFixed(1)} s, first verdict ${((firstVerdictMs(landed) ?? 0) / 1000).toFixed(1)} s, done ${(times.doneMs / 1000).toFixed(1)} s, ${landed.length} landed, $${(after - spent).toFixed(4)}`,
             );
           }
         }

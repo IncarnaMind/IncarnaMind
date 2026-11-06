@@ -239,12 +239,19 @@ export function checkRecorder() {
   };
 }
 
-/** When each sentence's verdict reached the page, and what it was. */
+/** When each sentence's mark reached the page, and what it was. */
 export interface Landed {
   sentence: number;
   ms: number;
   verdict: string;
 }
+
+/** A mark that says nothing of the sentence: it couldn't be checked. */
+const NO_VERDICT: ReadonlySet<string> = new Set(["not-checked", "cant-check"]);
+
+/** When the first verdict reached the page, given the marks in the order they landed. */
+export const firstVerdictMs = (landed: readonly Landed[]): number | null =>
+  landed.find((each) => !NO_VERDICT.has(each.verdict))?.ms ?? null;
 
 export interface FlowTimes {
   flow: string;
@@ -254,6 +261,8 @@ export interface FlowTimes {
   load: number;
   /** When the check itself began: after the claims were named, for a Note's check. */
   checkStartMs: number;
+  /** When the first mark reached the page, one that couldn't be checked included. */
+  firstMarkMs: number | null;
   firstVerdictMs: number | null;
   doneMs: number;
   landed: Landed[];
@@ -324,8 +333,8 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
     groups.set(key, [...(groups.get(key) ?? []), run]);
   }
   lines.push(
-    "| Flow · model · language | Runs | Check starts | First verdict | Done | Requests | Per sentence: requests, searches | Model time / wait for first byte / thinking, per request | Reranks (median ms) | Load | Spent |",
-    "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
+    "| Flow · model · language | Runs | Check starts | First mark | First verdict | Done | Requests | Per sentence: requests, searches | Model time / wait for first byte / thinking, per request | Reranks (median ms) | Load | Spent |",
+    "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
   );
   for (const [key, list] of groups) {
     const count = counts.get(list[0]?.flow ?? "") ?? 0;
@@ -338,7 +347,7 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
     const perRequest = (pick: (request: CheckRequest) => number) =>
       median(checkRequests.map(pick)) ?? 0;
     lines.push(
-      `| ${key} | ${list.length} | ${s(med((run) => run.checkStartMs))} | ${s(med((run) => run.firstVerdictMs))} | ${s(med((run) => run.doneMs))} | ${(checkRequests.length / list.length).toFixed(1)} | ${(median(per.map((each) => each.requests)) ?? 0).toFixed(1)}, ${(median(per.map((each) => each.searches)) ?? 0).toFixed(1)} | ${s(perRequest((request) => (request.endMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstByteMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstReasoningMs !== null && request.firstAnswerMs !== null ? request.firstAnswerMs - request.firstReasoningMs : 0)))} | ${list.map((run) => run.reranks.length).join("/")} (${(median(list.flatMap((run) => run.reranks.map((each) => each.ms))) ?? 0).toFixed(0)}) | ${(median(list.map((run) => run.load)) ?? 0).toFixed(1)} | $${sum(list.map((run) => run.spentUsd)).toFixed(3)} |`,
+      `| ${key} | ${list.length} | ${s(med((run) => run.checkStartMs))} | ${s(med((run) => run.firstMarkMs))} | ${s(med((run) => run.firstVerdictMs))} | ${s(med((run) => run.doneMs))} | ${(checkRequests.length / list.length).toFixed(1)} | ${(median(per.map((each) => each.requests)) ?? 0).toFixed(1)}, ${(median(per.map((each) => each.searches)) ?? 0).toFixed(1)} | ${s(perRequest((request) => (request.endMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstByteMs ?? request.startMs) - request.startMs))} / ${s(perRequest((request) => (request.firstReasoningMs !== null && request.firstAnswerMs !== null ? request.firstAnswerMs - request.firstReasoningMs : 0)))} | ${list.map((run) => run.reranks.length).join("/")} (${(median(list.flatMap((run) => run.reranks.map((each) => each.ms))) ?? 0).toFixed(0)}) | ${(median(list.map((run) => run.load)) ?? 0).toFixed(1)} | $${sum(list.map((run) => run.spentUsd)).toFixed(3)} |`,
     );
   }
   for (const [key, list] of groups) {

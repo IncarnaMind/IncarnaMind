@@ -25,6 +25,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient, typeInto } from "../helpers/mindClient";
 import { editMind, readMind, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
+  type GenerateCall,
   type ModelCall,
   type ScriptedReply,
   scriptedModel,
@@ -163,6 +164,8 @@ interface Writing {
   /** The model's cut of a sentence, in place of its first clause and its marker, or given the cut's prompt. */
   cut?: string | ((prompt: string) => string);
   record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
+  /** Hears each request that isn't streamed, answered as `PLANS` says. */
+  generated?: (call: GenerateCall) => void;
 }
 
 const RECORD_FILE: NonNullable<Writing["record"]> = {
@@ -189,6 +192,7 @@ function writingModel(
     check,
     cut = "Spring tides come at new and full moon [1].",
     record,
+    generated,
   }: Writing,
   calls: ModelCall[],
   coreOf: () => Core | null,
@@ -230,7 +234,14 @@ function writingModel(
       }
       return { text: "Wrote it from your Documents." };
     },
-    record ? { generate: checkGenerate(PLANS) } : undefined,
+    record || generated
+      ? {
+          generate: (call: GenerateCall) => {
+            generated?.(call);
+            return checkGenerate(PLANS)(call);
+          },
+        }
+      : undefined,
   );
 }
 
@@ -329,6 +340,77 @@ async function write(
   const page = writing.into ? client : await connectToMind(core, change?.mindId ?? "");
   await page.settled();
   return { core, model, calls, answer, change, client: page };
+}
+
+const ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+const TIME = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+
+const endsCheck = (reply: ScriptedReply) =>
+  "text" in reply && typeof reply.text === "string" && !("calls" in reply && reply.calls?.length);
+
+/**
+ * Every request a write's checks send, normalized: ids, times and cache keys put by. The other
+ * sentences (as checks read them) wait for the first one's check to end, `firstEnds` being the
+ * sentence whose verdict ends it (its cut's, once cut); or, `reversed`, it waits for theirs. So
+ * the checks end in opposite orders.
+ */
+async function checkRequestsOf(
+  writing: Writing,
+  sentences: { first: string; firstEnds: string; others: readonly string[]; checked: number },
+  reversed: boolean,
+) {
+  const { first, firstEnds, others, checked } = sentences;
+  let page: MindClient | null = null;
+  const verdicts: string[] = [];
+  const generated: GenerateCall[] = [];
+  const once = (ended: () => boolean) =>
+    vi
+      .waitFor(() => expect(ended()).toBe(true), { timeout: 20_000, interval: 5 })
+      .then(() => page?.settled());
+  const { calls } = await write(
+    {
+      ...writing,
+      cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      generated: (call) => generated.push(call),
+      check: (call, core) => {
+        const reply = writing.check?.(call, core) ?? checkReply(call, PLANS);
+        if (endsCheck(reply)) verdicts.push(sentenceOf(call));
+        if (call.results.length > 0) return reply;
+        const sentence = sentenceOf(call);
+        const until = reversed
+          ? sentence === first &&
+            once(() => verdicts.filter((each) => others.includes(each)).length >= checked - 1)
+          : others.includes(sentence) && once(() => verdicts.includes(firstEnds));
+        return until ? { ...reply, pause: { after: 0, until } } : reply;
+      },
+    },
+    ({ client }) => {
+      page = client;
+    },
+  );
+  const normal = (request: unknown) =>
+    JSON.stringify(request, (key, value) =>
+      key === "promptCacheKey" || key === "cacheKey" ? "<key>" : value,
+    )
+      .replace(ID, "<id>")
+      .replace(TIME, "<time>");
+  return [
+    ...calls
+      .filter((call) => isCheckRun(call) || CUT.test(call.prompt))
+      .map((call) =>
+        normal({
+          system: call.system,
+          prompt: call.prompt,
+          tools: call.tools,
+          json: call.json,
+          providerOptions: call.options.providerOptions,
+        }),
+      ),
+    // A sentence's comparisons and its record cites' judgements, not the reply's own checks.
+    ...generated
+      .filter((call) => /^(Compare a sentence|A sentence the User wrote)/.test(call.system))
+      .map((call) => normal({ system: call.system, prompt: call.prompt })),
+  ].sort();
 }
 
 /** A paragraph of the Mind as checks read it: each Citation as U+FFFC. */
@@ -935,6 +1017,61 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     expect(change?.selfCheck).toBeUndefined();
   });
 
+  // protects=once the Note refuses an edit, no further mark is tried, even after an earlier edit failed for another reason (#2532); fails_when=the first failure kept for the report hides the refusal and a later mark is tried again; no_claim=what makes an edit fail.
+  test("a refused edit after another failure still stops every later mark", async () => {
+    let page: MindClient | null = null;
+    let newer = false;
+    let armed: boolean | null = false;
+    const format = Y.XmlText.prototype.format;
+    const edits = vi.spyOn(Y.XmlText.prototype, "format").mockImplementation(function (
+      this: Y.XmlText,
+      ...args: Parameters<Y.XmlText["format"]>
+    ) {
+      if (armed) {
+        armed = null;
+        throw new Error("The edit broke.");
+      }
+      format.apply(this, args);
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { calls } = await write(
+        {
+          content: `${MOON.slice(0, -1)} [^1].\n\n${UNBACKED} [^1].\n\nThe harbour office posts the times [^1].`,
+          into: true,
+          check: (call) => {
+            const client = page;
+            if (call.results.length > 0 || !client) return null;
+            if (armed === false) armed = true;
+            if (sentenceOf(call) !== `${UNBACKED} .` || newer) return null;
+            // A newer version writes the Note once the first mark has failed for another reason.
+            newer = true;
+            client.doc
+              .getMap(MIND_SETTINGS_FIELD)
+              .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+            return { ...checkReply(call, PLANS), pause: { after: 0, until: client.settled() } };
+          },
+        },
+        ({ client }) => {
+          page = client;
+        },
+      );
+      edits.mockRestore();
+
+      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(3);
+      const refused = errors.mock.calls.filter(([line]) =>
+        String(line).includes("marks couldn't land"),
+      );
+      expect(refused.map(([, error]) => (error instanceof Error ? error.name : null))).toEqual([
+        "Error",
+        "MindReadOnlyError",
+      ]);
+    } finally {
+      edits.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
   // protects=the cuts listed for the model are in the Note's order whichever check ends first (#2532); fails_when=they are listed in the order their checks ended; no_claim=what each cut keeps.
   test("the cuts listed for the model are in the Note's order", async () => {
     let seen: readonly ModelCall[] = [];
@@ -1197,6 +1334,67 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
           location: { kind: "page", from: 2, to: 2 },
         });
       }
+    },
+  );
+
+  // protects=normalized request equivalence: a write's checks send the same requests whichever order they end in, ids, times and cache keys put by, as marks land while other sentences are still checked and a cut lands after every check (#2532); fails_when=a mark that lands mid-run changes what a later check sends; no_claim=a check that starts after a cut would land, which the Id. test pins, nor the final marks, which a cut placed after every check changes on purpose for two identical sentences after it.
+  test.each([
+    {
+      name: "paragraphs, a table and a cut",
+      writing: {
+        content: `${OVERSTATED} [^1]. ${UNBACKED} [^1].\n\n| Region | Note |\n| --- | --- |\n| North | ${MOON.slice(0, -1)} [^1] |`,
+        into: true,
+      },
+      sentences: {
+        first: `${OVERSTATED} .`,
+        firstEnds: "Spring tides come at new and full moon .",
+        others: [`${UNBACKED} .`, MOON.slice(0, -1)],
+        checked: 3,
+      },
+    },
+    {
+      name: "an Id. after a cut",
+      writing: {
+        content: `> ${RECORD_CUT} [^1]. ${RECORD_NEXT} [^2]. ${RECORD_NEXT} [^2].`,
+        into: true,
+        record: RECORD_FILE,
+        cut: `${RECORD_SOURCE} [1].`,
+        check: (call: ModelCall) =>
+          sentenceOf(call) === `${RECORD_SOURCE} .`
+            ? checkReply(call, {
+                [`${RECORD_SOURCE} .`]: {
+                  verdict: "supported",
+                  quote: RECORD_FILE.quote,
+                  says: RECORD_FILE.quote,
+                },
+              })
+            : null,
+      },
+      sentences: {
+        first: `${RECORD_CUT} .`,
+        firstEnds: `${RECORD_SOURCE} .`,
+        others: [`${RECORD_NEXT} .`],
+        checked: 3,
+      },
+    },
+    {
+      name: "two identical sentences after a cut",
+      writing: { content: `${OVERSTATED} [^1]. ${UNBACKED} [^1]. ${UNBACKED} [^1].`, into: true },
+      sentences: {
+        first: `${OVERSTATED} .`,
+        firstEnds: "Spring tides come at new and full moon .",
+        others: [`${UNBACKED} .`],
+        checked: 3,
+      },
+    },
+  ])(
+    "a write's checks send the same requests whichever order they end in ($name)",
+    async ({ writing, sentences }) => {
+      const inOrder = await checkRequestsOf(writing, sentences, false);
+      const reversed = await checkRequestsOf(writing, sentences, true);
+
+      expect(inOrder.length).toBeGreaterThan(sentences.checked);
+      expect(reversed).toEqual(inOrder);
     },
   );
 
