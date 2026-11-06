@@ -492,6 +492,14 @@ export function createConnectorAuth(options: ConnectorAuthOptions) {
       };
     },
 
+    /** The token values a request could have sent: no log may keep them. */
+    credentials(): readonly string[] {
+      if (!hasTokens(tokenRecord)) return [];
+      return [tokenRecord.tokens.access_token, tokenRecord.tokens.refresh_token].filter(
+        (value): value is string => typeof value === "string" && value !== "",
+      );
+    },
+
     /** The authorization server the server named, once discovered; null before. */
     authorizationServer(): string | null {
       return discovery?.authorizationServerUrl ?? null;

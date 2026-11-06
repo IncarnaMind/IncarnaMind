@@ -36,6 +36,7 @@ import {
   RefreshFailedError,
   SignInRequiredError,
 } from "./auth";
+import { hideHeaders } from "./headers";
 
 /** The loopback redirect's path: http://127.0.0.1:<port>/callback. */
 const CALLBACK_PATH = "/callback";
@@ -99,6 +100,12 @@ export class OpeningRejectedError extends Error {
 
 export class KeyRefusedError extends Error {
   override name = "KeyRefusedError";
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
 }
 
 export function connectionFetch(options: {
@@ -108,7 +115,7 @@ export function connectionFetch(options: {
   fetch: FetchLike;
   check(): void;
   opening: boolean;
-  onKeyRefused?(): void;
+  onKeyRefused?(status: number): void;
   onUnreachable?(): void;
 }): FetchLike {
   const origin = new URL(options.url).origin;
@@ -146,9 +153,9 @@ export function connectionFetch(options: {
       (response.status === 401 || response.status === 403)
     ) {
       refused = true;
-      options.onKeyRefused?.();
+      options.onKeyRefused?.(response.status);
       await response.body?.cancel();
-      throw new KeyRefusedError("The server refused this key.");
+      throw new KeyRefusedError("The server refused this key.", response.status);
     }
     if (isOpening && (response.status === 404 || response.status === 405)) {
       await response.body?.cancel();
@@ -192,20 +199,12 @@ export function remoteError(
 ): ConnectorError {
   const base = { command: null, install: null, retrying: false };
   const status =
-    sdk && error instanceof sdk.StreamableHTTPError
+    sdk && (error instanceof sdk.StreamableHTTPError || error instanceof sdk.SseError)
       ? error.code
       : typeof (error as { status?: unknown }).status === "number"
         ? (error as { status: number }).status
         : undefined;
-  const secrets = (options.secrets ?? [])
-    .flatMap((value) => [
-      value,
-      value.replace(/^\S+\s+/, ""),
-      encodeURIComponent(value),
-      JSON.stringify(value).slice(1, -1),
-    ])
-    .filter(Boolean);
-  const detail = redactMessage(messageOf(error), secrets);
+  const detail = redactMessage(hideHeaders(options.secrets ?? [])(messageOf(error)));
   const cause = (failure: ConnectorError): ConnectorError => ({
     ...failure,
     ...(options.step !== undefined && { step: options.step }),

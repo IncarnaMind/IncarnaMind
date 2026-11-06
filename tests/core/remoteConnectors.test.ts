@@ -556,6 +556,37 @@ describe("Tokens", { timeout: 30_000 }, () => {
     expect(afterRestart.every((request) => fake.requests.indexOf(request) < firstNew)).toBe(true);
   });
 
+  test("an OAuth refresh refused with its token in the answer keeps that token out of the failure and the log (#2025)", async () => {
+    const clock = manualClock();
+    const dataDir = await createTempDataFolder();
+    const keychain = createMemoryKeychain();
+    const { core, fake, id } = await signedIn({ now: clock.now, keychain, paths: { dataDir } });
+    const stored = tokensIn(keychain, id) as {
+      tokens: { access_token: string; refresh_token: string };
+      expiresAt: number;
+    };
+    const refreshToken = stored.tokens.refresh_token;
+    fake.refreshRefusal = { status: 500, body: { error: `refresh_token ${refreshToken}` } };
+    core.close();
+    await keychain.set(`connector:${id}:oauth-tokens`, JSON.stringify({ ...stored, expiresAt: 0 }));
+    clock.advance(2 * 3600_000);
+    const logged: { event: string; fields?: Record<string, unknown> }[] = [];
+    const record = (event: string, fields?: Record<string, unknown>) =>
+      logged.push({ event, fields });
+
+    const restarted = startCore(dataDir, {
+      keychain,
+      now: clock.now,
+      browser: createFakeBrowser(fake),
+      log: { info: record, warn: record, error: record },
+    });
+    const failed = await connectorState(restarted, id, "error");
+    expect(refreshes(fake)).toHaveLength(1);
+    expect(failed.error).toMatchObject({ kind: "failed", step: "sign-in" });
+    expect(JSON.stringify(failed)).not.toContain(refreshToken);
+    expect(JSON.stringify(logged)).not.toContain(refreshToken);
+  });
+
   test("calls that find the token refused at the same time share one refresh", async () => {
     const model = scriptedModel((call: ModelCall) => {
       const found = call.results.filter((result) => result.tool === SEARCH);

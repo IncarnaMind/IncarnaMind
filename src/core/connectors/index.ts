@@ -797,9 +797,15 @@ export function createConnectors(options: ConnectorsOptions) {
     const connectionState: { transport: Transport | null } = { transport: null };
     const controller = new AbortController();
     runtime.controller = controller;
-    let keyRefused = false;
+    let keyStatus: number | undefined;
     let unreachable = false;
     let step: ConnectorFailureStep = "headers";
+    /** The values no failure state or log may keep: header secrets and the OAuth tokens a request sent. */
+    const logSecrets = () => {
+      for (const value of auth.credentials()) runtime.headerValues.add(value);
+      runtime.redact = hideHeaders(runtime.headerValues);
+      return [...runtime.headerValues];
+    };
     try {
       gate.check("connectors", serviceOf(requireRow(id)));
       const headers = Object.fromEntries(
@@ -816,6 +822,7 @@ export function createConnectors(options: ConnectorsOptions) {
       runtime.redact = hideHeaders(runtime.headerValues);
       step = "sign-in";
       await auth.load();
+      logSecrets();
       // An access token that has expired is renewed first, rather than sent to be refused.
       if (config.headers.length === 0) await auth.refreshIfStale();
       if (!current()) return;
@@ -831,13 +838,13 @@ export function createConnectors(options: ConnectorsOptions) {
             fetch: auth.fetch,
             check: () => gate.check("connectors", serviceOf(requireRow(id))),
             opening: kind === "http",
-            onKeyRefused: () => {
-              keyRefused = true;
+            onKeyRefused: (status) => {
+              keyStatus = status;
               if (runtime.state === "ready")
                 lost(id, runtime, generation, () =>
-                  remoteError(new KeyRefusedError("The server refused this key."), {
+                  remoteError(new KeyRefusedError("The server refused this key.", status), {
                     step: "connect",
-                    secrets: [...runtime.headerValues],
+                    secrets: logSecrets(),
                   }),
                 );
             },
@@ -891,15 +898,15 @@ export function createConnectors(options: ConnectorsOptions) {
         // The call's failure path keeps the sign-in explanation before changing generation.
         if (causedBy(error, HeldBackError) || auth.heldBackCount() > held || needsSignIn(error))
           return;
-        if (!keyRefused && !unreachable && !remoteStreamEnded(error)) return;
+        if (keyStatus === undefined && !unreachable && !remoteStreamEnded(error)) return;
         lost(id, runtime, generation, () =>
           remoteError(
-            keyRefused
-              ? new KeyRefusedError("The server refused this key.")
+            keyStatus !== undefined
+              ? new KeyRefusedError("The server refused this key.", keyStatus)
               : unreachable
                 ? new TypeError("fetch failed")
                 : error,
-            { step: "connect", secrets: [...runtime.headerValues] },
+            { step: "connect", secrets: logSecrets() },
           ),
         );
       };
@@ -934,12 +941,12 @@ export function createConnectors(options: ConnectorsOptions) {
                 step: "headers",
               }
             : remoteError(
-                keyRefused
-                  ? new KeyRefusedError("The server refused this key.")
+                keyStatus !== undefined
+                  ? new KeyRefusedError("The server refused this key.", keyStatus)
                   : unreachable
                     ? new TypeError("fetch failed")
                     : error,
-                { step, secrets: [...runtime.headerValues] },
+                { step, secrets: logSecrets() },
               ),
         );
     }
@@ -1115,6 +1122,10 @@ export function createConnectors(options: ConnectorsOptions) {
         `The User needs to sign in to the Connector "${row.name}" again (in Settings → Connectors), so it can't be used now. Go on without it.`,
       );
     }
+    const config = storedConfig(row);
+    if (config.transport === "http")
+      for (const value of authOf(row.id, config.url).credentials()) runtime.headerValues.add(value);
+    runtime.redact = hideHeaders(runtime.headerValues);
     const reason = remoteError(error, {
       step: "call",
       secrets: [...runtime.headerValues],

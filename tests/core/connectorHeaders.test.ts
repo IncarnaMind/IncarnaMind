@@ -156,7 +156,8 @@ describe("Remote Connector keys and older connections", () => {
   );
 
   test("a failed connect logs its cause, with the header value and token redacted (#2025)", async () => {
-    const secret = planted();
+    // Short, and with a slash: the forms a plain message redactor used to keep.
+    const secret = "k7/q";
     const header = `Bearer ${secret}`;
     const logged: { event: string; fields?: Record<string, unknown> }[] = [];
     const record = (event: string, fields?: Record<string, unknown>) =>
@@ -328,7 +329,7 @@ describe("Remote Connector keys and older connections", () => {
         connection,
       });
       const failed = await waitForState(core, added.id, "error");
-      expect(failed.error).toMatchObject({ kind: "key-refused", retrying: false });
+      expect(failed.error).toMatchObject({ kind: "key-refused", retrying: false, status });
       expect(server.requests.map(({ method, path }) => [method, path])).toEqual([
         [connection === "http" ? "POST" : "GET", "/mcp"],
       ]);
