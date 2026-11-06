@@ -611,10 +611,11 @@ describe("Research", { timeout: 30_000 }, () => {
       expect.objectContaining({ tagId: tea?.id, source: "automatic" }),
     ]);
 
-    // The draft is a change to accept in the Mind, its Citation found; Review opens it there.
+    // The draft is a change to accept in the Mind; Review opens it there. Its sentence quotes the
+    // Question, which the page doesn't have, so its Citation is not found there as in the Answer (#2612).
     const changes = await changesIn(core, mind.id);
     expect(changes.texts).toEqual(["Notes on “How did tea reach Europe?”: the sources say so."]);
-    expect(changes.checks).toEqual(["found"]);
+    expect(changes.checks).toEqual(["not-found"]);
     expect(done.review).toEqual({ mindId: mind.id, proposalId: changes.ids[0] });
     // Accepted, it is recorded as the assistant's change, with the model that wrote it.
     const client = await connectToMind(core, mind.id);
