@@ -410,8 +410,26 @@ export function checkAgain(
     mindId,
     doc,
     action === "check-against-document" ? "check-against-documents" : action,
-    { ranges: [{ from: claim.from, to: claim.to }], allDocuments },
+    {
+      ranges: waitsForConsent(claim)
+        ? waitingWith(editor, claim)
+        : [{ from: claim.from, to: claim.to }],
+      allDocuments,
+    },
   );
+}
+
+const waitsForConsent = ({ check }: Pick<ShownClaim, "check">) =>
+  check.state === "not-checked" && check.reason === "consent-widened";
+
+/**
+ * The sentences of the write `claim` is in that wait, as it does, for the User to allow what
+ * checks send now: once they allow it, the write is checked whole (#2525).
+ */
+function waitingWith(editor: Editor, claim: ShownClaim): { from: number; to: number }[] {
+  return claimSpans(editor.state.doc)
+    .filter((each) => each.check.request === claim.check.request && waitsForConsent(each))
+    .map(({ from, to }) => ({ from, to }));
 }
 
 /** Takes a sentence's check mark off, leaving the sentence: one step for ⌘Z. */

@@ -3,6 +3,7 @@ import type { Language } from "../../core/language";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { core } from "./core";
 import { languageNow } from "./i18n";
+import { isListedDocument } from "./meetingTranscript";
 import type { Undoable } from "./objects";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
@@ -30,8 +31,9 @@ export function taggingPlaces(
   );
   const tagging = documents.filter(
     (each) =>
-      (each.status === "ready" && (each.tagging === "pending" || each.tagging === "tagging")) ||
-      organizing.has(each.id),
+      isListedDocument(each) &&
+      ((each.status === "ready" && (each.tagging === "pending" || each.tagging === "tagging")) ||
+        organizing.has(each.id)),
   );
   return [...new Set(tagging.map((each) => placeOf(library, each.id)))];
 }

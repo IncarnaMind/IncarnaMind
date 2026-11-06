@@ -1,5 +1,6 @@
 import { Editor } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
+import { CellSelection } from "@tiptap/pm/tables";
 import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { DOMParser } from "linkedom";
 import { expect, onTestFinished, test, vi } from "vitest";
@@ -1055,4 +1056,99 @@ test("a write's figure keeps its record though the editor deletes another Analys
   expect(figurePositions(editor)).toHaveLength(2);
   const firstRun = records().find((run) => run.id === "run");
   expect(firstRun?.values.map((value) => value.name)).toEqual(["total"]);
+});
+
+test("cells copied from an Analysis's own table go as that table with its run, paste bound into another Note and typed into their own (#2378)", () => {
+  const source = setup({ empty: true });
+  const binding = { id: "run", table: { result: "totals" } };
+  const cell = (type: "tableHeader" | "tableCell", text: string): NodeJSON => ({
+    type,
+    attrs: { colspan: 1, rowspan: 1 },
+    content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+  });
+  const rows: [string, number][] = [
+    ["North", 9450],
+    ["South", 8700],
+  ];
+  source.doc.transact(() => {
+    installFigureRuns(source.doc, [
+      {
+        ...source.record,
+        values: [],
+        tables: [
+          {
+            key: binding.table,
+            label: "Total amount by region",
+            table: { columns: ["region", "amount"], rows, rowCount: 2, columnCount: 2 },
+            columns: [
+              {
+                column: 1,
+                rule: { input: "orders", key: "region", value: "amount", how: "sum" },
+                rows: 20,
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    source.doc.getXmlFragment(MIND_CONTENT_FIELD).push([
+      createElement({
+        type: "paragraph",
+        attrs: { id: "caption" },
+        content: [
+          { type: "text", text: "Total amount by region" },
+          { type: "analysisTable", attrs: { analysisTable: binding } },
+        ],
+      }),
+      createElement({
+        type: "table",
+        attrs: { id: "table", analysisTable: binding },
+        content: [
+          {
+            type: "tableRow",
+            content: [cell("tableHeader", "region"), cell("tableHeader", "amount")],
+          },
+          ...rows.map(([region, total]) => ({
+            type: "tableRow",
+            content: [cell("tableCell", region), cell("tableCell", total.toLocaleString("en"))],
+          })),
+        ],
+      }),
+      createElement({ type: "paragraph", attrs: { id: "after" }, content: [] }),
+    ]);
+  });
+  const cells: number[] = [];
+  source.editor.state.doc.descendants((node, at) => {
+    if (node.type.name === "tableCell" || node.type.name === "tableHeader") cells.push(at);
+    return true;
+  });
+  const first = cells[0];
+  const last = cells.at(-1);
+  if (first === undefined || last === undefined) throw new Error("No cells.");
+  source.editor.view.dispatch(
+    source.editor.state.tr.setSelection(CellSelection.create(source.editor.state.doc, first, last)),
+  );
+  const html = copySelection(source.editor);
+  expect(html).toContain(FIGURE_RUNS_ATTRIBUTE);
+
+  const target = setup({ empty: true });
+  pasteHtml(target.editor, html, "region\tamount");
+  let bound = 0;
+  target.editor.state.doc.descendants((node) => {
+    if (node.type.name === "table" && node.attrs.analysisTable) bound++;
+    return true;
+  });
+  expect(bound).toBe(1);
+  expect(target.doc.getMap(MIND_FIGURE_RUNS_FIELD).has(JSON.stringify(["run"]))).toBe(true);
+
+  // Pasted back into the Note that holds the table, the copy is a table the User typed.
+  source.editor.commands.setTextSelection(source.editor.state.doc.content.size - 1);
+  pasteHtml(source.editor, html, "region\tamount");
+  const tables = { bound: 0, typed: 0, markers: 0 };
+  source.editor.state.doc.descendants((node) => {
+    if (node.type.name === "table") tables[node.attrs.analysisTable ? "bound" : "typed"]++;
+    if (node.type.name === "analysisTable") tables.markers++;
+    return true;
+  });
+  expect(tables).toEqual({ bound: 1, typed: 1, markers: 1 });
 });
