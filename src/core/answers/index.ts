@@ -490,6 +490,10 @@ export interface AnswerConversations {
   setQuestionModel(questionId: string, model: ChatModelChoice): ConversationQuestion | null;
   /** Takes the Search scope off a Question: its Answers search every Document (#748). */
   clearScope(questionId: string): ConversationQuestion | null;
+  /** Records the scope a regenerated Answer searched on its Question (#2529). */
+  setQuestionScope(questionId: string, scope: SearchScope | null): ConversationQuestion | null;
+  /** Records the Folder a regenerated Answer ran in on its Question (#2529). */
+  setQuestionFolder(questionId: string, folderId: string): ConversationQuestion | null;
   /** Empties an Answer, where it is, to write it again, reading `read`. */
   restartAnswer(
     answerId: string,
@@ -3982,6 +3986,7 @@ export function createAnswers(options: AnswersOptions) {
     commands: CommandWindow | null,
     folderInFront: string | null,
     remake: string | null = null,
+    namedScope: SearchScope | null = null,
   ): ConversationAskResult {
     const { conversation, question, answer } = turn;
     const help = mind ? (options.meetingHelp?.(mind.mindId, question.text) ?? null) : null;
@@ -4053,7 +4058,7 @@ export function createAnswers(options: AnswersOptions) {
         : scopeLines(
             nameScope(
               {
-                scope: question.scope,
+                scope: namedScope ?? question.scope,
                 mindId: mind?.mindId ?? null,
                 wallId,
                 documentIds,
@@ -4096,6 +4101,7 @@ export function createAnswers(options: AnswersOptions) {
       cut: (tokens) => reading.section(tokens, asking),
     });
     start({
+      ...(scopeText && { scopeLine: scopeText }),
       ...(named.length > 0 && {
         mindsLine: {
           line: mindsLine(named),
@@ -4314,8 +4320,17 @@ export function createAnswers(options: AnswersOptions) {
   const scopeNow = (scope: SearchScope | null, mindId: string | null, wallId?: string | null) => {
     let documentIds: string[] | null;
     if (wallId === UNKNOWN_WALL) documentIds = [];
-    else if (wallId) documentIds = options.resolveScope(folderScope(wallId));
-    else {
+    else if (wallId) {
+      // A Folder picked inside the wall (the Library's nested one) stays that Folder, not its wall (#2529).
+      const inside =
+        scope !== null &&
+        hasSearchScope(scope) &&
+        scope.folderIds.length > 0 &&
+        scope.tagIds.length === 0 &&
+        scope.documentIds.length === 0 &&
+        scope.folderIds.every((id) => options.walledFolderId(id) === wallId);
+      documentIds = options.resolveScope(inside ? scope : folderScope(wallId), mindId);
+    } else {
       const resolved = options.resolveScope(scope ?? NO_SCOPE, mindId);
       const unscoped =
         scope && hasSearchScope(scope) ? null : (options.unscopedDocuments?.(mindId) ?? null);
@@ -4566,6 +4581,8 @@ export function createAnswers(options: AnswersOptions) {
           checked,
           question.commands,
           question.folderInFront,
+          undefined,
+          scope,
         );
       } catch (error) {
         if (!published) options.conversations.discard(added);
@@ -4591,6 +4608,11 @@ export function createAnswers(options: AnswersOptions) {
       const ready = await readyModel(model ?? question.model, question.forcedSkill);
       if ("asked" in ready) return ready;
       if (model) options.conversations.setQuestionModel(question.id, model);
+      // The retry's Folder is the one in front now: its scope, and its side of the wall, are recorded.
+      if (typeof folderInFrontId === "string") {
+        options.conversations.setQuestionScope(question.id, folderScope(folderInFrontId));
+        options.conversations.setQuestionFolder(question.id, folderInFrontId);
+      }
       active.get(answerId)?.finish({ status: "stopped" });
       endJudgement(answerId, true);
       const changes = toolCalls.flatMap((call) => call.mindChange ?? []);
@@ -4609,9 +4631,10 @@ export function createAnswers(options: AnswersOptions) {
       const turn = options.conversations.restartAnswer(answerId, ready.model, readOf(mind));
       const frontWall =
         typeof folderInFrontId === "string" ? options.walledFolderId(folderInFrontId) : null;
+      const frontScope = typeof folderInFrontId === "string" ? folderScope(folderInFrontId) : null;
       const wall = mind ? null : (frontWall ?? wallOfTurn(question));
       const { documentIds, emptyScope } = scopeNow(
-        question.scope,
+        frontScope ?? question.scope,
         from && !from.deleted ? from.mindId : null,
         wall,
       );
@@ -4626,6 +4649,7 @@ export function createAnswers(options: AnswersOptions) {
         commands,
         typeof folderInFrontId === "string" ? folderInFrontId : null,
         remake,
+        frontScope ?? question.scope,
       );
     },
 

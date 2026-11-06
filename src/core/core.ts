@@ -2219,6 +2219,16 @@ export function createCore(adapters: CoreAdapters): Core {
         if (question) events.emit("conversation.message", question);
         return question;
       },
+      setQuestionScope: (questionId, scope) => {
+        const question = conversations.setQuestionScope(questionId, scope);
+        if (question) events.emit("conversation.message", question);
+        return question;
+      },
+      setQuestionFolder: (questionId, folderId) => {
+        const question = conversations.setQuestionFolder(questionId, folderId);
+        if (question) events.emit("conversation.message", question);
+        return question;
+      },
       restartAnswer: (answerId, answerModel, read, emit = true) => {
         const turn = conversations.restartAnswer(answerId, answerModel, read);
         if (emit) events.emit("conversation.message", turn.answer);

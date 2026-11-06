@@ -427,6 +427,47 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
     expect(lastSent(model, 1)).toContain('Search scope: the Folder "Reports & presentations"');
   });
 
+  // protects=Try again with another Folder in front names and searches that Folder, and the Question records it; fails_when=the name or the recorded Folder stays the first one; no_claim=none beyond protects.
+  test("Try again with another Folder in front takes that Folder", async () => {
+    const { core, model, contracts, reports } = await setUp();
+    const asked = await ask(core, {
+      text: "Summarise this folder.",
+      folderInFrontId: contracts.id,
+    });
+
+    const again = await core.regenerateConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+      folderInFrontId: reports.id,
+    });
+    if (!again.asked) throw new Error("Not asked again.");
+    await answerEnded(core, again.answerId);
+
+    const sent = lastSent(model, 1);
+    expect(sent).toContain('Search scope: the Folder "Reports & presentations"');
+    expect(sent).not.toContain('"Contracts"');
+    const conversation = await core.getConversation(asked.conversation.id);
+    const question = conversation.messages.find((message) => message.kind === "question");
+    expect(question?.kind === "question" ? question.folderAskedIn : undefined).toBe(reports.id);
+  });
+
+  // protects=a bad Folder in front is refused on Try again, as on a Question; fails_when=it is kept or ignored; no_claim=none beyond protects.
+  test("refuses an invalid Folder in front on Try again", async () => {
+    const { core, contracts } = await setUp();
+    const asked = await ask(core, {
+      text: "Summarise this folder.",
+      folderInFrontId: contracts.id,
+    });
+
+    await expect(
+      core.regenerateConversationAnswer({
+        conversationId: asked.conversation.id,
+        answerId: asked.answerId,
+        folderInFrontId: 5 as never,
+      }),
+    ).rejects.toThrow(/Folder in front/);
+  });
+
   // protects=the instructions and the Note's message do not change with the scope, so a provider's prompt cache keeps its start; fails_when=a scope line goes into the instructions or the Note's message; no_claim=none beyond protects.
   test("leaves the instructions and the Note's message as they were", async () => {
     const { core, model, client, mind, reports, contracts } = await setUp();

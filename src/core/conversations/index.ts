@@ -1309,6 +1309,26 @@ export function createConversations(db: Database, now: () => string) {
       return row?.kind === "question" ? toQuestion(row) : null;
     },
 
+    /** Keeps the scope a regenerated Answer searched, so the Question says what it read (#2529). */
+    setQuestionScope(questionId: string, scope: SearchScope | null): ConversationQuestion | null {
+      db.run(
+        "UPDATE conversation_messages SET scope = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
+        [scope ? JSON.stringify(scope) : null, now(), questionId],
+      );
+      const row = liveMessage(questionId);
+      return row?.kind === "question" ? toQuestion(row) : null;
+    },
+
+    /** Keeps the Folder a regenerated Answer ran in, so later turns judge its side of the wall (#2529). */
+    setQuestionFolder(questionId: string, folderId: string): ConversationQuestion | null {
+      db.run(
+        "UPDATE conversation_messages SET folder_asked_in = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
+        [folderId, now(), questionId],
+      );
+      const row = liveMessage(questionId);
+      return row?.kind === "question" ? toQuestion(row) : null;
+    },
+
     /** Empties an Answer, where it is, to write it again with `answerModel` from the Mind it reads. */
     restartAnswer(
       answerId: string,
