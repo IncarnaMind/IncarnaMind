@@ -156,6 +156,7 @@ export async function transcribingCore(
     keychain,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
+    answerPaths,
     examples,
   }: {
     engine?: FakeTranscriberOptions;
@@ -174,6 +175,8 @@ export async function transcribingCore(
     speakerSeparator?: SpeakerSeparator;
     /** Where the speaker models come from: none to download by default. */
     speakerModelSource?: CoreAdapters["speakerModelSource"];
+    /** Which models take the faster Answer paths, instead of the lists beside the catalog. */
+    answerPaths?: CoreAdapters["answerPaths"];
     /** The shipped examples' folder, for a core that makes them. */
     examples?: string;
   } = {},
@@ -196,6 +199,7 @@ export async function transcribingCore(
     ...(log && { log }),
     ...(keychain && { keychain }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
+    ...(answerPaths && { answerPaths }),
     ...(examples && { paths: { dataDir, examples } }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });

@@ -31,14 +31,40 @@ const REVEAL_STEP_MS = 40;
 /** A folded Mind's mark, this far after its sentence's last word or Citation marker. */
 const INLINE_GAP = 4;
 
-/** The first line's box at a position, from the editor's DOM. */
-function startOfSentence(editor: Editor, from: number) {
+/** A sentence's box on the page; null when its text isn't drawn. */
+interface SentenceBox {
+  top: number;
+  bottom: number;
+  at: number;
+}
+
+/**
+ * The box as measured, or null when it has no height: the words a waiting
+ * change replaces are still in the document but drawn as none, and their
+ * position would otherwise measure at the page's top (#2313).
+ */
+function drawnBox(top: number, bottom: number, at: number): SentenceBox | null {
+  return bottom > top ? { top, bottom, at } : null;
+}
+
+/** The first line's box at a position, from the editor's DOM; null when the sentence isn't drawn. */
+function startOfSentence(editor: Editor, from: number, to: number): SentenceBox | null {
   const coords = editor.view.coordsAtPos(from, 1);
-  return { top: coords.top, bottom: coords.bottom, at: coords.left };
+  const drawn = drawnBox(coords.top, coords.bottom, coords.left);
+  if (drawn) return drawn;
+  // The words a waiting change replaces are drawn as none: the sentence's first drawn box is the
+  // line its new words stand on, where the mark stands as it does in a folded margin (#2313).
+  const start = editor.view.domAtPos(from);
+  const end = editor.view.domAtPos(to);
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  const [first] = [...range.getClientRects()].filter((rect) => rect.width > 1 && rect.height > 1);
+  return first ? { top: first.top, bottom: first.bottom, at: first.left } : null;
 }
 
 /** The last character's own box, after which a folded Mind's mark stands (its reserved room follows it). */
-function endOfSentence(editor: Editor, to: number) {
+function endOfSentence(editor: Editor, to: number): SentenceBox | null {
   // A Citation or another inline node is a composite: its inner box can end inside its own pill,
   // so the mark measures the node's outer box, less the room the sentence keeps after it.
   const atom = editor.state.doc.nodeAt(to - 1);
@@ -48,7 +74,7 @@ function endOfSentence(editor: Editor, to: number) {
       const style = getComputedStyle(dom);
       const rect = dom.getBoundingClientRect();
       const right = rect.right - (Number.parseFloat(style.paddingRight) || 0);
-      return { top: rect.top, bottom: rect.bottom, at: right };
+      return drawnBox(rect.top, rect.bottom, right);
     }
   }
   const start = editor.view.domAtPos(to - 1);
@@ -59,9 +85,9 @@ function endOfSentence(editor: Editor, to: number) {
   const [rect] = [...range.getClientRects()].slice(-1);
   if (!rect) {
     const coords = editor.view.coordsAtPos(to, -1);
-    return { top: coords.top, bottom: coords.bottom, at: coords.left };
+    return drawnBox(coords.top, coords.bottom, coords.left);
   }
-  return { top: rect.top, bottom: rect.bottom, at: rect.right };
+  return drawnBox(rect.top, rect.bottom, rect.right);
 }
 
 /** A mark as measured, before its row places it. */
@@ -310,14 +336,15 @@ export function MarginChecks({
       const revealing = new Set<string>();
       for (const claim of shownClaims(editor.state)) {
         const state = markOf(claim);
-        let coords: { top: number; bottom: number; at: number };
+        let coords: SentenceBox | null;
         try {
           coords = folded
             ? endOfSentence(editor, claim.sentence.to)
-            : startOfSentence(editor, claim.sentence.from);
+            : startOfSentence(editor, claim.sentence.from, claim.sentence.to);
         } catch {
           continue;
         }
+        if (!coords) continue;
         const mark: Measured = {
           key: `claim:${claim.check.id}`,
           state,
