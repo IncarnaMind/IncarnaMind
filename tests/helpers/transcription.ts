@@ -156,6 +156,7 @@ export async function transcribingCore(
     keychain,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
+    examples,
   }: {
     engine?: FakeTranscriberOptions;
     /** What the fake capture does, e.g. the computer's sound denied. */
@@ -173,6 +174,8 @@ export async function transcribingCore(
     speakerSeparator?: SpeakerSeparator;
     /** Where the speaker models come from: none to download by default. */
     speakerModelSource?: CoreAdapters["speakerModelSource"];
+    /** The shipped examples' folder, for a core that makes them. */
+    examples?: string;
   } = {},
 ) {
   const clock = manualClock();
@@ -193,6 +196,7 @@ export async function transcribingCore(
     ...(log && { log }),
     ...(keychain && { keychain }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
+    ...(examples && { paths: { dataDir, examples } }),
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
   await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));

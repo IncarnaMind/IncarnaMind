@@ -2427,8 +2427,8 @@ export const migrations: readonly Migration[] = [
           (SELECT at FROM temp.meeting_migration), (SELECT at FROM temp.meeting_migration)
         FROM (SELECT DISTINCT mind_id FROM temp.meeting_pairs WHERE joins = 'apart');
       -- A joined Transcript's own Folder, suggestions, turned-down Folders and Tags go: its Note's
-      -- Folder is its place. Tags deleted with it or with their Tag are moved off that time, so a
-      -- Restore doesn't bring them back.
+      -- Folder is its place. Tags deleted with it are moved off its delete time, so a Restore
+      -- doesn't bring them back; a Tag's own Restore skips a Transcript (tags/index.ts).
       UPDATE document_groups SET deleted_at = (SELECT at FROM temp.meeting_migration),
         updated_at = (SELECT at FROM temp.meeting_migration)
       WHERE deleted_at IS NULL
@@ -2441,8 +2441,7 @@ export const migrations: readonly Migration[] = [
         updated_at = (SELECT at FROM temp.meeting_migration)
       WHERE document_id IN (SELECT id FROM documents WHERE meeting_mind_id IS NOT NULL)
         AND (deleted_at IS NULL
-          OR deleted_at = (SELECT d.deleted_at FROM documents d WHERE d.id = document_tags.document_id)
-          OR deleted_at = (SELECT t.deleted_at FROM tags t WHERE t.id = document_tags.tag_id));
+          OR deleted_at = (SELECT d.deleted_at FROM documents d WHERE d.id = document_tags.document_id));
       DROP TABLE temp.meeting_crossings;
       DROP TABLE temp.meeting_pairs;
       DROP TABLE temp.meeting_pair_walls;

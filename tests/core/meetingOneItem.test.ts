@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { type Core, DATABASE_FILE, type SearchScope } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
@@ -31,6 +31,7 @@ const NAMES = {
 } as const;
 
 const WITHIN = "The launch moves to the eighteenth of November.";
+const EXAMPLES = resolve(__dirname, "../../resources/examples");
 
 const folderScope = (folderId: string): SearchScope => ({
   folderIds: [folderId],
@@ -495,5 +496,41 @@ describe("Don't cite the Transcript", { timeout: 60_000 }, () => {
     const evidence = await core.searchEvidence("eighteenth of November");
     expect(evidence.passages).toEqual([]);
     expect(evidence.excluded).toMatchObject([{ documentId: document.id, reason: "own-workings" }]);
+  });
+});
+
+describe("A first meeting beside the shipped examples", { timeout: 60_000 }, () => {
+  test("makes the Library the User's own: its Note searches its words, never the examples", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, { examples: EXAMPLES });
+    await core.createExamples();
+    const { linkedFolderId } = await core.getExamples();
+    await vi.waitFor(
+      async () => {
+        const read = await core.listDocuments({ linkedFolderId: linkedFolderId ?? "" });
+        expect(read.length).toBeGreaterThan(0);
+        expect(read.every((each) => each.status === "ready")).toBe(true);
+      },
+      { timeout: 30_000 },
+    );
+    const fromNote = async (mindId: string, words: string) =>
+      core.searchPassages(words, {
+        mode: "keyword",
+        place: { kind: "turn", mindId, conversationId: null },
+      });
+    const asker = await core.createMind({ title: "Leverage" });
+    expect((await fromNote(asker.id, "Net debt to EBITDA")).length).toBeGreaterThan(0);
+
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(9_000);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 4);
+    const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+
+    expect(
+      (await fromNote(meeting.mindId, "eighteenth of November")).map((each) => each.documentId),
+    ).toEqual([document.id]);
+    expect(await fromNote(meeting.mindId, "Net debt to EBITDA")).toEqual([]);
+    expect(await fromNote(asker.id, "Net debt to EBITDA")).toEqual([]);
   });
 });

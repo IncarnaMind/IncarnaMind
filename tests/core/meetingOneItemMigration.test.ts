@@ -470,6 +470,57 @@ describe("A database from before, opened by this version (#2528)", () => {
     core.close();
   });
 
+  test("a start never fails on a Transcript in Recently deleted whose Note is gone for good, and two starts agree", async () => {
+    const dataDir = await createTempDataFolder();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    migrate(db, before);
+    folder(db, "W", null, true);
+    pair(db, { id: "n1", folderId: "W" }, "t1", "W");
+    // The version before let the User delete a Transcript on its own.
+    db.run("UPDATE documents SET deleted_at = ? WHERE id = 't1'", [DELETED]);
+    db.close();
+    startCore(dataDir).close();
+    const after = openDatabase(join(dataDir, DATABASE_FILE));
+    after.run("UPDATE minds SET deleted_at = ?, purged_at = ? WHERE id = 'n1'", [DELETED, DELETED]);
+    after.close();
+
+    const placed = () => {
+      const read = openDatabase(join(dataDir, DATABASE_FILE));
+      const state = {
+        transcript: read.get<{ meeting_mind_id: string | null; deleted: number }>(
+          "SELECT meeting_mind_id, deleted_at IS NOT NULL AS deleted FROM documents WHERE id = 't1'",
+        ),
+        filed: read.all<{ group_id: string; source: string }>(
+          "SELECT group_id, source FROM document_groups WHERE document_id = 't1' AND deleted_at IS NULL",
+        ),
+      };
+      read.close();
+      return state;
+    };
+    for (const start of [1, 2]) {
+      const core = startCore(dataDir);
+      expect(
+        (await core.listDeleted()).map((item) => [item.kind, item.id]),
+        `start ${start}`,
+      ).toEqual([["document", "t1"]]);
+      core.close();
+      expect(placed(), `start ${start}`).toEqual({
+        transcript: { meeting_mind_id: null, deleted: 1 },
+        filed: [{ group_id: "W", source: "user" }],
+      });
+    }
+
+    // Restored, it is back behind its wall, a Document of its own.
+    const core = startCore(dataDir);
+    await core.restore([{ kind: "document", id: "t1" }]);
+    expect(
+      (await core.getLibrary()).assignments
+        .filter((each) => each.documentId === "t1")
+        .map((each) => each.groupId),
+    ).toEqual(["W"]);
+    core.close();
+  });
+
   test("a Transcript whose Note was deleted permanently stays in its Note's Folder, behind its wall", async () => {
     const dataDir = await createTempDataFolder();
     const db = openDatabase(join(dataDir, DATABASE_FILE));

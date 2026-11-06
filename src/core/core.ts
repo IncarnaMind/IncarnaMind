@@ -4376,11 +4376,7 @@ export function createCore(adapters: CoreAdapters): Core {
   listMeetings = () => meetings.list();
   // One meeting is one item (#2528): a pair an earlier version left apart is put right first.
   db.transaction(() => {
-    const apart = transcriptsApart(db, now());
-    for (const { documentId, folderId } of apart.fileWhereNoteWas) {
-      library.assign(documentId, folderId);
-    }
-    for (const { deletedAt, documentIds } of apart.deleteWithNotes) {
+    for (const { deletedAt, documentIds } of transcriptsApart(db, now())) {
       removeDocuments(documentIds, deletedAt);
     }
   });

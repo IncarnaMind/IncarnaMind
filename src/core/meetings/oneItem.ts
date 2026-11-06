@@ -6,6 +6,7 @@
  * here keeps each pair whole at every start, says each once, and undoes a
  * join exactly.
  */
+import { randomUUID } from "node:crypto";
 import type { JoinedMeeting, MeetingLeftApart } from "../api";
 import { InvalidInputError } from "../errors";
 import { parseIds } from "../minds";
@@ -17,30 +18,32 @@ export interface TranscriptsToDelete {
   documentIds: string[];
 }
 
-/** What each start puts right (`transcriptsApart`). */
-export interface TranscriptsApart {
-  deleteWithNotes: TranscriptsToDelete[];
-  /** Transcripts whose Note was deleted permanently, to file where it was, so none leaves a wall. */
-  fileWhereNoteWas: { documentId: string; folderId: string }[];
-}
-
 /**
  * Puts right what an earlier version left apart, as each start finds it: a live Transcript whose
  * Note waits in Recently deleted (deleted before #1253) goes there with it, its Meetings too, so
  * it comes back with the Note; one whose Note was deleted permanently belongs to no Note again,
- * and keeps a row of its own, in the Folder its Note was in, so it can still be found and stays
- * behind its wall. The caller deletes and files them, in this transaction.
+ * and keeps a row of its own, filed as the User's in the Folder its Note was in, so it can still
+ * be found and stays behind its wall, in Recently deleted or not. Returns the Transcripts the
+ * caller deletes, in this transaction, as deleting the Note does. Never throws on what it finds.
  */
-export function transcriptsApart(db: Database, now: string): TranscriptsApart {
-  const fileWhereNoteWas = db
-    .all<{ id: string; folder_id: string }>(
-      `SELECT d.id, n.folder_id FROM documents d
-       JOIN minds n ON n.id = d.meeting_mind_id AND n.purged_at IS NOT NULL
-       JOIN library_groups g ON g.id = n.folder_id AND g.deleted_at IS NULL
-       WHERE d.purged_at IS NULL
-       ORDER BY d.id`,
-    )
-    .map((row) => ({ documentId: row.id, folderId: row.folder_id }));
+export function transcriptsApart(db: Database, now: string): TranscriptsToDelete[] {
+  const fileWhereNoteWas = db.all<{ id: string; folder_id: string; content_hash: string }>(
+    `SELECT d.id, n.folder_id, d.content_hash FROM documents d
+     JOIN minds n ON n.id = d.meeting_mind_id AND n.purged_at IS NOT NULL
+     JOIN library_groups g ON g.id = n.folder_id AND g.deleted_at IS NULL
+     WHERE d.purged_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM document_groups a
+                       WHERE a.document_id = d.id AND a.deleted_at IS NULL)
+     ORDER BY d.id`,
+  );
+  for (const row of fileWhereNoteWas) {
+    db.run(
+      `INSERT INTO document_groups (id, document_id, group_id, source, suggested, status,
+         content_hash, request_id, created_at, updated_at, filed_at)
+       VALUES (?, ?, ?, 'user', 0, 'classified', ?, ?, ?, ?, ?)`,
+      [randomUUID(), row.id, row.folder_id, row.content_hash, randomUUID(), now, now, now],
+    );
+  }
   db.run(
     `UPDATE documents SET meeting_mind_id = NULL, updated_at = ?
      WHERE meeting_mind_id IS NOT NULL AND purged_at IS NULL
@@ -67,7 +70,7 @@ export function transcriptsApart(db: Database, now: string): TranscriptsApart {
       [deletedAt, now, mindId],
     );
   }
-  return { deleteWithNotes: [...byNote.values()], fileWhereNoteWas };
+  return [...byNote.values()];
 }
 
 /**
