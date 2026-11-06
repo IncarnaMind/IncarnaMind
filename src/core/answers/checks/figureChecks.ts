@@ -617,7 +617,7 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
         options.facts(),
         options,
         items.get(target.id),
-        namingHolds(options.claim, target, requested),
+        namingHolds(options.claim, target, requested, options.paragraph),
       );
       rows.push({
         ...finding(target),
