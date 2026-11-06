@@ -506,6 +506,7 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
       cites: ["1,234.5", "334.5"] as [string, string],
       numbers: ["1,234.5", "334.5"] as [string, string],
       unitQuote: "(in £m)",
+      query: "currency rows revenue costs",
     },
     {
       language: "Chinese",
@@ -513,6 +514,7 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
       cites: ["1,200", "300"] as [string, string],
       numbers: ["1,200", "300"] as [string, string],
       unitQuote: "金额单位：万英镑",
+      query: "币种 收入 成本",
     },
   ])("a bare-number quote keeps the currency its line states: $language", async (each) => {
     const recorded = await record({
@@ -520,7 +522,7 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
       cites: each.cites,
       numbers: each.numbers,
       unitQuote: each.unitQuote,
-      query: "currency rows revenue costs",
+      query: each.query,
     });
 
     expect([null, 900]).toContain(recorded.value);
