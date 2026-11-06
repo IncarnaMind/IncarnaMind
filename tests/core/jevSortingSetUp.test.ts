@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Core, SaveChatProviderInput } from "../../src/core";
+import { LocalModeError } from "../../src/core/errors";
 import { setUpJevForSorting } from "../../src/renderer/src/components/providers/jevSetUp";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { JEV_KEY, startFakeJev } from "../helpers/jev";
@@ -116,6 +117,24 @@ describe("Jev set up from the sorting picker (#2615)", { timeout: 30_000 }, () =
 
     // The right key, pressed again, goes through.
     expect(await useThis(core, JEV_KEY)).toMatchObject({ kind: "saved", chosen: true });
+    expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "jev" });
+  });
+
+  test("in Local mode the key goes to no cloud server, and a Jev server on this computer is tried", async () => {
+    const { core, jev } = await startWithFakeTypeSafe();
+    await core.setLocalOnly(true);
+
+    await expect(useThis(core, JEV_KEY)).rejects.toThrow(LocalModeError);
+    expect(jev.requests).toEqual([]);
+    expect(await core.getJevSettings()).toMatchObject({ enabled: false, hasApiKey: false });
+
+    const here = await setUpJevForSorting(
+      core,
+      { apiKey: JEV_KEY, endpoint: jev.url, model: null, reviewBand: { low: 0.35, high: 0.65 } },
+      chooseJevAndTurnOn(core),
+    );
+    expect(here).toMatchObject({ kind: "saved", saved: { service: null }, chosen: true });
+    expect(jev.requests).toHaveLength(1);
     expect((await core.getLibrary()).settings.classifier).toEqual({ kind: "jev" });
   });
 });

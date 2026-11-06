@@ -93,22 +93,20 @@ export function sortingOptions(
     : [...(byKey ? [byKey] : []), ...(chatOption ? [chatOption] : []), ...decisions];
 }
 
-/** Whether Jev can run here (its key is saved, or its server is on this computer), and whether it runs here. */
+/** Whether Jev can run here, set up with its key on this device, and whether its server is on this computer. */
 export interface JevState {
   ready: boolean;
   local: boolean;
 }
 
+// A server on this computer takes the key too: without it, tagging waits for it (#2615).
 export const jevStateOf = (jev: JevSettings | null): JevState | null =>
-  jev && {
-    ready: jev.enabled && (jev.hasApiKey || jev.service === null),
-    local: jev.service === null,
-  };
+  jev && { ready: jev.enabled && jev.hasApiKey, local: jev.service === null };
 
 /**
  * Whether the list ends with "Use TypeSafe Jev…", which sets Jev up in place (#2615): while it
- * can't run here yet. Never in Local mode, where only a Jev server on this computer serves, and
- * one that is set is in the list already.
+ * can't run here yet. In Local mode only for a Jev server on this computer that Jev's settings
+ * already name, since the app finds no other.
  */
 export const offersJevSetUp = (jev: JevState | null, localMode: boolean): boolean =>
-  jev !== null && !jev.ready && !localMode;
+  jev !== null && !jev.ready && (!localMode || jev.local);

@@ -102,6 +102,11 @@ describe("the sorting picker's Jev rows (#2615)", () => {
     expect(rows(jevSettings({ enabled: true, hasApiKey: true }), [JEV_OPTION], true)).toEqual([]);
   });
 
+  test("in Local mode, a Jev server on this computer without its key here offers the set-up row", () => {
+    const here = jevSettings({ enabled: true, endpoint: "http://127.0.0.1:8080", service: null });
+    expect(rows(here, [JEV_OPTION], true)).toEqual(["Use TypeSafe Jev…"]);
+  });
+
   test("in Local mode, a Jev server on this computer is a choice, first, with no set-up row", () => {
     const here = jevSettings({
       enabled: true,
