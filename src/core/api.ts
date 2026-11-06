@@ -2643,6 +2643,8 @@ export interface CitationAttributes {
   verdict?: string | null;
   /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
   quotedWords?: QuotedWords | null;
+  /** The page the Answer's quoted words run on to, past the one the Citation cites (#2504). */
+  quotedWordsRunOn?: number | null;
   /**
    * The Document's version the User chose to keep citing the old one over (Keep citing the old
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
@@ -2672,6 +2674,8 @@ export interface Citation {
   /** The unsure words of a scanned page the quote covers (#535). */
   unsure?: string[];
   quotedWords?: QuotedWords;
+  /** The page the Answer's quoted words run on to, past the one the Citation cites (#2504). */
+  quotedWordsRunOn?: number | null;
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }

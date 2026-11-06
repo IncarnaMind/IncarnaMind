@@ -7,6 +7,7 @@
 import { describe, expect, test } from "vitest";
 import {
   askAndFinish,
+  citationsIn,
   citingModel,
   onlyCitation,
   type ShownPassage,
@@ -91,10 +92,16 @@ describe.each([
   });
   const continued = `${text.heading} ${mark}`;
 
-  test("the next page opens with the cited page's heading and a continuation mark: found, and the card names the next page", async () => {
+  test("the next page opens with the cited page's heading and a continuation mark: found in English, and the card names the next page", async () => {
     const citation = await citationOf(caseWith(text.first, [continued]), text.quoted);
-    expect(citation).toMatchObject(FOUND);
-    expect(citation.quotedWordsRunOn).toBe(2);
+    if (language === "en") {
+      expect(citation).toMatchObject(FOUND);
+      expect(citation.quotedWordsRunOn).toBe(2);
+    } else {
+      // The app reflows the Chinese heading into the line after it, so the cited page has no line
+      // that is the heading: a content line starting with its words looks the same, so not found.
+      expect(citation).toMatchObject(NOT_FOUND);
+    }
   });
 
   test("the heading repeated with no continuation mark: not found", async () => {
@@ -118,6 +125,16 @@ describe.each([
     ).toMatchObject(NOT_FOUND);
   });
 
+  test("a long content line that merely starts with the heading's words: not found", async () => {
+    const content =
+      language === "en"
+        ? `${text.heading} are handled by the shop within 30 days.`
+        : `${text.heading}适用于本店出售的所有商品。`;
+    expect(
+      await citationOf(caseWith([content, ...text.first.slice(1)], [continued]), text.quoted),
+    ).toMatchObject(NOT_FOUND);
+  });
+
   test("text after the quoted part on the cited page: not found", async () => {
     const trailing = [
       ...text.first.slice(0, -1),
@@ -135,20 +152,48 @@ describe.each([
   });
 
   test("more than three lines left out: not found", async () => {
-    const lines = [text.heading, ...text.first.slice(1, -1), text.first.at(-1) as string];
-    const many = [text.heading, text.heading, text.heading, text.heading].map(
-      (line) => `${line} ${mark}`,
-    );
-    expect(await citationOf(caseWith(lines, many), text.quoted)).toMatchObject(NOT_FOUND);
+    const headings =
+      language === "en"
+        ? [
+            "Part Two General terms of sale",
+            "Chapter 3 Delivery and returns",
+            "Section 4 Returns and refunds",
+            "Clause 4.1 Fees on returned goods",
+          ]
+        : [
+            "第二部分 一般销售条款说明",
+            "第三章 交货与退货的规定",
+            "第四条 退货与退款的处理办法",
+            "第四点一款 退货费用的规定",
+          ];
+    const first = [...headings, ...text.first.slice(1)];
+    expect(
+      await citationOf(
+        caseWith(
+          first,
+          headings.map((line) => `${line} ${mark}`),
+        ),
+        text.quoted,
+      ),
+    ).toMatchObject(NOT_FOUND);
   });
 
   test("words only on the next page: not found", async () => {
     const only =
       language === "en"
-        ? "The notice says “returned within 30 days. A receipt is required” [^1]."
+        ? "The notice says “a receipt is required” for each return [^1]."
         : "通知写明“费用，并须出示收据”的内容[^1]。";
     expect(await citationOf(caseWith(text.first, [continued]), only)).not.toMatchObject(FOUND);
   });
+});
+
+test("a heading the cited page doesn't have, the quote starting late on its last line: not found", async () => {
+  const file = twoPages("en", EN.first, ["Section 5 Exchanges and repairs (continued)"], EN.rest);
+  const citation = await citationOf(
+    { file, query: EN.query, question: EN.question, quote: EN.quote },
+    "The notice says “charged when goods are returned within 30 days” [^1].",
+  );
+  expect(citation).toMatchObject(NOT_FOUND);
 });
 
 describe("A Document's name in quotation marks: a part of it at a separator", () => {
@@ -220,7 +265,7 @@ describe("A Document's name in quotation marks: a part of it at a separator", ()
     expect(
       await citationOf(
         guide,
-        "The “Period Guide for Buyers” says “a buyer may cancel within fourteen days” [^1].",
+        "The “off Period Guide for Buyers” says “a buyer may cancel within fourteen days” [^1].",
       ),
     ).toMatchObject(NOT_FOUND);
     const works = named(
@@ -236,18 +281,23 @@ describe("A Document's name in quotation marks: a part of it at a separator", ()
     ).toMatchObject(NOT_FOUND);
   });
 
-  test("only the name of the Document its own record cites: another Document's name part is not found", async () => {
+  test("only the name of the Document its own record cites: another cited Document's name part is not found", async () => {
     const model = citingModel({
-      query: "Equator Principles risk framework",
+      query: "Equator Principles physical climate risk",
       records: (passages: ShownPassage[]) => [
         {
           marker: 1,
           passage: passages.find((each) => each.text.includes("Equator"))?.id,
           quote: "The Equator Principles are a risk management framework",
         },
+        {
+          marker: 2,
+          passage: passages.find((each) => each.text.includes("physical climate"))?.id,
+          quote: "The bank expects physical climate risk to rise",
+        },
       ],
       answer:
-        "As the “Annual Climate Risk Report” puts it, “the Equator Principles are a risk management framework” [^1].",
+        "As the “Annual Climate Risk Report” puts it, “the Equator Principles are a risk management framework” [^1]. The bank expects that risk to rise [^2].",
     });
     const { core, client, mind } = await setUpWithDocuments(model, [
       {
@@ -266,7 +316,7 @@ describe("A Document's name in quotation marks: a part of it at a separator", ()
       mind.id,
       "What are the Equator Principles?",
     );
-    expect(onlyCitation(client, answerId)).toMatchObject(NOT_FOUND);
+    expect(citationsIn(client, answerId)[0]).toMatchObject(NOT_FOUND);
   });
 
   test("a fullwidth dash splits", async () => {

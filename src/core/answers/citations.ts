@@ -1316,6 +1316,8 @@ interface Accepted {
   result: CheckResult | null;
   /** The Answer's quoted words that its sentence's Citations don't have, when they made `result` not found (#483). */
   quotedWords?: QuotedWords;
+  /** The page the Answer's quoted words of this record's sentence run on to, past the one it cites (#2504). */
+  quotedWordsRunOn?: number;
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
 }
@@ -1358,6 +1360,7 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   checkReason: result?.checkReason ?? null,
   ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
   ...(record.quotedWords && { quotedWords: record.quotedWords }),
+  ...(record.quotedWordsRunOn && { quotedWordsRunOn: record.quotedWordsRunOn }),
 });
 
 export interface CitationSessionEvents {
@@ -1380,6 +1383,68 @@ export interface CitationSessionEvents {
  * Passages, which a search that finds nothing gives instead, once. `ids`: the Citations the
  * Question context shows, which a record names by id to keep one as it is.
  */
+/**
+ * A continuation mark at the end of a heading a next page repeats (#2504). The set is closed and
+ * typographic, so it names no content: a repeated line without one is never left out.
+ */
+const CONTINUED =
+  /\s*(?:\((?:continued|cont\.|cont'd|contd\.?)\)|（(?:续|續|续上页|續上頁|接上页|接上頁)）)$/iu;
+/** The most lines, and characters, of a heading a next page repeats that may be left out. */
+const MAX_HEADING_LINES = 3;
+const MAX_HEADING_CHARACTERS = 200;
+const CJK_CHARACTER = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
+
+const lineKey = (line: string) => line.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+
+/** A heading's length, not a word's: three words or 12 characters, or six CJK characters ("Total" is never one). */
+const headingSized = (line: string) =>
+  (line.match(CJK_CHARACTER)?.length ?? 0) >= 6 ||
+  (!(line.match(CJK_CHARACTER)?.length ?? 0) &&
+    (line.trim().split(/\s+/).length >= 3 || line.trim().length >= 12));
+
+/**
+ * The next page's text without the heading it opens with, when that heading is a run of the cited
+ * page's own lines, in order, each repeated with a continuation mark; and where that run ends on
+ * the cited page. Null when the next page opens any other way. A CJK heading the app joined to
+ * the line after it when it reflowed the text is no line of its own, so it never counts: a content
+ * line that starts with the same words can't be told from it.
+ */
+function withoutContinuedHeading(
+  cited: string,
+  next: string,
+): { text: string; headingEnds: number } | null {
+  const lines = next.split("\n");
+  let count = 0;
+  while (count < MAX_HEADING_LINES && CONTINUED.test(lines[count] ?? "")) count++;
+  if (count === 0 || CONTINUED.test(lines[count] ?? "")) return null;
+  const heading = lines.slice(0, count).map((line) => line.replace(CONTINUED, ""));
+  if (heading.join("").length > MAX_HEADING_CHARACTERS || !heading.every(headingSized)) return null;
+  const own = cited.split("\n");
+  const at = own.findIndex((_, start) =>
+    heading.every((line, index) => lineKey(own[start + index] ?? "") === lineKey(line)),
+  );
+  if (at < 0) return null;
+  return {
+    text: lines.slice(count).join("\n"),
+    headingEnds: own.slice(0, at + count).join("\n").length,
+  };
+}
+
+/**
+ * The parts of a Document's name, as the app shows it, at a separator (#2504), each as `nameKey`
+ * reads it: its extension taken off, split at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and
+ * "_", and at "-" or "–" next to a CJK character, never inside a Latin word ("Cooling-off"). A
+ * middle dot doesn't split: it joins a name ("列夫·托尔斯泰").
+ */
+function nameParts(name: string): Set<string> {
+  const parts = name
+    .replace(/\.[A-Za-z0-9]{1,5}$/u, "")
+    .split(
+      /\s[-–—―]\s|[|｜－—―_]|(?<=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])[-–]|[-–](?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/u,
+    );
+  return new Set(parts.length > 1 ? parts.map(nameKey).filter((part) => part !== "") : []);
+}
+
 export function createCitationSession(
   documents: Omit<AnswerDocuments, "search" | "searchableCount"> &
     Partial<Pick<AnswerDocuments, "search" | "searchableCount">>,
@@ -2322,7 +2387,21 @@ export function createCitationSession(
         if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return false;
         const found = quoteInUnits(units, words, matching);
         const nextStarts = joinUnits(units).starts[next] ?? 0;
-        return found?.every((range) => range.start < nextStarts) === true;
+        if (found?.every((range) => range.start < nextStarts)) return true;
+        // A next page may open with the cited page's heading again, marked as continued.
+        const onPage = units.slice(0, next);
+        const lifted = withoutContinuedHeading(
+          joinUnits(onPage).text,
+          (units[next] as PageText).text,
+        );
+        if (!lifted) return false;
+        const read = [...onPage, { ...(units[next] as PageText), text: lifted.text }];
+        const again = quoteInUnits(read, words, matching);
+        const starts = joinUnits(read).starts[next] ?? 0;
+        return (
+          again?.every((range) => range.start < starts) === true &&
+          (again[0] as TextRange).start >= lifted.headingEnds
+        );
       };
       /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
       const titled = (
@@ -2343,6 +2422,15 @@ export function createCitationSession(
       );
       for (const { words, markers } of quoted) {
         if (names.has(nameKey(words))) continue;
+        // A part of the name of a Document the sentence's own records cite is a name too.
+        const key = nameKey(words);
+        if (
+          markers.some((marker) => {
+            const record = records.get(marker);
+            return record !== undefined && nameParts(record.source.documentName).has(key);
+          })
+        )
+          continue;
         const cited = [...new Set(markers)].flatMap((marker) => {
           const record = records.get(marker);
           return record
@@ -2357,7 +2445,12 @@ export function createCitationSession(
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
         if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
-        if (cited.some(({ record, matching }) => runsOnToNextPage(record, words, matching))) {
+        const runsOn = cited.find(({ record, matching }) =>
+          runsOnToNextPage(record, words, matching),
+        );
+        if (runsOn) {
+          // Its card names the next page: the quote's own place, which the User opens, is the cited one.
+          runsOn.record.quotedWordsRunOn = (runsOn.record.range.pageTo as number) + 1;
           continue;
         }
         if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))

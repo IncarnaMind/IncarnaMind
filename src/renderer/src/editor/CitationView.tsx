@@ -979,6 +979,16 @@ function CitationCard({
         </p>
       )}
       {quotedWords && <p className="citation-card-note">{t("citation.quoted.why")}</p>}
+      {typeof attributes.quotedWordsRunOn === "number" && state.check === "found" && (
+        <p data-testid="citation-quoted-run-on" className="citation-card-note">
+          {t("citation.quotedWordsRunOn", {
+            place: formatLocation(
+              { kind: "page", from: attributes.quotedWordsRunOn, to: attributes.quotedWordsRunOn },
+              t,
+            ),
+          })}
+        </p>
+      )}
       {state.pageChecked && (
         <p data-testid="citation-page-checked" className="citation-card-note">
           {t("citation.pageChecked.done")}
