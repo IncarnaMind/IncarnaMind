@@ -146,6 +146,7 @@ describe("The Output location", () => {
         inDefaultFolder: true,
       },
       citations: 0,
+      pictures: [],
       unverifiedCitations: 0,
       questions: 0,
       hiddenColumns: 0,
