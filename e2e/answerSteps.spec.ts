@@ -779,14 +779,14 @@ const EXAMPLE_LINES = {
   en: {
     note: "Draft: credit committee paper",
     question: "What is the monthly rent in the lease? Answer without searching and without citing.",
-    line: "Read “Draft: credit committee paper” and 2 Documents, plus 2 example Documents",
-    row: "Read 2 Documents, plus 2 example Documents",
+    line: "Read “Draft: credit committee paper”, 2 of your Documents and 2 example Documents",
+    row: "Read 2 of your Documents and 2 example Documents",
   },
   "zh-CN": {
     note: "授信委员会报告（草稿）",
     question: "租赁合同里的月租金是多少？不用搜索，也不用引用。",
-    line: "读了“授信委员会报告（草稿）”，还读了 2 个文档，外加 2 个示例文档",
-    row: "读了 2 个文档，外加 2 个示例文档",
+    line: "读了“授信委员会报告（草稿）”、你的 2 个文档和 2 个示例文档",
+    row: "读了你的 2 个文档和 2 个示例文档",
   },
 } as const;
 

@@ -61,8 +61,8 @@ export function sourcesText(t: Translate, count: number): string {
 /**
  * The Documents read with the Question: “{Document}” for one (a deleted one
  * has no name), else how many; after the Mind's line `read` when it was read too.
- * The examples' are counted apart, as example Documents, so the count of the
- * User's own agrees with their Library.
+ * When some are the examples', they are told apart from the User's own, so the
+ * count of the User's own agrees with their Library: the total is all that was read.
  */
 export function documentsReadText(
   t: Translate,
@@ -71,27 +71,22 @@ export function documentsReadText(
   read: string | null = null,
   isExample: (document: ReadDocument) => boolean = () => false,
 ): string {
-  const examples = documents.filter(isExample);
-  if (examples.length === 0) return ownDocumentsReadText(t, documents, nameOf, read);
-  const own = documents.filter((document) => !isExample(document));
-  const before = own.length === 0 ? read : ownDocumentsReadText(t, own, nameOf, read);
-  const count = examples.length;
-  if (before === null) {
-    return count === 1
-      ? t("steps.readDocuments.examples.only.one")
-      : t("steps.readDocuments.examples.only", { count });
+  const exampleCount = documents.filter(isExample).length;
+  if (exampleCount > 0) {
+    const own = documents.length - exampleCount;
+    const examples = t(
+      exampleCount === 1 ? "steps.readDocuments.examples.one" : "steps.readDocuments.examples",
+      { count: exampleCount },
+    );
+    if (own === 0) {
+      return read === null
+        ? t("steps.readDocuments.examplesOnly.bare", { examples })
+        : t("steps.readDocuments.examplesOnly", { read, examples });
+    }
+    return read === null
+      ? t("steps.readDocuments.withExamples.bare", { own, examples })
+      : t("steps.readDocuments.withExamples", { read, own, examples });
   }
-  return count === 1
-    ? t("steps.readDocuments.examples.one", { read: before })
-    : t("steps.readDocuments.examples", { read: before, count });
-}
-
-function ownDocumentsReadText(
-  t: Translate,
-  documents: readonly ReadDocument[],
-  nameOf: (document: ReadDocument) => string | null,
-  read: string | null,
-): string {
   const [first] = documents;
   const document = documents.length === 1 && first ? nameOf(first) : null;
   const count = documents.length;

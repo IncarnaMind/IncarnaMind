@@ -856,7 +856,7 @@ describe("where an Answer found what it says", () => {
     expect(words(gone, library)).toBe("Read a deleted note and “租赁合同-2026”");
   });
 
-  // protects=asked from an example's own Note after the User added two Documents, the line counts their two as Documents and the example's two as example Documents, so the count agrees with the Library's 2 and the example's are still said to have been read; fails_when=the four are counted as 4 Documents, the User's two go unnamed, or the example's two are left out of the line; no_claim=which Documents a Question reads, which tests/core/exampleDocumentsRead.test.ts holds.
+  // protects=asked from an example's own Note, the line is one list that counts the User's own Documents as the Library does and the example's apart, and the total is all that was read; with none of the example's read it is today's line; fails_when=the four are counted as 4 Documents, the example's are filtered out of the total, a branch (both, example's only, the singular, no Mind) says other words, or a line with none of the example's changes; no_claim=which Documents a Question reads, which tests/core/exampleDocumentsRead.test.ts holds.
   describe("beside an example's Note, the User's Documents and the example's are told apart", () => {
     const EXAMPLE_MIND: AskedFrom = {
       mindId: "m-example",
@@ -869,8 +869,9 @@ describe("where an Answer found what it says", () => {
       deleted: false,
     };
     const read = (mind: AskedFrom) => ({ ...mind, version: "v1", partial: false });
-    const sent = (mind: AskedFrom, ...documents: string[]) =>
+    const beside = (mind: AskedFrom, ...documents: string[]) =>
       foldedLine(input({ read: read(mind), steps: sentWhole(...documents) }, { askedFrom: mind }));
+    const alone = (...documents: string[]) => foldedLine(input({ steps: sentWhole(...documents) }));
     const NAMES = {
       lease: "Harbour lease",
       insurance: "Contents insurance",
@@ -878,59 +879,92 @@ describe("where an Answer found what it says", () => {
       results: "Q3 results",
     };
     const EXAMPLES = ["facility", "results"];
+    const both = (line: ReturnType<typeof foldedLine>) => [
+      words(line, NAMES, EXAMPLES),
+      wordsZh(line, NAMES, EXAMPLES),
+    ];
 
     test("two of the User's own and two of the example's", () => {
-      const line = sent(EXAMPLE_MIND, "lease", "insurance", "facility", "results");
-      expect(words(line, NAMES, EXAMPLES)).toBe(
-        "Read “Draft: credit committee paper” and 2 Documents, plus 2 example Documents",
+      const [en, zh] = both(beside(EXAMPLE_MIND, "lease", "insurance", "facility", "results"));
+      expect(en).toBe(
+        "Read “Draft: credit committee paper”, 2 of your Documents and 2 example Documents",
       );
-      expect(
-        wordsZh(sent(EXAMPLE_ZH, "lease", "insurance", "facility", "results"), NAMES, EXAMPLES),
-      ).toBe("读了“授信委员会报告（草稿）”，还读了 2 个文档，外加 2 个示例文档");
-      // The same four, none of them an example's: they are all the User's.
-      expect(words(line, NAMES)).toBe("Read “Draft: credit committee paper” and 4 Documents");
+      expect(zh).toBe("读了“Draft: credit committee paper”、你的 2 个文档和 2 个示例文档");
+      const [, named] = both(beside(EXAMPLE_ZH, "lease", "insurance", "facility", "results"));
+      expect(named).toBe("读了“授信委员会报告（草稿）”、你的 2 个文档和 2 个示例文档");
     });
 
-    test("one of the User's own is named, and one of the example's is counted", () => {
-      const line = sent(EXAMPLE_MIND, "lease", "facility");
-      expect(words(line, NAMES, EXAMPLES)).toBe(
-        "Read “Draft: credit committee paper” and “Harbour lease”, plus 1 example Document",
+    test("one of the User's own and one of the example's", () => {
+      const [en, zh] = both(beside(EXAMPLE_MIND, "lease", "facility"));
+      expect(en).toBe(
+        "Read “Draft: credit committee paper”, 1 of your Documents and 1 example Document",
       );
-      expect(wordsZh(sent(EXAMPLE_ZH, "lease", "facility"), NAMES, EXAMPLES)).toBe(
-        "读了“授信委员会报告（草稿）”，还读了“Harbour lease”，外加 1 个示例文档",
-      );
+      expect(zh).toBe("读了“Draft: credit committee paper”、你的 1 个文档和 1 个示例文档");
     });
 
-    test("none of the User's own yet: only the example's are read, and the line says so", () => {
-      const line = sent(EXAMPLE_MIND, "facility", "results");
-      expect(words(line, NAMES, EXAMPLES)).toBe(
-        "Read “Draft: credit committee paper”, plus 2 example Documents",
+    test("only the example's are read: they are named as examples, singular and plural", () => {
+      const [en, zh] = both(beside(EXAMPLE_MIND, "facility", "results"));
+      expect(en).toBe("Read “Draft: credit committee paper” and 2 example Documents");
+      expect(zh).toBe("读了“Draft: credit committee paper”和 2 个示例文档");
+      const [enOne, zhOne] = both(beside(EXAMPLE_MIND, "facility"));
+      expect(enOne).toBe("Read “Draft: credit committee paper” and 1 example Document");
+      expect(zhOne).toBe("读了“Draft: credit committee paper”和 1 个示例文档");
+      const [enBare, zhBare] = both(alone("facility", "results"));
+      expect(enBare).toBe("Read 2 example Documents");
+      expect(zhBare).toBe("读了 2 个示例文档");
+      const [enBareOne, zhBareOne] = both(alone("facility"));
+      expect(enBareOne).toBe("Read 1 example Document");
+      expect(zhBareOne).toBe("读了 1 个示例文档");
+    });
+
+    test("with no Mind read, the User's own and the example's are one list too", () => {
+      const [en, zh] = both(alone("lease", "insurance", "facility", "results"));
+      expect(en).toBe("Read 2 of your Documents and 2 example Documents");
+      expect(zh).toBe("读了你的 2 个文档和 2 个示例文档");
+    });
+
+    test("none of the example's read: the line is the one it always was", () => {
+      const four = beside(EXAMPLE_MIND, "lease", "insurance", "facility", "results");
+      expect(words(four, NAMES)).toBe("Read “Draft: credit committee paper” and 4 Documents");
+      expect(wordsZh(four, NAMES)).toBe("读了“Draft: credit committee paper”，还读了 4 个文档");
+      const one = beside(EXAMPLE_MIND, "lease");
+      expect(words(one, NAMES, EXAMPLES)).toBe(
+        "Read “Draft: credit committee paper” and “Harbour lease”",
       );
-      expect(wordsZh(sent(EXAMPLE_ZH, "facility", "results"), NAMES, EXAMPLES)).toBe(
-        "读了“授信委员会报告（草稿）”，外加 2 个示例文档",
+      expect(wordsZh(one, NAMES, EXAMPLES)).toBe(
+        "读了“Draft: credit committee paper”，还读了“Harbour lease”",
       );
-      const alone = foldedLine(input({ steps: sentWhole("facility", "results") }));
-      expect(words(alone, NAMES, EXAMPLES)).toBe("Read 2 example Documents");
-      expect(wordsZh(alone, NAMES, EXAMPLES)).toBe("读了 2 个示例文档");
-      const one = foldedLine(input({ steps: sentWhole("facility") }));
-      expect(words(one, NAMES, EXAMPLES)).toBe("Read 1 example Document");
-      expect(wordsZh(one, NAMES, EXAMPLES)).toBe("读了 1 个示例文档");
+      expect(words(alone("lease", "insurance"), NAMES, EXAMPLES)).toBe("Read 2 Documents");
+      expect(wordsZh(alone("lease", "insurance"), NAMES, EXAMPLES)).toBe("读了 2 个文档");
     });
 
     test("the timeline's row says the same", () => {
-      const steps = input({ steps: sentWhole("lease", "insurance", "facility", "results") });
-      const row = stepRows(steps).find((each) => each.kind === "read-documents");
-      if (row?.kind !== "read-documents") throw new Error("The timeline has no row of Documents.");
+      const rowOf = (...documents: string[]) => {
+        const row = stepRows(input({ steps: sentWhole(...documents) })).find(
+          (each) => each.kind === "read-documents",
+        );
+        if (row?.kind !== "read-documents")
+          throw new Error("The timeline has no row of Documents.");
+        return row.documents;
+      };
       const nameOf = (document: { documentId: string }) =>
         NAMES[document.documentId as keyof typeof NAMES] ?? null;
       const isExample = (document: { documentId: string }) =>
         EXAMPLES.includes(document.documentId);
-      expect(documentsReadText(en, row.documents, nameOf, null, isExample)).toBe(
-        "Read 2 Documents, plus 2 example Documents",
+      const text = (language: typeof en, ...documents: string[]) =>
+        documentsReadText(language, rowOf(...documents), nameOf, null, isExample);
+      expect(text(en, "lease", "insurance", "facility", "results")).toBe(
+        "Read 2 of your Documents and 2 example Documents",
       );
-      expect(documentsReadText(zh, row.documents, nameOf, null, isExample)).toBe(
-        "读了 2 个文档，外加 2 个示例文档",
+      expect(text(zh, "lease", "insurance", "facility", "results")).toBe(
+        "读了你的 2 个文档和 2 个示例文档",
       );
+      expect(text(en, "lease", "facility")).toBe("Read 1 of your Documents and 1 example Document");
+      expect(text(zh, "lease", "facility")).toBe("读了你的 1 个文档和 1 个示例文档");
+      expect(text(en, "facility", "results")).toBe("Read 2 example Documents");
+      expect(text(zh, "facility", "results")).toBe("读了 2 个示例文档");
+      expect(text(en, "lease", "insurance")).toBe("Read 2 Documents");
+      expect(text(zh, "lease", "insurance")).toBe("读了 2 个文档");
     });
   });
 
