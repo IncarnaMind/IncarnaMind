@@ -3,6 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
+  ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigureAttributes,
@@ -67,11 +68,18 @@ export interface NumberedFigure {
   attributes: CalculatedFigureAttributes;
 }
 
+/** The marker on an Analysis table's caption (#2378), with its number in the one series. */
+export interface NumberedTable {
+  pos: number;
+  number: number;
+}
+
 /** The Mind's Citations, calculated figures and the User's footnotes, numbered in one traversal. */
 export interface NumberedFootnotes {
   citations: NumberedCitation[];
   footnotes: NumberedFootnote[];
   figures: NumberedFigure[];
+  tables: NumberedTable[];
 }
 
 /** Whether nothing but spaces stands between two Citations, at these positions, of one text block. */
@@ -108,6 +116,7 @@ export function numberFootnotes(
   const citations: NumberedCitation[] = [];
   const footnotes: NumberedFootnote[] = [];
   const figures: NumberedFigure[] = [];
+  const tables: NumberedTable[] = [];
   const numbering = new FootnoteNumbering();
   let endnotes = 0;
   let cited = 0;
@@ -148,6 +157,14 @@ export function numberFootnotes(
         });
         return false;
       }
+      if (name === ANALYSIS_TABLE_NODE) {
+        if (form === "in-text") cited += 1;
+        tables.push({
+          pos: offset + 1 + pos,
+          number: form === "in-text" ? cited : numbering.footnote(),
+        });
+        return false;
+      }
       if (name !== CITATION_NODE) return true;
       const at = offset + 1 + pos;
       const attributes = node.attrs as CitationAttributes;
@@ -180,7 +197,7 @@ export function numberFootnotes(
       return false;
     });
   });
-  return { citations, footnotes, figures };
+  return { citations, footnotes, figures, tables };
 }
 
 /** Every Citation, top to bottom, numbered among the Mind's footnotes (see `numberFootnotes`). */
@@ -199,6 +216,7 @@ const numberedIn = (textBlock: ProseMirrorNode) => {
       name === CITATION_NODE ||
       name === FOOTNOTE_NODE ||
       name === CALCULATED_FIGURE_NODE ||
+      name === ANALYSIS_TABLE_NODE ||
       keptNote(child)
     )
       found.push(child);
@@ -241,10 +259,11 @@ export function textBlockEdited(tr: Transaction): number | null {
 const NUMBER_ATTRIBUTE = "data-citation-number";
 const FOOTNOTE_NUMBER_ATTRIBUTE = "data-footnote-number";
 const FIGURE_NUMBER_ATTRIBUTE = "data-figure-number";
+const TABLE_NUMBER_ATTRIBUTE = "data-table-number";
 
 function decoratedNumber(
   decorations: readonly Decoration[],
-  key: "citationNumber" | "footnoteNumber" | "figureNumber",
+  key: "citationNumber" | "footnoteNumber" | "figureNumber" | "tableNumber",
 ): number {
   for (const decoration of decorations) {
     const number: unknown = decoration.spec[key];
@@ -266,6 +285,11 @@ export function footnoteNumberOf(decorations: readonly Decoration[]): number {
 /** A calculated figure's number from its node-view decorations; 0 if it has none. */
 export function figureNumberOf(decorations: readonly Decoration[]): number {
   return decoratedNumber(decorations, "figureNumber");
+}
+
+/** An Analysis table's marker's number from its node-view decorations; 0 if it has none. */
+export function tableNumberOf(decorations: readonly Decoration[]): number {
+  return decoratedNumber(decorations, "tableNumber");
 }
 
 /** The document's numbered markers and their decorations. */
@@ -293,7 +317,7 @@ function numbersOf(
   form: CitationForm,
   live: CitationLive,
 ): Numbers {
-  const { citations, footnotes, figures } = numberFootnotes(doc, form, live);
+  const { citations, footnotes, figures, tables } = numberFootnotes(doc, form, live);
   const node = (pos: number, attrs: Record<string, string>, spec: Record<string, number>) =>
     Decoration.node(pos, pos + (doc.nodeAt(pos)?.nodeSize ?? 1), attrs, spec);
   const decorations = DecorationSet.create(doc, [
@@ -314,8 +338,11 @@ function numbersOf(
         { figureNumber: number, generation },
       ),
     ),
+    ...tables.map(({ pos, number }) =>
+      node(pos, { [TABLE_NUMBER_ATTRIBUTE]: String(number) }, { tableNumber: number, generation }),
+    ),
   ]);
-  return { citations, footnotes, figures, decorations, generation, form, live };
+  return { citations, footnotes, figures, tables, decorations, generation, form, live };
 }
 
 /**
@@ -404,6 +431,7 @@ export function citationNumbersPlugin(
           citations: numbers.citations.map((each) => ({ ...each, pos: tr.mapping.map(each.pos) })),
           footnotes: numbers.footnotes.map((each) => ({ ...each, pos: tr.mapping.map(each.pos) })),
           figures: numbers.figures.map((each) => ({ ...each, pos: tr.mapping.map(each.pos) })),
+          tables: numbers.tables.map((each) => ({ ...each, pos: tr.mapping.map(each.pos) })),
           decorations: numbers.decorations.map(tr.mapping, tr.doc),
           generation: numbers.generation,
           form: numbers.form,

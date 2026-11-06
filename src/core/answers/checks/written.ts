@@ -34,13 +34,17 @@
  * as it is sent, so turning it off stops the rest at once (#1206), as the cost
  * cap and a plan's limit do. Nothing is checked when the flow is off as it
  * starts, or on a model on this computer too small to judge reliably (#680).
+ * Allowed before checks sent more, the flow isn't asked about here: each
+ * sentence lands not checked, waiting for the User to allow the more (#2525).
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { citationAttributesOf } from "../../../shared/citations";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
+import { planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
+import { readTableBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextPiece,
   type InlineTextProjection,
@@ -48,9 +52,11 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
-import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
+import { INLINE_NODE, isClaim, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
@@ -90,6 +96,8 @@ export interface WrittenCheckOptions {
    * as it is sent (ADR-0022); null when that flow may not send to it now. Never asks.
    */
   prepare(answer: PreparedChatModel): Promise<PreparedChatModel | null>;
+  /** Whether the User allowed the checks flow to the Answer's model before it sent more, and not the more yet. */
+  widened(answer: PreparedChatModel): boolean;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   /** Where the Mind's sentences are checked, as Check this Mind checks them. */
   scopeOf(mindId: string): { searchable: number; check: CheckScope };
@@ -154,7 +162,7 @@ export interface WrittenCheck {
   checked: number;
   failed: number;
   stop: RunStop | null;
-  blocked: { reason: "consent-revoked" | "local-mode"; count: number } | null;
+  blocked: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number } | null;
   cut: string[];
   unsupported: number;
   contradicted: number;
@@ -212,8 +220,12 @@ function projectedContent(content: readonly NodeJSON[]) {
   return { pieces, projection: projectInlineText(pieces) };
 }
 
+/** An Analysis's own table: its cells are its run's, never claims a check reads (#2378). */
+const boundTable = (node: NodeJSON) =>
+  node.type === "table" && readTableBinding(node.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) !== null;
+
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
-function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
+export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
   // Before the write's first Block: the Note's start, when the write begins the Note.
   let after: FirstLook["place"]["after"] = { kind: "start" };
@@ -228,7 +240,7 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
         after = { kind: "heading", text: projectedContent(node.content ?? []).projection.text };
         return;
       }
-      if (UNCHECKED.has(node.type)) {
+      if (UNCHECKED.has(node.type) || boundTable(node)) {
         after = { kind: "paragraph" };
         return;
       }
@@ -245,8 +257,13 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
         if (content.length === 0) after = { kind: "paragraph" };
         return;
       }
-      // A header cell names its column or row; it states nothing a check could support (#2378).
-      if (inHeader) {
+      // A header cell names its column or row, and a caption its table: they state nothing a check
+      // could support (#2378).
+      if (
+        inHeader ||
+        (content.some((inline) => inline.type === ANALYSIS_TABLE_NODE) &&
+          onlyNamesItsTable(paragraphText(content)))
+      ) {
         after = { kind: "paragraph" };
         return;
       }
@@ -768,6 +785,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         ...read,
         cited: options.citedNow(sentence.cited),
         scope: scope.scope,
+        searched: scope.wanted,
         model: prepared,
         mindId,
         recordClaim: sentence.rawText,
@@ -798,8 +816,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // The claims with no Citation are left to the one count and Check the rest (#1909).
     const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
     if (sentences.length === 0) return null;
-    const prepared = await options.prepare(input.prepared);
-    if (!prepared) return null;
+    const allowed = await options.prepare(input.prepared);
+    const waiting = !allowed && options.widened(input.prepared);
+    if (!allowed && !waiting) return null;
+    // Waiting, nothing is sent: the Answer's model only names who the marks wait for.
+    const prepared = allowed ?? input.prepared;
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
     const sending = sentences.slice(0, SENTENCES_CHECKED_AT_MOST);
@@ -813,16 +834,18 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         }),
       );
     });
-    input.checking(sending.length);
+    if (!waiting) input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const limit = slots(claimsAtOnce(prepared));
-    const quick = await options.quickModel(prepared).catch((error: unknown) => {
-      console.warn(
-        `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return null;
-    });
+    const quick = waiting
+      ? null
+      : await options.quickModel(prepared).catch((error: unknown) => {
+          console.warn(
+            `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return null;
+        });
     // A sentence its check asks about again, after a rate limit, keeps its first look's answer:
     // asked again, a quick model's later yes would stand.
     const looked = new Map<Sentence, FirstLookResult>();
@@ -839,7 +862,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           : { kind: "unknown" };
       });
     const { outcomes, stop } = await runItems(
-      sending,
+      waiting ? [] : sending,
       async (sentence): Promise<Checked> => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
         const first =
@@ -936,7 +959,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
       done.failed++;
-      if (reason === "consent-revoked" || reason === "local-mode") {
+      if (reason === "consent-revoked" || reason === "local-mode" || reason === "consent-widened") {
         done.blocked = {
           reason: done.blocked?.reason ?? reason,
           count: (done.blocked?.count ?? 0) + 1,
@@ -953,6 +976,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       });
     };
     sending.forEach((sentence, index) => {
+      if (waiting) {
+        failed(sentence, "consent-widened", null);
+        return;
+      }
       const outcome = outcomes[index];
       if (!outcome || outcome.status === "stopped") return;
       if (outcome.status === "not-checked") {
@@ -972,7 +999,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
         landings.push({
           sentence,
-          opinion: result.parts.map(({ span, kind }) => ({ span, kind })),
+          opinion: result.parts.map(planOf),
         });
         return;
       }

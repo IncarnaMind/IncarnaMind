@@ -374,7 +374,9 @@ export function decisionGroupClassifier(connection: {
     async decide(groups, excerpt, signal, images = []) {
       return (await this.organize(groups, [], excerpt, signal, images)).groupId;
     },
-    async organize(groups, tags, excerpt, signal, images = []) {
+    async organize(groups, allTags, excerpt, signal, images = []) {
+      // Only the Tags in the Document's script go, as with a chat model (#2308).
+      const tags = tagsToOffer(allTags, excerpt.text);
       // Ollama's Choice endpoint supports 26 options, including Unsorted.
       if (connection.local && groups.length > 25)
         throw new Error(

@@ -18,6 +18,7 @@ import {
   type CloudReadPermit,
   type ConnectionTestResult,
   type DataFlowId,
+  type DataKind,
   type ExternalService,
   type ModelAbout,
   type ModelCost,
@@ -1429,14 +1430,15 @@ export function createChat(options: {
      * thinking where the model can, for a short request on the chat flow;
      * the chat flow's other requests ask for a summary of the model's
      * reasoning, at the effort the catalog gives their kind of call (an
-     * Answer, a careful one, a Task's).
+     * Answer, a careful one, a Task's). `sends`: the kinds of the flow's data this work sends,
+     * when that is less than all, so consent to those alone is enough.
      * Throws `ChatNotReadyError` or `ConsentDeclinedError`; nothing is sent then.
      */
     async prepareModel(
       choice?: ChatModelChoice,
       flow: DataFlowId = "chat",
       thinking?: Exclude<ChatModelSpec["thinking"], undefined>,
-      permit?: CloudReadPermit,
+      { permit, sends }: { permit?: CloudReadPermit; sends?: readonly DataKind[] } = {},
     ): Promise<PreparedChatModel> {
       const readiness = await readinessFor(choice ?? settings.get().user.chatModel, flow);
       const permitted = (service: ExternalService | null | undefined) =>
@@ -1457,7 +1459,7 @@ export function createChat(options: {
       }
       if (provider.service && !permitted(provider.service)) {
         try {
-          await consent.ensure(flow, provider.service);
+          await consent.ensure(flow, provider.service, sends);
         } catch (error) {
           // Its prompt closed as Local mode came on: a Question says so as it does when asked in Local mode.
           if (error instanceof LocalModeError && flow === "chat") {
