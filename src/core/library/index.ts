@@ -608,23 +608,41 @@ export function createLibrary(options: {
     }
     return null;
   };
+  /**
+   * The Transcripts of the Meetings whose Notes are in this Folder: a Transcript has no Folder of
+   * its own, it is where its Note is (#2528).
+   */
+  const transcriptIdsIn = (folderId: string): string[] =>
+    db
+      .all<{ id: string }>(
+        `SELECT d.id FROM documents d JOIN minds n ON n.id = d.meeting_mind_id
+         JOIN library_groups g ON g.id = n.folder_id
+         WHERE g.id = ? AND g.deleted_at IS NULL AND n.deleted_at IS NULL AND d.deleted_at IS NULL`,
+        [folderId],
+      )
+      .map((row) => row.id);
   /** The Documents filed in this Folder (a suggestion too, unless the Folder keeps its work inside it). */
   const filedDocumentIdsOf = (folderId: string): string[] => {
     const walled = wallOf(folderId) !== null;
-    return db
-      .all<{ document_id: string }>(
-        `SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL${walled ? " AND a.source = 'user'" : ""}`,
-        [folderId],
-      )
-      .map((row) => row.document_id);
+    return [
+      ...db
+        .all<{ document_id: string }>(
+          `SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL${walled ? " AND a.source = 'user'" : ""}`,
+          [folderId],
+        )
+        .map((row) => row.document_id),
+      ...transcriptIdsIn(folderId),
+    ];
   };
-  const everyFiledDocumentIdsOf = (folderId: string): string[] =>
-    db
+  const everyFiledDocumentIdsOf = (folderId: string): string[] => [
+    ...db
       .all<{ document_id: string }>(
         "SELECT a.document_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id JOIN documents d ON d.id = a.document_id WHERE g.id = ? AND g.deleted_at IS NULL AND a.deleted_at IS NULL AND d.deleted_at IS NULL",
         [folderId],
       )
-      .map((row) => row.document_id);
+      .map((row) => row.document_id),
+    ...transcriptIdsIn(folderId),
+  ];
   const document = (id: unknown) => {
     if (typeof id !== "string") throw new InvalidInputError("A Document id must be text.");
     const value = db.get<DocumentRow>(
@@ -634,6 +652,20 @@ export function createLibrary(options: {
     if (!value) throw new NotFoundError({ key: "error.document.gone" });
     return value;
   };
+  const isTranscriptOfNote = (id: string): boolean =>
+    db.get("SELECT 1 FROM documents WHERE id = ? AND meeting_mind_id IS NOT NULL", [id]) !==
+    undefined;
+  /** A Document the User or Organize may file; a Meeting's Transcript is never filed alone (#2528). */
+  const fileable = (id: unknown) => {
+    const doc = document(id);
+    if (isTranscriptOfNote(doc.id)) {
+      throw new InvalidInputError({ key: "error.transcript.withNote" });
+    }
+    return doc;
+  };
+  /** What Organize leaves where it is: the examples' Documents (#1942) and Meetings' Transcripts (#2528). */
+  const leftAlone = (id: string): boolean =>
+    options.isExampleDocument?.(id) === true || isTranscriptOfNote(id);
   const assignment = (id: string) =>
     db.get<AssignmentRow>(
       "SELECT * FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
@@ -1141,8 +1173,9 @@ export function createLibrary(options: {
       .all<{ document_id: string }>(
         "SELECT g.document_id FROM document_groups g JOIN documents d ON d.id = g.document_id WHERE g.deleted_at IS NULL AND d.deleted_at IS NULL AND g.status IN ('pending', 'waiting')",
       )
-      // An assignment an earlier version made for an example's Document isn't worked on again.
-      .filter((row) => !options.isExampleDocument?.(row.document_id));
+      // An assignment an earlier version made for an example's Document or a Meeting's Transcript
+      // isn't worked on again.
+      .filter((row) => !leftAlone(row.document_id));
     // Existing batches run text first, then PDFs needing images, avoiding model churn.
     const ordered =
       organizeModelOf(getSettings())?.kind === "auto"
@@ -1358,14 +1391,17 @@ export function createLibrary(options: {
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": one with a
      * suggested Folder waiting counts as in it, a Linked folder's Documents are in none
-     * until they are filed.
+     * until they are filed, and a Meeting's Transcript is where its Note is (#2528).
      */
     unfiledDocumentIds(): string[] {
       return db
         .all<{ id: string }>(
           `SELECT d.id FROM documents d WHERE d.deleted_at IS NULL AND NOT EXISTS (
              SELECT 1 FROM document_groups a JOIN library_groups g ON g.id = a.group_id
-             WHERE a.document_id = d.id AND a.deleted_at IS NULL AND g.deleted_at IS NULL)`,
+             WHERE a.document_id = d.id AND a.deleted_at IS NULL AND g.deleted_at IS NULL)
+           AND (d.meeting_mind_id IS NULL OR NOT EXISTS (
+             SELECT 1 FROM minds n JOIN library_groups g ON g.id = n.folder_id
+             WHERE n.id = d.meeting_mind_id AND g.deleted_at IS NULL))`,
         )
         .map((row) => row.id);
     },
@@ -1409,7 +1445,7 @@ export function createLibrary(options: {
      */
     move(ids: readonly string[], groupId: string | null): MovedDocument[] {
       if (groupId !== null) group(groupId);
-      const docs = ids.map(document);
+      const docs = ids.map(fileable);
       const moved = db.transaction(() =>
         docs.map((doc) => {
           const before = assignment(doc.id);
@@ -1779,7 +1815,7 @@ export function createLibrary(options: {
       if (!organizeModelOf(settings))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       const docs = documentIdsOf(input)
-        .filter((id) => !options.isExampleDocument?.(id))
+        .filter((id) => !leftAlone(id))
         .map(document)
         .filter(hasContent);
       if (docs.length === 0) return [];
@@ -1811,7 +1847,7 @@ export function createLibrary(options: {
               .all<{ id: string }>("SELECT id FROM documents WHERE deleted_at IS NULL")
               .map((row) => row.id)
           : documentIdsOf(input)
-      ).filter((id) => !options.isExampleDocument?.(id));
+      ).filter((id) => !leftAlone(id));
       queueClassification(ids);
       resume();
     },
@@ -1830,7 +1866,7 @@ export function createLibrary(options: {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
-      const ids = documentIdsOf(input).filter((id) => !options.isExampleDocument?.(id));
+      const ids = documentIdsOf(input).filter((id) => !leftAlone(id));
       const before = new Map(
         ids.map((id) => {
           const row = assignment(id);
@@ -1882,7 +1918,7 @@ export function createLibrary(options: {
       return { failed: failure, untouched: untouched.length, tagChanges };
     },
     assign(id: unknown, groupId: unknown): AssignmentChange {
-      const doc = document(id);
+      const doc = fileable(id);
       if (groupId !== null) group(groupId);
       const before = assignment(doc.id);
       const taggingBefore = taggingSnapshot(doc.id);
@@ -1915,7 +1951,7 @@ export function createLibrary(options: {
       const after = parseAssignmentState(afterInput);
       let doc: DocumentRow;
       try {
-        doc = document(id);
+        doc = fileable(id);
       } catch (error) {
         if (!(error instanceof NotFoundError)) throw error;
         throw new NotFoundError({ key: "error.restore.documentGone" });
@@ -2029,13 +2065,13 @@ export function createLibrary(options: {
     file(id: string, groupId: string) {
       if (!groups().some((item) => item.id === groupId)) return;
       const { automatic, taggingStopped } = getSettings();
-      write(document(id), groupId, "user", automatic ? "pending" : "classified");
+      write(fileable(id), groupId, "user", automatic ? "pending" : "classified");
       if (taggingStopped.includes(groupId)) stopped(id);
       else announce([id]);
     },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;
-      if (options.isExampleDocument?.(id)) return;
+      if (leftAlone(id)) return;
       const doc = document(id);
       const existing = assignment(id);
       if (!hasContent(doc)) {

@@ -25,7 +25,7 @@ import { existsSync, renameSync } from "node:fs";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import type { LiveDocument } from "../../shared/citations";
-import { joinUnits, quoteInUnits } from "../../shared/locations";
+import { joinUnits, locationOf, quoteInUnits } from "../../shared/locations";
 import { readableQuote } from "../../shared/readableQuote";
 import {
   type Anchor,
@@ -192,6 +192,7 @@ interface DocumentRow {
   converted_from: string | null;
   your_note_mind_id: string | null;
   your_note_at: string | null;
+  meeting_mind_id: string | null;
   counted_as_evidence: number;
   not_cited: number;
   processing_version: number;
@@ -254,7 +255,7 @@ const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   source_kind, creation_date, title, own_file, converted_from, your_note_mind_id, your_note_at,
-  counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms,
+  meeting_mind_id, counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms,
   file_created_ns, file_properties, created_at,
   updated_at`;
 
@@ -543,6 +544,8 @@ export interface DocumentFilter {
   linkedFolderId?: string | null;
   /** Leave out missing Documents: new searches don't look at them. */
   searchable?: boolean;
+  /** Only those with a row of their own: a Meeting's Transcript is its Note's (#2528). */
+  listed?: boolean;
 }
 
 // A file named "2306.10683v1" says nothing of what is in it: the model gets its title too. A
@@ -686,6 +689,7 @@ export function createDocuments(options: DocumentsOptions) {
         row.your_note_mind_id === null
           ? null
           : { mindId: row.your_note_mind_id, snapshotAt: row.your_note_at ?? row.created_at },
+      meetingMindId: row.meeting_mind_id,
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
@@ -1733,6 +1737,22 @@ export function createDocuments(options: DocumentsOptions) {
   }
 
   /**
+   * When the words a text search found in a Transcript were said (#2528): the start of the line
+   * the words from the first one found are in, else of the first line holding that word.
+   */
+  function saidAt(match: DocumentTextMatch): DocumentTextMatch {
+    const row = find(match.documentId);
+    const first = match.highlights[0];
+    if (row?.kind !== "transcript" || !first) return match;
+    const units = pageTexts(row.id, row.content_hash, match.pageFrom, match.pageTo);
+    const following = match.excerpt.slice(first.start).replace(/…$/, "");
+    const word = match.excerpt.slice(first.start, first.end);
+    const ranges = quoteInUnits(units, following) ?? quoteInUnits(units, word);
+    const location = ranges ? locationOf(units, ranges) : null;
+    return location?.kind === "time" ? { ...match, atMs: location.from } : match;
+  }
+
+  /**
    * How many Units each of these Documents' current versions has, from the stored rows: no text
    * is read. A Document with none is left out.
    */
@@ -2184,7 +2204,14 @@ export function createDocuments(options: DocumentsOptions) {
   });
 
   /** The live Documents a filter keeps, as SQL conditions on `documents`, with their parameters. */
-  const filterWhere = ({ folderIds, tagId, ids, linkedFolderId, searchable }: DocumentFilter) => {
+  const filterWhere = ({
+    folderIds,
+    tagId,
+    ids,
+    linkedFolderId,
+    searchable,
+    listed,
+  }: DocumentFilter) => {
     const conditions = ["deleted_at IS NULL"];
     const params: string[] = [];
     if (folderIds !== undefined) {
@@ -2208,6 +2235,7 @@ export function createDocuments(options: DocumentsOptions) {
       params.push(linkedFolderId);
     }
     if (searchable) conditions.push("file_status <> 'missing'");
+    if (listed) conditions.push("meeting_mind_id IS NULL");
     return { where: conditions.join(" AND "), params };
   };
 
@@ -2237,14 +2265,14 @@ export function createDocuments(options: DocumentsOptions) {
       }));
 
   /**
-   * Whether any live Document is outside these: whether the Library holds more
-   * than the example's own copies (#1942). A search asks this on every call, so
-   * it reads no more than the first Document it finds.
+   * Whether any live Document with a row of its own is outside these: whether the Library holds
+   * more than the example's own copies (#1942), a Meeting's Transcript being its Note's (#2528).
+   * A search asks this on every call, so it reads no more than the first Document it finds.
    */
   const hasDocumentOutside = (outside: readonly string[]): boolean =>
     Boolean(
       db.get(
-        `SELECT 1 FROM documents WHERE deleted_at IS NULL
+        `SELECT 1 FROM documents WHERE deleted_at IS NULL AND meeting_mind_id IS NULL
          AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`,
         [JSON.stringify(outside)],
       ),
@@ -3534,7 +3562,7 @@ export function createDocuments(options: DocumentsOptions) {
         query,
         searchLimit(options?.limit),
         excludedIds(options?.excludeDocumentIds),
-      );
+      ).map(saidAt);
     },
 
     /** Linked folders (see ./library). */
