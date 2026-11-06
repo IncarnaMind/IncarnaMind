@@ -977,39 +977,34 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
 
   // protects=a landing that fails on a Note that still takes edits leaves the table's marks to land after every check before the check fails (#2532); fails_when=the check fails before the last edit, and the table's sentence lands unmarked; no_claim=what makes an edit fail.
   test("a failed landing still lets a table's marks land before the check fails", async () => {
-    let page: MindClient | null = null;
-    let armed = false;
-    const transact = Y.Doc.prototype.transact;
-    const edits = vi.spyOn(Y.Doc.prototype, "transact").mockImplementation(function (
-      this: Y.Doc,
-      ...args: Parameters<Y.Doc["transact"]>
+    let armed: boolean | null = false;
+    const format = Y.XmlText.prototype.format;
+    const edits = vi.spyOn(Y.XmlText.prototype, "format").mockImplementation(function (
+      this: Y.XmlText,
+      ...args: Parameters<Y.XmlText["format"]>
     ) {
-      if (armed && this !== page?.doc) {
-        armed = false;
+      if (armed) {
+        armed = null;
         throw new Error("The edit broke.");
       }
-      return transact.apply(this, args);
+      format.apply(this, args);
     });
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
-      const { core, client } = await write(
-        {
-          content: `${MOON.slice(0, -1)} [^1].\n\n| Region | Note |\n| --- | --- |\n| North | ${UNBACKED} [^1] |`,
-          into: true,
-          check: (call) => {
-            if (call.results.length === 0 && sentenceOf(call) !== `${UNBACKED} .`) armed = true;
-            return null;
-          },
+      const { core, client } = await write({
+        content: `${MOON.slice(0, -1)} [^1].\n\n| Region | Note |\n| --- | --- |\n| North | ${UNBACKED} [^1] |`,
+        into: true,
+        check: (call) => {
+          // Only the paragraph's mark fails, once: the table's lands in the last edit.
+          if (armed === false && sentenceOf(call) !== `${UNBACKED} .`) armed = true;
+          return null;
         },
-        ({ client: connected }) => {
-          page = connected;
-        },
-      );
+      });
       edits.mockRestore();
 
       const marks = await marksIn(core, client);
       expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
-        ["Neap tides are twice as strong .", "unsupported"],
+        [UNBACKED, "unsupported"],
       ]);
       expect(
         errors.mock.calls.filter(([line]) =>
@@ -1157,25 +1152,42 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
   });
 
-  // protects=a cut lands after every check, so a later sentence's Id. reads the Note as written and resolves as it did before marks landed as each check ends (#2532), in English and Chinese, with the Id. sentence twice; fails_when=the cut lands mid-run and the Id. sentences land with no record cite, unchecked; no_claim=how a cut sentence's own cite resolves.
+  // protects=a cut lands after every check, so a later sentence's Id. in the same paragraph reads the Note as written and resolves as it did before marks landed as each check ends (#2532), in English and Chinese, with the Id. sentence twice; fails_when=the cut lands mid-run and the Id. sentences land with no record cite, unchecked; no_claim=how a cut sentence's own cite resolves.
   test.each([
     {
       language: "en",
-      content: `> ${RECORD_CUT} [^1].\n> ${RECORD_NEXT} [^2].\n> ${RECORD_NEXT} [^2].`,
+      content: `> ${RECORD_CUT} [^1]. ${RECORD_NEXT} [^2]. ${RECORD_NEXT} [^2].`,
       cut: `${RECORD_SOURCE} [1].`,
+      kept: `${RECORD_SOURCE} .`,
+      dropped: "the harbour floods",
       next: RECORD_NEXT,
     },
     {
       language: "zh-CN",
-      content: `> ${RECORD_CUT_ZH}[^1]。\n> ${RECORD_NEXT_ZH}[^2]。\n> ${RECORD_NEXT_ZH}[^2]。`,
+      content: `> ${RECORD_CUT_ZH}[^1]。${RECORD_NEXT_ZH}[^2]。${RECORD_NEXT_ZH}[^2]。`,
       cut: `${RECORD_SOURCE_ZH}[1]。`,
+      kept: `${RECORD_SOURCE_ZH}。`,
+      dropped: "港口被淹没",
       next: RECORD_NEXT_ZH,
     },
   ])(
     "an Id. after a cut sentence resolves as written ($language)",
-    async ({ content, cut, next }) => {
-      const { core, client } = await write({ into: true, record: RECORD_FILE, cut, content });
+    async ({ content, cut, kept, dropped, next }) => {
+      const recordStated: Plan = {
+        verdict: "supported",
+        quote: RECORD_FILE.quote,
+        says: RECORD_FILE.quote,
+      };
+      const { core, client } = await write({
+        into: true,
+        record: RECORD_FILE,
+        cut,
+        content,
+        check: (call) =>
+          sentenceOf(call) === kept ? checkReply(call, { [kept]: recordStated }) : null,
+      });
 
+      expect(readMind(client).textContent).not.toContain(dropped);
       const marks = (await marksIn(core, client)).filter(({ sentence }) => sentence.includes(next));
       expect(marks).toHaveLength(2);
       for (const { check } of marks) {
