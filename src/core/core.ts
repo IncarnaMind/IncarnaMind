@@ -5845,7 +5845,9 @@ export function createCore(adapters: CoreAdapters): Core {
     listDataFlows: () => consent.list(),
     listConsentRequests: async () => consent.requests(),
     respondToConsent: async (requestId, accept) => {
-      consent.respond(requestId, accept);
+      const answered = consent.respond(requestId, accept);
+      // Accepting the embeddings dialog is the User allowing it: Documents waiting carry on.
+      if (accept === true && answered?.flow.id === "embeddings") embedding.retry();
       await readinessChanged();
     },
     revokeConsent: async (flowId, serviceId) => {

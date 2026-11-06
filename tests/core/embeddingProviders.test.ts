@@ -582,6 +582,45 @@ describe("Consent for cloud embeddings", { timeout: 30_000 }, () => {
       true,
     );
   });
+
+  // protects=accepting the embeddings dialog a foreground search raises resumes Documents parked while the flow was revoked; fails_when=the parked Document stays waiting after the User accepts; no_claim=none beyond protects.
+  test("accepting a foreground embeddings consent dialog resumes waiting Documents", async () => {
+    const { core, embeddings } = await setUp();
+    const accept = core.on(
+      "consent.requested",
+      (request) => void core.respondToConsent(request.requestId, true),
+    );
+    const finished = rebuildFinished(core);
+    await core.saveEmbeddingProvider({
+      kind: "openai",
+      apiKey: OPENAI_KEY,
+      modelId: "text-embedding-3-small",
+    });
+    await finished;
+    accept();
+    await core.revokeConsent("embeddings", OPENAI.id);
+    const asked: string[] = [];
+    core.on("consent.requested", (request) => asked.push(request.flow.id));
+
+    const sources = await createTempDataFolder();
+    const { documents } = await core.addDocuments([
+      await writeSourceFile(sources, "Tides.md", "The moon pulls the tides."),
+    ]);
+    const tides = documents[0] as Document;
+    await waitForStatus(core, tides.id, "waiting-for-model");
+    expect(asked).toEqual([]);
+    const sent = embeddings.calls.length;
+
+    // The User's own search asks; accepting it allows the flow, and the waiting Document carries on.
+    const requested = nextEvent(core, "consent.requested");
+    const found = core.searchPassages("moon", { mode: "hybrid" });
+    const request = await requested;
+    expect(request.flow.id).toBe("embeddings");
+    await core.respondToConsent(request.requestId, true);
+    await found;
+    await waitForStatus(core, tides.id, "ready");
+    expect(embeddings.calls.length).toBeGreaterThan(sent);
+  });
 });
 
 describe("Embedding provider errors", { timeout: 30_000 }, () => {

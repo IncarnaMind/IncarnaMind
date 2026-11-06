@@ -307,7 +307,7 @@ export function createActiveEmbedding(options: {
     ): Promise<T> => {
       try {
         const apiKey = await key();
-        if (service) await consent.ensure("embeddings", service, { background });
+        if (service) await consent.ensure("embeddings", service, undefined, { background });
         const result = await send(apiKey);
         if (current === provider && error !== null) setError(null);
         return result;

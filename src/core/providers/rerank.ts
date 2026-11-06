@@ -199,7 +199,7 @@ export function createRerank(options: {
     const apiKey = await secrets.tryGet(KEY_NAME);
     if (!apiKey) return [...candidates];
     try {
-      await consent.ensure("rerank", RERANK_SERVICES[kind], { background });
+      await consent.ensure("rerank", RERANK_SERVICES[kind], undefined, { background });
       const { ranking } = await rerank({
         model: gate.rerankingModel(
           createModel({ kind, apiKey: readApiKey(apiKey), modelId }),

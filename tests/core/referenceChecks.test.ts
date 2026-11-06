@@ -139,6 +139,31 @@ async function setUp(
   return { core, services, dataDir, mindId: mind.id };
 }
 
+const marksOf = (result: CheckReferencesResult) => {
+  if (result.kind !== "checked") throw new Error(`Not checked: ${result.kind}`);
+  return result.references.map(({ mark }) => mark);
+};
+
+/** Starts a check, lets its Crossref answer through, and holds its OpenAlex answer: in flight, with that answer kept. */
+async function checkUpToOpenAlex(core: Core, services: ReferenceServices, mindId: string) {
+  const first = services.pause();
+  const checking = core.checkReferences(mindId);
+  await first.reached;
+  first.release();
+  const openalex = services.pause("openalex");
+  await openalex.reached;
+  return { checking, openalex };
+}
+
+/** Another Mind with the same entries, so a second check of the same lookups can be in flight at once. */
+async function otherList(core: Core, entries: readonly string[]): Promise<string> {
+  const mind = await core.createMind({ title: "Draft" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [heading(2, "References"), ...entries.map((entry) => note(entry))]);
+  await client.settled();
+  return mind.id;
+}
+
 describe("Checking a reference list", { timeout: 30_000 }, () => {
   // protects=each mark and the service that gave it: found in Crossref by search and by DOI, in OpenAlex by title (a conference paper) and by DOI (an arXiv preprint), on arXiv; not listed (in neither Crossref nor OpenAlex); not found (a DOI or arXiv number leading nowhere); doesn't match (year, author); not checked when another agency holds a DOI neither has; a web page isn't looked up; only the reference is sent; checking again asks nothing twice; fails_when=a mark is wrong, a search miss reads as an invented reference, a preprint reads as not found, more than the reference goes, or a reference is asked about again; no_claim=Crossref's real matching (the evaluation, eval/references).
   test("every entry gets its mark, and only the reference is sent", async () => {
@@ -276,6 +301,49 @@ describe("Checking a reference list", { timeout: 30_000 }, () => {
     // Kept for good: a year later, checking again still sends nothing.
     clock.advance(366 * 24 * 60 * 60_000);
     expect(await newRequests(false)).toEqual([]);
+  });
+
+  // protects=a failure racing a successful lookup neither replaces that answer nor becomes kept: an ordinary check and Check again still replay the answer; fails_when=the failure replaces the answer and is kept, so a later check reads a service failure; no_claim=none beyond protects.
+  test("a failure racing a successful lookup neither replaces it nor is kept", async () => {
+    const { core, services, mindId } = await setUp([WRONG_YEAR]);
+    const other = await otherList(core, [WRONG_YEAR]);
+    const { checking, openalex } = await checkUpToOpenAlex(core, services, mindId);
+
+    // A Check again of the same entries fails while the first check is in flight, after its Crossref answer was stored.
+    services.fail(500);
+    await core.checkReferences(other, { again: true });
+    services.fail(null);
+    openalex.release();
+    expect(marksOf(await checking)).toEqual(["mismatch"]);
+
+    // The answer is kept: neither an ordinary check nor Check again asks or reads a failure.
+    const asked = services.requests.length;
+    expect(marksOf(await core.checkReferences(mindId))).toEqual(["mismatch"]);
+    expect(marksOf(await core.checkReferences(mindId, { again: true }))).toEqual(["mismatch"]);
+    expect(services.requests).toHaveLength(asked);
+  });
+
+  // protects=a settled answer stays when a request that began before it settled then fails; fails_when=the later failure replaces the settled answer, so a later check reads a service failure; no_claim=none beyond protects.
+  test("a failure doesn't replace a settled answer", async () => {
+    const { core, services, mindId } = await setUp([WRONG_YEAR]);
+    const other = await otherList(core, [WRONG_YEAR]);
+    const { checking, openalex } = await checkUpToOpenAlex(core, services, mindId);
+
+    // A Check again of the same entries is under way when the first check settles; its Crossref answer, asked before, fails after.
+    const later = services.pause();
+    const retried = core.checkReferences(other, { again: true });
+    await later.reached;
+    openalex.release();
+    expect(marksOf(await checking)).toEqual(["mismatch"]);
+    services.fail(500);
+    later.release();
+    await retried;
+    services.fail(null);
+
+    const asked = services.requests.length;
+    expect(marksOf(await core.checkReferences(mindId))).toEqual(["mismatch"]);
+    expect(marksOf(await core.checkReferences(mindId, { again: true }))).toEqual(["mismatch"]);
+    expect(services.requests).toHaveLength(asked);
   });
 
   // protects=Crossref is sent the whole entry, so a same-titled entry by other authors is asked about on its own; fails_when=it reuses another entry's candidates; no_claim=none beyond protects.

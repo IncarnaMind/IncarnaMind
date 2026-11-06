@@ -74,6 +74,15 @@ const failureOf = (value: unknown): KeptFailure | null => {
   return { reason, resetsAt: typeof resetsAt === "number" ? resetsAt : null };
 };
 
+/** Whether a kept answer is a failure, rather than what a service answered; unreadable counts as replaceable. */
+const storedFailure = (answer: string): boolean => {
+  try {
+    return failureOf(JSON.parse(answer)) !== null;
+  } catch {
+    return true;
+  }
+};
+
 /** A list's lookups, each reference's settled by its verdict. */
 export function createLookupCache(lookups: Lookups, db: Database, now: () => string) {
   return {
@@ -83,7 +92,13 @@ export function createLookupCache(lookups: Lookups, db: Database, now: () => str
      * (the User's Check again) asks about every kept miss and failure again.
      */
     forReference(askMissesAgain: boolean) {
-      const used = new Set<string>();
+      /** Each answer this check used, settled later only while it is still the stored one. */
+      const used = new Map<
+        string,
+        { service: ReferenceService; kind: string; key: string; answer: string }
+      >();
+      const use = (service: ReferenceService, kind: string, key: string, answer: string) =>
+        used.set(`${service}\u0000${kind}\u0000${key}`, { service, kind, key, answer });
 
       const remember = async <T>(
         service: ReferenceService,
@@ -96,8 +111,8 @@ export function createLookupCache(lookups: Lookups, db: Database, now: () => str
           found: (answer: T) => boolean;
         },
       ): Promise<T> => {
-        const row = db.get<{ id: string; answer: string; kept: number }>(
-          `SELECT id, answer, kept FROM reference_lookups
+        const row = db.get<{ answer: string; kept: number }>(
+          `SELECT answer, kept FROM reference_lookups
            WHERE service = ? AND kind = ? AND lookup_key = ? AND deleted_at IS NULL`,
           [service, kind, key],
         );
@@ -121,7 +136,7 @@ export function createLookupCache(lookups: Lookups, db: Database, now: () => str
           if (value !== undefined) {
             try {
               const answer = stored.read(value);
-              used.add(row.id);
+              use(service, kind, key, row.answer);
               return answer;
             } catch (error) {
               console.error(`A kept ${service} answer couldn't be read; asking again.`, error);
@@ -129,8 +144,17 @@ export function createLookupCache(lookups: Lookups, db: Database, now: () => str
           }
         }
         const at = now();
-        const id = row?.id ?? randomUUID();
-        const keep = (storedAnswer: unknown, kept: boolean) =>
+        const keep = (storedAnswer: unknown, settled: boolean) => {
+          const answer = JSON.stringify(storedAnswer);
+          const current = db.get<{ id: string; answer: string; kept: number }>(
+            `SELECT id, answer, kept FROM reference_lookups
+             WHERE service = ? AND kind = ? AND lookup_key = ? AND deleted_at IS NULL`,
+            [service, kind, key],
+          );
+          // Two checks of the same reference can be in flight: a settled answer stays, and a
+          // failure doesn't replace one that succeeded. Only what is still stored settles.
+          if (current?.kept === 1) return;
+          if (failureOf(storedAnswer) && current && !storedFailure(current.answer)) return;
           db.run(
             `INSERT INTO reference_lookups
                (id, service, kind, lookup_key, answer, kept, created_at, updated_at)
@@ -138,8 +162,10 @@ export function createLookupCache(lookups: Lookups, db: Database, now: () => str
              ON CONFLICT (service, kind, lookup_key) WHERE deleted_at IS NULL
              DO UPDATE SET answer = excluded.answer, kept = excluded.kept,
                updated_at = excluded.updated_at`,
-            [id, service, kind, key, JSON.stringify(storedAnswer), kept ? 1 : 0, at, at],
+            [current?.id ?? randomUUID(), service, kind, key, answer, settled ? 1 : 0, at, at],
           );
+          if (!failureOf(storedAnswer)) use(service, kind, key, answer);
+        };
         let answer: T;
         try {
           answer = await ask();
@@ -150,7 +176,6 @@ export function createLookupCache(lookups: Lookups, db: Database, now: () => str
           throw error;
         }
         keep(stored.write(answer), stored.found(answer));
-        used.add(id);
         return answer;
       };
 
@@ -226,11 +251,12 @@ export function createLookupCache(lookups: Lookups, db: Database, now: () => str
         /** Keeps for good what found the reference's record, once the check says it did. */
         settle(found: boolean) {
           if (!found || used.size === 0) return;
-          const ids = [...used];
-          db.run(
-            `UPDATE reference_lookups SET kept = 1 WHERE id IN (${ids.map(() => "?").join(", ")})`,
-            ids,
-          );
+          for (const { service, kind, key, answer } of used.values())
+            db.run(
+              `UPDATE reference_lookups SET kept = 1
+               WHERE service = ? AND kind = ? AND lookup_key = ? AND answer = ? AND deleted_at IS NULL`,
+              [service, kind, key, answer],
+            );
         },
       };
     },

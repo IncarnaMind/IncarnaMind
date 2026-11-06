@@ -27,7 +27,7 @@ import {
   startCore,
 } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { mockRerankingModels } from "../helpers/embeddingProviders";
+import { mockEmbeddingModels, mockRerankingModels } from "../helpers/embeddingProviders";
 import { scriptedModels } from "../helpers/models";
 
 const TIDES = {
@@ -151,6 +151,17 @@ async function setUp(
   const set = await setUpWithDocuments(model, files, overrides);
   await set.core.updateSettings({ user: { suggestWhileWriting: true } });
   return set;
+}
+
+/** Resolves once the chosen embedding model has embedded every Document. */
+function rebuildFinished(core: Core): Promise<void> {
+  return new Promise((resolve) => {
+    const stop = core.on("embedding.changed", (settings) => {
+      if (settings.rebuild !== null) return;
+      stop();
+      resolve();
+    });
+  });
 }
 
 const suggestionOf = (outcome: SuggestionOutcome) => {
@@ -305,6 +316,45 @@ describe("suggestions as the User writes", () => {
     );
     expect(asked).not.toContain("rerank");
     expect(rerankers.calls).toHaveLength(sent);
+  });
+
+  // protects=a pause never sends its search query to a cloud embedding service whose flow is revoked, and asks nothing for it; fails_when=the pause asks embeddings, or a query goes before the User allows it; no_claim=none beyond protects.
+  test("with embeddings' flow revoked, a pause neither asks embeddings nor sends its query", async () => {
+    const embeddings = mockEmbeddingModels();
+    const model = suggestingModel(SPRING);
+    const { core, mind } = await setUp(model, [TIDES, ALMANAC, BREAD], {
+      createEmbeddingModel: embeddings.createEmbeddingModel,
+    });
+    const accept = core.on(
+      "consent.requested",
+      (request) => void core.respondToConsent(request.requestId, true),
+    );
+    const finished = rebuildFinished(core);
+    await core.saveEmbeddingProvider({
+      kind: "openai",
+      apiKey: "sk-test-embeddings-key",
+      modelId: "text-embedding-3-small",
+    });
+    await finished;
+    accept();
+    await core.revokeConsent("embeddings", "https://api.openai.com");
+    const sent = embeddings.calls.length;
+    const asked: string[] = [];
+    core.on("consent.requested", (request) => {
+      asked.push(request.flow.id);
+      void core.respondToConsent(request.requestId, true);
+    });
+
+    expect(suggestionOf(await core.suggestNext(requestFor(mind.id, ABOUT_TIDES))).text).toBe(
+      SPRING.text,
+    );
+    expect(asked).not.toContain("embeddings");
+    expect(embeddings.calls).toHaveLength(sent);
+
+    // A search the User starts still asks, and their answer sends the query.
+    await core.searchEvidence("spring tides at the new moon and the full moon");
+    expect(asked).toContain("embeddings");
+    expect(embeddings.calls.length).toBeGreaterThan(sent);
   });
 
   test("weak or no support sends nothing to the model", async () => {
