@@ -492,6 +492,13 @@ export function createLibrary(options: {
     return taggingStopped.length > 0 && taggingStopped.includes(placeOf(id));
   };
   const asked = new Set<string>();
+  /** A continuation's authorized service and the failure it leaves in place if that destination changes. */
+  interface Continuation {
+    service: string;
+    status: "failed" | "waiting";
+    error: ProviderError | null;
+  }
+  const continuations = new Map<string, Continuation>();
   const checkClassifier = (selected: Record<string, unknown>) => {
     if (selected.kind === "chat") {
       if (
@@ -985,6 +992,7 @@ export function createLibrary(options: {
           if (!lifetime.signal.aborted) {
             if (assignment(id)?.status === "classifying") state(id, "pending");
             if (!call.gaveWay) {
+              continuations.delete(id);
               queued.delete(id);
               const status = assignment(id)?.status;
               // Waiting to be allowed, it is still the User's request when it goes.
@@ -1015,6 +1023,15 @@ export function createLibrary(options: {
     },
   ): Promise<void> {
     const initial = assignment(id);
+    const continuation = continuations.get(id);
+    const destinationChanged = () =>
+      continuation !== undefined &&
+      options.organizeService(getSettings())?.id !== continuation.service;
+    const stopForDestination = () => {
+      if (continuation === undefined) return;
+      continuations.delete(id);
+      state(id, continuation.status, continuation.error ?? undefined);
+    };
     const version = revision;
     const stale = () =>
       lifetime.signal.aborted ||
@@ -1050,6 +1067,10 @@ export function createLibrary(options: {
         state(id, "waiting", refusal);
         return;
       }
+      if (destinationChanged()) {
+        stopForDestination();
+        return;
+      }
       state(id, "classifying");
       const settingsNow = getSettings();
       const classifier = await options.prepare(settingsNow, call.permit);
@@ -1057,6 +1078,10 @@ export function createLibrary(options: {
       if (stale()) return;
       // Checked on where this request goes, as prepared; the User's own Organize goes.
       const service = options.organizeService(settingsNow);
+      if (destinationChanged()) {
+        stopForDestination();
+        return;
+      }
       const services = service ? [service] : [];
       if (
         !asked.has(id) &&
@@ -1073,6 +1098,10 @@ export function createLibrary(options: {
         ? await options.pageImages(id, current.content_hash ?? "", signal)
         : [];
       if (stale()) return;
+      if (destinationChanged()) {
+        stopForDestination();
+        return;
+      }
       const result = await classifier.organize(
         offered,
         tagDefinitions,
@@ -1146,11 +1175,28 @@ export function createLibrary(options: {
     }
   }
 
-  const queueClassification = (ids: readonly string[]) => {
-    const docs = ids.map(document);
-    for (const doc of docs) asked.add(doc.id);
-    // The User's own request goes to this service, after a quit too: kept, not only in memory.
+  const queueClassification = (ids: readonly string[], forService?: string) => {
     const service = options.organizeService(getSettings());
+    // A continuation goes only where its press was authorized: nothing is queued or cleared otherwise.
+    if (forService !== undefined && service?.id !== forService) return;
+    const docs = ids.map(document);
+    // A new request of the User's own replaces a continuation it supersedes for these Documents.
+    if (forService === undefined) for (const doc of docs) continuations.delete(doc.id);
+    for (const doc of docs) asked.add(doc.id);
+    if (forService !== undefined) {
+      for (const doc of docs) {
+        const existing = assignment(doc.id);
+        continuations.set(doc.id, {
+          service: forService,
+          status: existing?.status === "failed" ? "failed" : "waiting",
+          error: existing ? assignmentFields(existing).error : null,
+        });
+        if (service) clearForService(db, doc.id, [service], now());
+        enqueue(doc.id);
+      }
+      return;
+    }
+    // The User's own request goes to this service, after a quit too: kept, not only in memory.
     if (service) for (const doc of docs) clearForService(db, doc.id, [service], now());
     db.transaction(() => {
       for (const doc of docs) {
@@ -1813,10 +1859,14 @@ export function createLibrary(options: {
       input: unknown,
       language: Language,
       permit?: CloudReadPermit,
+      forService?: string,
     ): Promise<LibraryGroup[]> {
       const settings = getSettings();
       if (!organizeModelOf(settings))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
+      // A continuation proposes only to the service its press was authorized for (#2535).
+      if (forService !== undefined && options.organizeService(settings)?.id !== forService)
+        return [];
       const docs = documentIdsOf(input)
         .filter((id) => !leftAlone(id))
         .map(document)
@@ -1840,10 +1890,13 @@ export function createLibrary(options: {
       }
       return made;
     },
-    classify(input: unknown) {
+    classify(input: unknown, forService?: string) {
       if (!organizeModelOf(getSettings()))
         throw new InvalidInputError({ key: "error.library.noClassifier" });
       if (groups().length === 0) throw new InvalidInputError({ key: "error.library.noFolders" });
+      // A continuation's authorized service, checked before anything is queued or cleared (#2535).
+      if (forService !== undefined && options.organizeService(getSettings())?.id !== forService)
+        return;
       const ids = (
         input === undefined
           ? db
@@ -1851,7 +1904,7 @@ export function createLibrary(options: {
               .map((row) => row.id)
           : documentIdsOf(input)
       ).filter((id) => !leftAlone(id));
-      queueClassification(ids);
+      queueClassification(ids, forService);
       resume();
     },
     /**

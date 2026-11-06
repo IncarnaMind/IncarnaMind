@@ -113,7 +113,7 @@ describe("the one retry after Add credit (#2535)", () => {
     returnToApp();
     await settle();
     expect(state.retried).toHaveBeenCalledTimes(1);
-    expect(state.retried).toHaveBeenCalledWith(["credit-1"]);
+    expect(state.retried).toHaveBeenCalledWith(["credit-1"], undefined, "svc");
   });
 
   test("the retry reads the credit list at the return, not at the press", async () => {
@@ -123,7 +123,7 @@ describe("the one retry after Add credit (#2535)", () => {
     returnToApp();
     await settle();
     expect(state.retried).toHaveBeenCalledTimes(1);
-    expect(state.retried).toHaveBeenCalledWith(["credit-2"]);
+    expect(state.retried).toHaveBeenCalledWith(["credit-2"], undefined, "svc");
   });
 
   test("a second return retries nothing", async () => {
@@ -164,7 +164,7 @@ describe("the one retry after Add credit (#2535)", () => {
     expect(state.retried).not.toHaveBeenCalled();
   });
 
-  test("a return after Local mode sends nothing", async () => {
+  test("a return after Organize moved to a model on this computer sends nothing", async () => {
     await fixOrganizeProblem("credit");
     state.route = () => Promise.resolve({ where: "local" });
     returnToApp();

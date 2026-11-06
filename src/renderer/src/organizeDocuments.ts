@@ -35,6 +35,8 @@ export async function organizeDocuments(
   ids: readonly string[],
   /** What Undo goes back to, when it was read before something set the Documents going. */
   read?: ReadonlyMap<string, DocumentGroupAssignment>,
+  /** The service a billing continuation was authorized for: Organize stops if it sends elsewhere. */
+  forService?: string,
 ): Promise<void> {
   // A second run while the first proposes would propose again, and its Undo would miss Folders.
   if (useProposing.getState().proposing) return;
@@ -58,9 +60,16 @@ export async function organizeDocuments(
       app.openLibrary("starters");
       return;
     }
+    if (forService !== undefined) {
+      const route = await core.getTaggingRoute("classification");
+      if (route.where !== "cloud" || route.service.id !== forService) return;
+    }
     useProposing.setState({ proposing: true });
     try {
-      made = await core.proposeFolders([...ids]);
+      made = await core.proposeFolders(
+        [...ids],
+        forService === undefined ? undefined : { forService },
+      );
     } finally {
       useProposing.setState({ proposing: false });
     }
@@ -71,7 +80,7 @@ export async function organizeDocuments(
     }
   }
   try {
-    await core.classifyDocuments([...ids]);
+    await core.classifyDocuments([...ids], forService === undefined ? undefined : { forService });
     await app.refreshLibrary();
   } catch (error) {
     // Nothing would offer to take back the Folders made for a run that never started. The run's

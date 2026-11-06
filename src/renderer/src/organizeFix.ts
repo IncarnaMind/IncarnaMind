@@ -41,7 +41,7 @@ async function retryOnReturn(openedFor: string): Promise<void> {
     if (route.where !== "cloud" || route.service.id !== openedFor) return;
     const ids = documentsOfCause("credit");
     if (ids.length === 0) return;
-    await organizeDocuments([...ids]);
+    await organizeDocuments([...ids], undefined, openedFor);
   } catch (error) {
     useAppStore.getState().reportError(error);
   }
