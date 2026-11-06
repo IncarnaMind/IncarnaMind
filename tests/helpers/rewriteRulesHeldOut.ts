@@ -1,6 +1,6 @@
 /**
  * Held-out cases for the rules a rewrite with what the Documents say keeps to (#1554), written
- * from the rules alone, before they changed, in eight rounds (the later seven marked below): each pairs a sentence and a scripted reply with the
+ * from the rules alone, before they changed, in nine rounds (the later eight marked below): each pairs a sentence and a scripted reply with the
  * quote the check found, and says what a careful reader would allow. A figure or a name is
  * written only when the quote says it of the same thing, in the same terms; "same" only when the
  * sentence already gives the quote's value; otherwise the sentence stays. The names are invented.
@@ -849,6 +849,49 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     quote: "Catering costs 2024 per head.",
     kind: "rewritten",
   },
+  // Written after the twelfth review, before the rules changed again: the word that ties a figure
+  // to its sentence ("in", "at", "of") is the same on both sides, and "in" after a figure is
+  // inches only before a dimension.
+  {
+    id: "a-year-tied-by-in-before-a-method",
+    language: "en",
+    sentence: "The bonus was paid 400 in cash.",
+    reply: "Change 1: 400\nTo 1: 2024",
+    quote: "The bonus was paid in 2024 in cash.",
+    kind: "kept",
+  },
+  {
+    id: "a-year-tied-by-in-for-one-tied-by-nothing",
+    language: "en",
+    sentence: "The levy was raised 200 at the meeting.",
+    reply: "Change 1: 200\nTo 1: 2022",
+    quote: "The levy was raised in 2022 at the meeting.",
+    kind: "kept",
+  },
+  {
+    id: "a-year-tied-by-in-before-a-unit",
+    language: "en",
+    sentence: "The cost was 500 dollars.",
+    reply: "Change 1: 500\nTo 1: 2025",
+    quote: "The cost was in 2025 dollars.",
+    kind: "kept",
+  },
+  {
+    id: "in-before-a-count-is-no-unit",
+    language: "en",
+    sentence: "The award was 600 in shares.",
+    reply: "Change 1: 600\nTo 1: 2024",
+    quote: "The award was 2024 in shares.",
+    kind: "kept",
+  },
+  {
+    id: "the-same-tie-on-both-sides",
+    language: "en",
+    sentence: "A deposit of 900 dollars is due.",
+    reply: "Change 1: 900\nTo 1: 1,200",
+    quote: "A deposit of 1,200 dollars is due.",
+    kind: "rewritten",
+  },
 ];
 
 /**
@@ -1074,6 +1117,30 @@ export const REWRITE_OFFER_CASES: readonly RewriteOfferCase[] = [
     id: "a-rate-per-head",
     sentence: "Catering costs 1500 per head.",
     quote: "Catering costs 2024 per head.",
+    offered: true,
+  },
+  {
+    id: "a-year-tied-by-in-before-a-method",
+    sentence: "The bonus was paid 400 in cash.",
+    quote: "The bonus was paid in 2024 in cash.",
+    offered: false,
+  },
+  {
+    id: "a-year-tied-by-in-before-a-unit",
+    sentence: "The cost was 500 dollars.",
+    quote: "The cost was in 2025 dollars.",
+    offered: false,
+  },
+  {
+    id: "in-before-a-count-is-no-unit",
+    sentence: "The award was 600 in shares.",
+    quote: "The award was 2024 in shares.",
+    offered: false,
+  },
+  {
+    id: "the-same-tie-on-both-sides",
+    sentence: "A deposit of 900 dollars is due.",
+    quote: "A deposit of 1,200 dollars is due.",
     offered: true,
   },
 ];
