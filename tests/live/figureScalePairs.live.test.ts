@@ -2,7 +2,9 @@
  * The scale a calculated figure takes on a real model, in paired English and Chinese cases
  * (#2365): a scale above the rows in their own table (the control), a scale in another table, a
  * scale below the rows, and a scale in another currency than the rows. The wrong scale is never
- * recorded: each case is right, or refused where the scale can't be settled.
+ * recorded: each case is right, or refused where the scale can't be settled. It grades the first
+ * recorded calculated figure of each Answer, and pairs one English and one Chinese case per kind
+ * rather than a larger matrix; a number written without the calculate Tool isn't graded.
  *
  * INCARNAMIND_LIVE_SET=pairs runs it, with INCARNAMIND_LIVE_PROVIDER ("deepseek"),
  * INCARNAMIND_LIVE_KEY, INCARNAMIND_LIVE_MODEL ("deepseek-flash" by default), and optionally

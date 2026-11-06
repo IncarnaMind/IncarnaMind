@@ -409,7 +409,8 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
       query: "dollar head revenue costs",
     });
 
-    expect([null, 900_000]).toContain(recorded.value);
+    expect(recorded.value).toBe(900_000);
+    expect(recorded.statement).toBe("(in thousands)");
   });
 
   // protects=#2365; fails_when=a row head that states only a currency borrows a scale from another table, or one below it, instead of refusing or reading the row's own currency.
@@ -571,6 +572,74 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
 
     expect(recorded.value).toBeNull();
   });
+
+  // protects=#2365; fails_when=a currency-only row takes a scale across a bare table caption ("表2"), from a measure ("million tonnes"), or from a retained Word header, instead of refusing or using only its own scale.
+  test.each([
+    {
+      language: "a bare table caption",
+      file: pdfZh("分部", [
+        "表1 分部业绩（单位：千元）",
+        "分部收入 1,200",
+        "表2",
+        "收入（元） 1,200",
+        "成本（元） 300",
+      ]),
+      cites: ["收入（元） 1,200", "成本（元） 300"] as [string, string],
+      numbers: ["1,200", "300"] as [string, string],
+      unitQuotes: ["收入（元）", "成本（元）"] as [string, string],
+      query: "分部 收入 成本",
+      ok: [null, 900],
+    },
+    {
+      language: "a measure",
+      file: pdf("Measures", ["Unit: million tonnes", "Revenue (US$) 1,234.5", "Costs (USD) 334.5"]),
+      cites: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      unitQuotes: ["(US$)", "(USD)"] as [string, string],
+      query: "measures revenue costs",
+      ok: [null, 900],
+    },
+    {
+      language: "a retained Word header",
+      file: {
+        name: "Header scale.docx",
+        contents: docxOf([{ text: "Revenue (US$) 1,234.5" }, { text: "Costs (USD) 334.5" }], {
+          header: "All amounts in thousands",
+        }),
+      },
+      cites: ["Revenue (US$) 1,234.5", "Costs (USD) 334.5"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      unitQuotes: ["(US$)", "(USD)"] as [string, string],
+      query: "header scale revenue costs",
+      ok: [null, 900_000],
+    },
+  ])("a currency-only row doesn't take $language", async (each) => {
+    const recorded = await record({
+      file: each.file,
+      cites: each.cites,
+      numbers: each.numbers,
+      unitQuotes: each.unitQuotes,
+      query: each.query,
+    });
+
+    expect(each.ok).toContain(recorded.value);
+  });
+
+  // protects=#2365; fails_when=prose that names a shop's results or a household survey ("以千元店业绩为基准", "以万元户调查为基础") is read as a unit declaration.
+  test.each(["经营概况（以千元店业绩为基准）", "经营概况（以万元户调查为基础）"])(
+    "prose with a shop or household clause states no scale: %s",
+    async (line) => {
+      const recorded = await record({
+        file: pdfZh("经营概况", [line, ...rowsZh]),
+        cites: rowsZh,
+        numbers: ["1,200", "300"],
+        unitQuote: line,
+        query: "经营概况 收入 成本",
+      });
+
+      expect(recorded.value).toBeNull();
+    },
+  );
 
   // protects=#2365; fails_when=a price row takes the page's money scale, so "(in thousands)" turns 12.5 − 3.5 into $9.0 thousand.
   test("a price row under a page's scale is refused or read plain", async () => {

@@ -1441,7 +1441,7 @@ const STATEMENTS: readonly RegExp[] = [
   // "以千元列示", "以港币千元计": a scale and 元 the line says its figures are shown in; "所以千元"
   // is not a statement.
   new RegExp(
-    `(?<!所)以(?<before>${HAN_CURRENCIES})?(?<scale>${CN_STATED_SCALES})(?<unit>元)(?:列示|计)?`,
+    `(?<!所)以(?<before>${HAN_CURRENCIES})?(?<scale>${CN_STATED_SCALES})(?<unit>元)(?:列示|计|为单位)?(?![\\p{Script=Han}])`,
     "dgu",
   ),
   new RegExp(

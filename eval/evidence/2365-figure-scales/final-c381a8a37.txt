@@ -1,0 +1,9 @@
+- deepseek-flash | EN control: (in thousands) above its own rows | value 900000 | right true | inputs 1000,1000 | false checked false
+- deepseek-flash | EN wrong table: Table 1's (in thousands) for Table 2 | refused | right false | inputs n/a | false checked false
+- deepseek-flash | EN future scale: (in thousands) below the rows | refused | right false | inputs n/a | false checked false
+- deepseek-flash | EN currency control: £m above $ rows | refused | right false | inputs n/a | false checked false
+- deepseek-flash | ZH control: 单位：千元 above its own rows | value 900000 | right true | inputs 1000,1000 | false checked false
+- deepseek-flash | ZH wrong table: 表1's 单位：千元 for 表2 | refused | right false | inputs n/a | false checked false
+- deepseek-flash | ZH future scale: 单位：千元 below the rows | refused | right false | inputs n/a | false checked false
+- deepseek-flash | ZH currency control: 万英镑 above 元 rows | refused | right false | inputs n/a | false checked false
+- deepseek-flash: 8 cases, 55 requests, 489067 in / 17503 out, spent $0.0129
