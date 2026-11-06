@@ -5264,6 +5264,8 @@ export const en = {
   "commands.notRun": "Didn’t run, so nothing changed",
   "commands.denied": "Not allowed, so nothing changed",
   "commands.ask.export.title": "Save “{mind}” as {format} in “{folder}”?",
+  "commands.ask.export.changed": "The files changed since you looked. Allow these instead?",
+  "commands.ask.export.new": "New",
   "commands.ask.export.text": "This writes a new file outside your Output location.",
   "commands.ask.export.why.files": "This writes {count} new files outside your Output location.",
   "commands.ask.add.title": "Read {count} files in “{folder}”?",

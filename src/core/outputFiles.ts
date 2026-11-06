@@ -441,6 +441,23 @@ export function createOutputFiles(options: OutputFilesOptions) {
     },
 
     /**
+     * Whether the file of this name in the folder holds bytes `matches` accepts: a picture
+     * named after its content is linked rather than written (#1937).
+     */
+    async holdsMatching(
+      folder: string,
+      name: string,
+      matches: (bytes: Uint8Array) => boolean,
+    ): Promise<boolean> {
+      try {
+        const path = join(await realFolder(folder), fileNameOf(name));
+        return matches(new Uint8Array(await readFile(path)));
+      } catch {
+        return false;
+      }
+    },
+
+    /**
      * Saves a new file: in the Output location (the default the first time),
      * or in `folder`, asking first where the User hasn't answered yet. Throws
      * `FileWriteCancelledError` if the default couldn't take it and they

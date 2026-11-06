@@ -559,6 +559,88 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     ]);
   });
 
+  // protects=a preview that can't check the folder's names says so, instead of showing names it couldn't read; fails_when=every error but "not there" is treated as a free name; no_claim=the text of the failure.
+  test("a preview whose folder can't be read fails rather than checking its names", async () => {
+    const folder = join(await createTempDataFolder(), "not-a-folder");
+    await writeFile(folder, "A file, not a folder.");
+    const { core, mind } = await setUpWithDocuments(exportMind(folder), DOCUMENTS);
+    await expect(core.previewMindExport(mind.id, { format: "markdown" }, folder)).rejects.toThrow();
+  });
+
+  // protects=Allow writes exactly the files the card named: a file appearing while it waits makes the card ask again, and the first Allow writes nothing; fails_when=the export silently picks the next free name; why_new=Codex reproduced Tides 2.md written from a card that named Tides.md; no_claim=the card's look.
+  test("a file that appears after the card asks again before writing, and only what is allowed then is written", async () => {
+    const elsewhere = await createTempDataFolder();
+    const { core, mind } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const first = await requested;
+    expect(first).toMatchObject({ ask: { kind: "export", fileName: "Tides.md" } });
+    await writeFile(join(elsewhere, "Tides.md"), "A file that appeared while the card waited.");
+
+    const again = nextEvent(core, "approval.requested");
+    await core.respondToApproval(first.requestId, "allow-once");
+    const second = await again;
+    expect(second).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides 2.md",
+        previous: { fileName: "Tides.md", pictures: [] },
+      },
+    });
+    expect(await readdir(elsewhere)).toEqual(["Tides.md"]);
+
+    await core.respondToApproval(second.requestId, "allow-once");
+    await asking;
+    expect((await readdir(elsewhere)).sort()).toEqual(["Tides 2.md", "Tides.md"]);
+  });
+
+  // protects=Allow writes exactly the files the card named: a picture added while it waits makes the card ask again with the new list; fails_when=the export writes a picture the card never named; why_new=Codex reproduced an unlisted GIF; no_claim=the card's look.
+  test("a picture added while the card waits makes it ask again with the new list", async () => {
+    const elsewhere = await createTempDataFolder();
+    const { core, mind, client } = await setUpWithDocuments(exportMind(elsewhere), DOCUMENTS);
+    writeMind(client, [picture(PIXEL, "A chart")]);
+    await client.settled();
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as Markdown to that folder",
+      mindId: mind.id,
+    });
+    const first = await requested;
+    expect(first).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides.md",
+        pictures: ["picture-6b7fa434f92a.png"],
+      },
+    });
+
+    writeMind(client, [picture(PIXEL, "A chart"), picture(PICTURE, "Another chart")]);
+    await client.settled();
+    const again = nextEvent(core, "approval.requested");
+    await core.respondToApproval(first.requestId, "allow-once");
+    const second = await again;
+    expect(second).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides.md",
+        pictures: ["picture-6b7fa434f92a.png", "picture-ef1955ae757c.gif"],
+        previous: { fileName: "Tides.md", pictures: ["picture-6b7fa434f92a.png"] },
+      },
+    });
+    expect(await readdir(elsewhere)).toEqual([]);
+
+    await core.respondToApproval(second.requestId, "allow-once");
+    await asking;
+    expect((await readdir(elsewhere)).sort()).toEqual([
+      "Tides.md",
+      "picture-6b7fa434f92a.png",
+      "picture-ef1955ae757c.gif",
+    ]);
+  });
+
   // protects=a Markdown export with no pictures still asks for one file, and Allow writes exactly it; fails_when=the ask counts a picture or Allow writes one beside it; no_claim=the card's look.
   test("a Markdown export with no pictures asks for one file, and Allow writes only it", async () => {
     const elsewhere = await createTempDataFolder();

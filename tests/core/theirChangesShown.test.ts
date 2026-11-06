@@ -15,7 +15,7 @@ import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind } from "../helpers/minds";
 import { promptOf, scriptedModels, streamingModel } from "../helpers/models";
 import { fakePrinter } from "../helpers/printer";
-import { paragraph, run, wordFile } from "../helpers/word";
+import { paragraph, picture, run, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
 
 const PRIYA = 'w:author="Priya Nair" w:date="2026-10-02T09:00:00Z"';
@@ -100,6 +100,48 @@ describe("someone else's changes, shown as changes", { timeout: 30_000 }, () => 
     );
     expect(sent).toContain("[waiting change, adds: A paragraph the AI would add.]");
     expect(sent).not.toContain("A paragraph out of date.");
+  });
+
+  test("the pictures a Markdown preview lists are the ones the export writes, with someone's changes accepted (#2514)", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, {
+      createChatModel: scriptedModels(streamingModel("Noted.")).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const gif = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+    const body = [
+      `<w:p>${picture("rId5", "A kept chart")}</w:p>`,
+      `<w:p><w:del w:id="9" ${PRIYA}>${picture("rId6", "A deleted chart")}</w:del></w:p>`,
+    ].join("");
+    const { mindId } = await importWordBytes(
+      core,
+      dataDir,
+      wordFile({
+        body,
+        media: {
+          rId5: { name: "media/image1.png", data: png },
+          rId6: { name: "media/image2.gif", data: gif },
+        },
+        rels: [
+          `<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>`,
+          `<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.gif"/>`,
+        ].join(""),
+      }),
+      { name: "Redline pictures.docx", origin: "someone-else" },
+    );
+    const saved = await core.getSettings();
+    await core.updateSettings({
+      user: { exportOptions: { ...saved.user.exportOptions, theirChanges: "accepted" } },
+    });
+
+    const preview = await core.previewMindExport(mindId, { format: "markdown" });
+    const exported = await core.exportMind(mindId, { format: "markdown" });
+    expect(preview.pictures).toHaveLength(1);
+    expect((exported.files ?? []).map((file) => file.name)).toEqual(preview.pictures);
   });
 
   test("Markdown shows them as CriticMarkup with who made each, or as if accepted", async () => {

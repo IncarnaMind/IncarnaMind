@@ -117,6 +117,8 @@ export interface CommandToolsOptions {
   language: Language;
   /** Asks the User in the tray for a command that needs an answer to go on; none: it can't ask. */
   ask?: (toolCallId: string, question: UserQuestion, signal: AbortSignal) => Promise<UserAnswer>;
+  /** Asks the User again when an export's files changed since the first Allow (#2514). */
+  reask?: (toolCallId: string, ask: CommandAsk) => Promise<boolean>;
   found(toolCallId: string, found: CommandsFound): void;
   ran(toolCallId: string, done: CommandDone): void;
   failed(toolCallId: string, problem: CommandProblem): void;
@@ -372,11 +374,13 @@ export function commandTools(options: CommandToolsOptions): {
         serviceId: command.cloud.id,
       };
       try {
+        const reask = options.reask;
         ran = await inTurn(() =>
           command.run(
             ask ? (question) => ask(toolCallId, question(options.language), signal) : null,
             signal,
             permit,
+            reask ? (changed) => reask(toolCallId, changed) : undefined,
           ),
         );
       } catch (error) {

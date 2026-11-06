@@ -9790,6 +9790,11 @@ export type CommandAsk =
       fileName: string;
       /** The picture files it saves beside that one, each once, by the names it writes; none unless the format writes them. */
       pictures: readonly string[];
+      /**
+       * The list an earlier Allow saw, when the files changed since: the card names the new list
+       * and marks what wasn't there, and none is written until the User allows again (#2514).
+       */
+      previous?: { fileName: string; pictures: readonly string[] };
     }
   | { kind: "add"; folder: string; files: string[] }
   | { kind: "final"; command: CommandId; items: CommandItem[] }

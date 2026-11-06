@@ -5012,6 +5012,8 @@ export const zhCN = {
   "commands.notRun": "未运行，没有改动",
   "commands.denied": "未允许，没有改动",
   "commands.ask.export.title": "将“{mind}”以 {format} 格式保存到“{folder}”？",
+  "commands.ask.export.changed": "文件已有变化。改为允许这些吗？",
+  "commands.ask.export.new": "新增",
   "commands.ask.export.text": "这会在保存位置之外写入一个新文件。",
   "commands.ask.export.why.files": "这会在保存位置之外写入 {count} 个新文件。",
   "commands.ask.add.title": "读取“{folder}”中的 {count} 个文件？",

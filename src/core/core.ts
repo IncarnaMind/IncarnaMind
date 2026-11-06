@@ -6149,7 +6149,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
 
     previewMindExport: async (mindId, options, folder) => {
-      const preview = mindExports.preview(mindId, options);
+      // The same saved choices the export itself uses: a plan the card shows must be the plan it writes.
+      const effective = {
+        ...optionsFor(options.format, settings.get().user.exportOptions),
+        ...options,
+      };
+      const preview = mindExports.preview(mindId, effective);
       if (!folder) return preview;
       // The ask names the files as this folder will take them: the next free name where one is taken.
       const taken = new Set<string>();
@@ -6162,11 +6167,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const pictures: string[] = [];
       for (const name of preview.pictures) {
         // A picture the folder already holds is linked, not written (#1937).
-        try {
-          if (isPictureFile(name, new Uint8Array(await readFile(join(folder, name))))) continue;
-        } catch {
-          // Not there, or unreadable: the save writes it, or says why it couldn't.
-        }
+        if (await outputs.holdsMatching(folder, name, (bytes) => isPictureFile(name, bytes))) continue;
         pictures.push(await free(name));
       }
       return { ...preview, fileName, pictures };
