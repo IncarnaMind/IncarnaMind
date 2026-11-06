@@ -85,10 +85,17 @@ export async function removeStalePartials(folder: string): Promise<void> {
  * out the next run (`removeStalePartials`). Where the file system has no hard
  * links, the name is made first and the finished file renamed onto it.
  */
+/** The one name a save was allowed to take, and something is there already. */
+export class NameTakenError extends Error {
+  override name = "NameTakenError";
+}
+
 export async function writeNewFile(
   folder: string,
   name: string,
   data: Uint8Array,
+  /** Write this name or nothing: a save the User allowed by name is never written under another. */
+  exact = false,
 ): Promise<string> {
   await removeStalePartials(folder);
   const temporary = join(folder, `.${randomUUID()}.partial`);
@@ -109,7 +116,10 @@ export async function writeNewFile(
           return candidate;
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
-          if (code === "EEXIST") continue;
+          if (code === "EEXIST") {
+            if (exact) throw new NameTakenError(`"${candidate}" is taken in that folder.`);
+            continue;
+          }
           // Node reports a FAT or exFAT drive on Windows as EISDIR or EINVAL, a network share by
           // other codes: any refusal of the link falls back, and a real problem (EACCES, ENOSPC)
           // is raised again by the file made below.
@@ -120,7 +130,10 @@ export async function writeNewFile(
       try {
         await (await open(path, "wx")).close();
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          if (exact) throw new NameTakenError(`"${candidate}" is taken in that folder.`);
+          continue;
+        }
         throw error;
       }
       try {

@@ -597,6 +597,65 @@ describe("Commands that reach outside IncarnaMind wait for the User (#1110)", {
     expect((await readdir(elsewhere)).sort()).toEqual(["Tides 2.md", "Tides.md"]);
   });
 
+  // protects=Allow writes exactly the file the card named, even when the name appears during the print; fails_when=the export writes "Tides 2.pdf" from a card that named "Tides.pdf"; why_new=Codex reproduced the deferred print; no_claim=the card's look.
+  test("a name taken while the export prints asks again, and the first Allow writes nothing", async () => {
+    const elsewhere = await createTempDataFolder();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let printing = () => {};
+    const started = new Promise<void>((resolve) => {
+      printing = resolve;
+    });
+    const { printer } = fakePrinter();
+    const { core, mind } = await setUpWithDocuments(
+      calling(find("Tides", "mind"), run("mind.export", { format: "pdf", folder: elsewhere })),
+      DOCUMENTS,
+      {
+        printer: {
+          print: async (document) => {
+            printing();
+            await held;
+            return printer.print(document);
+          },
+          printToPrinter: printer.printToPrinter,
+        },
+      },
+    );
+    const requested = nextEvent(core, "approval.requested");
+    const asking = askAssistant(core, {
+      text: "Export this Mind as PDF to that folder",
+      mindId: mind.id,
+    });
+    const first = await requested;
+    expect(first).toMatchObject({ ask: { kind: "export", fileName: "Tides.pdf" } });
+
+    const again = nextEvent(core, "approval.requested");
+    await core.respondToApproval(first.requestId, "allow-once");
+    // The name appears while the export prints, after the card's own recheck.
+    await started;
+    await writeFile(join(elsewhere, "Tides.pdf"), "A file that appeared while the export printed.");
+    release();
+
+    const second = await again;
+    expect(second).toMatchObject({
+      ask: {
+        kind: "export",
+        fileName: "Tides 2.pdf",
+        previous: { fileName: "Tides.pdf", pictures: [] },
+      },
+    });
+    expect(await readdir(elsewhere)).toEqual(["Tides.pdf"]);
+
+    await core.respondToApproval(second.requestId, "allow-once");
+    await asking;
+    expect((await readdir(elsewhere)).sort()).toEqual(["Tides 2.pdf", "Tides.pdf"]);
+    expect(await readFile(join(elsewhere, "Tides.pdf"), "utf8")).toBe(
+      "A file that appeared while the export printed.",
+    );
+  });
+
   // protects=Allow writes exactly the files the card named: a picture added while it waits makes the card ask again with the new list; fails_when=the export writes a picture the card never named; why_new=Codex reproduced an unlisted GIF; no_claim=the card's look.
   test("a picture added while the card waits makes it ask again with the new list", async () => {
     const elsewhere = await createTempDataFolder();

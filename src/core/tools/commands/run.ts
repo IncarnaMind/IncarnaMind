@@ -38,6 +38,8 @@ import type {
 import { EXPORT_FORMATS, RECENTLY_DELETED_DAYS } from "../../api";
 import { isInside, kindOf } from "../../documents/files";
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
+import { ExportChangedError } from "../../exports";
+import { NameTakenError } from "../../fileNames";
 import type { Language } from "../../language";
 import type { Findable } from "./find";
 import type { CommandStep } from "./steps";
@@ -167,6 +169,8 @@ export interface CommandsHost {
     folder: string | null,
     approved: boolean,
     marking: { named: MarkAiTextChoice | null },
+    /** The names the card showed: the write is exactly these, or nothing (#2514). */
+    approvedFiles?: { fileName: string; pictures: readonly string[] },
   ): Promise<{ file: SavedFile; marking: MarkingSettled | null }>;
   /**
    * Runs a command of the window's list in the window that asked (#1421), as ⌘K runs it: how it
@@ -788,10 +792,7 @@ export const LIBRARY_CHECKERS = {
       outside,
       ...OUTSIDE_IT,
       run: async (_asking, _signal, _permit, reask?: CommandReask): Promise<Ran> => {
-        // Anything that would change the list since the User looked asks again before writing.
-        for (;;) {
-          const now = await host.core.previewMindExport(mind.id, { format: input.format }, given);
-          if (now.fileName === shown.fileName && sameFiles(now.pictures, shown.pictures)) break;
+        const askTheChange = async (now: { fileName: string; pictures: readonly string[] }) => {
           const allowed = reask
             ? await reask({
                 ...outside,
@@ -802,25 +803,48 @@ export const LIBRARY_CHECKERS = {
             : false;
           if (!allowed) throw new InvalidInputError({ key: "error.commands.exportDenied" });
           shown = { fileName: now.fileName, pictures: [...now.pictures] };
-        }
-        const { file, marking } = await host.exportMind(mind.id, input.format, into, elsewhere, {
-          named: input.format === "docx" ? input.marks : null,
-        });
-        return {
-          done: {
-            items,
-            file: {
-              path: file.path,
-              name: file.name,
-              folder: file.folder,
-              inDefaultFolder: file.inDefaultFolder,
-            },
-            inOutputLocation: !elsewhere,
-            ...(marking && { marking }),
-          },
-          step: null,
-          said: `Saved “${mindName(mind)}” as “${file.name}” in ${file.folder}. A file can't be taken back with Undo.${markingSaid(marking)}`,
         };
+        // Anything that would change the list since the User looked asks again before writing,
+        // and so does a name taken, or a list changed, between that look and the write (#2514).
+        let mustAsk = false;
+        for (;;) {
+          const now = await host.core.previewMindExport(mind.id, { format: input.format }, given);
+          const changed =
+            now.fileName !== shown.fileName || !sameFiles(now.pictures, shown.pictures);
+          if (mustAsk || changed) {
+            await askTheChange(now);
+            mustAsk = false;
+          }
+          try {
+            const { file, marking } = await host.exportMind(
+              mind.id,
+              input.format,
+              into,
+              elsewhere,
+              { named: input.format === "docx" ? input.marks : null },
+              shown,
+            );
+            return {
+              done: {
+                items,
+                file: {
+                  path: file.path,
+                  name: file.name,
+                  folder: file.folder,
+                  inDefaultFolder: file.inDefaultFolder,
+                },
+                inOutputLocation: !elsewhere,
+                ...(marking && { marking }),
+              },
+              step: null,
+              said: `Saved “${mindName(mind)}” as “${file.name}” in ${file.folder}. A file can't be taken back with Undo.${markingSaid(marking)}`,
+            };
+          } catch (error) {
+            if (!(error instanceof NameTakenError) && !(error instanceof ExportChangedError))
+              throw error;
+            mustAsk = true;
+          }
+        }
       },
     };
   },

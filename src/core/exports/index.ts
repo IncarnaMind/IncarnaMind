@@ -98,6 +98,11 @@ import { INCARNAMIND } from "./wordReview";
 /** What a footnote needs of a live Document: a web page's site, address and fetch dates. */
 type LiveDocument = SourceDocument;
 
+/** The files a rendered export would write differ from the list the User allowed (#2514). */
+export class ExportChangedError extends Error {
+  override name = "ExportChangedError";
+}
+
 export interface ExportsDependencies {
   /** The Mind; throws if it doesn't exist or was deleted. */
   mind(mindId: unknown): Mind;

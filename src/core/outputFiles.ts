@@ -65,6 +65,8 @@ export interface NewFile {
   folder?: string;
   /** The User allowed `folder` for this one file (#1110): it may be anywhere. */
   approved?: boolean;
+  /** Save it under `name` exactly: a name the User allowed is never written under another. */
+  exact?: boolean;
 }
 
 export interface OutputFilesOptions {
@@ -479,7 +481,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         if (file.ownFile) options.recordOwnFile(file.data, file.ownFile, file.fromFolder);
         let used: string;
         try {
-          used = await writeNewFile(folder, name, file.data);
+          used = await writeNewFile(folder, name, file.data, file.exact === true);
         } catch (error) {
           // macOS can refuse Documents only when a file is made in it, after the folder looked fine.
           if (!defaulted || !isRefused(error)) throw error;
