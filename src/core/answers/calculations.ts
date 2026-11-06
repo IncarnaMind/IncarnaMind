@@ -601,9 +601,9 @@ function partLineProblem(quote: string, chars: string): string {
   return `the unitQuote "${quote}" names another table or note, and a line between it and ${chars} states none of its own; a line states only the numbers under it, in its own table or note. Quote the line above ${chars} in its table, or one that says all amounts are in it.`;
 }
 
-// A caption that binds its scale to a part: "Table 1", "Note 12", "this table", 本表, 下表.
+// A caption that binds its scale to a part: "Table 1", "Note 12", "this table", 表1, 本表.
 const PART_NAMED =
-  /\b(?:tables?|figures?|notes?|schedules?|exhibits?|annexes?|appendices)\s+\d+|\bthis\s+(?:table|note|schedule|figure|block)\b|本(?:表|图|圖|附注|附註)|[上下](?:表|图|圖)|附表|附图|附圖/i;
+  /\b(?:tables?|figures?|notes?|schedules?|exhibits?|annexes?|appendices)\s+\d+|\bthis\s+(?:table|note|schedule|figure|block)\b|(?:表|图|圖)\s*\d+|附(?:注|註|表|图|圖)\s*\d*|本(?:表|图|圖|附注|附註)|[上下](?:表|图|圖)/i;
 
 /** Why a number with no unit of its own can't be calculated where its page states a scale. */
 function candidateProblem(chars: string, where: string, candidate: Stated): string {
@@ -1389,23 +1389,25 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     const sameSectionLine =
       place.lineIndex === place.figureIndex || sameSection(units, facts.unit, numbersUnit);
     // A caption naming its own table or note states only the rows under it, up to the next line
-    // that has no amount; a later table's rows take their own line or none (#2365).
+    // that has no amount; a later table's rows take their own line or none. The whole line that
+    // holds the quote is judged, so a fragment of "Table 1 … (in thousands)" carries its caption (#2365).
+    const lineFrom = facts.unit.text.lastIndexOf("\n", place.lineStart - 1) + 1;
+    const lineBreak = facts.unit.text.indexOf("\n", place.lineEnd);
+    const lineTo = lineBreak < 0 ? facts.unit.text.length : lineBreak;
+    const caption = facts.unit.text.slice(lineFrom, lineTo);
     if (
-      PART_NAMED.test(facts.text) &&
+      PART_NAMED.test(caption) &&
       facts.unit.text === numbersUnit.text &&
-      place.figureAt > place.lineEnd
+      place.figureAt > lineTo
     ) {
       const context = contextOf(quoted.citation);
-      const between =
-        place.figureAt <= place.lineEnd
-          ? []
-          : facts.unit.text
-              .slice(place.lineEnd, place.figureAt)
-              .split("\n")
-              .slice(1, -1)
-              .filter((line) => line.trim() !== "");
+      const between = facts.unit.text
+        .slice(lineTo, place.figureAt)
+        .split("\n")
+        .slice(1, -1)
+        .filter((line) => line.trim() !== "");
       if (between.some((line) => !statesAmountRow(line, context)))
-        return { ok: false, problem: partLineProblem(facts.text, chars) };
+        return { ok: false, problem: partLineProblem(caption.trim(), chars) };
     }
     if (!sameSectionLine) {
       if (numbersUnit.kind === "section") {
@@ -1441,6 +1443,37 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     return (
       unit.units.find((each) => findQuote(each.text, unit.citation.quote, unit.matching)) ?? null
     );
+  }
+
+  /**
+   * A scale line in the figure's own Unit that the figure may take though the model quoted
+   * another line: judged as a quoted line is, and every line between it and the figure must be an
+   * amount's, so a line for another table or a line below the figure never applies (#2365).
+   */
+  function appliesScaleLine(quoted: Quoted, figure: Figure, line: string): Quoted | null {
+    const built = quotes.quote({ passage: quoted.passage, quote: line }, { structured: true });
+    if ("problem" in built) return null;
+    const check = built.check();
+    if (check.check !== "found" && check.checkReason !== "unsure-word") return null;
+    const numbersUnit = unitOf(quoted, figure);
+    const lineUnit = lineUnitOf(built);
+    if (!numbersUnit || !lineUnit || lineUnit.text !== numbersUnit.text) return null;
+    const place = placeOf(quoted, figure, lineUnit, line, numbersUnit);
+    if (!place || place.figureAt <= place.lineEnd) return null;
+    const context = contextOf(quoted.citation);
+    const between = lineUnit.text
+      .slice(place.lineEnd, place.figureAt)
+      .split("\n")
+      .slice(1, -1)
+      .filter((row) => row.trim() !== "");
+    if (between.some((row) => !statesAmountRow(row, context))) return null;
+    const verdict = judgeLine(
+      quoted,
+      figure,
+      { unit: lineUnit, text: line, inPassage: true, unsure: check.checkReason === "unsure-word" },
+      figure.chars,
+    );
+    return verdict.ok ? built : null;
   }
 
   /**
@@ -2144,38 +2177,53 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         ownRow?.ownCurrency === statedLine[0].unit.code &&
         notAnAmount(label ?? "") === null
       ) {
-        const scales = new Set(
-          quoted.units
-            .flatMap((each) => readStatedUnits(each.text, context))
-            .filter((each) => each.scale !== 1)
-            .map((each) => each.scale),
-        );
-        const [scale] = [...scales];
+        // A row head states its currency; a scale line applies only when it is this figure's,
+        // judged as a quoted line is, and its Citation is the one recorded (#2365).
+        const rowCurrency = statedLine[0].unit.code;
+        const scaleLines: { scale: number; word: string | null; quoted: Quoted }[] = [];
+        let otherScale = false;
+        for (const each of quoted.units) {
+          for (const statement of readStatedUnits(each.text, context)) {
+            if (statement.scale === 1 || exceptedBy(statement, label ?? "")) continue;
+            if (statement.unit.kind === "currency" && statement.unit.code !== rowCurrency) {
+              otherScale = true;
+              continue;
+            }
+            const line = lineOf(each.text, statement.start, statement.end);
+            const applies = appliesScaleLine(quoted, figure, line);
+            if (applies)
+              scaleLines.push({
+                scale: statement.scale,
+                word: statement.scaleWord,
+                quoted: applies,
+              });
+            else otherScale = true;
+          }
+        }
+        const scales = new Set(scaleLines.map((each) => each.scale));
         if (scales.size > 1)
           return `${figure.chars} has no unit, and ${whereOf(quoted)} states more than one scale; give the line that applies to it as unitQuote.`;
-        if (scale === undefined)
+        const [scale] = scaleLines;
+        if (scale)
+          stated = {
+            quoted: scale.quoted,
+            stated: {
+              ...base,
+              value: base.value * scale.scale,
+              scale: base.scale * scale.scale,
+              scaleWord: scale.word,
+              unit: statedLine[0].unit,
+            },
+            currencyChars: null,
+          };
+        else if (otherScale)
+          return `${figure.chars} is on a row whose head states only a currency, and a scale in ${whereOf(quoted)} doesn't apply to it or is in another currency; quote the line that states its scale, or give none.`;
+        else
           stated = {
             quoted: unit,
             stated: { ...base, unit: statedLine[0].unit },
             currencyChars: null,
           };
-        else {
-          const word =
-            quoted.units
-              .flatMap((each) => readStatedUnits(each.text, context))
-              .find((each) => each.scale === scale)?.scaleWord ?? null;
-          stated = {
-            quoted: unit,
-            stated: {
-              ...base,
-              value: base.value * scale,
-              scale: base.scale * scale,
-              scaleWord: word,
-              unit: statedLine[0].unit,
-            },
-            currencyChars: null,
-          };
-        }
       } else if (
         ownRow?.ownScales.length &&
         statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))

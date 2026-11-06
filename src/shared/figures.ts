@@ -1343,14 +1343,23 @@ const STATEMENTS: readonly RegExp[] = [
     `(?<!\\d)[(（][ \\u00a0]*(?<before>${HAN_CURRENCIES})[，,;；、][ \\u00a0]*(?<scale>${CN_STATED_SCALES})(?<unit>${CN_UNIT_WORDS})?[ \\u00a0]*[)）]`,
     "dgu",
   ),
-  // A scale and 元 inside a longer bracket: "（以千元列示）"; outside one, "千元店" is a shop's name.
+  // A bracket that states a unit with its scale: "（以千元列示）", "（港币千元）",
+  // "（以港幣仟元列示）". A shop or household name ("（千元店业绩）", "（万元户调查）") is not one.
   new RegExp(
-    `[(（][^()（）\\n]{0,12}?(?<![${BEFORE_CN_SCALE}])(?<scale>${CN_STATED_SCALES})(?<unit>元)[^()（）\\n]{0,12}?[)）]`,
+    `[(（][ \\u00a0]*(?:以[ \\u00a0]*)?(?<before>${HAN_CURRENCIES})?[ \\u00a0]*(?<scale>${CN_STATED_SCALES})(?<unit>元)[ \\u00a0]*(?:列示|计|为|為)?[ \\u00a0]*[)）]`,
     "dgu",
   ),
-  // "以千元列示", "以万元计": a scale and 元 the line says its figures are shown in; "所以千元"
+  // A bracket whose unit is prefixed: "（单位：千元）", "（金额单位：人民币千元）".
+  new RegExp(
+    `[(（][ \\u00a0]*(?:金额|金額|货币|貨幣|数量|數量)?[ \\u00a0]*(?:单位|單位)[ \\u00a0]*[:：][ \\u00a0]*(?<before>${HAN_CURRENCIES})?[ \\u00a0]*(?<scale>${CN_STATED_SCALES})[ \\u00a0]*(?<unit>元)?[ \\u00a0]*[)）]`,
+    "dgu",
+  ),
+  // "以千元列示", "以港币千元计": a scale and 元 the line says its figures are shown in; "所以千元"
   // is not a statement.
-  new RegExp(`(?<!所)以(?<scale>${CN_STATED_SCALES})(?<unit>元)(?:列示|计)?`, "dgu"),
+  new RegExp(
+    `(?<!所)以(?<before>${HAN_CURRENCIES})?(?<scale>${CN_STATED_SCALES})(?<unit>元)(?:列示|计)?`,
+    "dgu",
+  ),
   new RegExp(
     `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES}|RMB)?(?<scale>${CN_SCALES_AFTER_WORDS})(?<unit>${CN_UNIT_WORDS})(?![户\\p{Script=Han}])`,
     "dgu",

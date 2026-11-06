@@ -17,6 +17,7 @@ import { docxOf, xlsxOf } from "../helpers/office";
 import { buildPdf } from "../helpers/pdf";
 
 type Call = { tool: string; input: unknown };
+type UnitQuotes = readonly [string | undefined, string | undefined];
 
 function passageWriting(passages: readonly ShownPassage[], quote: string): ShownPassage {
   const found = passages.find((each) => each.text.includes(quote));
@@ -35,7 +36,8 @@ function calculatingModel(
   query: string,
   cites: readonly [string, string],
   numbers: readonly [string, string],
-  unitQuote?: string,
+  unitQuote: string | undefined,
+  unitQuotes: UnitQuotes | undefined,
 ): MockLanguageModelV4 {
   return scriptedModel((call) => {
     const searches = call.results.filter((result) => result.tool === "search_documents");
@@ -53,13 +55,16 @@ function calculatingModel(
           quote,
         };
       });
-      const input = (name: string, label: string, index: number) => ({
-        name,
-        label,
-        citation: index + 1,
-        number: numbers[index],
-        ...(unitQuote !== undefined && { unitQuote }),
-      });
+      const input = (name: string, label: string, index: number) => {
+        const quoted = unitQuotes?.[index] ?? unitQuote;
+        return {
+          name,
+          label,
+          citation: index + 1,
+          number: numbers[index],
+          ...(quoted !== undefined && { unitQuote: quoted }),
+        };
+      };
       const call: Call = {
         tool: "calculate",
         input: {
@@ -110,11 +115,12 @@ interface Case {
   cites: readonly [string, string];
   numbers: readonly [string, string];
   unitQuote?: string;
+  unitQuotes?: UnitQuotes;
   query: string;
 }
 
 async function record(c: Case) {
-  const model = calculatingModel(c.query, c.cites, c.numbers, c.unitQuote);
+  const model = calculatingModel(c.query, c.cites, c.numbers, c.unitQuote, c.unitQuotes);
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
     answerPaths: { retrievesFirst: () => false },
@@ -404,6 +410,136 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
     });
 
     expect([null, 900_000]).toContain(recorded.value);
+  });
+
+  // protects=#2365; fails_when=a row head that states only a currency borrows a scale from another table, or one below it, instead of refusing or reading the row's own currency.
+  test.each([
+    {
+      language: "another table's scale",
+      file: pdf("Two tables", [
+        "Table 1 Headcount (in thousands)",
+        "Employees 1,200",
+        "Table 2 Revenue",
+        "Revenue (US$) 1,234.5",
+        "Costs (US$) 334.5",
+      ]),
+    },
+    {
+      language: "a scale below the rows",
+      file: pdf("Later table", [
+        "Table 2 Revenue",
+        "Revenue (US$) 1,234.5",
+        "Costs (US$) 334.5",
+        "Table 1 Headcount (in thousands)",
+        "Employees 1,200",
+      ]),
+    },
+  ])("a currency-only row head doesn't borrow $language", async ({ file }) => {
+    const dollarRows: readonly [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
+    const recorded = await record({
+      file,
+      cites: dollarRows,
+      numbers: ["1,234.5", "334.5"],
+      unitQuote: "(US$)",
+      query: "two tables revenue costs",
+    });
+
+    expect([null, 900]).toContain(recorded.value);
+  });
+
+  // protects=#2365; fails_when=a fragment of another table's caption ("(in thousands)" from "Table 1 …") is quoted and states a later table's scale, because only the fragment is judged.
+  test("a fragment of another table's caption doesn't state a scale", async () => {
+    const recorded = await record({
+      file: pdf("Fragment table", [
+        "Table 1 Headcount (in thousands)",
+        "Employees 1,200",
+        "Table 2 Revenue",
+        ...rows,
+      ]),
+      cites: rows,
+      numbers: ["1,234.5", "334.5"],
+      unitQuote: "(in thousands)",
+      query: "fragment table revenue costs",
+    });
+
+    expect([null, 900]).toContain(recorded.value);
+  });
+
+  // protects=#2365; fails_when=a bracket that only looks like a scale ("（千元店业绩）", "（万元户调查）") states one and scales the rows under it.
+  test.each(["经营概况（千元店业绩）", "经营概况（万元户调查）"])(
+    "a bracketed shop or household name states no scale: %s",
+    async (line) => {
+      const recorded = await record({
+        file: pdfZh("经营概况", [line, ...rowsZh]),
+        cites: rowsZh,
+        numbers: ["1,200", "300"],
+        unitQuote: line,
+        query: "经营概况 收入 成本",
+      });
+
+      expect(recorded.value).toBeNull();
+    },
+  );
+
+  // protects=#2365; fails_when=a longer Chinese bracket that names its currency ("（以港币千元列示）", "（以港幣仟元列示）") is read as yuan.
+  test.each(["董事酬金（以港币千元列示）", "董事酬金（以港幣仟元列示）"])(
+    "a longer Chinese bracket keeps its named currency: %s",
+    async (line) => {
+      const recorded = await record({
+        file: pdfZh("董事酬金账目", [line, ...rowsZh]),
+        cites: rowsZh,
+        numbers: ["1,200", "300"],
+        unitQuote: line,
+        query: "董事酬金 收入 成本",
+      });
+
+      expect(recorded.value).toBe(900_000);
+      expect(recorded.currency).toBe("HKD");
+    },
+  );
+
+  // protects=#2365; fails_when=the exception-clause guard is removed and a bracket that states only an exception ("(except share counts in thousands)") scales the rows.
+  test("an exception-only bracket states no scale", async () => {
+    const line = "(except share counts in thousands)";
+    const recorded = await record({
+      file: pdf("Exception only", [line, ...rows]),
+      cites: rows,
+      numbers: ["1,234.5", "334.5"],
+      unitQuote: line,
+      query: "exception only revenue costs",
+    });
+
+    expect(recorded.value).toBeNull();
+    expect(recorded.asked).toContain("states no unit or scale");
+  });
+
+  // protects=#2365; fails_when=the row's own currency is dropped when the exception line itself is the unitQuote.
+  test("a per-share row keeps its own currency when the exception line is quoted", async () => {
+    const head = "(in millions, except per share data)";
+    const recorded = await record({
+      file: pdf("EPS results", [head, "Basic EPS ($) 2.47", "Diluted EPS ($) 2.41"]),
+      cites: ["Basic EPS ($) 2.47", "Diluted EPS ($) 2.41"],
+      numbers: ["2.47", "2.41"],
+      unitQuote: head,
+      query: "EPS results",
+    });
+
+    expect(recorded.value).toBeCloseTo(0.06, 9);
+    expect(recorded.currency).toBe("USD");
+  });
+
+  // protects=#2365; fails_when=the conflicting-scales refusal is removed and a currency-only row takes one of two scales ("Volumes in millions; amounts in thousands").
+  test("a currency-only row with two scale statements refuses", async () => {
+    const dollarRows: readonly [string, string] = ["Revenue (US$) 1,234.5", "Costs (US$) 334.5"];
+    const recorded = await record({
+      file: pdf("Two scales", ["Volumes in millions; amounts in thousands", ...dollarRows]),
+      cites: dollarRows,
+      numbers: ["1,234.5", "334.5"],
+      unitQuote: "(US$)",
+      query: "two scales revenue costs",
+    });
+
+    expect(recorded.value).toBeNull();
   });
 
   // protects=#2365; fails_when=a price row takes the page's money scale, so "(in thousands)" turns 12.5 − 3.5 into $9.0 thousand.
