@@ -11,6 +11,12 @@
   "engines": {
     "node": ">=24"
   },
+  "overrides": {
+    "node-forge": "^1.4.1",
+    "@anthropic-ai/sandbox-runtime": {
+      "zod": "$zod"
+    }
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
