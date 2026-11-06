@@ -129,6 +129,9 @@ export const useDocumentAnnotations = (documentId: string): Annotation[] | undef
 export const useAnnotationCount = (documentId: string): number =>
   useAnnotations((state) => state.counts[documentId] ?? 0);
 
-/** The highlights on a Document that its page can mark: a sticky note from a file has no words. */
+/**
+ * The highlights on a Document that its page can mark: a sticky note from a file has no
+ * words, and one the current version no longer holds is in the list alone, not on the page.
+ */
 export const highlightsOf = (annotations: readonly Annotation[] | undefined): Annotation[] =>
-  (annotations ?? []).filter((annotation) => annotation.quote.trim() !== "");
+  (annotations ?? []).filter((annotation) => !annotation.missing && annotation.quote.trim() !== "");

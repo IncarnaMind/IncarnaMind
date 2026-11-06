@@ -144,11 +144,12 @@ export function createNoteAdding(options: NoteAddingOptions) {
       if (input.origin && !origin) throw new InvalidInputError("That isn't a Block's origin.");
       const model: ChatModelChoice | null = isChatModelChoice(input.model) ? input.model : null;
       const proposed = input.proposed === true;
-      const blocks = asGenerated(
-        await recheckCitations(citedTables(withoutIds(parsed)), (each) =>
-          options.recheck({ ...each, mindId }),
-        ),
+      const generated = input.generated !== false;
+      const recordUse = input.recordUse !== false;
+      const checked = await recheckCitations(citedTables(withoutIds(parsed)), (each) =>
+        options.recheck({ ...each, mindId }),
       );
+      const blocks = generated ? asGenerated(checked) : checked;
       const request = randomUUID();
       const asked = origin ? options.askedScope(origin, mindId) : null;
       const folderId = options.mindFolder(mindId);
@@ -177,7 +178,7 @@ export function createNoteAdding(options: NoteAddingOptions) {
         return ids;
       });
       // A change to accept is recorded once it is accepted, as Edit with AI's are.
-      if (!proposed) {
+      if (!proposed && recordUse) {
         options.recordAiUse([
           {
             mindId,
@@ -223,7 +224,7 @@ export function createNoteAdding(options: NoteAddingOptions) {
       return content.read(mindId, (note) => proposalsOf(note, request));
     },
 
-    undo(input: unknown): { kept: number } {
+    undo(input: unknown): { kept: number; remaining: number } {
       if (!isRecord(input)) throw new InvalidInputError("undoAddToNote expects an object.");
       const mindId = options.requireMind(input.mindId);
       const blockIds = new Set(parseBlockIds(input.blockIds));
@@ -252,7 +253,9 @@ export function createNoteAdding(options: NoteAddingOptions) {
           if (note.doc) uncarryAnswerScope(note.doc, brought);
         }
         for (const id of blockIds) written.delete(id);
-        return { kept };
+        // What the Mind still holds, so a caller that made the Mind can take an empty one back.
+        const remaining = topLevelBlocks(note).filter((block) => !isEmptyLine(block)).length;
+        return { kept, remaining };
       });
     },
   };

@@ -1371,3 +1371,70 @@ test("a same-version re-read carries a row on the mark's page when its words cha
   expect(stored?.file_order).toBe(20);
   db.close();
 });
+
+test("a PDF highlight's Float32Array quads quote the marked runs, not the gap", () => {
+  const items = [
+    { str: "Alpha words.", transform: [11, 0, 0, 11, 72, 760], width: 60, height: 11 },
+    { str: "Unmarked gap words.", transform: [11, 0, 0, 11, 72, 746], width: 120, height: 11 },
+    { str: "Beta words.", transform: [11, 0, 0, 11, 72, 732], width: 60, height: 11 },
+  ];
+  const quads = new Float32Array([
+    72, 770, 300, 770, 72, 758, 300, 758, 72, 742, 300, 742, 72, 730, 300, 730,
+  ]);
+  const found = readFileAnnotations(1, [{ subtype: "Highlight", quadPoints: quads }], items);
+  expect(found).toHaveLength(1);
+  expect(found[0]?.quote).toBe("Alpha words.\nBeta words.");
+  expect(found[0]?.quote).not.toContain("Unmarked gap words.");
+});
+
+test("a PDF highlight that covers only part of a text item is not quoted by the whole item", () => {
+  const items = [
+    {
+      str: "Rent increases annually but service charges stay fixed.",
+      transform: [11, 0, 0, 11, 72, 760],
+      width: 260,
+      height: 11,
+    },
+  ];
+  // A rect over "Rent" alone, inside a single text item that holds the whole line.
+  const partial = readFileAnnotations(
+    1,
+    [{ subtype: "Highlight", quadPoints: [72, 770, 102, 770, 72, 758, 102, 758] }],
+    items,
+  );
+  expect(partial).toHaveLength(0);
+
+  // The whole line, covered whole, still quotes whole.
+  const whole = readFileAnnotations(
+    1,
+    [{ subtype: "Highlight", quadPoints: [72, 770, 332, 770, 72, 758, 332, 758] }],
+    items,
+  );
+  expect(whole).toHaveLength(1);
+  expect(whole[0]?.quote).toBe("Rent increases annually but service charges stay fixed.");
+});
+
+test("a mark whose words around it contradict the shift is a different copy", async () => {
+  const { document, store, read, db } = await harness();
+  const quote = "The fee is fixed.";
+  read("version-a", [
+    highlight(quote, 2, null, 10, { before: "Roof works.", after: "Roof works." }),
+  ]);
+  const [alpha] = store.list(document.id);
+  if (!alpha) throw new Error("The highlight wasn't read.");
+  store.update(alpha.id, { note: "Roof note" });
+
+  // One page removed, and the same words marked elsewhere under other words: not the same copy.
+  read("version-b", [
+    highlight(quote, 1, null, 10, { before: "Garden works.", after: "Garden works." }),
+  ]);
+  const rows = store.list(document.id);
+  expect(rows.find((row) => row.id === alpha.id)).toMatchObject({
+    note: "Roof note",
+    missing: true,
+  });
+  const fresh = rows.find((row) => row.id !== alpha.id);
+  expect(fresh).toMatchObject({ pageFrom: 1, missing: false });
+  expect(fresh?.note).not.toBe("Roof note");
+  db.close();
+});

@@ -8126,6 +8126,13 @@ export interface AddToNoteInput {
   model: ChatModelChoice | null;
   /** They wait as changes to accept or reject, each Block one (a new Mind made from an Answer). */
   proposed?: boolean;
+  /**
+   * Whether their words are AI's, kept under `GENERATED_MARK`: true unless the caller says
+   * these are the User's own Blocks, as Collect's annotations are.
+   */
+  generated?: boolean;
+  /** Whether they are recorded as AI use: true unless these are the User's own Blocks. */
+  recordUse?: boolean;
 }
 
 /** What "Add to note" put into a Mind: the ids of its new top-level Blocks, in order. */
@@ -8146,6 +8153,8 @@ export interface UndoAddToNoteInput {
  */
 export interface UndoAddToNoteResult {
   kept: number;
+  /** The text Blocks the Mind still holds after the undo, so a caller that made the Mind can take an empty one back. */
+  remaining: number;
 }
 
 /**

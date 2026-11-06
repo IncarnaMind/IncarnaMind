@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Annotation, Document } from "../../../core/api";
 import { formatLocation } from "../../../shared/locations";
 import { deleteAnnotation, editAnnotation, exportAnnotations } from "../annotationActions";
+import { useAnnotationDrafts } from "../annotationDrafts";
 import { useAnnotations, useDocumentAnnotations } from "../annotations";
 import { CloseLineIcon, ExportLineIcon, PencilLineIcon } from "../components/lineIcons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
@@ -18,16 +19,26 @@ import { useT } from "../i18n";
 function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: Annotation): void }) {
   const t = useT();
   const objectMenu = useObjectMenu({ kind: "annotation", id: annotation.id });
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(annotation.note ?? "");
+  const draft = useAnnotationDrafts((state) => state.drafts[annotation.id]);
+  const editing = draft !== undefined;
+  const [saving, setSaving] = useState(false);
   const where = annotation.location ? formatLocation(annotation.location, t) : "";
+  const beginEdit = () =>
+    useAnnotationDrafts.getState().begin(annotation.id, annotation.note ?? "", "row");
+  const endEdit = () => useAnnotationDrafts.getState().end(annotation.id);
 
-  const save = () => {
-    // A press on Save blurs the field first: the second save has nothing left to do.
-    if (!editing) return;
-    setEditing(false);
-    const note = draft.trim() === "" ? null : draft;
-    if (note !== annotation.note) void editAnnotation(annotation, { note });
+  const save = async () => {
+    const current = useAnnotationDrafts.getState().drafts[annotation.id];
+    if (current === undefined || saving) return;
+    const note = current.trim() === "" ? null : current;
+    if (note === annotation.note) {
+      endEdit();
+      return;
+    }
+    setSaving(true);
+    const saved = await editAnnotation(annotation, { note });
+    setSaving(false);
+    if (saved) endEdit();
   };
 
   return (
@@ -64,8 +75,7 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
         onClick={() => {
           // A file's sticky note has no words to scroll to: it opens its note here.
           if (annotation.source === "file" && annotation.quote.trim() === "") {
-            setDraft(annotation.note ?? "");
-            setEditing(true);
+            beginEdit();
             return;
           }
           onGo(annotation);
@@ -86,34 +96,35 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
       {editing ? (
         <span className="annotation-row-edit">
           <TypingTextarea
-            value={draft}
+            value={draft ?? ""}
             autoFocus
             aria-label={t("annotations.note.placeholder")}
             placeholder={t("annotations.note.placeholder")}
             data-testid="annotation-row-field"
             rows={2}
-            onChange={(event) => setDraft(event.currentTarget.value)}
+            onChange={(event) =>
+              useAnnotationDrafts.getState().write(annotation.id, event.currentTarget.value)
+            }
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 event.preventDefault();
-                setDraft(annotation.note ?? "");
-                setEditing(false);
+                endEdit();
                 event.currentTarget
                   .closest("[data-annotation-row]")
                   ?.querySelector<HTMLElement>("[data-row-main]")
                   ?.focus();
               } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                 event.preventDefault();
-                save();
+                void save();
               }
             }}
-            onBlur={save}
+            onBlur={() => void save()}
             className="annotation-note-field"
           />
           <button
             type="button"
             data-testid="annotation-row-save"
-            onClick={save}
+            onClick={() => void save()}
             className="annotation-action annotation-action--primary"
           >
             {t("annotations.note.save")}
@@ -125,10 +136,7 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
             <button
               type="button"
               data-testid="annotation-row-add-note"
-              onClick={() => {
-                setDraft("");
-                setEditing(true);
-              }}
+              onClick={beginEdit}
               className="annotation-action"
             >
               {t("annotations.addNote")}
@@ -140,10 +148,7 @@ function Row({ annotation, onGo }: { annotation: Annotation; onGo(annotation: An
               data-testid="annotation-row-edit"
               aria-label={t("annotations.menu.editNote")}
               title={t("annotations.menu.editNote")}
-              onClick={() => {
-                setDraft(annotation.note ?? "");
-                setEditing(true);
-              }}
+              onClick={beginEdit}
               className="annotation-row-edit-button"
             >
               <PencilLineIcon className="size-[12px]" />

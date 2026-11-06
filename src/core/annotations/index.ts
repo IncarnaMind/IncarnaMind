@@ -716,6 +716,22 @@ export function createAnnotations(db: Database, now: () => string, citer: Annota
                 return row ? markPage(mark) - rowPage(row) : Number.NaN;
               });
               if (!shifts.every((shift) => shift === shifts[0])) return false;
+              // A page that moved under words that differ from the row's is two marks, not one
+              // that moved: the file's own words around it contradict the shift.
+              if (
+                shifts[0] !== 0 &&
+                marks.some((mark, index) => {
+                  const row = rows[index];
+                  if (!row) return false;
+                  const stored = surroundingsOfRow(row);
+                  const storedHasWords = stored.before !== "" || stored.after !== "";
+                  const markHasWords =
+                    mark.annotation.before !== "" || mark.annotation.after !== "";
+                  return storedHasWords && markHasWords && !sameSurroundings(row, mark);
+                })
+              ) {
+                return false;
+              }
               // A row whose copy a version dropped is this mark's only when the words around it
               // say so; a row the User deleted never takes a copy by place alone.
               if (

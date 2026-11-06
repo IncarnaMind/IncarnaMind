@@ -20,6 +20,7 @@ import { CITATION_NODE } from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
 import { mindName } from "../../shared/naming";
 import { type AddTarget, addInEditor } from "./addToNote";
+import { useAnnotationDrafts } from "./annotationDrafts";
 import { useAnnotations } from "./annotations";
 import { readMindHandle } from "./commands/handles";
 import { core } from "./core";
@@ -112,11 +113,18 @@ function remember(
   });
 }
 
-/** Recolours a highlight, or writes its note. */
-export async function editAnnotation(annotation: Annotation, edit: AnnotationEdit): Promise<void> {
+/**
+ * Recolours a highlight, or writes its note. Returns whether the core saved it,
+ * so an editor keeps the User's words when it didn't.
+ */
+export async function editAnnotation(
+  annotation: Annotation,
+  edit: AnnotationEdit,
+): Promise<boolean> {
+  // Only the fields this action changed are taken back: a later note or colour stays.
   const before: AnnotationEdit = {
-    note: annotation.note,
-    colour: annotation.colour,
+    ...(edit.note !== undefined && { note: annotation.note }),
+    ...(edit.colour !== undefined && { colour: annotation.colour }),
   };
   const said =
     edit.note === null && annotation.note !== null
@@ -135,8 +143,10 @@ export async function editAnnotation(annotation: Annotation, edit: AnnotationEdi
         await core.updateAnnotation(annotation.id, edit);
       },
     });
+    return true;
   } catch (error) {
     useAppStore.getState().reportError(error);
+    return false;
   }
 }
 
@@ -144,6 +154,7 @@ export async function editAnnotation(annotation: Annotation, edit: AnnotationEdi
 export async function deleteAnnotation(annotation: Annotation): Promise<void> {
   try {
     await core.deleteAnnotation(annotation.id);
+    useAnnotationDrafts.getState().end(annotation.id);
     pushUndo({
       said: (t) => t("annotations.deleted"),
       undo: async () => {
@@ -256,7 +267,9 @@ export async function addAnnotationToNote(
 /**
  * Writes every annotation in `groups` into a new Mind in `folderId`, a section
  * for each Document, each quote with its checked Citation and its note under
- * it: one edit, so one Undo.
+ * it: one edit, so one Undo. Undo takes back the Blocks it added, never the
+ * writing that came after them; the Mind it made goes only if nothing else is
+ * in it, and a soft delete keeps even that recoverable.
  */
 export async function collectIntoMind(
   groups: readonly AnnotationGroup[],
@@ -267,15 +280,8 @@ export async function collectIntoMind(
     useNotices.getState().confirm("annotations.collect.empty");
     return;
   }
+  let made: string | null = null;
   try {
-    const mind = await core.createMind({ title: "", folderId });
-    await useAppStore.getState().changeLayout({
-      type: "open",
-      item: { kind: "mind", mindId: mind.id },
-      where: { in: "side" },
-    });
-    const editor = await whenMindEditor(mind.id, MIND_OPEN_WAIT_MS);
-    if (!editor) throw new Error(translateNow("annotations.collect.failed"));
     const blocks: NodeJSON[] = [];
     for (const group of groups) {
       if (group.annotations.length === 0) continue;
@@ -286,9 +292,21 @@ export async function collectIntoMind(
       });
       for (const annotation of group.annotations) blocks.push(...blocksOf(annotation));
     }
-    const ids = addInEditor(editor, blocks, false, () => undefined);
-    if (!ids) throw new Error(translateNow("annotations.collect.failed"));
-    // One Undo takes the whole collection back, the Mind it made included.
+    const mind = await core.createMind({ title: "", folderId });
+    made = mind.id;
+    const { blockIds } = await core.addToNote({
+      mindId: mind.id,
+      blocks,
+      origin: null,
+      model: null,
+      generated: false,
+      recordUse: false,
+    });
+    await useAppStore.getState().changeLayout({
+      type: "open",
+      item: { kind: "mind", mindId: mind.id },
+      where: { in: "side" },
+    });
     pushUndo({
       said: (t) =>
         count === 1
@@ -298,12 +316,14 @@ export async function collectIntoMind(
               mind: nameOf(mind.id) || t("mind.untitled"),
             }),
       undo: async () => {
-        await core.deleteMind(mind.id);
-        await core.deletePermanently([{ kind: "mind", id: mind.id }]);
+        const { kept, remaining } = await core.undoAddToNote({ mindId: mind.id, blockIds });
+        if (kept === 0 && remaining === 0) await core.deleteMind(mind.id);
       },
     });
   } catch (error) {
     useAppStore.getState().reportError(error);
+    // A Mind made for a collection that never went in leaves nothing behind.
+    if (made !== null) core.deleteMind(made).catch(console.error);
   }
 }
 

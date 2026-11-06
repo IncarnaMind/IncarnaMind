@@ -10,6 +10,7 @@ import { ANNOTATION_COLOURS } from "../../../core/api";
 import { ANNOTATION_COLOUR_LABELS } from "../../../shared/annotationColours";
 import { formatLocation } from "../../../shared/locations";
 import { addAnnotationToNote, deleteAnnotation, editAnnotation } from "../annotationActions";
+import { useAnnotationDrafts } from "../annotationDrafts";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { Popover } from "../editor/Popover";
@@ -68,20 +69,40 @@ export function AnnotationNotePopover({
   startEditing?: boolean;
 }) {
   const t = useT();
-  const [editing, setEditing] = useState(startEditing);
-  const [draft, setDraft] = useState(annotation.note ?? "");
+  const place = useAnnotationDrafts((state) => state.places[annotation.id]);
+  const draft = useAnnotationDrafts((state) => state.drafts[annotation.id]);
+  const editing = place === "note" && draft !== undefined;
+  const [saving, setSaving] = useState(false);
   const [picking, setPicking] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const where = annotation.location ? formatLocation(annotation.location, t) : "";
+  const beginEdit = () =>
+    useAnnotationDrafts.getState().begin(annotation.id, annotation.note ?? "", "note");
+  const endEdit = () => useAnnotationDrafts.getState().end(annotation.id);
+  const beganEditing = useRef(false);
+  useEffect(() => {
+    if (!startEditing || beganEditing.current) return;
+    beganEditing.current = true;
+    if (useAnnotationDrafts.getState().drafts[annotation.id] === undefined) {
+      useAnnotationDrafts.getState().begin(annotation.id, annotation.note ?? "", "note");
+    }
+  }, [startEditing, annotation.id, annotation.note]);
   useEffect(() => {
     if (editing) field.current?.focus();
   }, [editing]);
 
-  const save = () => {
-    const note = draft.trim() === "" ? null : draft;
-    if (note !== annotation.note) void editAnnotation(annotation, { note });
-    setEditing(false);
+  const save = async () => {
+    const current = useAnnotationDrafts.getState().drafts[annotation.id];
+    if (!editing || current === undefined || saving) return;
+    const note = current.trim() === "" ? null : current;
+    if (note !== annotation.note) {
+      setSaving(true);
+      const saved = await editAnnotation(annotation, { note });
+      setSaving(false);
+      if (!saved) return;
+    }
+    endEdit();
   };
 
   return (
@@ -95,7 +116,7 @@ export function AnnotationNotePopover({
         className="annotation-popover"
         aria-label={t("annotations.title")}
         data-testid="annotation-note"
-        onMouseLeave={onLeave}
+        onMouseLeave={editing ? undefined : onLeave}
       >
         <div className="annotation-popover-head">
           <span
@@ -121,21 +142,22 @@ export function AnnotationNotePopover({
           <div className="annotation-edit">
             <TypingTextarea
               ref={field}
-              value={draft}
+              value={draft ?? ""}
               aria-label={t("annotations.note.placeholder")}
               placeholder={t("annotations.note.placeholder")}
               data-testid="annotation-note-field"
               rows={3}
-              onChange={(event) => setDraft(event.currentTarget.value)}
+              onChange={(event) =>
+                useAnnotationDrafts.getState().write(annotation.id, event.currentTarget.value)
+              }
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
                   event.stopPropagation();
-                  setDraft(annotation.note ?? "");
-                  setEditing(false);
+                  endEdit();
                 } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                   event.preventDefault();
-                  save();
+                  void save();
                 }
               }}
               className="annotation-note-field"
@@ -145,8 +167,7 @@ export function AnnotationNotePopover({
                 type="button"
                 data-testid="annotation-note-cancel"
                 onClick={() => {
-                  setDraft(annotation.note ?? "");
-                  setEditing(false);
+                  endEdit();
                 }}
                 className="annotation-action"
               >
@@ -155,7 +176,7 @@ export function AnnotationNotePopover({
               <button
                 type="button"
                 data-testid="annotation-note-save"
-                onClick={save}
+                onClick={() => void save()}
                 className="annotation-action annotation-action--primary"
               >
                 {t("annotations.note.save")}
@@ -167,7 +188,7 @@ export function AnnotationNotePopover({
             type="button"
             className="annotation-note annotation-note--button"
             data-testid="annotation-note-text"
-            onClick={() => setEditing(true)}
+            onClick={beginEdit}
           >
             {annotation.note}
           </button>
@@ -175,7 +196,7 @@ export function AnnotationNotePopover({
           <button
             type="button"
             data-testid="annotation-note-start"
-            onClick={() => setEditing(true)}
+            onClick={beginEdit}
             className="annotation-action"
           >
             {t("annotations.addNote")}

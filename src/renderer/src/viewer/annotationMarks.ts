@@ -45,7 +45,7 @@ export function annotationRangesIn(
 ): AnnotationRange[] {
   const ranges: AnnotationRange[] = [];
   for (const annotation of annotations) {
-    if (annotation.quote.trim() === "") continue;
+    if (annotation.missing || annotation.quote.trim() === "") continue;
     const range = placedRange(text, annotation);
     if (!range) continue;
     ranges.push({
@@ -84,7 +84,7 @@ export function markAnnotationsInDom(
 ): Map<string, HTMLElement[]> {
   const marked = new Map<string, HTMLElement[]>();
   for (const annotation of annotations) {
-    if (annotation.quote.trim() === "") continue;
+    if (annotation.missing || annotation.quote.trim() === "") continue;
     const nodes = textNodes(root);
     const text = piecesOf(nodes)
       .map((piece) => piece.text + (piece.breakAfter ? "\n" : ""))

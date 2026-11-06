@@ -55,6 +55,13 @@ describe("a highlight in a page", () => {
     expect(TEXT.slice(ranges[1]?.start, ranges[1]?.end)).toBe("Neap tides come a week later.");
   });
 
+  test("a missing highlight is not drawn on the words that survive", () => {
+    const missing = annotation({ id: "m1", missing: true, note: "Still in the list" });
+    expect(annotationRangesIn(TEXT, [missing])).toEqual([]);
+    // The same words, still in the version, are drawn.
+    expect(annotationRangesIn(TEXT, [annotation({ id: "live" })])).toHaveLength(1);
+  });
+
   test("repeated words are drawn at the place the selection's surroundings fit", () => {
     const twice =
       "Rent.\nThe deposit is held by the landlord.\nReturn.\nThe deposit is held by the landlord.\n";

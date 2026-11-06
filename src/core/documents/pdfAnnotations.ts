@@ -71,9 +71,9 @@ interface Box {
 
 /** The boxes an annotation covers, in the page's own coordinates. */
 function boxesOf(data: { rect?: unknown; quadPoints?: unknown }): Box[] {
-  const numbers = (value: unknown): number[] =>
-    Array.isArray(value) ? value.filter((each): each is number => typeof each === "number") : [];
+  const numbers = (value: unknown): number[] => numbersOf(value) ?? [];
   const quads = numbers(data.quadPoints);
+  const hasQuads = data.quadPoints !== undefined && data.quadPoints !== null;
   const boxes: Box[] = [];
   for (let at = 0; at + 7 < quads.length; at += 8) {
     const xs = [quads[at], quads[at + 2], quads[at + 4], quads[at + 6]] as number[];
@@ -85,7 +85,9 @@ function boxesOf(data: { rect?: unknown; quadPoints?: unknown }): Box[] {
       bottom: Math.min(...ys),
     });
   }
-  if (boxes.length === 0) {
+  // Quads it can't read are no rectangle: quoting the bounding rect would quote the gap
+  // between separate marked runs. A rect alone is still a mark a reader saved whole.
+  if (boxes.length === 0 && !hasQuads) {
     const rect = numbers(data.rect);
     if (rect.length === 4) {
       const [x1 = 0, y1 = 0, x2 = 0, y2 = 0] = rect;
@@ -134,10 +136,27 @@ function placedOf(items: readonly object[]): Placed[] {
   return placed;
 }
 
+/** Whether a mark covers a glyph item whole, so its words are the marked words. */
+function holds(box: Box, item: Placed): boolean {
+  // A line's item may end in a space or a hair beyond the mark's quad: a word's width of
+  // slack keeps those, while a mark over part of a long item stays partial.
+  const across = Math.max(item.size, 0.5);
+  const down = Math.max(item.size * 0.25, 0.5);
+  return (
+    item.box.left >= box.left - across &&
+    item.box.right <= box.right + across &&
+    item.box.top <= box.top + down &&
+    item.box.bottom >= box.bottom - down
+  );
+}
+
 /** The words of `items` under `boxes`, top to bottom and left to right, a space where items are apart. */
 function wordsUnder(boxes: readonly Box[], items: readonly object[]): string {
   if (boxes.length === 0) return "";
-  return linesOf(coveredOf(boxes, items))
+  const covered = coveredOf(boxes, items);
+  // A mark over part of an item can't be quoted by the whole item: its exact words are unknown.
+  if (covered.some((item) => !boxes.some((box) => holds(box, item)))) return "";
+  return linesOf(covered)
     .map((line) => lineText(line).text)
     .join("\n")
     .replaceAll("\u0000", "")
