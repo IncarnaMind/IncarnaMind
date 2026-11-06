@@ -330,7 +330,10 @@ const PARKING_ZH = [
   "押金为三个月房租。",
 ] as const;
 
-/** A first line, or a line between two kept ones, that nothing in the reply says it rewrites. */
+/**
+ * A first line, or a line between two kept ones, that nothing in the reply says it rewrites. With
+ * nothing written yet, what is added goes after the selection's first, never in its place.
+ */
 const NO_EVIDENCE: readonly Shape[] = [
   {
     case: "en, the selection's first line renamed while the line after is kept",
@@ -338,8 +341,8 @@ const NO_EVIDENCE: readonly Shape[] = [
     reply: ["Taxes are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
     asked: "Say taxes instead of rates in the first line.",
     after: [
-      "Taxes are monthly.",
       "Rates are monthly.",
+      "Taxes are monthly.",
       "Fees and rates are monthly.",
       "Fees are monthly.",
     ],
@@ -349,7 +352,7 @@ const NO_EVIDENCE: readonly Shape[] = [
     lines: ["税费按月支付。", "费用和税费按月支付。", "费用按月支付。"],
     reply: ["税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
     asked: "把第一行的税费改成税金。",
-    after: ["税金按月支付。", "税费按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+    after: ["税费按月支付。", "税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
   },
   {
     case: "en, a new first line before a kept one",
@@ -357,8 +360,8 @@ const NO_EVIDENCE: readonly Shape[] = [
     reply: ["Gym fees are monthly.", "Fees are monthly.", "Fees and rates are monthly."],
     asked: "Add a line on gym fees at the top; keep the existing lines.",
     after: [
-      "Gym fees are monthly.",
       "Rates are monthly.",
+      "Gym fees are monthly.",
       "Fees are monthly.",
       "Fees and rates are monthly.",
     ],
@@ -368,7 +371,7 @@ const NO_EVIDENCE: readonly Shape[] = [
     lines: ["税费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
     reply: ["保险费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
     asked: "在最上面加一行保险费，原有的各行都保留。",
-    after: ["保险费按月支付。", "税费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
+    after: ["税费按月支付。", "保险费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
   },
   {
     case: "en, a new line between two kept ones that says half of the line's own words",
