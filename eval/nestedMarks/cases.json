@@ -1,0 +1,1042 @@
+[
+ {
+  "id": "en-nested-01",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Attention.md",
+   "text": "# Attention\n\nThe flexibility of attention comes from its “soft weights” property, which lets the weights change at run time.\n"
+  },
+  "record": "The flexibility of attention comes from its “soft weights” property",
+  "sentence": "The article says “the flexibility of attention comes from its ‘soft weights’ property”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-02",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Returns policy.md",
+   "text": "# Returns policy\n\nThe “cooling-off period” lasts 14 days from delivery for every order.\n"
+  },
+  "record": "The “cooling-off period” lasts 14 days from delivery",
+  "sentence": "The policy states that “the ‘cooling-off period’ lasts 14 days from delivery for every order”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-03",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Board minutes.md",
+   "text": "# Board minutes\n\nThe chair called the merger a “once in a decade” chance and asked for a vote in March.\n"
+  },
+  "record": "The chair called the merger a “once in a decade” chance",
+  "sentence": "According to the minutes, “the chair called the merger a ‘once in a decade’ chance and asked for a vote in March”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-04",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Lab safety.md",
+   "text": "# Lab safety\n\nEvery bottle marked “for disposal only” goes to the red bin before the end of the shift.\n"
+  },
+  "record": "Every bottle marked “for disposal only” goes to the red bin",
+  "sentence": "The rules say “every bottle marked ‘for disposal only’ goes to the red bin before the end of the shift”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-05",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Style guide.md",
+   "text": "# Style guide\n\nWe write “data set” as two words in every report and every slide.\n"
+  },
+  "record": "We write “data set” as two words in every report",
+  "sentence": "The guide is clear: “we write ‘data set’ as two words in every report and every slide”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-06",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Field notes.md",
+   "text": "# Field notes\n\nThe farmers call the dry wind from the east the “grey wind” and keep the goats inside.\n"
+  },
+  "record": "The farmers call the dry wind from the east the “grey wind”",
+  "sentence": "The notes record that “the farmers call the dry wind from the east the ‘grey wind’ and keep the goats inside”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-07",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Contract.md",
+   "text": "# Contract\n\nAny delay beyond the “grace period” of ten working days incurs a fee of 2% per week.\n"
+  },
+  "record": "Any delay beyond the “grace period” of ten working days",
+  "sentence": "The contract sets out that “any delay beyond the ‘grace period’ of ten working days incurs a fee of 2% per week”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-08",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Interview.md",
+   "text": "# Interview\n\nShe described the first prototype as “ugly but honest” and kept it on her desk for years.\n"
+  },
+  "record": "She described the first prototype as “ugly but honest”",
+  "sentence": "In the interview, “she described the first prototype as ‘ugly but honest’ and kept it on her desk for years”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-09",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Climate brief.md",
+   "text": "# Climate brief\n\nThe report treats the “carbon budget” as the total the world can still emit for 1.5 degrees.\n"
+  },
+  "record": "The report treats the “carbon budget” as the total",
+  "sentence": "The brief explains that “the report treats the ‘carbon budget’ as the total the world can still emit for 1.5 degrees”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-nested-10",
+  "lang": "en",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "Onboarding.md",
+   "text": "# Onboarding\n\nNew staff get a “buddy” from another team for their first three months.\n"
+  },
+  "record": "New staff get a “buddy” from another team",
+  "sentence": "The handbook promises that ‘new staff get a “buddy” from another team for their first three months’[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-11",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "注意力机制.md",
+   "text": "# 注意力机制\n\n注意力机制的灵活性来自于它的“软权重”特性，即这种权重是可以在运行时改变的。\n"
+  },
+  "record": "注意力机制的灵活性来自于它的“软权重”特性",
+  "sentence": "文中写道“注意力机制的灵活性来自于它的‘软权重’特性，即这种权重是可以在运行时改变的”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-12",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "退货政策.md",
+   "text": "# 退货政策\n\n所有订单的“冷静期”为自收货之日起十四天。\n"
+  },
+  "record": "所有订单的“冷静期”为自收货之日起十四天",
+  "sentence": "政策规定“所有订单的‘冷静期’为自收货之日起十四天”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-13",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "规划报告.md",
+   "text": "# 规划报告\n\n报告称“十四五”规划的主要目标已经提前完成。\n"
+  },
+  "record": "报告称“十四五”规划的主要目标已经提前完成",
+  "sentence": "材料指出“报告称‘十四五’规划的主要目标已经提前完成”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-14",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "经济评论.md",
+   "text": "# 经济评论\n\n多数学者认为这是一次典型的“软着陆”，失业率没有明显上升。\n"
+  },
+  "record": "多数学者认为这是一次典型的“软着陆”",
+  "sentence": "评论认为“多数学者认为这是一次典型的‘软着陆’，失业率没有明显上升”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-15",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "安全守则.md",
+   "text": "# 安全守则\n\n凡是标有“仅供处置”的瓶子，都要在下班前放进红色回收箱。\n"
+  },
+  "record": "凡是标有“仅供处置”的瓶子",
+  "sentence": "守则写明“凡是标有‘仅供处置’的瓶子，都要在下班前放进红色回收箱”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-16",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "员工手册.md",
+   "text": "# 员工手册\n\n新员工在头三个月会有一位来自其他团队的“伙伴”。\n"
+  },
+  "record": "新员工在头三个月会有一位来自其他团队的“伙伴”",
+  "sentence": "手册承诺“新员工在头三个月会有一位来自其他团队的‘伙伴’”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-17",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "合同条款.md",
+   "text": "# 合同条款\n\n超过十个工作日“宽限期”的任何延误，每周加收百分之二的费用。\n"
+  },
+  "record": "超过十个工作日“宽限期”的任何延误",
+  "sentence": "合同规定“超过十个工作日‘宽限期’的任何延误，每周加收百分之二的费用”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-18",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "访谈记录.md",
+   "text": "# 访谈记录\n\n她把第一台样机形容为“丑但诚实”，在桌上放了好几年。\n"
+  },
+  "record": "她把第一台样机形容为“丑但诚实”",
+  "sentence": "访谈中提到“她把第一台样机形容为‘丑但诚实’，在桌上放了好几年”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-19",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "气候简报.md",
+   "text": "# 气候简报\n\n报告把“碳预算”定义为实现一点五度目标前全球还能排放的总量。\n"
+  },
+  "record": "报告把“碳预算”定义为实现一点五度目标前全球还能排放的总量",
+  "sentence": "简报解释说“报告把‘碳预算’定义为实现一点五度目标前全球还能排放的总量”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-nested-20",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "nested-prose",
+  "document": {
+   "name": "田野笔记.md",
+   "text": "# 田野笔记\n\n农民把从东边吹来的干风叫作“灰风”，这时会把羊关在圈里。\n"
+  },
+  "record": "农民把从东边吹来的干风叫作“灰风”",
+  "sentence": "笔记记录了“农民把从东边吹来的干风叫作‘灰风’，这时会把羊关在圈里”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "en-identifier-literal-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "identifier-literal",
+  "document": {
+   "name": "Migration notes.md",
+   "text": "# Migration notes\n\nTo rename the column, run ALTER TABLE orders RENAME COLUMN “status” TO “state”. Stored values such as 'paid' are not changed.\n"
+  },
+  "record": "ALTER TABLE orders RENAME COLUMN “status” TO “state”",
+  "sentence": "The notes rename a column with “ALTER TABLE orders RENAME COLUMN ‘status’ TO ‘state’”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-identifier-literal-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "identifier-literal",
+  "document": {
+   "name": "Cleanup script.md",
+   "text": "# Cleanup script\n\nThe nightly job runs DELETE FROM sessions WHERE “expires_at” < now() and keeps every other row.\n"
+  },
+  "record": "DELETE FROM sessions WHERE “expires_at” < now()",
+  "sentence": "The job compares the text value ‘expires_at’ with the clock, running “DELETE FROM sessions WHERE ‘expires_at’ < now()”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "en-identifier-literal-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "identifier-literal",
+  "document": {
+   "name": "Report query.md",
+   "text": "# Report query\n\nThe dashboard reads SELECT “region”, SUM(amount) FROM sales GROUP BY “region” every hour.\n"
+  },
+  "record": "SELECT “region”, SUM(amount) FROM sales GROUP BY “region”",
+  "sentence": "The dashboard groups sales by the region column: “SELECT ‘region’, SUM(amount) FROM sales GROUP BY ‘region’”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-identifier-literal-04",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "identifier-literal",
+  "document": {
+   "name": "Access rules.md",
+   "text": "# Access rules\n\nAnalysts are granted read access by GRANT SELECT ON “payroll” TO analyst, and nothing more.\n"
+  },
+  "record": "GRANT SELECT ON “payroll” TO analyst",
+  "sentence": "Analysts may write to payroll, as the rule “GRANT SELECT ON ‘payroll’ TO analyst, and nothing more” shows[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "zh-identifier-literal-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "identifier-literal",
+  "document": {
+   "name": "迁移说明.md",
+   "text": "# 迁移说明\n\n重命名列时执行 ALTER TABLE orders RENAME COLUMN “status” TO “state”，已存的值不变。\n"
+  },
+  "record": "ALTER TABLE orders RENAME COLUMN “status” TO “state”",
+  "sentence": "说明用“ALTER TABLE orders RENAME COLUMN ‘status’ TO ‘state’”来重命名一列[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-identifier-literal-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "identifier-literal",
+  "document": {
+   "name": "清理脚本.md",
+   "text": "# 清理脚本\n\n夜间任务执行 DELETE FROM sessions WHERE “expires_at” < now()，其余的行全部保留。\n"
+  },
+  "record": "DELETE FROM sessions WHERE “expires_at” < now()",
+  "sentence": "任务把字符串‘expires_at’和当前时间比较，执行的是“DELETE FROM sessions WHERE ‘expires_at’ < now()”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "zh-identifier-literal-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "identifier-literal",
+  "document": {
+   "name": "报表查询.md",
+   "text": "# 报表查询\n\n看板每小时执行 SELECT “region”, SUM(amount) FROM sales GROUP BY “region”。\n"
+  },
+  "record": "SELECT “region”, SUM(amount) FROM sales GROUP BY “region”",
+  "sentence": "看板按地区列汇总销售额：“SELECT ‘region’, SUM(amount) FROM sales GROUP BY ‘region’”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-identifier-literal-04",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "identifier-literal",
+  "document": {
+   "name": "权限规则.md",
+   "text": "# 权限规则\n\n分析师只获得 GRANT SELECT ON “payroll” TO analyst 这一项读取权限。\n"
+  },
+  "record": "GRANT SELECT ON “payroll” TO analyst",
+  "sentence": "分析师可以修改工资表，规则是“分析师只获得 GRANT SELECT ON ‘payroll’ TO analyst 这一项读取权限”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "en-code-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Deploy guide.md",
+   "text": "# Deploy guide\n\nStart the service with the setting MODE=“safe start” so that no job runs on boot.\n"
+  },
+  "record": "Start the service with the setting MODE=“safe start”",
+  "sentence": "The guide says to “start the service with the setting MODE=‘safe start’ so that no job runs on boot”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-code-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Config reference.md",
+   "text": "# Config reference\n\nThe key “retry limit” is read as a name; its value is the number of attempts, three by default.\n"
+  },
+  "record": "The key “retry limit” is read as a name",
+  "sentence": "The reference says the retry limit is five: “the key ‘retry limit’ is read as a name; its value is the number of attempts, three by default”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "en-code-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Shell tips.md",
+   "text": "# Shell tips\n\nTo print the folder name, type echo “current folder” followed by the pwd command.\n"
+  },
+  "record": "type echo “current folder” followed by the pwd command",
+  "sentence": "The tip is to “type echo ‘current folder’ followed by the pwd command” to print the folder name[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-code-04",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Search syntax.md",
+   "text": "# Search syntax\n\nA phrase in double quotes, such as “annual leave policy”, matches only those words in that order.\n"
+  },
+  "record": "A phrase in double quotes, such as “annual leave policy”",
+  "sentence": "The syntax says that single quotes match a phrase: “a phrase in double quotes, such as ‘annual leave policy’, matches only those words in that order”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "zh-code-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "部署指南.md",
+   "text": "# 部署指南\n\n启动服务时设置 MODE=“safe start”，开机时不会运行任何任务。\n"
+  },
+  "record": "启动服务时设置 MODE=“safe start”",
+  "sentence": "指南要求“启动服务时设置 MODE=‘safe start’，开机时不会运行任何任务”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-code-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "配置说明.md",
+   "text": "# 配置说明\n\n键“retry limit”按名称读取，它的值是重试次数，默认三次。\n"
+  },
+  "record": "键“retry limit”按名称读取",
+  "sentence": "说明里重试次数默认是五次：“键‘retry limit’按名称读取，它的值是重试次数，默认三次”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "zh-code-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "命令技巧.md",
+   "text": "# 命令技巧\n\n要显示文件夹名称，先输入 echo “current folder”，再输入 pwd 命令。\n"
+  },
+  "record": "要显示文件夹名称，先输入 echo “current folder”",
+  "sentence": "技巧是“要显示文件夹名称，先输入 echo ‘current folder’，再输入 pwd 命令”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-code-04",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "搜索语法.md",
+   "text": "# 搜索语法\n\n用双引号括起的短语，例如“annual leave policy”，只匹配按这个顺序出现的这些词。\n"
+  },
+  "record": "用双引号括起的短语，例如“annual leave policy”",
+  "sentence": "语法说单引号用来匹配短语：“用双引号括起的短语，例如‘annual leave policy’，只匹配按这个顺序出现的这些词”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "en-title-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "title",
+  "document": {
+   "name": "Reading list.md",
+   "text": "# Reading list\n\nThe first essay, “Notes on a Quiet Revolution”, was published in 1998 by the university press.\n"
+  },
+  "record": "The first essay, “Notes on a Quiet Revolution”, was published in 1998",
+  "sentence": "The list says “the first essay, ‘Notes on a Quiet Revolution’, was published in 1998 by the university press”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-title-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "title",
+  "document": {
+   "name": "Film notes.md",
+   "text": "# Film notes\n\nThe sequel, “The Long Way Home”, opened in 2004 and ran for eleven weeks.\n"
+  },
+  "record": "The sequel, “The Long Way Home”, opened in 2004",
+  "sentence": "The notes say the original film opened in 2004: “the sequel, ‘The Long Way Home’, opened in 2004 and ran for eleven weeks”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "en-title-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "title",
+  "document": {
+   "name": "Exhibition.md",
+   "text": "# Exhibition\n\nThe second room shows “Harbour at Dawn”, painted in oil on a cedar panel.\n"
+  },
+  "record": "The second room shows “Harbour at Dawn”",
+  "sentence": "The guide states that “the second room shows ‘Harbour at Dawn’, painted in oil on a cedar panel”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-title-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "title",
+  "document": {
+   "name": "书单.md",
+   "text": "# 书单\n\n第一篇文章《安静的革命札记》，即“Notes on a Quiet Revolution”，于一九九八年由大学出版社出版。\n"
+  },
+  "record": "即“Notes on a Quiet Revolution”，于一九九八年由大学出版社出版",
+  "sentence": "书单写道“即‘Notes on a Quiet Revolution’，于一九九八年由大学出版社出版”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-title-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "title",
+  "document": {
+   "name": "电影笔记.md",
+   "text": "# 电影笔记\n\n续集“The Long Way Home”于二〇〇四年上映，连映十一周。\n"
+  },
+  "record": "续集“The Long Way Home”于二〇〇四年上映",
+  "sentence": "笔记说第一部电影于二〇〇四年上映：“续集‘The Long Way Home’于二〇〇四年上映，连映十一周”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "zh-title-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "title",
+  "document": {
+   "name": "展览介绍.md",
+   "text": "# 展览介绍\n\n第二展厅展出油画“黎明的港口”，画在一块雪松木板上。\n"
+  },
+  "record": "第二展厅展出油画“黎明的港口”",
+  "sentence": "介绍写明“第二展厅展出油画‘黎明的港口’，画在一块雪松木板上”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "en-quoted-quote-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "quoted-quote",
+  "document": {
+   "name": "Witness account.md",
+   "text": "# Witness account\n\nThe guard said the driver shouted “stop the gate” twice before the barrier came down.\n"
+  },
+  "record": "the driver shouted “stop the gate” twice",
+  "sentence": "The account says “the guard said the driver shouted ‘stop the gate’ twice before the barrier came down”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-quoted-quote-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "quoted-quote",
+  "document": {
+   "name": "Meeting record.md",
+   "text": "# Meeting record\n\nKim reported that the client wrote “cancel the second order” in an email on Friday.\n"
+  },
+  "record": "the client wrote “cancel the second order” in an email",
+  "sentence": "According to the record, Kim herself wrote it: “Kim reported that the client wrote ‘cancel the second order’ in an email on Friday”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "en-quoted-quote-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "quoted-quote",
+  "document": {
+   "name": "Press review.md",
+   "text": "# Press review\n\nThe editor quoted the minister as saying “no new taxes this year” at the spring conference.\n"
+  },
+  "record": "quoted the minister as saying “no new taxes this year”",
+  "sentence": "The review notes that “the editor quoted the minister as saying ‘no new taxes this year’ at the spring conference”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-quoted-quote-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "quoted-quote",
+  "document": {
+   "name": "证人陈述.md",
+   "text": "# 证人陈述\n\n保安说司机在栏杆落下前两次喊了“把门关上”。\n"
+  },
+  "record": "保安说司机在栏杆落下前两次喊了“把门关上”",
+  "sentence": "陈述称“保安说司机在栏杆落下前两次喊了‘把门关上’”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-quoted-quote-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "quoted-quote",
+  "document": {
+   "name": "会议记录.md",
+   "text": "# 会议记录\n\n金经理汇报说，客户周五在邮件里写了“取消第二笔订单”。\n"
+  },
+  "record": "客户周五在邮件里写了“取消第二笔订单”",
+  "sentence": "记录显示是金经理本人写的：“金经理汇报说，客户周五在邮件里写了‘取消第二笔订单’”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "zh-quoted-quote-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "quoted-quote",
+  "document": {
+   "name": "媒体综述.md",
+   "text": "# 媒体综述\n\n编辑引用部长在春季会议上的话说“今年不加新税”。\n"
+  },
+  "record": "编辑引用部长在春季会议上的话说“今年不加新税”",
+  "sentence": "综述提到“编辑引用部长在春季会议上的话说‘今年不加新税’”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "en-siblings-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "siblings",
+  "document": {
+   "name": "Form fields.md",
+   "text": "# Form fields\n\nThe form asks for “first name” and “last name” on the same line, both required.\n"
+  },
+  "record": "The form asks for “first name” and “last name” on the same line",
+  "sentence": "The spec says “the form asks for ‘first name’ and ‘last name’ on the same line, both required”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-siblings-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "siblings",
+  "document": {
+   "name": "Menu labels.md",
+   "text": "# Menu labels\n\nThe File menu lists “Save as copy” above “Export to PDF” and nothing else.\n"
+  },
+  "record": "The File menu lists “Save as copy” above “Export to PDF”",
+  "sentence": "The labels show Export first: “the File menu lists ‘Save as copy’ above ‘Export to PDF’ and nothing else”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "en-siblings-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "siblings",
+  "document": {
+   "name": "Survey design.md",
+   "text": "# Survey design\n\nEach question offers “strongly agree” and “strongly disagree” at the two ends of the scale.\n"
+  },
+  "record": "Each question offers “strongly agree” and “strongly disagree”",
+  "sentence": "The design states that “each question offers ‘strongly agree’ and ‘strongly disagree’ at the two ends of the scale”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-siblings-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "siblings",
+  "document": {
+   "name": "表单字段.md",
+   "text": "# 表单字段\n\n表单在同一行要求填写“名字”和“姓氏”，两项都必填。\n"
+  },
+  "record": "表单在同一行要求填写“名字”和“姓氏”",
+  "sentence": "规范写着“表单在同一行要求填写‘名字’和‘姓氏’，两项都必填”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-siblings-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "siblings",
+  "document": {
+   "name": "菜单标签.md",
+   "text": "# 菜单标签\n\n文件菜单里“另存副本”排在“导出为 PDF”上面，没有别的项。\n"
+  },
+  "record": "文件菜单里“另存副本”排在“导出为 PDF”上面",
+  "sentence": "标签显示导出在最上面：“文件菜单里‘另存副本’排在‘导出为 PDF’上面，没有别的项”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "zh-siblings-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "siblings",
+  "document": {
+   "name": "问卷设计.md",
+   "text": "# 问卷设计\n\n每道题在量表两端分别给出“非常同意”和“非常不同意”。\n"
+  },
+  "record": "每道题在量表两端分别给出“非常同意”和“非常不同意”",
+  "sentence": "设计说明“每道题在量表两端分别给出‘非常同意’和‘非常不同意’”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "en-possessive-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "possessive",
+  "document": {
+   "name": "Club history.md",
+   "text": "# Club history\n\nThe members’ “open day” was moved from May to June after the floods.\n"
+  },
+  "record": "The members’ “open day” was moved from May to June",
+  "sentence": "The history says “the members’ ‘open day’ was moved from May to June after the floods”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-possessive-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "possessive",
+  "document": {
+   "name": "School report.md",
+   "text": "# School report\n\nThe girls’ “science week” ended with a trip to the observatory in April.\n"
+  },
+  "record": "The girls’ “science week” ended with a trip to the observatory",
+  "sentence": "The report says the boys organised it: “the girls’ ‘science week’ ended with a trip to the observatory in April”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "en-possessive-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "possessive",
+  "document": {
+   "name": "Charity update.md",
+   "text": "# Charity update\n\nThe volunteers’ “winter appeal” raised £12,400 for the shelter this year.\n"
+  },
+  "record": "The volunteers’ “winter appeal” raised £12,400",
+  "sentence": "The update reports that “the volunteers’ ‘winter appeal’ raised £12,400 for the shelter this year”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-possessive-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "possessive",
+  "document": {
+   "name": "俱乐部简史.md",
+   "text": "# 俱乐部简史\n\n洪水之后，the members’ “open day” 从五月改到了六月。\n"
+  },
+  "record": "the members’ “open day” 从五月改到了六月",
+  "sentence": "简史写道“洪水之后，the members’ ‘open day’ 从五月改到了六月”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-possessive-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "possessive",
+  "document": {
+   "name": "学校报告.md",
+   "text": "# 学校报告\n\nthe girls’ “science week” 四月以参观天文台结束。\n"
+  },
+  "record": "the girls’ “science week” 四月以参观天文台结束",
+  "sentence": "报告说这是男生组织的：“the girls’ ‘science week’ 四月以参观天文台结束”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "zh-possessive-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "possessive",
+  "document": {
+   "name": "慈善动态.md",
+   "text": "# 慈善动态\n\n今年 the volunteers’ “winter appeal” 为收容所筹得一万二千四百英镑。\n"
+  },
+  "record": "the volunteers’ “winter appeal” 为收容所筹得一万二千四百英镑",
+  "sentence": "动态报道“今年 the volunteers’ ‘winter appeal’ 为收容所筹得一万二千四百英镑”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-01",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Pump manual.md",
+   "text": "# Pump manual\n\nFit a 6” pipe to the outlet and a 4” hose to the inlet before the first run.\n"
+  },
+  "record": "Fit a 6” pipe to the outlet",
+  "sentence": "The manual says to “fit a 6” pipe to the outlet and a 4” hose to the inlet before the first run”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-02",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Tenancy.md",
+   "text": "# Tenancy\n\nIt’s the tenant’s duty to report a leak within two days of finding it.\n"
+  },
+  "record": "It’s the tenant’s duty to report a leak",
+  "sentence": "The lease says “it’s the tenant’s duty to report a leak within two days of finding it”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-03",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Report.md",
+   "text": "# Report\n\nThe so-called “experts” disagreed about the cause of the outage in March.\n"
+  },
+  "record": "The so-called “experts” disagreed",
+  "sentence": "The report notes that ‘the so-called “experts” disagreed about the cause of the outage in March’[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-04",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Notice.md",
+   "text": "# Notice\n\nThe library closes at 6 pm on weekdays and at noon on Saturdays.\n"
+  },
+  "record": "The library closes at 6 pm on weekdays",
+  "sentence": "The notice says “the library closes at 6 pm on weekdays and at noon on Saturdays”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-05",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Recipe.md",
+   "text": "# Recipe\n\nRest the dough for 20 minutes, then roll it to a 5 mm sheet.\n"
+  },
+  "record": "Rest the dough for 20 minutes",
+  "sentence": "The recipe says to “rest the dough for 20 minutes, then roll it to a 5 mm sheet”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-06",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Coordinates.md",
+   "text": "# Coordinates\n\nThe marker stands at 51°30′26″ N on the north bank of the river.\n"
+  },
+  "record": "The marker stands at 51°30′26″ N",
+  "sentence": "The record says “the marker stands at 51°30′26″ N on the north bank of the river”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-07",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Quote board.md",
+   "text": "# Quote board\n\nShe said “we ship on Friday” and left the room before the vote.\n"
+  },
+  "record": "She said “we ship on Friday”",
+  "sentence": "The board records that “she said ‘we ship on Friday’ and left the room before the vote”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-08",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Library rules.md",
+   "text": "# Library rules\n\nBooks marked 'reference' can't leave the reading room at any time.\n"
+  },
+  "record": "Books marked 'reference' can't leave the reading room",
+  "sentence": "The rules say “books marked 'reference' can't leave the reading room at any time”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-09",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Plan.md",
+   "text": "# Plan\n\nThe team’s “Plan B” starts if the supplier misses the June delivery.\n"
+  },
+  "record": "The team’s “Plan B” starts if the supplier misses",
+  "sentence": "The plan says “the team’s “Plan B” starts if the supplier misses the June delivery”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "en-plain-10",
+  "lang": "en",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "Minutes.md",
+   "text": "# Minutes\n\nThe committee agreed to spend the remaining budget on the roof repairs.\n"
+  },
+  "record": "The committee agreed to spend the remaining budget",
+  "sentence": "The minutes say “the committee agreed to spend the remaining budget on the roof repairs”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-11",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "水泵手册.md",
+   "text": "# 水泵手册\n\n首次运行前，在出水口接6”的管子，在进水口接4”的软管。\n"
+  },
+  "record": "在出水口接6”的管子",
+  "sentence": "手册要求“首次运行前，在出水口接6”的管子，在进水口接4”的软管”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-12",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "租约.md",
+   "text": "# 租约\n\n租户发现漏水后须在两天内报告物业。\n"
+  },
+  "record": "租户发现漏水后须在两天内报告物业",
+  "sentence": "租约规定“租户发现漏水后须在两天内报告物业”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-13",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "报告.md",
+   "text": "# 报告\n\n所谓的“专家”对三月停电的原因意见不一。\n"
+  },
+  "record": "所谓的“专家”对三月停电的原因意见不一",
+  "sentence": "报告指出‘所谓的“专家”对三月停电的原因意见不一’[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-14",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "通知.md",
+   "text": "# 通知\n\n图书馆工作日下午六点闭馆，周六中午闭馆。\n"
+  },
+  "record": "图书馆工作日下午六点闭馆",
+  "sentence": "通知写着“图书馆工作日下午六点闭馆，周六中午闭馆”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-15",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "食谱.md",
+   "text": "# 食谱\n\n面团静置二十分钟，再擀成五毫米厚的面皮。\n"
+  },
+  "record": "面团静置二十分钟，再擀成五毫米厚的面皮",
+  "sentence": "食谱说“面团静置二十分钟，再擀成五毫米厚的面皮”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-16",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "坐标.md",
+   "text": "# 坐标\n\n标志位于北纬51°30′26″的河北岸。\n"
+  },
+  "record": "标志位于北纬51°30′26″的河北岸",
+  "sentence": "记录写明“标志位于北纬51°30′26″的河北岸”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-17",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "留言板.md",
+   "text": "# 留言板\n\n她说“我们周五发货”，然后在表决前离开了会议室。\n"
+  },
+  "record": "她说“我们周五发货”",
+  "sentence": "留言板记录“她说‘我们周五发货’，然后在表决前离开了会议室”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-18",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "借阅规则.md",
+   "text": "# 借阅规则\n\n标有「参考」的图书任何时候都不得带出阅览室。\n"
+  },
+  "record": "标有「参考」的图书任何时候都不得带出阅览室",
+  "sentence": "规则写着“标有「参考」的图书任何时候都不得带出阅览室”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-19",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "预案.md",
+   "text": "# 预案\n\n若供应商错过六月交货，团队的「乙方案」随即启动。\n"
+  },
+  "record": "若供应商错过六月交货，团队的「乙方案」随即启动",
+  "sentence": "预案规定“若供应商错过六月交货，团队的「乙方案」随即启动”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "zh-plain-20",
+  "lang": "zh",
+  "kind": "plain",
+  "family": "no-nested",
+  "document": {
+   "name": "会议纪要.md",
+   "text": "# 会议纪要\n\n委员会同意把剩余预算用于屋顶维修。\n"
+  },
+  "record": "委员会同意把剩余预算用于屋顶维修",
+  "sentence": "纪要写道“委员会同意把剩余预算用于屋顶维修”[^1]。",
+  "claimTrue": true
+ }
+]
