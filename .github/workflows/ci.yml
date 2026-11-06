@@ -564,7 +564,8 @@ jobs:
           name: smoke-test-results-linux-${{ matrix.shard }}
           path: test-results/
           retention-days: 7
-      # The feel check's report and video of each flow, to look at frame by frame (#1242).
+      # The feel check's report and video of each flow, to look at frame by frame (#1242), and
+      # the no-keyring sign-in notice a Linux run can photograph.
       - name: Upload the feel check's videos
         if: always()
         uses: actions/upload-artifact@v7
@@ -573,6 +574,7 @@ jobs:
           path: |
             test-results/feel/*.mp4
             test-results/feel/*.md
+            test-results/feel/*.png
             test-results/feel/*.unseen.txt
           if-no-files-found: ignore
           retention-days: 14
