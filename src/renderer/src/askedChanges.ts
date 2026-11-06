@@ -20,6 +20,7 @@ import type {
   AskedChangeTransition,
   ConversationAnswer,
   ConversationMessage,
+  TabItem,
 } from "../../core/api";
 import { askedFor } from "../../shared/askedChanges";
 import {
@@ -34,12 +35,14 @@ import {
   undoCoreChange,
 } from "./appliedEdits";
 import { arrivingInMind, arrivingNow } from "./arrivingChanges";
+import { forgetMindsMadeBy } from "./assistantMinds";
 import { type ChangedMind, changedMinds } from "./changedMinds";
 import { changeFact } from "./changeFacts";
 import { core } from "./core";
 import type { FollowedSteps } from "./editor/editorUndo";
 import { mindEditor, onMindEditorOpen, whenMindEditor } from "./editor/openEditors";
 import { applyingIn, editorDoc, setApplying } from "./editor/proposalReview";
+import { currentTabOf, sameTabItem } from "./layoutSlice";
 import { useAppStore } from "./store";
 import { answerUndoPlace, type Undoable, UndoRefused, undoSettled, useUndo } from "./undo";
 
@@ -97,6 +100,8 @@ interface HeadlessChange {
 
 const asked = new Map<string, Asked>();
 const askedHere = new Set<string>();
+/** By Answer: the place in front when this window asked for it (#2572). */
+const askedFromHere = new Map<string, TabItem | null>();
 const finishing = new Map<string, Promise<unknown>>();
 const recovering = new Set<string>();
 const catchingUp = new Map<string, () => void>();
@@ -329,13 +334,16 @@ async function makeWayForAnswer(
 }
 
 /** An Answer this window has just asked for: what it was asked to write or change applies here. */
-export function applyWhatIsAsked(answerId: string): void {
+export function applyWhatIsAsked(answerId: string, askedFromItem: TabItem | null): void {
   askedHere.add(answerId);
+  askedFromHere.set(answerId, askedFromItem);
   syncArriving();
 }
 
 /** An Answer this window asked for that nothing will be written for: nothing of it is on its way. */
 export function applyNotAsked(answerId: string): void {
+  forgetMindsMadeBy(answerId);
+  askedFromHere.delete(answerId);
   if (!askedHere.delete(answerId)) return;
   syncArriving();
 }
@@ -348,9 +356,13 @@ export function applyNotAsked(answerId: string): void {
  */
 export async function applyWhatWasAsked(
   answerId: string,
-  { keepWritten = false } = {},
+  {
+    keepWritten = false,
+    askedFromItem,
+  }: { keepWritten?: boolean; askedFromItem?: TabItem | null } = {},
 ): Promise<void> {
   askedHere.add(answerId);
+  askedFromHere.set(answerId, askedFromItem ?? null);
   syncArriving();
   await undoSettled();
   const pending = finishing.get(answerId);
@@ -498,8 +510,9 @@ function follow(row: ChangedMind): void {
 const finish = (answer: ConversationAnswer): Promise<unknown> => {
   const rows = changedMinds(answer);
   const made = rows.some((row) => row.created);
+  const askedFrom = askedFromHere.get(answer.id) ?? null;
   const task = Promise.allSettled(
-    rows.map((row) => finishIn(answer, row, made && !row.created)),
+    rows.map((row) => finishIn(answer, row, { made, created: row.created, askedFrom })),
   ).then((results) => {
     for (const result of results) {
       if (result.status === "rejected") useAppStore.getState().reportError(result.reason);
@@ -516,7 +529,7 @@ const finish = (answer: ConversationAnswer): Promise<unknown> => {
 async function finishIn(
   answer: ConversationAnswer,
   row: ChangedMind,
-  behind: boolean,
+  { made, created, askedFrom }: { made: boolean; created: boolean; askedFrom: TabItem | null },
 ): Promise<void> {
   const editor = mindEditor(row.mindId);
   if (!editor) {
@@ -548,6 +561,12 @@ async function finishIn(
     };
     asked.set(keyOf(answer.id, row.mindId), each);
     setOutcome(each, application.held ? "held" : "applied", application.accepted);
+    // A made Note comes to the front only when the User is still where they asked from (#2572).
+    const stillThere = sameTabItem(
+      currentTabOf(useAppStore.getState().layout)?.item ?? null,
+      askedFrom,
+    );
+    const behind = made && (!created || !stillThere);
     if (!(await openBeside(row.mindId, behind))) return;
     const opened = behind ? mindEditor(row.mindId) : await whenMindEditor(row.mindId, OPEN_WAIT_MS);
     // Undone on the card while the Note opened, and that Undo's entry gone since with a newer
@@ -732,5 +751,6 @@ core.on("conversation.message", (message) => {
   if (answer.status === "streaming") return;
   askedHere.delete(answer.id);
   syncArriving();
-  finish(answer).catch(useAppStore.getState().reportError);
+  void finish(answer).catch(useAppStore.getState().reportError);
+  askedFromHere.delete(answer.id);
 });

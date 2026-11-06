@@ -13,6 +13,8 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   CALCULATED_FIGURE_NODE,
   CHART_NODE,
   CITATION_NODE,
@@ -22,8 +24,14 @@ import {
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
 import {
+  type AnalysisTableShown,
+  columnEarns,
+  tableNeedsLook,
+} from "../../../shared/analysisTables";
+import {
   chartCheckText,
   chartPoints,
+  fromAnalysisOnly,
   givesValue,
   gridOfTable,
   readChart,
@@ -37,11 +45,13 @@ import {
   keptOn,
   supportedByOwnNotesOnly,
 } from "../../../shared/claimChecks";
+import { ANALYSIS_REASONS } from "../../../shared/figureChecks";
+import { readTableBinding } from "../../../shared/figureRuns";
 import { readFigures } from "../../../shared/figures";
 import { memoized } from "../../../shared/memo";
 import { sentenceKey } from "../../../shared/mindCheck";
 import { readProposalAttribute } from "../../../shared/proposals";
-import { isClaim } from "../../../shared/sentences";
+import { INLINE_NODE, isClaim, onlyNamesItsTable } from "../../../shared/sentences";
 import { claimPlaces, keptSpans, markOf, type ShownClaim, shownClaims } from "./claimChecks";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
@@ -84,6 +94,11 @@ export interface NoteHealth {
   failed: number[];
   /** The failed checks running again cannot settle: a Citation kept inside another Folder. */
   uncheckable: number[];
+  /**
+   * The sentences whose figure an Analysis gave and IncarnaMind couldn't work out again (#2378):
+   * no check can change them, so they never hold the Note back from Checked.
+   */
+  notRecalculated: number[];
   recheck: number[];
   /** The rechecks a change to their sentence made, which a check of it can settle. */
   edited: number[];
@@ -130,10 +145,17 @@ export interface SentenceInput {
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
   omitted?: readonly KeptMark[];
+  /** Whether the Note keeps the run a bound table names; one it lost is counted as a typed table. */
+  tableKept?: (table: ProseMirrorNode) => boolean;
 }
 
 export interface NoteHealthInput extends SentenceInput {
   citationCheck: (attributes: CitationAttributes) => CitationCheck;
+  /**
+   * What an Analysis's own table shows (#2378): it needs a look once, as one figure; a column not
+   * recalculated counts as one figure not recalculated; one worked out again is a verdict earned.
+   */
+  tableShown?: (table: ProseMirrorNode) => AnalysisTableShown | null;
 }
 
 /** One sentence a check reads, where it is and how it counts. */
@@ -177,18 +199,48 @@ function inValueCell(doc: ProseMirrorNode, pos: number): boolean {
   return false;
 }
 
+/** A line's text as the core's check reads it: an inline node as U+FFFC, a line break as "\n". */
+const lineText = (paragraph: ProseMirrorNode): string =>
+  paragraph.textBetween(0, paragraph.content.size, "\n", (leaf) =>
+    leaf.type.name === "hardBreak" ? "\n" : INLINE_NODE,
+  );
+
+const holdsTableMarker = (paragraph: ProseMirrorNode): boolean => {
+  let holds = false;
+  paragraph.forEach((child) => {
+    if (child.type.name === ANALYSIS_TABLE_NODE) holds = true;
+  });
+  return holds;
+};
+
 function eachSentence(
   doc: ProseMirrorNode,
   input: SentenceInput,
   visit: (place: SentencePlace) => void,
+  visitTable?: (table: ProseMirrorNode, pos: number) => void,
 ): void {
   const skipped = input.skipped ?? new Set<string>();
   const kept = input.kept ?? [];
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
+    // An Analysis's own table and its caption are its run's, never sentences to check (#2378).
+    if (
+      node.type.name === "table" &&
+      readTableBinding(node.attrs[ANALYSIS_TABLE_ATTRIBUTE]) &&
+      (input.tableKept?.(node) ?? true)
+    ) {
+      visitTable?.(node, pos);
+      return false;
+    }
+    if (
+      node.type.name === "paragraph" &&
+      holdsTableMarker(node) &&
+      onlyNamesItsTable(lineText(node))
+    )
+      return false;
     if (node.type.name === CHART_NODE) {
       const chart = readChart(node.attrs);
-      if (chartPoints(chart).length === 0) return false;
+      if (chartPoints(chart).length === 0 || fromAnalysisOnly(chart)) return false;
       const text = chartCheckText(chart);
       const from = pos;
       const to = pos + node.nodeSize;
@@ -267,6 +319,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     toCheck: [],
     failed: [],
     uncheckable: [],
+    notRecalculated: [],
     recheck: [],
     edited: [],
     checking: [],
@@ -280,71 +333,97 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     unexamined: [],
   };
   const unexamined = input.unexamined ?? new Set<string>();
-  eachSentence(doc, input, ({ from, text, claim, citations, inTable: table, state, kind }) => {
-    const missing: number[] = [];
-    for (const citation of citations) {
-      const check = input.citationCheck(citation.attributes);
-      if (check === "found") health.found.push(citation.pos);
-      else if (check === "not-found") {
-        health.notFound.push(citation.pos);
-        missing.push(citation.pos);
+  eachSentence(
+    doc,
+    input,
+    ({ from, text, claim, citations, inTable: table, state, kind }) => {
+      const missing: number[] = [];
+      for (const citation of citations) {
+        const check = input.citationCheck(citation.attributes);
+        if (check === "found") health.found.push(citation.pos);
+        else if (check === "not-found") {
+          health.notFound.push(citation.pos);
+          missing.push(citation.pos);
+        }
       }
-    }
-    if (state.kind === "to-check") {
-      health.checkable++;
-      health.toCheck.push(from);
-      if (state.why === "failed") {
-        health.failed.push(from);
-        if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
-      } else if (state.why === "recheck") {
-        health.recheck.push(from);
-        // An edit marks a check that ran and would still hold with its own words; one that never
-        // ran, or whose Document changed since, stays Not checked in the headline (#2313).
-        if (
-          claim?.shown.state === "needs-recheck" &&
-          claim.shown.why === "edited" &&
-          RAN.has(claim.check.state) &&
-          claim.holdsWithItsText === true
-        )
-          health.edited.push(from);
+      if (state.kind === "to-check") {
+        health.checkable++;
+        health.toCheck.push(from);
+        if (state.why === "failed") {
+          health.failed.push(from);
+          if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
+          if (claim?.shown.state === "not-checked" && ANALYSIS_REASONS.has(claim.shown.reason))
+            health.notRecalculated.push(from);
+        } else if (state.why === "recheck") {
+          health.recheck.push(from);
+          // An edit marks a check that ran and would still hold with its own words; one that never
+          // ran, or whose Document changed since, stays Not checked in the headline (#2313).
+          if (
+            claim?.shown.state === "needs-recheck" &&
+            claim.shown.why === "edited" &&
+            RAN.has(claim.check.state) &&
+            claim.holdsWithItsText === true
+          )
+            health.edited.push(from);
+        }
+        if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
+        if (table) health.tableCells.push(from);
+        return;
       }
-      if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
-      if (table) health.tableCells.push(from);
-      return;
-    }
-    if (state.kind === "kept") {
-      health.kept.push(from);
-      return;
-    }
-    if (state.kind === "checking") {
+      if (state.kind === "kept") {
+        health.kept.push(from);
+        return;
+      }
+      if (state.kind === "checking") {
+        health.checkable++;
+        health.checking.push(from);
+        return;
+      }
+      if (state.kind !== "covered" || !claim) return;
       health.checkable++;
-      health.checking.push(from);
-      return;
-    }
-    if (state.kind !== "covered" || !claim) return;
-    health.checkable++;
-    const checkedAt = claim.check.checkedAt;
-    if (
-      checkedAt !== "" &&
-      !Number.isNaN(Date.parse(checkedAt)) &&
-      (health.checkedAt === null || Date.parse(checkedAt) > Date.parse(health.checkedAt))
-    ) {
-      health.checkedAt = checkedAt;
-    }
-    const unsupported = markOf(claim) === "unsupported";
-    const contradicted = claim.shown.state === "contradicted";
-    if (unsupported) health.unsupported.push(from);
-    else if (contradicted) health.contradicted.push(from);
-    else {
-      health.supported++;
-      if (kind !== "chart" && supportedByOwnNotesOnly(claim.check)) health.ownNotes.push(from);
-      if (kind !== "chart" && isClaim(text) && citations.length === 0) health.noCitation.push(from);
-    }
-    if (unsupported || contradicted || missing.length > 0) {
-      health.lookClaims.push(from);
-      health.lookNotFound.push(...missing);
-    }
-  });
+      const checkedAt = claim.check.checkedAt;
+      if (
+        checkedAt !== "" &&
+        !Number.isNaN(Date.parse(checkedAt)) &&
+        (health.checkedAt === null || Date.parse(checkedAt) > Date.parse(health.checkedAt))
+      ) {
+        health.checkedAt = checkedAt;
+      }
+      const unsupported = markOf(claim) === "unsupported";
+      const contradicted = claim.shown.state === "contradicted";
+      if (unsupported) health.unsupported.push(from);
+      else if (contradicted) health.contradicted.push(from);
+      else {
+        health.supported++;
+        if (kind !== "chart" && supportedByOwnNotesOnly(claim.check)) health.ownNotes.push(from);
+        if (kind !== "chart" && isClaim(text) && citations.length === 0)
+          health.noCitation.push(from);
+      }
+      if (unsupported || contradicted || missing.length > 0) {
+        health.lookClaims.push(from);
+        health.lookNotFound.push(...missing);
+      }
+    },
+    (table, pos) => {
+      const shown = input.tableShown?.(table);
+      if (!shown) return;
+      const { kind } = shown.state;
+      if (kind === "kept-inside" || kind === "unavailable") return;
+      health.checkable++;
+      if (tableNeedsLook(shown)) {
+        health.lookClaims.push(pos);
+        return;
+      }
+      const unearned = shown.columns.filter((column) => !columnEarns(column)).length;
+      if (shown.columns.length > unearned) health.supported++;
+      for (let at = 0; at < unearned; at++) {
+        health.toCheck.push(pos);
+        health.failed.push(pos);
+        health.notRecalculated.push(pos);
+      }
+    },
+  );
+  health.lookClaims.sort((a, b) => a - b);
   return health;
 }
 
