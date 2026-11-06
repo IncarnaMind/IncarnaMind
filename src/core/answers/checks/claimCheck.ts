@@ -556,6 +556,8 @@ const calculatesIn = (model: Pick<PreparedChatModel, "support" | "capabilities">
 export type CheckStart = Pick<ClaimCheckRequest, "claim" | "context" | "cited" | "figures"> & {
   /** Its first turn names the sentence's parts (`ClaimCheckRequest.findParts`). */
   findsParts?: boolean;
+  /** It may show the Library's facts (`ClaimCheckRequest.searched`), so it sorts as their checks do. */
+  library?: boolean;
 };
 
 /** A check Run's instructions, for the way its model gives Citations, and its prompt. */
@@ -569,6 +571,7 @@ function runStart(request: CheckStart, language: Language, calculating: boolean)
         calculating,
         (request.figures?.length ?? 0) > 0,
         request.findsParts === true,
+        request.library === true,
       ),
     prompt: (citedShown: string | null) => claimPrompt({ ...request, citedShown, language }),
   };
@@ -1111,7 +1114,11 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
     let failed: ProviderError | null = null;
     let finished = false;
     const start = runStart(
-      { ...request, findsParts: request.findParts !== undefined },
+      {
+        ...request,
+        findsParts: request.findParts !== undefined,
+        library: deps.libraryFacts !== undefined,
+      },
       deps.language(),
       calculating,
     );

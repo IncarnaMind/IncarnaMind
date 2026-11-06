@@ -60,6 +60,8 @@ interface Plan {
   quote?: string;
   /** For a sentence with figures, the words each figure is bound to, cited second; `quote` when absent. */
   figureQuote?: string;
+  /** The number of those words each figure is bound to; their first number when absent. */
+  figureNumber?: string;
   /** What its Library line names; no line when null; "none" when absent. */
   line?: string | null;
   says?: string;
@@ -133,7 +135,7 @@ function libraryModel(plans: Record<string, Plan>, calls: ModelCall[], inventory
       if (figures.length > 0) {
         const bound = plan.figureQuote ?? quote;
         const marker = plan.figureQuote ? 2 : 1;
-        const number = bound?.match(/\d+/)?.[0];
+        const number = plan.figureNumber ?? bound?.match(/\d+/)?.[0];
         const items = figures.map(({ id, reading }) => ({
           id,
           verdict: number ? plan.verdict : "unsupported",
@@ -746,6 +748,29 @@ describe.each(["en", "zh-CN"] as const)("a name with digits in it (%s)", (langua
     );
     const { check } = await checkInNote(setup.core, sentence);
     expect(setup.factsSent()).toContain(`Documents named “${name}”: 2`);
+    expect(check.state).not.toBe("contradicted");
+  });
+
+  // protects=a name's number the judge compares with a count is no count, so it is never Contradicted by one; fails_when="You keep Ledger 0007 in your Library." reads Contradicted because 0007 isn't 2.
+  test("a name's number compared with a count is never contradicted by it", async () => {
+    const name = zh ? "档案 0007" : "Ledger 0007";
+    const sentence = zh
+      ? `你在资料库里保存了 ${name} 这个文件。`
+      : `You keep ${name} in your Library.`;
+    const setup = await setUp(
+      twins(name),
+      {
+        [sentence]: {
+          verdict: "contradicted",
+          quote: `Documents named “${name}”: 2`,
+          figureNumber: "2",
+          line: "name",
+        },
+      },
+      language,
+    );
+    const { check } = await checkInNote(setup.core, sentence);
+    expect(setup.calls.some((call) => requestedFigures(call).length > 0)).toBe(true);
     expect(check.state).not.toBe("contradicted");
   });
 

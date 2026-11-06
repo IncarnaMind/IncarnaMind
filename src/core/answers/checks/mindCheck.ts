@@ -221,6 +221,7 @@ export function createMindCheck(options: MindCheckOptions) {
         })),
         "own",
         signal,
+        true,
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
