@@ -79,7 +79,7 @@ A file someone else wrote, with their tracked insertion and their comment on a c
 
 A Mind of to-dos (nested, one done, one empty) is exported to Word, opened in LibreOffice and imported again: its nesting is the indent, and every box and its text comes back as text, not a to-do, since Word has no to-do.
 
-LibreOffice is found as `INCARNAMIND_SOFFICE`, then `soffice`, then `libreoffice` on the PATH. When it isn't there the LibreOffice steps are skipped and say so, unless `INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1`, which CI sets: then a missing LibreOffice fails the run.
+LibreOffice is found as `INCARNAMIND_SOFFICE`, then `soffice`, then `libreoffice` on the PATH. When it isn't there the LibreOffice steps are skipped and say so, unless `INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1`: then a missing LibreOffice fails the run.
 
 An input package that is known to fail inspection is marked `known` with the reason in `sources.json` (or `extended.json`); its package failure is reported and does not fail the run. Feature-metadata drift, import, export and LibreOffice failures still fail the run, including for a file with a known input-package defect.
 
