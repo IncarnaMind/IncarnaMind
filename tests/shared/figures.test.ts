@@ -1650,11 +1650,6 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("人民币六万四千元", 64000, { unit: "CNY" }), f("¥64,000", 64000, { unit: "CNY" })],
     ],
     [
-      "The loss was sixty-four thousand dollars ($64,000)",
-      EN,
-      [f("$64,000", 64000, { unit: "USD" })],
-    ],
-    [
       "本期收入人民币六万四千元（¥64,000）",
       ZH,
       [f("人民币六万四千元", 64000, { unit: "CNY" }), f("¥64,000", 64000, { unit: "CNY" })],
@@ -1805,11 +1800,6 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
     ],
     [
-      "实行自负盈亏的项目预算为人民币六万二千元（¥62,000）",
-      ZH,
-      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
-    ],
-    [
       "由乙方负担的费用为人民币六万二千元（¥62,000）",
       ZH,
       [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
@@ -1848,6 +1838,46 @@ describe("a bracket right after an amount (#2341)", () => {
       "A minuscule share of the fund, sixty-two thousand dollars ($62,000.00), was paid out.",
       EN,
       [f("$62,000.00", 62000, { unit: "USD" })],
+    ],
+    [
+      "Income statement\nRevenue $1.2m ($1,200,000)",
+      EN,
+      [f("$1.2m", 1200000, { unit: "USD", scale: "m" }), f("$1,200,000", 1200000, { unit: "USD" })],
+    ],
+    [
+      "Revenue $1.2m ($1,200,000)",
+      { ...EN, header: "Revenue" },
+      [f("$1.2m", 1200000, { unit: "USD", scale: "m" }), f("$1,200,000", 1200000, { unit: "USD" })],
+    ],
+    [
+      "利润表\n营业收入 2.5万 （25,000）",
+      ZH,
+      [f("2.5万", 25000, { scale: "万" }), f("25,000", 25000)],
+    ],
+    [
+      "The lease runs from 1 March 2026 to 28 February 2027.\nThe rent is $1.2m ($1,200,000).",
+      EN,
+      [f("$1.2m", 1200000, { unit: "USD", scale: "m" }), f("$1,200,000", 1200000, { unit: "USD" })],
+    ],
+    [
+      "The rent shall be not less than sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("$62,000.00", 62000, { unit: "USD" })],
+    ],
+    [
+      "幸亏账户余额充足，租金人民币六万二千元（¥62,000）已付。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "多亏及时还款，账户余额人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
+    ],
+    [
+      "投资风险自负，认购金额为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("¥62,000", 62000, { unit: "CNY" })],
     ],
     [
       `Cash came to sixty-two thousand dollars ($62,000.00). ${"x".repeat(389)} negative`,
@@ -2778,6 +2808,136 @@ describe("a bracket right after an amount (#2341)", () => {
       "本月亏了人民币六万二千元（¥62,000）。",
       ZH,
       [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "Income statement\n 2025 2024\nRevenue $1.2m ($1,200,000)",
+      EN,
+      [
+        f("$1.2m", 1200000, { unit: "USD", scale: "m" }),
+        f("($1,200,000)", -1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "Balance sheet\nItem 31 December 2025 31 December 2024\nCash $1.2m ($1,200,000)",
+      EN,
+      [
+        f("$1.2m", 1200000, { unit: "USD", scale: "m" }),
+        f("($1,200,000)", -1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "Revenue $1.2m ($1,200,000)",
+      { ...EN, header: "2025 2024" },
+      [
+        f("$1.2m", 1200000, { unit: "USD", scale: "m" }),
+        f("($1,200,000)", -1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "利润表\n项目 本期 上期\n营业收入 2.5万 （25,000）",
+      ZH,
+      [f("2.5万", 25000, { scale: "万" }), f("（25,000）", -25000)],
+    ],
+    [
+      "营业收入 2.5万 （25,000）",
+      { ...ZH, header: "本期 上期" },
+      [f("2.5万", 25000, { scale: "万" }), f("（25,000）", -25000)],
+    ],
+    [
+      "The loss was sixty-four thousand dollars ($64,000)",
+      EN,
+      [f("($64,000)", -64000, { unit: "USD" })],
+    ],
+    [
+      "实行自负盈亏的项目预算为人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "The net loss for the period came to sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Losses on disposal: sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The funding deficit was sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Rent of sixty-two thousand dollars ($62,000.00), less the deposit.",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "The invoice, after deducting a discount, came to sixty-two thousand dollars ($62,000.00).",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "Less:\nDeposit paid sixty-two thousand dollars ($62,000.00)",
+      EN,
+      [f("($62,000.00)", -62000, { unit: "USD" })],
+    ],
+    [
+      "减：\n已付定金人民币六万二千元（¥62,000）",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "本期贸易逆差为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "项目资金缺口人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "资产损失合计为人民币六万二千元（¥62,000）。",
+      ZH,
+      [f("人民币六万二千元", 62000, { unit: "CNY" }), f("（¥62,000）", -62000, { unit: "CNY" })],
+    ],
+    [
+      "Income statement\nFY2025 FY2024\nRevenue $1.2m ($1,200,000)",
+      EN,
+      [
+        f("$1.2m", 1200000, { unit: "USD", scale: "m" }),
+        f("($1,200,000)", -1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "Income statement\nItem Current year Prior year\nRevenue $1.2m ($1,200,000)",
+      EN,
+      [
+        f("$1.2m", 1200000, { unit: "USD", scale: "m" }),
+        f("($1,200,000)", -1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "利润表\n项目 2025年度 2024年度\n营业收入 2.5万 （25,000）",
+      ZH,
+      [f("2.5万", 25000, { scale: "万" }), f("（25,000）", -25000)],
+    ],
+    [
+      "利润表\n项目 本年 上年\n营业收入 2.5万 （25,000）",
+      ZH,
+      [f("2.5万", 25000, { scale: "万" }), f("（25,000）", -25000)],
+    ],
+    [
+      "资产负债表\n项目 期末 期初\n货币资金 2.5万 （25,000）",
+      ZH,
+      [f("2.5万", 25000, { scale: "万" }), f("（25,000）", -25000)],
+    ],
+    [
+      "资产负债表\n项目 年末 年初\n货币资金 2.5万 （25,000）",
+      ZH,
+      [f("2.5万", 25000, { scale: "万" }), f("（25,000）", -25000)],
     ],
     [
       "Despite a negative outlook, the rent is sixty-two thousand dollars ($62,000.00).",
