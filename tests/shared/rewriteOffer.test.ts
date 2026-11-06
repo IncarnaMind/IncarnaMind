@@ -29,6 +29,19 @@ describe("Rewrite is offered", () => {
     ["The grant was 500.", "The grant was in ２０２５.", false],
     ["The fee is $1,800.", "The fee is $2025.", true],
     ["The track is 1800 m long.", "The track is 2025 m long.", true],
+    [
+      "The grant was paid 500 under the scheme.",
+      "The grant was paid in 2025 under the scheme.",
+      false,
+    ],
+    ["预算期为 3 会计年度。", "预算期为 2025 会计年度。", false],
+    ["The grant was 500 pending approval.", "The grant was in 2025 pending approval.", false],
+    [
+      "The grant was paid 500 shortly after approval.",
+      "The grant was paid in 2025 shortly after approval.",
+      false,
+    ],
+    ["The pipe is 1100 in long.", "The pipe is 2025 in long.", true],
   ])("for %s from %s: %s", (sentence, quote, offered) => {
     expect(mayRewrite(sentence, quote)).toBe(offered);
   });

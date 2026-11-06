@@ -329,31 +329,46 @@ const figuresAt = (text: string): { at: number; end: number; period: boolean }[]
 
 /** A currency before a figure: the mark of an amount whose digits may look like a year. */
 const AMOUNT_BEFORE = /(?:[$€£¥₹₩₽]|\b(?:usd|eur|gbp|cny|rmb|jpy|hkd|aud|cad|sgd|chf))\s*$/iu;
-/** Words just after a figure that are prose or a calendar's, not its unit: "2025 after approval". */
-const NOT_A_UNIT = new Set([
-  ...FUNCTION_WORDS,
-  ..."after before when while if unless until till since upon following during through onwards onward ago later earlier then but so fiscal financial calendar year years quarter half month".split(
+/** The units a year-shaped figure is measured in, after it: "2025 square feet", "2021 kg". */
+const UNITS = new Set(
+  [
+    "square sq feet foot ft inch inches yard yards yd mile miles metre metres meter meters m km cm mm",
+    "kilometre kilometres kilometer kilometers m2 km2 ft2 m3 sqm sqft acre acres hectare hectares ha",
+    "kg g gram grams kilogram kilograms lb lbs pound pounds ton tons tonne tonnes t oz ounce ounces",
+    "l litre litres liter liters ml gallon gallons kwh kw mw mwh gb mb tb",
+    "people persons person staff employees workers users customers members units items pieces copies",
+    "shares seats rooms beds cars vehicles households homes students patients visitors guests",
+    "words pages hours minutes seconds days weeks nights times points percent per",
+    "dollars dollar euros euro yen yuan pounds cents",
+  ]
+    .join(" ")
+    .split(" "),
+);
+/** "2025 in long": inches, not "in 2025", only before a dimension. */
+const INCHES = /^\s*in\s+(?:long|wide|high|tall|deep|thick|across)\b/iu;
+const HAN_UNITS = [
+  ..."平方米 平方公里 平米 公里 千米 厘米 毫米 公顷 公斤 千克 毫升 小时 分钟 美元 欧元 英镑 日元 港元 人民币 人次".split(
     " ",
   ),
-]);
-/** Characters just after a figure that make it a time: 2025 年, 2025 财年, 2025 以后, 2025 年底. */
-const TIME_AFTER_HAN = new Set([..."年月季财度期前后之以起至到上下底初末中"]);
+  ..."元人名位个件台辆套间户家张份本次项株头只条米亩克吨斤升秒天页字股座床席块瓶箱袋包",
+];
 
 /**
  * Whether the line's one figure is a period, which no rewrite writes for another figure: a figure
  * that reads as a year ("2025", full-width digits too) is one unless it carries a measure's mark,
- * a currency before it or a unit after it ("$2025", "2025 square feet", "2025 m", 2020 人).
- * Nothing after it, prose ("in 2025 after approval") or a calendar's word (2025 财年, "2025
- * fiscal year") keeps it a period.
+ * a currency before it or a known unit after it ("$2025", "2025 square feet", "2025 m", "2025 in
+ * long", 2020 人). Any other word after it ("in 2025 under the scheme", 2025 会计年度), or none,
+ * keeps it a period, so a word the lists don't know never makes a year an amount.
  */
 export function givesAPeriod(quote: string): boolean {
   const text = quote.normalize("NFKC");
   const [figure] = figuresAt(text);
   if (!figure?.period || AMOUNT_BEFORE.test(text.slice(0, figure.at))) return false;
-  const next = /^\s*(\p{Script=Han}+|[^\s\p{P}]+)/u.exec(text.slice(figure.end))?.[1];
-  if (next === undefined) return true;
-  if (/^\p{Script=Han}/u.test(next)) return TIME_AFTER_HAN.has(next[0] ?? "");
-  return NOT_A_UNIT.has(next.toLowerCase());
+  const after = text.slice(figure.end);
+  const han = /^\s*(\p{Script=Han}+)/u.exec(after)?.[1];
+  if (han !== undefined) return !HAN_UNITS.some((unit) => han.startsWith(unit));
+  const word = /^\s*([^\s\p{P}]+)/u.exec(after)?.[1]?.toLowerCase();
+  return !(word !== undefined && UNITS.has(word)) && !INCHES.test(after);
 }
 
 /** The numbers `text` writes outside `at` to `end`, which a rewrite there leaves as they are. */
