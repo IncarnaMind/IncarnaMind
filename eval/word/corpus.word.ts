@@ -57,7 +57,7 @@ interface Step {
 }
 
 const soffice = findLibreOffice();
-/** Where to keep a PDF of each edited export, for a person to look at (CI uploads them). */
+/** Where to keep a PDF of each edited export, for a person to look at. */
 const keepPdfs = process.env.INCARNAMIND_WORD_PDFS;
 const required = process.env.INCARNAMIND_WORD_REQUIRE_LIBREOFFICE === "1";
 const wanted = process.env.INCARNAMIND_WORD_SET ?? "core";
