@@ -14,6 +14,7 @@ import {
   pointAndClick,
   removeDataFolder,
   setWindowSize,
+  showAssistant,
   useLocalChatModel,
 } from "./app";
 
@@ -51,6 +52,7 @@ async function askAboutTides(window: Page) {
 
 /** Hovers the Citation and chooses Open in its card, as a person does. */
 async function openThePage(window: Page, chip: Locator) {
+  await showAssistant(window);
   await chip.hover();
   await window.getByTestId("citation-card").getByTestId("citation-open").click();
   await expect(window.getByTestId("citation-card")).toHaveCount(0);

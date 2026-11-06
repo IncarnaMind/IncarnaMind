@@ -1,6 +1,7 @@
 import type { CitationAttributes, CitationCheck, CitationCheckReason } from "../../core/api";
 import { citationState, quoteStanding } from "../../shared/citations";
 import { citationLocation, formatLocation } from "../../shared/locations";
+import { citationPageOpened } from "./assistantYields";
 import { type CitedSource, useComposer } from "./composer";
 import { core } from "./core";
 import { translateNow } from "./i18n";
@@ -66,7 +67,7 @@ export function openCited(
     : previous && sourceIsUsable(previous, useAppStore.getState())
       ? { ...previous, documentId: citation.documentId }
       : null;
-  useAppStore.getState().openDocument(
+  const opened = useAppStore.getState().openDocument(
     {
       documentId: citation.documentId,
       // A whole TXT or Markdown file cited before Locations, whose quote wasn't found, opens at the top.
@@ -96,6 +97,9 @@ export function openCited(
     },
   );
   useComposer.setState({ citedSource: source });
+  void Promise.resolve(opened).then((layout) => {
+    if (layout) citationPageOpened(layout);
+  });
 }
 
 /**

@@ -27,6 +27,7 @@ import {
   sideMax,
   sideWidth,
 } from "../../assistantPlace";
+import { useAssistantYields } from "../../assistantYields";
 import { ComposerDockContext } from "../../editor/mindContext";
 import { useT } from "../../i18n";
 import { useCardWidth } from "../../layoutSlice";
@@ -95,6 +96,7 @@ export function Workbench({
   const groups = useMemo(() => <TabGroups />, []);
 
   const width = sideWidth(shown.width, room.width);
+  useAssistantYields({ dock, folded, width, quiet, room: room.width });
   const waits = useQuestionRoom((state) => state.fits !== null) && dock === "bottom" && !folded;
   const fits = useQuestionRoom((state) => (state.resized ? null : state.fits));
   // One largest height while a question waits, for its growth, the keys and a drag alike.

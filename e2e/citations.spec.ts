@@ -19,6 +19,7 @@ import {
   removeDataFolder,
   setCheck,
   setWindowSize,
+  showAssistant,
   useLocalChatModel,
 } from "./app";
 
@@ -297,6 +298,8 @@ test("a contradicted Citation's words are outlined in red on the page, never was
   // #96 will produce this for real; here the Citation is given the state.
   await setCheck(answer, { check: "contradicted" });
   await answer.getByTestId("citation-chip").click();
+  // The assistant folds to give the page its room; unfolding it brings the card back (#2270).
+  await showAssistant(window);
   await window.getByTestId("citation-card").getByTestId("citation-open").click();
 
   const highlight = window

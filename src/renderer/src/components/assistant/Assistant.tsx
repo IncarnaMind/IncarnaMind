@@ -19,6 +19,7 @@ import { useComposer } from "../../composer";
 import { conversationLabel, useOpenConversation } from "../../conversations";
 import { files } from "../../core";
 import { Composer } from "../../editor/Composer";
+import { AssistantFoldedContext } from "../../editor/mindContext";
 import { dialogOrMenuOpen } from "../../escapeDismiss";
 import { useT } from "../../i18n";
 import { useAssistantWaiting } from "../../mindStatus";
@@ -250,7 +251,9 @@ export function Assistant({
           )}
         </header>
       )}
-      <AssistantMain folded={folded} readMindId={readMindId} onComposerSlot={onComposerSlot} />
+      <AssistantFoldedContext.Provider value={folded}>
+        <AssistantMain folded={folded} readMindId={readMindId} onComposerSlot={onComposerSlot} />
+      </AssistantFoldedContext.Provider>
       {children}
       {history && <HistoryPopover anchor={history} onClose={() => setHistory(null)} />}
     </aside>

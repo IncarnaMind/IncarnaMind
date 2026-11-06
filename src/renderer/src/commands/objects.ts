@@ -186,7 +186,9 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     when: onlyOne,
     reversible: true,
-    run: (ctx) => store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }),
+    run: (ctx) => {
+      void store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" });
+    },
   },
   {
     id: "document.openTab",
@@ -195,8 +197,9 @@ export const documentCommands: readonly Command[] = [
     appliesTo: ["document"],
     when: onlyOne,
     reversible: true,
-    run: (ctx) =>
-      store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }, { as: "here" }),
+    run: (ctx) => {
+      void store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }, { as: "here" });
+    },
   },
   {
     id: "document.openBeside",
@@ -319,7 +322,9 @@ export const documentCommands: readonly Command[] = [
         (document) => isLockedPdf(document) && document.fileStatus === "available",
       ),
     reversible: true,
-    run: (ctx) => store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" }),
+    run: (ctx) => {
+      void store().openDocument({ documentId: idsOf(ctx, "document")[0] ?? "" });
+    },
   },
   {
     id: "document.forgetPassword",
