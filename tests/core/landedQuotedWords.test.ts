@@ -1,0 +1,196 @@
+import { describe, expect, test } from "vitest";
+import type { CitationAttributes, ConversationAnswer, Core } from "../../src/core";
+import { messageReference } from "../../src/core";
+import { answerBlocks } from "../../src/shared/answerBlocks";
+import type { NodeJSON } from "../../src/shared/blockJson";
+import { parseQuotedWords } from "../../src/shared/citations";
+import { recheckCitations } from "../../src/shared/noteBlocks";
+import { answerEnded, citingModel, setUpWithDocuments } from "../helpers/citations";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
+import { buildPdf } from "../helpers/pdf";
+
+/**
+ * A Citation that an Answer's own quoted words made "Quote not found" (#483) stays not found where
+ * the Answer lands in a Note (#2612): Add to note, New note and the Note open in the editor check
+ * it again there, and the words the Answer quoted are checked with its quote, not left behind.
+ */
+
+const CASES = {
+  en: {
+    pdf: buildPdf([
+      { lines: ["Tides and the Moon", "The Moon's gravity raises two tidal bulges on the Earth."] },
+      {
+        lines: [
+          "Spring and neap tides",
+          "Spring tides happen just after a new moon or a full moon.",
+        ],
+      },
+    ]),
+    name: "Tides.pdf",
+    query: "spring tides",
+    question: "When are spring tides?",
+    quote: "Spring tides happen just after a new moon or a full moon.",
+    madeUp: "spring tides happen only at a full moon",
+    onPage: "happen just after a new moon or a full moon",
+    sentence: (words: string) => `The guide says “${words}” [^1].`,
+  },
+  zh: {
+    pdf: buildPdf([
+      { chineseLines: ["潮汐与月球", "月球的引力在地球上形成两个潮汐隆起。"] },
+      { chineseLines: ["大潮与小潮", "大潮出现在新月或满月之后不久。"] },
+    ]),
+    name: "潮汐.pdf",
+    query: "大潮",
+    question: "大潮在什么时候出现？",
+    quote: "大潮出现在新月或满月之后不久。",
+    madeUp: "大潮只在满月时出现",
+    onPage: "大潮出现在新月或满月之后不久",
+    sentence: (words: string) => `指南写道“${words}”[^1]。`,
+  },
+} as const;
+
+type Language = keyof typeof CASES;
+
+/** A core with an Answer citing page 2, whose sentence quotes `words`. */
+async function answerQuoting(language: Language, words: string) {
+  const wanted = CASES[language];
+  const model = citingModel({
+    query: wanted.query,
+    records: (passages) => [
+      {
+        marker: 1,
+        passage: passages.find((each) => each.text.includes(wanted.quote.slice(0, 6)))?.id,
+        pageFrom: 2,
+        pageTo: 2,
+        quote: wanted.quote,
+      },
+    ],
+    answer: wanted.sentence(words),
+  });
+  const { core } = await setUpWithDocuments(model, [{ name: wanted.name, contents: wanted.pdf }]);
+  const result = await core.askInConversation({ text: wanted.question });
+  if (!result.asked) throw new Error("Not asked.");
+  await answerEnded(core, result.answerId);
+  const { messages } = await core.getConversation(result.conversation.id);
+  const answer = messages.find((each) => each.id === result.answerId);
+  if (answer?.kind !== "answer") throw new Error("No Answer.");
+  return { core, answer, question: wanted.question };
+}
+
+function citationsOf(blocks: readonly NodeJSON[]): Record<string, unknown>[] {
+  const found: Record<string, unknown>[] = [];
+  const visit = (node: NodeJSON) => {
+    if (node.type === "citation") found.push(node.attrs ?? {});
+    for (const child of node.content ?? []) visit(child);
+  };
+  for (const block of blocks) visit(block);
+  return found;
+}
+
+async function citationsInMind(core: Core, mindId: string) {
+  const found: Record<string, unknown>[] = [];
+  readMind(await connectToMind(core, mindId)).descendants((node) => {
+    if (node.type.name === "citation") found.push(node.attrs);
+  });
+  return found;
+}
+
+const intoMind = async (
+  core: Core,
+  answer: ConversationAnswer,
+  question: string,
+  title: string,
+) => {
+  const mind = await core.createMind({ title });
+  await core.addToNote({
+    mindId: mind.id,
+    blocks: answerBlocks(answer),
+    origin: { from: messageReference(answer.conversationId, answer.id), question },
+    model: answer.model,
+  });
+  return citationsInMind(core, mind.id);
+};
+
+/** The three ways an Answer lands in a Note, as the assistant's Add to note and New note do them. */
+const LANDINGS = {
+  "Add to note": (core: Core, answer: ConversationAnswer, question: string) =>
+    intoMind(core, answer, question, "Tides"),
+  "New note": (core: Core, answer: ConversationAnswer, question: string) =>
+    intoMind(core, answer, question, ""),
+  "the open Note": async (core: Core, answer: ConversationAnswer) =>
+    citationsOf(
+      await recheckCitations(answerBlocks(answer), (input) =>
+        core.recheckCitation({ ...input, mindId: null }),
+      ),
+    ),
+} as const;
+
+const words = (attributes: Record<string, unknown>) =>
+  parseQuotedWords(attributes.quotedWords)
+    ?.answer.map((piece) => piece.text)
+    .join("");
+
+describe.each(Object.keys(CASES) as Language[])(
+  "An Answer's Citation landing in a Note (%s)",
+  (language) => {
+    // protects=a Citation not found because the Answer's quoted words aren't on its page stays not found, with those words for its card, wherever the Answer lands in a Note (#2612); fails_when=the landing checks the quote alone and reads it found; no_claim=Citations found before, the test below.
+    test.each(Object.keys(LANDINGS) as (keyof typeof LANDINGS)[])(
+      "quoted words the page doesn't have: still not found through %s",
+      async (landing) => {
+        const { core, answer, question } = await answerQuoting(language, CASES[language].madeUp);
+        expect(answer.citations).toEqual([
+          expect.objectContaining({ check: "not-found", checkReason: "quoted-words-not-on-pages" }),
+        ]);
+
+        const [landed] = await LANDINGS[landing](core, answer, question);
+        expect(landed).toMatchObject({
+          check: "not-found",
+          checkReason: "quoted-words-not-on-pages",
+        });
+        expect(words(landed as CitationAttributes)).toBe(CASES[language].madeUp);
+      },
+    );
+
+    // protects=the quoted words go with the landing check only to keep a not-found, so a Citation whose quoted words are on its page lands found, as before (#2612); fails_when=the landing check reads every Citation with quoted words as not found; no_claim=none beyond protects.
+    test.each(Object.keys(LANDINGS) as (keyof typeof LANDINGS)[])(
+      "quoted words the page has: found through %s, as before",
+      async (landing) => {
+        const { core, answer, question } = await answerQuoting(language, CASES[language].onPage);
+        expect(answer.citations).toEqual([expect.objectContaining({ check: "found" })]);
+
+        const [landed] = await LANDINGS[landing](core, answer, question);
+        expect(landed).toMatchObject({ check: "found", checkReason: null });
+      },
+    );
+  },
+);
+
+// protects=the core's recheck takes the words a Citation couldn't find with its quote (#2612): not on the cited page, not found; on it, found; fails_when=the recheck reads the quote alone, or never lets the words be found; no_claim=which version a landing checks, ADR-0017's amendment.
+test("checked again with the words the Answer quoted, a Citation is found only where its page has them", async () => {
+  const { core, answer } = await answerQuoting("en", CASES.en.madeUp);
+  const [citation] = answer.citations;
+  if (!citation) throw new Error("No Citation.");
+  const input = {
+    documentId: citation.documentId,
+    quote: citation.quote,
+    pageFrom: citation.pageFrom,
+    pageTo: citation.pageTo,
+    contentHash: citation.contentHash,
+    mindId: null,
+  };
+  const asked = (text: string) => ({ answer: [{ text, found: false }], closest: null });
+
+  expect(
+    await core.recheckCitation({ ...input, quotedWords: asked(CASES.en.madeUp) }),
+  ).toMatchObject({
+    check: "not-found",
+    checkReason: "quoted-words-not-on-pages",
+  });
+  expect(
+    await core.recheckCitation({ ...input, quotedWords: asked(CASES.en.onPage) }),
+  ).toMatchObject({
+    check: "found",
+    checkReason: null,
+  });
+});
