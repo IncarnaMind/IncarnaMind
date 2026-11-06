@@ -1141,6 +1141,7 @@ describe("rewriteFromDocuments", () => {
       "2025",
     ],
     ["预算期为 3 会计年度。", "预算期为 2025 会计年度。", "3", "2025"],
+    ["数据来自 300 家庭调查。", "数据来自 2024 家庭调查。", "300", "2024"],
     [
       "The grant was 500 pending approval.",
       "The grant was in 2025 pending approval.",
@@ -1172,6 +1173,18 @@ describe("rewriteFromDocuments", () => {
       "2025",
     ],
     ["The grant was paid 500 in full.", "The grant was paid in 2025 in full.", "500", "2025"],
+    [
+      "The grant was paid 500 per head office instructions.",
+      "The grant was paid in 2025 per head office instructions.",
+      "500",
+      "2025",
+    ],
+    [
+      "The fee was agreed at 500 in long, difficult negotiations.",
+      "The fee was agreed in 2025 in long, difficult negotiations.",
+      "500",
+      "2025",
+    ],
   ])("keeps %s where the Passage gives a year: %s", async (sentence, line, from, to) => {
     const { core, mindId } = await noteWithCheck(
       () => ({ text: `Change 1: ${from}\nTo 1: ${to}` }),
@@ -1189,6 +1202,15 @@ describe("rewriteFromDocuments", () => {
     ["The fee is $1,800.", "The fee is $2025.", "$1,800", "$2025"],
     ["The track is 1800 m long.", "The track is 2025 m long.", "1800", "2025"],
     ["The pipe is 1100 in long.", "The pipe is 2025 in long.", "1100", "2025"],
+    ["The hire costs 1100 per day.", "The hire costs 2025 per day.", "1100", "2025"],
+    ["Catering costs 1500 per head.", "Catering costs 2024 per head.", "1500", "2024"],
+    ["Scrap sells at 1800 per kg.", "Scrap sells at 2025 per kg.", "1800", "2025"],
+    [
+      "The hall seats 1800 people.",
+      "The hall seats 2020 people. It opened last year.",
+      "1800",
+      "2020",
+    ],
   ])(
     "writes %s's figure from a measure whose digits look like a year: %s",
     async (sentence, line, from, to) => {

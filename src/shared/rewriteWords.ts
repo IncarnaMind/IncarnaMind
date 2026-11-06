@@ -344,16 +344,18 @@ const UNITS = new Set(
     .join(" ")
     .split(" "),
 );
-/** "2025 in long.": inches only in a bare dimension at the clause's end, not "in long talks". */
-const INCHES = /^\s*in\s+(?:long|wide|high|tall|deep|thick|across)\s*(?:[.,;:!?)]|$)/iu;
-/** What "per" is followed by in a rate ("per day", "per person"), not "per the agreement". */
+/** What "per" is followed by in a rate, besides a unit or a period: "per person", "per head". */
 const PER_WHAT = new Set("person head guest unit item hour minute seat room".split(" "));
-const perRate = (after: string): boolean => {
-  const what = /^\s*per\s+([^\s\p{P}]+)/iu.exec(after)?.[1]?.toLowerCase();
-  return (
-    what !== undefined && (Object.hasOwn(RATE_WORDS, what) || UNITS.has(what) || PER_WHAT.has(what))
-  );
-};
+/** The dimension a length's unit is told with: "2025 m long", "2025 in wide". */
+const DIMENSIONS = new Set("long wide high tall deep thick across".split(" "));
+const UNIT_WORDS = new Set([
+  ...UNITS,
+  ...Object.keys(RATE_WORDS).filter((word) => /^\p{Script=Latin}+$/u.test(word)),
+  ...PER_WHAT,
+  ...DIMENSIONS,
+  "per",
+  "in",
+]);
 const HAN_UNITS = [
   ..."平方米 平方公里 平米 公里 千米 厘米 毫米 公顷 公斤 千克 毫升 小时 分钟 美元 欧元 英镑 日元 港元 人民币 人次".split(
     " ",
@@ -362,21 +364,34 @@ const HAN_UNITS = [
 ];
 
 /**
+ * Whether the rest of the sentence after a figure, to its stop, is the figure's unit and nothing
+ * else: "square feet", "m long", "per day", "per kg", "in wide", 元, 平方米. A word that isn't part
+ * of a unit anywhere in it ("per head office instructions", "in long, difficult talks"), or
+ * Chinese that only starts with one (2024 家庭调查), is prose.
+ */
+function measuredBy(after: string): boolean {
+  const stop = after.search(/[.!?。！？](?=\s|$)/u);
+  const rest = stop < 0 ? after : after.slice(0, stop);
+  const han = /^\s*(\p{Script=Han}+)/u.exec(rest)?.[1];
+  if (han !== undefined) return HAN_UNITS.includes(han);
+  const words = rest.toLowerCase().match(/[^\s\p{P}]+/gu) ?? [];
+  const [first] = words;
+  if (first === undefined || !words.every((word) => UNIT_WORDS.has(word))) return false;
+  return first === "per" || first === "in" || UNITS.has(first);
+}
+
+/**
  * Whether the line's one figure is a period, which no rewrite writes for another figure: a figure
  * that reads as a year ("2025", full-width digits too) is one unless it carries a measure's mark,
- * a currency before it or a known unit after it ("$2025", "2025 square feet", "2025 m", "2025 per
- * day", "2025 in long.", 2020 人). Any other word after it ("in 2025 under the scheme", 2025 会计年度), or none,
- * keeps it a period, so a word the lists don't know never makes a year an amount.
+ * a currency before it, or its unit and nothing else after it to its sentence's stop ("$2025",
+ * "2025 square feet.", "2025 per day.", "2025 in long.", 2020 人。). Anything else after it, or
+ * nothing, keeps it a period, so no word turns a year into an amount.
  */
 export function givesAPeriod(quote: string): boolean {
   const text = quote.normalize("NFKC");
   const [figure] = figuresAt(text);
   if (!figure?.period || AMOUNT_BEFORE.test(text.slice(0, figure.at))) return false;
-  const after = text.slice(figure.end);
-  const han = /^\s*(\p{Script=Han}+)/u.exec(after)?.[1];
-  if (han !== undefined) return !HAN_UNITS.some((unit) => han.startsWith(unit));
-  const word = /^\s*([^\s\p{P}]+)/u.exec(after)?.[1]?.toLowerCase();
-  return !((word !== undefined && UNITS.has(word)) || INCHES.test(after) || perRate(after));
+  return !measuredBy(text.slice(figure.end));
 }
 
 /** The numbers `text` writes outside `at` to `end`, which a rewrite there leaves as they are. */
