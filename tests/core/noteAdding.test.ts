@@ -189,6 +189,8 @@ describe("Add to note into a Mind that isn't open", { timeout: 60_000 }, () => {
       blocks: [note("Later writing.")],
       origin: null,
       model: null,
+      generated: false,
+      recordUse: false,
     });
 
     expect(await core.undoAddToNote({ mindId: mind.id, blockIds: added.blockIds })).toEqual({
