@@ -768,3 +768,166 @@ describe("A cut the reply revises by instruction is held to the cut (#2356)", {
     },
   );
 });
+
+const PROSE = {
+  en: 'The text you asked to delete ("Spaces are allocated by the landlord.") does not appear in the passage, so I can\'t remove it. There is nothing to change.',
+  zh: 'The text you asked to delete ("车位由出租方分配。") does not appear in the passage, so I can\'t remove it. There is nothing to change.',
+};
+const CUT = {
+  en: "¶1 Parking: the tenant may use six underground spaces. Each costs 800 a month.",
+  zh: "¶1 停车位：承租方可使用地下停车位 6 个。每个车位每月 800 元。",
+};
+
+describe("A removal's rewrite that answers in words of its own is never written (#2356)", {
+  timeout: 30_000,
+}, () => {
+  // protects=the closing round's Chinese 30 (DeepSeek, on 3e71eab81) and its English twin: a cut of the last sentence, then an edit asked only to take text out that revises it, whose rewrite answers in one unnamed line of its own that the sentence isn't there; the line is set aside, never written, the model told what the rewrite said, and the cut applies alone; fails_when=the line takes the paragraph's place, waiting or applied, so the Note holds the rewrite's own words; no_claim=what a real model writes.
+  test.each([{ language: "zh" }, { language: "en" }] as const)(
+    "$language, as Chinese 30",
+    async ({ language }) => {
+      const model = stepping([
+        removal(language, CUT[language]),
+        {
+          tool: "edit_mind",
+          input: {
+            part: LEASE[language].part,
+            instruction: LEASE[language].asked,
+            removes_only: true,
+          },
+          edit: PROSE[language],
+        },
+      ]);
+      const { core, mind, client, answer } = await setUp(language, model);
+
+      expect(lastResult(model)).toContain(
+        `the rewrite answered in words of its own instead of new text, and they were not written: “${PROSE[language]}”`,
+      );
+      const requests = changesIn(answer).map((change) => change.request);
+      expect(requests).toHaveLength(1);
+      expect(whyItWaits(client.doc, new Set(requests))).toBeNull();
+      const applied = await core.applyAskedChanges({
+        answerId: answer.id,
+        mindId: mind.id,
+        requests,
+      });
+      expect(applied?.held).toBe(false);
+      await client.settled();
+      const lease = LEASE[language];
+      expect(shownWithChanges(client)).toEqual([
+        lease.name,
+        lease.lines[0],
+        CUT[language].slice(3),
+        lease.lines[2],
+        lease.lines[3],
+      ]);
+    },
+  );
+
+  // protects=outside a removal, the same unnamed line still takes the paragraph's place as on main, so this change narrows nothing else (the wider case is its own issue); fails_when=a request not asked only to take text out sets the line aside; no_claim=whether that is right.
+  test.each([{ language: "zh" }, { language: "en" }] as const)(
+    "$language, not asked only to take text out, as on main",
+    async ({ language }) => {
+      const lease = LEASE[language];
+      const asked = { part: lease.part, instruction: lease.asked, removes_only: false };
+      const model = stepping([
+        { tool: "edit_mind", input: asked, edit: CUT[language] },
+        { tool: "edit_mind", input: asked, edit: PROSE[language] },
+      ]);
+      const { core, mind, client, answer } = await setUp(language, model);
+
+      const requests = changesIn(answer).map((change) => change.request);
+      await core.applyAskedChanges({ answerId: answer.id, mindId: mind.id, requests });
+      await client.settled();
+      expect(shownWithChanges(client)[2]).toBe(PROSE[language]);
+    },
+  );
+
+  // protects=a rewrite in other words that isn't a removal still applies, whether the rewriting model is shown the paragraphs' names (the assistant's edit) or not (Edit with AI's Translate, Improve writing and Shorten on one paragraph): translating English to Chinese and back, improving writing that rewrites most words, shortening one paragraph; fails_when=any of them is set aside as the model's own words; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "translate en to zh",
+      language: "en",
+      instruction: "Translate this paragraph into Chinese.",
+      action: "translate",
+      target: "简体中文",
+      rewrite: "停车位：承租方可使用六个地下车位。每个车位每月 800 元。车位由房东分配。",
+    },
+    {
+      case: "translate zh to en",
+      language: "zh",
+      instruction: "把这一段翻译成英文。",
+      action: "translate",
+      target: "English",
+      rewrite:
+        "Parking: the tenant may use six underground spaces. Each costs 800 a month. The landlord assigns them.",
+    },
+    {
+      case: "improve, most words rewritten",
+      language: "en",
+      instruction: "Improve the writing of this paragraph.",
+      action: "improve",
+      target: undefined,
+      rewrite:
+        "Parking: six underground bays are available to the tenant, at 800 each per month, assigned by the landlord.",
+    },
+    {
+      case: "shorten one paragraph",
+      language: "en",
+      instruction: "Make this paragraph shorter.",
+      action: "shorten",
+      target: undefined,
+      rewrite: "Parking: six spaces, 800 each a month.",
+    },
+  ] as const)("$case still applies, with names and without", async (each) => {
+    const lease = LEASE[each.language];
+    const named = stepping([
+      {
+        tool: "edit_mind",
+        input: { part: lease.part, instruction: each.instruction, removes_only: false },
+        edit: each.rewrite,
+      },
+    ]);
+    const assisted = await setUp(each.language, named);
+    expect(lastResult(named)).toContain("It applies in the Note at once");
+    const requests = changesIn(assisted.answer).map((change) => change.request);
+    await assisted.core.applyAskedChanges({
+      answerId: assisted.answer.id,
+      mindId: assisted.mind.id,
+      requests,
+    });
+    await assisted.client.settled();
+    expect(shownWithChanges(assisted.client)[2]).toBe(each.rewrite);
+
+    const plainModel = scriptedModel(
+      (call: ModelCall): ScriptedReply =>
+        /<passage>\n/.test(call.prompt)
+          ? { text: `${each.rewrite}\n<why>Done.</why>` }
+          : { text: "OK." },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(plainModel).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const mind = await core.createMind({ title: lease.name });
+    const client = await connectToMind(core, mind.id);
+    const parking = note(lease.lines[1]);
+    writeMind(client, [
+      heading(1, lease.name),
+      note(lease.lines[0]),
+      parking,
+      note(lease.lines[2]),
+    ]);
+    await client.settled();
+    const blockId = parking.attrs?.id as string;
+    const edited = await core.editWithAi({
+      requestId: `edit-${each.action}`,
+      mindId: mind.id,
+      from: { blockId, offset: 0 },
+      to: { blockId, offset: lease.lines[1].length },
+      text: lease.lines[1],
+      action: each.action,
+      ...(each.target && { instruction: each.target }),
+    });
+    expect(edited).toMatchObject({ kind: "proposed" });
+  });
+});
