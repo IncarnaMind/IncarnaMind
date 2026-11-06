@@ -332,7 +332,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
                 sentences.shortened === 0 &&
                 sentences.rewritten === 0 &&
                 sentences.written === 0;
-              if (!made || held !== null) {
+              if (!made || held !== null || !clean) {
                 kept.push(
                   `- ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, held ${held?.why ?? "no"}, accepted ${accepted}; before ${JSON.stringify(before)}; pending ${JSON.stringify(pending)}; proposed ${JSON.stringify(proposed)}; after ${JSON.stringify(after)}`,
                 );
