@@ -24,9 +24,11 @@ import {
   createOnnxCrossEncoder,
   GPU_BATCH_SIZE,
   type PairSessionFactory,
+  pairEncoder,
   pairIds,
   type SessionDevice,
 } from "../../src/core/reranking/onnx";
+import { asRerankWork, createRerankQueue } from "../../src/core/reranking/order";
 import { createTempDataFolder, NO_MODEL_FILES } from "../helpers/core";
 import { startModelServer } from "../helpers/embedding";
 import { recordingLog } from "../helpers/log";
@@ -133,6 +135,47 @@ describe("A query and a Passage, as one pair of tokens", () => {
   });
 });
 
+describe("A Passage's tokens, kept between searches", () => {
+  // protects=a pair read with its text's tokens kept is exactly the pair read whole, cut the same way, and a text met again isn't read again (#2532); fails_when=a kept pair differs from pairIds, or a text a search met before is read again; no_claim=how fast reading is.
+  test("are read once, and give the pairs read whole", () => {
+    const tokenizer = tinyTokenizer();
+    const reads = vi.spyOn(tokenizer, "encode");
+    const pairs = pairEncoder(tokenizer, 10);
+    for (const [query, text] of [
+      ["what is", "paris lies on seine"],
+      ["what is", "a b c d e f g h"],
+      ["a b c d e f g h a b c d", "paris lies"],
+      ["what is the capital", "paris lies on seine"],
+    ] as const)
+      expect(pairs(query, text)).toEqual(pairIds(tokenizer, query, text, 10));
+    reads.mockClear();
+
+    pairs("of france", "paris lies on seine");
+
+    expect(reads.mock.calls.map(([text]) => text)).toEqual(["of france"]);
+  });
+
+  // protects=a tokenizer whose pair isn't its two texts between the same special tokens reads each pair whole (#2532); fails_when=a pair is put together from a template that doesn't hold; no_claim=which tokenizers the app ships.
+  test("aren't kept for a tokenizer whose pairs don't follow one template", () => {
+    const tokenizer = tinyTokenizer();
+    const read = tokenizer.encode.bind(tokenizer);
+    vi.spyOn(tokenizer, "encode").mockImplementation((text, options) => {
+      const encoding = read(text, options);
+      return options?.text_pair
+        ? { ...encoding, ids: [...encoding.ids, encoding.ids.length] }
+        : encoding;
+    });
+    const pairs = pairEncoder(tokenizer, 512);
+
+    expect(pairs("what is", "paris lies")).toEqual(
+      tokenizer.encode("what is", { text_pair: "paris lies" }).ids,
+    );
+    expect(pairs("what is the capital of france", "a b")).toEqual(
+      tokenizer.encode("what is the capital of france", { text_pair: "a b" }).ids,
+    );
+  });
+});
+
 describe("The built-in reranking model", () => {
   const hits = [
     { id: "a", documentName: "Ships", text: "Boats float on water." },
@@ -218,11 +261,96 @@ describe("The built-in reranking model", () => {
     model.close();
   });
 
+  // protects=a search is scored alone, one at a time, as one request of its own texts, and gets back exactly the scores it gets alone (#2532: several searches' texts scored together changed scores and orders on the GPU); fails_when=two scorings are sent at once, searches waiting together are scored in one request, or a search gets another's scores; no_claim=the model's own scores.
+  test("searches asked at once are scored one at a time, each alone, as when asked one by one", async () => {
+    const dataDir = await createTempDataFolder();
+    const fake = createFakeCrossEncoder();
+    const requests: string[][] = [];
+    let running = 0;
+    let most = 0;
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir,
+      crossEncoder: {
+        load: (files) => fake.load(files),
+        score: async (query, texts) => {
+          requests.push([query, ...texts]);
+          running++;
+          most = Math.max(most, running);
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          running--;
+          return fake.score(query, texts);
+        },
+        close: () => fake.close(),
+      },
+      emitStatus: () => {},
+    });
+    const queries = ["lighthouse ships", "bread oven", "cakes rise too"];
+    const alone = [];
+    for (const query of queries) alone.push(await model.rerank(query, hits));
+    requests.length = 0;
+
+    const together = await Promise.all(queries.map((query) => model.rerank(query, hits)));
+
+    expect(together).toEqual(alone);
+    expect(together.map((each) => each?.map((hit) => hit.id))).toEqual([
+      ["b", "a", "c", "d"],
+      ["c", "d", "a", "b"],
+      ["d", "a", "b", "c"],
+    ]);
+    expect(requests).toEqual(queries.map((query) => [query, ...hits.map(rerankText)]));
+    expect(most).toBe(1);
+    model.close();
+  });
+
   test("the fake scores the share of the query's words a text has", () => {
     expect(fakeRelevance("lighthouse ships", "A lighthouse guides ships")).toBe(1);
     expect(fakeRelevance("lighthouse ships", "Boats and ships")).toBe(0.5);
     expect(fakeRelevance("灯塔", "海边的灯塔")).toBe(1);
     expect(fakeRelevance("", "anything")).toBe(0);
+  });
+});
+
+describe("The order searches are scored in", () => {
+  // protects=a check's next search is scored before the searches of checks started after it, and the same check's searches keep their order (#2532); fails_when=searches waiting are scored first come, first served, or one check's searches change places; no_claim=how long a scoring takes.
+  test("a check's next search goes before the searches of checks started after it", async () => {
+    const inTurn = createRerankQueue();
+    const started: string[] = [];
+    const finish = new Map<string, () => void>();
+    const scoring = (name: string) => () =>
+      new Promise<void>((resolve) => {
+        started.push(name);
+        finish.set(name, resolve);
+      });
+    const othersAsked = Promise.withResolvers<void>();
+    const askedAgain = Promise.withResolvers<void>();
+
+    const first = asRerankWork(async () => {
+      const search = inTurn(scoring("first check"));
+      await othersAsked.promise;
+      const again = inTurn(scoring("first check, again"));
+      const third = inTurn(scoring("first check, third time"));
+      askedAgain.resolve();
+      await Promise.all([search, again, third]);
+    });
+    const second = asRerankWork(() => inTurn(scoring("second check")));
+    const outside = inTurn(scoring("a search of no check"));
+    othersAsked.resolve();
+    await askedAgain.promise;
+    for (let count = 1; count <= 5; count++) {
+      await vi.waitFor(() => expect(started).toHaveLength(count));
+      finish.get(started[count - 1] ?? "")?.();
+    }
+    await Promise.all([first, second, outside]);
+
+    expect(started).toEqual([
+      "first check",
+      "first check, again",
+      "first check, third time",
+      "second check",
+      "a search of no check",
+    ]);
   });
 });
 

@@ -8,13 +8,13 @@
  * in a folder named like its id: they are copied in and checked against
  * their recorded SHA-256 instead of downloaded.
  */
-import { cp } from "node:fs/promises";
+import { cp, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { RERANKING_MODEL_CANDIDATES } from "../../eval/lib/rerankingModels";
 import { BUILT_IN_RERANKING_MODEL } from "../../src/core";
-import { createRerankingModel } from "../../src/core/reranking/index";
-import { createOnnxCrossEncoder } from "../../src/core/reranking/onnx";
+import { createRerankingModel, rerankText } from "../../src/core/reranking/index";
+import { createOnnxCrossEncoder, pairEncoder, pairIds } from "../../src/core/reranking/onnx";
 import { createTempDataFolder } from "../helpers/core";
 
 const ids = (process.env.INCARNAMIND_REAL_RERANKER_IDS ?? BUILT_IN_RERANKING_MODEL.id).split(",");
@@ -76,6 +76,30 @@ describe.runIf(process.env.INCARNAMIND_REAL_RERANKER === "1")(
           // A Passage much longer than the model reads is cut, not refused.
           const long = { id: "long", documentName: "Long", text: "Paris. ".repeat(2000) };
           expect(await model.rerank("Paris", [long, ...HITS])).toHaveLength(HITS.length + 1);
+
+          // Its tokenizer's pairs follow one template, so a Passage's tokens are kept (#2532),
+          // and each pair is the one the tokenizer reads whole.
+          const { Tokenizer } = await import("@huggingface/tokenizers");
+          const folder = join(dataDir, "models", candidate.folder);
+          const tokenizer = new Tokenizer(
+            JSON.parse(await readFile(join(folder, candidate.files.tokenizer), "utf8")),
+            JSON.parse(await readFile(join(folder, candidate.files.tokenizerConfig), "utf8")),
+          );
+          const pairs = pairEncoder(tokenizer, candidate.maxTokens);
+          const queries = [
+            "What is the capital of France?",
+            "中国古代修建了什么防御工程？",
+            "Paris ".repeat(300),
+          ];
+          const texts = [...HITS, long].map(rerankText);
+          for (const query of queries)
+            for (const text of texts)
+              expect(pairs(query, text)).toEqual(
+                pairIds(tokenizer, query, text, candidate.maxTokens),
+              );
+          const reads = vi.spyOn(tokenizer, "encode");
+          pairs("Another question", texts[0] ?? "");
+          expect(reads.mock.calls.map(([text]) => text)).toEqual(["Another question"]);
         } finally {
           model.close();
         }
