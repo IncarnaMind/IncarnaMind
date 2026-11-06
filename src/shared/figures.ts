@@ -798,7 +798,7 @@ interface Settled {
   negativeBrackets: boolean;
   /** A header of periods ("2025 2024", "本期 上期", "２０２５ ２０２４") applies to the text read, or stands above it on the page. */
   periodColumns: boolean;
-  /** The page above a quote runs on past the 400 characters read with no blank line or numbered heading in them. */
+  /** The page above a quote runs on past the 400 characters read with no blank line in them. */
   pageCut: boolean;
   /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
   before: string;
@@ -844,33 +844,16 @@ function periodHeaderEnd(prepared: Prepared): number {
 }
 
 /**
- * A line that opens a numbered part of a Document, in NFKC: "4. Rent", "4.租金", "3.1. Deposit",
- * "Article 5", "## Rent", "第四条", "一、", "(二)". "3.5 million" opens nothing.
- */
-const NUMBERED =
-  /^(?:#{1,6} |\d+(?:\.\d+)*\.(?:[ \t]|(?=\p{Script=Han}))|(?:article|section|clause|schedule|part|note) [\dIVX]+\b|第[一二三四五六七八九十百零〇\d]+[条章节款部]|[一二三四五六七八九十]+、|\([一二三四五六七八九十\d]+\))/iu;
-const SENTENCE_END = /[。.!?;]["'”’)]*$/u;
-
-/**
  * Whether the page above a quote runs on past the 400 characters the reader looks at with no blank
- * line, or numbered line after a finished sentence, in them, so that the start of the amount's part
- * of the page is out of sight. A short line with no number may carry a sentence on ("and was
- * reported as"), so it starts nothing.
+ * line in them, so that the start of the amount's paragraph is out of sight. A short or numbered line
+ * may carry a sentence on ("and was reported as", "as set out in cl." then "3. It was …"), so only a
+ * blank line counts.
  */
 function pageCut(before: string): boolean {
   if (before.length <= 400) return false;
-  const lines = before
-    .slice(-400)
-    .normalize("NFKC")
-    .split("\n")
-    .map((line) => line.trim());
   // The first piece may start mid-line and the last is the quote's own line: only those between count.
-  return !lines
-    .slice(1, -1)
-    .some(
-      (line, index) =>
-        line === "" || (NUMBERED.test(line) && SENTENCE_END.test(lines[index] ?? "")),
-    );
+  const lines = before.slice(-400).split("\n").slice(1, -1);
+  return !lines.some((line) => line.trim() === "");
 }
 
 /** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
