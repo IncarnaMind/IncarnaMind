@@ -76,8 +76,12 @@ import type { PictureProblem } from "./web/pictures";
  * deck's slides are kept with their Units as rows and columns; a Word table's
  * merged cells keep their columns; raised digits stay raised). 24: #1979 (a
  * workbook's rows Units name the rows the file strikes through or hides).
+ * Version 25 PDFs', Word files', decks' and workbooks': their scale markers read the forms
+ * #2365 adds (a bracket's currency with the tail's scale, a Chinese bracket's currency and
+ * scale, and a heading that only looks like a scale stays none); their text, Passages and
+ * embeddings come out as they were.
  */
-export const PROCESSING_VERSION = 24;
+export const PROCESSING_VERSION = 25;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -118,14 +122,16 @@ export const PROCESSING_VERSION = 24;
  * superscript or subscript digits, not plain ones (#448). Version 24 only
  * workbooks', whose rows Units name the rows the file strikes through or
  * hides; their text, Passages and embeddings come out as they were (#1979).
+ * Version 25 re-reads PDFs, Word files, decks and workbooks for their scale markers
+ * (#2365); their text, Passages and embeddings come out as they were.
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 23,
+  pdf: 25,
   text: 5,
   markdown: 5,
-  docx: 23,
-  pptx: 23,
-  xlsx: 24,
+  docx: 25,
+  pptx: 25,
+  xlsx: 25,
   csv: 5,
   image: 22,
   rtf: 22,

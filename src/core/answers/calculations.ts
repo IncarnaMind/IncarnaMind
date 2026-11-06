@@ -564,7 +564,7 @@ interface Stated {
    * another part of the Document, which this Passage doesn't hold, or written in a form that reads
    * more than one way ("in MM").
    */
-  unquotable?: "header" | "elsewhere" | "unsettled" | "noted" | "row" | "after";
+  unquotable?: "header" | "elsewhere" | "unsettled" | "noted" | "row" | "after" | "sheet";
   /** For one stated elsewhere: where. */
   where?: string;
   /** Stated in another Passage that may state it for this number too: the model may quote it (#2365). */
@@ -596,8 +596,19 @@ function afterLineProblem(quote: string, chars: string): string {
   return `the unitQuote "${quote}" is after ${chars}; a scale line states the numbers under it, not those above it.`;
 }
 
+/** Why a caption in the number's own Unit can't be its unitQuote. */
+function partLineProblem(quote: string, chars: string): string {
+  return `the unitQuote "${quote}" names another table or note, and a line between it and ${chars} states none of its own; a line states only the numbers under it, in its own table or note. Quote the line above ${chars} in its table, or one that says all amounts are in it.`;
+}
+
+// A caption that binds its scale to a part: "Table 1", "Note 12", "this table", 本表, 下表.
+const PART_NAMED =
+  /\b(?:tables?|figures?|notes?|schedules?|exhibits?|annexes?|appendices)\s+\d+|\bthis\s+(?:table|note|schedule|figure|block)\b|本(?:表|图|圖|附注|附註)|[上下](?:表|图|圖)|附表|附图|附圖/i;
+
 /** Why a number with no unit of its own can't be calculated where its page states a scale. */
 function candidateProblem(chars: string, where: string, candidate: Stated): string {
+  if (candidate.unquotable === "sheet")
+    return `${chars} has no unit, and its sheet's name ("${candidate.statement}") states a scale that no Passage quotes; it can't be calculated without guessing its scale.`;
   if (candidate.unquotable === "header")
     return `${chars} has no unit, and a running header or footer at ${where} states a scale ("${candidate.statement}") that no Passage quotes; it can't be calculated without guessing its scale.`;
   if (candidate.unquotable === "elsewhere")
@@ -679,13 +690,19 @@ const AMOUNT_WORDS =
 // A percent, a multiple or a rate by its sign, or by the noun its label ends with, whatever amount
 // it is of: "Return on equity (%)", "Net interest margin", 净资产收益率, "Debt ratio".
 const RATE_ROW =
-  /%|per ?cent|percentage|\bbps\b|basis points|基点|[(（]\s*(?:x|times|倍)\s*[)）]|(?:\bmargin|\bratio|\brate|\byield|\bmultiple|率|倍|比例)[\s:：)）]*$/i;
+  /%|per ?cent|percentage|\bbps\b|basis points|基点|[(（]\s*(?:x|times|倍)\s*[)）]|(?:\bmargin|\bratio|\brate|\byield|\bmultiple|率|倍|比例)[\s:：)）]*$|\breturn on (?:equity|assets|capital|investments?|sales|revenue)\b|\b(?:interest|dividend|earnings) cover\b|\bgearing\b|\bnet debt to ebitda\b|\bcover\b[\s:：)）]*$|\bdays?\b[\s:：)）]*$/i;
+
+// A price or a cost per unit, which a caption's money scale doesn't scale: "Average selling price
+// (£)", "Closing share price (p)", "Unit cost (US$)".
+const PRICE_ROW =
+  /\b(?:average|unit|selling|closing|opening)\s+(?:selling\s+|unit\s+)?(?:share\s+)?(?:price|cost)\b|\bshare\s+price\b|[(（]\s*p\s*[)）]|\bpence\b/i;
 
 /** The kind of row `label` names that a scale line's amounts don't include, or null for an amount's. */
 function notAnAmount(label: string): string | null {
   if (PER_SHARE.test(label)) return "per-share";
   if (PER_UNIT.test(label)) return "per-unit";
   if (MEASURE_HEAD.test(label)) return "unit of measure";
+  if (PRICE_ROW.test(label)) return "price or unit cost";
   if (RATE_ROW.test(label)) return "percent, rate or multiple";
   // "Payment date", "付款日期", "Supplier ID": a date or an identifier, whatever it is of.
   if (/\bdates?\b|日期|\bID\b|\bISIN\b|\bphone\b|\btel\b|编号|代码|电话/i.test(label))
@@ -1371,6 +1388,25 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       return { ok: false, problem: afterLineProblem(facts.text, chars) };
     const sameSectionLine =
       place.lineIndex === place.figureIndex || sameSection(units, facts.unit, numbersUnit);
+    // A caption naming its own table or note states only the rows under it, up to the next line
+    // that has no amount; a later table's rows take their own line or none (#2365).
+    if (
+      PART_NAMED.test(facts.text) &&
+      facts.unit.text === numbersUnit.text &&
+      place.figureAt > place.lineEnd
+    ) {
+      const context = contextOf(quoted.citation);
+      const between =
+        place.figureAt <= place.lineEnd
+          ? []
+          : facts.unit.text
+              .slice(place.lineEnd, place.figureAt)
+              .split("\n")
+              .slice(1, -1)
+              .filter((line) => line.trim() !== "");
+      if (between.some((line) => !statesAmountRow(line, context)))
+        return { ok: false, problem: partLineProblem(facts.text, chars) };
+    }
     if (!sameSectionLine) {
       if (numbersUnit.kind === "section") {
         if (
@@ -2091,11 +2127,55 @@ export function createCalculationSession(options: CalculationSessionOptions) {
       } else if (label === null && row === null && statedLine.some((each) => each.scale !== 1)) {
         return `${figure.chars} has no label on its line or above it that says what its row is, and the unitQuote "${unit.citation.quote}" states a scale for amounts; it can't be calculated without guessing its scale.`;
       } else if (statedLine.some((each) => exceptedBy(each, label ?? ""))) {
-        const currency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
+        const lineCurrency = statedLine.find((each) => each.unit.kind === "currency")?.unit;
+        const ownCurrency =
+          ownRow?.ownCurrency === null || ownRow?.ownCurrency === undefined
+            ? null
+            : { kind: "currency" as const, code: ownRow.ownCurrency };
+        const currency = lineCurrency ?? ownCurrency;
         if (currency && base.unit.kind === "plain")
           stated = { quoted: unit, stated: { ...base, unit: currency }, currencyChars: null };
       } else if (statedLine.some((each) => notedOut(each, label ?? ""))) {
         return `${figure.chars} is on a per-share row, and the unitQuote "${unit.citation.quote}" scales its Document's amounts except where it notes otherwise; it can't be calculated without guessing its scale.`;
+      } else if (
+        statedLine.length === 1 &&
+        statedLine[0]?.scale === 1 &&
+        statedLine[0]?.unit.kind === "currency" &&
+        ownRow?.ownCurrency === statedLine[0].unit.code &&
+        notAnAmount(label ?? "") === null
+      ) {
+        const scales = new Set(
+          quoted.units
+            .flatMap((each) => readStatedUnits(each.text, context))
+            .filter((each) => each.scale !== 1)
+            .map((each) => each.scale),
+        );
+        const [scale] = [...scales];
+        if (scales.size > 1)
+          return `${figure.chars} has no unit, and ${whereOf(quoted)} states more than one scale; give the line that applies to it as unitQuote.`;
+        if (scale === undefined)
+          stated = {
+            quoted: unit,
+            stated: { ...base, unit: statedLine[0].unit },
+            currencyChars: null,
+          };
+        else {
+          const word =
+            quoted.units
+              .flatMap((each) => readStatedUnits(each.text, context))
+              .find((each) => each.scale === scale)?.scaleWord ?? null;
+          stated = {
+            quoted: unit,
+            stated: {
+              ...base,
+              value: base.value * scale,
+              scale: base.scale * scale,
+              scaleWord: word,
+              unit: statedLine[0].unit,
+            },
+            currencyChars: null,
+          };
+        }
       } else if (
         ownRow?.ownScales.length &&
         statedLine.some((each) => each.scale !== 1 && !ownRow.ownScales.includes(each.scale))
@@ -2186,6 +2266,20 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         a.value === b.value && JSON.stringify(a.unit) === JSON.stringify(b.unit);
       const ownRow = rowOf(quoted, figure);
       const rowLabel = ownRow?.label ?? "";
+      // A per-share row a line excepts keeps the currency its own head states (#2365).
+      if (
+        ownRow?.ownCurrency !== null &&
+        ownRow?.ownCurrency !== undefined &&
+        base.unit.kind === "plain" &&
+        quoted.units.some((unit) =>
+          readStatedUnits(unit.text, context).some((each) => exceptedBy(each, rowLabel)),
+        )
+      )
+        stated = {
+          quoted,
+          stated: { ...base, unit: { kind: "currency", code: ownRow.ownCurrency } },
+          currencyChars: null,
+        };
       const numbersUnit = unitOf(quoted, figure);
       const numberIndex = numbersUnit ? quoted.units.indexOf(numbersUnit) : -1;
       const { starts } = joinUnits(quoted.units);
@@ -2246,6 +2340,11 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         statement
           ? [{ statement, reading: thousandfold(base), unquotable, ...(where && { where }) }]
           : [];
+      const sheet = numbersUnit?.label?.sheet ?? null;
+      const sheetScale =
+        sheet !== null && readStatedUnits(sheet, context).some((each) => each.scale !== 1)
+          ? sheet
+          : null;
       const [quotable] = elsewhere.quotable;
       const [refusedScale] = elsewhere.refused;
       // A row head's own scale, a bare "(M)"/"(m)" or a bracket scale ("(K)"), is not a plain
@@ -2270,6 +2369,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           ...(rowCandidate ? [rowCandidate] : []),
           ...refusedHere,
           ...unquotableAs(noted, "noted"),
+          ...unquotableAs(sheetScale, "sheet"),
           ...unquotableAs(header, "header"),
           ...unquotableAs(unsure, "unsettled"),
           ...unquotableAs(misread, "unsettled"),

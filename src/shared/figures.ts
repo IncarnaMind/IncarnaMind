@@ -1321,10 +1321,11 @@ const STATED_CURRENCY =
 // "USD B Acc" is a share class, "USD M&A" a business and "1,000s of users" a count.
 const ENDS_STATEMENT =
   "(?=[ \\u00a0]*(?:$|[\\n\\t)）|,;:]|\\.(?!\\d)|(?:except|unless|save|other[ \\u00a0]+than)\\b))";
-// A bracket's currency is read alone only when its whole tail names no scale: "(in £, thousands)"
-// and "(in US$, millions)" state a scale, not just a currency.
-const NO_SCALE_IN_BRACKET =
-  "(?![^()（）\\n]*(?:\\b(?:thousands?|millions?|billions?)\\b|\\b(?:MM|mm|mn|Mn|MN|bn|Bn|BN)\\b|\\b[kKmMbB]\\b|['’]0{3}s?|(?<![\\d'’])0{3}s?(?![\\d'’])))";
+const WORD_CURRENCIES =
+  "U\\.S\\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling";
+// A scale heads a measure or a currency: "million tonnes", "million US dollars".
+const STATED_UNIT_WORDS =
+  "(?:tonnes?|tons?|barrels?|boe|ounces?|oz|shares?|units?|(?:square|cubic)[ \\u00a0](?:metres?|meters?|feet|foot)|sq\\.?[ \\u00a0]?(?:m|ft)|litres?|liters?|gallons?|dollars?|US[ \\u00a0]dollars?|U\\.S\\.[ \\u00a0]dollars?|Hong[ \\u00a0]Kong[ \\u00a0]dollars?|HK[ \\u00a0]dollars?|euros?|pounds?(?:[ \\u00a0]sterling)?|sterling|yuan|[Rr]enminbi|yen)";
 const STATEMENTS: readonly RegExp[] = [
   new RegExp(
     `(?:金额|货币|数量)?单位[:：]?(?<before>${HAN_CURRENCIES})?(?<scale>万亿|千亿|百亿|十亿|亿|千万|百万|十万|万|千|仟|百)?(?<unit>${CN_UNIT_WORDS}|吨|股|人次|人|户|家|个|%|辆|台|套)?`,
@@ -1337,9 +1338,21 @@ const STATEMENTS: readonly RegExp[] = [
   ),
   // A column head's "金额（万）" or "（港币百万）"; "3（万）" is a figure.
   new RegExp(`(?<!\\d)[(（](?<before>${HAN_CURRENCIES})?(?<scale>${CN_STATED_SCALES})[)）]`, "dg"),
+  // A column head's "（人民币，百万）": a comma stands between its currency and scale.
   new RegExp(
-    `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES}|RMB)?(?<scale>${CN_SCALES_AFTER_WORDS})(?<unit>${CN_UNIT_WORDS})(?!户)`,
-    "dg",
+    `(?<!\\d)[(（][ \\u00a0]*(?<before>${HAN_CURRENCIES})[，,;；、][ \\u00a0]*(?<scale>${CN_STATED_SCALES})(?<unit>${CN_UNIT_WORDS})?[ \\u00a0]*[)）]`,
+    "dgu",
+  ),
+  // A scale and 元 inside a longer bracket: "（以千元列示）"; outside one, "千元店" is a shop's name.
+  new RegExp(
+    `[(（][^()（）\\n]{0,12}?(?<![${BEFORE_CN_SCALE}])(?<scale>${CN_STATED_SCALES})(?<unit>元)[^()（）\\n]{0,12}?[)）]`,
+    "dgu",
+  ),
+  // "以千元列示", "以万元计": a scale and 元 the line says its figures are shown in.
+  new RegExp(`以(?<scale>${CN_STATED_SCALES})(?<unit>元)(?:列示|计)?`, "dgu"),
+  new RegExp(
+    `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES}|RMB)?(?<scale>${CN_SCALES_AFTER_WORDS})(?<unit>${CN_UNIT_WORDS})(?![户\\p{Script=Han}])`,
+    "dgu",
   ),
   // "港币百万" with no 元 after it; "人民币千万不要" goes on in a sentence.
   new RegExp(
@@ -1377,18 +1390,22 @@ const STATEMENTS: readonly RegExp[] = [
   /[(（][ \u00a0]?(?<scale>'?000(?:'?s)?)[ \u00a0]omitted[ \u00a0]?[)）]/dg,
   /(?<![\dA-Za-z.,'])(?<scale>'?000(?:'?s)?)[ \u00a0]omitted(?![A-Za-z])/dg,
   /[(（][ \u00a0]?(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[ \u00a0]?[)）]/dg,
+  // A bracket's currency with the scale its tail states: "(in dollars, in thousands)",
+  // "(in HK$, figures in millions)", "(in £, '000)". A clause naming anything else
+  // ("options in thousands") or a second scale leaves the bracket unread (#2365).
   new RegExp(
-    `[(（][ \\u00a0]?in[ \\u00a0]+(?<cur>US\\$|HK\\$|A\\$|C\\$|S\\$|NT\\$|\\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)${NO_SCALE_IN_BRACKET}[^()（）\\n]{0,40}[)）]`,
-    "dg",
-  ),
-  /[(（][ \u00a0]?(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)[ \u00a0]?[)）]/dgi,
-  new RegExp(
-    `[(（][ \\u00a0]?in[ \\u00a0]+(?<cur>U\\.S\\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)${NO_SCALE_IN_BRACKET}[^()（）\\n]{0,40}[)）]`,
+    `[(（][ \\u00a0]*(?:in[ \\u00a0]+)?(?<cur>${STATED_CURRENCY}|${WORD_CURRENCIES})[ \\u00a0]*[,;，；、][ \\u00a0]*(?:in[ \\u00a0]+)?(?:(?:all[ \\u00a0]+)?(?:amounts?|figures?|sums?|values?)[ \\u00a0]+(?:are[ \\u00a0]+)?in[ \\u00a0]+)?(?<scale>'?000(?:'?s)?|000s|thousands?|millions?|billions?|trillions?|Mio\\.?|Mrd\\.?|Tsd\\.?)(?![A-Za-z0-9])[ \\u00a0]*[)）]`,
     "dgi",
   ),
+  /[(（][ \u00a0]?in[ \u00a0]+(?<cur>US\$|HK\$|A\$|C\$|S\$|NT\$|\$|€|£|¥|USD|RMB|CNY|HKD|EUR|GBP|JPY|AUD|CAD|SGD|TWD|CHF)[^()（）\n]{0,40}[)）]/dg,
+  /[(（][ \u00a0]?(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)[ \u00a0]?[)）]/dgi,
+  /[(（][ \u00a0]?in[ \u00a0]+(?<cur>U\.S\. dollars|US dollars|Hong Kong dollars|HK dollars|Australian dollars|Canadian dollars|Singapore dollars|dollars|euros?|yuan|[Rr]enminbi|yen|pounds sterling|pounds|sterling)[^()（）\n]{0,40}[)）]/dgi,
   // A heading's "Unit: million tonnes", "(thousand tonnes)" or a row's "thousand tonnes" cell; in a
   // sentence, "78 million tonnes" is a figure and "a million people" states nothing.
-  /(?<=(?:^|[\n\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \u00a0]of)?[ \u00a0](?<unit>[a-z]+(?:[ \u00a0][a-z]+)?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
+  new RegExp(
+    `(?<=(?:^|[\\n\\t(（|]|\\bunits?[ \\u00a0]?[:：])[ \\u00a0]*)(?<scale>thousands?|millions?|billions?)(?:[ \\u00a0]of)?[ \\u00a0](?<unit>${STATED_UNIT_WORDS})(?=[ \\u00a0]*(?:$|[\\n\\t)）|]))`,
+    "dgi",
+  ),
   // A scale word alone states one only in a bracket, a cell or after "Unit:": a line of its own may
   // be a wrapped "£19.8⏎million".
   /(?<=(?:[\t(（|]|\bunits?[ \u00a0]?[:：])[ \u00a0]*)(?<scale>thousands?|millions?|billions?)(?=[ \u00a0]*(?:$|[\n\t)）|]))/dgi,
@@ -1416,9 +1433,12 @@ function currencyCodes(word: string, settled: Settled): string[] {
   return /^[A-Z]{3}$/.test(trimmed) ? [trimmed] : [];
 }
 
-/** The bracket `from`–`to` sits in, as written, or null when it is on no one line. */
-/** The bracket's content around `from` to `to` on their line; null when they aren't in one. */
-function bracketAround(prepared: Prepared, from: number, to: number): string | null {
+/** The bracket `from`–`to` sits in, with its opening position and content; null when it is on no one line. */
+function bracketAround(
+  prepared: Prepared,
+  from: number,
+  to: number,
+): { at: number; content: string } | null {
   const end = lineEnd(prepared, from);
   if (to > end) return null;
   const line = lineEnding(prepared, end);
@@ -1436,17 +1456,48 @@ function bracketAround(prepared: Prepared, from: number, to: number): string | n
   steps++;
   const { opens, closes } = line.brackets;
   const open = opens[countBefore(opens, from + 1) - 1];
-  const close = closes[countBefore(closes, to)];
-  return open === undefined || close === undefined ? null : prepared.s.slice(open + 1, close);
+  const close = closes[countBefore(closes, to - 1)];
+  return open === undefined || close === undefined
+    ? null
+    : { at: open, content: prepared.s.slice(open + 1, close) };
 }
 
 /** The currencies a bracket names, as codes: "(in £ and $ thousands)" names two. */
 function bracketCurrencies(content: string, settled: Settled): Set<string> {
   const codes = new Set<string>();
-  for (const match of content.normalize("NFKC").matchAll(CURRENCY_ANYWHERE)) {
+  const normal = content.normalize("NFKC");
+  for (const match of normal.matchAll(CURRENCY_ANYWHERE)) {
+    // "仟元", "万元": 元 after a scale names the scale's unit, not a second currency.
+    if (/^[元圆]$/.test(match[0]) && /(?:千|仟|万|亿|百)$/.test(normal.slice(0, match.index)))
+      continue;
     for (const code of currencyCodes(match[0], settled)) codes.add(code);
   }
   return codes;
+}
+
+// A bracket states a currency alone unless its own tail states a scale before an exception;
+// "(in $, except share counts in thousands)" states dollars, and "(in £, thousands)" both (#2365).
+const BRACKET_EXCEPTION =
+  /\b(?:except|unless|save|other[ \u00a0]+than|excluding)\b|除[^()（）\n]{0,12}外/i;
+// The clause itself, to the next comma or bracket: "except share counts in thousands".
+const EXCEPTION_CLAUSE =
+  /\b(?:except|unless|save|other[ \u00a0]+than|excluding)\b[^,;()（）\n]*|除[^，,。;；()（）\n]{0,20}外/gi;
+const BRACKET_SCALE =
+  /'?000(?:'?s)?|\b(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?|mn|bn|mln|bln|MM|Mio|Mrd|Tsd)\b|\b[kKmMbB]\b/i;
+
+/** Whether `at` in a bracket's content lies in the bracket's own exception clause. */
+function insideException(content: string, at: number): boolean {
+  for (const clause of content.matchAll(EXCEPTION_CLAUSE)) {
+    const from = clause.index ?? 0;
+    if (from <= at && at < from + clause[0].length) return true;
+  }
+  return false;
+}
+
+function scaleBeforeException(bracket: string): boolean {
+  const scale = bracket.search(BRACKET_SCALE);
+  const exception = bracket.search(BRACKET_EXCEPTION);
+  return scale >= 0 && (exception < 0 || scale < exception);
 }
 
 function statementsIn(prepared: Prepared, text: string, settled: Settled): Statement[] {
@@ -1474,7 +1525,21 @@ function statementsIn(prepared: Prepared, text: string, settled: Settled): State
       if (!scale && unit.kind === "plain") continue;
       // A bracket naming two currencies states neither for its amounts (#2365).
       const bracket = bracketAround(prepared, match.index, match.index + match[0].length);
-      if (bracket !== null && bracketCurrencies(bracket, settled).size > 1) continue;
+      if (bracket !== null && bracketCurrencies(bracket.content, settled).size > 1) continue;
+      // A scale written inside a bracket's exception clause states only what the clause excepts.
+      if (
+        bracket !== null &&
+        scale !== null &&
+        insideException(bracket.content, match.index - bracket.at - 1)
+      )
+        continue;
+      if (
+        scale === null &&
+        unit.kind === "currency" &&
+        bracket !== null &&
+        scaleBeforeException(bracket.content)
+      )
+        continue;
       found.push({
         from: match.index,
         to: match.index + match[0].length,

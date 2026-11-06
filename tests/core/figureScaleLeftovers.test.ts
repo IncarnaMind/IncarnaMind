@@ -195,20 +195,20 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
   });
 
   // protects=#2365; fails_when=a scale inside a bracket's exception clause ("except share counts in thousands") is read as the line's scale and the currency is dropped.
-  test.each(["(in $, except share counts in thousands)", "(in $, other than headcount in thousands)"])(
-    "a scale in an exception clause states only what the clause excepts: %s",
-    async (line) => {
-      const recorded = await record({
-        file: pdf("Exceptions", [line, ...rows]),
-        cites: rows,
-        numbers: ["1,234.5", "334.5"],
-        unitQuote: line,
-        query: "exceptions revenue costs",
-      });
+  test.each([
+    "(in $, except share counts in thousands)",
+    "(in $, other than headcount in thousands)",
+  ])("a scale in an exception clause states only what the clause excepts: %s", async (line) => {
+    const recorded = await record({
+      file: pdf("Exceptions", [line, ...rows]),
+      cites: rows,
+      numbers: ["1,234.5", "334.5"],
+      unitQuote: line,
+      query: "exceptions revenue costs",
+    });
 
-      expect([null, 900]).toContain(recorded.value);
-    },
-  );
+    expect([null, 900]).toContain(recorded.value);
+  });
 
   // protects=#2365; fails_when=a caption in the figure's own Unit that names another table ("Table 1 … (in thousands)") states a later table's scale.
   test.each([
@@ -243,24 +243,42 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
       ]),
       line: "All amounts in this table are in £'000",
     },
-  ])("a caption for another table never states the figure's scale: $language", async ({ file, line }) => {
-    const recorded = await record({
-      file,
-      cites: rows,
-      numbers: ["1,234.5", "334.5"],
-      unitQuote: line,
-      query: "company results revenue costs",
-    });
+  ])(
+    "a caption for another table never states the figure's scale: $language",
+    async ({ file, line }) => {
+      const recorded = await record({
+        file,
+        cites: rows,
+        numbers: ["1,234.5", "334.5"],
+        unitQuote: line,
+        query: "company results revenue costs",
+      });
 
-    expect(recorded.value).toBeNull();
-  });
+      expect(recorded.value).toBeNull();
+    },
+  );
 
   // protects=#2365; fails_when=a caption's money scale is applied to a row that isn't an amount: a return, a cover, a days ratio, gearing, or a price in pence.
   test.each([
-    { row: "Return on equity 12.5", other: "Return on assets 4.5", line: "(in £'000)", ok: [null, 8] },
-    { row: "Interest cover 4.5", other: "Dividend cover 2.5", line: "(in $ millions)", ok: [null, 2] },
+    {
+      row: "Return on equity 12.5",
+      other: "Return on assets 4.5",
+      line: "(in £'000)",
+      ok: [null, 8],
+    },
+    {
+      row: "Interest cover 4.5",
+      other: "Dividend cover 2.5",
+      line: "(in $ millions)",
+      ok: [null, 2],
+    },
     { row: "Inventory days 60.5", other: "Debtor days 45.5", line: "(in £'000)", ok: [null, 15] },
-    { row: "Gearing 35.5", other: "Net debt to EBITDA 1.5", line: "(in thousands)", ok: [null, 34] },
+    {
+      row: "Gearing 35.5",
+      other: "Net debt to EBITDA 1.5",
+      line: "(in thousands)",
+      ok: [null, 34],
+    },
     {
       row: "Closing share price (p) 245.5",
       other: "Opening share price (p) 45.5",
@@ -281,8 +299,16 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
 
   // protects=#2365; fails_when=a heading that only looks like a scale ("Thousand Oaks", "Millions of customers served", "千元店业绩") is read and scales a figure under it.
   test.each([
-    { language: "Thousand Oaks", file: pdf("Oaks", ["Thousand Oaks", ...rows]), line: "Thousand Oaks" },
-    { language: "Thousand Island", file: pdf("Island", ["Thousand Island", ...rows]), line: "Thousand Island" },
+    {
+      language: "Thousand Oaks",
+      file: pdf("Oaks", ["Thousand Oaks", ...rows]),
+      line: "Thousand Oaks",
+    },
+    {
+      language: "Thousand Island",
+      file: pdf("Island", ["Thousand Island", ...rows]),
+      line: "Thousand Island",
+    },
     {
       language: "Billion dollar brands",
       file: pdf("Brands", ["Billion dollar brands", ...rows]),
@@ -306,35 +332,41 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
       },
       line: "Millions of customers served",
     },
-  ])("a heading that only looks like a scale states none: $language", async ({ file, line, chinese }) => {
-    const cited = chinese ? rowsZh : rows;
-    const recorded = await record({
-      file,
-      cites: cited,
-      numbers: chinese ? ["1,200", "300"] : ["1,234.5", "334.5"],
-      unitQuote: line,
-      query: `${line.split(" ")[0]} revenue costs`,
-    });
+  ])(
+    "a heading that only looks like a scale states none: $language",
+    async ({ file, line, chinese }) => {
+      const cited = chinese ? rowsZh : rows;
+      const recorded = await record({
+        file,
+        cites: cited,
+        numbers: chinese ? ["1,200", "300"] : ["1,234.5", "334.5"],
+        unitQuote: line,
+        query: `${line.split(" ")[0]} revenue costs`,
+      });
 
-    expect(recorded.value).toBeNull();
-  });
+      expect(recorded.value).toBeNull();
+    },
+  );
 
   // protects=#2365; fails_when=a bracket's currency is dropped once its tail's scale is read ("(in dollars, in thousands)", "(in HK$, figures in millions)").
   test.each([
     { line: "(in dollars, in thousands)", value: 900_000, currency: "USD" },
     { line: "(in HK$, figures in millions)", value: 900_000_000, currency: "HKD" },
-  ])("a bracket's currency is kept with its tail's scale: %s", async ({ line, value, currency }) => {
-    const recorded = await record({
-      file: pdf("Currency tails", [line, ...rows]),
-      cites: rows,
-      numbers: ["1,234.5", "334.5"],
-      unitQuote: line,
-      query: "currency tails revenue costs",
-    });
+  ])(
+    "a bracket's currency is kept with its tail's scale: %s",
+    async ({ line, value, currency }) => {
+      const recorded = await record({
+        file: pdf("Currency tails", [line, ...rows]),
+        cites: rows,
+        numbers: ["1,234.5", "334.5"],
+        unitQuote: line,
+        query: "currency tails revenue costs",
+      });
 
-    expect(recorded.value).toBe(value);
-    expect(recorded.currency).toBe(currency);
-  });
+      expect(recorded.value).toBe(value);
+      expect(recorded.currency).toBe(currency);
+    },
+  );
 
   // protects=#2365; fails_when=a sheet's name states a scale ("P&L £'000") and its figures are calculated unscaled with no statement.
   test("a scale in a sheet's name refuses a figure that can't quote it", async () => {
@@ -376,7 +408,10 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
 
   // protects=#2365; fails_when=a price row takes the page's money scale, so "(in thousands)" turns 12.5 − 3.5 into $9.0 thousand.
   test("a price row under a page's scale is refused or read plain", async () => {
-    const priceRows: readonly [string, string] = ["Average price (US$) 12.5", "Unit cost (US$) 3.5"];
+    const priceRows: readonly [string, string] = [
+      "Average price (US$) 12.5",
+      "Unit cost (US$) 3.5",
+    ];
     const recorded = await record({
       file: pdf("Average prices", ["(in thousands)", ...priceRows]),
       cites: priceRows,
