@@ -123,7 +123,7 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await window.getByTestId("palette-search").fill("eighteenth");
   const hits = window
     .getByTestId("palette")
-    .locator('[data-testid="palette-group"][data-group="notes"]')
+    .locator('[data-testid="palette-group"][data-group="meetingText"]')
     .getByTestId("palette-item");
   await expect(hits).toHaveCount(1);
   // A meeting is a Note: never under the Documents' words, and timed as its Transcript shows it.
@@ -188,6 +188,11 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(window.getByTestId("scope-picker")).toContainText(
     new RegExp(`${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
   );
+  // A meeting is its Note's choice: under the sidebar's Notes group, never Documents (#2579).
+  await expect(
+    window.getByTestId("scope-picker").getByRole("group", { name: "Notes" }),
+  ).toContainText(new RegExp(`${escaped(title)} · Transcript, \\d{2}:\\d{2}`));
+  await shot(window, "one-item-at-picker-en");
   await window.keyboard.press("Escape");
   await window.keyboard.press("ControlOrMeta+a");
   await window.keyboard.press("Backspace");
@@ -198,12 +203,36 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(hits.first()).toContainText(new RegExp(`^${escaped(title)} · 转写稿 \\d{2}:\\d{2}`));
   await shot(window, "one-item-palette-zh");
   await window.keyboard.press("Escape");
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("@eighteenth");
+  await expect(
+    window.getByTestId("scope-picker").getByRole("group", { name: "笔记" }),
+  ).toContainText(new RegExp(`${escaped(title)} · 转写稿`));
+  await shot(window, "one-item-at-picker-zh");
+  await window.keyboard.press("Escape");
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.press("Backspace");
   await pointAndClick(window, window.getByTestId("open-library"));
   await librarySearch.fill("eighteenth");
   await expect(meetingsFound.getByRole("heading")).toHaveText("笔记");
   await expect(meetingsFound.getByTestId("library-meeting-hit")).toContainText(
     new RegExp(`^${escaped(title)} · 转写稿 \\d{2}:\\d{2}`),
   );
+
+  // A renamed Note takes its Transcript's name with it, and Don't cite says the current name (#2579).
+  const renamed = "Weekly tide review";
+  await (await core(window)).evaluate(
+    async (bridge, mindId) => bridge.renameMind(mindId, "Weekly tide review"),
+    recorded.mindId,
+  );
+  await expect(header).toContainText(`转写稿 · ${renamed}`);
+  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
+  await pointAndClick(window, window.getByRole("menuitem", { name: "不引用转写稿" }));
+  await expect.poll(notCited).toBe(true);
+  await expect(window.getByTestId("undo-message").last()).toHaveText(
+    `“${renamed}”不再作为引用来源`,
+  );
+  await shot(window, "one-item-renamed-dont-cite-zh");
   await app.close();
 });
 
@@ -312,9 +341,10 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
   };
   const whoseLine = async (line: ReturnType<Page["getByTestId"]>) => {
     const text = (await line.getByTestId("status-label").textContent()) ?? "";
-    const found = text.includes(weekly.title) ? said[weekly.title] : said[standup.title];
+    const title = text.includes(weekly.title) ? weekly.title : standup.title;
+    const found = said[title];
     if (!found) throw new Error(`No meeting says “${text}”.`);
-    return found;
+    return { title, ...found };
   };
 
   const { app, window } = await launchApp(dataDir);
@@ -347,6 +377,15 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
   await pointAndClick(window, line.getByTestId("meeting-joined-undo"));
   await expect.poll(() => placeOf(window, shown.mindId, shown.transcript)).toEqual(shown.undone);
   await expect(window.getByTestId(lineId)).toHaveCount(0);
+  // Undo says it worked on the same line, for its few seconds, with the meeting's name (#2579).
+  const undoneLine = window.getByTestId(
+    `meeting-joined-undone-${lineId.replace("meeting-joined-", "")}`,
+  );
+  await expect(undoneLine.getByTestId("status-label")).toHaveText(
+    `“${shown.title}” and its Transcript are back where they were`,
+  );
+  await shot(window, "one-item-joined-undone-en");
+  await expect(undoneLine).toHaveCount(0, { timeout: 5_000 });
 
   // The other meeting's line, naming the other half, in both languages; left alone.
   const otherLine = window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/).first();

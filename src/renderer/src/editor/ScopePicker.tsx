@@ -300,13 +300,29 @@ export function ScopeChoiceList({
       {SCOPE_KINDS.map((kind) => {
         const ofKind = shown.filter((item) => item.kind === kind);
         if (ofKind.length === 0) return null;
-        return (
+        // A meeting is its Note's choice, under the sidebar's own group (#2579).
+        const groups =
+          kind === "document"
+            ? [
+                {
+                  key: "notes",
+                  label: t("sidebar.notes"),
+                  items: ofKind.filter((item) => item.meeting),
+                },
+                {
+                  key: "documents",
+                  label: t(GROUP_LABELS.document),
+                  items: ofKind.filter((item) => !item.meeting),
+                },
+              ].filter((each) => each.items.length > 0)
+            : [{ key: kind, label: t(GROUP_LABELS[kind]), items: ofKind }];
+        return groups.map(({ key, label, items }) => (
           // biome-ignore lint/a11y/useSemanticElements: a group of a listbox's options, which a fieldset can't hold.
-          <div key={kind} role="group" aria-label={t(GROUP_LABELS[kind])}>
+          <div key={key} role="group" aria-label={label}>
             <p aria-hidden="true" className="scope-picker-heading">
-              {t(GROUP_LABELS[kind])}
+              {label}
             </p>
-            {ofKind.map((item) => {
+            {items.map((item) => {
               const index = shown.indexOf(item);
               if (isBlocked(item)) {
                 return (
@@ -395,7 +411,7 @@ export function ScopeChoiceList({
               );
             })}
           </div>
-        );
+        ));
       })}
     </div>
   );

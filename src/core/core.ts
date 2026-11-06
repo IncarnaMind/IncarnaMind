@@ -4964,6 +4964,17 @@ export function createCore(adapters: CoreAdapters): Core {
     renameMind: async (mindId, title) => {
       const mind = minds.rename(mindId, title);
       mindsChanged();
+      // A joined Transcript's name follows its Note (#2579): every view reads the Document's name.
+      const transcripts = documents.list().filter((each) => each.meetingMindId === mind.id);
+      if (transcripts.length > 0) {
+        const name = mind.title.trim()
+          ? translate(settings.get().language, "meetings.transcript.name", { meeting: mind.title })
+          : translate(settings.get().language, "meetings.transcript.nameAlone");
+        events.emit(
+          "documents.renamed",
+          transcripts.map((document) => documents.rename(document.id, name)),
+        );
+      }
       return mind;
     },
     deleteMind: async (mindId) => removeMind(mindId),

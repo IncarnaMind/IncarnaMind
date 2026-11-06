@@ -118,6 +118,17 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () => {
+  test("renaming its Note renames its joined Transcript (#2579)", async () => {
+    const { core, dataDir, meeting } = await recordedMeeting("en");
+    const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+    expect(document.meetingMindId).toBe(meeting.mindId);
+    const title = (await core.listMinds()).find((mind) => mind.id === meeting.mindId)?.title;
+    expect(document.name).toBe(`Transcript · ${title}`);
+    await core.renameMind(meeting.mindId, "Renamed call");
+    const after = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(after?.name).toBe("Transcript · Renamed call");
+  });
+
   test("a move, a drag's filing, Tags and Organize leave it with its Note; another Document files as before", async () => {
     const fake = classifierModel();
     const { core, dataDir, meeting } = await recordedMeeting("en", {}, () => fake.model);
@@ -296,6 +307,14 @@ describe("A database from before (#2528)", { timeout: 60_000 }, () => {
     const apart = (await again.listDocuments()).find((each) => each.id === document.id);
     expect(apart?.meetingMindId).toBeNull();
     expect(apart?.tags.map((each) => each.tagId)).toEqual([tag.id]);
+    // Left apart, its Tags are its own: the refusal is only for a joined Transcript (#2579 pin).
+    const later = await again.createTag({ name: "Later filing" });
+    await again.addDocumentTag(document.id, later.id);
+    expect(
+      (await again.listDocuments())
+        .find((each) => each.id === document.id)
+        ?.tags.map((each) => each.tagId),
+    ).toEqual(expect.arrayContaining([tag.id, later.id]));
     expect((await filedTranscripts(again, document.id)).map((each) => each.groupId)).toEqual([
       vault.id,
     ]);
