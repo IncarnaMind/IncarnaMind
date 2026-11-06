@@ -266,6 +266,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
           acceptedOk: number;
           cleanUnheld: number;
           duplicate: number;
+          englishText: number;
           targetStill: number;
           ordersChecked: number;
           ordersDiffer: number;
@@ -361,6 +362,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
                 ? proposed.after.every((text) => after.some((line) => plain(line) === plain(text)))
                 : null;
               const duplicate = after.some((text, at) => after.indexOf(text) !== at);
+              const englishText = after.some((text) => /[A-Za-z]/.test(text));
               const takenOut = sentences?.named.takenOut ?? [];
               const onlyTakenOut = takenOut.length === 1 ? (takenOut[0] ?? null) : null;
               const targetStill =
@@ -381,7 +383,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
                 process.env.INCARNAMIND_LIVE_VERBOSE === "1"
               ) {
                 kept.push(
-                  `- ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, held ${held?.why ?? "no"}, accepted ${accepted}, duplicate ${duplicate}, targetStill ${targetStill}; before ${JSON.stringify(before)}; pending ${JSON.stringify(pending)}; proposed ${JSON.stringify(proposed)}; after ${JSON.stringify(after)}${orders.length > 0 ? `; orders ${JSON.stringify(orders)}` : ""}`,
+                  `- ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, held ${held?.why ?? "no"}, accepted ${accepted}, duplicate ${duplicate}, englishText ${englishText}, targetStill ${targetStill}; before ${JSON.stringify(before)}; pending ${JSON.stringify(pending)}; proposed ${JSON.stringify(proposed)}; after ${JSON.stringify(after)}${orders.length > 0 ? `; orders ${JSON.stringify(orders)}` : ""}`,
                 );
               }
               const flagged = (second.answer.steps?.unbackedClaims ?? []).length > 0;
@@ -398,6 +400,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
                 acceptedOk: 0,
                 cleanUnheld: 0,
                 duplicate: 0,
+                englishText: 0,
                 targetStill: 0,
                 ordersChecked: 0,
                 ordersDiffer: 0,
@@ -415,6 +418,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
               }
               if (clean && held === null) counts.cleanUnheld++;
               if (duplicate) counts.duplicate++;
+              if (englishText) counts.englishText++;
               if (targetStill === true) counts.targetStill++;
               if (orders.length === 2) {
                 counts.ordersChecked++;
@@ -424,7 +428,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
               if (process.env.INCARNAMIND_LIVE_REPORT) {
                 await appendFile(
                   process.env.INCARNAMIND_LIVE_REPORT,
-                  `run ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, accepted ${accepted}, duplicate ${duplicate}, targetStill ${targetStill}, status says not all done ${flagged}, reply says waits or not made ${denied}, removes_only ${JSON.stringify(removes)}, sentences ${JSON.stringify(sentences)}, held ${held?.why ?? "no"}: ${JSON.stringify(second.answer.text).slice(0, 300)}\n`,
+                  `run ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, accepted ${accepted}, duplicate ${duplicate}, englishText ${englishText}, targetStill ${targetStill}, status says not all done ${flagged}, reply says waits or not made ${denied}, removes_only ${JSON.stringify(removes)}, sentences ${JSON.stringify(sentences)}, held ${held?.why ?? "no"}: ${JSON.stringify(second.answer.text).slice(0, 300)}\n`,
                 );
               }
               if (made && (flagged || denied)) {
@@ -453,6 +457,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
       let acceptedOk = 0;
       let cleanUnheld = 0;
       let duplicate = 0;
+      let englishText = 0;
       let targetStill = 0;
       let ordersChecked = 0;
       let ordersDiffer = 0;
@@ -471,6 +476,7 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
             acceptedOk: 0,
             cleanUnheld: 0,
             duplicate: 0,
+            englishText: 0,
             targetStill: 0,
             ordersChecked: 0,
             ordersDiffer: 0,
@@ -485,16 +491,17 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
           acceptedOk += counts.acceptedOk;
           cleanUnheld += counts.cleanUnheld;
           duplicate += counts.duplicate;
+          englishText += counts.englishText;
           targetStill += counts.targetStill;
           ordersChecked += counts.ordersChecked;
           ordersDiffer += counts.ordersDiffer;
           report.push(
-            `  ${each.language} “${followUp.ask}”: made ${counts.made}/${runs}; removes_only true ${counts.removing}/${runs}; one sentence out and nothing else changed ${counts.clean}/${runs}; clean and unheld ${counts.cleanUnheld}/${runs}; held ${counts.held}, not clean and held ${counts.notCleanHeld}; accepted matches the proposed text ${counts.acceptedOk}/${counts.acceptedChecked}; duplicate paragraph ${counts.duplicate}; target still present ${counts.targetStill}; both orders checked ${counts.ordersChecked}, different ${counts.ordersDiffer}; of those made, status says not all done ${counts.flagged}, reply says waits or not made ${counts.denied}`,
+            `  ${each.language} “${followUp.ask}”: made ${counts.made}/${runs}; removes_only true ${counts.removing}/${runs}; one sentence out and nothing else changed ${counts.clean}/${runs}; clean and unheld ${counts.cleanUnheld}/${runs}; held ${counts.held}, not clean and held ${counts.notCleanHeld}; accepted matches the proposed text ${counts.acceptedOk}/${counts.acceptedChecked}; duplicate paragraph ${counts.duplicate}; English or tool text in the accepted Note ${counts.englishText}; target still present ${counts.targetStill}; both orders checked ${counts.ordersChecked}, different ${counts.ordersDiffer}; of those made, status says not all done ${counts.flagged}, reply says waits or not made ${counts.denied}`,
           );
         }
       }
       report.push(
-        `  all: made ${made}/${jobs.length}; removes_only true ${removing}; one sentence out and nothing else changed ${clean}; clean and unheld ${cleanUnheld}; held ${held}; accepted matches the proposed text ${acceptedOk}/${acceptedChecked}; duplicate paragraph ${duplicate}; target still present ${targetStill}; both orders checked ${ordersChecked}, different ${ordersDiffer}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; questions asked and answered ${questions}; Answers that never ended ${unended}`,
+        `  all: made ${made}/${jobs.length}; removes_only true ${removing}; one sentence out and nothing else changed ${clean}; clean and unheld ${cleanUnheld}; held ${held}; accepted matches the proposed text ${acceptedOk}/${acceptedChecked}; duplicate paragraph ${duplicate}; English or tool text in the accepted Note ${englishText}; target still present ${targetStill}; both orders checked ${ordersChecked}, different ${ordersDiffer}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; questions asked and answered ${questions}; Answers that never ended ${unended}`,
         ...spentBy(dataDir),
         ...kept,
       );
