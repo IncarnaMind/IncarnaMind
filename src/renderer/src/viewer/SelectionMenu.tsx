@@ -9,11 +9,16 @@ import {
   useRef,
   useState,
 } from "react";
-import type { AskedQuote, Document } from "../../../core/api";
-import { useViewerHandle } from "../commands/handles";
+import type { AnnotationColour, AskedQuote, Document } from "../../../core/api";
+import { ANNOTATION_COLOURS } from "../../../core/api";
+import { ANNOTATION_COLOUR_LABELS } from "../../../shared/annotationColours";
+import { highlightSelection } from "../annotationActions";
+import { useNoteEditor } from "../annotationNote";
+import { useAnnotations } from "../annotations";
+import { paletteOpen, useViewerHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { AddToMindPicker } from "../components/assistant/AddToMindPicker";
-import { ChatLineIcon, CopyLineIcon, PlusLineIcon } from "../components/lineIcons";
+import { ChatLineIcon, CopyLineIcon, NoteLineIcon, PlusLineIcon } from "../components/lineIcons";
 import { holdsQuote, useComposer } from "../composer";
 import { Popover } from "../editor/Popover";
 import { useT } from "../i18n";
@@ -39,7 +44,12 @@ interface Held {
 // The focus in a field elsewhere (⌘K, the composer, the Mind picker) takes the page's selection
 // with it, but the words selected are still the ones acted on.
 const typesInField = (element: Element | null) =>
-  element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+  element instanceof HTMLInputElement ||
+  element instanceof HTMLTextAreaElement ||
+  // ⌘K takes the page's selection before its dialog has the focus, and a modal blocks the page:
+  // whatever moved the selection, the words selected in the page still hold.
+  paletteOpen.current ||
+  window.document.querySelector("dialog[open]") !== null;
 
 const inPopover = (target: EventTarget | null) =>
   target instanceof Element && target.closest(".editor-popover") !== null;
@@ -48,6 +58,14 @@ const HELD = "viewer-held-selection";
 
 // Shift and the arrows change a selection a key at a time: it is read once they stop.
 const SETTLE_MS = 120;
+
+const sameRange = (a: Range | null | undefined, b: Range): boolean =>
+  a !== null &&
+  a !== undefined &&
+  a.startContainer === b.startContainer &&
+  a.startOffset === b.startOffset &&
+  a.endContainer === b.endContainer &&
+  a.endOffset === b.endOffset;
 
 function rangeIn(section: HTMLElement): Range | null {
   const selection = window.getSelection();
@@ -87,6 +105,10 @@ export function SelectionMenu({
   const t = useT();
   const settingUp = useSettingUp();
   const [held, setHeld] = useState<Held | null>(null);
+  // The range the menu holds now: a selection change to the same words, as closing the menu moves
+  // the focus, is not a new selection and must not open it again.
+  const heldRange = useRef<Range | null>(null);
+  heldRange.current = held?.range ?? null;
   const [asked, setAsked] = useState<AskedQuote | null>(null);
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -130,18 +152,32 @@ export function SelectionMenu({
     const onReleased = () => {
       pressed = false;
     };
-    // Once the browser has settled the selection the press made.
+    // Once the browser has settled the selection the press made, and at once, so a key pressed
+    // before it settles (⌘K) still finds the words selected. A loaded browser can apply the
+    // drag's selection after the pointer has come up, so read it again once it has.
     const onUp = (event: PointerEvent) => {
-      if (event.button === 0 && !inPopover(event.target)) setTimeout(read);
+      if (event.button !== 0 || inPopover(event.target)) return;
+      read();
+      setTimeout(read);
+      clearTimeout(settling);
+      settling = setTimeout(read, SETTLE_MS);
     };
     const onChange = () => {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
-        if (!section.contains(selection.getRangeAt(0).commonAncestorContainer)) setHeld(null);
-        // After a drag the focus is on the page's body, which no key event of the viewer reaches.
-        else if (!pressed) {
-          clearTimeout(settling);
-          settling = setTimeout(read, SETTLE_MS);
+        if (section.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+          // After a drag the focus is on the page's body, which no key event of the viewer reaches.
+          if (!pressed && !sameRange(heldRange.current, selection.getRangeAt(0))) {
+            clearTimeout(settling);
+            settling = setTimeout(read, SETTLE_MS);
+          }
+        } else {
+          const focused = window.document.activeElement;
+          // Words typed in ⌘K's field are a selection too, and not the page's.
+          if (typesInField(focused) || inPopover(focused)) {
+            if (!inPopover(focused)) setOpen(false);
+            setAway(true);
+          } else setHeld(null);
         }
         return;
       }
@@ -198,6 +234,25 @@ export function SelectionMenu({
     });
   }, [asked]);
 
+  // Its words redrawn or gone, as another file version or a PDF zoom does: the menu goes with them.
+  useEffect(() => {
+    if (!held || !section) return;
+    const range = held.range;
+    const observer = new MutationObserver(() => {
+      if (
+        !range.collapsed &&
+        range.startContainer.isConnected &&
+        section.contains(range.startContainer)
+      ) {
+        return;
+      }
+      setOpen(false);
+      setHeld(null);
+    });
+    observer.observe(section, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [held, section]);
+
   useEffect(() => {
     drawHeld(held && away ? held.range : null);
     return () => drawHeld(null);
@@ -242,10 +297,31 @@ export function SelectionMenu({
     [held, settingUp, close, heldNow],
   );
 
+  const colour = useAnnotations((state) => state.colour);
+  const highlightIn = useCallback(
+    (chosen: AnnotationColour) => {
+      const now = heldNow() ?? held;
+      close();
+      if (now) void highlightSelection(now.selection, chosen);
+      // The menu is gone: the keys go on with the page, not with the window's body.
+      section?.focus();
+    },
+    [held, close, heldNow, section],
+  );
+
   const actions = useMemo(
     () =>
       held && {
         ...(ask && { ask }),
+        highlight: () => highlightIn(colour),
+        note: () => {
+          const now = heldNow() ?? held;
+          if (!now) return;
+          close();
+          void highlightSelection(now.selection, colour).then((annotation) => {
+            if (annotation) useNoteEditor.getState().open(annotation.id, document.id);
+          });
+        },
         addToNote: () => {
           const now = heldNow() ?? held;
           if (addsWithoutAsking()) {
@@ -263,7 +339,7 @@ export function SelectionMenu({
           void copySelectionWithCitation((heldNow() ?? held).selection);
         },
       },
-    [held, ask, close, heldNow],
+    [held, ask, close, heldNow, highlightIn, colour, document.id],
   );
   // Only while there is a selection, filed under this viewer's tab: another tab may hold one.
   useViewerHandle("selection", actions ?? null);
@@ -275,6 +351,7 @@ export function SelectionMenu({
         anchor={anchor}
         placement="bottom-start"
         middleware={() => [offset(6), flip(), shift({ padding: 8 }), hide()]}
+        still
         role="menu"
         aria-label={t("viewer.selection.label")}
         data-testid="viewer-selection-menu"
@@ -288,6 +365,7 @@ export function SelectionMenu({
           actions={actions}
           firstAsk={firstAsk}
           addButton={addButton}
+          annotations={{ colour, highlight: highlightIn, note: actions.note }}
         />
       </Popover>
       {picking && adding && (
@@ -345,6 +423,7 @@ export function SelectionMenuBody({
   firstAsk,
   addButton,
   size,
+  annotations,
 }: {
   menu: RefObject<HTMLDivElement | null>;
   actions: SelectionMenuActions;
@@ -352,6 +431,12 @@ export function SelectionMenuBody({
   addButton: (element: HTMLButtonElement | null) => void;
   /** A range's size, above its actions: "3 rows × 4 columns". */
   size?: string;
+  /** Words in a Document offer Highlight and Add a note… (#327); a range of cells does not. */
+  annotations?: {
+    colour: AnnotationColour;
+    highlight(colour: AnnotationColour): void;
+    note(): void;
+  };
 }) {
   const t = useT();
   return (
@@ -360,6 +445,61 @@ export function SelectionMenuBody({
         <p data-testid="viewer-selection-size" className="editor-menu-note">
           {size}
         </p>
+      )}
+      {annotations && (
+        <>
+          <div
+            role="menuitem"
+            tabIndex={0}
+            data-testid="viewer-selection-highlight"
+            aria-label={t("annotations.highlight")}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => annotations.highlight(annotations.colour)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              annotations.highlight(annotations.colour);
+            }}
+            className="editor-menu-item"
+          >
+            <NoteLineIcon className="size-4 shrink-0 text-ink-secondary" />
+            <span className="flex-1 truncate">{t("annotations.highlight")}</span>
+            <span className="annotation-swatches">
+              {ANNOTATION_COLOURS.map((each) => (
+                <button
+                  key={each}
+                  type="button"
+                  role="menuitemradio"
+                  data-testid={`viewer-selection-highlight-${each}`}
+                  aria-label={t(ANNOTATION_COLOUR_LABELS[each])}
+                  title={t(ANNOTATION_COLOUR_LABELS[each])}
+                  aria-checked={annotations.colour === each}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    annotations.highlight(each);
+                  }}
+                  className={`annotation-colour annotation-colour--${each}${
+                    annotations.colour === each ? " annotation-colour--chosen" : ""
+                  }`}
+                />
+              ))}
+            </span>
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="viewer-selection-note"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => annotations.note()}
+            className="editor-menu-item"
+          >
+            <PlusLineIcon className="size-4 shrink-0 text-ink-secondary" />
+            <span className="flex-1 truncate">{t("annotations.addNote")}</span>
+            <kbd className="editor-menu-shortcut">{shortcutLabel("comment.add")}</kbd>
+          </button>
+        </>
       )}
       {actions.ask && (
         <button

@@ -18,6 +18,8 @@ const offersSlideAsk = () => slide()?.ask !== undefined;
 
 const offersArea = () => area()?.select !== undefined;
 
+const offersAreaHighlight = () => area()?.highlight !== undefined;
+
 const rangeSelected = () => range() !== null;
 
 const rangeOffersAsk = () => range()?.ask !== undefined;
@@ -44,6 +46,16 @@ export const viewerSelectionCommands: readonly Command[] = [
     reversible: true,
     when: offersArea,
     run: () => area()?.select?.(),
+  },
+  {
+    id: "viewer.area.highlight",
+    assistant: false,
+    label: "command.annotations.highlightArea",
+    group: "main",
+    // Delete takes the highlight back, with Undo.
+    reversible: true,
+    when: offersAreaHighlight,
+    run: () => area()?.highlight?.(),
   },
   {
     id: "viewer.range.ask",
@@ -82,6 +94,15 @@ export const viewerSelectionCommands: readonly Command[] = [
     reversible: true,
     when: offersAsk,
     run: () => selection()?.ask?.(),
+  },
+  {
+    id: "viewer.selection.highlight",
+    label: "command.annotations.highlight",
+    group: "main",
+    // Delete takes it back, with Undo.
+    reversible: true,
+    when: selected,
+    run: () => selection()?.highlight?.(),
   },
   {
     id: "viewer.selection.addToNote",

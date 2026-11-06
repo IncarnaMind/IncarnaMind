@@ -1,12 +1,15 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
 import { readWebPage, type WebPage } from "../../../core/documents/formats/web";
 import type { XmlNode } from "../../../core/documents/formats/xml";
 import { documentImageUrl } from "../../../shared/documentViewer";
 import type { MessageKey } from "../../../shared/i18n";
-import { useLanguage, useT } from "../i18n";
+import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
+import { translateNow, useLanguage, useT } from "../i18n";
 import type { ViewerTarget } from "../store";
 import { pageDate } from "../webPages";
+import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
+import { markAnnotationsInDom, unmarkAnnotationsInDom } from "./annotationMarks";
 import { useCitedArea } from "./citedArea";
 import { loadDocumentPicture } from "./documentPicture";
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
@@ -347,6 +350,23 @@ function WebPageContent({
     container.scrollTop = Math.max(0, top - (marks ? container.clientHeight / 3 : 24));
   }, [page, t, target.request, target.quote, target.pageFrom, target.pageTo, target.figure]);
 
+  // The Document's highlights (#327), drawn in the page.
+  const stored = useDocumentAnnotations(document.id);
+  const loadAnnotations = useAnnotations((state) => state.load);
+  useEffect(() => {
+    void loadAnnotations(document.id);
+  }, [loadAnnotations, document.id]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a page drawn again in another language is marked again
+  useLayoutEffect(() => {
+    const body = host.current;
+    if (!body) return;
+    unmarkAnnotationsInDom(body);
+    markAnnotationsInDom(body, highlightsOf(stored), (annotation) =>
+      translateNow(annotation.note === null ? "annotations.addNote" : "annotations.menu.editNote"),
+    );
+    return () => unmarkAnnotationsInDom(body);
+  }, [page, stored]);
+
   useLayoutEffect(() => {
     const element = column.current;
     if (!element || !mark || highlighted === 0) {
@@ -443,6 +463,11 @@ function WebPageContent({
               )}
             </div>
           </article>
+          <AnnotationNoteLayer
+            container={scroller}
+            documentId={document.id}
+            annotations={stored ?? []}
+          />
         </div>
       </div>
     </>

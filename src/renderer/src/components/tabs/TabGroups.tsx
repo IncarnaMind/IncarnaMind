@@ -197,6 +197,10 @@ function TabGroup({
         if (!focused)
           void useAppStore.getState().changeLayout({ type: "focus", groupId: group.id });
       }}
+      onFocusCapture={() => {
+        if (!focused)
+          void useAppStore.getState().changeLayout({ type: "focus", groupId: group.id });
+      }}
     >
       <TabStrip group={group} index={index} merged={merged} drag={drag} />
       <div

@@ -17,6 +17,7 @@ import { ExtractionError, extractUnits } from "./formats";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
 import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
 import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap";
+import { type FileAnnotation, readFileAnnotations } from "./pdfAnnotations";
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
 import { scannedUnit } from "./scan/layout";
@@ -98,6 +99,8 @@ export interface ExtractedText {
    * page ended itself (see `joinPrintedLines`), which the wider join keeps.
    */
   keptBreaks?: ReadonlyMap<number, ReadonlySet<number>>;
+  /** PDFs: the highlights and notes the file itself holds (#327). */
+  fileAnnotations?: FileAnnotation[];
 }
 
 /**
@@ -571,6 +574,7 @@ async function extractPdf(
     const document = await task.promise;
     const pages: TextUnit[] = [];
     const keptBreaks = new Map<number, ReadonlySet<number>>();
+    const fileAnnotations: FileAnnotation[] = [];
     const scanned: number[] = [];
     const scanFields = new Map<number, { text: string; anchors: Anchor[] }>();
     const unreadForms: number[] = [];
@@ -590,6 +594,13 @@ async function extractPdf(
       const read = readPageText(content.items);
       if (read.kept.size > 0) keptBreaks.set(number, read.kept);
       pages.push({ page: number, kind: "page", label: null, text: read.text, anchors: null });
+      try {
+        // The file's own highlights and notes (#327): a damaged one is left out, not the page.
+        const annotations = await page.getAnnotations();
+        fileAnnotations.push(...readFileAnnotations(number, annotations, content.items));
+      } catch (error) {
+        console.error(`PDF page ${number}: its annotations couldn't be read`, error);
+      }
       const layout = pageTables(textLayerRows(content.items));
       // A recognizer's searchable layer is invisible text over the page's picture; visible text
       // over a background picture is the page's own, so its figures are still checked (#448).
@@ -636,7 +647,7 @@ async function extractPdf(
     const units = pages.map((unit, index) =>
       withTables(withPrintedName(unit, names[index] ?? null), tables.get(unit.page)),
     );
-    return { pageCount: pages.length, units, unread, parts: null, keptBreaks };
+    return { pageCount: pages.length, units, unread, parts: null, keptBreaks, fileAnnotations };
   } catch (error) {
     if (reading?.signal.aborted) throw reading.signal.reason;
     const name = error instanceof Error ? error.name : "";

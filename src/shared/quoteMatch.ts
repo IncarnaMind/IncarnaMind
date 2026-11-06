@@ -452,6 +452,29 @@ export function findQuote(
 }
 
 /**
+ * Every place `quote` is in `text`, not only the first: a highlight's mark is
+ * drawn at the place its selection's words around it fit, which is not always
+ * the first of the same words.
+ */
+export function findQuoteOccurrences(text: string, quote: string): TextRange[] {
+  const units = matchUnits(text);
+  const needle = needleOf(quote);
+  if (!needle) return [];
+  const found: TextRange[] = [];
+  let from = 0;
+  for (;;) {
+    const match = findFrom(units, needle, from);
+    if (!match) break;
+    const first = units[match.first];
+    const last = units[match.last];
+    if (!first || !last) break;
+    found.push({ start: first.start, end: last.end });
+    from = match.last + 1;
+  }
+  return found;
+}
+
+/**
  * `findQuote` in one reading: with number formatting normalised or not, and
  * with the quote and the text both read without f-ligatures' letters or not.
  */

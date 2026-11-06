@@ -27,6 +27,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  openDocumentAt,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -109,6 +110,9 @@ const MAKES_A_MIND = new Set([
   "folder.newMind",
   "mind.aiUseStatement",
 ]);
+
+/** Commands that make a Mind and put words in it: the note's Undo takes the words back, then the Mind goes. */
+const MAKES_A_MIND_WITH_A_NOTE = new Set(["annotation.addToNote"]);
 
 let dataDir: string;
 let homeDir: string;
@@ -440,7 +444,14 @@ async function checkCommand(
     return "ran";
   }
 
-  if (MAKES_A_MIND.has(commandId)) {
+  if (MAKES_A_MIND_WITH_A_NOTE.has(commandId)) {
+    expect.soft(changed, `${commandId} makes a Mind`).toBe(true);
+    expect
+      .soft(await undoOffered(window), `${commandId} puts words in the note, so Undo is offered`)
+      .toBe(true);
+    await takeBack(window, stage);
+    await deleteMadeMinds(window, before);
+  } else if (MAKES_A_MIND.has(commandId)) {
     expect.soft(changed, `${commandId} makes a Mind`).toBe(true);
     expect
       .soft(await undoOffered(window), `${commandId} makes a Mind and says nothing`)
@@ -774,6 +785,59 @@ const STAGES: Record<Staged, Stage> = {
         key,
       ),
     opened: ({ window }) => window.getByTestId("viewer-header"),
+  },
+  annotation: {
+    // A highlight on the words of a Document, made through the bridge, shown in its tab's panel.
+    async make({ window, sources: dir }) {
+      const path = join(dir, "Tides.txt");
+      await writeFile(path, "Neap tides are the smallest of the month.\n");
+      // Added through the core, so no undo line from adding it waits for a later ⌘Z.
+      await read(window, async (core, at) => core.addDocuments([at]), path);
+      await expect
+        .poll(
+          () =>
+            read(window, async (core) =>
+              (await core.listDocuments()).some((document) => document.status === "ready"),
+            ),
+          { timeout: 20_000 },
+        )
+        .toBe(true);
+      return read(window, async (core) => {
+        const [document] = await core.listDocuments();
+        if (!document) return "";
+        const annotation = await core.createAnnotation({
+          documentId: document.id,
+          parts: [{ unit: null, text: "Neap tides are the smallest of the month." }],
+          colour: "yellow",
+        });
+        return `${document.id}:${annotation.id}`;
+      });
+    },
+    async show({ window }, key) {
+      const [documentId, annotationId] = key.split(":");
+      await openDocumentAt(window, { documentId: documentId ?? "" });
+      await expect(window.getByTestId("viewer-header")).toBeVisible();
+      // The header is drawn again once the file is read: act on the settled one.
+      await expect(window.getByTestId("viewer-text")).toBeVisible();
+      const toggle = window.getByTestId("viewer-annotations-toggle");
+      if (await toggle.isVisible()) {
+        // By the keyboard: a window's first pointer press only focuses it.
+        await toggle.focus();
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+          await window.keyboard.press("Enter");
+        }
+      } else {
+        const more = window.getByTestId("document-file-menu").first();
+        await more.focus();
+        await window.keyboard.press("Enter");
+        const item = window.getByTestId("document.showAnnotations").first();
+        await expect(item).toBeVisible({ timeout: 5_000 });
+        await item.click();
+      }
+      await expect(window.getByTestId("annotations-panel")).toBeVisible();
+      return annotationId ?? "";
+    },
+    hit: ({ window }) => window.getByTestId("annotation-row").first(),
   },
   folder: {
     // With a Document in it, so there is something to ask about and to organize.

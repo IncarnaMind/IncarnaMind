@@ -2250,7 +2250,12 @@ export async function pointAndClick(
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
     if (!scrolled) {
-      await target.scrollIntoViewIfNeeded();
+      // The selection menu is placed beside its words inside the window: scrolling the page
+      // under it would carry its anchor, and the menu with it, so there is nothing to bring in.
+      const inSelectionMenu = await target.evaluate(
+        (element) => element.closest(".viewer-selection-menu") !== null,
+      );
+      if (!inSelectionMenu) await target.scrollIntoViewIfNeeded();
       scrolled = true;
     }
     const held = await target.evaluate(async (element) => {
@@ -3246,6 +3251,10 @@ export async function coreState(window: Page): Promise<unknown> {
       core.listLinkedFolders(),
       core.listDeleted(),
     ]);
+    // A Document's highlights and notes (#327), so a change to one is seen and taken back.
+    const annotations = await Promise.all(
+      documents.map(async (document) => [document.id, await core.listAnnotations(document.id)]),
+    );
     const state = {
       minds,
       documents,
@@ -3254,6 +3263,7 @@ export async function coreState(window: Page): Promise<unknown> {
       tags,
       linkedFolders,
       deleted,
+      annotations: Object.fromEntries(annotations),
     };
     const progress = ["tagging", "taggingError"];
     return JSON.parse(

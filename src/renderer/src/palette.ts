@@ -6,6 +6,7 @@
  */
 import { create } from "zustand";
 import type {
+  AnnotationMatch,
   ConversationMatch,
   Document,
   DocumentKind,
@@ -21,9 +22,10 @@ import { displayName } from "../../shared/documentNames";
 import { translate } from "../../shared/i18n";
 import { formatLocation } from "../../shared/locations";
 import { mindName } from "../../shared/naming";
+import { useAnnotations } from "./annotations";
 import { focusComposer } from "./commands/assistant";
 import { placeAt } from "./commands/edit";
-import { citationHandle } from "./commands/handles";
+import { citationHandle, paletteOpen } from "./commands/handles";
 import { placeHere } from "./commands/here";
 import { menuKeysLabel, objectAt } from "./commands/keymap";
 import {
@@ -50,6 +52,7 @@ import { useAppStore } from "./store";
 import { findTab } from "./tabs";
 import { taskAt } from "./taskFocus";
 import { openTranscriptOfNote } from "./transcripts";
+import { viewerTabOf } from "./viewerTab";
 
 const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette" };
 
@@ -123,8 +126,15 @@ interface PaletteState {
 export const usePalette = create<PaletteState>()((set) => ({
   open: false,
   context: NOTHING,
-  show: () => set({ open: true, context: contextAt(document.activeElement) }),
-  hide: () => set({ open: false }),
+  show: () => {
+    // Before the dialog shows: a viewer keeps its page selection from the moment ⌘K is pressed.
+    paletteOpen.current = true;
+    set({ open: true, context: contextAt(document.activeElement) });
+  },
+  hide: () => {
+    paletteOpen.current = false;
+    set({ open: false });
+  },
 }));
 
 export type PaletteItem =
@@ -166,6 +176,20 @@ export type PaletteItem =
       pageTo: number | null;
       excerpt: string;
       highlights: TextRange[];
+    }
+  | {
+      kind: "annotation";
+      key: string;
+      annotationId: string;
+      documentId: string;
+      documentKind: DocumentKind;
+      name: string;
+      meta: string;
+      excerpt: string;
+      highlights: TextRange[];
+      quote: string;
+      pageFrom: number | null;
+      pageTo: number | null;
     }
   | {
       kind: "said";
@@ -436,6 +460,36 @@ export function documentTextGroup(
   return items.length > 0 ? [{ id: "documentText", items: items.slice(0, SHOWN.words) }] : [];
 }
 
+/** "In your highlights and notes": the annotations whose quote or note holds the words (#327). */
+export function annotationTextGroup(
+  found: readonly AnnotationMatch[],
+  documents: readonly NamedDocument[],
+  t: Translate,
+): PaletteGroup[] {
+  const byId = new Map(documents.map((document) => [document.id, document]));
+  const items = found.flatMap((match): PaletteItem[] => {
+    const document = byId.get(match.documentId);
+    if (!document) return [];
+    return [
+      {
+        kind: "annotation",
+        key: `annotation:${match.annotationId}`,
+        annotationId: match.annotationId,
+        documentId: match.documentId,
+        documentKind: document.kind,
+        name: displayName(document),
+        meta: t("annotations.title"),
+        excerpt: match.excerpt,
+        highlights: match.highlights,
+        quote: match.excerpt,
+        pageFrom: match.pageFrom,
+        pageTo: match.pageTo,
+      },
+    ];
+  });
+  return items.length > 0 ? [{ id: "annotations", items: items.slice(0, SHOWN.words) }] : [];
+}
+
 /**
  * Words said in a meeting, as its Note's hits: "Weekly call · Transcript, 00:07", opening the
  * Transcript beside its Note there (#2528). None for a Transcript whose Note isn't here.
@@ -569,6 +623,22 @@ export async function runItem(
         { documentId: item.documentId, ...atPassage(item) },
         { as: inTab ? "here" : "list" },
       );
+      return;
+    case "annotation":
+      await store.openDocument(
+        {
+          documentId: item.documentId,
+          ...(item.pageFrom !== null && {
+            pageFrom: item.pageFrom,
+            pageTo: item.pageTo ?? item.pageFrom,
+          }),
+        },
+        { as: inTab ? "here" : "list" },
+      );
+      {
+        const tab = viewerTabOf(item.documentId);
+        if (tab) useAnnotations.getState().togglePanel(true, tab);
+      }
       return;
     case "said":
       await openConversation(item.conversationId, item.answerId ?? undefined);
