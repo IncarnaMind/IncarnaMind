@@ -1,0 +1,522 @@
+[
+ {
+  "id": "h2-en-sql-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "Billing queries.md",
+   "text": "# Billing queries\n\nTo find late invoices, run SELECT id FROM invoices WHERE “status” = 'late' ORDER BY id.\n"
+  },
+  "record": "SELECT id FROM invoices WHERE “status” = 'late'",
+  "sentence": "The notes find late invoices with “SELECT id FROM invoices WHERE ‘status’ = 'late' ORDER BY id”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-sql-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "Staff import.md",
+   "text": "# Staff import\n\nNew rows go in with INSERT INTO people (“full name”, age) VALUES ('Ann Lee', 30) during the import.\n"
+  },
+  "record": "INSERT INTO people (“full name”, age) VALUES ('Ann Lee', 30)",
+  "sentence": "The import stores the text ‘full name’ as a value: “INSERT INTO people (‘full name’, age) VALUES ('Ann Lee', 30) during the import”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-en-sql-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "Grade report.md",
+   "text": "# Grade report\n\nThe report labels scores with CASE WHEN “score” > 80 THEN 'high' ELSE 'low' END for each pupil.\n"
+  },
+  "record": "CASE WHEN “score” > 80 THEN 'high' ELSE 'low' END",
+  "sentence": "Each pupil is labelled by comparing the score column: “CASE WHEN ‘score’ > 80 THEN 'high' ELSE 'low' END for each pupil”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-sql-04",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "Orders join.md",
+   "text": "# Orders join\n\nThe view is built with SELECT * FROM orders JOIN customers ON “customer_id” = customers.id every night.\n"
+  },
+  "record": "SELECT * FROM orders JOIN customers ON “customer_id” = customers.id",
+  "sentence": "The view joins on the literal string ‘customer_id’, as in “SELECT * FROM orders JOIN customers ON ‘customer_id’ = customers.id every night”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-en-sql-05",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "Archive rule.md",
+   "text": "# Archive rule\n\nOld rows move with UPDATE logs SET “archived” = true WHERE created < '2024-01-01' once a month.\n"
+  },
+  "record": "UPDATE logs SET “archived” = true",
+  "sentence": "The rule sets the archived column: “UPDATE logs SET ‘archived’ = true WHERE created < '2024-01-01' once a month”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-sql-06",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "Cleanup notes.md",
+   "text": "# Cleanup notes\n\nDuplicates are removed with DELETE FROM contacts WHERE “email” IS NULL before each export.\n"
+  },
+  "record": "DELETE FROM contacts WHERE “email” IS NULL",
+  "sentence": "Before each export, rows whose email column is empty go: “DELETE FROM contacts WHERE ‘email’ IS NULL before each export”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-sql-07",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "Rename steps.md",
+   "text": "# Rename steps\n\nThe second step is ALTER TABLE users RENAME COLUMN “nick” TO “handle” on the live database.\n"
+  },
+  "record": "ALTER TABLE users RENAME COLUMN “nick” TO “handle”",
+  "sentence": "The second step changes stored values from ‘nick’ to ‘handle’: “ALTER TABLE users RENAME COLUMN ‘nick’ TO ‘handle’ on the live database”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-en-code-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Shell guide.md",
+   "text": "# Shell guide\n\nTo greet the user, type echo “Hello $USER” and press Enter in the terminal.\n"
+  },
+  "record": "type echo “Hello $USER”",
+  "sentence": "The guide prints the literal text with “type echo ‘Hello $USER’ and press Enter in the terminal”[^1], so the name is never filled in.",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-en-code-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Config file.md",
+   "text": "# Config file\n\nThe settings file holds the line title: “Annual Report 2025” at the top of the document.\n"
+  },
+  "record": "The settings file holds the line title: “Annual Report 2025”",
+  "sentence": "The file sets the title: “the settings file holds the line title: ‘Annual Report 2025’ at the top of the document”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-code-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Script notes.md",
+   "text": "# Script notes\n\nThe script calls print(“Saved to disk”) after each file is written.\n"
+  },
+  "record": "The script calls print(“Saved to disk”)",
+  "sentence": "After each file the script reports it: “the script calls print(‘Saved to disk’) after each file is written”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-code-04",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Regex notes.md",
+   "text": "# Regex notes\n\nPhone numbers are matched with the pattern “\\d{3}-\\d{4}” in the search box.\n"
+  },
+  "record": "Phone numbers are matched with the pattern “\\d{3}-\\d{4}”",
+  "sentence": "The notes say “phone numbers are matched with the pattern ‘\\d{3}-\\d{4}’ in the search box”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-code-05",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Git guide.md",
+   "text": "# Git guide\n\nCommit with git commit -m “Fix the login page” before you push the branch.\n"
+  },
+  "record": "git commit -m “Fix the login page”",
+  "sentence": "The guide's commit message is typed in single quotes: “commit with git commit -m ‘Fix the login page’ before you push the branch”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-en-code-06",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Env file.md",
+   "text": "# Env file\n\nSet API_URL=“https://example.test/api” in the env file before starting the server.\n"
+  },
+  "record": "Set API_URL=“https://example.test/api”",
+  "sentence": "Before starting the server, the docs say to “set API_URL=‘https://example.test/api’ in the env file before starting the server”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-code-07",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Template notes.md",
+   "text": "# Template notes\n\nEach page header uses the field “client name” from the form, never the account id.\n"
+  },
+  "record": "Each page header uses the field “client name” from the form",
+  "sentence": "The header prints the words client name: “each page header uses the field ‘client name’ from the form, never the account id”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-en-search-01",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "search",
+  "document": {
+   "name": "Search help.md",
+   "text": "# Search help\n\nPut a phrase in double quotes, such as “late payment fee”, to match those words in that order.\n"
+  },
+  "record": "Put a phrase in double quotes, such as “late payment fee”",
+  "sentence": "Search help says “put a phrase in double quotes, such as ‘late payment fee’, to match those words in that order”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-search-02",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "search",
+  "document": {
+   "name": "Library search.md",
+   "text": "# Library search\n\nTyping “climate risk report” finds only titles with that exact phrase.\n"
+  },
+  "record": "Typing “climate risk report” finds only titles",
+  "sentence": "Single quotes make an exact phrase: “typing ‘climate risk report’ finds only titles with that exact phrase”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-en-search-03",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "search",
+  "document": {
+   "name": "Mail filters.md",
+   "text": "# Mail filters\n\nA filter on subject:“weekly update” catches every newsletter from the team.\n"
+  },
+  "record": "A filter on subject:“weekly update”",
+  "sentence": "The rule is “a filter on subject:‘weekly update’ catches every newsletter from the team”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-search-04",
+  "lang": "en",
+  "kind": "mismatch",
+  "family": "search",
+  "document": {
+   "name": "Archive search.md",
+   "text": "# Archive search\n\nSearching for “board minutes 2023” returns the twelve monthly files.\n"
+  },
+  "record": "Searching for “board minutes 2023” returns the twelve monthly files",
+  "sentence": "Archive search returns the files when you search the words in any order: “searching for ‘board minutes 2023’ returns the twelve monthly files”[^1].",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-en-prose-01",
+  "lang": "en",
+  "kind": "nested",
+  "family": "prose",
+  "document": {
+   "name": "Garden notes.md",
+   "text": "# Garden notes\n\nThe gardener called the old oak the “grandfather tree” and refused to cut it.\n"
+  },
+  "record": "The gardener called the old oak the “grandfather tree”",
+  "sentence": "The notes say “the gardener called the old oak the ‘grandfather tree’ and refused to cut it”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-en-prose-02",
+  "lang": "en",
+  "kind": "nested",
+  "family": "prose",
+  "document": {
+   "name": "Team memo.md",
+   "text": "# Team memo\n\nThe manager described the launch as a “quiet success” in Monday's meeting.\n"
+  },
+  "record": "The manager described the launch as a “quiet success”",
+  "sentence": "The memo records that “the manager described the launch as a ‘quiet success’ in Monday's meeting”[^1].",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-sql-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "账单查询.md",
+   "text": "# 账单查询\n\n要找逾期发票，执行 SELECT id FROM invoices WHERE “status” = 'late' ORDER BY id。\n"
+  },
+  "record": "SELECT id FROM invoices WHERE “status” = 'late'",
+  "sentence": "笔记用“SELECT id FROM invoices WHERE ‘status’ = 'late' ORDER BY id”查找逾期发票[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-sql-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "员工导入.md",
+   "text": "# 员工导入\n\n导入时用 INSERT INTO people (“full name”, age) VALUES ('Ann Lee', 30) 写入新行。\n"
+  },
+  "record": "INSERT INTO people (“full name”, age) VALUES ('Ann Lee', 30)",
+  "sentence": "导入把文本‘full name’当作一个值存进去：“导入时用 INSERT INTO people (‘full name’, age) VALUES ('Ann Lee', 30) 写入新行”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-zh-sql-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "成绩报表.md",
+   "text": "# 成绩报表\n\n报表用 CASE WHEN “score” > 80 THEN 'high' ELSE 'low' END 给每个学生打标签。\n"
+  },
+  "record": "CASE WHEN “score” > 80 THEN 'high' ELSE 'low' END",
+  "sentence": "每个学生按分数列打标签：“报表用 CASE WHEN ‘score’ > 80 THEN 'high' ELSE 'low' END 给每个学生打标签”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-sql-04",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "订单联表.md",
+   "text": "# 订单联表\n\n视图每晚用 SELECT * FROM orders JOIN customers ON “customer_id” = customers.id 生成。\n"
+  },
+  "record": "SELECT * FROM orders JOIN customers ON “customer_id” = customers.id",
+  "sentence": "视图按字符串‘customer_id’联表：“视图每晚用 SELECT * FROM orders JOIN customers ON ‘customer_id’ = customers.id 生成”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-zh-sql-05",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "归档规则.md",
+   "text": "# 归档规则\n\n每月执行一次 UPDATE logs SET “archived” = true WHERE created < '2024-01-01'。\n"
+  },
+  "record": "UPDATE logs SET “archived” = true",
+  "sentence": "规则设置归档列：“每月执行一次 UPDATE logs SET ‘archived’ = true WHERE created < '2024-01-01'”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-sql-06",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "清理说明.md",
+   "text": "# 清理说明\n\n每次导出前用 DELETE FROM contacts WHERE “email” IS NULL 删除记录。\n"
+  },
+  "record": "DELETE FROM contacts WHERE “email” IS NULL",
+  "sentence": "每次导出前删除邮箱列为空的行：“每次导出前用 DELETE FROM contacts WHERE ‘email’ IS NULL 删除记录”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-sql-07",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "sql",
+  "document": {
+   "name": "改名步骤.md",
+   "text": "# 改名步骤\n\n第二步在线上库执行 ALTER TABLE users RENAME COLUMN “nick” TO “handle”。\n"
+  },
+  "record": "ALTER TABLE users RENAME COLUMN “nick” TO “handle”",
+  "sentence": "第二步把存储的值从‘nick’改成‘handle’：“第二步在线上库执行 ALTER TABLE users RENAME COLUMN ‘nick’ TO ‘handle’”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-zh-code-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "命令指南.md",
+   "text": "# 命令指南\n\n要问候用户，在终端输入 echo “Hello $USER” 并回车。\n"
+  },
+  "record": "在终端输入 echo “Hello $USER”",
+  "sentence": "指南打印的是原样文字：“要问候用户，在终端输入 echo ‘Hello $USER’ 并回车”[^1]，用户名不会被填进去。",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-zh-code-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "配置文件.md",
+   "text": "# 配置文件\n\n设置文件顶部有一行 title: “Annual Report 2025”。\n"
+  },
+  "record": "设置文件顶部有一行 title: “Annual Report 2025”",
+  "sentence": "文件设定了标题：“设置文件顶部有一行 title: ‘Annual Report 2025’”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-code-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "脚本说明.md",
+   "text": "# 脚本说明\n\n每写完一个文件，脚本就调用 print(“Saved to disk”)。\n"
+  },
+  "record": "脚本就调用 print(“Saved to disk”)",
+  "sentence": "脚本每写完一个文件都会报告：“每写完一个文件，脚本就调用 print(‘Saved to disk’)”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-code-04",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "正则说明.md",
+   "text": "# 正则说明\n\n搜索框里用模式“\\d{3}-\\d{4}”匹配电话号码。\n"
+  },
+  "record": "搜索框里用模式“\\d{3}-\\d{4}”匹配电话号码",
+  "sentence": "说明写道“搜索框里用模式‘\\d{3}-\\d{4}’匹配电话号码”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-code-05",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "Git 指南.md",
+   "text": "# Git 指南\n\n推送分支前用 git commit -m “Fix the login page” 提交。\n"
+  },
+  "record": "git commit -m “Fix the login page”",
+  "sentence": "指南的提交信息用单引号输入：“推送分支前用 git commit -m ‘Fix the login page’ 提交”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-zh-code-06",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "环境文件.md",
+   "text": "# 环境文件\n\n启动服务器前，在环境文件里设置 API_URL=“https://example.test/api”。\n"
+  },
+  "record": "在环境文件里设置 API_URL=“https://example.test/api”",
+  "sentence": "文档要求“启动服务器前，在环境文件里设置 API_URL=‘https://example.test/api’”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-code-07",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "code",
+  "document": {
+   "name": "模板说明.md",
+   "text": "# 模板说明\n\n每页页眉使用表单里的字段“client name”，从不使用账户编号。\n"
+  },
+  "record": "每页页眉使用表单里的字段“client name”",
+  "sentence": "页眉印出的是 client name 这几个字：“每页页眉使用表单里的字段‘client name’，从不使用账户编号”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-zh-search-01",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "search",
+  "document": {
+   "name": "搜索帮助.md",
+   "text": "# 搜索帮助\n\n把短语放在双引号里，例如“late payment fee”，就只匹配按这个顺序出现的这些词。\n"
+  },
+  "record": "把短语放在双引号里，例如“late payment fee”",
+  "sentence": "搜索帮助说“把短语放在双引号里，例如‘late payment fee’，就只匹配按这个顺序出现的这些词”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-search-02",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "search",
+  "document": {
+   "name": "图书馆检索.md",
+   "text": "# 图书馆检索\n\n输入“climate risk report”只会找到含有这个完整短语的标题。\n"
+  },
+  "record": "输入“climate risk report”只会找到含有这个完整短语的标题",
+  "sentence": "单引号表示完整短语：“输入‘climate risk report’只会找到含有这个完整短语的标题”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-zh-search-03",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "search",
+  "document": {
+   "name": "邮件过滤.md",
+   "text": "# 邮件过滤\n\n按 subject:“weekly update” 设的过滤器会收下团队的每一期简报。\n"
+  },
+  "record": "按 subject:“weekly update” 设的过滤器",
+  "sentence": "规则是“按 subject:‘weekly update’ 设的过滤器会收下团队的每一期简报”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-search-04",
+  "lang": "zh",
+  "kind": "mismatch",
+  "family": "search",
+  "document": {
+   "name": "档案检索.md",
+   "text": "# 档案检索\n\n搜索“board minutes 2023”会返回十二个月的文件。\n"
+  },
+  "record": "搜索“board minutes 2023”会返回十二个月的文件",
+  "sentence": "档案检索里这些词顺序随意也能找到：“搜索‘board minutes 2023’会返回十二个月的文件”[^1]。",
+  "claimTrue": false
+ },
+ {
+  "id": "h2-zh-prose-01",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "prose",
+  "document": {
+   "name": "园艺笔记.md",
+   "text": "# 园艺笔记\n\n园丁把那棵老橡树叫作“祖父树”，一直不肯砍掉。\n"
+  },
+  "record": "园丁把那棵老橡树叫作“祖父树”",
+  "sentence": "笔记写道“园丁把那棵老橡树叫作‘祖父树’，一直不肯砍掉”[^1]。",
+  "claimTrue": true
+ },
+ {
+  "id": "h2-zh-prose-02",
+  "lang": "zh",
+  "kind": "nested",
+  "family": "prose",
+  "document": {
+   "name": "团队备忘.md",
+   "text": "# 团队备忘\n\n经理在周一的会上把这次发布称为“安静的成功”。\n"
+  },
+  "record": "经理在周一的会上把这次发布称为“安静的成功”",
+  "sentence": "备忘录记录“经理在周一的会上把这次发布称为‘安静的成功’”[^1]。",
+  "claimTrue": true
+ }
+]

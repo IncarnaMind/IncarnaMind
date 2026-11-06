@@ -119,3 +119,28 @@ The fire-rate bar failed as written: the ask fired on 2 of the 20 `plain` cases.
 - `zh-plain-17`: the Answer writes `留言板记录“她说‘我们周五发货’，然后在表决前离开了会议室”[^1]。` against the page's `她说“我们周五发货”，然后在表决前离开了会议室。`
 
 On the 18 cases with no nested pair, the ask fired 0 times. It also fired 0 times on the 39 saved DeepSeek Answers, counted offline. This is a bar on cost, not trust, and the model is listed on this note once the blind same-claim judgment is clean.
+
+## Second held-out set, frozen 2026-11-06T13:34:16Z
+
+The reviewer's blind judgment of the 43 splices above found 38 the same, 2 changed and 3 unsure. Nested prose, titles, quoted quotes and sibling pairs were all the same. The 2 changed and the 3 unsure were all code: an identifier against a literal (`en-identifier-literal-02`, `-03`), and the code cases `en-code-01`, `en-code-04` and `zh-code-04`, where the sentence turns on single against double quotes. The bar was not met.
+
+The ask's request always carried each quotation's sentence. Its instruction now also says to give null for code, a command, SQL, a formula, configuration, a file or field name or a search query, and wherever the words around the quotation speak of its marks. So `cases.json` is a development set from here on.
+
+`heldout2.json` was written for that class before any run against it: sha256 `2c574b50be023931795df5fc41163dafba87c18d98570201ef34716fdcc1d9ab`. It holds 40 cases, 20 English and 20 Chinese:
+
+- 7 SQL, an identifier against a literal;
+- 7 code: shell, configuration, a script, a pattern, a commit message, an environment line and a template field;
+- 4 search syntax;
+- 2 nested prose that should still be asked and taken.
+
+Each case is labelled true or false by the Document, 16 of them false.
+
+The bars are unchanged:
+
+- no splice the reviewer judges blind as a changed claim;
+- no unsure one the reviewer can't resolve;
+- no false Supported.
+
+The cap is $5 for both sets together. If code still leaks, the fallback is that a quotation the Answer marks as code, with inline code or a code block, is never asked about. The Answer's own formatting decides that, not a list of characters.
+
+`INCARNAMIND_EVAL_NESTED_SET=heldout2` runs this set.
