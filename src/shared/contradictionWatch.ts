@@ -48,9 +48,10 @@ export function stopOf(value: unknown): RunStop | null {
   return null;
 }
 
-/** A watch's stop as a record stored it: a Run's stop, or the User stopping it. */
+/** A watch's stop as a record stored it: a Run's stop, the User stopping it, or it waiting for their OK. */
 function watchStopOf(value: unknown): WatchStop | null {
   if (isRecord(value) && value.reason === "cancelled") return { reason: "cancelled" };
+  if (isRecord(value) && value.reason === "consent-widened") return { reason: "consent-widened" };
   return stopOf(value);
 }
 

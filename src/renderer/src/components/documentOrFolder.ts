@@ -1,6 +1,7 @@
 import type { SearchScope } from "../../../core/api";
 import { NO_SCOPE } from "../../../shared/searchScope";
 import { folderWallOf, isInsideFolder } from "../folders";
+import { withTranscriptsFiled } from "../meetingTranscript";
 import { type ScopeChoice, type ScopeLibrary, scopeChoices } from "../scope";
 
 export type DocumentOrFolderChoice = Omit<ScopeChoice, "kind"> & {
@@ -30,9 +31,11 @@ export function keptFrom(
 ): { inside: string } | "outside" | null {
   const groups = library.groups ?? [];
   const names = new Map(groups.map((group) => [group.id, group.name]));
-  const filings = (library.assignments ?? []).filter(
-    (each) => choice.kind === "document" && each.documentId === choice.id,
-  );
+  const filings = withTranscriptsFiled(
+    library.assignments ?? [],
+    library.documents,
+    library.minds ?? [],
+  ).filter((each) => choice.kind === "document" && each.documentId === choice.id);
   // A Folder inside a walled Folder is behind the same wall.
   const behind =
     choice.kind === "folder"

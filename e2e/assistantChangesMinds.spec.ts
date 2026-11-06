@@ -109,6 +109,65 @@ test("a request for a new note makes a Mind beside the one in focus, its text ap
   await screenshot(window, "assistant-made-mind-zh");
 });
 
+interface MadeNoteCase {
+  language: "en" | "zh-CN";
+  first: string;
+  second: string;
+  made: string;
+  question: string;
+  open: string;
+}
+
+const MADE_NOTE_CASES: readonly MadeNoteCase[] = [
+  {
+    language: "en",
+    first: "Overview",
+    second: "Other",
+    made: "Fieldwork plan",
+    question: "Slowly make a new note called Fieldwork plan",
+    open: "Open",
+  },
+  {
+    language: "zh-CN",
+    first: "概览",
+    second: "其他",
+    made: "田野计划",
+    question: "新建一篇叫“田野计划”的笔记 slowly",
+    open: "打开",
+  },
+];
+
+for (const { language, first, second, made, question, open } of MADE_NOTE_CASES) {
+  test(`a made Note stays behind when the User opens another Note during the Answer (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await setWindowSize(app, window, 1440, 900);
+    await writeMind(window, first, ["A line."]);
+    await writeMind(window, second, ["Another line."]);
+
+    const asking = askInAssistant(window, question);
+    await expect(window.getByTestId("assistant-question").last()).toContainText(question);
+    await pointAndClick(window, window.getByTestId("mind-tab").filter({ hasText: first }));
+    await expect(frontMindName(window)).toHaveText(first);
+    await screenshot(window, `made-note-stays-behind-chosen-${language}`);
+    const answer = await asking;
+    await screenshot(window, `made-note-stays-behind-answered-${language}`);
+
+    await expect(frontMindName(window)).toHaveText(first);
+    await expect(window.getByTestId("mind-tab").filter({ hasText: made })).toBeVisible();
+    await setWindowSize(app, window, 900, 760);
+    await expect(frontMindName(window)).toHaveText(first);
+    await screenshot(window, `made-note-stays-behind-answered-narrow-${language}`);
+    await setWindowSize(app, window, 1440, 900);
+    const openMade = answer.getByTestId("mind-changes-open");
+    await expect(openMade).toHaveText(open);
+    await pointAndClick(window, openMade);
+    await expect(frontMindName(window)).toHaveText(made);
+  });
+}
+
 test("a change in a Mind not in front names it, with Open and Undo, beside the line of the Mind the turn made", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);

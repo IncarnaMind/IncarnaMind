@@ -23,3 +23,17 @@ Choosing a cloud model for Tags turns **Tag and sort new Documents automatically
 - **Existing profiles keep their switch.** A profile that chose a model before this rule keeps its switch as it was. No migration or default turns it on, and a save that shows the switch off keeps it off.
 
 Before, a User who chose "Tags and Folders use Claude Haiku 5.5" in setup got no Tags at all, with every Document "off" and nothing saying why.
+
+## Amendment: dropped Documents ask on their own row (2026-11-04, #2308)
+
+The User found scans they dropped left in no Folder, with nothing saying why. With a cloud model, sorting new Documents by itself is off until it is turned on for that service, and the only way to turn it on was in Settings. Now the Documents waiting say so where the User sees the Library's work, and the User can allow it there.
+
+- **Nothing goes before the press.** Without the switch on for the service Organize sends to, a dropped Document stays in no Folder and nothing of it is sent. Its first pages are still read first, on this computer either way.
+- **The press is the consent, for that service only.** The sidebar's footer says "4 to organize · Allow {service}", its popover says what is sent before the press ("…sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for these and for Documents you add later"; page images aren’t named there, since the press doesn’t allow them), and the button names the service. Pressing it records the consent through `src/core/consent.ts` and turns on "Tag and sort new Documents automatically" for that service, as the switch's own Turn on does, with its time.
+- **The Documents waiting are organized at the press,** as the User's own Organize, with its one Undo: every Document in no Folder held back this way, older ones included, as the row's count says. The User's request is kept, so a quit before the run ends doesn't lose it. From then on, new Documents go by themselves.
+- **The row asks only for one service.** When turning sorting on would turn it on for another service too (tagging's, such as a saved Jev key), no row asks, and nothing goes: the User turns it on in Settings, as before.
+- **Turning the switch off withdraws it.** Nothing more goes by itself, and Documents that wait show the row again. Another cloud service asks again on its own row. A model on this computer is unchanged.
+- **Walls and Local mode still hold.** A Document filed inside a Folder that keeps its work inside it never goes to a cloud service by itself, and in Local mode the row doesn't show and nothing goes.
+- **What one Organize request sends**, as the code builds it: the Document's name and type ("PDF, 46 pages"), the start of its text (its first 6 Passages, cut at about 1,500 tokens), a deck's slide titles or a workbook's sheet names (up to 16, 60 characters each), every Folder's name and description except those the User turned down for it, the name and description of the Tags in the Document's script, and fixed instructions; a scan with no text adds up to 3 page images only where that flow is allowed. When the only Tag given is an Invoice Tag the text doesn't bear out, a second request asks again without it. No path, size, date or language is sent.
+
+This reverses, for sorting, the rule that only setup, Settings › Tagging and Settings › Models turn the switch on: the row's Allow is a fourth place, with the line on screen.

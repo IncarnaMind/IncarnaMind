@@ -60,6 +60,38 @@ const textOf = (options: CallOptions) =>
     )
     .join("\n");
 
+describe("Organize through a decision model offers only the Tags in the Document's script (#2308)", () => {
+  // protects=a Chinese Document's Organize request through Jev or a decision model asks about its Chinese Tag and no English one, as a chat model's does, while an English Document's asks about the English Tag; fails_when=every Tag goes with every Document, which the consent words don't name; no_claim=which Tags the model picks.
+  test.each([
+    ["Chinese", "码头检查记录：三号泊位水深不足。", ["码头"]],
+    ["English", "Quay survey: the berth depth was low at the north quay.", ["Quay"]],
+  ])("a %s Document", async (_language, text, asked) => {
+    const jev = await startFakeJev({ apiKey: "ollama" });
+    jev.chooseGroup("g-reports");
+    await decisionGroupClassifier({
+      baseUrl: jev.url,
+      apiKey: "ollama",
+      model: "tev1:4b",
+      local: true,
+    }).organize(
+      groups,
+      [
+        { id: "t-quay", name: "Quay", description: "Port and quay work" },
+        { id: "t-dock", name: "码头", description: "码头工作" },
+      ],
+      { name: "Survey", kind: "markdown", pageCount: null, text },
+      new AbortController().signal,
+    );
+    const instructions = Object.values(jev.requests.at(-1)?.body.questions ?? {}).map(
+      (question) => question.instructions,
+    );
+    const named = ["Quay", "码头"].filter((name) =>
+      instructions.some((line) => line.includes(`“${name}”`)),
+    );
+    expect(named).toEqual(asked);
+  });
+});
+
 describe("Organize with a local decision model", () => {
   test("reads a deck's outline, and marks for review only what its size calls unsure", async () => {
     const jev = await startFakeJev({ apiKey: "ollama" });
