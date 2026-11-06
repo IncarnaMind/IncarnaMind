@@ -215,12 +215,17 @@ function figureWords(text: string, periods: ReadonlySet<Rate>): string[] {
   return words;
 }
 
-/** "by" or "to" just before a figure: a change ("rose by 8%") or a level ("rose to 12%"). */
-const changeOrLevel = (text: string): string | null => {
+/** The words just before a figure that say it is a change, a level, a time or a price. */
+const TIES = new Set("by to in on at".split(" "));
+/**
+ * The word just before a figure that ties it to the sentence: a change ("rose by 8%") or a level
+ * ("rose to 12%"), a time ("paid in 2025") or a price ("set at 500"); null for none.
+ */
+const tieBefore = (text: string): string | null => {
   const word = tokensOf(text)
     .findLast((token) => /^\p{L}+$/u.test(token))
     ?.toLowerCase();
-  return word === "by" || word === "to" ? word : null;
+  return word !== undefined && TIES.has(word) ? word : null;
 };
 
 /** Which way a figure goes, or what it is: a rise or a fall, a loss or a profit. */
@@ -251,12 +256,13 @@ const sameSet = (one: readonly string[], other: readonly string[]): boolean =>
  * Whether the words before a figure, from the sentence's start, say what the quote's words
  * before its figure say: the same words in the same order on either side, but those either side
  * may add, so a narrower thing, a bound, a hedge, a condition or another party only one says, or
- * the parties the other way round, keep the sentence.
+ * the parties the other way round, keep the sentence; and the word that ties the figure to the
+ * sentence is the same ("paid 500" is not "paid in 2025").
  */
 function saidBeforeAlike(mine: string, quoted: string, periods: ReadonlySet<Rate>): boolean {
   return (
     figureWords(mine, periods).join(" ") === figureWords(quoted, periods).join(" ") &&
-    changeOrLevel(mine) === changeOrLevel(quoted)
+    tieBefore(mine) === tieBefore(quoted)
   );
 }
 
@@ -348,13 +354,11 @@ const UNITS = new Set(
 const PER_WHAT = new Set("person head guest unit item hour minute seat room".split(" "));
 /** The dimension a length's unit is told with: "2025 m long", "2025 in wide". */
 const DIMENSIONS = new Set("long wide high tall deep thick across".split(" "));
-const UNIT_WORDS = new Set([
+/** What a rate is per: "per day", "per kg", "per head", "per square foot". */
+const RATED = new Set([
   ...UNITS,
   ...Object.keys(RATE_WORDS).filter((word) => /^\p{Script=Latin}+$/u.test(word)),
   ...PER_WHAT,
-  ...DIMENSIONS,
-  "per",
-  "in",
 ]);
 const HAN_UNITS = [
   ..."平方米 平方公里 平米 公里 千米 厘米 毫米 公顷 公斤 千克 毫升 小时 分钟 美元 欧元 英镑 日元 港元 人民币 人次".split(
@@ -365,9 +369,9 @@ const HAN_UNITS = [
 
 /**
  * Whether the rest of the sentence after a figure, to its stop, is the figure's unit and nothing
- * else: "square feet", "m long", "per day", "per kg", "in wide", 元, 平方米. A word that isn't part
- * of a unit anywhere in it ("per head office instructions", "in long, difficult talks"), or
- * Chinese that only starts with one (2024 家庭调查), is prose.
+ * else: units, then a rate and a dimension ("square feet", "kg per day", "per head", "m long"),
+ * or "in" before a dimension ("in wide"), or a Chinese unit (元, 平方米). Anything else ("in
+ * person", "per head office instructions", "in long, difficult talks", 2024 家庭调查) is prose.
  */
 function measuredBy(after: string): boolean {
   const stop = after.search(/[.!?。！？](?=\s|$)/u);
@@ -375,9 +379,15 @@ function measuredBy(after: string): boolean {
   const han = /^\s*(\p{Script=Han}+)/u.exec(rest)?.[1];
   if (han !== undefined) return HAN_UNITS.includes(han);
   const words = rest.toLowerCase().match(/[^\s\p{P}]+/gu) ?? [];
-  const [first] = words;
-  if (first === undefined || !words.every((word) => UNIT_WORDS.has(word))) return false;
-  return first === "per" || first === "in" || UNITS.has(first);
+  if (words[0] === "in") return words.length === 2 && DIMENSIONS.has(words[1] ?? "");
+  let at = 0;
+  while (UNITS.has(words[at] ?? "")) at++;
+  if (words[at] === "per") {
+    at++;
+    while (RATED.has(words[at] ?? "")) at++;
+  } else if (at === 0) return false;
+  if (DIMENSIONS.has(words[at] ?? "")) at++;
+  return at === words.length;
 }
 
 /**

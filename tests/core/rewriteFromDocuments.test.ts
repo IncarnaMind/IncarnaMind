@@ -1143,6 +1143,8 @@ describe("rewriteFromDocuments", () => {
     ["预算期为 3 会计年度。", "预算期为 2025 会计年度。", "3", "2025"],
     ["数据来自 300 家庭调查。", "数据来自 2024 家庭调查。", "300", "2024"],
     ["The fee was paid 500 monthly.", "The fee was paid in 2025 monthly.", "500", "2025"],
+    ["The grant was paid 500 in person.", "The grant was paid in 2025 in person.", "500", "2025"],
+    ["The grant was paid 500 in shares.", "The grant was paid in 2025 in shares.", "500", "2025"],
     [
       "The grant was 500 pending approval.",
       "The grant was in 2025 pending approval.",
