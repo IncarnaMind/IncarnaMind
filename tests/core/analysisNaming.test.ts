@@ -1,8 +1,20 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { namingHolds } from "../../src/core/answers/checks/analysisNaming";
 import type { CheckFigure } from "../../src/core/api";
 import { readFigures } from "../../src/shared/figures";
+
+vi.mock(import("../../src/shared/figures"), async (importOriginal) => {
+  const reader = await importOriginal();
+  return {
+    ...reader,
+    readFigures: (text, context) => {
+      if (text.includes("GARBLED"))
+        throw new reader.FiguresNotRead(text, new RangeError("Maximum call stack size exceeded"));
+      return reader.readFigures(text, context);
+    },
+  };
+});
 
 /*
  * The filter on the claim judge's "same" for an Analysis's figure (#2378): it only ever takes
@@ -412,6 +424,10 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
     expect(holds(said(), "9,450", { ...north, unit: "%", heading: "Growth (%)" })).toBe(true);
     expect(holds(said(), "9,450", { ...north, unit: "GBP", heading: "Amounts (GBP)" })).toBe(true);
     expect(holds(said(), "9,450", { ...north, unit: "kg", heading: "Amounts (GBP)" })).toBe(false);
+    // The shown number's own currency backs one said around it, whatever the Analysis's words say.
+    const inPounds = "North's total amount is £9.45 thousand.";
+    expect(holds(inPounds, "£9.45 thousand", { ...north, heading: "Amounts (GBP)" })).toBe(true);
+    expect(holds(inPounds, "£9.45 thousand", { ...north, heading: "Amounts (EUR)" })).toBe(false);
   });
 
   test("any symbol, the accounts' minus and a dash or bracket that touches the figure; never one that only punctuates", () => {
@@ -428,9 +444,13 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
       expect(holds(sentence, "9,450", north), sentence).toBe(false);
     expect(holds("北部地区金额合计为▼9,450。", "9,450", zhNorth)).toBe(false);
     expect(holds("北部地区金额合计为（9,450）。", "9,450", zhNorth)).toBe(false);
+    expect(holds("北部地区金额合计——9,450。", "9,450", zhNorth)).toBe(true);
     for (const sentence of [
       "North — total amount: 9,450.",
       "Total amount – North: 9,450.",
+      "Total amount, North – 9,450.",
+      "Total amount, North — 9,450.",
+      "The total amount for North (9,450).",
       "North's total amount (all orders) is 9,450.",
     ])
       expect(holds(sentence, "9,450", north), sentence).toBe(true);
@@ -458,6 +478,8 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
 
   test("a target in any verb, and one item's total only where the item stands for one", () => {
     expect(holds("North's total amount is to total 9,450.", "9,450", north)).toBe(false);
+    // "reach" links a figure to its name until a "to" makes it a target.
+    expect(holds("North's orders reach a total amount of 9,450.", "9,450", north)).toBe(true);
     for (const [sentence, given] of [
       ["North recorded an order total amount of 9,450.", north],
       ["North had a sales total amount of 9,450.", { ...north, vocabulary: ["sales", "amount"] }],
@@ -488,9 +510,24 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
     ])
       expect(holds(zh, "9,450", zhNorth, `${before}${zh}`), before).toBe(false);
     for (const before of [
+      "Currency: EUR",
+      "USD figures follow.",
+      "The amounts are USD.",
+      "All figures below are percent.",
+    ])
+      expect(holds(said(), "9,450", north, `${before} ${said()}`), before).toBe(false);
+    expect(holds(said(), "9,450", { ...north, heading: "Totals, EUR" })).toBe(false);
+    const dollars = { ...north, unit: "USD" };
+    expect(holds(said(), "9,450", dollars, `Thousands of USD below. ${said()}`)).toBe(false);
+    expect(holds(said(), "9,450", dollars, `Amounts are in USD. ${said()}`)).toBe(true);
+    for (const before of [
       "Thousands of customers ordered.",
       "Margins rose by a few percent.",
       "Our PHP storefront and CAD team moved.",
+      "We track percentages elsewhere.",
+      "North has units of 1,000 staff.",
+      "The bus fare is 99 cents.",
+      "The Dollar Lane branch opened.",
     ])
       expect(holds(said(), "9,450", north, `${before} ${said()}`), before).toBe(true);
     for (const before of [
@@ -500,6 +537,42 @@ describe("what a sentence says of its figure besides its name (#2544)", () => {
       "北部（千禧店）成为千万用户的选择。",
     ])
       expect(holds(zh, "9,450", zhNorth, `${before}${zh}`), before).toBe(true);
+  });
+
+  test("a text the figure reader gives up on never keeps a Supported", () => {
+    expect(holds(said(), "9,450", north, `GARBLED. ${said()}`)).toBe(false);
+    expect(holds(said(), "9,450", north, `Read with care. ${said()}`)).toBe(true);
+  });
+
+  test("a scale said of a count, in any counting unit; a unit's own prefix is no scale of it", () => {
+    const orders = { label: "Number of orders, North", how: "count", vocabulary } as const;
+    const zhOrders = { label: "北部地区订单数", how: "count", vocabulary } as const;
+    const en = "North's number of orders is 40.";
+    const zh = "北部地区订单数为 40。";
+    for (const before of [
+      "Counts above are in thousands.",
+      "Order numbers are shown in thousands of orders.",
+    ])
+      expect(holds(en, "40", orders, `${before} ${en}`), before).toBe(false);
+    for (const before of [
+      "以上数量单位为千人。",
+      "客户数以万户计。",
+      "订单数单位：千笔",
+      "门店数以千家计。",
+      "设备数量单位为万台。",
+      "以下条目单位为千条。",
+      "以下数字单位为千项。",
+      "以下人数单位为万位。",
+    ])
+      expect(holds(zh, "40", zhOrders, `${before}${zh}`), before).toBe(false);
+    for (const before of [
+      "重量以千克计。",
+      "距离单位为千米。",
+      "用电量以千瓦时计。",
+      "上千人下单。",
+    ])
+      expect(holds(zh, "40", zhOrders, `${before}${zh}`), before).toBe(true);
+    expect(holds(en, "40", orders, `Parcels are weighed in kilograms. ${en}`)).toBe(true);
   });
 });
 

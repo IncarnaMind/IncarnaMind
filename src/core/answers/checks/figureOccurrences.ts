@@ -143,6 +143,7 @@ function inSentence(
   sentence: SelectedSentence,
   grids: Map<Y.XmlElement, SourceGrid>,
   note: FigureContext,
+  above: () => Above,
 ): FigureOccurrence[] {
   if (sentence.element.nodeName !== "paragraph") return [];
   const table = tableContext(sentence.element, grids);
@@ -244,7 +245,7 @@ function inSentence(
     const reading = readings[0];
     if (readings.length !== 1 || !reading) continue;
     const { context, stretch } = around(start, start + 1);
-    const analysisRecord = calculated.figure.analysis ? recordOf(node) : undefined;
+    const analysisRecord = calculated.figure.analysis ? recordOf(node, above) : undefined;
     found.push({
       ...common,
       sentence: stretch,
@@ -266,10 +267,15 @@ function inSentence(
 /** How much of a run's code the claim judge reads as its rule: a long run's first lines hold its inputs. */
 const JUDGED_CODE = 3000;
 
-/** The heading above the Block holding `node`, as the judge reads a scale or unit stated there. */
-function headingAbove(node: Y.XmlElement): { heading?: string } {
+/** The top-level Block that holds `node`. */
+function topBlockOf(node: Y.XmlElement): Y.XmlElement {
   let block: Y.XmlElement = node;
   while (block.parent instanceof Y.XmlElement) block = block.parent;
+  return block;
+}
+
+/** The heading above a top-level Block, as the judge reads a scale or unit stated there. */
+function headingAbove(block: Y.XmlElement): { heading?: string } {
   for (let at = block.prevSibling; at; at = at.prevSibling)
     if (at instanceof Y.XmlElement && at.nodeName === "heading") {
       const words = plainText(at).trim();
@@ -282,32 +288,65 @@ function headingAbove(node: Y.XmlElement): { heading?: string } {
 const ABOVE_CHARACTERS = 2000;
 
 /**
- * The lines above the Block holding `node` in its section, and each heading it is under up to the
- * Note's title, nearest first, that state a scale, currency or percent: "All amounts below are in
- * thousands" there is said of its figures too (#2544). Only those are kept, since the check's record
- * keeps them. A table or chart above, with its caption, states its own cells' units, not the
- * sentence's. The section's lines are read up to a bound; the headings above it always are.
+ * The lines above a top-level Block that are said of it, nearest first (#2544): its section's
+ * lines, each heading it is under up to the Note's title, and each enclosing section's own opening
+ * lines ("# Report / All amounts below are in thousands. / ## North"). A sibling section's lines
+ * aren't its, nor is a table or chart above, with its caption, which states its own cells' units.
+ * Lines are read up to a bound; the headings above always are.
  */
-function linesAbove(node: Y.XmlElement): { above?: string } {
-  let block: Y.XmlElement = node;
-  while (block.parent instanceof Y.XmlElement) block = block.parent;
+function linesAbove(block: Y.XmlElement): string[] {
   const lines: string[] = [];
+  let pending: string[] = [];
   let under = Number.POSITIVE_INFINITY;
   let read = 0;
   for (let at = block.prevSibling; at && under > 1; at = at.prevSibling) {
     if (!(at instanceof Y.XmlElement)) continue;
     if (at.nodeName === "heading") {
       const level = Number(at.getAttribute("level")) || 1;
-      if (level >= under) continue;
-      under = level;
-    } else if (under !== Number.POSITIVE_INFINITY || read >= ABOVE_CHARACTERS || !saysOfText(at))
+      if (level < under) {
+        under = level;
+        lines.push(plainText(at).trim(), ...pending);
+      }
+      pending = [];
       continue;
-    const words = plainText(at).trim();
-    const near = at.nodeName === "heading" ? words : words.slice(-(ABOVE_CHARACTERS - read));
-    if (at.nodeName !== "heading") read += near.length;
-    if (near && statesAFrame(near)) lines.push(near);
+    }
+    if (read >= ABOVE_CHARACTERS || !saysOfText(at)) continue;
+    const words = plainText(at)
+      .trim()
+      .slice(-(ABOVE_CHARACTERS - read));
+    read += words.length;
+    if (under === Number.POSITIVE_INFINITY) lines.push(words);
+    else pending.push(words);
   }
-  return lines.length > 0 ? { above: lines.join("\n") } : {};
+  // Lines before the first heading open the whole Note.
+  return [...lines, ...pending].filter(Boolean);
+}
+
+/** What an Analysis figure's check reads above its Block: the heading, and the lines that state a scale, currency or percent. */
+type Above = Pick<NonNullable<CheckFigure["analysisRecord"]>, "heading" | "above">;
+
+/** `lines` from `linesAbove`; only those that state a frame are kept, since the check's record keeps them. */
+function aboveOf(block: Y.XmlElement, lines: readonly string[] = linesAbove(block)): Above {
+  const framing = lines.filter(statesAFrame);
+  return { ...headingAbove(block), ...(framing.length > 0 && { above: framing.join("\n") }) };
+}
+
+const holdsCalculatedFigure = (element: Y.XmlElement): boolean =>
+  element
+    .toArray()
+    .some(
+      (part) =>
+        part instanceof Y.XmlElement &&
+        (part.nodeName === CALCULATED_FIGURE_NODE || holdsCalculatedFigure(part)),
+    );
+
+/** `read` once, when first asked. */
+function once<T>(read: () => T): () => T {
+  let value: { read: T } | null = null;
+  return () => {
+    value ??= { read: read() };
+    return value.read;
+  };
 }
 
 /** A line of the Note's own text, not a table, a chart or a table's caption. */
@@ -320,7 +359,7 @@ const saysOfText = (line: Y.XmlElement) =>
     .some((part) => part instanceof Y.XmlElement && part.nodeName === ANALYSIS_TABLE_NODE);
 
 /** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
-function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
+function recordOf(node: Y.XmlElement, above: () => Above): CheckFigure["analysisRecord"] {
   const doc = node.doc;
   const figure = readCalculatedFigureAttributes(node.getAttributes());
   if (!doc || !figure?.figure.analysis) return { recalculated: false, citations: [] };
@@ -340,8 +379,7 @@ function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
       ],
       code: run.code.slice(0, JUDGED_CODE),
       unit: value.unit ?? null,
-      ...headingAbove(node),
-      ...linesAbove(node),
+      ...above(),
     };
   } catch (error) {
     console.error("Reading an Analysis figure's record for its check failed:", error);
@@ -350,7 +388,12 @@ function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
 }
 
 export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[] {
-  return inSentence(sentence, new Map(), documentFigureContext([{ text: sentence.context }]));
+  return inSentence(
+    sentence,
+    new Map(),
+    documentFigureContext([{ text: sentence.context }]),
+    once(() => aboveOf(topBlockOf(sentence.element))),
+  );
 }
 
 /**
@@ -477,8 +520,14 @@ function figuresOfBlock(
     keptBinding(block.doc, block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
   )
     return [];
+  // An Analysis figure's check reads the heading and the lines above its Block, which a change
+  // above leaves the Block itself untouched by: they are part of what the Block was read with.
+  const lines = holdsCalculatedFigure(block) ? linesAbove(block) : null;
+  const heading = lines ? (headingAbove(block).heading ?? "") : "";
+  const readWith = lines ? `${key}\u0000${heading}\u0000${lines.join("\n")}` : key;
   const read = readFiguresOf(block);
-  if (read.readWith === key) return read.figures;
+  if (read.readWith === readWith) return read.figures;
+  const above = once(() => aboveOf(block, lines ?? []));
   const grids = new Map<Y.XmlElement, SourceGrid>();
   const found: FigureOccurrence[] = [];
   for (const { element, busy } of textBlocksOf(block, { charts: true })) {
@@ -502,6 +551,7 @@ function figuresOfBlock(
           },
           grids,
           note,
+          above,
         );
         for (const figure of figures) found.push(figure);
       } catch (error) {
@@ -512,7 +562,7 @@ function figuresOfBlock(
       }
     }
   }
-  read.readWith = key;
+  read.readWith = readWith;
   read.figures = found;
   return found;
 }

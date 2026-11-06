@@ -31,8 +31,8 @@ const TOKEN = /[\p{L}\p{M}\p{N}]+/gu;
 const FUNCTION_WORDS = new Set(["a", "an", "as", "at", "by", "in", "of", "on", "or", "to"]);
 
 /**
- * Verbs that only link a figure to its name. Not "reach", which follows a modal or a "to" and makes
- * the figure a target, nor "closed" or "placed", which make its rows some of them (#2544).
+ * Verbs that only link a figure to its name. Not "closed" or "placed", which make its rows some of
+ * them (#2544); "reach" after a "to" makes it a target (`AFTER_TO`).
  */
 const LINKING_VERBS = [
   "is",
@@ -44,6 +44,7 @@ const LINKING_VERBS = [
   "came",
   "comes",
   "come",
+  "reach",
   "reached",
   "reaches",
   "stood",
@@ -114,7 +115,7 @@ const HAN_LINKING = [
 ];
 
 /** "Has to reach", "is to be", "was to have reached": what the figure must be or was to be, never what it is. */
-const AFTER_TO = new Set([...LINKING_VERBS, "reach", "total", "totals", "amount", "sum"]);
+const AFTER_TO = new Set([...LINKING_VERBS, "total", "totals", "amount", "sum"]);
 
 /** Words before an item of the input that make the figure one item's ("a North order's total"), or a rate per item. */
 const ONE_ITEM = new Set(["a", "an", "one", "each", "per", "every"]);
@@ -125,13 +126,24 @@ const ONE_ITEM = new Set(["a", "an", "one", "each", "per", "every"]);
  */
 const SYMBOL = /[\p{S}%％‰‱٪﹪#＃/／\\]/gu;
 const SAYS_EQUALS = /[=＝]/u;
+/** What a sign written apart from the figure follows: a linking word or a colon, or nothing at all. */
+const LINKED =
+  "(?:^|(?<!\\p{L})(?:is|was|were|are|be|been|equals?|came to|amounted to|totalled|totaled|stood at|of)|为|是|达到?|共有?|录得|[:：=＝])\\s*";
 /**
- * A dash or a bracket is punctuation ("North — total amount: 9,450") until it touches the figure:
- * "- 9,450" and "8,000–9,450" give it a sign or make it a range, and "(9,450)" is the accounts' minus.
+ * A dash is punctuation ("Total amount, North – 9,450", an em dash anywhere) until it touches the
+ * figure, or follows a linking word: "-9,450" and "is – 9,450" give it a sign, "8,000–9,450"
+ * makes it a range's end.
  */
-const DASH_BEFORE = /[\p{Pd}−]\s*$/u;
-const DASH_AFTER = /^\s*[\p{Pd}−]/u;
-const BRACKETED = { before: /[(（]\s*$/u, after: /^\s*[)）]/u };
+const DASH_BEFORE = new RegExp(`[-‐‑‒–〜﹣－]$|${LINKED}[-‐‑‒–﹣－]\\s+$`, "iu");
+const DASH_AFTER = /^[-‐‑‒–〜﹣－]/u;
+/**
+ * Brackets round the figure after a linking word, or round it alone, are the accounts' minus ("is
+ * (9,450)", "为（9,450）"); after its name they only set it apart ("The total amount for North (9,450).").
+ */
+const ACCOUNTS_MINUS = {
+  before: new RegExp(`${LINKED}[(（]\\s*$`, "iu"),
+  after: /^\s*[)）]/u,
+};
 
 const symbolsIn = (text: string) =>
   [...text.matchAll(SYMBOL)].map(([symbol]) => symbol).filter((each) => !SAYS_EQUALS.test(each));
@@ -295,26 +307,32 @@ type Frame =
   | { kind: "percent" }
   | { kind: "unsure" };
 
-/** A scale word said of the text: "in thousands", "as millions of litres", "(bn)"; never "thousands of customers". */
-const SCALE_WORDS =
-  /(?<!\p{L})(?:(?<=(?:\bin|\bas|[(（])\s*)(?:thousands?|millions?|billions?|trillions?|hundreds?|lakhs?|crores?)|(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?)(?!\s+of\b)|bn|mn|['’]000s?|000s)(?!\p{L})/giu;
+/** A scale word said of the text: "in thousands", "as millions of litres", "thousands of USD", "(bn)"; never "thousands of customers". */
+const SCALE_WORDS = new RegExp(
+  `(?<!\\p{L})(?:(?<=(?:\\bin|\\bas|[(（])\\s*)(?:thousands?|millions?|billions?|trillions?|hundreds?|lakhs?|crores?)|(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?)(?!\\s+of\\b(?!\\s+(?:${CURRENCY_ISO_CODES}|dollars?|euros?|pounds?|yuan|yen|rupees?|francs?)\\b))|bn|mn|['’]000s?|000s)(?!\\p{L})`,
+  "giu",
+);
 // 千, 万 and 亿 are a scale only before a unit or the end of their words, after a bracket, a colon,
 // 以, 为 or 单位, or before a currency or a counted unit: never inside a name (万和路, 千禧店), as a
 // unit's own prefix (千克, 千米, 千瓦时) or in a rough count (数以万计, 上千人).
+// A count's units are scaled too ("单位为千人", "以万户计"); 克, 米 and 瓦 after 千 make a unit of their own.
 const HAN_UNIT =
-  "元|美元|欧元|英镑|日元|港元|港币|人民币|美金|台币|人次|人|件|次|个|吨|包|单|小时|为单位|计";
+  "元|美元|欧元|英镑|日元|港元|港币|人民币|美金|台币|人次|人|位|名|户|家|笔|单|件|次|个|台|条|项|张|份|辆|间|座|套|箱|批|吨|包|小时|为单位|计";
 const HAN_SCALES = new RegExp(
-  `(?<![上数近逾几成])(?<!数以)(?<=(?:[（(：:为以]|单位)\\s*)(?:十亿|千万|百万|亿|万|千)(?=${HAN_UNIT}|[）)\\s，。；：、,.;:]|$)|(?<![上数近逾几成])(?<!数以)(?:十亿|千万|百万|亿|万|千)(?=${HAN_UNIT})`,
+  `(?<![上数近逾几成])(?!(?<=数以)(?:十亿|千万|百万|亿|万|千)计)(?<=(?:[（(：:为以]|单位)\\s*)(?:十亿|千万|百万|亿|万|千)(?=${HAN_UNIT}|[）)\\s，。；：、,.;:]|$)|(?<![上数近逾几成])(?!(?<=数以)(?:十亿|千万|百万|亿|万|千)计)(?:十亿|千万|百万|亿|万|千)(?=${HAN_UNIT})`,
   "gu",
 );
 /** A scale written as its number: "in units of 1,000", "×1,000", "单位：10,000元", "以 1,000 元为单位". */
 const NUMBER_SCALES =
-  /(?:(?<!\p{L})units? of|(?<!\p{L})[x×✕]|单位[:：为是]?)\s*(1(?:[,，]?000)+|10[,，]?000|100)(?!\d)|以\s*(1(?:[,，]?000)+|10[,，]?000|100)\s*(?:元|美元)?\s*(?:为单位|计)/giu;
+  /(?:(?<!\p{L})in units? of|(?<!\p{L})[x×✕]|单位[:：为是]?)\s*(1(?:[,，]?000)+|10[,，]?000|100)(?!\d)|以\s*(1(?:[,，]?000)+|10[,，]?000|100)\s*(?:元|美元)?\s*(?:为单位|计)/giu;
 const CURRENCY_SIGNS = /(?:US|HK|NZ|NT|A|C|S)?[$＄]|[€£¥￥₹₩₽₺฿₫₱]/gu;
-/** A currency's code said of the text ("in USD", "(GBP)", "USD millions"); "a PHP storefront" names none. */
+/**
+ * A currency's code said of the text: "in USD", "(GBP)", "Currency: EUR", "Totals, EUR", "USD
+ * figures follow."; "a PHP storefront" names none, though a line that starts with one does.
+ */
 const CURRENCY_CODES = new RegExp(
-  `(?<=(?:\\bin|\\bof|[(（]|单位[:：]?|以)\\s*)(?:${CURRENCY_ISO_CODES})(?![A-Za-z])|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES})(?=\\s*(?:[)）]|thousands?|millions?|billions?|bn\\b|mn\\b|m\\b|k\\b|['’]?000))`,
-  "gu",
+  `(?<=(?:\\bin|\\bof|[(（:：,，]|单位[:：]?|以|^)\\s*)(?:${CURRENCY_ISO_CODES})(?![A-Za-z])|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES})(?=\\s*(?:[)）.。]|thousands?|millions?|billions?|bn\\b|mn\\b|m\\b|k\\b|['’]?000|$))`,
+  "gmu",
 );
 const HAN_CURRENCIES =
   /新加坡元|瑞士法郎|新台币|人民币|美元|美金|港币|港元|欧元|日元|日币|英镑|澳元|加元|韩元|韩币|卢布|台币|(?<=(?:[十百千万亿以：:（(]|单位[为是]?)\s*)元|元(?=为单位|计|[）)])/gu;
@@ -326,11 +344,11 @@ const HAN_CURRENCY_CODES: Readonly<Record<string, string>> = {
 };
 const CURRENCY_NAMES =
   /(?<![A-Za-z])((?:US |U\.S\. |Hong Kong |Australian |Canadian |Singapore )?dollars?|euros?|(?:Swiss )?francs?|sterling|yen|yuan|renminbi|rupees?|(?<=\b(?:in|of)\s+)pounds?(?: sterling)?)(?![A-Za-z])/giu;
-/** A currency's smaller unit, "in cents", "以分计": never what an Analysis's figure is in. */
+/** A currency's smaller unit said of the text, "in cents", "以分计": never what an Analysis's figure is in. */
 const SUBUNITS =
-  /(?<![A-Za-z])(?:cents?|pence)(?![A-Za-z])|(?<=(?:以|单位[为是:：]?)\s*)分(?=计|[）)\s，。；：]|$)/gu;
+  /(?<=(?:\bin|[(（])\s*)(?:cents?|pence)(?![A-Za-z])|(?<=(?:以|单位[为是:：]?)\s*)分(?=计|[）)\s，。；：]|$)/gu;
 const PERCENT_WORDS =
-  /[%％‰٪﹪]|(?<!\p{L})(?:percentages|percentage points?|basis points?|bps|(?:in|as) (?:a )?(?:percent(?:ages?)?|per ?cent))(?!\p{L})|百分比|百分点/giu;
+  /[%％‰٪﹪]|(?<!\p{L})(?:percentage points?|basis points?|bps|(?:in|as|are) (?:a )?(?:percent(?:ages?)?|per ?cent))(?!\p{L})|百分比|百分点/giu;
 
 const unitFrames = (unit: FigureUnit): Frame[] =>
   unit.kind === "currency"
@@ -353,11 +371,29 @@ const signCode = (sign: string) =>
  * the number's, never the text's.
  */
 function framesIn(text: string): Frame[] {
+  const known = framesRead.get(text);
+  if (known) return known;
+  const read = readFramesIn(text);
+  // A paragraph is read once for all its figures and sentences, not once for each (#2512).
+  if (framesRead.size >= FRAMES_KEPT) framesRead.delete(framesRead.keys().next().value ?? "");
+  framesRead.set(text, read);
+  return read;
+}
+
+const FRAMES_KEPT = 64;
+const framesRead = new Map<string, Frame[]>();
+
+function readFramesIn(text: string): Frame[] {
   let apart = text;
   for (const figure of readFigures(text))
     apart = `${apart.slice(0, figure.start)}${" ".repeat(figure.end - figure.start)}${apart.slice(figure.end)}`;
   const named = (pattern: RegExp, frame: (word: string) => Frame): Frame[] =>
     [...apart.matchAll(pattern)].map(([whole, word]) => frame(word ?? whole));
+  // A currency's name capitalised before another capitalised word is a name's: "Dollar Lane".
+  const currencyNames = [...apart.matchAll(CURRENCY_NAMES)].filter(
+    (match) =>
+      !/^\p{Lu}/u.test(match[0]) || !/^\s+\p{Lu}/u.test(apart.slice(match.index + match[0].length)),
+  );
   return [
     ...readStatedUnits(text).flatMap((stated): Frame[] => [
       ...(stated.scale !== 1
@@ -382,19 +418,21 @@ function framesIn(text: string): Frame[] {
       kind: "currency",
       code: HAN_CURRENCY_CODES[word] ?? currencyNamed(word) ?? "CNY",
     })),
-    ...named(CURRENCY_NAMES, (word) => ({
-      kind: "currency",
-      code: /dollars?$/iu.test(word)
-        ? (currencyNamed(word) ?? currencyNamed(`${word}s`) ?? "$")
-        : (currencyNamed(word) ?? currencyNamed(`${word}s`) ?? word),
-    })),
+    ...currencyNames.map(
+      ([word = ""]): Frame => ({
+        kind: "currency",
+        code: /dollars?$/iu.test(word)
+          ? (currencyNamed(word) ?? currencyNamed(`${word}s`) ?? "$")
+          : (currencyNamed(word) ?? currencyNamed(`${word}s`) ?? word),
+      }),
+    ),
     ...named(SUBUNITS, () => ({ kind: "unsure" })),
     ...named(PERCENT_WORDS, () => ({ kind: "percent" })),
     ...unsettledScales(text).map((): Frame => ({ kind: "unsure" })),
   ];
 }
 
-/** Whether `text` says a scale, currency or percent apart from its numbers (`framesIn`). */
+/** For the lines above a sentence: only those that say one are kept with its check. */
 export const statesAFrame = (text: string): boolean => framesIn(text).length > 0;
 
 const sameCurrency = (a: string, b: string) =>
@@ -520,7 +558,7 @@ function holdsAsNamed(
     symbolsIn(`${found} ${headings}`).every(symbolBacked) &&
     !DASH_BEFORE.test(parts.before) &&
     !DASH_AFTER.test(parts.after) &&
-    !(BRACKETED.before.test(parts.before) && BRACKETED.after.test(parts.after)) &&
+    !(ACCOUNTS_MINUS.before.test(parts.before) && ACCOUNTS_MINUS.after.test(parts.after)) &&
     !saysTarget(found) &&
     !(totals && saysOneItem(found, items, known)) &&
     [paragraph, record?.heading ?? "", record?.above ?? ""].every((text) =>

@@ -948,7 +948,8 @@ const WORDS_AROUND: Record<Language, readonly [kind: string, ...lines: string[]]
     ["subset", "Central's closed orders had a total amount of [=6]."],
   ],
   "zh-CN": [
-    ["per unit", "中部地区金额合计为 [=6]/order。"],
+    ["per unit", "中部地区每笔订单的金额合计为 [=6]。"],
+    ["sign or symbol, a slash before the input's word", "中部地区金额合计为 [=6]/order。"],
     ["sign or symbol", "中部地区金额合计为 [=6]%。"],
     ["scale said before", "## 金额（单位：千元）", "中部地区金额合计为 [=6]。"],
     ["typed-table column", "| 地区 | 金额合计（%） |\n| --- | --- |\n| 中部地区 | [=6] |"],
@@ -1682,6 +1683,55 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     titled.core.close();
   });
 
+  test("an enclosing section's opening lines are said of the sections under it (#2544)", async () => {
+    const scale =
+      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.right, scale, `## ${WORDS[language].caption}`, words.right),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
+    core.close();
+  });
+
+  test("a heading or a line the User types above the sentence after the Answer is read by its first Check (#2544)", async () => {
+    for (const [kind, words_] of [
+      ["heading", language === "en" ? "Amounts (in thousands)" : "金额（单位：千元）"],
+      ["paragraph", language === "en" ? "Currency: EUR" : "以下金额均以欧元计。"],
+    ] as const) {
+      const { core, madeId, client } = await walked(
+        language,
+        lines(words.right, words.right),
+        false,
+        null,
+        withFigures(),
+      );
+      // The Note's figures were read before the edit, as its schedule or badge reads them.
+      expect(await scheduleStates(core, madeId)).toHaveLength(2);
+      const blocks = client.blocks.toArray();
+      const second = blocks.findLastIndex(
+        (each) => each instanceof Y.XmlElement && each.nodeName === "paragraph",
+      );
+      client.doc.transact(() => {
+        const line = new Y.XmlElement(kind);
+        line.setAttribute("id", randomUUID());
+        if (kind === "heading") line.setAttribute("level", "2");
+        line.insert(0, [new Y.XmlText(words_)]);
+        client.blocks.insert(second, [line]);
+      });
+      await client.settled();
+      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+      await client.settled();
+      expect(analysisVerdicts(client), kind).toEqual(["supported", "not-checked analysis-unnamed"]);
+      core.close();
+    }
+  });
+
   test("the lines above are its own section's, and a table's caption is its table's (#2544)", async () => {
     const scale =
       language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
@@ -1689,7 +1739,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     const table = "| A | B |\n| --- | --- |\n| x | 1 |";
     const { core, madeId, client } = await walked(
       language,
-      lines("## A", scale, "## B", words.right, caption, table, words.right),
+      lines(`## ${caption}`, scale, "## B", words.right, caption, table, words.right),
       false,
       null,
       withFigures(),
