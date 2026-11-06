@@ -90,7 +90,7 @@ describe("a Citation checked again where it lands", () => {
   });
 });
 
-// protects=a Citation added to a Note and checked again where it lands (#2504): pointed at another version or page, it says nothing of the next page the Answer's quoted words ran on to, which was the old place's, and keeps the words not found for a later check; checked in the version it quotes, its place is the same, so the run-on page stays; fails_when=the run-on page outlives a re-point, or a re-point drops the words not found, or the quoted version drops the page; no_claim=whether the words are on the new place's page.
+// protects=a Citation added to a Note and checked again where it lands (#2504): pointed at another version or page, it says nothing of the next page the Answer's quoted words ran on to, which was the old place's, and keeps the words not found for a later check; checked in the version it quotes, or landed where it was cited, its place is the same, so the run-on page stays; fails_when=the run-on page outlives a re-point, or is lost where nothing moved, or a re-point drops the words not found, or the quoted version drops the page; no_claim=whether the words are on the new place's page.
 describe("what the check of the Answer's quoted words found, where a Citation lands", () => {
   const runOn = { runsOnTo: { kind: "page", from: 2, to: 2 } };
   const notFound = { answer: [{ text: "no fee at all", found: false }], closest: null };
@@ -124,6 +124,20 @@ describe("what the check of the Answer's quoted words found, where a Citation la
     const attrs = citationOf([landed as NodeJSON]);
     expect(attrs).toMatchObject({ contentHash: "v2", pageFrom: 3 });
     expect(attrs.quotedWords).toEqual(kept);
+  });
+
+  test("landed where it was cited, in the same version and page, the page they ran on to stays", async () => {
+    const [landed] = await recheckCitations([held(runOn)], async () => ({
+      ...elsewhere,
+      contentHash: "v1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "page", from: 1, to: 1 },
+    }));
+    expect(citationOf([landed as NodeJSON])).toMatchObject({
+      contentHash: "v1",
+      quotedWords: runOn,
+    });
   });
 
   test("checked in the version it quotes, the page they ran on to stays", async () => {
