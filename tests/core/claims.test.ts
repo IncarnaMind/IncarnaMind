@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "vitest";
 import {
+  claimPartsReader,
   findClaimsPrompt,
   paragraphsOf,
   readClaimDecisions,
@@ -247,5 +248,52 @@ describe("Words a sort leaves out of every part", () => {
     ["坦白说，我们认为它很美。", "我们认为它很美", "坦白说，我们认为它很美"],
   ])("joins the opinion beside it when no fact is: %s", (sentence, opinion, kept) => {
     expect(sorted(sentence, [{ kind: "opinion", text: opinion }])).toEqual([["opinion", kept]]);
+  });
+});
+
+describe("A sorting reply read as it streams", () => {
+  const sentences = [
+    { number: 7, text: 'The sign says "Open {daily}".' },
+    { number: 8, text: "北店开业。" },
+    { number: 9, text: "Rain fell." },
+  ];
+  const reply = [
+    'Here it is: {"sentences":[',
+    '{"number":7,"parts":[{"kind":"fact","text":"The sign says \\"Open {daily}\\"."}]},',
+    '{"number":8,"parts":[{"kind":"fact","text":"北店开业。"}]},',
+    '{"number":12,"parts":[{"kind":"fact","text":"Rain fell."}]},',
+    '{"number":9,"parts":[{"kind":"fact","text":"Snow fell."}]},',
+    '{"number":8,"parts":[{"kind":"opinion","text":"北店开业。"}]}',
+    "]}",
+  ].join("");
+
+  // protects=each sentence's parts are heard as soon as its record closes, whatever the chunks, as the whole reply reads them, so its check can start while the sort still streams (#2532); fails_when=a record is heard before it closes, a brace or an escaped quote inside a sentence ends one early, or a record the whole reply wouldn't read is heard; no_claim=which record of a sentence given twice decides it, which the whole reply settles.
+  test.each([1, 5, 64])("hears each record as it closes, in chunks of %i", (size) => {
+    const read = claimPartsReader(sentences);
+    const heard: { at: number; number: number }[] = [];
+    for (let at = 0; at < reply.length; at += size) {
+      const end = Math.min(reply.length, at + size);
+      for (const record of read(reply.slice(at, end)))
+        heard.push({ at: end, number: record.number });
+    }
+
+    expect(heard.map((each) => each.number)).toEqual([7, 8, 8]);
+    const closed = (number: number) => reply.indexOf(`{"number":${number}`);
+    expect(heard[0]?.at).toBeLessThan(closed(8) + size + 1);
+    expect(heard[1]?.at).toBeLessThan(closed(12) + size + 1);
+    const whole = readClaimParts(reply, sentences);
+    expect(whole?.get(7)).toEqual([
+      { kind: "fact", span: { start: 0, end: sentences[0]?.text.length ?? 0 } },
+    ]);
+    // Given twice, the sentence is the whole reply's to settle: here it settles none.
+    expect(whole?.has(8)).toBe(false);
+  });
+
+  test("hears nothing of prose before the reply's JSON, nor after it ends", () => {
+    const read = claimPartsReader(sentences);
+    expect(
+      read('Records: [{"number":9,"parts":[{"kind":"fact","text":"Rain fell."}]}] then '),
+    ).toEqual([]);
+    expect(read('{"sentences":[]} {"sentences":[{"number":9,"parts":[]}]}')).toEqual([]);
   });
 });

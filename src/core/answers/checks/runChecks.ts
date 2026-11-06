@@ -21,7 +21,8 @@ import type {
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { RunItemError, runItems, slots } from "../../runs/stop";
+import { asRerankWork } from "../../reranking/order";
+import { RunItemError, runItems, type Slots, slots } from "../../runs/stop";
 import { type ClaimCheckRequest, recordJudged, runFailureOf } from "./claimCheck";
 import { updateCheck } from "./sentences";
 
@@ -91,16 +92,103 @@ export interface RunChecksOptions {
   now(): Date;
 }
 
+/** What a run of checks shares: where its claims are checked, by which model, and when it stops. */
+export interface ChecksRun {
+  mindId: string;
+  scope: ClaimCheckRequest["scope"];
+  searched?: ClaimCheckRequest["searched"];
+  prepared: PreparedChatModel;
+  thirdParty?: readonly ThirdPartyReason[];
+  signal: AbortSignal;
+}
+
+/** What a queued claim's check sends, in `run`. */
+export function checkRequestOf(
+  claim: QueuedClaim,
+  run: ChecksRun,
+  limit: Slots,
+  signal: AbortSignal,
+): ClaimCheckRequest {
+  return {
+    claim: claim.claim,
+    ...(claim.projection && { projection: claim.projection }),
+    ...(claim.figureIds && { figureIds: claim.figureIds }),
+    context: claim.context,
+    ...(claim.cited && { cited: claim.cited }),
+    ...(claim.parts && { parts: claim.parts }),
+    ...(claim.only && { only: claim.only }),
+    ...(claim.previous && { previous: claim.previous }),
+    ...(claim.figures && { figures: claim.figures }),
+    scope: claim.scope ?? run.scope,
+    ...((claim.searched ?? run.searched) !== undefined && {
+      searched: claim.searched ?? run.searched,
+    }),
+    model: run.prepared,
+    ...(run.thirdParty && { thirdParty: run.thirdParty }),
+    mindId: run.mindId,
+    ...(claim.recordClaim !== undefined && { recordClaim: claim.recordClaim }),
+    ...(claim.place && { place: claim.place }),
+    cacheKey: run.mindId,
+    slots: limit,
+    signal,
+  };
+}
+
+/** A claim's check, as one piece of work: its searches are reranked before those of checks started after it. */
+export const checkClaim = (
+  claimCheck: RunChecksOptions["claimCheck"],
+  request: ClaimCheckRequest,
+): Promise<ClaimCheckResult> => asRerankWork(() => claimCheck(request));
+
+/** A request as a key: what it sends, without its signal, its run's limit and its model (the run's own). */
+function requestKey({ signal: _signal, slots: _slots, model: _model, ...sent }: ClaimCheckRequest) {
+  return JSON.stringify(sent, (_key, value: unknown) =>
+    value instanceof Map ? [...value] : value instanceof Set ? [...value] : value,
+  );
+}
+
+/**
+ * Checks started before a run's queue is made, as soon as each claim is known (#2532): a Note's
+ * claims are checked while the model is still naming the rest. Once the run's queue is made from
+ * the Note as it is then, a check it would send is taken from those started early only if it
+ * sends exactly the same; every other early check is stopped and its result dropped, so no result
+ * lands that the run wouldn't have got.
+ */
+export function earlyChecks(
+  claimCheck: RunChecksOptions["claimCheck"],
+  run: ChecksRun,
+  limit: Slots,
+) {
+  const started = new Map<string, { result: Promise<ClaimCheckResult>; stop: AbortController }[]>();
+  return {
+    start(claim: QueuedClaim): void {
+      const stop = new AbortController();
+      const request = checkRequestOf(claim, run, limit, AbortSignal.any([run.signal, stop.signal]));
+      const key = requestKey(request);
+      const result = checkClaim(claimCheck, request);
+      // A check the run takes is awaited there; one it drops is stopped, and nothing reads it.
+      result.catch(() => {});
+      started.set(key, [...(started.get(key) ?? []), { result, stop }]);
+    },
+    /** The run's claim check: an early one that sends the same, or a new one. */
+    claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
+      if (started.size === 0) return claimCheck(request);
+      return started.get(requestKey(request))?.shift()?.result ?? claimCheck(request);
+    },
+    /** Stops every early check the run didn't take. */
+    drop(): void {
+      for (const each of started.values()) for (const { stop } of each) stop.abort();
+      started.clear();
+    },
+  };
+}
+
 export async function runChecks(
   options: RunChecksOptions,
-  run: {
-    mindId: string;
+  run: ChecksRun & {
     queued: readonly QueuedClaim[];
-    scope: ClaimCheckRequest["scope"];
-    searched?: ClaimCheckRequest["searched"];
-    prepared: PreparedChatModel;
-    thirdParty?: readonly ThirdPartyReason[];
-    signal: AbortSignal;
+    /** The limit on checks at once, when the run shares it with checks started before it. */
+    slots?: Slots;
   },
 ): Promise<{ checked: number; stop: RunStop | null }> {
   const { mindId, prepared, signal } = run;
@@ -134,33 +222,14 @@ export async function runChecks(
     };
 
   let checked = 0;
-  const limit = slots(claimsAtOnce(prepared));
+  const limit = run.slots ?? slots(claimsAtOnce(prepared));
   const { stop } = await runItems(
     run.queued,
     async (claim) => {
-      const result = await options.claimCheck({
-        claim: claim.claim,
-        ...(claim.projection && { projection: claim.projection }),
-        ...(claim.figureIds && { figureIds: claim.figureIds }),
-        context: claim.context,
-        ...(claim.cited && { cited: claim.cited }),
-        ...(claim.parts && { parts: claim.parts }),
-        ...(claim.only && { only: claim.only }),
-        ...(claim.previous && { previous: claim.previous }),
-        ...(claim.figures && { figures: claim.figures }),
-        scope: claim.scope ?? run.scope,
-        ...((claim.searched ?? run.searched) !== undefined && {
-          searched: claim.searched ?? run.searched,
-        }),
-        model: prepared,
-        ...(run.thirdParty && { thirdParty: run.thirdParty }),
-        mindId,
-        ...(claim.recordClaim !== undefined && { recordClaim: claim.recordClaim }),
-        ...(claim.place && { place: claim.place }),
-        cacheKey: mindId,
-        slots: limit,
-        signal,
-      });
+      const result = await checkClaim(
+        options.claimCheck,
+        checkRequestOf(claim, run, limit, signal),
+      );
       const failure = runFailureOf(result);
       if (failure) throw new RunItemError(failure);
       return result;

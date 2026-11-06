@@ -3,11 +3,14 @@
  * checked in one run; then only what changed. Headings, questions and the
  * User's own opinions are left out, as the model names the claims.
  */
+import type { LanguageModelV4, LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import type { JSONContent } from "@tiptap/core";
-import { describe, expect, test } from "vitest";
+import { wrapLanguageModel } from "ai";
+import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import type { CheckMindInput, Core } from "../../src/core";
 import { documentFigureContext } from "../../src/core/answers/calculations";
+import { claimPartsReader } from "../../src/core/answers/checks/claims";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
 import {
   CLAIM_CHECK_MARK,
@@ -38,6 +41,7 @@ import { editMind, readMind, writeMind } from "../helpers/minds";
 import {
   type GenerateCall,
   type ModelCall,
+  promptText,
   type ReportedUsage,
   scriptedModel,
   scriptedModels,
@@ -265,17 +269,22 @@ test.each([
   );
   const running = new Set<string>();
   let most = 0;
+  const full = Promise.withResolvers<void>();
   const model = scriptedModel(
     (call) => {
       if (!isCheckRun(call)) return { text: "" };
       const sentence = sentenceOf(call);
-      if (call.results.length === 0) {
+      const first = call.results.length === 0;
+      if (first) {
         running.add(sentence);
         most = Math.max(most, running.size);
+        if (running.size === atOnce) full.resolve();
       }
       const reply = checkReply(call, plans);
       if ("text" in reply && reply.text?.startsWith("Verdict")) running.delete(sentence);
-      return reply;
+      // Each check waits at its first request until as many run as may: a check that ends at once
+      // would otherwise leave its place before the next starts.
+      return first ? { ...reply, pause: { after: 0, until: full.promise } } : reply;
     },
     { generate: checkGenerate(plans) },
   );
@@ -1575,4 +1584,167 @@ describe("Checking selected figures in one sentence", () => {
     );
     expect(after.remainder).toEqual(before.remainder);
   });
+});
+
+/**
+ * A model whose reply naming the claims stops once its first sentence's record has closed: held
+ * until `release`, or failing there as a provider that drops the reply does.
+ */
+function sortStopsAfterFirst(model: LanguageModelV4, then: "held" | "fails") {
+  const held = Promise.withResolvers<void>();
+  const state = { ended: false, release: () => held.resolve() };
+  const wrapped = wrapLanguageModel({
+    model,
+    middleware: {
+      specificationVersion: "v4",
+      wrapStream: async ({ doStream, params }) => {
+        const result = await doStream();
+        const system = params.prompt.find((message) => message.role === "system")?.content;
+        if (typeof system !== "string" || !system.startsWith("You sort the sentences"))
+          return result;
+        const listed = listedSentences(promptText(params.prompt));
+        const read = claimPartsReader(listed);
+        let named = false;
+        const stream = result.stream.pipeThrough(
+          new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
+            async transform(part, controller) {
+              if (named && then === "fails") return;
+              if (named) {
+                // A provider's reply stops when its request is stopped.
+                const stopped = new Promise<void>((resolve) =>
+                  params.abortSignal?.addEventListener("abort", () => resolve(), { once: true }),
+                );
+                await Promise.race([held.promise, stopped]);
+                if (params.abortSignal?.aborted) {
+                  controller.error(new DOMException("The request was aborted.", "AbortError"));
+                  return;
+                }
+              }
+              controller.enqueue(part);
+              if (part.type === "text-delta" && read(part.delta).length > 0) {
+                named = true;
+                if (then === "fails")
+                  controller.enqueue({ type: "error", error: new Error("Overloaded") });
+              }
+            },
+            flush() {
+              state.ended = true;
+            },
+          }),
+        );
+        return { ...result, stream };
+      },
+    },
+  });
+  return { model: wrapped, state };
+}
+
+describe("Check this note starts each sentence's check once its claims are named", () => {
+  const SECOND = "Spring tide 2 comes at new moon.";
+
+  async function noteOfTwo(then: "held" | "fails", firstRun?: Promise<void>) {
+    const checks: ModelCall[] = [];
+    const plans: Record<string, Plan> = { ...PLANS, [SECOND]: { verdict: "unsupported" } };
+    const scripted = scriptedModel(
+      (call) => {
+        checks.push(call);
+        const reply = checkReply(call, plans);
+        const early =
+          firstRun && call.results.length === 0 && isCheckRun(call) && sentenceOf(call) === MOON;
+        // Only the first check of the first sentence waits: one sent again goes on.
+        return early && runsIn(checks).filter((each) => sentenceOf(each) === MOON).length === 1
+          ? { ...reply, pause: { after: 0, until: firstRun } }
+          : reply;
+      },
+      { generate: checkGenerate(plans) },
+    );
+    const sort = sortStopsAfterFirst(scripted, then);
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: () => sort.model,
+    });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    const provider = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-ant-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (provider.service) await core.allowDataFlow("checks", provider.service.id);
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+    const mind = await core.createMind({ title: "Tide notes" });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      { type: "paragraph", attrs: { id: "first" }, content: [text(MOON)] },
+      { type: "paragraph", attrs: { id: "second" }, content: [text(SECOND)] },
+    ]);
+    await client.settled();
+    const runsOf = (sentence: string) =>
+      runsIn(checks).filter((each) => sentenceOf(each) === sentence);
+    return { core, client, mindId: mind.id, sort: sort.state, runsOf };
+  }
+
+  // protects=a sentence's check starts as soon as the reply naming the claims has named its parts, before that reply ends, and that check is the run's: sent once, its verdict landing (#2532); fails_when=the checks wait for the whole reply, or a check started early is sent again; no_claim=how long the model takes.
+  test("the first sentence is checked while the rest are still being named, and only once", async () => {
+    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held");
+
+    const checking = core.checkMind(request(mindId, "all"));
+    await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
+    expect(sort.ended).toBe(false);
+    expect(runsOf(SECOND)).toHaveLength(0);
+    sort.release();
+
+    expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
+    expect(runsOf(MOON)).toHaveLength(1);
+    expect(runsOf(SECOND)).toHaveLength(1);
+    const shown = await shownChecks(core, client, mindId, null);
+    expect(shown.map((each) => [each.sentence, each.shown.state])).toEqual([
+      [MOON, "supported"],
+      [SECOND, "unsupported"],
+    ]);
+  });
+
+  // protects=a check started early whose sentence the User changed around it while the claims were named is stopped, its result dropped, and the sentence checked again as the Note has it then (#2532); fails_when=the early check's verdict lands, or it isn't sent again with the paragraph's new words; no_claim=what the model says of the new words.
+  test("a check started early is sent again when the paragraph changed before the claims were named", async () => {
+    const firstRun = Promise.withResolvers<void>();
+    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held", firstRun.promise);
+
+    const checking = core.checkMind(request(mindId, "all"));
+    await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
+    typeInto(client, 0, MOON.length, " Neap tides come at the quarter moons.");
+    await client.settled();
+    sort.release();
+
+    expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
+    firstRun.resolve();
+    const [early, again] = runsOf(MOON);
+    expect(early?.options.abortSignal?.aborted).toBe(true);
+    expect(early?.prompt).not.toContain("Neap tides");
+    expect(again?.prompt).toContain("Neap tides come at the quarter moons.");
+    expect(again?.options.abortSignal?.aborted).toBe(false);
+    const shown = await shownChecks(core, client, mindId, null);
+    expect(shown.find((each) => each.sentence === MOON)?.shown.state).toBe("supported");
+  });
+
+  // protects=when the reply naming the claims fails after naming one, the check started early is stopped and nothing lands, as when no check had started (#2532); fails_when=the early check's verdict lands, or it goes on; no_claim=the Problem the window shows, which the run's failure gives as before.
+  test.each(["fails", "stopped"] as const)(
+    "when naming the claims %s after the first, the check started early is stopped and nothing is marked",
+    async (end) => {
+      const firstRun = Promise.withResolvers<void>();
+      const { core, client, mindId, runsOf } = await noteOfTwo(
+        end === "fails" ? "fails" : "held",
+        firstRun.promise,
+      );
+
+      const checking = core.checkMind(request(mindId, "all"));
+      await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
+      if (end === "stopped") await core.cancelCheck(request(mindId, "all").requestId);
+
+      expect(await checking).toMatchObject({ kind: end === "fails" ? "failed" : "cancelled" });
+      firstRun.resolve();
+      expect(runsOf(MOON)[0]?.options.abortSignal?.aborted).toBe(true);
+      expect(runsOf(SECOND)).toHaveLength(0);
+      await client.settled();
+      expect(claimSpans(readMind(client))).toEqual([]);
+    },
+  );
 });
