@@ -72,7 +72,7 @@ test("a Check's question changes the assistant card line, EN and ZH", async () =
     await expect(first).toContainText(WAITING_EN);
     await pointAndClick(window, window.getByTestId("check-badge-open"));
     await expect(ask).toContainText("Check this note’s claim against your Documents?");
-    await expect(ask).toContainText("About $");
+    await expect(ask).toContainText("Under $0.01");
 
     // Esc closes the question.
     await window.keyboard.press("Escape");

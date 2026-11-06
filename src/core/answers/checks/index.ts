@@ -1864,7 +1864,7 @@ export function createChecks(options: ChecksOptions) {
 
     async rewriteFromDocuments(input: unknown): Promise<RewriteFromDocumentsResult> {
       if (!isRecord(input) || typeof input.checkId !== "string" || input.checkId === "") {
-        throw new InvalidInputError("rewriteFromDocuments expects a Mind and a sentence check.");
+        throw new InvalidInputError({ key: "error.check.partChanged" });
       }
       const mindId = parseMindId(input.mindId);
       options.requireMind(mindId);
