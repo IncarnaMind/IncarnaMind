@@ -352,9 +352,11 @@ export interface CreateMindInput {
  * - 53: a Citation's `quotedWords` may instead record the page the Answer's
  *   quoted words were found running on to past the one it cites
  *   (`{ runsOnTo }`, #2504), as a Location, so its card says where the quote
- *   continues. An older editor would strip it, so it opens these Notes
- *   read-only. Older content is version 52 content as it is: a Citation
- *   without it says nothing of a next page.
+ *   continues. An older app would mishandle it: its figure reader refuses a
+ *   `quotedWords` it can't parse, so a figure's Citation would be lost, and
+ *   its Replace, re-check and figure paths would carry the old page onto a
+ *   new quote. So it opens these Notes read-only. Older content is version 52
+ *   content as it is: a Citation without it says nothing of a next page.
  */
 export const CONTENT_SCHEMA_VERSION = 53;
 

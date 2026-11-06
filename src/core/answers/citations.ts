@@ -2370,7 +2370,6 @@ export function createCitationSession(
           return next ? [{ record, next }] : [];
         })[0];
         if (runsOn) {
-          // Its card names the next page as the Document prints it: the place the User opens is the cited one.
           const runsOnTo = locationOf([runsOn.next], null);
           if (runsOnTo) runsOn.record.quotedWords ??= { runsOnTo };
           continue;
