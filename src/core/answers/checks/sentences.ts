@@ -42,7 +42,12 @@ import {
 } from "../../api";
 import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
 import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
-import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
+import {
+  type FigureOccurrence,
+  figuresInMind,
+  inTableCell,
+  withAboveNow,
+} from "./figureOccurrences";
 
 const BREAK = "hardBreak";
 
@@ -175,7 +180,9 @@ export function checkText(sentence: SelectedSentence) {
     context:
       (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
       wordsOf(sentence.element),
-    ...(sentence.figures?.length && { figures: sentence.figures }),
+    ...(sentence.figures?.length && {
+      figures: withAboveNow(sentence.figures, sentence.element),
+    }),
   };
 }
 
@@ -704,12 +711,18 @@ type CheckedSentence = MarkedSentence & {
   cited: CitedQuote[];
   noteText?: string;
   place?: RecordCitePlace;
+  /**
+   * Where the whole sentences its mark is in are in the Block. A mark covers only their text, so
+   * a figure that ends its line ("- North: total amount 9,450") is inside these but past the mark.
+   */
+  extent: { from: number; to: number };
 };
 
 const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
   marksOfBlock(block).map((marked) => {
     const { element, from, to } = marked;
-    if (element.nodeName === CHART_NODE) return { ...marked, sentence: textOf(element), cited: [] };
+    if (element.nodeName === CHART_NODE)
+      return { ...marked, sentence: textOf(element), cited: [], extent: { from: 0, to: 1 } };
     const { text, spans } = claimFrame(element);
     const touched = spans.filter((span) => span.from < to && span.to > from);
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -720,6 +733,10 @@ const checkedOfBlock = perBlock((block): readonly CheckedSentence[] =>
       cited: touched.flatMap((span) => span.cited),
       noteText: textOf(element).slice(start, touched.at(-1)?.to ?? 0),
       ...(typeof blockId === "string" && { place: { blockId, from: start } }),
+      extent: {
+        from: Math.min(touched[0]?.from ?? from, from),
+        to: Math.max(touched.at(-1)?.to ?? to, to),
+      },
     };
   }),
 );

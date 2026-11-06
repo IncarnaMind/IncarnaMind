@@ -1527,8 +1527,8 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
             changes(stated.correction.from, choice.wording),
           )
             ? stated
-            : // "（¥98,000）" after 人民币九万八千元 reads as a negative number: it never takes
-              // the place of a positive one.
+            : // A number of the other sign never takes this one's place: the sentence's "a loss
+              // of 1,250" is the Document's "(1,250)".
               deciding && Math.sign(deciding.number.value) === Math.sign(owner.reading.value)
               ? corrected(
                   {
