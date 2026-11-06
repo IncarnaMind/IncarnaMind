@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Document, LibraryGroup } from "../../core/api";
 import { core } from "./core";
 import type { UnitCount } from "./fileInfo";
+import { folderIdOfDocument } from "./meetingTranscript";
 import { useAppStore } from "./store";
 
 /**
@@ -41,12 +42,14 @@ export function useUnitCount(document: Document | null): UnitCount | null {
   return { key: kind === "pptx" ? "info.slides" : "info.sheets", count };
 }
 
-/** The Folder a Document is filed in, or null for Not in a Folder. */
+/**
+ * The Folder a Document is filed in, or null for Not in a Folder; a Meeting's Transcript's is its
+ * Note's (#2528).
+ */
 export function useDocumentFolder(documentId: string): LibraryGroup | null {
   return useAppStore((state) => {
-    const groupId = state.library?.assignments.find(
-      (each) => each.documentId === documentId,
-    )?.groupId;
+    const document = state.documents.find((each) => each.id === documentId);
+    const groupId = folderIdOfDocument(state, document ?? { id: documentId, meetingMindId: null });
     return groupId ? (state.library?.groups.find((each) => each.id === groupId) ?? null) : null;
   });
 }
