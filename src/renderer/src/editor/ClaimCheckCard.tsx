@@ -464,8 +464,9 @@ export function ClaimMark({
                 done();
               }}
               onCorrect={(span) => {
-                applyCorrection(editor, mindId, claim, span);
-                done(true);
+                applyCorrection(editor, mindId, doc, claim, span);
+                // A whole read is asked again in this card, which stays open for it.
+                if (claim.check.action !== "check-against-document") done(true);
               }}
               use={offersUseFigure(editor, claim)}
               onUse={() => {

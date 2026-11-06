@@ -1,4 +1,4 @@
-import type { AnswerToolCall, ConversationAnswer } from "../../../../core/api";
+import type { AnswerToolCall, ConversationAnswer, UserAnswer } from "../../../../core/api";
 import { useT } from "../../i18n";
 import type { Translate } from "../../objects";
 import { ChatLineIcon } from "../lineIcons";
@@ -14,11 +14,26 @@ export function askCallText(t: Translate, call: AnswerToolCall): string {
       ? t("asks.call.skipped", { choice: recommended.label })
       : t("asks.call.skippedNone");
   }
+  return t("asks.call.chose", { choice: answeredWords(t, answer, true) });
+}
+
+/**
+ * The User's answer in their own words: the options they chose, and what they
+ * wrote under Other…. The row quotes what they wrote; their bubble says it as
+ * they did.
+ */
+function answeredWords(
+  t: Translate,
+  answer: Extract<UserAnswer, { skipped: false }>,
+  quote: boolean,
+): string {
   const choices = [
     ...answer.chosen,
-    ...(answer.wrote === null ? [] : [t("asks.call.wrote", { words: answer.wrote })]),
+    ...(answer.wrote === null
+      ? []
+      : [quote ? t("asks.call.wrote", { words: answer.wrote }) : answer.wrote]),
   ];
-  return t("asks.call.chose", { choice: choices.join(t("asks.call.separator")) });
+  return choices.join(t("asks.call.separator"));
 }
 
 /** The row of a question the assistant asked the User (#1374), kept in the thread once answered. */
@@ -42,18 +57,44 @@ export function AskCall({ call }: { call: AnswerToolCall }) {
   );
 }
 
-/** One line in the thread for each question the User answered or skipped, outside the folded steps. */
+/**
+ * The question the assistant asked, folded to its words, and the User's answer
+ * to it as their own bubble (#2530): once answered, the card's options go and
+ * the thread shows only the question and what the User chose.
+ */
 export function AskedLines({ answer }: { answer: ConversationAnswer }) {
   const t = useT();
   const asked = answer.toolCalls.filter((call) => call.asked?.answer);
   if (asked.length === 0) return null;
   return (
     <div className="answer-asked">
-      {asked.map((call) => (
-        <p key={call.id} data-testid="answer-asked" className="answer-asked-line">
-          {askCallText(t, call)}
-        </p>
-      ))}
+      {asked.map((call) => {
+        const question = call.asked;
+        if (!question?.answer) return null;
+        return (
+          <div key={call.id} data-testid="answer-asked-turn" className="answer-asked-turn">
+            <p data-testid="answer-asked-question" className="answer-asked-question">
+              {question.question}
+            </p>
+            {question.answer.skipped ? (
+              <p data-testid="answer-asked" className="answer-asked-line">
+                {askCallText(t, call)}
+              </p>
+            ) : (
+              <div data-testid="answer-asked-answer" className="assistant-question">
+                <p className="assistant-question-bubble">
+                  <span className="sr-only" data-testid="answer-asked-chose">
+                    {t("asks.call.chose", { choice: answeredWords(t, question.answer, true) })}
+                  </span>
+                  <span aria-hidden="true" data-testid="answer-asked-words">
+                    {answeredWords(t, question.answer, false)}
+                  </span>
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
