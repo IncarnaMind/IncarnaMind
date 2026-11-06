@@ -137,6 +137,9 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     new RegExp(`^${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
   );
   await shot(window, "one-item-palette-en");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-palette-narrow-en");
+  await setWindowSize(app, window, 1440, 900);
   await window.keyboard.press("Enter");
   // The Note in front, its Transcript beside it, at the words.
   const transcript = window.getByTestId("viewer-transcript");
@@ -194,6 +197,9 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     window.getByTestId("scope-picker").getByRole("group", { name: "Notes" }),
   ).toContainText(new RegExp(`${escaped(title)} · Transcript, \\d{2}:\\d{2}`));
   await shot(window, "one-item-at-picker-en");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-at-picker-narrow-en");
+  await setWindowSize(app, window, 1440, 900);
   await window.keyboard.press("Escape");
   await window.keyboard.press("ControlOrMeta+a");
   await window.keyboard.press("Backspace");
@@ -203,6 +209,9 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await window.getByTestId("palette-search").fill("eighteenth");
   await expect(hits.first()).toContainText(new RegExp(`^${escaped(title)} · 转写稿 \\d{2}:\\d{2}`));
   await shot(window, "one-item-palette-zh");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-palette-narrow-zh");
+  await setWindowSize(app, window, 1440, 900);
   await window.keyboard.press("Escape");
   await window.keyboard.press("ControlOrMeta+j");
   await window.keyboard.type("@eighteenth");
@@ -210,6 +219,9 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     window.getByTestId("scope-picker").getByRole("group", { name: "笔记" }),
   ).toContainText(new RegExp(`${escaped(title)} · 转写稿`));
   await shot(window, "one-item-at-picker-zh");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-at-picker-narrow-zh");
+  await setWindowSize(app, window, 1440, 900);
   await window.keyboard.press("Escape");
   await window.keyboard.press("ControlOrMeta+a");
   await window.keyboard.press("Backspace");
@@ -234,6 +246,9 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     `“${renamed}”不再作为引用来源`,
   );
   await shot(window, "one-item-renamed-dont-cite-zh");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-renamed-dont-cite-narrow-zh");
+  await setWindowSize(app, window, 1440, 900);
   await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
   await pointAndClick(window, window.getByRole("menuitem", { name: "重新引用转写稿" }));
   await expect.poll(notCited).toBe(false);
@@ -251,6 +266,8 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect.poll(notCited).toBe(true);
   await expect(window.getByTestId("undo-message").last()).toHaveText(`“${renamed}” won’t be cited`);
   await shot(window, "one-item-renamed-dont-cite-en");
+  await setWindowSize(app, window, 900, 700);
+  await shot(window, "one-item-renamed-dont-cite-narrow-en");
   await app.close();
 });
 
