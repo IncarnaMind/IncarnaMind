@@ -16,6 +16,7 @@ import type {
   KeptCitationText,
   QuotedPiece,
   QuotedWords,
+  QuotedWordsCheck,
   RecheckResult,
 } from "../core/api";
 import type { Language } from "../core/language";
@@ -27,6 +28,7 @@ import {
   englishPrintedLocation,
   formatLocation,
   isTranscriptLocation,
+  parseLocation,
   readsIn,
   type Translate,
 } from "./locations";
@@ -688,6 +690,25 @@ export function parseQuotedWords(value: unknown): QuotedWords | null {
   const { answer, closest } = value as Record<string, unknown>;
   if (!isPieces(answer) || answer.length === 0) return null;
   return { answer, closest: isPieces(closest) && closest.length > 0 ? closest : null };
+}
+
+/** The page a Citation's quoted words were found running on to (#2504), checked; null if none. */
+export function quotedWordsRunOnTo(value: unknown): CitationLocation | null {
+  if (typeof value === "string") {
+    try {
+      return quotedWordsRunOnTo(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null) return null;
+  return parseLocation((value as Record<string, unknown>).runsOnTo);
+}
+
+/** What a Citation stores of the check of its Answer's quoted words, either kind, checked; null if nothing. */
+export function parseQuotedWordsCheck(value: unknown): QuotedWordsCheck | null {
+  const runsOnTo = quotedWordsRunOnTo(value);
+  return parseQuotedWords(value) ?? (runsOnTo && { runsOnTo });
 }
 
 /**

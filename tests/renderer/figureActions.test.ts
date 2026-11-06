@@ -1,7 +1,7 @@
 import { Editor } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import { DOMParser } from "linkedom";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
@@ -558,4 +558,66 @@ test("with the note not open, a change and its Undo leave an Analysis figure's r
   await undoable?.undo();
   expect(runs.toJSON()).toEqual(kept);
   expect(figuresInMind(blocks).some((each) => each.calculated?.figure.analysis)).toBe(true);
+});
+
+describe("a figure's own Citation that held a run-on page", () => {
+  const held: Citation = {
+    ...citation,
+    documentId: "old",
+    documentName: "Old",
+    quote: "Revenue 10",
+    quotedWords: { runsOnTo: { kind: "page", from: 3, to: 3 } },
+  };
+  const noteWithFigure = () => {
+    const ready = setup(
+      [
+        {
+          type: "paragraph",
+          attrs: { id: "p" },
+          content: [
+            { type: "text", text: "Revenue " },
+            { type: "text", text: "10" },
+            { type: "citation", attrs: { ...held } },
+            { type: "text", text: " and profit 2, but uncertain." },
+          ],
+        },
+      ],
+      false,
+    );
+    const paragraph = ready.blocks.get(0);
+    if (!(paragraph instanceof Y.XmlElement)) throw new Error("No paragraph");
+    const figures = figuresInMind(ready.blocks).map((figure) => ({
+      ...basis(),
+      ...emptyFigureFinding(figure),
+      state: "supported" as const,
+    }));
+    markSentence(paragraph, 0, words.length + 1, { ...basis(), figures, remainder: basis() });
+    contradictFirst(ready.blocks);
+    return ready;
+  };
+  const runOnPages = (editor: ReturnType<typeof setup>["editor"]) => {
+    const pages: unknown[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "citation") pages.push(node.attrs.quotedWords ?? null);
+    });
+    return pages;
+  };
+
+  test("Use the source: the Citation it now cites says nothing of the old quote's next page", () => {
+    const { editor, read, edit } = noteWithFigure();
+    const schedule = read();
+    const row = schedule.rows[0];
+    if (!row) throw new Error("No row");
+    edit((note) => addFigureCitation(note, schedule, row, citation));
+    expect(runOnPages(editor)).toEqual([null]);
+  });
+
+  test("Change to the source: the Citation it now cites says nothing of the old quote's next page", () => {
+    const { editor, read, edit } = noteWithFigure();
+    const schedule = read();
+    const row = schedule.rows[0];
+    if (!row) throw new Error("No row");
+    edit((note) => changeFiguresToSource(note, schedule, [row.id]));
+    expect(runOnPages(editor)).toEqual([null]);
+  });
 });

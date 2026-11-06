@@ -66,7 +66,7 @@ import {
   type CitedSelection,
   type DocumentKind,
   MAX_CITED_PAGES,
-  type QuotedWords,
+  type QuotedWordsCheck,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -1314,8 +1314,11 @@ interface Accepted {
   /** Where it points, for its label, worked out once when the record is taken. */
   location: Citation["location"];
   result: CheckResult | null;
-  /** The Answer's quoted words that its sentence's Citations don't have, when they made `result` not found (#483). */
-  quotedWords?: QuotedWords;
+  /**
+   * The Answer's quoted words that its sentence's Citations don't have, when they made `result`
+   * not found (#483), or the page they run on to past the one it cites (#2504).
+   */
+  quotedWords?: QuotedWordsCheck;
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
 }
@@ -2309,9 +2312,13 @@ export function createCitationSession(
        * record's quote ends where its page does, as a Passage may, and the Answer may quote on
        * (#2504). Only a document's pages run on; a slide or a section is a place of its own.
        */
-      const runsOnToNextPage = (record: Accepted, words: string, matching: Matching) => {
+      const runsOnToNextPage = (
+        record: Accepted,
+        words: string,
+        matching: Matching,
+      ): PageText | null => {
         const { pageFrom, pageTo } = record.range;
-        if (pageFrom === null || pageFrom !== pageTo) return false;
+        if (pageFrom === null || pageFrom !== pageTo) return null;
         const units = documents.pageTexts(
           record.source.documentId,
           record.source.contentHash,
@@ -2319,10 +2326,11 @@ export function createCitationSession(
           pageTo + 1,
         );
         const next = units.findIndex((unit) => unit.page === pageTo + 1);
-        if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return false;
+        if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return null;
+        const nextPage = units[next] as PageText;
         const found = quoteInUnits(units, words, matching);
         const nextStarts = joinUnits(units).starts[next] ?? 0;
-        return found?.every((range) => range.start < nextStarts) === true;
+        return found?.every((range) => range.start < nextStarts) === true ? nextPage : null;
       };
       /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
       const titled = (
@@ -2357,7 +2365,13 @@ export function createCitationSession(
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
         if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
-        if (cited.some(({ record, matching }) => runsOnToNextPage(record, words, matching))) {
+        const runsOn = cited.flatMap(({ record, matching }) => {
+          const next = runsOnToNextPage(record, words, matching);
+          return next ? [{ record, next }] : [];
+        })[0];
+        if (runsOn) {
+          const runsOnTo = locationOf([runsOn.next], null);
+          if (runsOnTo) runsOn.record.quotedWords ??= { runsOnTo };
           continue;
         }
         if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
@@ -2377,9 +2391,7 @@ export function createCitationSession(
           const closest = closestWords(units, words, matching);
           if (!nearest || closest.near > nearest.closest.near) nearest = { record, closest };
         }
-        if (!nearest || nearest.record.quotedWords || nearest.record.result?.check !== "found") {
-          continue;
-        }
+        if (nearest?.record.result?.check !== "found") continue;
         nearest.record.result = { check: "not-found", checkReason: "quoted-words-not-on-pages" };
         nearest.record.quotedWords = nearest.closest.shown;
       }
