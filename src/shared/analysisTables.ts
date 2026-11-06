@@ -543,9 +543,13 @@ export const columnEarns = (column: AnalysisTableColumn): boolean =>
 
 /** A currency, by its sign or code, in English or Chinese. */
 const CURRENCY = /[$€£¥￥₹₩]|\b(?:usd|eur|gbp|cny|rmb|jpy|chf|aud|cad|hkd)\b|元|英镑|镑/iu;
-/** A percent, a rate per item, a scale by its abbreviation, or an aggregate no rule works out. */
+/**
+ * A percent, or a share or rate that names one without its mark; a rate per item; a scale, written
+ * out or abbreviated; or an aggregate no rule works out. 千, 万 and 亿 are a scale after a number, a
+ * bracket or a colon, or before a unit or a closing bracket, never inside a name (万和路).
+ */
 const NOT_ITS_FIGURES =
-  /[%％]|\bper ?cent\b|百分|\bper\b|每|\b(?:k|m|mn|bn|mm|000s?)\b|\bmedian\b|中位|thousands?|millions?|billions?|[千万亿]/iu;
+  /[%％]|\bper ?cent\b|百分|\b(?:shares?|rates?|ratios?|proportions?)\b|占比|比例|份额|\bper\b|每|\b(?:k|m|mn|bn|mm|000s?)\b|\bmedian\b|中位|thousands?|millions?|billions?|(?:[\p{N}（(：:]\s*[千万亿])|(?:[千万亿](?:元|美元|欧元|英镑|次|人|件|吨|个|[）)]|$))/iu;
 /** A period: a year or any number, a quarter, a month, a week or a day. */
 const PERIOD =
   /\p{N}+|\b(?:q[1-4]|quarters?|quarterly|months?|monthly|years?|yearly|annual|weeks?|weekly|days?|daily|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b|年|季度?|月|周|日/giu;

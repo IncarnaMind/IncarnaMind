@@ -405,6 +405,15 @@ describe("a bound table reads as its run while the Note keeps the run's headings
       "各地区收入（千美元）",
       "各地区每单收入",
       "2025年各地区收入",
+      "Market share by region",
+      "Revenue rate by region",
+      "Revenue ratio by region",
+      "Revenue proportion by region",
+      "各地区收入占比",
+      "各地区收入比例",
+      "各地区市场份额",
+      "各地区收入（万元）",
+      "各地区收入，单位：千",
     ]) {
       const read = captioned(caption);
       expect(read.state.kind, caption).toBe("calculated");
@@ -414,8 +423,12 @@ describe("a bound table reads as its run while the Note keeps the run's headings
     for (const caption of [
       "Revenue by region",
       "Total revenue by region",
+      "Revenue by region and store",
       "各地区收入",
       "各地区收入合计",
+      // 千 and 万 inside a store's name are its name, not a scale.
+      "万和路门店收入合计",
+      "千禧街门店收入合计",
     ])
       expect(captioned(caption).state.kind, caption).toBe("recalculated");
     // A period the table itself holds is the table's own; one it doesn't is another figure.
