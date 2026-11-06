@@ -221,15 +221,48 @@ async function noteFlow(
   await client.settled();
   recorder.begin(sentences);
   const watch = watchNote(client.doc, sentences, recorder.since, await versionsOf(core));
-  await core.checkMind({
+  const checking = core.checkMind({
     requestId: `note-${run}-${Date.now()}`,
     mindId,
     mode: "all",
     model: choice,
   });
+  const searchedDuring = await searchDuring(core, mindId, sentences[0] ?? "", watch, recorder);
+  await checking;
   const doneMs = recorder.since();
   watch.stop();
-  return { checkStartMs: watch.firstMarkMs() ?? doneMs, doneMs, landed: watch.landed };
+  return {
+    checkStartMs: watch.firstMarkMs() ?? doneMs,
+    doneMs,
+    landed: watch.landed,
+    ...(searchedDuring && { searchedDuring }),
+  };
+}
+
+/**
+ * A search the User asks for while the Note is checked, when INCARNAMIND_EVAL_SPEED_SEARCH_DURING
+ * says how many milliseconds after the claims are named: Cite…'s, which reranks as a model's
+ * Answer without Tools does (an Answer's Tool searches don't rerank). Its time, asked to answered.
+ */
+async function searchDuring(
+  core: Core,
+  mindId: string,
+  text: string,
+  watch: ReturnType<typeof watchNote>,
+  recorder: ReturnType<typeof checkRecorder>,
+): Promise<{ atMs: number; ms: number } | null> {
+  const after = env("SEARCH_DURING");
+  if (after === null) return null;
+  await vi.waitFor(
+    () => {
+      if (watch.firstMarkMs() === null) throw new Error("The claims aren't named yet.");
+    },
+    { timeout: 60_000, interval: 20 },
+  );
+  await new Promise((resolve) => setTimeout(resolve, Number(after)));
+  const atMs = recorder.since();
+  await core.findPassages({ text, mindId, scope: null });
+  return { atMs, ms: recorder.since() - atMs };
 }
 
 async function writeFlow(
@@ -447,7 +480,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
             current = { flow, items: CITED(language) };
             const startedAt = new Date().toISOString();
             repeats.begin();
-            const times =
+            const times: Pick<FlowTimes, "checkStartMs" | "doneMs" | "landed" | "searchedDuring"> =
               flow === "note"
                 ? await noteFlow(core, choice, language, recorder, run)
                 : flow === "write"
@@ -479,11 +512,16 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               requests: recorder.end(),
               reranks,
               rerankRepeats: repeats.end(),
+              ...(times.searchedDuring && { searchedDuring: times.searchedDuring }),
               ...(flow === "note" && {
                 stated: NOTE_SENTENCES[language].map((each) => each.expected === "supported"),
               }),
               spentUsd: after - spent,
             });
+            if (times.searchedDuring)
+              log(
+                `  a search asked at ${seconds(times.searchedDuring.atMs)} took ${seconds(times.searchedDuring.ms)}`,
+              );
             log(
               `  first mark ${seconds(landed[0]?.ms ?? null)}, first verdict ${seconds(firstVerdictMs(landed))}, done ${(times.doneMs / 1000).toFixed(1)} s, ${landed.length} landed, $${(after - spent).toFixed(4)}`,
             );

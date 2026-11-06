@@ -320,6 +320,8 @@ export interface FlowTimes {
   reranks: { startMs: number; ms: number }[];
   /** Of the built-in reranker's scorings, those of a query over Passages it had already scored in this flow. */
   rerankRepeats: { scored: number; repeated: number };
+  /** A search the User asked for during it (`SEARCH_DURING`): when, and how long it took. */
+  searchedDuring?: { atMs: number; ms: number };
   /** For a Note's check: whether the Documents state each sentence, by its index. */
   stated?: boolean[];
   spentUsd: number;
