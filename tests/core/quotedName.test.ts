@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import { parseQuotedWords } from "../../src/shared/citations";
 import {
   askAndFinish,
+  citationsIn,
   citingModel,
   onlyCitation,
   type ShownPassage,
@@ -144,5 +145,83 @@ describe.each(Object.keys(CASES) as Language[])(
         ).toBe(text.notOnPage);
       },
     );
+  },
+);
+
+const quoting = (language: Language, words: string) =>
+  language === "en" ? `The record says “${words}” [^1].` : `记录写道“${words}”[^1]。`;
+
+// protects=a name is compared with its figures kept, and only an extension files are added with is cut, so quoted figures that differ from the name's are quoted words the page lacks, not a name (#2504); fails_when=a decimal point, a thousands comma or a ".5" taken for an extension is dropped and the figures read as the name; no_claim=none beyond protects.
+test.each([
+  ["en", "Revenue grew 12.5 percent.pdf", "revenue grew 125 percent"],
+  ["en", "Margin rose to 3,500 tonnes.pdf", "margin rose to 3500 tonnes"],
+  ["en", "Revenue growth was 12.5.pdf", "revenue growth was 12"],
+  ["zh", "营业收入增长12.5%.pdf", "营业收入增长125%"],
+  ["zh", "全年销量达到3,500吨.pdf", "全年销量达到3500吨"],
+  ["zh", "全年营业收入增长12.5.pdf", "全年营业收入增长12"],
+] as const)(
+  "a name with figures (%s, %s): other figures in quotation marks are not the name",
+  async (language, name, words) => {
+    const citation = await citationOf(caseOf(language, name), quoting(language, words));
+    expect(citation).toMatchObject(NOT_FOUND);
+  },
+);
+
+// protects=a part of a name is a name only as a whole part at a separator, never a piece of one (#2504); fails_when=a piece of a part, or of a name that doesn't split inside a Latin word, reads as the name; no_claim=none beyond protects.
+test.each([
+  [
+    "en",
+    "Harbour Authority annual report 2024 - Final draft.pdf",
+    "Harbour Authority annual report",
+  ],
+  ["en", "Cooling-off notice for harbour tenants.pdf", "notice for harbour tenants"],
+  ["zh", "港务局二〇二四年年度报告－定稿.pdf", "港务局二〇二四年年度"],
+] as const)(
+  "a piece of a name (%s, %s): quoted words the page lacks, not a name",
+  async (language, name, words) => {
+    const citation = await citationOf(caseOf(language, name), quoting(language, words));
+    expect(citation).toMatchObject(NOT_FOUND);
+  },
+);
+
+// protects=only the name of a Document the sentence's own Citations cite counts (#2504): a part of another cited Document's name, in a sentence that doesn't cite it, is quoted words the page lacks; fails_when=it reads as a name; no_claim=the whole name of another cited Document, skipped as on main.
+test.each(["en", "zh"] as const)(
+  "a part of another cited Document's name (%s): not a name in this sentence",
+  async (language) => {
+    const text = CASES[language];
+    const other =
+      language === "en"
+        ? "Harbour Authority annual report 2024 - Final draft.pdf"
+        : "港务局二〇二四年年度报告－定稿.pdf";
+    const otherPage =
+      language === "en"
+        ? ["Report", "Tonnage handled rose by a tenth over the year."]
+        : ["报告", "全年货物吞吐量增长了一成。"];
+    const otherQuote =
+      language === "en" ? "Tonnage handled rose by a tenth" : "全年货物吞吐量增长了一成";
+    const key = language === "en" ? "lines" : "chineseLines";
+    const model = citingModel({
+      query: `${text.query} ${language === "en" ? "tonnage" : "吞吐量"}`,
+      records: (passages: ShownPassage[]) => [
+        {
+          marker: 1,
+          passage: passages.find((each) => each.text.includes(text.quote.slice(0, 6)))?.id,
+          quote: text.quote,
+        },
+        {
+          marker: 2,
+          passage: passages.find((each) => each.text.includes(otherQuote.slice(0, 6)))?.id,
+          quote: otherQuote,
+        },
+      ],
+      answer: `${quoting(language, text.part.words)} ${language === "en" ? "Tonnage rose [^2]." : "吞吐量上升[^2]。"}`,
+    });
+    const { core, client, mind } = await setUpWithDocuments(model, [
+      { name: text.whole.name, contents: buildPdf([{ [key]: text.page }]) },
+      { name: other, contents: buildPdf([{ [key]: otherPage }]) },
+    ]);
+    const { answerId } = await askAndFinish(core, client, mind.id, text.question);
+    const [first] = citationsIn(client, answerId);
+    expect(first).toMatchObject(NOT_FOUND);
   },
 );

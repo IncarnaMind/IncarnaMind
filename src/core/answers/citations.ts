@@ -26,6 +26,7 @@
  * lines, narrowed to those the quote covers ("Revenue, rows 12–14"); for
  * sections, the heading it sits under.
  */
+import { ADDABLE_EXTENSIONS } from "../../shared/addFilesAction";
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
@@ -51,7 +52,7 @@ import {
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
-import { CJK, foldRadicals, nameKey } from "../../shared/text";
+import { CJK, foldRadicals } from "../../shared/text";
 import { sameRun } from "../../shared/units";
 import {
   type AskedQuote,
@@ -522,16 +523,30 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
 type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
 
 /**
+ * Words in quotation marks read for comparing with a Document's name (#2504): letters and digits in
+ * lower case, keeping a "." or "," between digits, so "12.5 percent" is never "125 percent".
+ */
+const nameWords = (text: string) =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/(?<!\p{N})[.,]|[.,](?!\p{N})|[^\p{L}\p{N}.,]+/gu, "");
+
+/**
  * The ways a Document's name, as the app shows it, is read for a name in quotation marks (#2504):
- * whole, and each part at a separator, as `nameKey` reads them. Its extension is taken off, and it
- * splits at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and "_", and at "-" or "–" next to a CJK
- * character, never inside a Latin word ("Cooling-off"). A middle dot doesn't split: it joins a
- * name ("列夫·托尔斯泰").
+ * whole, and each whole part at a separator. An extension the app adds files by is taken off,
+ * and it splits at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and "_", and at "-" or "–" next
+ * to a CJK character, never inside a Latin word ("Cooling-off"). A middle dot doesn't split: it
+ * joins a name ("列夫·托尔斯泰").
  */
 function nameKeys(name: string): Set<string> {
-  const bare = name.replace(/\.[A-Za-z0-9]{1,5}$/u, "");
+  const extension = name.match(/\.([A-Za-z0-9]+)$/u)?.[1]?.toLowerCase();
+  const bare =
+    extension && ADDABLE_EXTENSIONS.includes(extension)
+      ? name.slice(0, -extension.length - 1)
+      : name;
   const parts = bare.split(NAME_SEPARATOR);
-  return new Set([name, bare, ...parts].map(nameKey).filter((key) => key !== ""));
+  return new Set([name, bare, ...parts].map(nameWords).filter((key) => key !== ""));
 }
 const NAME_SEPARATOR = new RegExp(
   `\\s[-–—―]\\s|[|｜－—―_]|(?<=[${CJK}])[-–]|[-–](?=[${CJK}])`,
@@ -2364,7 +2379,7 @@ export function createCitationSession(
       const translated: string[] = [];
       // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
       const names = new Set(
-        [...records.values()].map(({ source }) => nameKey(source.documentName)),
+        [...records.values()].map(({ source }) => nameWords(source.documentName)),
       );
       for (const { words, markers } of quoted) {
         const cited = [...new Set(markers)].flatMap((marker) => {
@@ -2383,7 +2398,7 @@ export function createCitationSession(
         if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
         // The name of a Document the sentence cites, or a part of it, is a name, not a quote: the
         // Citation says so and keeps its own quote's check, never found or not found by it.
-        const key = nameKey(words);
+        const key = nameWords(words);
         const named = cited.filter(({ record }) => nameKeys(record.source.documentName).has(key));
         for (const { record } of named) record.quotedWords ??= { name: words };
         if (named.length > 0 || names.has(key)) continue;
