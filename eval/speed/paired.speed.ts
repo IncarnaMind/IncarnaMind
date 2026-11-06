@@ -22,7 +22,7 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import type { TimingRecorder } from "../lib/timing";
 import { armNamed, armSwitch } from "./arms";
-import { callHelpSet } from "./callHelp";
+import { callHelpSet, rewrittenReplies } from "./callHelp";
 import { gradeAnswer } from "./judge";
 import { openLedger } from "./ledger";
 import {
@@ -389,5 +389,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
   await mkdir(out, { recursive: true });
   await writeFile(join(out, "report.md"), report);
   await writeFile(join(out, "report.json"), JSON.stringify({ arms: names, rows }, null, 2));
+  if (rewrittenReplies.length > 0)
+    await writeFile(join(out, "rewrites.json"), JSON.stringify(rewrittenReplies, null, 2));
   log(`Report in ${out}`);
 });

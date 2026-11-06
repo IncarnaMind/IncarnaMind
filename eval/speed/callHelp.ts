@@ -334,6 +334,9 @@ async function press(
   }
 }
 
+/** Every reply the change-claim check rewrote: the claims it made, and the reply as it then read. */
+export const rewrittenReplies: { item: string; claimed: string[]; after: string }[] = [];
+
 function item(each: CallHelpCase): PairedGroup["items"][number] {
   return {
     set: "call-help",
@@ -367,6 +370,12 @@ function item(each: CallHelpCase): PairedGroup["items"][number] {
       );
       const found = citations.filter((citation) => citation.check === "found");
       const reply = shownReply(answer, shown, numbers);
+      if ((answer.unbackedClaims?.length ?? 0) > 0)
+        rewrittenReplies.push({
+          item: each.id,
+          claimed: (answer.unbackedClaims ?? []).map((claim) => claim.sentence),
+          after: answer.text,
+        });
       const judged = done
         ? await judge(
             claimsJudge,
