@@ -276,6 +276,42 @@ function headingAbove(node: Y.XmlElement): { heading?: string } {
   return {};
 }
 
+/** How much of the Note above a sentence its Analysis figures' scale and currency are read in. */
+const ABOVE_CHARACTERS = 2000;
+
+/**
+ * The lines above the Block holding `node` in its section, and each heading it is under up to the
+ * Note's title, nearest first: "All amounts below are in thousands" there is said of its figures
+ * too (#2544). A table or chart above states its own cells' units, not the sentence's.
+ */
+function linesAbove(node: Y.XmlElement): { above?: string } {
+  let block: Y.XmlElement = node;
+  while (block.parent instanceof Y.XmlElement) block = block.parent;
+  const lines: string[] = [];
+  let under = Number.POSITIVE_INFINITY;
+  let length = 0;
+  for (let at = block.prevSibling; at && length < ABOVE_CHARACTERS; at = at.prevSibling) {
+    if (!(at instanceof Y.XmlElement)) continue;
+    if (at.nodeName === "heading") {
+      const level = Number(at.getAttribute("level")) || 1;
+      if (level >= under) continue;
+      under = level;
+    } else if (
+      under !== Number.POSITIVE_INFINITY ||
+      at.nodeName === "table" ||
+      at.nodeName === CHART_NODE
+    )
+      continue;
+    const words = plainText(at)
+      .trim()
+      .slice(0, ABOVE_CHARACTERS - length);
+    if (words) lines.push(words);
+    length += words.length;
+    if (under === 1) break;
+  }
+  return lines.length > 0 ? { above: lines.join("\n") } : {};
+}
+
 /** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
 function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
   const doc = node.doc;
@@ -298,6 +334,7 @@ function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
       code: run.code.slice(0, JUDGED_CODE),
       unit: value.unit ?? null,
       ...headingAbove(node),
+      ...linesAbove(node),
     };
   } catch (error) {
     console.error("Reading an Analysis figure's record for its check failed:", error);
