@@ -2294,15 +2294,36 @@ export function createCitationSession(
      * each span (see ./quotedWords) is looked for with the Citation check's own
      * matching in the Units its Citation cites, and, in a sheet, in its title
      * rows: the rows above the header, which name the table the Citation's
-     * rows are in, as a Document's name is not a quote (#2358). One found
-     * changes nothing. One not found makes the Citation whose Units are nearest
-     * it "not found", with the Answer's words and the Document's nearest for
-     * its card. Where a Citation of the sentence couldn't be checked, no span
-     * of it is. Words in another language than every page cited are a
-     * translation: they aren't checked, and are returned to lose their
-     * quotation marks.
+     * rows are in, as a Document's name is not a quote (#2358), and words
+     * that start on the one page cited may run on to the next page (#2504).
+     * One found changes nothing. One not found makes the Citation whose Units
+     * are nearest it "not found", with the Answer's words and the Document's
+     * nearest for its card. Where a Citation of the sentence couldn't be
+     * checked, no span of it is. Words in another language than every page
+     * cited are a translation: they aren't checked, and are returned to lose
+     * their quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
+      /**
+       * Whether the words start on the one page a record cites and run on to the next page: a
+       * record's quote ends where its page does, as a Passage may, and the Answer may quote on
+       * (#2504). Only a document's pages run on; a slide or a section is a place of its own.
+       */
+      const runsOnToNextPage = (record: Accepted, words: string, matching: Matching) => {
+        const { pageFrom, pageTo } = record.range;
+        if (pageFrom === null || pageFrom !== pageTo) return false;
+        const units = documents.pageTexts(
+          record.source.documentId,
+          record.source.contentHash,
+          pageFrom,
+          pageTo + 1,
+        );
+        const next = units.findIndex((unit) => unit.page === pageTo + 1);
+        if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return false;
+        const found = quoteInUnits(units, words, matching);
+        const nextStarts = joinUnits(units).starts[next] ?? 0;
+        return found?.every((range) => range.start < nextStarts) === true;
+      };
       /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
       const titled = (
         record: Accepted,
@@ -2336,6 +2357,9 @@ export function createCitationSession(
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
         if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        if (cited.some(({ record, matching }) => runsOnToNextPage(record, words, matching))) {
+          continue;
+        }
         if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
           continue;
         const inCjk = writtenInCjk(words);

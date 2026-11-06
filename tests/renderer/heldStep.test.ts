@@ -94,6 +94,25 @@ describe("The steps of the live line", () => {
     expect(kinds()).toEqual(["reading", "waiting", "consent"]);
   });
 
+  // protects=the step after a question the User answered shows at once, so the line never says it waits over their answer; fails_when=it waits out the second; no_claim=none beyond protects.
+  test("the step after a question the User answered shows at once", () => {
+    const asked: LiveStep = {
+      kind: "call",
+      call: {
+        id: "q1",
+        tool: "ask_user",
+        source: "asks",
+        input: {},
+        status: "running",
+        resultCount: null,
+      },
+    };
+    const { hold, kinds } = held(asked);
+    vi.advanceTimersByTime(100);
+    hold.offer(thinking);
+    expect(kinds()).toEqual(["call", "thinking"]);
+  });
+
   // protects=a step that goes back to the one on show leaves nothing waiting; fails_when=the step that was over shows after all; no_claim=none beyond protects.
   test("a step that is over before its turn never shows", () => {
     const { hold, kinds } = held(reading);
