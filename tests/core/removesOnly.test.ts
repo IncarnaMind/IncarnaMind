@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { thisAnswersRecord, unbackedClaims } from "../../src/core/answers/claimedChanges";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { appliedFact, changeFact } from "../../src/renderer/src/changeFacts";
-import { waitsForUser } from "../../src/shared/askedChanges";
+import { waitsForUser, whyItWaits } from "../../src/shared/askedChanges";
 import { translate } from "../../src/shared/i18n";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -248,5 +248,180 @@ describe("What an edit did to the User's sentences is said from the change, not 
     const [change] = changesIn(answer);
     if (!change) throw new Error("The Answer changed no Note.");
     expect(waitsForUser(client.doc, new Set([change.request]))).toBe(false);
+  });
+});
+
+type Step = { tool: string; input: Record<string, unknown>; edit?: string };
+
+/** A scripted Answer that makes `steps` one after another, each edit_mind rewrite as its `edit` says, then replies. */
+function stepping(steps: readonly Step[], reply = "Done.") {
+  const edits = steps.flatMap((step) => (step.edit === undefined ? [] : [step.edit]));
+  let edited = 0;
+  return scriptedModel((call: ModelCall): ScriptedReply => {
+    if (/<passage>\n/.test(call.prompt))
+      return { text: `${edits[edited++] ?? ""}\n<why>Done.</why>` };
+    const next = steps[call.results.length];
+    return next ? { calls: [{ tool: next.tool, input: next.input }] } : { text: reply };
+  });
+}
+
+const PARKING_OUT = {
+  en: `<removed>${LEASE.en.lines[1]}</removed>`,
+  zh: `<removed>${LEASE.zh.lines[1]}</removed>`,
+};
+const RENT_START = { en: "Rent: from 1 March", zh: "租金：自 2026 年" };
+const RENT_PART = { en: "Rent: from 1 March", zh: "租金：自 2026 年 3 月 1 日起" };
+const removal = (
+  language: "en" | "zh",
+  edit: string,
+  part: string | null = LEASE[language].part,
+) => ({
+  tool: "edit_mind",
+  input: {
+    instruction: LEASE[language].asked,
+    ...(part !== null && { part }),
+    removes_only: true,
+  },
+  edit,
+});
+
+describe("A removal whose sentences another change of the reply writes again waits (#2356)", {
+  timeout: 30_000,
+}, () => {
+  // protects=a removal asked only to take a sentence out that takes out the whole paragraph while the reply's next change writes two of its sentences back (DeepSeek, English 1 and Chinese 24 of the fourth round) waits for the User, the model told which of the User's sentences are written again; fails_when=the two changes apply at once, so the User's sentences come back as the assistant's text unasked; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "English 1",
+      language: "en",
+      back: "Parking: the tenant may use six underground spaces. Each costs 800 a month.",
+      told: "This reply's changes there do more than take text out: they write again the User's “Parking: the tenant may use six underground spaces.”, “Each costs 800 a month.”, which they take out, so they wait in “Lease terms” for them to apply or discard; nothing of their text has changed yet.",
+    },
+    {
+      case: "Chinese 24",
+      language: "zh",
+      back: "停车位：承租方可使用地下停车位 6 个。每个车位每月 800 元。",
+      told: "This reply's changes there do more than take text out: they write again the User's “停车位：承租方可使用地下停车位 6 个。”, “每个车位每月 800 元。”, which they take out, so they wait in “租赁条款” for them to apply or discard; nothing of their text has changed yet.",
+    },
+  ] as const)(
+    "held out: $case, the paragraph out and two of its sentences added back",
+    async (each) => {
+      const model = stepping([
+        removal(each.language, PARKING_OUT[each.language]),
+        {
+          tool: "add_to_mind",
+          input: { after: RENT_START[each.language], content: each.back },
+        },
+      ]);
+      const { core, mind, client, answer } = await setUp(each.language, model);
+
+      expect(lastResult(model)).toContain(each.told);
+      const requests = changesIn(answer).map((change) => change.request);
+      expect(requests).toHaveLength(2);
+      expect(whyItWaits(client.doc, new Set(requests))?.why).toBe("more-than-taken-out");
+      const applied = await core.applyAskedChanges({
+        answerId: answer.id,
+        mindId: mind.id,
+        requests,
+      });
+      expect(applied?.held).toBe(true);
+      await client.settled();
+      expect(shownWithChanges(client)).toContain(`- ${LEASE[each.language].lines[1]}`);
+    },
+  );
+
+  // protects=a removal that took the whole paragraph out, then a second asked only to take text out that writes two of its sentences back after the Rent line, reworded (DeepSeek, English 5 of the fourth round, and its Chinese mirror), waits, and the model is told they are the User's sentences written again, not new ones; fails_when=the result calls them new sentences, or the changes apply; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "English 5",
+      language: "en",
+      rent: `¶1 ${LEASE.en.lines[0]}\n\n¶+ Parking: each costs 800 a month. Spaces are allocated by the landlord.`,
+      told: "This reply's changes there do more than take text out: they write again the User's “Each costs 800 a month.”, “Spaces are allocated by the landlord.”, which they take out, so they wait in “Lease terms” for them to apply or discard; nothing of their text has changed yet.",
+    },
+    {
+      case: "zh, as English 5",
+      language: "zh",
+      rent: `¶1 ${LEASE.zh.lines[0]}\n\n¶+ 停车位：每个车位每月 800 元。车位由出租方分配。`,
+      told: "This reply's changes there do more than take text out: they write again the User's “每个车位每月 800 元。”, “车位由出租方分配。”, which they take out, so they wait in “租赁条款” for them to apply or discard; nothing of their text has changed yet.",
+    },
+  ] as const)(
+    "held out: $case, the paragraph out, then its sentences written after Rent",
+    async (each) => {
+      const model = stepping([
+        removal(each.language, PARKING_OUT[each.language]),
+        removal(each.language, each.rent, RENT_PART[each.language]),
+      ]);
+      const { client, answer } = await setUp(each.language, model);
+
+      expect(lastResult(model)).toContain(each.told);
+      expect(
+        whyItWaits(client.doc, new Set(changesIn(answer).map((change) => change.request)))?.why,
+      ).toBe("more-than-taken-out");
+    },
+  );
+
+  // protects=after a removal that took the whole paragraph out and applies at once, a second edit over the Note is refused with the earlier change said to apply with Undo, never to wait for the User's review (DeepSeek, Chinese 23 of the fourth round, whose reply then said a change waits in Review), and the paragraph's removal applies; English and Chinese; fails_when=the refusal says a change waits for the User to accept or reject, or the removal is held; no_claim=how a real model words its reply.
+  test.each([
+    { case: "Chinese 23", language: "zh" },
+    { case: "en, as Chinese 23", language: "en" },
+  ] as const)("held out: $case, a second edit after the paragraph went", async (each) => {
+    const model = stepping([
+      removal(each.language, PARKING_OUT[each.language]),
+      removal(each.language, `¶1 ${LEASE[each.language].lines[0]}`, null),
+    ]);
+    const { core, mind, client, answer } = await setUp(each.language, model);
+
+    const told = lastResult(model);
+    expect(told).toContain(
+      "The earlier requested changes in that text apply in the Note with Undo; they are not waiting for review.",
+    );
+    expect(told).not.toContain("wait there for the User");
+    expect(told).not.toContain("accept or reject");
+    const requests = changesIn(answer).map((change) => change.request);
+    expect(requests).toHaveLength(1);
+    expect(whyItWaits(client.doc, new Set(requests))).toBeNull();
+    const applied = await core.applyAskedChanges({
+      answerId: answer.id,
+      mindId: mind.id,
+      requests,
+    });
+    expect(applied?.held).toBe(false);
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([
+      LEASE[each.language].name,
+      LEASE[each.language].lines[0],
+      LEASE[each.language].lines[2],
+      LEASE[each.language].lines[3],
+    ]);
+  });
+});
+
+describe("A held removal, once applied, reads as proposed (#2356)", { timeout: 30_000 }, () => {
+  // protects=a held removal that also rewords a kept sentence stays waiting when the app applies the reply's changes, and once the User applies it the paragraph reads exactly as proposed, the struck words gone and the written ones in (DeepSeek, English 10 and Chinese 40 of the fourth round, whose text read with the struck and written words together looked like "Eacheach"); fails_when=applying it leaves the struck words, doubles a word, or changes nothing; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "English 10",
+      language: "en",
+      parking: "Parking: each costs 800 a month. Spaces are allocated by the landlord.",
+    },
+    {
+      case: "Chinese 40",
+      language: "zh",
+      parking: "停车位：每个车位每月 800 元。车位由出租方分配。",
+    },
+  ] as const)("$case", async (each) => {
+    const model = stepping([removal(each.language, `¶1 ${each.parking}`)]);
+    const { core, mind, client, answer } = await setUp(each.language, model);
+
+    const requests = changesIn(answer).map((change) => change.request);
+    const applied = await core.applyAskedChanges({
+      answerId: answer.id,
+      mindId: mind.id,
+      requests,
+    });
+    expect(applied?.held).toBe(true);
+    await client.settled();
+    expect(shownWithChanges(client)[2]).not.toBe(LEASE[each.language].lines[1]);
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)[2]).toBe(each.parking);
   });
 });
