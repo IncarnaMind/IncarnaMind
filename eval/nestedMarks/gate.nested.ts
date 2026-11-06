@@ -3,7 +3,8 @@
  * record and its sentence), in the assistant, on a model listed for the ask; the ask about its
  * marks and the judging of its sentence go to the real model. `npm run eval:nested-marks`.
  *
- *   INCARNAMIND_EVAL_NESTED_KEY     a DeepSeek key: without one, only the offline count runs
+ *   INCARNAMIND_EVAL_NESTED_KEY     the provider's key: without one, only the offline count runs
+ *   INCARNAMIND_EVAL_NESTED_KIND    the provider, `deepseek` (the default) or `anthropic`
  *   INCARNAMIND_EVAL_NESTED_MODEL   the model, `deepseek-flash` by default
  *   INCARNAMIND_EVAL_NESTED_ONLY    case ids, comma-separated: the pilot
  *   INCARNAMIND_EVAL_NESTED_BUDGET  dollars, from the app's meter; it stops before the next case (5)
@@ -41,7 +42,11 @@ interface Case {
 
 const HERE = join(__dirname);
 const KEY = process.env.INCARNAMIND_EVAL_NESTED_KEY;
-const MODEL = process.env.INCARNAMIND_EVAL_NESTED_MODEL?.trim() || "deepseek-flash";
+const KIND =
+  process.env.INCARNAMIND_EVAL_NESTED_KIND?.trim() === "anthropic" ? "anthropic" : "deepseek";
+const MODEL =
+  process.env.INCARNAMIND_EVAL_NESTED_MODEL?.trim() ||
+  (KIND === "anthropic" ? "claude-haiku-5-5" : "deepseek-flash");
 const ONLY = process.env.INCARNAMIND_EVAL_NESTED_ONLY?.trim()
   ? process.env.INCARNAMIND_EVAL_NESTED_ONLY.split(",").map((each) => each.trim())
   : null;
@@ -142,7 +147,7 @@ async function runCase(each: Case): Promise<Row> {
   core.on("consent.requested", (request) => {
     void core.respondToConsent(request.requestId, true);
   });
-  const provider = await core.saveChatProvider({ kind: "deepseek", apiKey: KEY, modelId: MODEL });
+  const provider = await core.saveChatProvider({ kind: KIND, apiKey: KEY, modelId: MODEL });
   await addAndProcess(core, [
     await writeSourceFile(sources, each.document.name, each.document.text),
   ]);
