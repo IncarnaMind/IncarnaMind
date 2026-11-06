@@ -348,7 +348,7 @@ test("under Review changes, a paragraph that arrives after an edit's new Block a
   await expect(paragraphs).toHaveText([FIRST, THIRD, "Added later."]);
 });
 
-test("“delete the second paragraph” applies at once, said as the paragraph removed", async () => {
+test("“delete the second paragraph” applies at once, said as the paragraph removed, and ⌘Z puts it back", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
   const { editor, paragraphs } = await mindWith(window, [FIRST, SECOND, THIRD]);
@@ -361,6 +361,11 @@ test("“delete the second paragraph” applies at once, said as the paragraph r
     "Removed the paragraph “It is a big…” (1 sentence)",
   );
   await expect(editor.getByTestId("applied-kept")).toHaveCount(0);
+
+  await editor.focus();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(paragraphs).toHaveText([FIRST, SECOND, THIRD]);
+  await expect(line).toHaveCount(0);
 });
 
 test("text typed elsewhere while a slow edit streams in stays, and one ⌘Z takes back the whole edit", async () => {
