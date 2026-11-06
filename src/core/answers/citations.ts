@@ -1384,11 +1384,12 @@ export interface CitationSessionEvents {
  * Question context shows, which a record names by id to keep one as it is.
  */
 /**
- * A continuation mark at the end of a heading a next page repeats (#2504). The set is closed and
- * typographic, so it names no content: a repeated line without one is never left out.
+ * A continuation mark at the end of a heading a next page repeats (#2504), on the line's NFKC
+ * form. The set is closed and typographic, so it names no content: a repeated line without one is
+ * never left out.
  */
 const CONTINUED =
-  /\s*(?:\((?:continued|continued from previous page|cont\.|cont['’]d|contd\.?|续|續)\)|（(?:continued|续|續|续上页|續上頁|接上页|接上頁|承上页|承上頁)）)$/iu;
+  /\s*\((?:continued|continued from previous page|cont\.|cont['’]d|contd\.?|续|續|续上页|續上頁|接上页|接上頁|承上页|承上頁)\)$/iu;
 /** The most lines, and characters, of a heading a next page repeats that may be left out. */
 const MAX_HEADING_LINES = 3;
 const MAX_HEADING_CHARACTERS = 200;
@@ -1414,10 +1415,12 @@ function withoutContinuedHeading(
   next: string,
 ): { text: string; headingEnds: number } | null {
   const lines = next.split("\n");
+  // The mark is read on its NFKC form, so a full-width bracket is the half-width one.
+  const read = lines.map((line) => line.normalize("NFKC"));
   let count = 0;
-  while (count < MAX_HEADING_LINES && CONTINUED.test(lines[count] ?? "")) count++;
-  if (count === 0 || CONTINUED.test(lines[count] ?? "")) return null;
-  const heading = lines.slice(0, count).map((line) => line.replace(CONTINUED, ""));
+  while (count < MAX_HEADING_LINES && CONTINUED.test(read[count] ?? "")) count++;
+  if (count === 0 || CONTINUED.test(read[count] ?? "")) return null;
+  const heading = read.slice(0, count).map((line) => line.replace(CONTINUED, ""));
   if (heading.join("").length > MAX_HEADING_CHARACTERS || !heading.every(headingSized)) return null;
   const own = cited.split("\n");
   const at = own.findIndex((_, start) =>

@@ -66,12 +66,14 @@ const EN = {
 
 const ZH = {
   heading: "第四条 退货与退款的处理办法",
+  // The second line is longer than the heading, so the app keeps the heading as a line of its own.
   first: [
     "第四条 退货与退款的处理办法",
-    "货物可在收货后三十天内退回。",
+    "货物可在收货后三十天内退回，退回时须保持商品完好并附上原始包装和购物凭证，否则不予受理。",
     "通知必须写明退回货物时不收取任何",
   ],
-  rest: ["费用，并须出示收据。"],
+  // Longer than the headings, so the next page keeps them as lines of their own too.
+  rest: ["费用，并须出示收据；收据丢失的，可凭订单号到门店服务台补开收据后再办理退货手续。"],
   query: "通知 退回货物 费用",
   question: "通知必须写明什么？",
   quote: "通知必须写明退回货物时不收取任何",
@@ -90,16 +92,10 @@ describe.each([
   });
   const continued = `${text.heading} ${mark}`;
 
-  test("the next page opens with the cited page's heading and a continuation mark: found in English, and the card names the next page", async () => {
+  test("the next page opens with the cited page's heading and a continuation mark: found, and the card names the next page", async () => {
     const citation = await citationOf(caseWith(text.first, [continued]), text.quoted);
-    if (language === "en") {
-      expect(citation).toMatchObject(FOUND);
-      expect(citation.quotedWordsRunOn).toMatchObject({ kind: "page", from: 2, to: 2 });
-    } else {
-      // The app reflows the Chinese heading into the line after it, so the cited page has no line
-      // that is the heading: a content line starting with its words looks the same, so not found.
-      expect(citation).toMatchObject(NOT_FOUND);
-    }
+    expect(citation).toMatchObject(FOUND);
+    expect(citation.quotedWordsRunOn).toMatchObject({ kind: "page", from: 2, to: 2 });
   });
 
   test("the heading repeated with no continuation mark: not found", async () => {
@@ -140,18 +136,6 @@ describe.each([
     ).toMatchObject(NOT_FOUND);
   });
 
-  test("two heading lines repeated in another order: not found", async () => {
-    const second =
-      language === "en" ? "Clause 4.1 Fees on returned goods" : "第四点一款 退货费用的规定";
-    const first = [text.heading, second, ...text.first.slice(1)];
-    expect(
-      await citationOf(
-        caseWith(first, [`${second} ${mark}`, `${text.heading} ${mark}`]),
-        text.quoted,
-      ),
-    ).toMatchObject(NOT_FOUND);
-  });
-
   test("text after the quoted part on the cited page: not found", async () => {
     const trailing = [
       ...text.first.slice(0, -1),
@@ -168,33 +152,6 @@ describe.each([
     expect(await citationOf(caseWith(text.first, [continued]), taking)).toMatchObject(NOT_FOUND);
   });
 
-  test("more than three lines left out: not found", async () => {
-    const headings =
-      language === "en"
-        ? [
-            "Part Two General terms of sale",
-            "Chapter 3 Delivery and returns",
-            "Section 4 Returns and refunds",
-            "Clause 4.1 Fees on returned goods",
-          ]
-        : [
-            "第二部分 一般销售条款说明",
-            "第三章 交货与退货的规定",
-            "第四条 退货与退款的处理办法",
-            "第四点一款 退货费用的规定",
-          ];
-    const first = [...headings, ...text.first.slice(1)];
-    expect(
-      await citationOf(
-        caseWith(
-          first,
-          headings.map((line) => `${line} ${mark}`),
-        ),
-        text.quoted,
-      ),
-    ).toMatchObject(NOT_FOUND);
-  });
-
   test("words only on the next page: not found", async () => {
     const only =
       language === "en"
@@ -204,18 +161,15 @@ describe.each([
   });
 });
 
-test("a Chinese heading on its own line, with a longer line after it: found", async () => {
-  const first = [
-    ZH.heading,
-    "货物可在收货后三十天内退回，退回时须保持商品完好并附上原始包装和购物凭证，否则不予受理。",
-    ZH.first.at(-1) as string,
-  ];
+test("a Chinese heading the app reflows into a short line after it is no line of its own: not found", async () => {
+  // As long as the page's longest line, the heading reads as wrapped, and is joined to the next.
+  const first = [ZH.heading, "货物可在收货后三十天内退回。", ZH.first.at(-1) as string];
   const file = twoPages("zh", first, [`${ZH.heading}（续）`], ZH.rest);
   const citation = await citationOf(
     { file, query: ZH.query, question: ZH.question, quote: ZH.quote },
     ZH.quoted,
   );
-  expect(citation).toMatchObject(FOUND);
+  expect(citation).toMatchObject(NOT_FOUND);
 });
 
 test("three repeated lines over 200 characters together: not found", async () => {
@@ -236,6 +190,53 @@ test("three repeated lines over 200 characters together: not found", async () =>
     EN.quoted,
   );
   expect(citation).toMatchObject(NOT_FOUND);
+});
+
+// A heading over two lines is one line in Chinese once the app reflows it, so these are English.
+const englishCase = (first: readonly string[], top: readonly string[]): Case => ({
+  file: twoPages("en", first, top, EN.rest),
+  query: EN.query,
+  question: EN.question,
+  quote: EN.quote,
+});
+
+test("two heading lines repeated in another order: not found", async () => {
+  const second = "Clause 4.1 Fees on returned goods";
+  const first = [EN.heading, second, ...EN.first.slice(1)];
+  expect(
+    await citationOf(
+      englishCase(first, [`${second} (continued)`, `${EN.heading} (continued)`]),
+      EN.quoted,
+    ),
+  ).toMatchObject(NOT_FOUND);
+});
+
+test("more than three lines left out: not found", async () => {
+  const headings = [
+    "Part Two General terms of sale",
+    "Chapter 3 Delivery and returns",
+    EN.heading,
+    "Clause 4.1 Fees on returned goods",
+  ];
+  const first = [...headings, ...EN.first.slice(1)];
+  expect(
+    await citationOf(
+      englishCase(
+        first,
+        headings.map((line) => `${line} (continued)`),
+      ),
+      EN.quoted,
+    ),
+  ).toMatchObject(NOT_FOUND);
+});
+
+test("a Chinese heading over two lines is one line once reflowed: not found", async () => {
+  const second = "第四点一款 退货费用的规定";
+  const first = [ZH.heading, second, ...ZH.first.slice(1)];
+  const file = twoPages("zh", first, [`${ZH.heading}（续）`, `${second}（续）`], ZH.rest);
+  expect(
+    await citationOf({ file, query: ZH.query, question: ZH.question, quote: ZH.quote }, ZH.quoted),
+  ).toMatchObject(NOT_FOUND);
 });
 
 test("the repeated heading inside the quote on the cited page, not before it: not found", async () => {
@@ -293,22 +294,27 @@ test("a heading the cited page doesn't have, the quote starting late on its last
   expect(citation).toMatchObject(NOT_FOUND);
 });
 
-test.each([["(continued from previous page)"], ["(续)"], ["(cont’d)"], ["（continued）"]])(
-  "the continuation mark %s counts too",
-  async (mark) => {
-    // A Chinese mark is drawn with the Chinese font, which draws the English heading too.
-    const next = [`${EN.heading} ${mark}`, ...EN.rest];
-    const file: SourceFile = {
-      name: "Returns policy.pdf",
-      contents: buildPdf([
-        { lines: EN.first },
-        /[续（]/u.test(mark) ? { chineseLines: next } : { lines: next },
-      ]),
-    };
-    const citation = await citationOf(
-      { file, query: EN.query, question: EN.question, quote: EN.quote },
-      EN.quoted,
-    );
-    expect(citation).toMatchObject(FOUND);
-  },
-);
+test.each([
+  ["(continued from previous page)"],
+  ["(续)"],
+  ["(cont’d)"],
+  ["（continued）"],
+  ["(CONTINUED)"],
+  ["（續上頁）"],
+  ["(接上页)"],
+])("the continuation mark %s counts too", async (mark) => {
+  // A Chinese mark is drawn with the Chinese font, which draws the English heading too.
+  const next = [`${EN.heading} ${mark}`, ...EN.rest];
+  const file: SourceFile = {
+    name: "Returns policy.pdf",
+    contents: buildPdf([
+      { lines: EN.first },
+      /[续續接（]/u.test(mark) ? { chineseLines: next } : { lines: next },
+    ]),
+  };
+  const citation = await citationOf(
+    { file, query: EN.query, question: EN.question, quote: EN.quote },
+    EN.quoted,
+  );
+  expect(citation).toMatchObject(FOUND);
+});

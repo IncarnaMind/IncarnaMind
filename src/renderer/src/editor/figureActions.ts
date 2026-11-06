@@ -251,7 +251,11 @@ export function addFigureCitation(
     if (!type) return null;
     const next = tr.doc.nodeAt(place.to);
     if (next?.type === type)
-      tr.setNodeMarkup(place.to, undefined, { ...next.attrs, ...citation, quotedWordsRunOn: null });
+      tr.setNodeMarkup(place.to, undefined, {
+        ...next.attrs,
+        ...citation,
+        quotedWordsRunOn: citation.quotedWordsRunOn ?? null,
+      });
     else tr.insert(place.to, type.create(citation));
   }
   return {
@@ -336,7 +340,11 @@ export function changeFiguresToSource(
       // The figure's own Citation, right after it, now cites its source: one Citation, not two.
       const after = tr.doc.nodeAt(at.to);
       if (after?.type === type)
-        tr.setNodeMarkup(at.to, undefined, { ...after.attrs, ...citation, quotedWordsRunOn: null });
+        tr.setNodeMarkup(at.to, undefined, {
+          ...after.attrs,
+          ...citation,
+          quotedWordsRunOn: citation.quotedWordsRunOn ?? null,
+        });
       else tr.insert(at.to, type.create(citation));
       // Typed over, the figure keeps the marks of the words around it.
       tr.insertText(shown, at.from, at.to);
