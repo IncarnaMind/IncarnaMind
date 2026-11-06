@@ -2307,10 +2307,11 @@ export const zhCN = {
   "status.retry": "重试",
   "webPages.add.title": "添加网页",
   "webPages.add.note": "粘贴网址，多个网址每行一个。",
-  "webPages.add.fetch": "每个网页从这台电脑抓取一次，保存为文档。",
+  "webPages.add.fetch": "从这台电脑抓取一次并保存为文档；请求会注明你的界面语言。",
   "webPages.add.fetch.details":
     "正文中的图片会一并抓取，可能来自网站的图片服务器。网页上的其他内容一概不加载。",
-  "webPages.add.fetch.details.keepLook": "正文中的图片会一并抓取，可能来自网站的图片服务器。",
+  "webPages.add.fetch.details.keepLook":
+    "正文中的图片会一并抓取，可能来自网站的图片服务器；保留网页外观还会加载网页的脚本、样式表、字体、框架和媒体，它们可能来自其他网站。",
   "webPages.add.label": "网址",
   "webPages.add.invalid": "不是网址：{line}",
   "webPages.add.cancel": "取消",
@@ -2325,7 +2326,8 @@ export const zhCN = {
   "webPages.fetchAgainFailed": "无法重新抓取“{name}”：{reason}",
   "webPages.tryAgain": "重试",
   "webPages.add.keepLook": "保留网页原貌",
-  "webPages.keepLook.body": "同时保存 PDF；网站会看到再次访问。",
+  "webPages.keepLook.body":
+    "同时保存 PDF；网页会像在浏览器中一样再加载一次，它加载任何内容的网站都会看到这次访问。",
   "webPages.reason.invalid-address": "这不是网址",
   "webPages.reason.unreachable": "无法连接到网站",
   "webPages.reason.timed-out": "网站响应超时",
@@ -2812,11 +2814,13 @@ export const zhCN = {
   "providers.form.save": "使用此服务",
   "providers.sendsLine": "会把你的问题和文档内容发送给 {provider}。",
   "providers.sends.chat":
-    "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个）、会议的转写稿，以及你在笔记中选中要询问的图片",
+    "你的问题、此前的问答、当前笔记或你指定的笔记、最近修改的最多 30 篇笔记的名称（标出由回答写成的）、匹配的段落及其文档名称和页码、问题或命令找到的文档和笔记（最多 50 个）的名称、文件夹和标签、会议的转写稿、你在笔记中选中提问的图片、已开启技能的名称和描述、回答加载的技能的说明和文件，以及回答运行的数据分析报告（有上限）；快速任务模型为回答中的引用找出对应引文时，该回答及其段落",
   "providers.sends.checks":
     "你核对的每一句话及其所在段落和数字，以及用于核对的段落、其文档名称、页码或位置和工作簿中哪些行的数值由公式算出；整篇核对笔记或文件时，其中每一句话（用于找出说法）；句子说某处没有某内容时，范围内的整份文档（最多 40 页）；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；文档有新版本后，所在文件夹中笔记里带引用的句子；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称及其搜索范围中其余项目的数量，以及与句中词语相符的文档、文件夹和标签的名称、类型和数量、笔记的名称，和其余相符名称的数量",
-  "providers.sends.suggestions": "写作建议时你停下的那一段",
-  "providers.sends.edits": "你让助手修改的文字",
+  "providers.sends.suggestions":
+    "写作建议时你停下的那一段，以及最多 8 个匹配的段落（含文档名称和位置）",
+  "providers.sends.edits":
+    "你让助手修改的文字及其所在段落；修改会改写或删除带引用的文字时，还有该引用的引文",
   "providers.sends.onRequest":
     "给文档打标签和整理，会发送每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹和标签的名称和描述；只有在你开启或要求时才会发送。扫描件的页面图片只有在你于“设置 → 隐私”中允许后才会发送。",
   "providers.form.saving": "正在保存…",
@@ -3075,6 +3079,7 @@ export const zhCN = {
   "consent.data.blocks": "这篇笔记的正文、你写的内容和之前的问题和回答，不含已排除的内容",
   "consent.data.document-names": "问题或命令找到的文档和笔记：名称、文件夹和标签（最多 50 个文档）",
   "consent.data.other-minds": "问题中提到的另一篇笔记的部分内容",
+  "consent.data.note-catalogue": "最近修改的最多 30 篇笔记的名称（标出由回答写成的）",
   "consent.data.library-counts":
     "句子说的是你的资料库时：文档总数、不在文件夹中的文档数和各类型文档数，文件夹、标签和其他笔记的数量，由多个文档共用的名称数量，以及笔记搜索范围中其余项目的数量",
   "consent.data.library-names":
@@ -3085,7 +3090,10 @@ export const zhCN = {
   "consent.data.watched-sentences": "文档有新版本后，所在文件夹中笔记里带引用的句子，用于查找矛盾",
   "consent.data.live-transcript": "会议转写稿：录制时的实时部分，停止录制后整份用于填写笔记",
   "consent.data.passages": "文档中与问题相关的段落，连同所属文档的名称和页码",
-  "consent.data.tool-results": "回答所用连接器、技能脚本和数据分析返回的结果",
+  "consent.data.tool-results": "回答所用连接器和技能脚本返回的结果",
+  "consent.data.skill-files": "已开启技能的名称和描述，以及回答加载的技能的说明和文件",
+  "consent.data.analysis-results":
+    "回答每次运行的数据分析的报告（有上限）：输入的名称和大小、行数和列数、警告和错误（含读不成数字的单元格文字）、它算出的数字和表格行、图表和图片的标题、代码中写出的数字、打印的结果，以及文本文件的摘录",
   "consent.flow.tagging": "自动打标签",
   "consent.flow.tagging.purpose": "自动为你的文档打标签",
   "consent.data.tags": "你的标签的名称和描述",
@@ -3104,7 +3112,7 @@ export const zhCN = {
   "consent.flow.suggestions": "写作建议",
   "consent.flow.suggestions.purpose": "建议你接下来可以怎么写",
   "consent.data.writing": "你正在写的段落，每次在段落末尾停顿时发送",
-  "consent.data.writing-passages": "文档中与之相关的段落，最多 8 个",
+  "consent.data.writing-passages": "文档中最多 8 个匹配的段落，含文档名称和位置",
   "consent.flow.rerank": "重新排序",
   "consent.flow.rerank.purpose": "把最好的搜索结果排在前面",
   "consent.flow.connectors": "连接器",
@@ -3118,19 +3126,23 @@ export const zhCN = {
   "consent.data.references": "每条参考文献原文：作者、标题、年份和 DOI，不含其他内容",
   "consent.flow.connector-registry": "连接器搜索",
   "consent.flow.connector-registry.purpose": "在 MCP 注册表里查找社区连接器",
-  "consent.data.connector-search": "你在连接器搜索框里输入的内容，不包括其他任何内容",
+  "consent.data.connector-search":
+    "你在连接器搜索框里输入的内容，每次搜索都会发送；第一次搜索前会先询问",
   "consent.flow.transcription": "会议转写",
   "consent.flow.transcription.purpose": "把会议中说的话转成文字",
   "consent.data.meeting-audio": "录制期间的会议音频，包括其他参会者的声音",
   "consent.flow.find-sources": "查找资料",
   "consent.flow.find-sources.purpose": "查找论文等资料，并添加你选中的",
-  "consent.data.search-terms": "你搜索的内容：关键词和筛选条件，例如年份",
+  "consent.data.search-terms":
+    "你或回答要搜索的内容：关键词和筛选条件，例如年份。回答的搜索词由模型根据问题和它读过的内容写出，因此可能包含其中的文字。",
   "consent.data.work-ids":
     "你添加的每项资料的标识：DOI、arXiv、PubMed、说明书 ID、NCT 编号或法规引用",
   "consent.data.provider-key": "你为此服务添加的密钥，它需要密钥才能使用",
   "consent.flow.edits": "用 AI 编辑",
   "consent.flow.edits.purpose": "按你的要求修改选中的文字",
   "consent.data.selection": "你选中的文字及其所在段落，每次提出要求时发送",
+  "consent.data.source-quotes":
+    "选中文字中引用所指的文档引文，在修改会改写或删除带引用的文字时发送",
 
   "reference.citeAs": "引用信息",
   "reference.citeAs.label": "“{name}”的引用信息",
@@ -3320,7 +3332,7 @@ export const zhCN = {
   "privacy.crashReports.toggle": "发送崩溃报告",
   "privacy.crashReports.body": "开启前不会发送，也绝不含你的文字。",
   "privacy.crashReports.body.details":
-    "报告包含错误内容、出错的代码位置、应用版本和你的操作系统。文件路径、文档文本、笔记、问题和回答都会先移除，也不会保存 IP 地址。",
+    "报告包含错误内容、出错的代码位置和时间、应用版本、操作系统及其版本、电脑的芯片类型和型号系列、处理器数量和内存大小，以及 IncarnaMind 运行所用的 Electron、Chrome 和 Node 版本。文件路径、文档文本、笔记、问题和回答都会先移除，也不会保存 IP 地址。",
   "privacy.intro.usageData": "只有在你同意后，IncarnaMind 才会收集使用数据。",
   "privacy.traffic.usage-data": "使用数据",
   "privacy.traffic.usage-data.tip":
@@ -6712,8 +6724,10 @@ export const zhCN = {
   "assistant.table.unmade": "没能做成表格：内容在下方，未添加到“{mind}”。",
   "consent.flow.agents": "你的 AI 智能体",
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
-  "consent.data.scoped-passages": "所选文件夹中文档的段落，在智能体读取时发送",
-  "consent.data.scoped-minds": "这些文件夹中的笔记，在智能体读取时发送",
+  "consent.data.scoped-passages":
+    "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多",
+  "consent.data.scoped-minds":
+    "共享文件夹的名称、内部 ID 和文档数；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的部分内容，以及下一部分的起始位置",
   "consent.data.answers": "IncarnaMind 对智能体所提问题的回答，以及其中的引文",
   "consent.flow.web-search": "联网搜索",
   "consent.flow.web-search.purpose": "为你的问题联网搜索",
@@ -6840,7 +6854,7 @@ export const zhCN = {
   "agents.reason.waiting": "有段落的修订待处理",
   "agents.connect.title": "允许{agent}读取你的文档？",
   "agents.connect.body":
-    "它可以读取你所选的文件夹和其中的笔记。读到的内容会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
+    "它可以读取你所选的文件夹和其中的笔记。列出时会发送每个文件夹的名称、内部 ID 和文档数，以及每篇笔记的名称、内部 ID 和最后修改时间。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
   "agents.connect.name": "名称",
   "agents.connect.namePlaceholder": "我的智能体",
   "agents.connect.folders": "它可以读取的文件夹",

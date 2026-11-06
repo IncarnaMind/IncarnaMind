@@ -100,19 +100,24 @@ interface ListAsked {
 /**
  * The chat flow: what a Question sends to a cloud chat provider. While a
  * Connector is on, the core adds "tool-results" (what its Tools return),
- * which makes it ask again. The names of Documents, another Mind a Question
- * names and a Meeting's live Transcript went before the lines named them:
- * a User who allowed the flow earlier is asked once more.
+ * which makes it ask again. Skill files and Analysis reports are named
+ * whatever else is on: an Answer may send them with no Connector or script.
+ * The names of Documents, another Mind a Question names and a Meeting's live
+ * Transcript went before the lines named them: a User who allowed the flow
+ * earlier is asked once more.
  */
 export const CHAT_FLOW_SENDS = [
   "blocks",
   "passages",
   "document-names",
   "other-minds",
+  "note-catalogue",
   "live-transcript",
   // A picture the User selects in a Note to ask about (#1937): it goes only when they ask, never
   // as part of the note's text.
   "pictures",
+  "skill-files",
+  "analysis-results",
 ] as const;
 
 const TEST_TIMEOUT_MS = 30_000;
