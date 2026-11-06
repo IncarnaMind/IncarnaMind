@@ -8,7 +8,7 @@
 import { core } from "./core";
 import { billingUrlOfProvider, useKeyRefusals } from "./keyRefusals";
 import { organizeDocuments } from "./organizeDocuments";
-import { type ReviewProblemKind, reviewProblemsOf } from "./reviewProblems";
+import { type ReviewProblemKind, unsettledProblemsOf } from "./reviewProblems";
 import { allExamples, isOwnDocument, useAppStore } from "./store";
 
 /** Settings › Models › Advanced › Tagging: the one model choice for tagging and Organize. */
@@ -19,19 +19,31 @@ export function documentsOfCause(kind: ReviewProblemKind): readonly string[] {
   const state = useAppStore.getState();
   const own = state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
   return (
-    reviewProblemsOf(own, state.library?.assignments ?? []).find((problem) => problem.kind === kind)
-      ?.documentIds ?? []
+    unsettledProblemsOf(own, state.library?.assignments ?? []).find(
+      (problem) => problem.kind === kind,
+    )?.documentIds ?? []
   );
 }
 
 let retryPending = false;
+let watchingReturns = false;
+/** How many times the window came back: a press that began before one has nothing left to wait for. */
+let returns = 0;
 
 /**
  * The User came back after adding credit: every Document that still has the credit failure tries
- * once, with no press. Only an Add credit press arms this, so a plain return spends nothing (#2535).
+ * once, with no press. Only an Add credit press arms this, so a plain return spends nothing, and
+ * the list is read on return rather than kept from the press (#2535).
  */
-function retryWhenBack(): void {
-  if (retryPending) return;
+function retryWhenBack(pressedAfter: number): void {
+  if (!watchingReturns) {
+    watchingReturns = true;
+    window.addEventListener("focus", () => {
+      returns += 1;
+    });
+  }
+  // The return this press was waiting for already happened: a late second press arms nothing.
+  if (pressedAfter !== returns || retryPending) return;
   retryPending = true;
   window.addEventListener(
     "focus",
@@ -49,6 +61,7 @@ function retryWhenBack(): void {
 
 export async function fixOrganizeProblem(kind: ReviewProblemKind): Promise<void> {
   const { reportError } = useAppStore.getState();
+  const pressedAfter = returns;
   try {
     if (kind === "rateLimit") return;
     if (kind === "planLimit") {
@@ -69,7 +82,7 @@ export async function fixOrganizeProblem(kind: ReviewProblemKind): Promise<void>
     const url = billingUrlOfProvider(provider);
     if (provider && url) {
       useKeyRefusals.getState().openBilling(provider.id, url);
-      retryWhenBack();
+      retryWhenBack(pressedAfter);
     } else {
       organizeModelSettings();
     }

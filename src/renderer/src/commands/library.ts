@@ -1,7 +1,7 @@
 import { attentionIds } from "../attention";
 import { looseDocumentIds, organizeDocuments } from "../organizeDocuments";
 import { documentsOfCause, fixOrganizeProblem } from "../organizeFix";
-import { organizeFailedIds } from "../organizeOutcome";
+import { retryableIds, unsettledProblemsOf } from "../reviewProblems";
 import { allExamples, isOwnDocument, useAppStore } from "../store";
 import { hasNotSorted, waitingIds } from "../suggestionReview";
 import type { Command } from "./registry";
@@ -12,10 +12,9 @@ const ownNow = () => {
   return state.documents.filter((document) => isOwnDocument(document, allExamples(state)));
 };
 
-const failedNow = () => {
-  const state = useAppStore.getState();
-  return organizeFailedIds(ownNow(), state.library?.assignments ?? []);
-};
+/** The failed Documents Try again can help now: another cause needs its own fix first (#2535). */
+const retryableNow = () =>
+  retryableIds(unsettledProblemsOf(ownNow(), useAppStore.getState().library?.assignments ?? []));
 
 export const libraryCommands: readonly Command[] = [
   {
@@ -70,10 +69,12 @@ export const libraryCommands: readonly Command[] = [
     label: "library.retryFailed",
     keywords: ["library.retryFailed.keywords"],
     group: "main",
-    when: () => failedNow().size > 0,
+    when: () => retryableNow().length > 0,
     reversible: true,
     run: () => {
-      void organizeDocuments([...failedNow()]).catch(useAppStore.getState().reportError);
+      const ids = retryableNow();
+      if (ids.length === 0) return;
+      void organizeDocuments([...ids]).catch(useAppStore.getState().reportError);
     },
   },
   {

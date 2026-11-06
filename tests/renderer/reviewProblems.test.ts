@@ -10,9 +10,11 @@ import {
   problemLine,
   ROW_PROBLEM_WORDS,
   retryableCause,
+  retryableIds,
   reviewProblemKind,
   reviewProblemsOf,
   reviewReason,
+  unsettledProblemsOf,
 } from "../../src/renderer/src/reviewProblems";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -202,6 +204,30 @@ describe("the one action a line offers and the row's own words (#2535)", () => {
     // The service is unknown while it loads: the same short row, not a cause without its service.
     expect(reviewReason("credit", null, en)).toEqual(unnamed);
     expect(reviewReason("credit", null, en).title).not.toBe(en(ROW_PROBLEM_WORDS.credit));
+  });
+});
+
+describe("the same eligible Documents for the count, the cause and Try again (#2535)", () => {
+  test("a manual place is left out even when a later run failed", () => {
+    const documents = [doc("automatic"), doc("manual")];
+    const problems = unsettledProblemsOf(documents, [
+      held("automatic", "out-of-credit"),
+      held("manual", "network", { source: "user", groupId: "f-invoice" }),
+    ]);
+    expect(problems).toEqual([{ kind: "credit", documentIds: ["automatic"] }]);
+    expect(notOrganizedLine(problems, 1, en)).toBe("1 Document not organized: no credit left");
+    expect(retryableIds(problems)).toEqual([]);
+  });
+
+  test("Try again sends only the causes it can help", () => {
+    const documents = [doc("credit"), doc("network"), doc("rate")];
+    const problems = unsettledProblemsOf(documents, [
+      held("credit", "out-of-credit"),
+      held("network", "network"),
+      held("rate", "rate-limit"),
+    ]);
+    expect(problems.map((problem) => problem.kind)).toEqual(["credit", "rateLimit", "other"]);
+    expect(retryableIds(problems)).toEqual(["rate", "network"]);
   });
 });
 

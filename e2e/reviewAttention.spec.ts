@@ -519,3 +519,131 @@ test("a Document Review showed needs attention again after Undo, and Review land
     await app.close();
   }
 });
+
+test("mixed causes retry only what can help, and the one credit line stays with a row far down", async () => {
+  test.setTimeout(240_000);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await leaveFirstOpen(window);
+    await acceptPlainTextKeys(window);
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const provider = await core.saveChatProvider({
+        kind: "openai",
+        apiKey: "sk-test",
+        modelId: "fake-model",
+      });
+      await core.saveLibrarySettings({
+        classifier: { kind: "chat", choice: { providerId: provider.id, modelId: "fake-model" } },
+        automatic: false,
+      });
+      const flow = (await core.listDataFlows()).find((each) => each.flow.id === "classification");
+      if (flow) await core.allowDataFlow("classification", flow.flow.service.id);
+      for (const name of ["Alpha", "Beta", "Gamma", "Delta"]) {
+        await core.createLibraryGroup({ name, description: `Notes about ${name}.` });
+      }
+    });
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, "en");
+
+    const files: string[] = [];
+    for (const folder of ["Alpha", "Beta", "Gamma", "Delta"]) {
+      for (let at = 1; at <= 8; at++) {
+        const path = join(sources, `${folder} ${at}.txt`);
+        await writeFile(path, `${folder} notes ${at}.`);
+        files.push(path);
+      }
+    }
+    const creditPath = join(sources, "Alpha credit check.txt");
+    await writeFile(creditPath, "The account is out of credit.");
+    const networkPath = join(sources, "Alpha unreachable check.txt");
+    await writeFile(networkPath, "The model was unreachable slowly.");
+    files.push(creditPath, networkPath);
+    await addDocuments(window, files);
+    await window.getByTestId("open-library").click();
+    const library = window.getByTestId("library");
+    await pointAndClick(window, library.getByTestId("library-organize"));
+
+    // One credit failure and one the model couldn't reach: Try again can help only the second.
+    const header = library.getByTestId("library-organize-failed");
+    await expect(header).toHaveText("2 Documents not organized · Try again", {
+      timeout: 120_000,
+    });
+    await expect(header.getByRole("button")).toHaveText(["Try again"]);
+
+    // The first resend fails again, as its first run did; the credit failure is not sent.
+    await pointAndClick(window, header.getByRole("button"));
+    await expect(library.getByTestId("library-organizing")).toBeVisible({ timeout: 30_000 });
+    await expect(header).toHaveText("2 Documents not organized · Try again", {
+      timeout: 60_000,
+    });
+
+    // The second resend reaches the model: only the credit failure is left, with nothing to retry.
+    await pointAndClick(window, header.getByRole("button"));
+    await expect(library.getByTestId("library-organizing")).toBeVisible({ timeout: 30_000 });
+    await expect(header).toHaveText("1 Document not organized: no credit left", {
+      timeout: 60_000,
+    });
+    await expect(header.getByRole("button")).toHaveCount(0);
+
+    // Four Suggested Folder blocks sit above the one Document left unsorted.
+    await pointAndClick(window, library.getByTestId("library-review-not-sorted"));
+    await expect(library.getByTestId("library-review-group")).toHaveCount(4);
+    const creditLine = library.getByTestId("library-review-credit");
+    await expect(creditLine).toHaveCount(1);
+    await expect(
+      library.locator('[data-testid="library-review-problem"][data-kind="credit"]'),
+    ).toHaveCount(1);
+    await expect(creditLine).toContainText("Your OpenAI key is out of credit");
+    await expect(creditLine.getByTestId("library-review-problem-fix")).toHaveText("Add credit");
+
+    const creditId = await window.evaluate(async () => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const documents = await core.listDocuments();
+      return (
+        documents.find((document) => document.name.startsWith("Alpha credit check"))?.id ?? null
+      );
+    });
+    if (creditId === null) throw new Error("The credit Document isn't in the Library.");
+
+    // Review lands on it far below the Suggested Folder blocks; its one line and action come too.
+    const press = await pressReview(window, creditId);
+    expect(press.selected).toBe(creditId);
+    const geometry = await window.evaluate((id) => {
+      const panel = document.querySelector('[data-testid="library"]');
+      const scroller = panel?.querySelector<HTMLElement>(":scope > div");
+      const wrapper = document.querySelector<HTMLElement>('[data-testid="library-review-credit"]');
+      const row = document.querySelector<HTMLElement>(
+        `[data-review] [data-document-id="${CSS.escape(id)}"]`,
+      );
+      if (!scroller || !wrapper || !row) return null;
+      const view = scroller.getBoundingClientRect();
+      const line = wrapper.getBoundingClientRect();
+      const rowBox = row.getBoundingClientRect();
+      const action = wrapper.querySelector<HTMLElement>(
+        '[data-testid="library-review-problem-fix"]',
+      );
+      const actionBox = action?.getBoundingClientRect() ?? null;
+      return {
+        scrollTop: scroller.scrollTop,
+        view: { top: view.top, bottom: view.bottom },
+        line: { top: line.top, bottom: line.bottom },
+        row: { top: rowBox.top, bottom: rowBox.bottom },
+        action: actionBox ? { top: actionBox.top, bottom: actionBox.bottom } : null,
+      };
+    }, creditId);
+    if (!geometry) throw new Error("The credit line, its action or the row isn't drawn.");
+    expect(geometry.scrollTop).toBeGreaterThan(300);
+    expect(Math.abs(geometry.line.top - geometry.view.top)).toBeLessThanOrEqual(2);
+    expect(geometry.line.bottom).toBeLessThanOrEqual(geometry.view.bottom);
+    expect(geometry.row.top).toBeGreaterThanOrEqual(geometry.view.top);
+    expect(geometry.row.bottom).toBeLessThanOrEqual(geometry.view.bottom);
+    if (!geometry.action) throw new Error("Add credit isn't drawn on the credit line.");
+    expect(geometry.action.top).toBeGreaterThanOrEqual(geometry.view.top);
+    expect(geometry.action.bottom).toBeLessThanOrEqual(geometry.view.bottom);
+    await screenshot(window, "review-attention-en-1440-credit-line-below-blocks");
+  } finally {
+    await app.close();
+  }
+});

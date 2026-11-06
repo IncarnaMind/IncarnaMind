@@ -81,6 +81,22 @@ export function reviewProblemsOf(
 }
 
 /**
+ * The failures a count, its causes and Try again agree on: only the Documents whose latest run
+ * failed and whose place the User hasn't settled, so a manual place is never counted or retried.
+ */
+export function unsettledProblemsOf(
+  documents: readonly Pick<Document, "id" | "tagging">[],
+  assignments: readonly Held[],
+): ReviewProblem[] {
+  const held = new Map(assignments.map((item) => [item.documentId, item]));
+  const unsettled = documents.filter((document) => {
+    const state = organizeStateOf(document, held.get(document.id));
+    return state.run === "failed" && !state.manual;
+  });
+  return reviewProblemsOf(unsettled, assignments);
+}
+
+/**
  * One group's line: the cause with the service it went to, or Organize's own
  * count when it can name neither. Never the provider's own sentence.
  */
@@ -115,6 +131,11 @@ export const CAUSE_WORDS: Record<Exclude<ReviewProblemKind, "other">, MessageKey
 /** Whether Try again can help a cause: it has no fix of its own, so retrying is its action. */
 export const retryableCause = (kind: ReviewProblemKind): boolean =>
   kind === "other" || kind === "rateLimit";
+
+/** The Documents Try again may send: only those whose cause a retry can help (#2535). */
+export function retryableIds(problems: readonly ReviewProblem[]): string[] {
+  return problems.flatMap((problem) => (retryableCause(problem.kind) ? problem.documentIds : []));
+}
 
 /** The cause alone, for a Document's own row, whose place already says it is Organize's (#2535). */
 export const ROW_PROBLEM_WORDS: Record<ReviewProblemKind, MessageKey> = {

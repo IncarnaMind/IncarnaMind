@@ -22,12 +22,12 @@ import {
 } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
 import { organizeDocuments, useProposing } from "../../organizeDocuments";
-import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
+import { organizeStateOf } from "../../organizeOutcome";
 import { useOrganizeAsk } from "../../organizeRun";
 import { useListedDocuments } from "../../ownDocuments";
 import { useRequests } from "../../requests";
 import type { ReviewReason } from "../../reviewProblems";
-import { notOrganizedLine, retryableCause, reviewProblemsOf } from "../../reviewProblems";
+import { notOrganizedLine, retryableIds, unsettledProblemsOf } from "../../reviewProblems";
 import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
@@ -618,14 +618,13 @@ function Organize({ documents }: { documents: readonly Document[] }) {
     return all.map((doc) => organizeStateOf(doc, held.get(doc.id)));
   }, [all, library]);
   const pending = states.filter((state) => state.run === "working").length;
-  const failed = useMemo(
-    () => organizeFailedIds(documents, library?.assignments ?? []),
-    [documents, library],
-  );
   const problems = useMemo(
-    () => reviewProblemsOf(documents, library?.assignments ?? []),
+    () => unsettledProblemsOf(documents, library?.assignments ?? []),
     [documents, library],
   );
+  // The count, the causes and Try again's list all come from the same failures (#2535).
+  const failedCount = problems.reduce((count, problem) => count + problem.documentIds.length, 0);
+  const retryIds = retryableIds(problems);
   const run = (ids: readonly string[]) => {
     organizeDocuments(ids).catch(useAppStore.getState().reportError);
   };
@@ -640,16 +639,16 @@ function Organize({ documents }: { documents: readonly Document[] }) {
       </span>
     );
   }
-  if (failed.size > 0) {
-    const retry = () => run([...failed]);
+  if (failedCount > 0) {
+    const retry = () => run(retryIds);
     return (
       <span
         role="alert"
         data-testid="library-organize-failed"
         className="min-w-0 truncate text-[13px] text-ink-meta"
       >
-        {notOrganizedLine(problems, failed.size, t)}
-        {problems.some((problem) => retryableCause(problem.kind)) && (
+        {notOrganizedLine(problems, failedCount, t)}
+        {retryIds.length > 0 && (
           <>
             <span aria-hidden="true"> · </span>
             <button type="button" onClick={retry} className={quietButtonClass}>

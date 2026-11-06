@@ -96,7 +96,7 @@ describe("the Folders Organize made", () => {
 });
 
 describe("the Documents a cause covers", () => {
-  test("the credit list spans To review's blocks, and leaves another cause out (#2535)", () => {
+  test("the credit list spans To review's blocks, and leaves another cause and a manual place out (#2535)", () => {
     const doc = (id: string): Document =>
       ({ id, name: id, tagging: "tagged", linkedFolderId: null }) as Document;
     const held = (
@@ -115,7 +115,13 @@ describe("the Documents a cause covers", () => {
         ...over,
       }) as DocumentGroupAssignment;
     useAppStore.setState({
-      documents: [doc("unsorted-1"), doc("unsorted-2"), doc("suggested"), doc("refused")],
+      documents: [
+        doc("unsorted-1"),
+        doc("unsorted-2"),
+        doc("suggested"),
+        doc("refused"),
+        doc("manual"),
+      ],
       examples: null,
       otherExamples: [],
       library: {
@@ -126,6 +132,7 @@ describe("the Documents a cause covers", () => {
           held("unsorted-2", "out-of-credit"),
           held("suggested", "out-of-credit", { groupId: "f-invoice", suggested: true }),
           held("refused", "auth"),
+          held("manual", "out-of-credit", { groupId: "f-invoice", source: "user" }),
         ],
         settings: {
           classifier: { kind: "automatic" },

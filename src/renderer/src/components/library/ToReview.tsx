@@ -6,7 +6,7 @@ import { useLibraryFolds, useRevealed } from "../../libraryFolds";
 import { FIRST_ROWS } from "../../libraryPage";
 import { formatCount } from "../../linkedFolders";
 import { lastOrganizeStep } from "../../organizeRun";
-import { type ReviewReason, reviewProblemsOf } from "../../reviewProblems";
+import { type ReviewReason, reviewProblemsOf, unsettledProblemsOf } from "../../reviewProblems";
 import { useAppStore } from "../../store";
 import { type ToReview as Review, reviewSummary, TO_REVIEW } from "../../toReview";
 import { foldKeys, TREE_ROW } from "../../treeKeys";
@@ -64,7 +64,7 @@ export function ToReview({
   const shownAll = showingAll.has(UNSORTED_KEY);
   const unsortedListed = shownAll ? notSorted : notSorted.slice(0, FIRST_ROWS);
   // One credit line for every block (#2535): its fix is one press, wherever the failures sit.
-  const credit = reviewProblemsOf(
+  const credit = unsettledProblemsOf(
     [...review.groups.flatMap((group) => group.documents), ...notSorted],
     assignments,
   ).find((problem) => problem.kind === "credit");
@@ -144,7 +144,13 @@ export function ToReview({
           </span>
         }
       />
-      {open && credit && <ReviewProblemLine problem={credit} serviceName={serviceName} />}
+      {open && credit && (
+        // It stays at the top of the page's scroll so a row Review reveals far down keeps its
+        // one line and its action in view (#2535).
+        <div data-testid="library-review-credit" className="sticky top-0 z-10 bg-sheet">
+          <ReviewProblemLine problem={credit} serviceName={serviceName} />
+        </div>
+      )}
       {open &&
         review.groups.map(({ folder, path, documents }) => {
           const all = showingAll.has(`${TO_REVIEW}:${folder.id}`);
