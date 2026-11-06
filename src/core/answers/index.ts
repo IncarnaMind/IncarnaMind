@@ -2386,12 +2386,12 @@ export function createAnswers(options: AnswersOptions) {
       // Nothing is sent before the User says: the Answer waits for them.
       if (consenting) showPhase();
       let prepared: PreparedChatModel;
+      // Help during a call is read within seconds: the model answers without thinking first.
+      const thinking = help
+        ? "off"
+        : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer"));
       try {
-        prepared = await options.prepareModel(
-          model,
-          // Help during a call is read within seconds: the model answers without thinking first.
-          help ? "off" : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer")),
-        );
+        prepared = await options.prepareModel(model, thinking);
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
         return;
@@ -3209,8 +3209,11 @@ export function createAnswers(options: AnswersOptions) {
       // An Answer the User reads holds its claims of Tools to its calls; a check's, a cell's or a
       // call's help is read by its own flow, which offers no calculate to call.
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
+      // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
+      // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
+      const checksClaims = !help;
       const turnChecks: TurnCheck[] = [
-        ...(mindsTools || commandsOffered
+        ...((mindsTools || commandsOffered) && checksClaims
           ? [
               {
                 name: "claimed-change",
