@@ -110,6 +110,12 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(meetingsFound.getByTestId("library-meeting-hit")).toContainText(
     new RegExp(`^${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
   );
+  // Its right-click menu is its Note's.
+  await pointAndClick(window, meetingsFound.getByTestId("library-meeting-hit"), {
+    button: "right",
+  });
+  await expect(window.getByRole("menuitem", { name: "Don’t cite the Transcript" })).toBeVisible();
+  await window.keyboard.press("Escape");
   await librarySearch.fill("");
 
   // ⌘K: the words said in the meeting are the Note's hit, with when they were said.
@@ -176,6 +182,16 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await pointAndClick(window, window.getByRole("menuitem", { name: "Cite the Transcript again" }));
   await expect.poll(notCited).toBe(false);
 
+  // "@" in the composer finds the meeting by words said in it, as its Note's choice.
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("@eighteenth");
+  await expect(window.getByTestId("scope-picker")).toContainText(
+    new RegExp(`${escaped(title)} · Transcript, \\d{2}:\\d{2}`),
+  );
+  await window.keyboard.press("Escape");
+  await window.keyboard.press("ControlOrMeta+a");
+  await window.keyboard.press("Backspace");
+
   await setLanguage(window, "zh-CN");
   await window.keyboard.press("ControlOrMeta+k");
   await window.getByTestId("palette-search").fill("eighteenth");
@@ -239,18 +255,20 @@ const placeOf = (window: Page, mindId: string, documentId: string) =>
     { mindId, documentId },
   );
 
-test("a meeting an earlier version filed apart, one wall between, joins on the walled side and says so once with Undo, which puts it back exactly, in Chinese and English", async () => {
+test("a meeting an earlier version filed apart, one wall between, joins on the walled side and says which half moved, once, with Undo, which puts it back exactly, in Chinese and English", async () => {
   const first = await launchApp(dataDir);
   await dismissChatSetup(first.window);
   await setWindowSize(first.app, first.window, 1440, 900);
+  // "Weekly call": its Note outside, its Transcript behind Vault, so the Note goes in.
+  // "周例会": its Note behind Cellar, its Transcript outside, so the Transcript goes in.
   const weekly = { ...(await recordAndStop(first.window)), title: "Weekly call" };
-  const pier = { ...(await recordAndStop(first.window)), title: "Pier survey" };
+  const standup = { ...(await recordAndStop(first.window)), title: "周例会" };
   const { vault, cellar, desk } = await (await core(first.window)).evaluate(
     async (bridge, ids) => {
-      const [weeklyId, pierId] = ids;
-      if (!weeklyId || !pierId) throw new Error("Two meetings were recorded.");
+      const [weeklyId, standupId] = ids;
+      if (!weeklyId || !standupId) throw new Error("Two meetings were recorded.");
       await bridge.renameMind(weeklyId, "Weekly call");
-      await bridge.renameMind(pierId, "Pier survey");
+      await bridge.renameMind(standupId, "周例会");
       const walled = async (name: string) => {
         const folder = await bridge.createLibraryGroup({ name, description: "" });
         await bridge.updateLibraryGroup(folder.id, { name, description: "", keepInside: true });
@@ -259,32 +277,52 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
       const vault = await walled("Vault");
       const cellar = await walled("Cellar");
       const desk = (await bridge.createLibraryGroup({ name: "Open desk", description: "" })).id;
-      await bridge.moveToFolder({ mindIds: ids, folderId: desk });
+      await bridge.moveToFolder({ mindIds: [weeklyId], folderId: desk });
+      await bridge.moveToFolder({ mindIds: [standupId], folderId: cellar });
       await bridge.updateSettings({ user: { language: "zh-CN" } });
       return { vault, cellar, desk };
     },
-    [weekly.meeting.mindId, pier.meeting.mindId],
+    [weekly.meeting.mindId, standup.meeting.mindId],
   );
   await first.app.close();
   const weeklyTranscript = weekly.meeting.transcript?.documentId as string;
-  const pierTranscript = pier.meeting.transcript?.documentId as string;
+  const standupTranscript = standup.meeting.transcript?.documentId as string;
   asBefore([
     { documentId: weeklyTranscript, folderId: vault },
-    { documentId: pierTranscript, folderId: cellar },
+    { documentId: standupTranscript, folderId: desk },
   ]);
+
+  const said = {
+    [weekly.title]: {
+      zh: "“Weekly call”已随转写稿移到“Vault”",
+      en: "“Weekly call” moved to “Vault” with its Transcript",
+      joined: { noteFolder: vault, ownedBy: weekly.meeting.mindId, filedIn: [] },
+      undone: { noteFolder: desk, ownedBy: null, filedIn: [vault] },
+      transcript: weeklyTranscript,
+      mindId: weekly.meeting.mindId,
+    },
+    [standup.title]: {
+      zh: "“周例会”的转写稿已移到“Cellar”，与笔记放在一起",
+      en: "The Transcript of “周例会” moved to “Cellar”, beside its note",
+      joined: { noteFolder: cellar, ownedBy: standup.meeting.mindId, filedIn: [] },
+      undone: { noteFolder: cellar, ownedBy: null, filedIn: [desk] },
+      transcript: standupTranscript,
+      mindId: standup.meeting.mindId,
+    },
+  };
+  const whoseLine = async (line: ReturnType<Page["getByTestId"]>) => {
+    const text = (await line.getByTestId("status-label").textContent()) ?? "";
+    const found = text.includes(weekly.title) ? said[weekly.title] : said[standup.title];
+    if (!found) throw new Error(`No meeting says “${text}”.`);
+    return found;
+  };
 
   const { app, window } = await launchApp(dataDir);
   await setWindowSize(app, window, 1440, 900);
   const line = window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/).first();
   await expect(line).toBeVisible();
-  const said = await line.getByTestId("status-label").textContent();
-  const shown = said?.includes(weekly.title) ? weekly : pier;
-  const other = shown === weekly ? pier : weekly;
-  const shownIn = shown === weekly ? vault : cellar;
-  const shownTranscript = shown === weekly ? weeklyTranscript : pierTranscript;
-  await expect(line.getByTestId("status-label")).toHaveText(
-    `“${shown.title}”已随转写稿移到“${shown === weekly ? "Vault" : "Cellar"}”`,
-  );
+  const shown = await whoseLine(line);
+  await expect(line.getByTestId("status-label")).toHaveText(shown.zh);
   await expect(line.getByTestId("meeting-joined-undo")).toHaveText("撤销");
   await shot(window, "one-item-joined-zh");
   // Narrow, the line wraps by word inside the sidebar, its Undo kept with it.
@@ -300,36 +338,31 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
   await shot(window, "one-item-joined-narrow-zh");
   await setWindowSize(app, window, 1440, 900);
   await setLanguage(window, "en");
-  await expect(line.getByTestId("status-label")).toHaveText(
-    `“${shown.title}” moved to “${shown === weekly ? "Vault" : "Cellar"}” with its Transcript`,
-  );
+  await expect(line.getByTestId("status-label")).toHaveText(shown.en);
   await shot(window, "one-item-joined-en");
-  expect(await placeOf(window, shown.meeting.mindId, shownTranscript)).toEqual({
-    noteFolder: shownIn,
-    ownedBy: shown.meeting.mindId,
-    filedIn: [],
-  });
+  expect(await placeOf(window, shown.mindId, shown.transcript)).toEqual(shown.joined);
 
-  // Undo puts the pair back exactly: the Note in its Folder, the Transcript behind the wall, a
-  // Document of its own with its row.
+  // Undo puts the pair back exactly: whichever half went in is back where it was.
   const lineId = (await line.getAttribute("data-testid")) as string;
   await pointAndClick(window, line.getByTestId("meeting-joined-undo"));
-  await expect
-    .poll(() => placeOf(window, shown.meeting.mindId, shownTranscript))
-    .toEqual({ noteFolder: desk, ownedBy: null, filedIn: [shownIn] });
+  await expect.poll(() => placeOf(window, shown.mindId, shown.transcript)).toEqual(shown.undone);
   await expect(window.getByTestId(lineId)).toHaveCount(0);
+
+  // The other meeting's line, naming the other half, in both languages; left alone.
+  const otherLine = window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/).first();
+  await expect(otherLine).toBeVisible();
+  const other = await whoseLine(otherLine);
+  expect(other).not.toBe(shown);
+  await expect(otherLine.getByTestId("status-label")).toHaveText(other.en);
+  await setLanguage(window, "zh-CN");
+  await expect(otherLine.getByTestId("status-label")).toHaveText(other.zh);
   await app.close();
 
-  // The other line was left alone; said once, the next start says nothing, and it stays joined.
+  // Said once, the next start says nothing, and the one left alone stays joined.
   const again = await launchApp(dataDir);
   await expect(again.window.getByTestId("sidebar-status")).toBeVisible();
   await expect(again.window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/)).toHaveCount(0);
-  const otherTranscript = other === weekly ? weeklyTranscript : pierTranscript;
-  expect(await placeOf(again.window, other.meeting.mindId, otherTranscript)).toEqual({
-    noteFolder: other === weekly ? vault : cellar,
-    ownedBy: other.meeting.mindId,
-    filedIn: [],
-  });
+  expect(await placeOf(again.window, other.mindId, other.transcript)).toEqual(other.joined);
   await again.app.close();
 });
 
