@@ -234,6 +234,54 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
     `“${renamed}”不再作为引用来源`,
   );
   await shot(window, "one-item-renamed-dont-cite-zh");
+  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
+  await pointAndClick(window, window.getByRole("menuitem", { name: "重新引用转写稿" }));
+  await expect.poll(notCited).toBe(false);
+
+  // In English too: a rename made in English names the Transcript in English, and Don't cite
+  // says the Note's current name (#2579).
+  await setLanguage(window, "en");
+  await (await core(window)).evaluate(
+    async (bridge, mindId) => bridge.renameMind(mindId, "Weekly tide review"),
+    recorded.mindId,
+  );
+  await expect(header).toContainText(`Transcript · ${renamed}`);
+  await pointAndClick(window, window.getByTestId("mind-tab").first(), { button: "right" });
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Don’t cite the Transcript" }));
+  await expect.poll(notCited).toBe(true);
+  await expect(window.getByTestId("undo-message").last()).toHaveText(`“${renamed}” won’t be cited`);
+  await shot(window, "one-item-renamed-dont-cite-en");
+  await app.close();
+});
+
+test("the @ picker's arrows walk the order it draws: a meeting under Notes first, the Document below it next (#2579)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 900);
+  const { title } = await recordAndStop(window);
+  const path = join(sources, "eighteenth-notes.txt");
+  await writeFile(path, "Eighteenth notes for the tide review.");
+  await addDocuments(window, [path]);
+  await expect
+    .poll(async () =>
+      (await core(window)).evaluate(async (bridge) =>
+        (await bridge.listDocuments()).some(
+          (each) => each.name === "eighteenth-notes" && each.status === "ready",
+        ),
+      ),
+    )
+    .toBe(true);
+
+  await pointAndClick(window, window.getByTestId("mind-tab").first());
+  await window.keyboard.press("ControlOrMeta+j");
+  await window.keyboard.type("@eighteenth");
+  const options = window.getByTestId("scope-picker").getByTestId("scope-choice");
+  await expect(options.first()).toContainText(new RegExp(`${escaped(title)} · Transcript`));
+  await expect(options.first()).toHaveAttribute("aria-selected", "true");
+  await shot(window, "one-item-picker-order-en");
+  await window.keyboard.press("ArrowDown");
+  await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect(options.nth(1)).toContainText("eighteenth-notes");
   await app.close();
 });
 
@@ -388,7 +436,7 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
   await shot(window, "one-item-joined-undone-en");
   await expect(undoneLine).toHaveCount(0, { timeout: 5_000 });
 
-  // The other meeting's line, naming the other half, in both languages; left alone.
+  // The other meeting's line, naming the other half, in both languages; its Undo confirms in Chinese.
   const otherLine = window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/).first();
   await expect(otherLine).toBeVisible();
   const other = await whoseLine(otherLine);
@@ -396,13 +444,24 @@ test("a meeting an earlier version filed apart, one wall between, joins on the w
   await expect(otherLine.getByTestId("status-label")).toHaveText(other.en);
   await setLanguage(window, "zh-CN");
   await expect(otherLine.getByTestId("status-label")).toHaveText(other.zh);
+  const otherLineId = (await otherLine.getAttribute("data-testid")) as string;
+  await pointAndClick(window, otherLine.getByTestId("meeting-joined-undo"));
+  await expect.poll(() => placeOf(window, other.mindId, other.transcript)).toEqual(other.undone);
+  const otherUndone = window.getByTestId(
+    `meeting-joined-undone-${otherLineId.replace("meeting-joined-", "")}`,
+  );
+  await expect(otherUndone.getByTestId("status-label")).toHaveText(
+    `“${other.title}”和转写稿已回到原处`,
+  );
+  await shot(window, "one-item-joined-undone-zh");
+  await expect(otherUndone).toHaveCount(0, { timeout: 5_000 });
   await app.close();
 
-  // Said once, the next start says nothing, and the one left alone stays joined.
+  // Said once, the next start says nothing; the pair Undone stays as it was put back.
   const again = await launchApp(dataDir);
   await expect(again.window.getByTestId("sidebar-status")).toBeVisible();
   await expect(again.window.getByTestId(/^meeting-joined-[0-9a-f]{8}-/)).toHaveCount(0);
-  expect(await placeOf(again.window, other.mindId, other.transcript)).toEqual(other.joined);
+  expect(await placeOf(again.window, other.mindId, other.transcript)).toEqual(other.undone);
   await again.app.close();
 });
 
@@ -488,6 +547,20 @@ test("a meeting two walls keep apart from its Transcript stays where it is, and 
       .getByTestId("palette-item"),
   ).toContainText([/^Transcript/]);
   await window.keyboard.press("Escape");
+
+  // Left apart, the Transcript is a Document of its own: its viewer offers Tags (#2579).
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.getByTestId("palette-search").fill("eighteenth");
+  const apartHit = window
+    .getByTestId("palette")
+    .locator('[data-testid="palette-group"][data-group="documentText"]')
+    .getByTestId("palette-item")
+    .first();
+  await expect(apartHit).toContainText(/^Transcript/);
+  await pointAndClick(window, apartHit);
+  const apartHeader = window.getByTestId("viewer-header");
+  await expect(apartHeader).toContainText("Transcript");
+  await expect(apartHeader.getByTestId("document-tags")).toHaveCount(1);
   await app.close();
 
   // Said once, and left alone: the next start says nothing.

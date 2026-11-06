@@ -9,6 +9,7 @@ import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { classifierModel } from "../helpers/library";
 import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 import { scriptedModels } from "../helpers/models";
 import { taggingModel, tagNamesOf, waitForTagging } from "../helpers/tags";
 import {
@@ -127,6 +128,32 @@ describe("A meeting's Transcript is never filed alone", { timeout: 60_000 }, () 
     await core.renameMind(meeting.mindId, "Renamed call");
     const after = (await core.listDocuments()).find((each) => each.id === document.id);
     expect(after?.name).toBe("Transcript · Renamed call");
+
+    // While the Note has no title, its first line names the Transcript, and a later first line
+    // renames it still.
+    const client = await connectToMind(core, meeting.mindId);
+    writeMind(client, [note("Tidal timings")]);
+    await client.settled();
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.name).toBe(
+      "Transcript · Renamed call",
+    );
+    await core.renameMind(meeting.mindId, "");
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.name).toBe(
+      "Transcript · Tidal timings",
+    );
+    writeMind(client, [note("Harbour timings")]);
+    await client.settled();
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.name).toBe(
+      "Transcript · Harbour timings",
+    );
+
+    // A Note title past a Document's length: the Note keeps it, its Transcript's name is cut to fit.
+    const long = "T".repeat(600);
+    await core.renameMind(meeting.mindId, long);
+    expect((await core.listMinds()).find((mind) => mind.id === meeting.mindId)?.title).toBe(long);
+    expect((await core.listDocuments()).find((each) => each.id === document.id)?.name).toBe(
+      `Transcript · ${long}`.slice(0, 500),
+    );
   });
 
   test("a move, a drag's filing, Tags and Organize leave it with its Note; another Document files as before", async () => {

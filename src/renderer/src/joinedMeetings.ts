@@ -15,6 +15,7 @@ interface JoinedMeetingsState {
 }
 
 const undoneTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const undoing = new Set<string>();
 
 /**
  * The meetings this version joined on the walled side of the one wall between a Note and its
@@ -39,6 +40,14 @@ export const useJoinedMeetings = create<JoinedMeetingsState>()((set, get) => ({
     set((state) => ({ joined: state.joined.filter((each) => each.id !== id) }));
   },
   async undo(id) {
+    if (undoing.has(id) || !get().joined.some((each) => each.id === id && !each.undone)) return;
+    undoing.add(id);
+    try {
+      await core.undoMeetingJoin(id);
+    } finally {
+      undoing.delete(id);
+    }
+    if (!get().joined.some((each) => each.id === id)) return;
     set((state) => ({
       joined: state.joined.map((each) => (each.id === id ? { ...each, undone: true } : each)),
     }));
@@ -50,15 +59,5 @@ export const useJoinedMeetings = create<JoinedMeetingsState>()((set, get) => ({
         set((state) => ({ joined: state.joined.filter((each) => each.id !== id) }));
       }, CONFIRMATION_SHOWN_MS),
     );
-    try {
-      await core.undoMeetingJoin(id);
-    } catch (error) {
-      clearTimeout(undoneTimers.get(id));
-      undoneTimers.delete(id);
-      set((state) => ({
-        joined: state.joined.map((each) => (each.id === id ? { ...each, undone: false } : each)),
-      }));
-      throw error;
-    }
   },
 }));
