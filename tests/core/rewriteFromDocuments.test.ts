@@ -1124,6 +1124,48 @@ describe("rewriteFromDocuments", () => {
     ).toMatchObject({ kind: "rewritten", correction: { choices: [{ wording: "2025" }] } });
   });
 
+  test.each([
+    ["The grant was 500 after approval.", "The grant was in 2025 after approval.", "500", "2025"],
+    [
+      "The grant was paid 500 after approval.",
+      "The grant was paid in 2025 after approval.",
+      "500",
+      "2025",
+    ],
+    ["合同期限为 3 财年。", "合同期限为 2025 财年。", "3", "2025"],
+    ["The grant was 500.", "The grant was in ２０２５.", "500", "２０２５"],
+  ])("keeps %s where the Passage gives a year: %s", async (sentence, line, from, to) => {
+    const { core, mindId } = await noteWithCheck(
+      () => ({ text: `Change 1: ${from}\nTo 1: ${to}` }),
+      { text: sentence },
+      sentence,
+      false,
+      line,
+    );
+    expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toEqual({
+      kind: "kept",
+    });
+  });
+
+  test.each([
+    ["The fee is $1,800.", "The fee is $2025.", "$1,800", "$2025"],
+    ["The track is 1800 m long.", "The track is 2025 m long.", "1800", "2025"],
+  ])(
+    "writes %s's figure from a measure whose digits look like a year: %s",
+    async (sentence, line, from, to) => {
+      const { core, mindId } = await noteWithCheck(
+        () => ({ text: `Change 1: ${from}\nTo 1: ${to}` }),
+        { text: sentence },
+        sentence,
+        false,
+        line,
+      );
+      expect(await core.rewriteFromDocuments({ mindId, checkId: "check-rent" })).toMatchObject({
+        kind: "rewritten",
+      });
+    },
+  );
+
   test("keeps the sentence when the model's words aren't the Passage's", async () => {
     const { core, mindId, calls } = await noteWithCheck(() => ({
       text: "Change 1: 1100\nTo 1: 1300",

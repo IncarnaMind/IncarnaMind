@@ -22,6 +22,17 @@ describe("Rewrite is offered", () => {
     expect(mayRewrite("The lot was sold in 2019.", "The lot was sold in 2021.")).toBe(false);
   });
 
+  test.each([
+    ["The grant was 500 after approval.", "The grant was in 2025 after approval.", false],
+    ["The grant was paid 500 after approval.", "The grant was paid in 2025 after approval.", false],
+    ["合同期限为 3 财年。", "合同期限为 2025 财年。", false],
+    ["The grant was 500.", "The grant was in ２０２５.", false],
+    ["The fee is $1,800.", "The fee is $2025.", true],
+    ["The track is 1800 m long.", "The track is 2025 m long.", true],
+  ])("for %s from %s: %s", (sentence, quote, offered) => {
+    expect(mayRewrite(sentence, quote)).toBe(offered);
+  });
+
   test("for every held-out rewrite the rules write, and for none of the controls", () => {
     for (const each of REWRITE_RULE_CASES.filter((one) => one.kind === "rewritten")) {
       expect(mayRewrite(each.sentence, each.quote), each.id).toBe(true);

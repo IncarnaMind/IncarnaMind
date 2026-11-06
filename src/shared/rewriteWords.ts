@@ -327,17 +327,33 @@ const figuresAt = (text: string): { at: number; end: number; period: boolean }[]
   });
 };
 
+/** A currency before a figure: the mark of an amount whose digits may look like a year. */
+const AMOUNT_BEFORE = /(?:[$€£¥₹₩₽]|\b(?:usd|eur|gbp|cny|rmb|jpy|hkd|aud|cad|sgd|chf))\s*$/iu;
+/** Words just after a figure that are prose or a calendar's, not its unit: "2025 after approval". */
+const NOT_A_UNIT = new Set([
+  ...FUNCTION_WORDS,
+  ..."after before when while if unless until till since upon following during through onwards onward ago later earlier then but so fiscal financial calendar year years quarter half month".split(
+    " ",
+  ),
+]);
+/** Characters just after a figure that make it a time: 2025 年, 2025 财年, 2025 以后, 2025 年底. */
+const TIME_AFTER_HAN = new Set([..."年月季财度期前后之以起至到上下底初末中"]);
+
 /**
- * Whether the line's one figure is a period ("in 2025", 2025 年), which no rewrite writes for
- * another figure, and not a measure whose digits only look like one: a unit after it ("2025
- * square feet") makes it a measure.
+ * Whether the line's one figure is a period, which no rewrite writes for another figure: a figure
+ * that reads as a year ("2025", full-width digits too) is one unless it carries a measure's mark,
+ * a currency before it or a unit after it ("$2025", "2025 square feet", "2025 m", 2020 人).
+ * Nothing after it, prose ("in 2025 after approval") or a calendar's word (2025 财年, "2025
+ * fiscal year") keeps it a period.
  */
 export function givesAPeriod(quote: string): boolean {
-  const [figure] = figuresAt(quote);
-  if (!figure?.period) return false;
-  const written = quote.slice(figure.at, figure.end);
-  const unit = /^\s*(\p{Script=Han}|\p{L}{2,})/u.exec(quote.slice(figure.end))?.[1];
-  return unit === undefined || isPeriod(`${written}${unit}`);
+  const text = quote.normalize("NFKC");
+  const [figure] = figuresAt(text);
+  if (!figure?.period || AMOUNT_BEFORE.test(text.slice(0, figure.at))) return false;
+  const next = /^\s*(\p{Script=Han}+|[^\s\p{P}]+)/u.exec(text.slice(figure.end))?.[1];
+  if (next === undefined) return true;
+  if (/^\p{Script=Han}/u.test(next)) return TIME_AFTER_HAN.has(next[0] ?? "");
+  return NOT_A_UNIT.has(next.toLowerCase());
 }
 
 /** The numbers `text` writes outside `at` to `end`, which a rewrite there leaves as they are. */
