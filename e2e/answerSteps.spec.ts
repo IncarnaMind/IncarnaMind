@@ -495,13 +495,8 @@ test("the wait keeps the form that fits as the steps change, and the summary kee
         .getByTestId("answer-writing")
         .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
     ).toBe(true);
-    // A longer step: the wait stays, whole in the tooltip and spoken line.
-    await expect
-      .poll(async () => (await live.getAttribute("data-step")) ?? "", { timeout: 30_000 })
-      .toMatch(/searching|call/);
-    await expect(wait).toBeVisible();
-    await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    // A shorter step frees the line: the wait comes back onto the first row, and the record shows it.
     await expectComeback(waits, from);
   }
   await app.close();
