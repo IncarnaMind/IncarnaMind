@@ -13,7 +13,12 @@ import type { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js
 import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Browser } from "../adapters";
-import type { ConnectorError, ConnectorSignInError, ExternalService } from "../api";
+import type {
+  ConnectorError,
+  ConnectorFailureStep,
+  ConnectorSignInError,
+  ExternalService,
+} from "../api";
 import { SecretStorageError } from "../errors";
 import {
   OAuthFlowError,
@@ -21,6 +26,7 @@ import {
   openLoopbackRedirect,
   type SignInRedirect,
 } from "../oauth";
+import { redactMessage } from "../redact";
 import {
   ClientIdRequiredError,
   type ConnectorAuth,
@@ -180,32 +186,57 @@ function unreachable(error: unknown): boolean {
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Why connecting to a remote server failed, in terms the User can act on. */
-export function remoteError(error: unknown): ConnectorError {
+export function remoteError(
+  error: unknown,
+  options: { step?: ConnectorFailureStep; secrets?: readonly string[] } = {},
+): ConnectorError {
   const base = { command: null, install: null, retrying: false };
+  const status =
+    sdk && error instanceof sdk.StreamableHTTPError
+      ? error.code
+      : typeof (error as { status?: unknown }).status === "number"
+        ? (error as { status: number }).status
+        : undefined;
+  const secrets = (options.secrets ?? [])
+    .flatMap((value) => [
+      value,
+      value.replace(/^\S+\s+/, ""),
+      encodeURIComponent(value),
+      JSON.stringify(value).slice(1, -1),
+    ])
+    .filter(Boolean);
+  const detail = redactMessage(messageOf(error), secrets);
+  const cause = (failure: ConnectorError): ConnectorError => ({
+    ...failure,
+    ...(options.step !== undefined && { step: options.step }),
+    ...(status !== undefined && { status }),
+    detail,
+  });
   if (causedBy(error, KeyRefusedError)) {
-    return { ...base, kind: "key-refused", message: "The server refused this key." };
+    return cause({ ...base, kind: "key-refused", message: "The server refused this key." });
   }
   const issuer = causedBy(error, IssuerMismatchError);
-  if (issuer) return { ...base, kind: "failed", message: issuer.message };
+  if (issuer) return cause({ ...base, kind: "failed", message: issuer.message });
   const refresh = causedBy(error, RefreshFailedError);
-  if (refresh) return { ...base, kind: "failed", message: "The sign-in could not be renewed." };
+  if (refresh)
+    return cause({ ...base, kind: "failed", message: "The sign-in could not be renewed." });
   if (unreachable(error)) {
-    return {
+    return cause({
       ...base,
       kind: "unreachable",
       message: "The server could not be reached.",
-    };
+    });
   }
   const message = messageOf(error);
   // The SDK's errors come from a connection, which loaded it.
   if (sdk && error instanceof sdk.StreamableHTTPError) {
-    return { ...base, kind: "failed", message: `The server answered ${error.code}.` };
+    return cause({ ...base, kind: "failed", message: `The server answered ${error.code}.` });
   }
-  return {
+  return cause({
     ...base,
     kind: /timed out|timeout/i.test(message) ? "timed-out" : "failed",
     message: "The connection failed.",
-  };
+  });
 }
 
 /** Why a sign-in didn't work, for the User. */

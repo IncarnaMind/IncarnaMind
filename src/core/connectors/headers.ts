@@ -12,6 +12,8 @@ export async function saveHeaders(
   const saved: string[] = [];
   try {
     for (const [name, value] of Object.entries(headers)) {
+      // An imported `${env:NAME}` header keeps its name and has no value to store (#2025).
+      if (value === "") continue;
       await secrets.set(headerSecret(id, name), value);
       saved.push(name);
     }

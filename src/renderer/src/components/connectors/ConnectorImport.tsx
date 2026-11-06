@@ -180,6 +180,15 @@ export function ConnectorImport({ onDone }: { onDone(): void }) {
                     })}
                   </p>
                 )}
+                {entry.placeholders?.map((each) => (
+                  <p
+                    key={`${each.header}:${each.variable}`}
+                    data-testid="connector-import-placeholder"
+                    className="text-[12px] leading-[18px] text-ink-meta"
+                  >
+                    {t("connectors.import.placeholder", { name: each.variable })}
+                  </p>
+                ))}
               </li>
             ))}
           </ul>

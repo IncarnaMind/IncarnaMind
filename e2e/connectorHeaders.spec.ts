@@ -165,6 +165,11 @@ for (const language of ["en", "zh-CN"] as const)
             JSON.stringify({
               mcpServers: {
                 Imported: { type: "sse", url: imported.url, headers: { "X-Custom-Key": key } },
+                Referenced: {
+                  type: "sse",
+                  url: imported.url,
+                  headers: { Authorization: "Bearer ${env:TIDE_KEY}" },
+                },
                 Unknown: { type: "websocket", url: imported.url },
               },
             }),
@@ -179,12 +184,20 @@ for (const language of ["en", "zh-CN"] as const)
         await expect(importing).toContainText(t("connectors.import.action.remote"));
         await expect(importing).toContainText(t("remoteConnectors.connection.sse"));
         await expect(importing.locator("textarea")).toHaveCount(0);
+        await expect(importing.getByTestId("connector-import-placeholder")).toHaveText(
+          translate(language, "connectors.import.placeholder", { name: "TIDE_KEY" }),
+        );
+        expect((await importing.textContent())?.includes("${env:")).toBe(false);
         expect((await importing.textContent())?.includes(key)).toBe(false);
         await shot("import");
         await importing.getByTestId("connector-import-confirm").focus();
         await window.keyboard.press("Enter");
         const row = page.getByTestId("connected-connector").filter({ hasText: "Imported" });
         await expect(row).toHaveAttribute("data-state", "ready");
+        const referenced = page
+          .getByTestId("connected-connector")
+          .filter({ hasText: "Referenced" });
+        await expect(referenced).toHaveAttribute("data-state", "error");
         const bounds = await page.boundingBox();
         expect(bounds?.width ?? 0).toBeLessThanOrEqual(width);
       } finally {

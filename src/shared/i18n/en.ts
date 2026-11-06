@@ -5781,6 +5781,8 @@ export const en = {
   "connectors.import.confirm.one": "Add 1 Connector",
   "connectors.import.sends":
     "What Answers ask these Connectors’ Tools goes to them; they may send that online.",
+  "connectors.import.placeholder":
+    "This header takes {name} from an environment variable, which IncarnaMind doesn’t read. Enter the key instead.",
   "connectors.import.nothing": "Nothing here can be added.",
   "connectors.import.adding": "Adding…",
   "connectors.consent.note":

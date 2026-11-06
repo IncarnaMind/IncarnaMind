@@ -5,9 +5,9 @@
  * Entries are built from the core's own events, field by field, so nothing
  * but what is picked here reaches the log: ids, statuses, kinds and counts.
  * Never a Document's name, path or text, Mind content, a Question or an Answer, nor
- * the messages providers and Connectors send back, which can quote any of
- * them, or a key: a failed Answer's message only as `redactMessage` leaves it,
- * so its cause can be found (#1487).
+ * the messages providers send back, which can quote any of them, or a key: a
+ * failed Answer's message, and a failed Connector's cause, only as `redactMessage`
+ * leaves them, so the cause can be found (#1487, #2025).
  */
 import type { Logger } from "./adapters";
 import type {
@@ -106,6 +106,9 @@ export function logActivity(
             ...fields,
             errorKind,
             retrying: connector.error?.retrying ?? false,
+            ...(connector.error?.step !== undefined && { step: connector.error.step }),
+            ...(connector.error?.status !== undefined && { status: connector.error.status }),
+            ...(connector.error?.detail !== undefined && { detail: connector.error.detail }),
           });
         } else {
           log.info("connector.state", { ...fields, state: connector.state });

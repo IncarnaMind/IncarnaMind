@@ -39,6 +39,7 @@ import type {
   Connector,
   ConnectorDirectoryEntry,
   ConnectorError,
+  ConnectorFailureStep,
   ConnectorImportEntry,
   ConnectorImportResult,
   ConnectorSignInError,
@@ -662,6 +663,7 @@ export function createConnectors(options: ConnectorsOptions) {
     generation: number,
     transport: Transport,
     onLost: () => void,
+    onTools: () => void = () => undefined,
   ): Promise<{ client: Client; tools: ToolInfo[]; ready(): void }> {
     const current = () => !closed && runtime.generation === generation;
     let ready = false;
@@ -684,6 +686,7 @@ export function createConnectors(options: ConnectorsOptions) {
       if (ready) onLost();
     };
     await client.connect(transport, { timeout: timing.connectTimeoutMs });
+    onTools();
     const tools: ToolInfo[] = [];
     if (client.getServerCapabilities()?.tools) {
       let cursor: string | undefined;
@@ -796,6 +799,7 @@ export function createConnectors(options: ConnectorsOptions) {
     runtime.controller = controller;
     let keyRefused = false;
     let unreachable = false;
+    let step: ConnectorFailureStep = "headers";
     try {
       gate.check("connectors", serviceOf(requireRow(id)));
       const headers = Object.fromEntries(
@@ -810,10 +814,12 @@ export function createConnectors(options: ConnectorsOptions) {
       );
       for (const value of Object.values(headers)) runtime.headerValues.add(value);
       runtime.redact = hideHeaders(runtime.headerValues);
+      step = "sign-in";
       await auth.load();
       // An access token that has expired is renewed first, rather than sent to be refused.
       if (config.headers.length === 0) await auth.refreshIfStale();
       if (!current()) return;
+      step = "connect";
       const open = async (kind: "http" | "sse") => {
         const connection = await remoteTransport(url, auth, {
           connection: kind,
@@ -829,7 +835,10 @@ export function createConnectors(options: ConnectorsOptions) {
               keyRefused = true;
               if (runtime.state === "ready")
                 lost(id, runtime, generation, () =>
-                  remoteError(new KeyRefusedError("The server refused this key.")),
+                  remoteError(new KeyRefusedError("The server refused this key."), {
+                    step: "connect",
+                    secrets: [...runtime.headerValues],
+                  }),
                 );
             },
             onUnreachable: () => {
@@ -843,14 +852,21 @@ export function createConnectors(options: ConnectorsOptions) {
         }
         connectionState.transport = connection;
         runtime.session = { close: () => connection.close(), kill: () => void connection.close() };
-        const connected = await handshake(runtime, generation, connection, () =>
-          lost(id, runtime, generation, () => ({
-            kind: "stopped",
-            command: null,
-            install: null,
-            message: "The connection closed.",
-            retrying: false,
-          })),
+        const connected = await handshake(
+          runtime,
+          generation,
+          connection,
+          () =>
+            lost(id, runtime, generation, () => ({
+              kind: "stopped",
+              command: null,
+              install: null,
+              message: "The connection closed.",
+              retrying: false,
+            })),
+          () => {
+            step = "tools";
+          },
         );
         if (current()) runtime.connection = kind;
         return connected;
@@ -883,6 +899,7 @@ export function createConnectors(options: ConnectorsOptions) {
               : unreachable
                 ? new TypeError("fetch failed")
                 : error,
+            { step: "connect", secrets: [...runtime.headerValues] },
           ),
         );
       };
@@ -914,6 +931,7 @@ export function createConnectors(options: ConnectorsOptions) {
                 install: null,
                 message: error.message,
                 retrying: false,
+                step: "headers",
               }
             : remoteError(
                 keyRefused
@@ -921,6 +939,7 @@ export function createConnectors(options: ConnectorsOptions) {
                   : unreachable
                     ? new TypeError("fetch failed")
                     : error,
+                { step, secrets: [...runtime.headerValues] },
               ),
         );
     }
@@ -1096,7 +1115,10 @@ export function createConnectors(options: ConnectorsOptions) {
         `The User needs to sign in to the Connector "${row.name}" again (in Settings → Connectors), so it can't be used now. Go on without it.`,
       );
     }
-    const reason = remoteError(error);
+    const reason = remoteError(error, {
+      step: "call",
+      secrets: [...runtime.headerValues],
+    });
     if (reason.kind === "unreachable" || reason.kind === "key-refused")
       lost(row.id, runtime, generation, () => reason);
   };
@@ -1526,7 +1548,9 @@ export function createConnectors(options: ConnectorsOptions) {
       // Every environment goes to the keychain: check it can take them before adding any.
       const hasSecrets = (config: ConnectorConfig | null) =>
         config &&
-        Object.keys(config.transport === "stdio" ? config.env : config.headers).length > 0;
+        (config.transport === "stdio"
+          ? Object.keys(config.env).length > 0
+          : Object.values(config.headers).some((value) => value !== ""));
       if (adding.some((each) => hasSecrets(each.config))) {
         const { canSave, protection } = secrets.status();
         if (!canSave) throw new SecretStorageError(protection);

@@ -5476,6 +5476,8 @@ export const zhCN = {
   "connectors.import.confirm.one": "添加 1 个连接器",
   "connectors.import.sends":
     "回答向这些连接器的工具提出的请求会发送给它们，它们可能再通过互联网发送。",
+  "connectors.import.placeholder":
+    "此请求头从环境变量 {name} 取值，IncarnaMind 不读取环境变量。请改为填写密钥。",
   "connectors.import.nothing": "没有可以添加的内容。",
   "connectors.import.adding": "正在添加…",
   "connectors.consent.note": "这个连接器在你的电脑上运行，但它可能会把收到的内容通过网络发送出去。",
