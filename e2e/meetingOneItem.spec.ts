@@ -6,14 +6,18 @@ import { openDatabase } from "../src/core/storage";
 import { migrations } from "../src/core/storage/migrations";
 import {
   addDocuments,
+  closeSettings,
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  openAdvancedModels,
+  openSettings,
   pointAndClick,
   recordMeetingNow,
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  useLocalChatModel,
 } from "./app";
 
 /**
@@ -494,4 +498,46 @@ test("a meeting two walls keep apart from its Transcript stays where it is, and 
   await expect(again.window.getByTestId("sidebar-status")).toBeVisible();
   await expect(again.window.getByTestId("meetings-left-apart")).toHaveCount(0);
   await again.app.close();
+});
+
+test("with automatic tagging on, the User's new Document is tagged and the meeting's Transcript is not", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await setWindowSize(app, window, 1440, 900);
+  await useLocalChatModel(window);
+  const settings = await openSettings(window, "models");
+  const section = await openAdvancedModels(settings);
+  await section.scrollIntoViewIfNeeded();
+  const automatic = section.getByRole("checkbox", {
+    name: /^Tag and sort new Documents automatically/,
+  });
+  await expect(automatic).toBeChecked();
+  const providerId = await window.evaluate(
+    async () =>
+      (
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listChatProviders()
+      )[0]?.id,
+  );
+  if (!providerId) throw new Error("No provider");
+  await section.getByTestId("tagging-other").click();
+  const form = section.getByTestId("tagging-other-form");
+  await form.getByLabel("Connection", { exact: true }).selectOption(providerId);
+  await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
+  await form.getByRole("button", { name: "Use this model", exact: true }).click();
+  await closeSettings(window);
+
+  const { meeting } = await recordAndStop(window);
+  const transcriptId = meeting.transcript?.documentId as string;
+
+  const path = join(sources, "Research notes.txt");
+  await writeFile(path, "Research report about membrane separation and water filtration.");
+  await addDocuments(window, [path]);
+  const row = window.getByTestId("document-list-item").filter({ hasText: "Research notes" });
+  await expect(row).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
+
+  const documents = await (await core(window)).evaluate(async (bridge) => bridge.listDocuments());
+  const transcript = documents.find((each) => each.id === transcriptId);
+  expect(transcript?.tagging).not.toBe("tagged");
+  expect(transcript?.tags).toEqual([]);
+  await app.close();
 });
