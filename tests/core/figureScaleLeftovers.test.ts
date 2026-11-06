@@ -498,6 +498,34 @@ describe("The scale cases #2365 still misses (#2365)", { timeout: 120_000 }, () 
     },
   );
 
+  // protects=#2365; fails_when=a quote of the number alone drops the currency its own line writes, so a unitQuote in another currency ("(in £m)" over "$1,234.5", "金额单位：万英镑" over "收入（元）") scales it instead of refusing.
+  test.each([
+    {
+      language: "English",
+      file: pdf("Currency", ["(in £m)", "Revenue $1,234.5", "Costs $334.5"]),
+      cites: ["1,234.5", "334.5"] as [string, string],
+      numbers: ["1,234.5", "334.5"] as [string, string],
+      unitQuote: "(in £m)",
+    },
+    {
+      language: "Chinese",
+      file: pdfZh("币种", ["金额单位：万英镑", "收入（元） 1,200", "成本（元） 300"]),
+      cites: ["1,200", "300"] as [string, string],
+      numbers: ["1,200", "300"] as [string, string],
+      unitQuote: "金额单位：万英镑",
+    },
+  ])("a bare-number quote keeps the currency its line states: $language", async (each) => {
+    const recorded = await record({
+      file: each.file,
+      cites: each.cites,
+      numbers: each.numbers,
+      unitQuote: each.unitQuote,
+      query: "currency rows revenue costs",
+    });
+
+    expect([null, 900]).toContain(recorded.value);
+  });
+
   // protects=#2365; fails_when=the exception-clause guard is removed and a bracket that states only an exception ("(except share counts in thousands)") scales the rows.
   test("an exception-only bracket states no scale", async () => {
     const line = "(except share counts in thousands)";

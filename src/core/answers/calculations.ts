@@ -2292,6 +2292,15 @@ export function createCalculationSession(options: CalculationSessionOptions) {
           lineCurrency.code !== ownCurrency
         )
           return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars} is in ${ownCurrency}; quote a line in ${ownCurrency} that states the scale.`;
+        // A quote of the number alone leaves out the currency its own line or row head writes:
+        // a line in another currency can't state its scale (#2365).
+        if (base.unit.kind === "plain" && lineCurrency?.kind === "currency") {
+          const at = page.at + figure.start;
+          const line = lineOf(page.text, at, at + figure.chars.length);
+          const onLine = ownRow?.ownCurrency ?? currencyOnItsFigure(line, context)?.code ?? null;
+          if (onLine !== null && onLine !== lineCurrency.code)
+            return `the unitQuote "${unit.citation.quote}" states ${lineCurrency.code}, but ${figure.chars}'s own line states ${onLine}; quote a line in ${onLine} that states the scale, or quote the number with its currency.`;
+        }
         const applies =
           readings.find((each) => each.scale !== 1) ??
           readings.find((each) => each.unit.kind !== base.unit.kind) ??
