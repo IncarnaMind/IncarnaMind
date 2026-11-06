@@ -96,7 +96,9 @@ export function citationNode(citation: Citation | null): NodeJSON {
   );
   return {
     type: CITATION_NODE,
-    attrs: Object.fromEntries(Object.entries(kept).filter(([, value]) => value !== null)),
+    attrs: Object.fromEntries(
+      Object.entries(kept).filter(([, value]) => value !== null && value !== undefined),
+    ),
   };
 }
 
