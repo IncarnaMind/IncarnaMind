@@ -898,7 +898,9 @@ function notProposed(
   const { id: mindId, name } = mind;
   switch (result.kind) {
     case "unchanged":
-      return `No change was needed in “${name}”: the text already does what was asked. Nothing was proposed.`;
+      return result.said
+        ? `Nothing was changed in “${name}”: the rewrite answered in words of its own instead of new text, and they were not written: “${result.said}”. Nothing was proposed.`
+        : `No change was needed in “${name}”: the text already does what was asked. Nothing was proposed.`;
     case "has-proposals":
       return new Refusal(
         { kind: "waiting", mindId, count: 0, mixed: false },

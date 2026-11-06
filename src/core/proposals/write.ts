@@ -2314,9 +2314,12 @@ export function proposeRewrite(
   request: string,
   newId: () => string,
   fresh: ReadonlyMap<number, Attributes> = new Map(),
-  { named = false }: { named?: boolean } = {},
+  { named = false, removesOnly = false }: { named?: boolean; removesOnly?: boolean } = {},
 ): Written {
-  const rewrite = createRewriteStream(selection, request, newId, () => fresh, { named });
+  const rewrite = createRewriteStream(selection, request, newId, () => fresh, {
+    named,
+    removesOnly,
+  });
   rewrite.write(text, true);
   rewrite.finish();
   const written = rewrite.written();
@@ -2394,7 +2397,13 @@ export function createRewriteStream(
   {
     leftOut: onLeftOut = "remove",
     named = false,
-  }: { leftOut?: "keep" | "remove"; named?: boolean } = {},
+    removesOnly = false,
+  }: {
+    leftOut?: "keep" | "remove";
+    named?: boolean;
+    /** The request asks only for text to go (#2356). */
+    removesOnly?: boolean;
+  } = {},
 ) {
   const { proposals, next } = proposalsOf(request, newId);
   const notes = notesOf();
@@ -2525,6 +2534,8 @@ export function createRewriteStream(
   let anchored = false;
   /** How many of the new text's paragraphs were paired with the selection's. */
   let pairedSoFar = 0;
+  /** Each new paragraph the text wrote in a paragraph's place, with that paragraph. */
+  const inPlaceOf: { segment: Segment; paragraph: NewParagraph }[] = [];
   /** A new paragraph was written, paired or added: where the next goes follows it. */
   let placedAny = false;
   /** Paragraphs like none of the selection's at all, before any was much like one. */
@@ -2639,6 +2650,7 @@ export function createRewriteStream(
     at = index + 1;
     pairedSoFar++;
     placedAny = true;
+    inPlaceOf.push({ segment, paragraph });
   };
 
   const addNew = (paragraph: NewParagraph) => {
@@ -3266,6 +3278,28 @@ export function createRewriteStream(
         if (talks) {
           onlyAside = true;
           aside.push(...addedAnew.map((paragraph) => plainWords(paragraph.tokens)));
+        }
+        // Asked only to take text out, a text that names none and writes in paragraphs' places
+        // without saying their own words is talking too: a removal never writes mostly new text,
+        // so "The sentence isn't in the passage." is its words, never the Note's (#2356).
+        const talksOverRemoval =
+          !talks &&
+          removesOnly &&
+          named &&
+          byName === false &&
+          quotes.length === 0 &&
+          inPlaceOf.length > 0 &&
+          inPlaceOf.every(
+            ({ segment, paragraph }) => isPlain(paragraph) && !saysItsOwn(segment, paragraph),
+          ) &&
+          addedAnew.every(isPlain);
+        if (talksOverRemoval) {
+          onlyAside = true;
+          aside.push(
+            ...[...inPlaceOf.map(({ paragraph }) => paragraph), ...addedAnew].map((paragraph) =>
+              plainWords(paragraph.tokens),
+            ),
+          );
         }
       }),
 

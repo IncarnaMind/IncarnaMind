@@ -843,6 +843,7 @@ export function createEdits(options: EditsOptions) {
                 ? "keep"
                 : "remove",
             named,
+            removesOnly: ask.removesOnly === true,
           },
         );
     let held = false;
@@ -1227,9 +1228,17 @@ export function createEdits(options: EditsOptions) {
       if (unclear.length > 0) return nothing({ kind: "unplaced", quotes: unclear });
       if (sameText(reply, passage)) return nothing({ kind: "unchanged" });
       const request = randomUUID();
+      // A revision of a removal asked only to take text out is held to it, as the removal was.
+      const removing = content.read(input.mindId, (mind) => {
+        const doc = mind.doc;
+        return doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
+      });
       const written = fork.transact(() => {
         const fresh = freshCitations(selection, options.recheck)(reply);
-        const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh, { named });
+        const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh, {
+          named,
+          removesOnly: removing,
+        });
         resolveProposals(blocks, (each) => each.request === request, "accept");
         return rewritten;
       });
@@ -1240,7 +1249,10 @@ export function createEdits(options: EditsOptions) {
       if (written.notPlaced) return nothing({ kind: "not-placed" });
       if (written.unplaced) return nothing({ kind: "unplaced", quotes: written.unplaced });
       if (written.proposals.length === 0 || written.onlyAside)
-        return nothing({ kind: "unchanged" });
+        return nothing({
+          kind: "unchanged",
+          ...(written.aside && { said: written.aside.join(" ") }),
+        });
       const { droppedCitations, notes } = written;
       const revised = stretch().map((element) => element.clone());
       const made: ProposalRequest = {
@@ -1254,8 +1266,6 @@ export function createEdits(options: EditsOptions) {
       const blockIds = content.edit(input.mindId, (mind) => {
         const asked = input.requested !== null && ownAsked(mind, own);
         const doc = mind.doc;
-        // A revision of a removal asked only to take text out is held to it, as the removal was.
-        const removing = doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
         const ids = replaceOwn(mind, own, revised, request, input.ownRequests);
         if (ids && doc) {
           recordProposalRequest(doc, request, {
