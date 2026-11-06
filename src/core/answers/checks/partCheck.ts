@@ -125,7 +125,13 @@ export function createPartCheck(
     const sortAlone = async (): Promise<Sorted> => {
       const sorted = await limit.run(() =>
         inCheck({ sentence, part: null }, () =>
-          claimsAmong(request.model, [{ text: request.claim }], "own", request.signal),
+          claimsAmong(
+            request.model,
+            [{ text: request.claim }],
+            "own",
+            request.signal,
+            request.searched !== undefined && request.window === undefined,
+          ),
         ),
       );
       if (sorted.kind === "cancelled") return { failed: failed("stopped") };

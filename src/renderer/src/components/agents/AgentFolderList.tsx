@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { type AgentFolderRow, agentFolderRows, onlyNotInAFolder } from "../../agentFolders";
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
+import { isListedDocument } from "../../meetingTranscript";
 import { useAppStore } from "../../store";
 import { FolderLineIcon, PlusLineIcon } from "../lineIcons";
 import { buttonStyle } from "../ui";
@@ -38,7 +39,7 @@ export function AgentFolderList({
   const t = useT();
   const language = useLanguage();
   const picking = useAppStore((state) => state.pickingDocuments);
-  const anyDocument = useAppStore((state) => state.documents.length > 0);
+  const anyDocument = useAppStore((state) => state.documents.some(isListedDocument));
 
   if (!anyDocument) {
     return (

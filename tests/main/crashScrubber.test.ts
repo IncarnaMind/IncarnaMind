@@ -137,10 +137,19 @@ function mainProcessError(message: string): ErrorEvent {
     contexts: {
       os: { name: "macOS", version: "26.1", kernel_version: "25.5.0" },
       app: { app_name: "IncarnaMind", app_version: "0.1.0", app_memory: 1234 },
-      device: { arch: "arm64", family: "Desktop", name: "Alices-MacBook-Pro", boot_time: "x" },
+      device: {
+        arch: "arm64",
+        family: "Desktop",
+        processor_count: 12,
+        memory_size: 34_359_738_368,
+        name: "Alices-MacBook-Pro",
+        boot_time: "x",
+      },
       culture: { locale: "en-GB", timezone: "Europe/London" },
       runtime: { name: "Electron", version: "44.5.1" },
+      browser: { name: "Chrome" },
       chrome: { name: "Chrome", type: "runtime", version: "140.0.7339.80" },
+      node: { name: "Node", type: "runtime", version: "22.14.0" },
       trace: { trace_id: "abc", span_id: "def" },
       custom: { note: "Quarterly revenue fell" },
     },
@@ -164,6 +173,7 @@ describe("Scrubbing crash reports", () => {
 
     expect(event).toMatchObject({
       event_id: "0f0e0d0c0b0a09080706050403020100",
+      timestamp: 1_791_000_000,
       level: "error",
       platform: "node",
       release: "IncarnaMind@0.1.0",
@@ -197,9 +207,16 @@ describe("Scrubbing crash reports", () => {
     expect(event.contexts).toEqual({
       os: { name: "macOS", version: "26.1", kernel_version: "25.5.0" },
       app: { app_name: "IncarnaMind", app_version: "0.1.0" },
-      device: { arch: "arm64", family: "Desktop" },
+      device: {
+        arch: "arm64",
+        family: "Desktop",
+        processor_count: 12,
+        memory_size: 34_359_738_368,
+      },
       runtime: { name: "Electron", version: "44.5.1" },
+      browser: { name: "Chrome" },
       chrome: { name: "Chrome", type: "runtime", version: "140.0.7339.80" },
+      node: { name: "Node", type: "runtime", version: "22.14.0" },
     });
   });
 

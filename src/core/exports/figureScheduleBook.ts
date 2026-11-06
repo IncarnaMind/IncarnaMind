@@ -159,9 +159,11 @@ export function figureScheduleBook(
       ],
     };
     // What it is worked out from, a formula's inputs or the ranges and figures its Analysis read.
-    const inputs = unchecked
-      ? []
-      : childrenOf(row, schedule).filter((line) => line.input !== undefined || line.range);
+    // An Analysis's figure is its run's, Not checked or not: what it read is still where it came from.
+    const inputs =
+      unchecked && !row.calculated?.figure.analysis
+        ? []
+        : childrenOf(row, schedule).filter((line) => line.input !== undefined || line.range);
     return [
       figureRow,
       ...inputs.map((line): SheetRow => {

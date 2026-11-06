@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import { useEffect, useState } from "react";
 import type { ConversationAnswer } from "../../../../core/api";
 import { mindCheckOf } from "../../../../shared/mindCheck";
+import { useChecksWaitForConsent } from "../../checksConsent";
 import { originOf } from "../../editor/blockOrigins";
 import { type SentencePlace, toCheckRanges } from "../../editor/healthCounts";
 import { mindEditor, whenMindEditor } from "../../editor/openEditors";
@@ -96,6 +97,7 @@ function SelfCheckGroup({ check }: { check: SelfCheck }) {
   const language = useLanguage();
   const blocksKey = check.blocks?.join(" ") ?? "";
   const left = useWriteLeft(check.mindId, blocksKey);
+  const consentWaiting = useChecksWaitForConsent();
   const checkNow =
     blocksKey === ""
       ? null
@@ -104,7 +106,7 @@ function SelfCheckGroup({ check }: { check: SelfCheck }) {
         };
   return (
     <div>
-      {selfCheckLines(check, t, language, new Date(), left).map((line) => {
+      {selfCheckLines(check, t, language, new Date(), left, consentWaiting).map((line) => {
         const action =
           line.action && line.action.does === "check" && checkNow
             ? {
