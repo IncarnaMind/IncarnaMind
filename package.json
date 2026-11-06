@@ -12,6 +12,7 @@
     "node": ">=24"
   },
   "overrides": {
+    "node-forge": "^1.4.1",
     "@anthropic-ai/sandbox-runtime": {
       "zod": "$zod"
     }
@@ -175,9 +176,6 @@
     "typescript": "7.0.2",
     "vite": "7.3.7",
     "vitest": "5.0.3"
-  },
-  "overrides": {
-    "node-forge": "^1.4.1"
   },
   "allowScripts": {
     "esbuild": true,
