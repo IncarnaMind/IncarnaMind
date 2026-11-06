@@ -1168,7 +1168,7 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
-  "claim.unsupported.unit.library": "Your Library lists {amount}, not {figure}.",
+  "claim.unsupported.unit.library": "Your Library has {amount}, not {figure}.",
   "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
@@ -1323,8 +1323,8 @@ export const en = {
   "claim.library.unfiled": "{count} Documents not in a Folder",
   "claim.library.name.one": "1 Document named “{name}”",
   "claim.library.name": "{count} Documents named “{name}”",
-  "claim.library.shared.one": "1 name more than one Document shares",
-  "claim.library.shared": "{count} names more than one Document shares",
+  "claim.library.shared.one": "1 name shared by several Documents",
+  "claim.library.shared": "{count} names shared by several Documents",
   "claim.library.folders.one": "1 Folder",
   "claim.library.folders": "{count} Folders",
   "claim.library.tags.one": "1 Tag",
@@ -3185,9 +3185,9 @@ export const en = {
   "consent.data.file-properties":
     "A file’s name, its own dates (or this computer’s when it has none), author, page, slide or sheet count and size, for a sentence about the file",
   "consent.data.absence-documents":
-    "Whole Documents in the scope, up to 40 pages, for a sentence that says something is absent",
+    "Whole Documents in the scope, up to 40 pages in all, for a sentence that says something is absent",
   "consent.data.watched-sentences":
-    "After a new version of a Document, the cited sentences of the notes in its Folder",
+    "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":

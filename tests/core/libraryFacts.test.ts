@@ -403,7 +403,7 @@ describe.each(["en", "zh-CN"] as const)("a sentence about the Library (%s)", (la
     expect(supported.check.state).toBe("supported");
     expect(rowOf(supported.check, language)).toBe(
       language === "en"
-        ? "Your Library: 1 name more than one Document shares"
+        ? "Your Library: 1 name shared by several Documents"
         : "你的资料库：1 个名称由多个文档共用",
     );
 
@@ -745,8 +745,8 @@ describe("a count wrong by its scale or unit", () => {
 
   // protects=a Library count at another scale says it is the Library's number, never a Document's; fails_when="The Document gives 22, not 22 thousand." for a count of the Library.
   test.each([
-    ["en", "Your Library holds 22 thousand Documents.", "Your Library lists 22, not 22 thousand."],
-    ["zh-CN", "你的资料库里有 22 万个文档。", "资料库列出的是 22，不是 22 万个。"],
+    ["en", "Your Library holds 22 thousand Documents.", "Your Library has 22, not 22 thousand."],
+    ["zh-CN", "你的资料库里有 22 万个文档。", "你的资料库有 22，不是 22 万个。"],
   ] as const)("%s: %s says why with the Library's number", async (language, sentence, reason) => {
     const setup = await setUp(
       files(22),
@@ -1066,12 +1066,12 @@ describe("the words for what a check sends", () => {
         "句子说的是文件本身时，文件的名称、文件自身的日期（没有时用这台电脑记录的日期）、作者、页数（或幻灯片数、工作表数）和大小",
       ],
       "absence-documents": [
-        "Whole Documents in the scope, up to 40 pages, for a sentence that says something is absent",
-        "句子说某处没有某内容时，范围内的整份文档（最多 40 页）",
+        "Whole Documents in the scope, up to 40 pages in all, for a sentence that says something is absent",
+        "句子说某处没有某内容时，范围内的整份文档（总共最多 40 页）",
       ],
       "watched-sentences": [
-        "After a new version of a Document, the cited sentences of the notes in its Folder",
-        "文档有新版本后，所在文件夹中笔记里带引用的句子",
+        "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
+        "文档有新版本后，所在文件夹中笔记里带引用的句子，用于查找矛盾",
       ],
     } as const;
     for (const [kind, [english, chinese]] of Object.entries(kinds)) {
