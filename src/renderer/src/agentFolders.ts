@@ -9,6 +9,7 @@ import {
   NOT_IN_A_FOLDER_ID,
 } from "../../core/api";
 import { treeCounts } from "./libraryPage";
+import { isListedDocument } from "./meetingTranscript";
 
 export interface AgentFolderRow {
   /** The Folder's id, or `NOT_IN_A_FOLDER_ID`. */
@@ -29,15 +30,16 @@ export function agentFolderRows(
   assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId">[],
 ): AgentFolderRow[] {
   const folderOf = new Map(assignments.map((each) => [each.documentId, each.groupId]));
+  const listed = documents.filter(isListedDocument);
   const counts = treeCounts(
     folders,
-    documents.flatMap((document) => {
+    listed.flatMap((document) => {
       const id = folderOf.get(document.id) ?? null;
       return id === null ? [] : [{ folderId: id }];
     }),
   );
   const known = new Set(folders.map((folder) => folder.id));
-  const loose = documents.filter((document) => {
+  const loose = listed.filter((document) => {
     const id = folderOf.get(document.id) ?? null;
     return id === null || !known.has(id);
   });

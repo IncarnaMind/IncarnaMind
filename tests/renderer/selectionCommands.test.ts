@@ -72,6 +72,7 @@ const documentOf = (id: string): Document => ({
   reference: null,
   ownFile: null,
   yourNote: null,
+  meetingMindId: null,
   notCited: false,
   found: null,
   importedAs: null,

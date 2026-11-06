@@ -12,7 +12,7 @@ import { MindIdContext } from "./editor/mindContext";
 import { describeError } from "./errors";
 import { folderWallOf } from "./folders";
 import { useAppStore } from "./store";
-import { keptInsideName } from "./walls";
+import { keptInsideName, wallsOf } from "./walls";
 
 /** How the core says the Note or conversation a Question would be asked in is deleted. */
 const GONE: ReadonlySet<string> = new Set(["error.mind.notFound", "error.conversation.notFound"]);
@@ -77,7 +77,7 @@ export function useKeptInside(documentId: string | null): string | null {
   const conversation = useOpenConversation();
   return useAppStore((state) =>
     keptInsideName(
-      state.library,
+      wallsOf(state),
       documentId,
       mindId !== null
         ? (state.minds.find((mind) => mind.id === mindId)?.folderId ?? null)

@@ -245,6 +245,14 @@ import { listParts, meetingFolder } from "./meetings/audioFiles";
 import { createMeetingFill } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
+import {
+  joinedMeetings,
+  joinedMeetingsSaid,
+  meetingsLeftApart,
+  meetingsLeftApartSaid,
+  transcriptsApart,
+  undoMeetingJoin,
+} from "./meetings/oneItem";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
@@ -262,7 +270,7 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
-import { newestReads } from "./newest";
+import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
 import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
@@ -1685,8 +1693,9 @@ export function createCore(adapters: CoreAdapters): Core {
     const made = examples.made();
     if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
     const left = new Set(made.documentIds);
+    // The examples are the User's Library until a Document of their own exists (#1942), a
+    // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
-    // The examples are the User's Library until a Document of their own exists (#1942).
     return own.length > 0 ? own : null;
   };
   /**
@@ -2054,10 +2063,11 @@ export function createCore(adapters: CoreAdapters): Core {
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
       // The Library's count is what its page shows: the examples until the User has a Document of
-      // their own, and theirs alone from then on (#1942).
+      // their own, and theirs alone from then on (#1942); a meeting is a Note, its Transcript no
+      // Document of the page's (#2528).
       libraryCount: () => {
         const example = new Set(examples.made().documentIds);
-        const all = documents.ids({});
+        const all = documents.ids({ listed: true });
         const own = all.filter((id) => !example.has(id));
         return own.length > 0 ? own.length : all.length;
       },
@@ -2528,6 +2538,15 @@ export function createCore(adapters: CoreAdapters): Core {
   /** Sends a Document or several to Recently deleted. */
   const removeDocuments = (ids: readonly string[], at: string = now()) => {
     for (const deleted of documents.delete(ids, at)) activity.documentDeleted(deleted);
+  };
+  /** Documents the User may delete on their own: a Meeting's Transcript goes with its Note (#2528). */
+  const deletable = (ids: readonly string[]): readonly string[] => {
+    for (const id of ids) {
+      if (typeof id === "string" && liveDocument(id)?.meetingMindId) {
+        throw new InvalidInputError({ key: "error.transcript.withNote" });
+      }
+    }
+    return ids;
   };
 
   /**
@@ -3288,6 +3307,14 @@ export function createCore(adapters: CoreAdapters): Core {
     const live = documents.getMany(documentIds);
     if (live.length > 0) events.emit("documents.tagged", live);
   };
+  /** A Document the User may tag; a Meeting's Transcript has no Tags of its own (#2528). */
+  const taggable = (documentId: unknown): Document => {
+    const document = documents.get(documentId);
+    if (document.meetingMindId !== null) {
+      throw new InvalidInputError({ key: "error.transcript.tagWithNote" });
+    }
+    return document;
+  };
   /**
    * The User's change to one Tag on several Documents: all of it or nothing,
    * in one transaction, then one "documents.tagged" event for those that changed.
@@ -3681,14 +3708,6 @@ export function createCore(adapters: CoreAdapters): Core {
       restored: (restoredMeetings) => {
         const audio = meetings.restored(restoredMeetings);
         const meetingIds = restoredMeetings.map((each) => each.meetingId);
-        // One made while its note waited in Recently deleted goes to the note's Folder now.
-        for (const meetingId of meetingIds) {
-          const documentId = meetings.transcriptOf(meetingId);
-          const folderId = minds.get(meetings.get(meetingId).mindId).folderId;
-          if (!documentId || !folderId || !liveDocument(documentId)) continue;
-          const filed = db.get("SELECT 1 FROM document_groups WHERE document_id = ?", [documentId]);
-          if (!filed) library.assign(documentId, folderId);
-        }
         meetingFill.restored(meetingIds);
         return {
           lost: audio.lost,
@@ -3725,6 +3744,8 @@ export function createCore(adapters: CoreAdapters): Core {
    * this is the start, which keeps the pause a quit interrupted.
    */
   const taggingChanged = async (endsPause = true) => {
+    // No newest-read guard: this carries no list, only a "library.changed" that makes the Tagging
+    // settings read the models again, so an older list can't be emitted (#2398).
     try {
       await tagging.resolve();
     } catch (error) {
@@ -3796,7 +3817,11 @@ export function createCore(adapters: CoreAdapters): Core {
   const readinessChanged = async () => {
     const newest = readinessRead();
     try {
-      const readiness = await chat.readiness();
+      const readiness = await readNewest(
+        newest,
+        () => chat.readiness(),
+        () => lifetime.signal.aborted,
+      );
       if (!lifetime.signal.aborted && newest()) events.emit("chatReadiness.changed", readiness);
     } catch (error) {
       // Reading the keychain is async, so the core may have closed meanwhile: nobody is listening.
@@ -3809,6 +3834,8 @@ export function createCore(adapters: CoreAdapters): Core {
   chatGptChanged = () => {
     const report = async () => {
       const newest = chatGptRead();
+      // The status never rejects: a keychain failure reads as "unreadable" and a model-list
+      // failure as the known models, so there is no failed newest read to retry (#2398).
       const status = await chatGpt.status();
       if (lifetime.signal.aborted) return;
       if (newest()) events.emit("chatGptPlan.changed", status);
@@ -3832,6 +3859,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Not a readiness change: the renderer keeps its model lists.
   chatGptLimitsChanged = () => {
     const newest = chatGptRead();
+    // As the plan's status, this read never rejects (#2398).
     chatGpt.status().then(
       (status) => {
         if (!lifetime.signal.aborted && newest()) events.emit("chatGptPlan.changed", status);
@@ -3845,6 +3873,8 @@ export function createCore(adapters: CoreAdapters): Core {
   copilotChanged = () => {
     const report = async () => {
       const newest = copilotRead();
+      // As the ChatGPT plan's status, this never rejects: a keychain failure reads as "unreadable",
+      // so there is no failed newest read to retry (#2398).
       const status = await copilot.status();
       if (lifetime.signal.aborted) return;
       if (newest()) events.emit("copilot.changed", status);
@@ -4023,7 +4053,11 @@ export function createCore(adapters: CoreAdapters): Core {
   /** After the User allows or revokes a flow: the flows as they are now, and what that changes. */
   const dataFlowsChanged = async () => {
     const newest = dataFlowsRead();
-    const flows = await consent.listRegistered();
+    const flows = await readNewest(
+      newest,
+      () => consent.listRegistered(),
+      () => lifetime.signal.aborted,
+    );
     if (lifetime.signal.aborted) return;
     if (newest()) events.emit("dataFlows.changed", flows);
     await readinessChanged();
@@ -4279,8 +4313,6 @@ export function createCore(adapters: CoreAdapters): Core {
             return;
           }
           documents.addSnapshot(id, name, file, link, "transcript");
-          const folderId = meeting ? minds.get(meeting.mindId).folderId : null;
-          if (folderId) library.assign(id, folderId);
         },
         check: (path) => documents.check(path),
         checkNow: async (documentId, path) => {
@@ -4368,6 +4400,12 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  // One meeting is one item (#2528): a pair an earlier version left apart is put right first.
+  db.transaction(() => {
+    for (const { deletedAt, documentIds } of transcriptsApart(db, now())) {
+      removeDocuments(documentIds, deletedAt);
+    }
+  });
   transcriptionGateChanged = () => transcripts?.recheckCloud();
   meetingHelpOf = (mindId, question) => {
     const meeting = meetings.liveOf(mindId);
@@ -5271,8 +5309,8 @@ export function createCore(adapters: CoreAdapters): Core {
       events.emit("documents.renamed", [renamed]);
       return renamed;
     },
-    deleteDocument: async (id) => removeDocuments([id]),
-    deleteDocuments: async (ids) => removeDocuments(ids),
+    deleteDocument: async (id) => removeDocuments(deletable([id])),
+    deleteDocuments: async (ids) => removeDocuments(deletable(ids)),
     retryDocument: async (id) => documents.retry(id),
     readHiddenSheets: async (id, readHidden) => documents.readHiddenSheets(id, readHidden),
     unlockDocument: async (input) => {
@@ -5972,7 +6010,7 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteTag: async (tagId) => removeTag(tagId),
     addDocumentTag: async (documentId, tagId) => {
       const { document, changed } = db.transaction(() => {
-        const document = documents.get(documentId);
+        const document = taggable(documentId);
         return { document, changed: tags.addToDocument(document.id, tagId) };
       });
       if (!changed) return document;
@@ -5991,7 +6029,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return updated;
     },
     addTagToDocuments: async (documentIds, tagId) =>
-      tagMany(documentIds, (id) => tags.addToDocument(id, tagId)),
+      tagMany(documentIds, (id) => tags.addToDocument(taggable(id).id, tagId)),
     removeTagFromDocuments: async (documentIds, tagId) =>
       tagMany(documentIds, (id) => tags.removeFromDocument(id, tagId)),
     listDocumentTagDecisions: async (documentIds) =>
@@ -6454,6 +6492,32 @@ export function createCore(adapters: CoreAdapters): Core {
     respondToFileWrite: (requestId, accept) => outputs.respond(requestId, accept),
 
     listMeetings: async () => meetings.list(),
+    listJoinedMeetings: async () => joinedMeetings(db),
+    joinedMeetingsSaid: async (ids) => joinedMeetingsSaid(db, ids, now()),
+    undoMeetingJoin: async (id) => {
+      const { undone, moved } = db.transaction(() => {
+        const undone = undoMeetingJoin(db, id, now());
+        const moved =
+          undone.noteBackTo === undefined ? [] : minds.move([undone.mindId], undone.noteBackTo);
+        return { undone, moved };
+      });
+      if (moved.some((item) => item.from !== undone.noteBackTo)) {
+        mindsChanged();
+        if (undone.noteBackTo) checks.mindJoinedFolder(undone.mindId);
+      }
+      for (const document of documents.getMany(undone.documentIds)) {
+        events.emit("document.status", document);
+      }
+      library.moved(undone.documentIds);
+      const filedIn = db.all<{ group_id: string }>(
+        `SELECT DISTINCT group_id FROM document_groups
+         WHERE deleted_at IS NULL AND document_id IN (SELECT value FROM json_each(?))`,
+        [JSON.stringify(undone.documentIds)],
+      );
+      for (const row of filedIn) checks.folderContentsChanged(row.group_id);
+    },
+    listMeetingsLeftApart: async () => meetingsLeftApart(db),
+    meetingsLeftApartSaid: async (ids) => meetingsLeftApartSaid(db, ids, now()),
     createMeeting: async (input) => meetings.create(input),
     discardMeeting: async (meetingId) => meetings.discard(meetingId),
     startMeeting: async (input) => meetings.start(input),

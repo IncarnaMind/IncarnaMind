@@ -6,7 +6,7 @@
  * one from the computer's sound "Them" (#941); in a room with no computer
  * sound, "Speaker ?"; in a voice memo (#1568), no one is named. The Transcript
  * is a Document from its first line, kept in the data folder's "Transcripts"
- * and in the Library, indexed again as lines come; at Stop it is finished
+ * and belonging to the Meeting's Note (#2528), indexed again as lines come; at Stop it is finished
  * there, with nothing asked about where files go (#763). Then, while the
  * audio is kept, the speaker pass (./speakerPass, #138) tells voices apart and
  * relabels it; a voice memo has no such pass.
@@ -233,8 +233,8 @@ interface State extends Saved {
 
 export interface TranscriptDocuments {
   /**
-   * Makes the Meeting's Transcript Document from its file: named for its note, in its Folder,
-   * and, while the note waits in Recently deleted, deleted with it (#1253).
+   * Makes the Meeting's Transcript Document from its file: named for its note, which it belongs
+   * to and goes with (#2528), and, while the note waits in Recently deleted, deleted with it (#1253).
    */
   add(meetingId: string, id: string, file: SnapshotFile): void;
   check(path: string): Promise<void>;
