@@ -13,6 +13,7 @@ import { callHelpSet } from "../../eval/speed/callHelp";
 import { CALL_HELP_CASES, callOf, TRANSCRIPT } from "../../eval/speed/callHelpCases";
 import { openLedger } from "../../eval/speed/ledger";
 import { runOnArm } from "../../eval/speed/paired";
+import type { CoreAdapters } from "../../src/core";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { shownPassages } from "../helpers/citations";
 import { type ModelCall, scriptedModel } from "../helpers/models";
@@ -83,8 +84,15 @@ async function pressed(
   if (!group || !item) throw new Error(`No case ${id}.`);
   const calls: ModelCall[] = [];
   const model = helping(quote, calls);
+  // The press answers on an Ollama choice; the model is scripted, so the server is always here.
+  const ollamaModels: CoreAdapters["ollamaModels"] = {
+    describe: async () => null,
+    loaded: async () => null,
+    running: async () => true,
+  };
   const opened = await group.open({
     embedder: createFakeEmbedder(),
+    ollamaModels,
     keep: false,
     log: () => undefined,
     embeddings: false,
@@ -110,8 +118,6 @@ async function pressed(
       grade: async () => "unread",
       claimsJudge: judging(judge.grade, judge.unstated, judged, judge.prose),
     });
-    if (run.status === "failed")
-      console.error("call-help press failed:", JSON.stringify(run.error));
     return { run, calls, judged };
   } finally {
     await opened.close();
