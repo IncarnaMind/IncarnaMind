@@ -672,6 +672,9 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
     !check.scope.widened &&
     check.action !== "contradiction-watch" &&
     check.action !== "check-against-document" &&
+    // A carried check searched the Answer's Question, not this Note's scope: moving the Note
+    // changes nothing it read (#2313).
+    check.fromAnswer === undefined &&
     scopeChanged(check.scope, now)
   ) {
     return { state: "needs-recheck", why: "search-scope" };

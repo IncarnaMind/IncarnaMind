@@ -162,13 +162,13 @@ export function withAnswerChecks(
 ): NodeJSON[] {
   const checks = carriedChecks(answer, question);
   if (checks.size === 0) return [...blocks];
-  const used = new Map<string, number>();
-  const markFor = (key: string, text: string): NodeJSON | null => {
-    const found = checks.get(key);
-    const at = used.get(key) ?? 0;
-    const check = found?.[at];
+  const used = new Set<CarriedCheck>();
+  const markFor = (key: string, text: string, passages: readonly string[]): NodeJSON | null => {
+    const check = checks
+      .get(key)
+      ?.find((each) => !used.has(each) && samePassages(each.passages, passages));
     if (!check) return null;
-    used.set(key, at + 1);
+    used.add(check);
     return {
       type: CLAIM_CHECK_MARK,
       attrs: {
@@ -210,9 +210,25 @@ export function withAnswerChecks(
       .map((node) => (node.type === "text" ? (node.text ?? "") : INLINE_NODE))
       .join("");
     const marks: { from: number; to: number; mark: NodeJSON }[] = [];
+    const beforeMarker = new RegExp(`\\s+(?=${INLINE_NODE})`, "gu");
     for (const span of sentenceSpans(projected)) {
       const text = projected.slice(span.from, span.to);
-      const mark = markFor(comparableSentence(text), text);
+      // The Answer's own reading drops the space a marker leaves before it: so does this key.
+      const key = comparableSentence(text.replace(beforeMarker, ""));
+      let offset = 0;
+      const passages: string[] = [];
+      for (const node of content) {
+        const width = node.type === "text" ? (node.text ?? "").length : 1;
+        if (
+          node.type === CITATION_NODE &&
+          offset >= span.from &&
+          offset < span.to &&
+          typeof node.attrs?.passageId === "string"
+        )
+          passages.push(node.attrs.passageId);
+        offset += width;
+      }
+      const mark = markFor(key, text, passages.sort());
       if (mark) marks.push({ from: span.from, to: span.to, mark });
     }
     if (marks.length === 0) return [...content];
@@ -268,9 +284,14 @@ interface CarriedCheck {
   state: ClaimVerdict;
   verdict: string | null;
   evidence: CitationAttributes;
+  /** The Citations the sentence named, sorted: a mark only lands on the sentence they are in. */
+  passages: string[];
   versions: CheckedVersion[];
   checkedAt: string;
 }
+
+const samePassages = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((passage, index) => passage === b[index]);
 
 const citationAttributes = (citation: MarkedCitation): CitationAttributes => ({
   passageId: citation.passageId ?? null,
@@ -319,14 +340,24 @@ function carriedChecks(
       .sort()
       .at(-1);
     if (checkedAt === undefined) continue;
+    const passages = citations
+      .map((citation) => citation.passageId)
+      .filter((passage): passage is string => typeof passage === "string")
+      .sort();
+    const versions = [
+      ...new Map(judged.map((citation) => [citation.documentId ?? "", citation.contentHash ?? ""])),
+    ]
+      .filter(([documentId]) => documentId !== "")
+      .map(([documentId, contentHash]) => ({ documentId, contentHash }));
     const entry: CarriedCheck = {
       state: contradicted ? "contradicted" : unsupported ? "unsupported" : "supported",
       verdict: deciding.verdict ?? null,
       evidence: citationAttributes(deciding),
-      versions: [
-        { documentId: deciding.documentId ?? "", contentHash: deciding.contentHash ?? "" },
-      ],
-      checkedAt,
+      passages,
+      // Every judged Citation's version: a Document changed after the judgement asks again.
+      versions,
+      // The deciding Citation's own judgement time, not a later sentence's.
+      checkedAt: deciding.judgedAt ?? checkedAt,
     };
     const key = comparableSentence(cited.sentence);
     found.set(key, [...(found.get(key) ?? []), entry]);

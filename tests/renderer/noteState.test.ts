@@ -1010,6 +1010,138 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
     expect(wide[0]).toMatchObject({ scope: { folderId: null, widened: true } });
   });
 
+  test("a Citation's own attributes, its verdict among them, reach the Note's copy", () => {
+    const answer = {
+      id: "answer-verdict",
+      text: `${sentence} [^1]`,
+      citations: [
+        {
+          ...citation,
+          check: "unsupported",
+          judgedAt: CHECKED_AT,
+          verdict: "The plan says December.",
+        },
+      ] as never,
+      figures: [],
+      status: "done" as const,
+      model: { providerId: "provider", modelId: "model" },
+    };
+    const nodes: JSONContent[] = pageBlocks(answer, "") as unknown as JSONContent[];
+    const citations: Record<string, unknown>[] = [];
+    const collect = (list: readonly JSONContent[]) =>
+      list.forEach((node) => {
+        if (node.type === "citation") citations.push(node.attrs as Record<string, unknown>);
+        collect(node.content ?? []);
+      });
+    collect(nodes);
+    expect(citations[0]).toMatchObject({
+      check: "unsupported",
+      verdict: "The plan says December.",
+    });
+    expect(citations[0]).not.toHaveProperty("judgedAt");
+  });
+
+  test("a marker before its full stop still carries: the common model style", () => {
+    const beforeStop = { ...citation, marker: 1 };
+    const answer = {
+      id: "answer-marker-first",
+      text: "Revenue rose 10% [^1].",
+      citations: [{ ...beforeStop, judgedAt: CHECKED_AT }] as never,
+      figures: [],
+      status: "done" as const,
+      model: { providerId: "provider", modelId: "model" },
+    };
+    const blocks = withAnswerChecks(pageBlocks(answer, ""), answer, "", null);
+    const state = readNoteState({
+      cellFigures: [],
+      doc: source(blocks as unknown as JSONContent[]),
+      documents: [{ id: "plan", contentHash: "hash-1", name: "Plan.pdf" } as never],
+      keptCitationTexts: [],
+      folderId: null,
+    }).state;
+    expect(state).toMatchObject({ kind: "checked" });
+  });
+
+  test("a selection of a repeated sentence takes its own Citation's verdict, never the first one's", () => {
+    const costs = {
+      ...citation,
+      marker: 2,
+      passageId: "passage-2",
+      documentId: "costs",
+      documentName: "Costs.pdf",
+      contentHash: "hash-2",
+      check: "unsupported",
+      judgedAt: CHECKED_AT,
+      verdict: "The costs sheet says 8%.",
+    };
+    const answer = {
+      id: "answer-repeated",
+      text: `${sentence} [^1]\n\n${sentence} [^2]`,
+      citations: [{ ...citation, judgedAt: CHECKED_AT }, costs] as never,
+      figures: [],
+      status: "done" as const,
+      model: { providerId: "provider", modelId: "model" },
+    };
+    const full = pageBlocks(answer, "");
+    const selected = [full.at(-1) as unknown as JSONContent];
+    const blocks = withAnswerChecks(
+      selected as never,
+      answer,
+      "",
+      null,
+    ) as unknown as JSONContent[];
+    const state = readNoteState({
+      cellFigures: [],
+      doc: source(blocks),
+      documents: [
+        { id: "plan", contentHash: "hash-1", name: "Plan.pdf" } as never,
+        { id: "costs", contentHash: "hash-2", name: "Costs.pdf" } as never,
+      ],
+      keptCitationTexts: [],
+      folderId: null,
+    }).state;
+    expect(state).toMatchObject({ kind: "needs-look" });
+  });
+
+  test("a Document changed after the judgement asks again", () => {
+    const costs = {
+      ...citation,
+      marker: 2,
+      passageId: "passage-2",
+      documentId: "costs",
+      documentName: "Costs.pdf",
+      contentHash: "hash-2",
+      judgedAt: CHECKED_AT,
+    };
+    const answer = {
+      id: "answer-two-documents",
+      text: `${sentence} [^1][^2]`,
+      citations: [{ ...citation, judgedAt: CHECKED_AT }, costs] as never,
+      figures: [],
+      status: "done" as const,
+      model: { providerId: "provider", modelId: "model" },
+    };
+    const blocks = withAnswerChecks(pageBlocks(answer, ""), answer, "", null);
+    const state = readNoteState({
+      cellFigures: [],
+      doc: source(blocks as unknown as JSONContent[]),
+      documents: [
+        { id: "plan", contentHash: "hash-1", name: "Plan.pdf" } as never,
+        { id: "costs", contentHash: "hash-changed", name: "Costs.pdf" } as never,
+      ],
+      keptCitationTexts: [],
+      folderId: null,
+    }).state;
+    expect(state).toMatchObject({ kind: "not-checked" });
+  });
+
+  test("a Folder-scoped Answer's Note reads Checked: the carried check doesn't depend on where the Note sits", () => {
+    const scope = { folderIds: ["folder-a"], tagIds: [], documentIds: [] };
+    const blocks = blocksOf([{ ...citation, judgedAt: CHECKED_AT }], scope);
+    const state = withPlan(source(blocks)).state;
+    expect(state).toMatchObject({ kind: "checked", checkedAt: CHECKED_AT });
+  });
+
   test("a sentence the judgement didn't settle carries nothing", () => {
     const state = withPlan(
       source(blocksOf([{ ...citation, check: "not-checked", judgedAt: CHECKED_AT }])),

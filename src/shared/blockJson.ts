@@ -29,18 +29,26 @@ const CITATION_MARKER = /\[\^(\d{1,4})\]/g;
  * A Citation node, every attribute set (null ones are left out, as y-tiptap
  * stores them); with no Citation, one still being checked.
  */
-const citationAttributeNames: readonly (keyof CitationAttributes)[] = [
-  "passageId",
-  "documentId",
-  "documentName",
-  "contentHash",
-  "pageFrom",
-  "pageTo",
-  "location",
-  "quote",
-  "check",
-  "checkReason",
-];
+/** Every attribute a Citation's node keeps: a Record, so the compiler names a new one left out. */
+const citationAttributeNames: Record<keyof CitationAttributes, true> = {
+  passageId: true,
+  documentId: true,
+  documentName: true,
+  contentHash: true,
+  pageFrom: true,
+  pageTo: true,
+  location: true,
+  quote: true,
+  check: true,
+  checkReason: true,
+  yourNoteAt: true,
+  unsure: true,
+  pageChecked: true,
+  verdict: true,
+  quotedWords: true,
+  keptOver: true,
+  id: true,
+};
 
 export function citationNode(citation: Citation | null): NodeJSON {
   const attrs: CitationAttributes = citation ?? {
@@ -55,7 +63,12 @@ export function citationNode(citation: Citation | null): NodeJSON {
     check: "checking",
     checkReason: null,
   };
-  const kept = Object.fromEntries(citationAttributeNames.map((name) => [name, attrs[name]]));
+  const kept = Object.fromEntries(
+    (Object.keys(citationAttributeNames) as (keyof CitationAttributes)[]).map((name) => [
+      name,
+      attrs[name],
+    ]),
+  );
   return {
     type: CITATION_NODE,
     attrs: Object.fromEntries(Object.entries(kept).filter(([, value]) => value !== null)),
