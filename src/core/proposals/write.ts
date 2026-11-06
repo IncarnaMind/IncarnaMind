@@ -2128,11 +2128,15 @@ function onlyNumbersDiffer(segment: Segment, paragraph: NewParagraph): boolean {
 }
 
 /**
- * Words and signs as one reading compares them, each character with where it is: any case, and no
- * spaces but one between two letters or digits they part, as they part "now here" from "nowhere"
- * (#2589). Beside a Chinese character a space parts nothing, so "使用 Excel" reads as "使用Excel".
+ * Words and signs as one reading compares them, each character with where it is: any case, unless
+ * `asWritten`, and no spaces but one between two letters or digits they part, as they part "now
+ * here" from "nowhere" (#2589). Beside a Chinese character a space parts nothing, so "使用 Excel"
+ * reads as "使用Excel".
  */
-function readChars(characters: Iterable<{ char: string; at: number }>): {
+function readChars(
+  characters: Iterable<{ char: string; at: number }>,
+  asWritten = false,
+): {
   chars: string;
   at: number[];
 } {
@@ -2145,7 +2149,7 @@ function readChars(characters: Iterable<{ char: string; at: number }>): {
       chars += " ";
       at.push(last.at + 1);
     }
-    const lower = each.char.toLowerCase();
+    const lower = asWritten ? each.char : each.char.toLowerCase();
     chars += lower;
     for (let unit = 0; unit < lower.length; unit++) at.push(each.at);
     last = each;
@@ -2161,15 +2165,19 @@ const unitsOf = (text: string, from: number) =>
   }));
 
 /** A paragraph's words and signs as `readChars` reads them, each character where it is in its Block. */
-function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
+function charsOf(tokens: readonly OldToken[], asWritten = false): { chars: string; at: number[] } {
   return readChars(
     tokens.flatMap((token) => (token.text === undefined ? [] : unitsOf(token.text, token.from))),
+    asWritten,
   );
 }
 
 /** New text's words and signs as `charsOf` reads a paragraph's, each character where it is in that text. */
-function newCharsOf(tokens: readonly NewToken[]): { chars: string; at: number[] } {
-  return readChars(unitsOf(tokens.map((token) => token.text ?? "").join(""), 0));
+function newCharsOf(
+  tokens: readonly NewToken[],
+  asWritten = false,
+): { chars: string; at: number[] } {
+  return readChars(unitsOf(tokens.map((token) => token.text ?? "").join(""), 0), asWritten);
 }
 
 /** A letter or digit of a word that runs on without spaces, unlike a Chinese character. */
@@ -2446,6 +2454,8 @@ export function createRewriteStream(
   const numbersOnly = (segment: Segment, paragraph: NewParagraph) =>
     segments.length > 1 && onlyNumbersDiffer(segment, paragraph);
   const sameAs = segments.map((segment) => charsOf(segment.tokens).chars);
+  /** As `sameAs`, in its case: a line written again in capitals is another line (#2589). */
+  const asWritten = segments.map((segment) => charsOf(segment.tokens, true).chars);
   /**
    * How alike a new paragraph is to each of the selection's, whether it says words of that one's
    * own, what share of them (1 for one with none) and what share of its own words they are, how
@@ -2508,7 +2518,7 @@ export function createRewriteStream(
     return (
       (renamed && index === 0) ||
       [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word)) ||
-      newCharsOf(paragraph.tokens).chars === sameAs[index]
+      newCharsOf(paragraph.tokens, true).chars === asWritten[index]
     );
   };
   /** Much like one of the selection's paragraphs, whichever it is. */
@@ -2720,7 +2730,7 @@ export function createRewriteStream(
     const between = segments.slice(from, to);
     const whole = translating();
     const renamed =
-      from === 0 && next !== undefined && newCharsOf(next.tokens).chars !== sameAs[to];
+      from === 0 && next !== undefined && newCharsOf(next.tokens, true).chars !== asWritten[to];
     // Where the text may leave paragraphs out, a paragraph it doesn't name is never written over
     // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
     // old, each written as their kind. Between two places the text holds, where it pairs with
