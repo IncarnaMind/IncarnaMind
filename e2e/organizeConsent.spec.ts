@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   createDataFolder,
   dismissChatSetup,
@@ -54,6 +55,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await dismissChatSetup(window);
+      // A runner with no keyring keeps the test key as plain text, as the User would accept it.
+      await acceptPlainTextKeys(window);
       await setWindowSize(app, window, 1280, 860);
       await window.evaluate(
         async ({ chosen }) => {
