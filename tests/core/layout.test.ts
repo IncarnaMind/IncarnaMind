@@ -199,7 +199,9 @@ describe("Tabs and groups", () => {
     let layout = await cite(report, "Parks are cooler");
     expect(shown(layout)).toEqual(["*Lit review", "*~Report"]);
     expect(layout.focusedGroupId).toBe(from);
-    expect(layout.groups[0]?.width).toBeCloseTo(0.5);
+    // The Note keeps two thirds of the room, the Citation's page the rest (#2270).
+    expect(layout.groups[0]?.width).toBeCloseTo(2 / 3);
+    expect(layout.groups[1]?.width).toBeCloseTo(1 / 3);
     const preview = tabOf(layout, report).tab;
     expect(preview.place).toEqual({
       pageFrom: 1,
@@ -249,6 +251,22 @@ describe("Tabs and groups", () => {
     // A Citation's Document opened at its current version, out of the version it quotes (#2159).
     layout = await change({ type: "open", item: notes, place: { currentVersion: true } });
     expect(tabOf(layout, notes).tab.place).toEqual({ currentVersion: true });
+  });
+
+  test("a Document opening beside a Mind takes a third of their room; beside another Mind, a half (#2270)", async () => {
+    const { mind, change, report } = await setUp();
+    let layout = await change({ type: "open", item: await mind("Lit review") });
+    layout = await change({ type: "open", item: await mind("Notes"), where: { in: "beside" } });
+    expect(layout.groups[0]?.width).toBeCloseTo(0.5);
+    expect(layout.groups[1]?.width).toBeCloseTo(0.5);
+
+    // The Note is what the User came to write: the page beside it takes the smaller side.
+    const second = layout.groups[1];
+    if (!second) throw new Error("No second group to close.");
+    layout = await change({ type: "closeGroup", groupId: second.id });
+    layout = await change({ type: "open", item: report, where: { in: "beside" } });
+    expect(layout.groups[0]?.width).toBeCloseTo(2 / 3);
+    expect(layout.groups[1]?.width).toBeCloseTo(1 / 3);
   });
 
   test("a Document already open is shown where it is, even in the group it is opened from; Open the page keeps its preview; only Open in a new tab makes a second tab", async () => {

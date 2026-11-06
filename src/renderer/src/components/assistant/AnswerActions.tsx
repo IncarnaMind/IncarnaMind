@@ -26,9 +26,9 @@ const COPIED_MS = 1500;
  * "Add to note ▾" and Copy (#1559), after "Stopped" for one stopped; on hover or focus,
  * and always on the newest. Its model, scope and searches are in its steps.
  * While it is written, Stop is the composer's and the wait line's, not here.
- * Once added, "Added to “{Mind}” · Undo" (⌘Z too), while that can be taken
- * back. Tab reaches each by its name. In an empty note of the User's, or under a
- * long Answer with Citations, Add to note names its note.
+ * Once added, "Added to “{Mind}” · Undo", or "Wrote “{Mind}” · Undo" for a Note it made
+ * (⌘Z too), while that can be taken back. Tab reaches each by its name. In an empty note of
+ * the User's, or under a long Answer with Citations, Add to note names its note.
  */
 export function AnswerActions({
   answer,

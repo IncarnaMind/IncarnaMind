@@ -1,7 +1,7 @@
 /**
- * The first open's ready Question (#2084): about the User's own Document as soon as one of theirs
- * can be answered, and the example's only while they have none. Pure: one reader, which the core's
- * `readyQuestion()` returns to every host.
+ * The first open's ready Question (#2084): about the User's own Documents as soon as one of
+ * theirs can be answered, and the example's only while they have none. Pure: one reader, which
+ * the core's `readyQuestion()` returns to every host.
  */
 import type { Document, ReadyQuestion } from "../core/api";
 import type { Language } from "../core/language";
@@ -36,9 +36,20 @@ export function readyQuestionOf({
   }
   // A missing file's text is left out of search, and a Document the User kept as their own
   // workings is never cited: a Question about either one could not be answered and cited.
-  const latest = own.find(
+  const askable = own.filter(
     (each) => isSearchable(each.status) && each.fileStatus !== "missing" && !each.notCited,
   );
+  if (askable.length === 0) return null;
+  // One Document is asked about by name; more are all asked about alike, so no one of them
+  // reads as the one the app picked (#2270).
+  if (askable.length > 1) {
+    return {
+      question: translate(language, "readyQuestion.documents", { count: askable.length }),
+      scope: { folderIds: [], tagIds: [], documentIds: askable.map((each) => each.id) },
+      waitingFor: null,
+    };
+  }
+  const latest = askable[0];
   if (latest === undefined) return null;
   return {
     question: translate(language, "readyQuestion.document", { document: displayName(latest) }),

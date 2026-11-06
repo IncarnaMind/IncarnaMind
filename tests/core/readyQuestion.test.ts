@@ -60,15 +60,48 @@ test("one Document of their own read: the Question is about it, named, and asks 
   });
 });
 
-test("two Documents of their own: the one added last, the file just added", async () => {
+test("two Documents of their own: both are asked about alike, so neither reads as the one the app picked", async () => {
   const { core, sources } = await start();
-  await addAndProcess(core, [await writeSourceFile(sources, "Harbour notes.md", BRIEF)]);
+  const [notes] = await addAndProcess(core, [
+    await writeSourceFile(sources, "Harbour notes.md", BRIEF),
+  ]);
   const [latest] = await addAndProcess(core, [
     await writeSourceFile(sources, "Project brief.md", BRIEF),
   ]);
   expect(await core.readyQuestion()).toEqual({
-    question: "What does ‘Project brief’ say?",
-    scope: { folderIds: [], tagIds: [], documentIds: [latest?.id] },
+    question: "What do your 2 Documents say?",
+    scope: { folderIds: [], tagIds: [], documentIds: [latest?.id, notes?.id] },
+    waitingFor: null,
+  });
+});
+
+test("an English Document and then a Chinese one, in English: one Question over both, naming neither", async () => {
+  const { core, sources } = await start();
+  const [lease] = await addAndProcess(core, [
+    await writeSourceFile(sources, "Eastgate office lease.md", BRIEF),
+  ]);
+  const [dongmen] = await addAndProcess(core, [
+    await writeSourceFile(sources, "东门办公室租约.md", "# 东门办公室租约\n\n租约写明了租期。\n"),
+  ]);
+  expect(await core.readyQuestion()).toEqual({
+    question: "What do your 2 Documents say?",
+    scope: { folderIds: [], tagIds: [], documentIds: [dongmen?.id, lease?.id] },
+    waitingFor: null,
+  });
+});
+
+test("an English Document and then a Chinese one, in Chinese: the Question over both is Chinese too", async () => {
+  const { core, sources } = await start();
+  await core.updateSettings({ user: { language: "zh-CN" } });
+  const [lease] = await addAndProcess(core, [
+    await writeSourceFile(sources, "Eastgate office lease.md", BRIEF),
+  ]);
+  const [dongmen] = await addAndProcess(core, [
+    await writeSourceFile(sources, "东门办公室租约.md", "# 东门办公室租约\n\n租约写明了租期。\n"),
+  ]);
+  expect(await core.readyQuestion()).toEqual({
+    question: "这 2 个文档讲了什么？",
+    scope: { folderIds: [], tagIds: [], documentIds: [dongmen?.id, lease?.id] },
     waitingFor: null,
   });
 });
