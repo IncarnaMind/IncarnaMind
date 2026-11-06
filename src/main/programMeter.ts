@@ -15,6 +15,52 @@ import type { ProgramMeter, ProgramUse } from "../core/execution";
 
 const execFileAsync = promisify(execFile);
 
+interface MeasureRead { scenario: string; wallMs: number; cpuMs: number; pids: number; fds: number; outcome: string }
+interface MeasureTrace { scenario: string; reads: MeasureRead[]; errnos: Record<string, Record<string, number>>; overdue: Record<string, number>; fds: number; tree: Record<string, string[]> }
+const measureTrace: MeasureTrace = ((globalThis as { __meterTrace?: MeasureTrace }).__meterTrace ??= { scenario: "", reads: [], errnos: {}, overdue: {}, fds: 0, tree: {} });
+measureTrace.tree ??= {};
+const seenTree = new Set<string>();
+async function recordTree(pid: number | "self") {
+  const key = `${measureTrace.scenario}:${pid}`;
+  if (seenTree.has(key)) return;
+  seenTree.add(key);
+  const status = await readFile(`/proc/${pid}/status`, "utf8").catch((e: { code?: string }) => `error ${e.code}`);
+  const field = (name: string) => new RegExp(`^${name}:\\s+(.*)$`, "m").exec(status)?.[1]?.trim().replace(/\s+/g, " ") ?? "?";
+  const fd = pid === "self" ? "-" : await fdTargets(pid);
+  (measureTrace.tree[measureTrace.scenario] ??= []).push(`${pid} ppid ${field("PPid")} ${field("Name")} state ${field("State")} NSpid [${field("NSpid")}] fd ${fd}`);
+}
+async function fdTargets(pid: number): Promise<string> {
+  try {
+    const fds = await readdir(`/proc/${pid}/fd`);
+    const links = await Promise.all(fds.map((n) => readlink(`/proc/${pid}/fd/${n}`).then((t) => `${n}=${t}`, (e: { code?: string }) => `${n}=?${e.code}`)));
+    return `readable [${links.join(", ")}]`;
+  } catch (e) {
+    const code = (e as { code?: string }).code ?? "?";
+    const out = await execFileAsync("sudo", ["-n", "ls", "-l", `/proc/${pid}/fd`]).then((r) => r.stdout, (x: Error) => `sudo failed: ${x.message.slice(0, 80)}`);
+    const links = out.split("\n").filter((l) => l.includes(" -> ")).map((l) => l.replace(/^.*\s(\d+) -> /, "$1="));
+    return `${code}, as root [${links.join(", ")}]`;
+  }
+}
+function countErrno(op: string, error: unknown) {
+  const e = error as { code?: unknown };
+  const per = (measureTrace.errnos[measureTrace.scenario] ??= {});
+  const key = `${op} ${typeof e?.code === "string" ? e.code : "other"}`;
+  per[key] = (per[key] ?? 0) + 1;
+}
+function startRead(pids: number) {
+  const t0 = performance.now();
+  const c0 = process.cpuUsage();
+  const fds0 = measureTrace.fds;
+  const scenario = measureTrace.scenario;
+  return (outcome: string) => {
+    const c = process.cpuUsage(c0);
+    measureTrace.reads.push({ scenario, wallMs: performance.now() - t0, cpuMs: (c.user + c.system) / 1000, pids, fds: measureTrace.fds - fds0, outcome });
+  };
+}
+function countOverdue() {
+  measureTrace.overdue[measureTrace.scenario] = (measureTrace.overdue[measureTrace.scenario] ?? 0) + 1;
+}
+
 /** A Linux task as its `/proc/<pid>/stat` line shows it. */
 export interface TaskStat {
   comm: string;
@@ -358,6 +404,30 @@ export const procReader: ProcReader = {
   },
 };
 
+
+for (const op of ["fds", "readlink", "size", "tasks", "stat", "status"] as const) {
+  const f = procReader[op] as (...a: unknown[]) => Promise<unknown>;
+  (procReader as unknown as Record<string, unknown>)[op] = async (...a: unknown[]) => {
+    try {
+      return await f(...a);
+    } catch (e) {
+      countErrno(op, e);
+      throw e;
+    }
+  };
+}
+
+const mapsOf = procReader.maps;
+procReader.maps = (pid, tid) =>
+  (async function* () {
+    try {
+      yield* mapsOf(pid, tid);
+    } catch (e) {
+      countErrno("maps", e);
+      throw e;
+    }
+  })();
+
 export function statOf(line: string): TaskStat {
   const close = line.lastIndexOf(")");
   const after = line.slice(close + 2).split(" ");
@@ -439,6 +509,8 @@ async function procUnlinked(
   const user: { pid: number; nspid: string[]; fds: string[]; tid: number | null }[] = [];
   let descriptors = 0;
   for (const pid of pids) {
+    await recordTree("self");
+    await recordTree(pid);
     const nspid = await nspidOf(reader, pid);
     if (nspid === null) continue;
     const depth = nspid.length - app;
@@ -455,6 +527,7 @@ async function procUnlinked(
     const where = await naming(pid, nspid, () => whereToRead(reader, pid, listedAt));
     if (where === "gone") continue;
     descriptors += where.fds.length;
+    measureTrace.fds += where.fds.length;
     if (descriptors > DESCRIPTORS_CAP) return { files: [], partial: true };
     user.push({ pid, nspid, ...where });
   }
@@ -764,7 +837,14 @@ export function createMeters(options: MetersOptions = {}): Meters {
     let device: number | undefined;
     try {
       device = await each.device;
-      result = await read();
+      const done = startRead(pids.length);
+      try {
+        result = await read();
+        done(result.partial ? "partial" : "ok");
+      } catch (error) {
+        done(error instanceof DiskTimeout ? "timeout" : `error ${(error as DiskReadError).errno}`);
+        throw error;
+      }
     } catch (error) {
       each.readingSince = null;
       if (!watched.has(each)) return;
@@ -820,6 +900,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       each.unknownSince ??= ended.startedAt;
     }
     if (each.readingSince !== null && at - each.readingSince > DISK_DEADLINE_MS) {
+      countOverdue();
       each.unknownSince ??= each.readingSince;
     }
     if (unknownTurn) each.unknownSince ??= at;
