@@ -174,9 +174,9 @@ test("a Chinese heading the app reflows into a short line after it is no line of
 
 test("three repeated lines over 200 characters together: not found", async () => {
   const long = [
-    "Part Two General terms of sale for orders placed by post or online",
-    "Chapter Three Delivery of goods bought from the shop and their fees",
-    "Section Four Returns and refunds of goods sent back within the time allowed",
+    "Part Two General terms of sale for every order placed with the shop by post or online",
+    "Chapter Three Delivery of the goods bought from the shop and all of the fees that apply to them",
+    "Section Four Returns now",
   ];
   expect(long.join("").length).toBeGreaterThan(200);
   const file = twoPages(
@@ -216,7 +216,7 @@ test("more than three lines left out: not found", async () => {
     "Part Two General terms of sale",
     "Chapter 3 Delivery and returns",
     EN.heading,
-    "Clause 4.1 Fees on returned goods",
+    "Clause 4.1 Fees on goods",
   ];
   const first = [...headings, ...EN.first.slice(1)];
   expect(
@@ -239,12 +239,79 @@ test("a Chinese heading over two lines is one line once reflowed: not found", as
   ).toMatchObject(NOT_FOUND);
 });
 
+test.each([
+  [
+    "en",
+    {
+      first: [
+        "Medicines on discharge",
+        "Aspirin 81 mg once a day",
+        "The patient was told to keep taking every medicine on this list, including",
+      ],
+      top: ["Aspirin 81 mg once a day (continued)"],
+      rest: [
+        "Lisinopril 10 mg once a day",
+        "Any new symptom should be reported to the clinic at once, by phone or in person.",
+      ],
+      quote: "The patient was told to keep taking every medicine",
+      quoted:
+        "The summary says “keep taking every medicine on this list, including Lisinopril 10 mg once a day” [^1].",
+    },
+  ],
+  [
+    "zh",
+    {
+      first: [
+        "出院带药",
+        "阿司匹林 81毫克 每日一次",
+        "嘱患者出院后继续按时服用以下所列的全部药物，不得自行停药或者更改剂量，包括",
+      ],
+      top: ["阿司匹林 81毫克 每日一次（续）"],
+      rest: [
+        "赖诺普利 10毫克 每日一次",
+        "如出现任何不适，患者应当立即停止服药并尽快到医院复诊，同时携带本出院小结。",
+      ],
+      quote: "嘱患者出院后继续按时服用以下所列的全部药物",
+      quoted: "小结写明“不得自行停药或者更改剂量，包括赖诺普利 10毫克 每日一次”[^1]。",
+    },
+  ],
+] as const)(
+  "a medicine list with continued as an item's status (%s): the item is never left out, not found",
+  async (language, list) => {
+    const file = twoPages(language, list.first, list.top, list.rest);
+    const citation = await citationOf(
+      {
+        file,
+        query: list.quote.slice(0, 12),
+        question: "What was the patient told?",
+        quote: list.quote,
+      },
+      list.quoted,
+    );
+    expect(citation).toMatchObject(NOT_FOUND);
+  },
+);
+
+test("a short list on the cited page, an item above an item of about its length: not found", async () => {
+  const first = [
+    "Section 4 Returns and refunds",
+    "Section 5 Exchanges and repairs",
+    "The notice must state that no fee is charged when goods are",
+  ];
+  const file = twoPages("en", first, [`${EN.heading} (continued)`], EN.rest);
+  const citation = await citationOf(
+    { file, query: EN.query, question: EN.question, quote: EN.quote },
+    EN.quoted,
+  );
+  expect(citation).toMatchObject(NOT_FOUND);
+});
+
 test("the repeated heading inside the quote on the cited page, not before it: not found", async () => {
   const first = [
     "Goods can be sent back within 30 days of delivery.",
     "The notice must state that no fee is charged",
     EN.heading,
-    "when goods are",
+    "when goods are returned to the shop by post or by hand, and",
   ];
   const file = twoPages("en", first, [`${EN.heading} (continued)`], EN.rest);
   const citation = await citationOf(
@@ -254,7 +321,7 @@ test("the repeated heading inside the quote on the cited page, not before it: no
       question: EN.question,
       quote: "The notice must state that no fee is charged",
     },
-    `The notice says “no fee is charged ${EN.heading} when goods are returned within 30 days” [^1].`,
+    `The notice says “no fee is charged ${EN.heading} when goods are returned to the shop by post or by hand, and returned within 30 days” [^1].`,
   );
   expect(citation).toMatchObject(NOT_FOUND);
 });

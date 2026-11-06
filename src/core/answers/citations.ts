@@ -1393,6 +1393,12 @@ const CONTINUED =
 /** The most lines, and characters, of a heading a next page repeats that may be left out. */
 const MAX_HEADING_LINES = 3;
 const MAX_HEADING_CHARACTERS = 200;
+/**
+ * How much longer than a heading the line under it is, on both pages: a paragraph comes under a
+ * heading, while a list's lines follow each other at about one length ("Aspirin 81 mg" above
+ * "Lisinopril 10 mg"), so a list item is never left out.
+ */
+const UNDER_HEADING = 1.5;
 const CJK_CHARACTER = new RegExp(`[${CJK}]`, "gu");
 
 const lineKey = (line: string) => line.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
@@ -1406,7 +1412,9 @@ const headingSized = (line: string) =>
 /**
  * The next page's text without the heading it opens with, when that heading is a run of the cited
  * page's own lines, in order, each repeated with a continuation mark; and where that run ends on
- * the cited page. Null when the next page opens any other way. A CJK heading the app joined to
+ * the cited page; on both pages the line under the run is a paragraph's, much longer than the
+ * run's last line, so a list item repeated as "(continued)" is never left out. Null when the next
+ * page opens any other way. A CJK heading the app joined to
  * the line after it when it reflowed the text is no line of its own, so it never counts: a content
  * line that starts with the same words can't be told from it.
  */
@@ -1422,9 +1430,15 @@ function withoutContinuedHeading(
   if (count === 0 || CONTINUED.test(read[count] ?? "")) return null;
   const heading = read.slice(0, count).map((line) => line.replace(CONTINUED, ""));
   if (heading.join("").length > MAX_HEADING_CHARACTERS || !heading.every(headingSized)) return null;
+  const last = (heading[count - 1] as string).trim().length;
+  const under = (line: string | undefined) => (line ?? "").trim().length >= last * UNDER_HEADING;
+  // Heading-shaped on the next page: a paragraph, not a list's next item, comes under it.
+  if (!under(read[count])) return null;
   const own = cited.split("\n");
-  const at = own.findIndex((_, start) =>
-    heading.every((line, index) => lineKey(own[start + index] ?? "") === lineKey(line)),
+  const at = own.findIndex(
+    (_, start) =>
+      heading.every((line, index) => lineKey(own[start + index] ?? "") === lineKey(line)) &&
+      under(own[start + count]),
   );
   if (at < 0) return null;
   return {

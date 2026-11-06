@@ -127,10 +127,11 @@ The "Nothing else is forgiven" above has one more exception, made for words an A
   - each line ends in a mark of a closed set, read on the line's NFKC form: `(continued)`, `(continued from previous page)`, `(cont.)`, `(cont'd)`, `(cont’d)`, `(contd)`, `(contd.)`, `(续)`, `(續)`, `(续上页)`, `(續上頁)`, `(接上页)`, `(接上頁)`, `(承上页)`, `(承上頁)`. So a full-width bracket counts as the half-width one, and Latin letters match in any case;
   - each line is at least 3 words or 12 characters, or 6 CJK characters;
   - without its mark, each line is the same text as a whole line of the cited page, in the same order, before the quote's first part;
-  - the run is at most 3 lines and 200 characters.
+  - the run is at most 3 lines and 200 characters;
+  - on both pages the line under the run is a paragraph's, at least half as long again as the run's last line. A list's lines follow each other at about one length, so a list item that a next page repeats with `(continued)` as its status (`Aspirin 81 mg once a day (continued)` above `Lisinopril 10 mg once a day`) is never left out.
 
   The quote must start on the cited page, reach its last line and go on right after the lines left out. The Citation's card then says where the quote continues, as the Document prints that page ("The quote continues on p. 12.").
-  - **Its cost, disclosed:** a line repeated from the cited page with a continuation mark is left out even if it is content. No rule by position can tell it from a continued heading; the card says the quote continues on the next page.
+  - **Its cost:** a heading with only a short line under it, on either page, is not left out, and the quote stays not found, as on main. An exception for a content line repeated with a continuation mark was first allowed, then withdrawn on 2026-11-06: in a medicines list `(continued)` is a status word, and the line left out would have been a medicine.
   - **Its misses:** the app reflows a Chinese line it reads as wrapped into the line after it, so a heading about as long as the page's longest line is no line of its own and never counts, whatever its mark. Neither does a Chinese heading over two lines. A Chinese heading on its own line, with a longer line after it, counts.
 
 Left out on purpose:
