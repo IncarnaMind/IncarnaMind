@@ -333,6 +333,8 @@ export async function askInAssistant(
     sought: null,
   });
   try {
+    // Where the User is when they ask: the Note, Document, Library or Home in front (#2572).
+    const askedFromItem = currentTabOf(useAppStore.getState().layout)?.item ?? null;
     const result = await core.askInConversation({
       ...input,
       conversationId: useConversations.getState().openId,
@@ -353,9 +355,9 @@ export async function askInAssistant(
     settleAsk(key, result);
     sayLeftOut(result);
     if (!result.asked) return false;
-    watchMindsMadeBy(result.answerId);
+    watchMindsMadeBy(result.answerId, askedFromItem);
     // A new Answer has nothing to make way for, and it may end before an Undo running now does.
-    applyWhatIsAsked(result.answerId);
+    applyWhatIsAsked(result.answerId, askedFromItem);
     watchCommands(result.answerId);
     const id = result.conversation.id;
     if (stayed() && useConversations.getState().openId !== id) {
@@ -448,8 +450,12 @@ export async function regenerateAnswer(
   const folderInFrontId = currentTabOf(layout)?.item.kind === "library" ? libraryFolderId : null;
   settleAsk(answerId, null);
   try {
-    watchMindsMadeBy(answerId);
-    await applyWhatWasAsked(answerId, { keepWritten: clearScope });
+    const askedFromItem = currentTabOf(useAppStore.getState().layout)?.item ?? null;
+    watchMindsMadeBy(answerId, askedFromItem);
+    await applyWhatWasAsked(answerId, {
+      keepWritten: clearScope,
+      askedFromItem,
+    });
     watchCommands(answerId);
     const result = await core.regenerateConversationAnswer({
       conversationId,

@@ -25,7 +25,7 @@ import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { partWithResult, resultFromParts } from "../../src/shared/claimParts";
 import { aggregateFigureResults } from "../../src/shared/figureChecks";
-import { childrenOf, lineShows } from "../../src/shared/figureSchedule";
+import { childrenOf, lineShows, rowOpens } from "../../src/shared/figureSchedule";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { addSignOff, figureSignOffBasis } from "../../src/shared/signOffs";
 
@@ -735,6 +735,29 @@ test("concurrent visible copies of one Check id retain both source closures", ()
   );
 });
 
+test("an Analysis table whose run is gone is a typed table: what the Note's other figures rest on is still kept (#2378)", () => {
+  const unkept: NodeJSON = {
+    ...table(
+      row(cell("h0", "Region", true), cell("h1", "Amount", true)),
+      row(cell("l1", "North"), cell("a1", "9,450")),
+    ),
+    attrs: { id: "table", analysisTable: { id: "gone", table: { result: "totals" } } },
+  };
+  const blocks = note(paragraph("p1", "Revenue £20."), unkept);
+  const source = sourceTable(["Item\tAmount", "A\t20"]);
+  const [occurrence] = figuresInMind(blocks);
+  if (occurrence?.locator.kind !== "text") throw new Error("No text figure");
+  const element = findBlock(blocks, occurrence.locator.from.blockId);
+  const parent = basis(textOf(element));
+  markSentence(element, 0, textOf(element).length, {
+    ...parent,
+    figures: [{ ...parent, ...finding(occurrence), sourceInput: source.input(2) }],
+    remainder: null,
+  });
+  expect(figureCitations(blocks)).not.toBeNull();
+  expect((figureCitations(blocks) ?? []).length).toBeGreaterThan(0);
+});
+
 test("the existing Citation session checks quotes with only its read port and refuses search", async () => {
   const source = sourceTable(["Item\tAmount", "A\t10"]);
   const { citationSource, pageTexts, documentDate } = source.documents;
@@ -848,7 +871,15 @@ test("the schedule includes compact used Analysis closure once and isolates a co
       codeSha256: "code",
       ranAt: "2026-10-27T00:00:00.000Z",
       values: [
-        { kind: "figure", name: "total", label: "Revenue", unit: null, value },
+        // Worked out again when it ran: only the core's own record shows it checked (#2378).
+        {
+          kind: "figure",
+          name: "total",
+          label: "Revenue",
+          unit: null,
+          value,
+          check: { kind: "same", value },
+        },
         { kind: "figure", name: "unused", label: "Unused", unit: null, value: 999 },
       ],
     })),
@@ -876,9 +907,17 @@ test("the schedule includes compact used Analysis closure once and isolates a co
   });
   doc.getMap("figureRuns").delete(JSON.stringify(["run-b"]));
   const before = Y.encodeStateAsUpdate(doc);
-  const partial = project(blocks);
+  const partial = figureSchedule({
+    ...scheduleInput(blocks),
+    versions: new Map([["accounts", "v1"]]),
+  });
   expect(partial.analyses.map((run) => run.id)).toEqual(["run-a"]);
-  expect(partial.rows.map((row) => row.shown.state)).toEqual(["supported", "not-checked"]);
+  // Before any Check the kept run's figure has no verdict; the one whose run went reads so.
+  expect(
+    partial.rows.map((row) =>
+      row.shown.state === "not-checked" ? row.shown.reason : row.shown.state,
+    ),
+  ).toEqual(["unread", "analysis-gone"]);
   expect(Y.encodeStateAsUpdate(doc)).toEqual(before);
 });
 
@@ -1070,8 +1109,26 @@ async function checkedAnalysisFigure() {
   return blocks;
 }
 
-test("a kept Analysis figure shows the core's own recalculation, and needs a re-check once its Document changes", async () => {
+/** The kept figure's sentence as its check left it: `child` is the figure's own check. */
+async function markedAnalysisFigure(child: Partial<FigureCheckAttributes> | null) {
   const blocks = await checkedAnalysisFigure();
+  const element = blocks.get(0);
+  const occurrence = figuresInMind(blocks)[0];
+  if (!(element instanceof Y.XmlElement) || !occurrence) throw new Error("Missing fixture");
+  const parent = basis(wordsOf(element));
+  markSentence(
+    element,
+    0,
+    textOf(element).length,
+    child
+      ? { ...parent, figures: [{ ...parent, ...finding(occurrence), ...child }], remainder: null }
+      : parent,
+  );
+  return blocks;
+}
+
+test("a kept Analysis figure is Supported once a check read its sentence as naming it, and needs a re-check once its Document changes", async () => {
+  const blocks = await markedAnalysisFigure({ state: "supported", named: true });
   const shownWith = (versions: ReadonlyMap<string, string>) =>
     figureSchedule({ ...scheduleInput(blocks), versions }).rows[0]?.shown;
   expect(shownWith(new Map([["accounts", "v1"]]))).toEqual({ state: "supported" });
@@ -1082,34 +1139,41 @@ test("a kept Analysis figure shows the core's own recalculation, and needs a re-
   expect(shownWith(new Map())).toEqual({ state: "needs-recheck", why: "document-removed" });
 });
 
-test("a claim check that left the figure unread keeps the Figures tab from calling it supported", async () => {
-  const blocks = await checkedAnalysisFigure();
-  const element = blocks.get(0);
-  const occurrence = figuresInMind(blocks)[0];
-  if (!(element instanceof Y.XmlElement) || !occurrence) throw new Error("Missing fixture");
-  const parent = basis(wordsOf(element));
-  markSentence(element, 0, textOf(element).length, {
-    ...parent,
-    figures: [{ ...parent, ...finding(occurrence), state: "not-checked", reason: "unread" }],
-    remainder: null,
-  });
-  const row = figureSchedule({
+test("a figure copied with another's id into a sentence of its own takes no check but its own sentence's (#2378)", async () => {
+  const blocks = await markedAnalysisFigure({ state: "supported", named: true });
+  const checked = blocks.get(0);
+  const figure = checked instanceof Y.XmlElement ? checked.get(0) : null;
+  if (!(figure instanceof Y.XmlElement)) throw new Error("Missing fixture");
+  const copy = new Y.XmlElement(figure.nodeName);
+  for (const [name, value] of Object.entries(figure.getAttributes()))
+    if (value !== undefined) copy.setAttribute(name, value);
+  const line = new Y.XmlElement("paragraph");
+  line.setAttribute("id", "b");
+  line.insert(0, [new Y.XmlText("Also "), copy]);
+  blocks.insert(1, [line]);
+  const rows = figureSchedule({
     ...scheduleInput(blocks),
     versions: new Map([["accounts", "v1"]]),
-  }).rows[0];
-  expect(row?.shown).toEqual({ state: "not-checked", reason: "unread" });
+  }).rows.map((row) => row.shown.state);
+  expect(rows).toEqual(["supported", "not-checked"]);
 });
 
-test("a whole-sentence check with no figure child is no evidence against the core's own check", async () => {
-  const blocks = await checkedAnalysisFigure();
-  const element = blocks.get(0);
-  if (!(element instanceof Y.XmlElement)) throw new Error("Missing fixture");
-  markSentence(element, 0, textOf(element).length, basis(wordsOf(element)));
-  const row = figureSchedule({
-    ...scheduleInput(blocks),
-    versions: new Map([["accounts", "v1"]]),
-  }).rows[0];
-  expect(row?.shown).toEqual({ state: "supported" });
+test("before a check reads its sentence as naming it, a kept Analysis figure's row has no verdict (#2378)", async () => {
+  const rowOf = async (child: Partial<FigureCheckAttributes> | null) =>
+    figureSchedule({
+      ...scheduleInput(await markedAnalysisFigure(child)),
+      versions: new Map([["accounts", "v1"]]),
+    }).rows[0]?.shown;
+  const unread = { state: "not-checked", reason: "unread" };
+  expect(await rowOf({ state: "not-checked", reason: "unread" })).toEqual(unread);
+  // A whole-sentence check with no figure child, and a Supported no judge read the name of.
+  expect(await rowOf(null)).toEqual(unread);
+  expect(await rowOf({ state: "supported" })).toEqual(unread);
+  const bare = await checkedAnalysisFigure();
+  expect(
+    figureSchedule({ ...scheduleInput(bare), versions: new Map([["accounts", "v1"]]) }).rows[0]
+      ?.shown,
+  ).toEqual(unread);
 });
 
 test("a Note Check reads no sentence in a table's header cell (#2378)", () => {
@@ -1135,3 +1199,16 @@ function scheduleInput(blocks: Y.XmlFragment) {
     scope: null,
   };
 }
+
+test("an Analysis table's row opens to its columns whatever it shows (#2378)", () => {
+  const columns = { title: "Total amount by region", columns: [] };
+  for (const shown of [
+    { state: "supported" },
+    { state: "unsupported" },
+    { state: "not-checked", reason: "analysis" },
+  ] as const)
+    expect(rowOpens({ analysisTable: columns, shown, calculated: null })).toBe("columns");
+  expect(rowOpens({ shown: { state: "not-checked", reason: "unread" }, calculated: null })).toBe(
+    "notice",
+  );
+});

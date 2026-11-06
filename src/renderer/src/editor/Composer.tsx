@@ -76,7 +76,7 @@ import { tellTask, useTasks } from "../tasks";
 import { takeBackLast, tellable } from "../taskTell";
 import { taskName } from "../taskText";
 import { useTurnWall } from "../turnWall";
-import { scopeOutsideWalls } from "../walls";
+import { scopeOutsideWalls, wallsOf } from "../walls";
 import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
@@ -298,7 +298,7 @@ export function Composer({
   const withinWall = (next: SearchScope) => {
     if (typeof wallId === "string") return folderScope(wallId);
     return chosenScope(
-      scopeOutsideWalls(useAppStore.getState().library, next, null) ?? next,
+      scopeOutsideWalls(wallsOf(useAppStore.getState()), next, null) ?? next,
       folderId,
     );
   };

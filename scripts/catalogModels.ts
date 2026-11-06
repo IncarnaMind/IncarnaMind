@@ -88,6 +88,11 @@ const SOURCES: Record<
   cloudflare: { modelsDev: "cloudflare-workers-ai", litellm: "cloudflare" },
 };
 
+/** Ids a provider's API no longer serves, though models.dev still lists them (#2567). */
+const GONE: Readonly<Record<string, readonly string[]>> = {
+  deepseek: ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
+};
+
 const MIT = (copyright: string) =>
   [
     "MIT License",
@@ -279,6 +284,7 @@ export function generateModels(
     const nonChat = new Set<string>();
     const cannotAnswer: GeneratedProviderModels["cannotAnswer"] = {};
     for (const [modelId, model] of Object.entries(modelsDev[source.modelsDev]?.models ?? {})) {
+      if (GONE[id]?.includes(modelId)) continue;
       const mode = entries.get(modelId)?.mode;
       if (answersElsewhere(entries.get(modelId))) continue;
       if (!readsAndWritesText(model) || (mode !== undefined && !CHAT_MODES.has(mode))) {
@@ -293,6 +299,7 @@ export function generateModels(
     }
     const chat = new Set(models.map((model) => model.id));
     for (const [modelId, entry] of entries) {
+      if (GONE[id]?.includes(modelId)) continue;
       const other = entry.mode && !CHAT_MODES.has(entry.mode) && !answersElsewhere(entry);
       if (other && !chat.has(modelId)) nonChat.add(modelId);
       if (answersElsewhere(entry) && !chat.has(modelId)) {

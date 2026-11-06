@@ -18,6 +18,7 @@ import { createHash, randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../shared/blockJson";
 import {
+  ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
@@ -45,6 +46,7 @@ type Child = { kind: "text"; runs: Run[] } | { kind: "element"; node: NodeJSON }
 const ID_TYPES: ReadonlySet<string> = new Set([
   ...NOTE_BLOCK_TYPES,
   CALCULATED_FIGURE_NODE,
+  ANALYSIS_TABLE_NODE,
   CITATION_NODE,
 ]);
 

@@ -12,3 +12,21 @@ export function newestReads(): () => () => boolean {
     return () => read === reads;
   };
 }
+
+/**
+ * A state read as the newest one: when that read fails and no later one has started, it is made
+ * once more. The read before it was dropped, so a failed newest read would leave the window on
+ * the state before the change (#2398). `stopped`: the caller is closing, so nothing more is read.
+ */
+export async function readNewest<T>(
+  newest: () => boolean,
+  read: () => Promise<T>,
+  stopped: () => boolean = () => false,
+): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (stopped() || !newest()) throw error;
+    return read();
+  }
+}

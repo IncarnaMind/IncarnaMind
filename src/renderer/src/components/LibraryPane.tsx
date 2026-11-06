@@ -35,9 +35,16 @@ import {
 } from "../libraryPage";
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
+import { meetingHitsOf } from "../meetingTranscript";
 import { looseDocumentIds, organizeDocuments, useProposing } from "../organizeDocuments";
 import { organizeStateOf } from "../organizeOutcome";
-import { DAY_ONE_DOCUMENTS, ownsATag, useLibraryDocuments, useOwnDocuments } from "../ownDocuments";
+import {
+  DAY_ONE_DOCUMENTS,
+  ownsATag,
+  useLibraryDocuments,
+  useListedDocuments,
+  useOwnDocuments,
+} from "../ownDocuments";
 import { useDeleted } from "../recentlyDeleted";
 import { extendThroughRows, useSelection, useSelectionOrder } from "../selection";
 import { DEFAULT_SORT, sorted } from "../sort";
@@ -57,6 +64,7 @@ import { LibraryBar } from "./library/LibraryBar";
 import { LibraryEmpty } from "./library/LibraryEmpty";
 import { LibraryHeader } from "./library/LibraryHeader";
 import { LibrarySection } from "./library/LibrarySection";
+import { MeetingHits } from "./library/MeetingHits";
 import { ToReview } from "./library/ToReview";
 import { useFittingColumns } from "./library/useFittingColumns";
 import { useReviewFocus } from "./library/useReviewFocus";
@@ -113,7 +121,9 @@ export function LibraryPane() {
   // A source's view lists that source's Documents even when they are the examples': the examples
   // leave the Library once the User has a Document of their own, but their Linked folder's row
   // stays the way back to them (#1944).
-  const everyDocument = useAppStore((state) => state.documents);
+  const everyDocument = useListedDocuments();
+  const allDocuments = useAppStore((state) => state.documents);
+  const minds = useAppStore((state) => state.minds);
   const documents = facetFilter.source?.length ? everyDocument : libraryDocuments;
   const field = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
@@ -399,7 +409,11 @@ export function LibraryPane() {
     setFacetFilter({});
     useAppStore.getState().setTagFilter([]);
   };
-  const nothingMatches = narrowing && sections.length === 0 && !inside.waiting;
+  const nothingMatches =
+    narrowing &&
+    sections.length === 0 &&
+    !inside.waiting &&
+    meetingHitsOf(inside.matches, allDocuments, minds).length === 0;
   const query = search.trim();
   /** Nothing in the Library matches what was typed: ask the assistant about it instead (#763). */
   const askAbout =
@@ -454,7 +468,12 @@ export function LibraryPane() {
               {t("library.loading")}
             </p>
           ) : documents.length === 0 ? (
-            <LibraryEmpty />
+            // A Library of meetings alone still finds them by their words.
+            meetingHitsOf(inside.matches, allDocuments, minds).length > 0 ? (
+              <MeetingHits matches={inside.matches} />
+            ) : (
+              <LibraryEmpty />
+            )
           ) : (
             <>
               {selectingMany ? (
@@ -552,6 +571,7 @@ export function LibraryPane() {
                   />
                 ))}
               </div>
+              <MeetingHits matches={inside.matches} />
               {inside.failure && (
                 <ProblemLine
                   role="alert"
