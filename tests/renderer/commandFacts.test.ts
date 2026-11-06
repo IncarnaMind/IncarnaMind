@@ -360,6 +360,12 @@ describe("What the assistant's commands did, in words (#1421)", () => {
     expect(commandCallText(zh, ended({ key: "commands.denied", values: {} }))).toBe(
       "未允许，没有改动",
     );
+    expect(commandCallText(en, ended({ key: "error.commands.exportDenied", values: {} }))).toBe(
+      "Nothing was saved: you didn’t allow the new file list.",
+    );
+    expect(commandCallText(zh, ended({ key: "error.commands.exportDenied", values: {} }))).toBe(
+      "未保存任何文件：你没有允许新的文件列表。",
+    );
     expect(commandCallText(en, ended({ key: "checks.problem.no-claims", values: {} }))).toBe(
       "This note has no claims to check.",
     );

@@ -128,6 +128,7 @@ export function repliesOnlyRefusals(
 /** How a window's command didn't do what it was asked, each said as the whole line, not "Didn't run: …". */
 const WHOLE_LINES = new Set<MessageKey>([
   "commands.denied",
+  "error.commands.exportDenied",
   "commands.window.unanswered",
   "commands.window.closed",
   "commands.window.unfinished",
