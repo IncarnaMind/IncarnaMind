@@ -27,19 +27,32 @@ export interface TaskStat {
   vsize: number;
 }
 
-/** A read of the disk a run holds couldn't complete: its errno, the path and the pid it was for. */
+/**
+ * A read of the disk a run holds couldn't complete: its errno, the path and the pid it was for,
+ * and on Linux the task's state and the PID namespaces it is in, which tell what the process was.
+ */
 export class DiskReadError extends Error {
+  readonly task: TaskStat | undefined;
+  readonly nspid: readonly string[] | undefined;
+
   constructor(
     readonly errno: string,
     readonly path: string,
     readonly pid: number,
-    { cause, task }: { cause?: unknown; task?: TaskStat } = {},
+    { cause, task, nspid }: { cause?: unknown; task?: TaskStat; nspid?: readonly string[] } = {},
   ) {
+    const detail = [
+      task &&
+        `${task.comm}: state ${task.state}, flags 0x${task.flags.toString(16)}, vsize ${task.vsize}`,
+      nspid && `NSpid ${nspid.join(" ")}`,
+    ].filter(Boolean);
     super(
-      `A disk read for process ${pid} failed (${errno}): ${path}${task ? ` (${task.comm}: state ${task.state}, flags 0x${task.flags.toString(16)}, vsize ${task.vsize})` : ""}`,
+      `A disk read for process ${pid} failed (${errno}): ${path}${detail.length ? ` (${detail.join("; ")})` : ""}`,
       { cause },
     );
     this.name = "DiskReadError";
+    this.task = task;
+    this.nspid = nspid;
   }
 }
 
@@ -65,6 +78,8 @@ export interface ProcReader {
   tasks(pid: number): Promise<number[]>;
   /** `/proc/<pid>/stat`, which stays readable when the task's `fd` doesn't. */
   stat(pid: number, tid: number | null): Promise<string>;
+  /** `/proc/<pid>/status`, or the app's own. */
+  status(pid: number | "self"): Promise<string>;
   /** The time since boot, in the clock ticks `stat` gives start times in. */
   ticks(): Promise<number>;
 }
@@ -308,6 +323,9 @@ const GONE = new Set(["ENOENT", "ESRCH"]);
 /** The kernel sets it as a task starts to exit, before it gives up its memory and files. */
 const PF_EXITING = 0x4;
 
+/** How many PID namespaces below the app's the User's code runs: bubblewrap's, then the helper's. */
+const RUN_NAMESPACE = 2;
+
 /** `stat`'s clock ticks a second (USER_HZ), 100 on every architecture Linux runs Electron on. */
 const USER_HZ = 100;
 
@@ -325,6 +343,7 @@ export const procReader: ProcReader = {
   tasks: async (pid) =>
     (await readdir(`/proc/${pid}/task`)).map(Number).filter((tid) => Number.isSafeInteger(tid)),
   stat: (pid, tid) => readFile(`${procBase(pid, tid)}/stat`, "utf8"),
+  status: (pid) => readFile(`/proc/${pid}/status`, "utf8"),
   async ticks() {
     const [seconds = "", hundredths = ""] =
       (await readFile("/proc/uptime", "utf8")).split(" ")[0]?.split(".") ?? [];
@@ -372,17 +391,56 @@ async function denied(reader: ProcReader, pid: number, tid: number | null, path:
 }
 
 /**
- * The unlinked files the Linux processes `pids` of a listing held, as `listedAt` ticks after boot:
- * through their fds and maps. `capped` when a pid's maps passed the cap, so the turn is unknown.
+ * The pids `pid` has in each PID namespace it is in, outermost (the one `/proc` was mounted in)
+ * first; null once it has gone.
+ */
+async function nspidOf(reader: ProcReader, pid: number | "self"): Promise<string[] | null> {
+  const path = `/proc/${pid}/status`;
+  const at = pid === "self" ? 0 : pid;
+  let status: string;
+  try {
+    status = await reader.status(pid);
+  } catch (error) {
+    if (pid !== "self" && GONE.has(errnoOf(error))) return null;
+    throw new DiskReadError(errnoOf(error), path, at, { cause: error });
+  }
+  const nspid = /^NSpid:\s+(.+)$/m.exec(status)?.[1]?.trim().split(/\s+/);
+  if (!nspid) throw new DiskReadError("no NSpid line", path, at);
+  return nspid;
+}
+
+/**
+ * The unlinked files the Linux processes `pids` of a listing held, as `listedAt` ticks after boot,
+ * through their fds and maps. Only the User's processes are read: those in the run's own PID
+ * namespace, two below the app's, and below it, but for that namespace's first process, the
+ * seccomp helper's inner half. No process can climb to a shallower namespace, and the helper's
+ * halves make themselves non-dumpable, so the sandbox's own processes are never read. A turn that
+ * didn't find the helper's inner half (before it starts, or if the layout ever changed) is
+ * `partial`, like one whose maps passed the cap: the disk is unknown that turn.
  */
 async function procUnlinked(
   reader: ProcReader,
   pids: readonly number[],
   listedAt: number,
-): Promise<{ files: UnlinkedFile[]; capped: boolean }> {
+): Promise<{ files: UnlinkedFile[]; partial: boolean }> {
   const files: UnlinkedFile[] = [];
+  const app = (await nspidOf(reader, "self"))?.length ?? 0;
   let capped = false;
+  let helper = false;
   for (const pid of pids) {
+    const nspid = await nspidOf(reader, pid);
+    if (nspid === null) continue;
+    const depth = nspid.length - app;
+    if (depth < 0) {
+      throw new DiskReadError("NSpid shallower than the app's", `/proc/${pid}/status`, pid, {
+        nspid,
+      });
+    }
+    if (depth < RUN_NAMESPACE) continue;
+    if (depth === RUN_NAMESPACE && nspid.at(-1) === "1") {
+      helper = true;
+      continue;
+    }
     try {
       const where = await whereToRead(reader, pid, listedAt);
       if (where === "gone") continue;
@@ -393,11 +451,15 @@ async function procUnlinked(
       files.push(...mapped.files);
       capped ||= mapped.capped;
     } catch (error) {
-      if (error instanceof DiskReadError) throw error;
-      throw new DiskReadError(errnoOf(error), `/proc/${pid}`, pid, { cause: error });
+      const known = error instanceof DiskReadError ? error : undefined;
+      throw new DiskReadError(known?.errno ?? errnoOf(error), known?.path ?? `/proc/${pid}`, pid, {
+        cause: known ? known.cause : error,
+        task: known?.task,
+        nspid,
+      });
     }
   }
-  return { files, capped };
+  return { files, partial: capped || !helper };
 }
 
 /**
@@ -674,9 +736,9 @@ export function createMeters(options: MetersOptions = {}): Meters {
     each: Watched,
     pids: readonly number[],
     startedAt: number,
-    read: () => Promise<{ files: UnlinkedFile[]; capped: boolean }>,
+    read: () => Promise<{ files: UnlinkedFile[]; partial: boolean }>,
   ) {
-    let result: { files: UnlinkedFile[]; capped: boolean };
+    let result: { files: UnlinkedFile[]; partial: boolean };
     let device: number | undefined;
     try {
       each.device ??= stat(each.folder).then(
@@ -699,8 +761,8 @@ export function createMeters(options: MetersOptions = {}): Meters {
     each.readingSince = null;
     if (!watched.has(each)) return;
     const bytes = heldBytes(result.files, new Set(pids), device);
-    each.unlinked = result.capped ? Math.max(each.unlinked, bytes) : bytes;
-    each.ended = { ok: !result.capped, startedAt };
+    each.unlinked = result.partial ? Math.max(each.unlinked, bytes) : bytes;
+    each.ended = { ok: !result.partial, startedAt };
   }
 
   async function readShared(batch: readonly { each: Watched; pids: number[] }[], at: number) {
@@ -715,7 +777,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
       batch.map(async ({ each, pids }) => {
         await settleRead(each, pids, at, async () => ({
           files: shared ?? (await macUnlinked(command, pids)),
-          capped: false,
+          partial: false,
         }));
         // A run whose own read failed reported that; the others hear why they read their own.
         if (shared === undefined && !each.failed && watched.has(each)) {

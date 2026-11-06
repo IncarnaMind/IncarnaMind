@@ -9,6 +9,7 @@
  * release on this computer, checked, unpacked and imported as the app does, once for the file.
  * CI's "run_code with its real Python (Linux)" job gives one; without one the Python cases skip.
  */
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -31,6 +32,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import type { ProcessLauncher } from "../../src/core";
 import { createAnalysisRecorder } from "../../src/core/analysis/recorder";
 import type { AnswerAnalysis, CalculatedFigure } from "../../src/core/api";
 import type { CitationSource } from "../../src/core/documents";
@@ -97,6 +99,63 @@ let listener: NetServer | null = null;
 let loopbackPort = 0;
 let pythonPrepared = 0;
 
+/** The pid of each program the Executors here started, in order. */
+const launched: number[] = [];
+const recorded = (launcher: ProcessLauncher): ProcessLauncher => ({
+  async spawn(command, args, options) {
+    const child = await launcher.spawn(command, args, options);
+    if (child.pid !== undefined) launched.push(child.pid);
+    return child;
+  },
+});
+
+/** A process of a run, as Linux's /proc shows it to the app. */
+interface RunProcess {
+  pid: number;
+  ppid: number;
+  name: string;
+  /** Its pid in each PID namespace it is in, from the app's outward in. */
+  nspid: string[];
+  /** "readable", or why its fd folder isn't. */
+  fds: string;
+}
+
+/** `root` and every process under it, by pid and parent alone; one gone meanwhile is left out. */
+async function runProcesses(root: number): Promise<RunProcess[]> {
+  const parents = new Map<number, number>();
+  for (const line of execFileSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8" }).split(
+    "\n",
+  )) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+    if (pid !== undefined && ppid !== undefined && pid > 0) parents.set(pid, ppid);
+  }
+  const under = (pid: number) => {
+    for (let at = pid, hops = 0; at > 1 && hops < 64; at = parents.get(at) ?? 0, hops++) {
+      if (at === root) return true;
+    }
+    return false;
+  };
+  const rows: RunProcess[] = [];
+  for (const pid of [...parents.keys()].filter(under)) {
+    const status = await readFile(`/proc/${pid}/status`, "utf8").catch(() => "");
+    const field = (name: string) => new RegExp(`^${name}:\\s+(.*)$`, "m").exec(status)?.[1]?.trim();
+    const nspid = field("NSpid");
+    if (nspid === undefined) continue;
+    const fds = await readdir(`/proc/${pid}/fd`).then(
+      () => "readable",
+      (error: NodeJS.ErrnoException) => error.code ?? "unknown",
+    );
+    rows.push({
+      pid,
+      ppid: parents.get(pid) ?? 0,
+      name: field("Name") ?? "",
+      nspid: nspid.split(/\s+/),
+      fds,
+    });
+  }
+  return rows;
+}
+
 /** The data and temporary folders the runs here use, unless a test gives its own. */
 const folders = () => ({ data, temp: join(root, "temp") });
 
@@ -119,7 +178,7 @@ function executor(
     ...login,
   };
   return sandbox.createExecutor({
-    processes: createProcessLauncher(async () => env),
+    processes: recorded(createProcessLauncher(async () => env)),
     environment: async () => env,
     tempDir: where.temp,
     denyRead: readDeniedFolders({
@@ -501,6 +560,57 @@ describe.skipIf(unavailable !== undefined)(
       expect(reports.filter((report) => !report.includes("/usr/bin/footprint "))).toEqual([]);
     }, 60_000);
 
+    test("an ordinary run of 20 s, past the 10 s a run's disk may stay unknown, ends as it would", async () => {
+      const reports: string[] = [];
+      const { call, analyses } = tool({}, 30_000, undefined, (error) =>
+        reports.push(String(error)),
+      );
+      await call("bash", "sleep 20; echo done");
+      expect(analyses[0]?.end).toEqual({ kind: "done" });
+      expect(analyses[0]?.output.printed).toBe("done");
+      expect(reports).toEqual([]);
+    }, 60_000);
+
+    test.runIf(process.platform === "linux")(
+      "on Linux the User's code runs two PID namespaces below the app's, as the one child of the seccomp helper's inner half, whose halves its read never needs",
+      async () => {
+        const { call, analyses } = tool({}, 20_000);
+        const before = launched.length;
+        const ran = call("bash", "sleep 4; echo laid");
+        await expect.poll(() => launched.length).toBeGreaterThan(before);
+        const root = launched[before] ?? 0;
+        let rows: RunProcess[] = [];
+        await expect
+          .poll(async () => {
+            rows = await runProcesses(root);
+            return rows.some((row) => row.name === "sleep");
+          })
+          .toBe(true);
+        await ran;
+        expect(analyses[0]?.output.printed).toBe("laid");
+        const app = (await readFile("/proc/self/status", "utf8")).match(/^NSpid:\s+(.*)$/m)?.[1];
+        const below = (row: RunProcess) =>
+          row.nspid.length - (app?.trim().split(/\s+/).length ?? 0);
+        // The helper's halves, the outer in bubblewrap's namespace and the inner as the first
+        // process of the run's own, both hide their fds.
+        const inner = rows.filter((row) => below(row) === 2 && row.nspid.at(-1) === "1");
+        expect(inner.map((row) => [row.name, row.fds])).toEqual([["apply-seccomp", "EACCES"]]);
+        expect(
+          rows
+            .filter((row) => below(row) === 1 && row.name === "apply-seccomp")
+            .map((row) => row.fds),
+        ).toEqual(["EACCES"]);
+        // Everything else at that depth is the User's: never PID 1, readable, under the inner half.
+        const user = rows.filter((row) => below(row) >= 2 && row !== inner[0]);
+        expect(user.map((row) => [below(row), row.fds])).toEqual(user.map(() => [2, "readable"]));
+        const command = user.filter((row) => row.ppid === inner[0]?.pid);
+        expect(command).toHaveLength(1);
+        expect(command[0]?.nspid.at(-1)).not.toBe("1");
+        expect(rows.filter((row) => below(row) < 0)).toEqual([]);
+      },
+      60_000,
+    );
+
     test("the loopback server the probes knock on answers this test", async () => {
       const { connect } = await import("node:net");
       const said = await new Promise<string>((resolve, reject) => {
@@ -824,6 +934,31 @@ print(json.dumps(seen))
       );
       expect(left).toEqual([]);
     }, 60_000);
+
+    test.runIf(process.platform === "linux")(
+      "a program that hides its open files from the meter, by making itself not dumpable, is stopped at once as unmeasured",
+      async () => {
+        const reports: string[] = [];
+        const { call, analyses } = tool({}, 30_000, undefined, (error) =>
+          reports.push(String(error)),
+        );
+        const started = performance.now();
+        await call(
+          "python",
+          [
+            "import ctypes, os, time",
+            "f = open('held', 'wb'); f.write(b'x' * 1_000_000); f.flush(); os.unlink('held')",
+            "ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)",
+            "time.sleep(20)",
+          ].join("\n"),
+        );
+        expect(analyses[0]?.end).toEqual({ kind: "disk-unmeasured" });
+        // At once: before the 10 s an unknown disk is allowed.
+        expect(performance.now() - started).toBeLessThan(10_000);
+        expect(reports[0]).toMatch(/failed \(EACCES\): \/proc\/\d+\/fd/);
+      },
+      60_000,
+    );
 
     test("is stopped at its time, memory and folder limits, and its output is cut", async () => {
       const { call, analyses } = tool({}, 15_000);

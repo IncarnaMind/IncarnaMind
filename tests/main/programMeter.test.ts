@@ -598,12 +598,28 @@ interface PidSpec {
   tasks?: number[];
   tasksErr?: string;
   threads?: Record<number, ProcNode>;
+  /** Its /proc/<pid>/status: by default one of the User's, two PID namespaces below the app's. */
+  status?: string;
+  statusErr?: string;
 }
+
+/**
+ * A status whose NSpid puts the process `below` PID namespaces under an app that is in `app` of
+ * them, with the pid `innermost` in its deepest.
+ */
+const nested = (below: number, innermost = 7, app = 1) =>
+  `Name:\tmade-up\nNSpid:\t${[...Array(app + below - 1).keys()]
+    .map((n) => 9000 - n)
+    .concat(innermost)
+    .join("\t")}\n`;
+
+/** The seccomp helper's inner half: the first process of the run's own PID namespace. */
+const HELPER = 699;
 
 /** The listing's time since boot, in clock ticks: a process started later than it isn't listed. */
 const LISTED_AT = 1_000;
 
-function fakeProc(byPid: Record<number, PidSpec>) {
+function fakeProc(byPid: Record<number, PidSpec>, app = nested(0, 9000)) {
   const fdReads = new Map<number, number>();
   const node = (pid: number, tid: number | null): ProcNode => {
     const spec = byPid[pid];
@@ -646,6 +662,13 @@ function fakeProc(byPid: Record<number, PidSpec>) {
       if (at.statErr) throw err(at.statErr);
       return at.stat ?? statLine();
     },
+    async status(pid) {
+      if (pid === "self") return app;
+      const spec = byPid[pid];
+      if (!spec) throw err("ESRCH");
+      if (spec.statusErr) throw err(spec.statusErr);
+      return spec.status ?? nested(2);
+    },
     ticks: async () => LISTED_AT,
   };
   return { reader, fdReads };
@@ -658,7 +681,25 @@ const deleted = (bytes: number, inode = "42") => ({
 });
 
 /** A Linux run of `pids` (the first its root, the rest under it) read through a made-up `/proc`. */
-function linux(byPid: Record<number, PidSpec>, options: { folder?: () => Promise<number> } = {}) {
+/**
+ * A Linux run of `byPid` (the lowest its root, the rest under it) read through a made-up `/proc`,
+ * with the helper's inner half among them unless `helper` is false; the app is in `app` PID
+ * namespaces.
+ */
+function linux(
+  given: Record<number, PidSpec>,
+  options: {
+    folder?: () => Promise<number>;
+    app?: number;
+    appStatus?: string;
+    helper?: false;
+  } = {},
+) {
+  const app = options.app ?? 1;
+  const byPid: Record<number, PidSpec> = { ...given };
+  if (options.helper !== false) {
+    byPid[HELPER] = { leader: { fdsErr: "EACCES" }, status: nested(2, 1, app) };
+  }
   const c = clock();
   const [root, ...under] = Object.keys(byPid).map(Number);
   const listing = [
@@ -666,7 +707,7 @@ function linux(byPid: Record<number, PidSpec>, options: { folder?: () => Promise
     ...under.map((pid) => `${pid} ${root} ${root} 501 1024`),
   ];
   const { command } = computer({ ps: () => listing.join("\n") });
-  const proc = fakeProc(byPid);
+  const proc = fakeProc(byPid, options.appStatus ?? nested(0, 9000, app));
   const meters = createMeters({
     command,
     platform: "linux",
@@ -676,8 +717,8 @@ function linux(byPid: Record<number, PidSpec>, options: { folder?: () => Promise
     folder: options.folder ?? (async () => 0),
   });
   const each = watcher();
-  meters.meter().watch(root ?? 0, "/w", each.use, each.unmeasured);
-  return { c, meters, each, fdReads: proc.fdReads };
+  const stop = meters.meter().watch(root ?? 0, "/w", each.use, each.unmeasured);
+  return { c, meters: Object.assign(meters, { stop }), each, fdReads: proc.fdReads };
 }
 
 /** The tick on which the run was first told its disk is unknown, counting from 0; -1 if never. */
@@ -691,6 +732,116 @@ const capped = () =>
   };
 
 describe("the meter, on Linux's /proc", () => {
+  test("only the User's processes are read: never the sandbox's own above the run's PID namespace, nor the helper's inner half in it, denied as they are", async () => {
+    const { c, meters, each, fdReads } = linux(
+      {
+        600: { leader: { ...deleted(1 * MB, "1") }, status: nested(0) },
+        601: { leader: { ...deleted(1 * MB, "2") }, status: nested(1) },
+        602: {
+          leader: { fdsErr: "EACCES", stat: statLine({ comm: "helper" }) },
+          status: nested(1),
+        },
+        603: {
+          leader: { fdsErr: "EACCES", stat: statLine({ comm: "helper" }) },
+          status: nested(2, 1),
+        },
+        604: { leader: { ...deleted(6 * MB, "3") }, status: nested(2, 2) },
+        605: { leader: { ...deleted(2 * MB, "4") }, status: nested(3, 1) },
+      },
+      { helper: false },
+    );
+    await run(meters, c, 3, 250);
+    expect(each.uses.at(-1)?.folder).toBe(8 * MB);
+    expect(each.reports).toEqual([]);
+    expect([600, 601, 602, 603].map((pid) => fdReads.get(pid) ?? 0)).toEqual([0, 0, 0, 0]);
+    expect(fdReads.get(604)).toBe(3);
+  });
+
+  test.each([
+    ["one of the User's at the run's own depth", nested(2, 7)],
+    ["the first process of a namespace the User made below the run's", nested(3, 1)],
+  ])("%s, denied, stops the run at once, named with its namespaces", async (_name, status) => {
+    const { c, meters, each } = linux({
+      600: { leader: {}, status: nested(0) },
+      601: { leader: { fdsErr: "EACCES" }, status },
+    });
+    await run(meters, c, 2, 250);
+    expect(each.uses.at(-1)?.folder).toBe("unknown");
+    expect(each.reports).toHaveLength(1);
+    expect(each.reports[0]).toContain("(EACCES): /proc/601/fd");
+    expect(each.reports[0]).toContain(
+      `NSpid ${status.split("NSpid:\t")[1]?.trim().split("\t").join(" ")}`,
+    );
+  });
+
+  test.each([
+    ["has no NSpid line", { status: "Name:\tmade-up\n" }, "(no NSpid line): /proc/601/status"],
+    ["can't be read", { statusErr: "EIO" }, "(EIO): /proc/601/status"],
+    ["is shallower than the app's", { status: "NSpid:\t5\n" }, "(NSpid shallower than the app's)"],
+  ])("a process whose status %s stops the run, named", async (_name, status, named) => {
+    const { c, meters, each } = linux(
+      { 600: { leader: {}, status: nested(0, 7, 2) }, 601: { leader: {}, ...status } },
+      { app: 2 },
+    );
+    await run(meters, c, 2, 250);
+    expect(each.uses.at(-1)?.folder).toBe("unknown");
+    expect(each.reports).toHaveLength(1);
+    expect(each.reports[0]).toContain(named);
+  });
+
+  test("the app's own status without an NSpid line stops the run", async () => {
+    const { c, meters, each } = linux({ 600: { leader: {} } }, { appStatus: "Name:\tapp\n" });
+    await run(meters, c, 2, 250);
+    expect(each.uses.at(-1)?.folder).toBe("unknown");
+    expect(each.reports).toEqual([
+      "DiskReadError: A disk read for process 0 failed (no NSpid line): /proc/self/status",
+    ]);
+  });
+
+  test("depth counts from the app's own namespaces, so an app in a container reads the same processes", async () => {
+    const { c, meters, each, fdReads } = linux(
+      {
+        600: { leader: {}, status: nested(0, 7, 3) },
+        601: { leader: { fdsErr: "EACCES" }, status: nested(1, 7, 3) },
+        602: { leader: { ...deleted(4 * MB) }, status: nested(2, 7, 3) },
+      },
+      { app: 3 },
+    );
+    await run(meters, c, 3, 250);
+    expect(each.uses.at(-1)?.folder).toBe(4 * MB);
+    expect(each.reports).toEqual([]);
+    expect(fdReads.get(601) ?? 0).toBe(0);
+  });
+
+  test("a turn that doesn't find the helper's inner half is unknown, its sandbox processes still never read; stopped once that lasts more than 10 s", async () => {
+    const missing = linux(
+      {
+        600: { leader: {}, status: nested(0) },
+        601: { leader: { fdsErr: "EACCES" }, status: nested(1) },
+        602: { leader: { ...deleted(3 * MB) }, status: nested(1) },
+      },
+      { helper: false },
+    );
+    await run(missing.meters, missing.c, 42, 250);
+    expect(missing.each.uses[40]?.folder).not.toBe("unknown");
+    expect(stoppedAt(missing.each)).toBe(41);
+    expect(missing.each.reports).toEqual([]);
+    expect(missing.fdReads.get(602) ?? 0).toBe(0);
+    // Until the helper starts its namespace its inner half is above it; then the User's code is in it.
+    const helper: PidSpec = { leader: {}, status: nested(1) };
+    const user: PidSpec = { leader: { ...deleted(3 * MB) }, status: nested(1) };
+    const starting = linux(
+      { 600: { leader: {}, status: nested(0) }, 601: helper, 602: user },
+      { helper: false },
+    );
+    await run(starting.meters, starting.c, 4, 250);
+    helper.status = nested(2, 1);
+    user.status = nested(2, 2);
+    await run(starting.meters, starting.c, 44, 250);
+    expect(starting.each.peak().unknown).toBe(false);
+    expect(starting.each.uses.at(-1)?.folder).toBe(3 * MB);
+  });
+
   test("a file held open with no name counts with the named folder, kept apart", async () => {
     const { c, meters, each } = linux(
       { 600: { leader: { ...deleted(5 * MB) } } },
@@ -708,7 +859,7 @@ describe("the meter, on Linux's /proc", () => {
     await run(meters, c, 2, 250);
     expect(each.uses.map((u) => u.folder)).toEqual([0, "unknown"]);
     expect(each.reports).toEqual([
-      "DiskReadError: A disk read for process 600 failed (EACCES): /proc/600/fd (probe: state R, flags 0x0, vsize 4096)",
+      "DiskReadError: A disk read for process 600 failed (EACCES): /proc/600/fd (probe: state R, flags 0x0, vsize 4096; NSpid 9000 8999 7)",
     ]);
   });
 
@@ -778,7 +929,7 @@ describe("the meter, on Linux's /proc", () => {
     await run(unlisted.meters, unlisted.c, 2, 250);
     expect(unlisted.each.uses.at(-1)?.folder).toBe("unknown");
     expect(unlisted.each.reports).toEqual([
-      "DiskReadError: A disk read for process 600 failed (EIO): /proc/600/task",
+      "DiskReadError: A disk read for process 600 failed (EIO): /proc/600/task (NSpid 9000 8999 7)",
     ]);
   });
 
@@ -907,16 +1058,24 @@ describe("the meter, on Linux's /proc", () => {
     }
     // Begun at 0 ms: over its 2 s deadline it is unknown, and 10,250 ms in it is past 10 s.
     expect(stoppedAt(each)).toBe(41);
-    expect(each.uses.filter((u) => u.memory === 1024 * 1024)).toHaveLength(42);
+    // The run and the helper's inner half, 1,024 KiB each.
+    expect(each.uses.filter((u) => u.memory === 2048 * 1024)).toHaveLength(42);
     await expect.poll(() => fdReads.get(600)).toBe(1);
   });
 
   test("one run's read that never returns stops only that run", async () => {
     const c = clock();
-    const { command } = computer({ ps: () => "600 1 600 501 1024\n700 1 700 501 1024" });
+    const { command } = computer({
+      ps: () =>
+        ["600 1 600", "601 600 600", "700 1 700", "701 700 700"]
+          .map((row) => `${row} 501 1024`)
+          .join("\n"),
+    });
     const { reader, fdReads } = fakeProc({
       600: { leader: { hold: new Promise<void>(() => {}) } },
+      601: { leader: {}, status: nested(2, 1) },
       700: { leader: { ...deleted(4 * MB) } },
+      701: { leader: {}, status: nested(2, 1) },
     });
     const meters = createMeters({
       command,
@@ -941,6 +1100,31 @@ describe("the meter, on Linux's /proc", () => {
     expect(fdReads.get(700)).toBe(13);
     expect(other.peak().unknown).toBe(false);
     expect(other.uses.at(-1)?.folder).toBe(4 * MB);
+  });
+
+  test("a read past the cap never lowers the count below the last good read's", async () => {
+    const leader: ProcNode = { ...deleted(5 * MB) };
+    const { c, meters, each } = linux({ 600: { leader } });
+    await run(meters, c, 2, 250);
+    expect(each.uses.at(-1)?.folder).toBe(5 * MB);
+    leader.fds = [];
+    leader.maps = capped();
+    await run(meters, c, 2, 250);
+    expect(each.uses.at(-1)?.folder).toBe(5 * MB);
+  });
+
+  test("a read that ends after its run is no longer watched tells it nothing", async () => {
+    let release = () => {};
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { meters, each } = linux({ 600: { leader: { fdsErr: "EACCES", hold } } });
+    await meters.tick();
+    meters.stop();
+    release();
+    await meters.settle();
+    expect(each.uses).toHaveLength(1);
+    expect(each.reports).toEqual([]);
   });
 
   test("the folder limit keeps counting the named files while the open-file read is stuck", async () => {
@@ -982,6 +1166,45 @@ describe("the 10 s clock", () => {
     leader.maps = capped();
     await run(meters, c, 33, 250);
     expect(each.peak().unknown).toBe(false);
+  });
+
+  test("a good read that began before the disk became unknown doesn't end the unknown", async () => {
+    const c = clock();
+    let listings = 0;
+    const { command } = computer({
+      ps: () => {
+        listings += 1;
+        if (listings > 1) throw new Error("ps didn't answer in time.");
+        return "600 1 600 501 1024\n601 600 600 501 1024";
+      },
+    });
+    let release = () => {};
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { reader } = fakeProc({
+      600: { leader: { hold } },
+      601: { leader: {}, status: nested(2, 1) },
+    });
+    const meters = createMeters({
+      command,
+      platform: "linux",
+      interval: false,
+      now: c.now,
+      reader,
+      folder: async () => 0,
+    });
+    const each = watcher();
+    meters.meter().watch(600, "/w", each.use, each.unmeasured);
+    // The read begins at 0 ms; the listing fails from 250 ms, so the disk is unknown from there.
+    for (let n = 0; n < 2; n++) {
+      await meters.tick();
+      c.advance(250);
+    }
+    release();
+    await meters.settle();
+    await run(meters, c, 41, 250);
+    expect(stoppedAt(each)).toBe(42);
   });
 
   test("a listing that keeps failing stops the run once unknown more than 10 s; the named folder still counts meanwhile", async () => {

@@ -39,6 +39,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readFile,
   realpath,
   rename,
   rm,
@@ -660,6 +661,21 @@ export async function loadOsSandbox({ seccompHelper }: OsSandboxOptions = {}): P
   // macOS's profile mounts nothing; on Linux only a bubblewrap that can size a tmpfs does.
   let sizedMasks = process.platform === "darwin";
   if (process.platform === "linux") {
+    // The meter tells the User's processes from the sandbox's own by their PID namespaces (#2351).
+    let status: string;
+    try {
+      status = await readFile("/proc/self/status", "utf8");
+    } catch (error) {
+      return { available: false, reason: messageOf(error), problem: { kind: "start" } };
+    }
+    if (!/^NSpid:/m.test(status)) {
+      return {
+        available: false,
+        reason:
+          "this Linux doesn't show the PID namespaces of a process (it needs Linux 4.1 or later)",
+        problem: { kind: "start" },
+      };
+    }
     const helper = seccompHelper ?? bundledSeccompHelper();
     readable.push(dirname(helper));
     let bwrapPath: string | undefined;
