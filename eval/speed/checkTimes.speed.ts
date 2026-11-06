@@ -227,7 +227,14 @@ async function noteFlow(
     mode: "all",
     model: choice,
   });
-  const searchedDuring = await searchDuring(core, mindId, sentences[0] ?? "", watch, recorder);
+  const searchedDuring = await searchDuring(
+    core,
+    mindId,
+    sentences[0] ?? "",
+    watch,
+    recorder,
+    checking,
+  );
   await checking;
   const doneMs = recorder.since();
   watch.stop();
@@ -250,16 +257,28 @@ async function searchDuring(
   text: string,
   watch: ReturnType<typeof watchNote>,
   recorder: ReturnType<typeof checkRecorder>,
+  checking: Promise<unknown>,
 ): Promise<{ atMs: number; ms: number } | null> {
   const after = env("SEARCH_DURING");
   if (after === null) return null;
+  // A check that ends first, with no claim named or before the delay, has no search during it.
+  let ended = false;
+  checking.then(
+    () => {
+      ended = true;
+    },
+    () => {
+      ended = true;
+    },
+  );
   await vi.waitFor(
     () => {
-      if (watch.firstMarkMs() === null) throw new Error("The claims aren't named yet.");
+      if (!ended && watch.firstMarkMs() === null) throw new Error("The claims aren't named yet.");
     },
-    { timeout: 60_000, interval: 20 },
+    { timeout: 10 * 60_000, interval: 20 },
   );
-  await new Promise((resolve) => setTimeout(resolve, Number(after)));
+  if (!ended) await new Promise((resolve) => setTimeout(resolve, Number(after)));
+  if (ended) return null;
   const atMs = recorder.since();
   await core.findPassages({ text, mindId, scope: null });
   return { atMs, ms: recorder.since() - atMs };
