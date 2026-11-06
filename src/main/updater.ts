@@ -16,7 +16,8 @@
  * it, and the User can turn automatic checks off there. They are on by default.
  */
 import { execFile } from "node:child_process";
-import { resolve } from "node:path";
+import { unlinkSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { app, BrowserWindow, autoUpdater as nativeUpdater } from "electron";
 import type { Core, ExternalService, Language, PrivacySettings, Settings } from "../core";
 import { translate } from "../shared/i18n";
@@ -55,6 +56,17 @@ export function registerUpdateCheck(core: Pick<Core, "networkTraffic" | "getPriv
   });
 }
 
+/** electron-updater kept its install ID here before #2557; nothing reads it now. */
+function removeOldInstallId(): void {
+  try {
+    unlinkSync(join(app.getPath("userData"), ".updaterId"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("The old update install ID could not be removed:", error);
+    }
+  }
+}
+
 /**
  * Starts this run's update check in the background. Does nothing in an
  * unpackaged app, or when the User turned automatic update checks off.
@@ -67,6 +79,7 @@ export function startAutoUpdates(
   prepareInstall: (targetVersion: string, reopens: boolean) => void,
 ): void {
   if (!app.isPackaged) return;
+  removeOldInstallId();
   let preparedReopens: boolean | undefined;
   const prepare = (version: string, reopens: boolean): boolean => {
     if (preparedReopens !== undefined) return false;
@@ -100,7 +113,8 @@ async function checkForUpdates(
 ): Promise<void> {
   if (!(await core.getPrivacySettings()).automaticUpdateChecks) return;
   const { language } = await core.getSettings();
-  const { autoUpdater } = await import("./autoUpdater");
+  const { autoUpdater, updateCheckSendsNoInstallId } = await import("./autoUpdater");
+  if (!updateCheckSendsNoInstallId) return;
   let downloaded: { version: string; language: Language } | undefined;
   let failureHandled = false;
   const failed = (error: unknown, language: Language, reopens: boolean) => {
