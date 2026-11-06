@@ -29,6 +29,13 @@ export const en = {
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
   "library.organize.needsModel": "Organize needs an AI model",
   "library.organize.use": "Use {company}",
+  "library.toSort.one": "1 to organize",
+  "library.toSort.other": "{count} to organize",
+  "library.toSort.allow": "Allow {service}",
+  "library.toSort.sends.one":
+    "1 Document waits to be organized: {service} isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for this one and for Documents you add later.",
+  "library.toSort.sends.other":
+    "{count} Documents wait to be organized: {service} isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for these and for Documents you add later.",
   "library.organize.sends": "Sends document names and excerpts to {company}.",
   "library.organize.sends.details":
     "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to {company}.",
@@ -2914,7 +2921,7 @@ export const en = {
   "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
   "providers.sends.edits": "the text you ask the assistant to change",
   "providers.sends.onRequest":
-    "Tagging and sorting your Documents send each Document’s name and an excerpt, with your Folder and Tag names, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
+    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ and Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   "providers.form.saving": "Saving…",
   "providers.form.moreShort": "More…",
   "providers.form.whereKey": "Where do I find it?",

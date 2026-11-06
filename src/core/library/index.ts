@@ -383,6 +383,13 @@ export function createLibrary(options: {
    * (#1942). Asked at each use, since the examples are made after the Library.
    */
   isExampleDocument?(id: string): boolean;
+  /**
+   * A Document's first pages, while the rest of its scan is still being read (#2308): Organize
+   * reads them as it would read the finished Document, so it sorts it once, at once.
+   */
+  head?(id: string): Pick<OrganizeSource, "pageCount" | "passages" | "units"> | null;
+  /** Local mode: nothing goes to a cloud service, so nothing waits to be allowed there. */
+  localOnly?(): boolean;
 }) {
   const { db, now, settings, background, changed } = options;
   const lifetime = new AbortController();
@@ -474,6 +481,11 @@ export function createLibrary(options: {
       "SELECT a.group_id FROM document_groups a JOIN library_groups g ON g.id = a.group_id WHERE a.document_id = ? AND a.deleted_at IS NULL AND g.deleted_at IS NULL",
       [id],
     )?.group_id ?? null;
+  /** A Document filed inside a Folder that keeps its work inside it: nothing of it goes to a cloud service by itself (#2308). */
+  const inWall = (id: string) => {
+    const place = placeOf(id);
+    return place !== null && wallOf(place) !== null;
+  };
   const taggingStoppedFor = (id: string) => {
     const { taggingStopped } = getSettings();
     return taggingStopped.length > 0 && taggingStopped.includes(placeOf(id));
@@ -659,6 +671,15 @@ export function createLibrary(options: {
       "SELECT * FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
       [id],
     );
+  /**
+   * Organize took this version up before and let it go: an Undo took its filing back, or it was
+   * held back for the User. Reading the rest of it, or reading it again, doesn't file it (#2308).
+   */
+  const filedBefore = (doc: DocumentRow) =>
+    !!db.get(
+      "SELECT 1 FROM document_groups WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL LIMIT 1",
+      [doc.id, doc.content_hash],
+    );
   const rejected = (id: string) =>
     new Set(
       db
@@ -689,7 +710,8 @@ export function createLibrary(options: {
       (["ready", "waiting-for-model", "embedding"].includes(doc.status) &&
         !!db.get("SELECT 1 FROM passages WHERE document_id = ? AND deleted_at IS NULL LIMIT 1", [
           doc.id,
-        ]))
+        ])) ||
+      !!options.head?.(doc.id)
     );
   };
   const scanWaits = (doc: DocumentRow): ProviderError | undefined => {
@@ -704,8 +726,20 @@ export function createLibrary(options: {
         }
       : undefined;
   };
-  /** What Organize reads of the indexed version (see ./excerpt). */
-  const source = (doc: DocumentRow, withPassages = true): OrganizeSource => ({
+  /** What Organize reads of the indexed version (see ./excerpt), or of its first pages. */
+  const source = (doc: DocumentRow, withPassages = true): OrganizeSource => {
+    const head = options.head?.(doc.id);
+    if (head)
+      return {
+        name: doc.name,
+        kind: doc.kind,
+        pageCount: head.pageCount,
+        passages: withPassages ? head.passages : [],
+        units: head.units,
+      };
+    return indexedSource(doc, withPassages);
+  };
+  const indexedSource = (doc: DocumentRow, withPassages: boolean): OrganizeSource => ({
     name: doc.name,
     kind: doc.kind,
     pageCount: doc.page_count,
@@ -1023,7 +1057,10 @@ export function createLibrary(options: {
       // Checked on where this request goes, as prepared; the User's own Organize goes.
       const service = options.organizeService(settingsNow);
       const services = service ? [service] : [];
-      if (!asked.has(id) && !mayBackgroundSend(db, id, services, turnedOnAt)) {
+      if (
+        !asked.has(id) &&
+        (!mayBackgroundSend(db, id, services, turnedOnAt) || (services.length > 0 && inWall(id)))
+      ) {
         holdBack(id, initial);
         return;
       }
@@ -1109,6 +1146,9 @@ export function createLibrary(options: {
   const queueClassification = (ids: readonly string[]) => {
     const docs = ids.map(document);
     for (const doc of docs) asked.add(doc.id);
+    // The User's own request goes to this service, after a quit too: kept, not only in memory.
+    const service = options.organizeService(getSettings());
+    if (service) for (const doc of docs) clearForService(db, doc.id, [service], now());
     db.transaction(() => {
       for (const doc of docs) {
         const existing = assignment(doc.id);
@@ -1250,6 +1290,19 @@ export function createLibrary(options: {
     announce([id]);
   }
 
+  /**
+   * The cloud service new Documents wait to be allowed on (`LibrarySnapshot.sortWaitsFor`). None
+   * when turning sorting on would turn it on for another service too (tagging's, say a Jev key's):
+   * the row's Allow names one service, and is the consent for that one only.
+   */
+  function sortWaitsFor(): ExternalService | null {
+    const now = getSettings();
+    if (now.automatic || options.localOnly?.() || groups().length === 0) return null;
+    const service = options.organizeService(now);
+    if (!service || options.sendsTo(now).some((each) => each.id !== service.id)) return null;
+    return service;
+  }
+
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
   // waiting or failed), or while Organize files new Documents by itself.
   const isOrganizing = (id: string): boolean => {
@@ -1364,6 +1417,7 @@ export function createLibrary(options: {
         )
         .map(toGroup);
       const saved = savedSettings();
+      const waiting = sortWaitsFor();
       return {
         groups: groups(),
         deletedGroups,
@@ -1371,6 +1425,7 @@ export function createLibrary(options: {
         settings: shownSettings(saved),
         automaticDefault: defaultAutomatic(saved),
         automaticOffNotice: automaticOffNotice(),
+        ...(waiting && { sortWaitsFor: waiting }),
       };
     },
     dismissAutomaticOffNotice(): void {
@@ -1378,6 +1433,7 @@ export function createLibrary(options: {
       settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       changed();
     },
+    inWall,
     /** A live Folder, or NotFoundError. */
     folder: group,
     /** The live Folders, by name. */
@@ -2051,7 +2107,7 @@ export function createLibrary(options: {
       if (
         getSettings().automatic &&
         groups().length > 0 &&
-        (!existing || existing.content_hash !== doc.content_hash)
+        (existing ? existing.content_hash !== doc.content_hash : !filedBefore(doc))
       ) {
         if (taggingStoppedFor(id)) {
           stopped(id);
