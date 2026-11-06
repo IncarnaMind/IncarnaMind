@@ -28,6 +28,8 @@ import {
 } from "../../src/core/answers/checks/prompt";
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import type { ClaimCheckAttributes } from "../../src/core/api";
+import { claimCheckShown } from "../../src/shared/claimChecks";
 import { median } from "../lib/timing";
 
 /** One model request, in milliseconds from the User's action. */
@@ -246,8 +248,24 @@ export interface Landed {
   verdict: string;
 }
 
-/** A mark that says nothing of the sentence: it couldn't be checked. */
-const NO_VERDICT: ReadonlySet<string> = new Set(["not-checked", "cant-check"]);
+/**
+ * What a sentence's mark shows, by the page's own rule: a cut sentence's mark, whose words are no
+ * longer the sentence's, shows it needs checking again, whatever its stored verdict.
+ */
+export const shownState = (
+  check: ClaimCheckAttributes,
+  text: string,
+  versions: ReadonlyMap<string, string>,
+): string =>
+  claimCheckShown(check, { text, versions, folderId: check.scope.folderId, scope: null }).state;
+
+/** A mark that shows no verdict on the sentence: it couldn't be checked, or needs checking again. */
+const NO_VERDICT: ReadonlySet<string> = new Set([
+  "not-checked",
+  "cant-check",
+  "needs-recheck",
+  "kept",
+]);
 
 /** When the first verdict reached the page, given the marks in the order they landed. */
 export const firstVerdictMs = (landed: readonly Landed[]): number | null =>

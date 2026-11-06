@@ -54,6 +54,7 @@ import {
   type FlowTimes,
   firstVerdictMs,
   type Landed,
+  shownState,
 } from "./checkTimes";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
@@ -159,15 +160,20 @@ function scripted(
       });
 }
 
-/** Each sentence's verdict as it lands in a Note: a mark that is no longer checking. */
-function watchNote(doc: Y.Doc, sentences: readonly string[], since: () => number) {
+/** Each sentence's mark as it lands in a Note, as the page shows it: a mark no longer checking. */
+function watchNote(
+  doc: Y.Doc,
+  sentences: readonly string[],
+  since: () => number,
+  versions: ReadonlyMap<string, string>,
+) {
   const landed: Landed[] = [];
   let firstMarkMs: number | null = null;
   const read = () => {
     for (const span of claimSpans(readMind({ blocks: doc.getXmlFragment(MIND_CONTENT_FIELD) }))) {
-      const state = span.check?.state;
-      if (!state) continue;
+      if (!span.check?.state) continue;
       firstMarkMs ??= since();
+      const state = shownState(span.check, span.sentence.text, versions);
       if (state === "checking") continue;
       const text = (span.check?.text ?? span.sentence.text).trim();
       const exact = sentences.indexOf(text);
@@ -187,6 +193,12 @@ function watchNote(doc: Y.Doc, sentences: readonly string[], since: () => number
   };
 }
 
+const seconds = (ms: number | null) => (ms === null ? "none" : `${(ms / 1000).toFixed(1)} s`);
+
+/** Each Document's version, by id, which a mark's display reads to tell a stale verdict. */
+const versionsOf = async (core: Core) =>
+  new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash]));
+
 async function noteFlow(
   core: Core,
   choice: ChatModelChoice,
@@ -203,7 +215,7 @@ async function noteFlow(
   );
   await client.settled();
   recorder.begin(sentences);
-  const watch = watchNote(client.doc, sentences, recorder.since);
+  const watch = watchNote(client.doc, sentences, recorder.since, await versionsOf(core));
   await core.checkMind({
     requestId: `note-${run}-${Date.now()}`,
     mindId,
@@ -222,6 +234,7 @@ async function writeFlow(
   recorder: ReturnType<typeof checkRecorder>,
 ) {
   const sentences = CITED(language).map((each) => each.sentence);
+  const versions = await versionsOf(core);
   recorder.begin(sentences);
   const docs = new Map<string, Y.Doc>();
   const watches: ReturnType<typeof watchNote>[] = [];
@@ -233,7 +246,7 @@ async function writeFlow(
       const fresh = new Y.Doc();
       docs.set(event.mindId, fresh);
       doc = fresh;
-      watches.push(watchNote(fresh, sentences, recorder.since));
+      watches.push(watchNote(fresh, sentences, recorder.since, versions));
       void core.openMind(event.mindId).then(
         ({ state }) => Y.applyUpdate(fresh, state),
         (error: unknown) =>
@@ -457,7 +470,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
               spentUsd: after - spent,
             });
             log(
-              `  first mark ${((landed[0]?.ms ?? 0) / 1000).toFixed(1)} s, first verdict ${((firstVerdictMs(landed) ?? 0) / 1000).toFixed(1)} s, done ${(times.doneMs / 1000).toFixed(1)} s, ${landed.length} landed, $${(after - spent).toFixed(4)}`,
+              `  first mark ${seconds(landed[0]?.ms ?? null)}, first verdict ${seconds(firstVerdictMs(landed))}, done ${(times.doneMs / 1000).toFixed(1)} s, ${landed.length} landed, $${(after - spent).toFixed(4)}`,
             );
           }
         }

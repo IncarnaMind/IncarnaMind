@@ -342,6 +342,31 @@ async function write(
   return { core, model, calls, answer, change, client: page };
 }
 
+/**
+ * Makes the next mark's edit fail once it is armed, and only that once: an edit that breaks for a
+ * reason other than the Note refusing it.
+ */
+function failOneMark() {
+  let armed: boolean | null = false;
+  const format = Y.XmlText.prototype.format;
+  const spy = vi.spyOn(Y.XmlText.prototype, "format").mockImplementation(function (
+    this: Y.XmlText,
+    ...args: Parameters<Y.XmlText["format"]>
+  ) {
+    if (armed) {
+      armed = null;
+      throw new Error("The edit broke.");
+    }
+    format.apply(this, args);
+  });
+  return {
+    arm: () => {
+      if (armed === false) armed = true;
+    },
+    restore: () => spy.mockRestore(),
+  };
+}
+
 const ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const TIME = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
 
@@ -388,29 +413,37 @@ async function checkRequestsOf(
       page = client;
     },
   );
-  const normal = (request: unknown) =>
-    JSON.stringify(request, (key, value) =>
-      key === "promptCacheKey" || key === "cacheKey" ? "<key>" : value,
-    )
-      .replace(ID, "<id>")
-      .replace(TIME, "<time>");
-  return [
-    ...calls
-      .filter((call) => isCheckRun(call) || CUT.test(call.prompt))
-      .map((call) =>
-        normal({
-          system: call.system,
-          prompt: call.prompt,
-          tools: call.tools,
-          json: call.json,
-          providerOptions: call.options.providerOptions,
-        }),
-      ),
-    // A sentence's comparisons and its record cites' judgements, not the reply's own checks.
-    ...generated
-      .filter((call) => /^(Compare a sentence|A sentence the User wrote)/.test(call.system))
-      .map((call) => normal({ system: call.system, prompt: call.prompt })),
-  ].sort();
+  return {
+    requests: [
+      ...calls
+        .filter((call) => isCheckRun(call) || CUT.test(call.prompt))
+        .map((call) => normalized(call.options)),
+      // A sentence's comparisons and its record cites' judgements, not the reply's own checks.
+      ...generated
+        .filter((call) => /^(Compare a sentence|A sentence the User wrote)/.test(call.system))
+        .map((call) => normalized(call.options)),
+    ].sort(),
+    verdicts,
+  };
+}
+
+/**
+ * A request's whole call, its prompt's messages, Tools, settings and provider options, with
+ * only what differs between two runs of the same write put by: ids, times, cache keys, the
+ * signal, and the scripted model's Tool call ids, numbered in their order within the request.
+ */
+function normalized(options: unknown): string {
+  const toolCalls = new Map<string, string>();
+  const text = JSON.stringify(options, (key, value: unknown) => {
+    if (key === "abortSignal" || typeof value === "function") return undefined;
+    if (key === "promptCacheKey" || key === "cacheKey") return "<key>";
+    if (key === "toolCallId" && typeof value === "string") {
+      if (!toolCalls.has(value)) toolCalls.set(value, `call-${toolCalls.size}`);
+      return toolCalls.get(value);
+    }
+    return value;
+  });
+  return text.replace(ID, "<id>").replace(TIME, "<time>");
 }
 
 /** A paragraph of the Mind as checks read it: each Citation as U+FFFC. */
@@ -1021,18 +1054,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
   test("a refused edit after another failure still stops every later mark", async () => {
     let page: MindClient | null = null;
     let newer = false;
-    let armed: boolean | null = false;
-    const format = Y.XmlText.prototype.format;
-    const edits = vi.spyOn(Y.XmlText.prototype, "format").mockImplementation(function (
-      this: Y.XmlText,
-      ...args: Parameters<Y.XmlText["format"]>
-    ) {
-      if (armed) {
-        armed = null;
-        throw new Error("The edit broke.");
-      }
-      format.apply(this, args);
-    });
+    const edits = failOneMark();
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const { calls } = await write(
@@ -1042,7 +1064,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
           check: (call) => {
             const client = page;
             if (call.results.length > 0 || !client) return null;
-            if (armed === false) armed = true;
+            edits.arm();
             if (sentenceOf(call) !== `${UNBACKED} .` || newer) return null;
             // A newer version writes the Note once the first mark has failed for another reason.
             newer = true;
@@ -1056,7 +1078,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
           page = client;
         },
       );
-      edits.mockRestore();
+      edits.restore();
 
       expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(3);
       const refused = errors.mock.calls.filter(([line]) =>
@@ -1067,7 +1089,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
         "MindReadOnlyError",
       ]);
     } finally {
-      edits.mockRestore();
+      edits.restore();
       errors.mockRestore();
     }
   });
@@ -1114,18 +1136,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
 
   // protects=a landing that fails on a Note that still takes edits leaves the table's marks to land after every check before the check fails (#2532); fails_when=the check fails before the last edit, and the table's sentence lands unmarked; no_claim=what makes an edit fail.
   test("a failed landing still lets a table's marks land before the check fails", async () => {
-    let armed: boolean | null = false;
-    const format = Y.XmlText.prototype.format;
-    const edits = vi.spyOn(Y.XmlText.prototype, "format").mockImplementation(function (
-      this: Y.XmlText,
-      ...args: Parameters<Y.XmlText["format"]>
-    ) {
-      if (armed) {
-        armed = null;
-        throw new Error("The edit broke.");
-      }
-      format.apply(this, args);
-    });
+    const edits = failOneMark();
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const { core, client } = await write({
@@ -1133,11 +1144,11 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
         into: true,
         check: (call) => {
           // Only the paragraph's mark fails, once: the table's lands in the last edit.
-          if (armed === false && sentenceOf(call) !== `${UNBACKED} .`) armed = true;
+          if (sentenceOf(call) !== `${UNBACKED} .`) edits.arm();
           return null;
         },
       });
-      edits.mockRestore();
+      edits.restore();
 
       const marks = await marksIn(core, client);
       expect(marks.map(({ sentence, check }) => [sentence, check.state])).toEqual([
@@ -1149,7 +1160,7 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
         ),
       ).toHaveLength(1);
     } finally {
-      edits.mockRestore();
+      edits.restore();
       errors.mockRestore();
     }
   });
@@ -1393,8 +1404,16 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
       const inOrder = await checkRequestsOf(writing, sentences, false);
       const reversed = await checkRequestsOf(writing, sentences, true);
 
-      expect(inOrder.length).toBeGreaterThan(sentences.checked);
-      expect(reversed).toEqual(inOrder);
+      const { firstEnds, others } = sentences;
+      const ended = (verdicts: readonly string[], sentence: string) => verdicts.indexOf(sentence);
+      for (const other of others) {
+        expect(ended(inOrder.verdicts, firstEnds)).toBeLessThan(ended(inOrder.verdicts, other));
+        expect(ended(reversed.verdicts, other)).toBeLessThan(
+          ended(reversed.verdicts, sentences.first),
+        );
+      }
+      expect(inOrder.requests.length).toBeGreaterThan(sentences.checked);
+      expect(reversed.requests).toEqual(inOrder.requests);
     },
   );
 
