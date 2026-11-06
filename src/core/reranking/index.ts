@@ -45,11 +45,12 @@ export interface RerankingModel {
    * from 0 to 1; ties keep their order. Null, with nothing read, while the
    * model isn't downloaded or can't start. Rejects if the model fails. One
    * search is scored at a time, alone, in the order of the work that asked
-   * (./order).
+   * (./order); one whose `signal` aborts while it waits is never scored.
    */
   rerank<Hit extends Rerankable>(
     query: string,
     hits: readonly Hit[],
+    signal?: AbortSignal,
   ): Promise<(Hit & { score: number })[] | null>;
   /** Where it ran when it last loaded. Null before it has loaded, and once it has stopped. */
   device(): RerankingDevice["device"] | null;
@@ -184,11 +185,12 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
     isReady: files.isReady,
     ensure: files.ensure,
     retry: files.retry,
-    async rerank(query, hits) {
-      if (!(await files.load())) return null;
-      if (hits.length === 0) return [];
+    async rerank(query, hits, signal) {
       const texts = hits.map(rerankText);
+      // Loaded in its turn: the model may have stopped while the search waited.
       const logits = await inTurn(async () => {
+        if (!(await files.load())) return null;
+        if (texts.length === 0) return [];
         try {
           return await crossEncoder.score(normaliseText(query), texts);
         } catch (error) {
@@ -197,7 +199,8 @@ export function createRerankingModel(options: RerankingModelOptions): RerankingM
           if (!(await files.load())) throw error;
           return crossEncoder.score(normaliseText(query), texts);
         }
-      });
+      }, signal);
+      if (logits === null) return null;
       return hits
         .map((hit, index) => ({
           ...hit,

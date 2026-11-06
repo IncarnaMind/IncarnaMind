@@ -787,6 +787,7 @@ export function createMindCheck(options: MindCheckOptions) {
         if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
         return marked;
       });
+      early.keep(queued);
 
       const result = await runChecks(
         { ...options, claimCheck: early.claimCheck },

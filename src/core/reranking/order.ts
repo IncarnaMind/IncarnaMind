@@ -18,11 +18,11 @@ export function asRerankWork<T>(work: () => T): T {
 /** Where a rerank asked now goes: by its work's start, or, outside any, by when it is asked. */
 export const rerankOrder = (): number => current.getStore() ?? next++;
 
-/** Runs scorings one at a time, the one whose order comes first next. */
+/** Runs scorings one at a time, the one whose order comes first next; one stopped while it waits never runs. */
 export function createRerankQueue() {
   const waiting: { order: number; start(): void }[] = [];
   let busy = false;
-  return async <T>(work: () => Promise<T>): Promise<T> => {
+  return async <T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
     const order = rerankOrder();
     if (busy) {
       await new Promise<void>((start) => {
@@ -33,6 +33,7 @@ export function createRerankQueue() {
     }
     busy = true;
     try {
+      signal?.throwIfAborted();
       return await work();
     } finally {
       const first = waiting.shift();

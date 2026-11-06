@@ -207,12 +207,15 @@ export async function runItems<I, T>(
 /** Model calls that share one run's limit of `size` at once, whichever item asks: a claim's parts and its neighbours. */
 export interface Slots {
   run<T>(task: () => Promise<T>): Promise<T>;
+  /** How many tasks could start now without waiting. */
+  free(): number;
 }
 
 export function slots(size: number): Slots {
   let free = Math.max(1, size);
   const waiting: (() => void)[] = [];
   return {
+    free: () => (waiting.length > 0 ? 0 : free),
     async run(task) {
       if (free > 0) free--;
       else await new Promise<void>((resolve) => waiting.push(resolve));

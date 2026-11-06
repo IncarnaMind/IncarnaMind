@@ -354,6 +354,85 @@ describe("The order searches are scored in", () => {
   });
 });
 
+describe("A search waiting to be scored", () => {
+  // protects=a search whose Answer or check is stopped while it waits is never scored, so the searches after it go sooner (#2532); fails_when=a stopped search is scored in its turn; no_claim=a search already being scored, which the model finishes.
+  test("is never scored once it is stopped, and the next goes in its place", async () => {
+    const inTurn = createRerankQueue();
+    const ran: string[] = [];
+    let finishFirst = () => {};
+    const first = inTurn(
+      () =>
+        new Promise<void>((resolve) => {
+          ran.push("first");
+          finishFirst = resolve;
+        }),
+    );
+    const stopped = new AbortController();
+    const second = inTurn(async () => {
+      ran.push("second");
+    }, stopped.signal);
+    const third = inTurn(async () => {
+      ran.push("third");
+    });
+    stopped.abort();
+    finishFirst();
+
+    await first;
+    await expect(second).rejects.toThrow();
+    await third;
+    expect(ran).toEqual(["first", "third"]);
+  });
+
+  // protects=a search that waited while the model stopped (the User turned reranking off and on, or its process restarted) loads the model again in its turn instead of failing (#2532); fails_when=the model is loaded before the wait and the search fails as not loaded; no_claim=how long loading takes.
+  test("loads the model again in its turn when the model stopped while it waited", async () => {
+    const hits = [
+      { documentName: "Ships", text: "Boats float on water." },
+      { documentName: "Bread", text: "Bread rises in the oven." },
+    ];
+    const dataDir = await createTempDataFolder();
+    let loaded = false;
+    let loads = 0;
+    const scored: string[] = [];
+    let finishFirst = () => {};
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir,
+      crossEncoder: {
+        load: async () => {
+          loads++;
+          loaded = true;
+          return { device: "cpu" };
+        },
+        score: async (query, texts) => {
+          if (!loaded) throw new Error("The reranking model isn't loaded.");
+          scored.push(query);
+          if (query === "first")
+            await new Promise<void>((resolve) => {
+              finishFirst = resolve;
+            });
+          return texts.map(() => 0);
+        },
+        close: () => {
+          loaded = false;
+        },
+      },
+      emitStatus: () => {},
+    });
+    const first = model.rerank("first", hits);
+    await vi.waitFor(() => expect(scored).toEqual(["first"]));
+    const second = model.rerank("second", hits);
+
+    model.unload();
+    finishFirst();
+
+    expect(await first).toHaveLength(hits.length);
+    expect(await second).toHaveLength(hits.length);
+    expect(loads).toBe(2);
+    model.close();
+  });
+});
+
 /** Both ends of the channel in one process, as a utility process would serve them. */
 function linkedChannel(served: CrossEncoder) {
   let onRequest: (request: CrossEncoderRequest) => void = () => {};

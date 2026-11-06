@@ -176,7 +176,7 @@ export function createRerank(options: {
       return [...candidates];
     }
     try {
-      const ranked = await builtIn.rerank(query, candidates);
+      const ranked = await builtIn.rerank(query, candidates, abortSignal);
       abortSignal?.throwIfAborted();
       return ranked ?? [...candidates];
     } catch (error) {

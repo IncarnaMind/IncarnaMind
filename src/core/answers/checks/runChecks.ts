@@ -157,26 +157,48 @@ function requestKey({ signal: _signal, slots: _slots, model: _model, ...sent }: 
 
 /**
  * Checks started before a run's queue is made, as soon as each claim is known (#2532): a Note's
- * claims are checked while the model is still naming the rest. Once the run's queue is made from
- * the Note as it is then, a check it would send is taken from those started early only if it
- * sends exactly the same; every other early check is stopped and its result dropped, so no result
- * lands that the run wouldn't have got.
+ * claims are checked while the model is still naming the rest. Only as many start as the run's
+ * limit has free places, so none waits outside the run, where a provider's rate limit wouldn't
+ * slow it (#1618). Once the run's queue is made from the Note as it is then, a check it would send
+ * is taken from those started early only if it sends exactly the same; every other early check is
+ * stopped at once and its result dropped, so no result lands that the run wouldn't have got.
  */
 export function earlyChecks(
   claimCheck: RunChecksOptions["claimCheck"],
   run: ChecksRun,
   limit: Slots,
 ) {
-  const started = new Map<string, { result: Promise<ClaimCheckResult>; stop: AbortController }[]>();
+  interface Early {
+    result: Promise<ClaimCheckResult>;
+    stop: AbortController;
+  }
+  const started = new Map<string, Early[]>();
   return {
     start(claim: QueuedClaim): void {
+      if (limit.free() === 0) return;
       const stop = new AbortController();
       const request = checkRequestOf(claim, run, limit, AbortSignal.any([run.signal, stop.signal]));
       const key = requestKey(request);
-      const result = checkClaim(claimCheck, request);
-      // A check the run takes is awaited there; one it drops is stopped, and nothing reads it.
-      result.catch(() => {});
-      started.set(key, [...(started.get(key) ?? []), { result, stop }]);
+      const early: Early = { result: checkClaim(claimCheck, request), stop };
+      early.result.catch((error: unknown) => {
+        // A check the run takes fails there, as any other does.
+        if (stop.signal.aborted || !started.get(key)?.includes(early)) return;
+        console.error(`A check started early for Note ${run.mindId} failed:`, error);
+      });
+      started.set(key, [...(started.get(key) ?? []), early]);
+    },
+    /** Stops at once the early checks of claims the run won't send as they were sent. */
+    keep(queued: readonly QueuedClaim[]): void {
+      const wanted = new Map<string, number>();
+      for (const claim of queued) {
+        const key = requestKey(checkRequestOf(claim, run, limit, run.signal));
+        wanted.set(key, (wanted.get(key) ?? 0) + 1);
+      }
+      for (const [key, each] of started) {
+        const kept = wanted.get(key) ?? 0;
+        for (const { stop } of each.slice(kept)) stop.abort();
+        started.set(key, each.slice(0, kept));
+      }
     },
     /** The run's claim check: an early one that sends the same, or a new one. */
     claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult> {

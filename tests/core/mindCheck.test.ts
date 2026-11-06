@@ -1642,19 +1642,21 @@ function sortStopsAfterFirst(model: LanguageModelV4, then: "held" | "fails") {
 describe("Check this note starts each sentence's check once its claims are named", () => {
   const SECOND = "Spring tide 2 comes at new moon.";
 
-  async function noteOfTwo(then: "held" | "fails", firstRun?: Promise<void>) {
+  /** `held`: the first sentence's checks, by their order, wait at their first request until each is resolved. */
+  async function noteOfTwo(
+    then: "held" | "fails",
+    held: readonly Promise<void>[] = [],
+    onService = true,
+  ) {
     const checks: ModelCall[] = [];
     const plans: Record<string, Plan> = { ...PLANS, [SECOND]: { verdict: "unsupported" } };
     const scripted = scriptedModel(
       (call) => {
         checks.push(call);
         const reply = checkReply(call, plans);
-        const early =
-          firstRun && call.results.length === 0 && isCheckRun(call) && sentenceOf(call) === MOON;
-        // Only the first check of the first sentence waits: one sent again goes on.
-        return early && runsIn(checks).filter((each) => sentenceOf(each) === MOON).length === 1
-          ? { ...reply, pause: { after: 0, until: firstRun } }
-          : reply;
+        if (call.results.length > 0 || !isCheckRun(call) || sentenceOf(call) !== MOON) return reply;
+        const until = held[runsIn(checks).filter((each) => sentenceOf(each) === MOON).length - 1];
+        return until ? { ...reply, pause: { after: 0, until } } : reply;
       },
       { generate: checkGenerate(plans) },
     );
@@ -1663,12 +1665,14 @@ describe("Check this note starts each sentence's check once its claims are named
       createChatModel: () => sort.model,
     });
     core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-    const provider = await core.saveChatProvider({
-      kind: "anthropic",
-      apiKey: "sk-ant-test",
-      modelId: "claude-haiku-5-5",
-    });
-    if (provider.service) await core.allowDataFlow("checks", provider.service.id);
+    if (onService) {
+      const provider = await core.saveChatProvider({
+        kind: "anthropic",
+        apiKey: "sk-ant-test",
+        modelId: "claude-haiku-5-5",
+      });
+      if (provider.service) await core.allowDataFlow("checks", provider.service.id);
+    } else await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     const sources = await createTempDataFolder();
     await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
     const mind = await core.createMind({ title: "Tide notes" });
@@ -1703,21 +1707,28 @@ describe("Check this note starts each sentence's check once its claims are named
     ]);
   });
 
-  // protects=a check started early whose sentence the User changed around it while the claims were named is stopped, its result dropped, and the sentence checked again as the Note has it then (#2532); fails_when=the early check's verdict lands, or it isn't sent again with the paragraph's new words; no_claim=what the model says of the new words.
-  test("a check started early is sent again when the paragraph changed before the claims were named", async () => {
+  // protects=a check started early whose sentence the User changed around it while the claims were named is stopped as soon as the run's queue is made, its result dropped, and the sentence checked again as the Note has it then (#2532); fails_when=the early check goes on, its verdict lands, or it isn't sent again with the paragraph's new words; no_claim=what the model says of the new words.
+  test("a check started early is stopped and sent again when the paragraph changed before the claims were named", async () => {
     const firstRun = Promise.withResolvers<void>();
-    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held", firstRun.promise);
+    const secondRun = Promise.withResolvers<void>();
+    const { core, client, mindId, sort, runsOf } = await noteOfTwo("held", [
+      firstRun.promise,
+      secondRun.promise,
+    ]);
 
     const checking = core.checkMind(request(mindId, "all"));
     await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
     typeInto(client, 0, MOON.length, " Neap tides come at the quarter moons.");
     await client.settled();
     sort.release();
+    await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(2));
+    const [early, again] = runsOf(MOON);
+    // Stopped while the run still checks the sentence again.
+    expect(early?.options.abortSignal?.aborted).toBe(true);
+    secondRun.resolve();
 
     expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
     firstRun.resolve();
-    const [early, again] = runsOf(MOON);
-    expect(early?.options.abortSignal?.aborted).toBe(true);
     expect(early?.prompt).not.toContain("Neap tides");
     expect(again?.prompt).toContain("Neap tides come at the quarter moons.");
     expect(again?.options.abortSignal?.aborted).toBe(false);
@@ -1730,10 +1741,9 @@ describe("Check this note starts each sentence's check once its claims are named
     "when naming the claims %s after the first, the check started early is stopped and nothing is marked",
     async (end) => {
       const firstRun = Promise.withResolvers<void>();
-      const { core, client, mindId, runsOf } = await noteOfTwo(
-        end === "fails" ? "fails" : "held",
+      const { core, client, mindId, runsOf } = await noteOfTwo(end === "fails" ? "fails" : "held", [
         firstRun.promise,
-      );
+      ]);
 
       const checking = core.checkMind(request(mindId, "all"));
       await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
