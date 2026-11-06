@@ -1,6 +1,6 @@
 /**
  * Held-out cases for the rules a rewrite with what the Documents say keeps to (#1554), written
- * from the rules alone, before they changed, in seven rounds (the later six marked below): each pairs a sentence and a scripted reply with the
+ * from the rules alone, before they changed, in eight rounds (the later seven marked below): each pairs a sentence and a scripted reply with the
  * quote the check found, and says what a careful reader would allow. A figure or a name is
  * written only when the quote says it of the same thing, in the same terms; "same" only when the
  * sentence already gives the quote's value; otherwise the sentence stays. The names are invented.
@@ -815,6 +815,40 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     quote: "The trench is 2022 in deep.",
     kind: "rewritten",
   },
+  // Written after the eleventh review, before the rules changed again: a year-shaped figure is a
+  // measure only when everything after it, to its sentence's end, is its unit.
+  {
+    id: "a-year-before-per-and-a-noun-phrase",
+    language: "en",
+    sentence: "The levy was set at 300 per unit holders' vote.",
+    reply: "Change 1: 300\nTo 1: 2021",
+    quote: "The levy was set in 2021 per unit holders' vote.",
+    kind: "kept",
+  },
+  {
+    id: "a-year-before-a-dimension-and-a-comma",
+    language: "en",
+    sentence: "The fee was set 600 in wide, open talks.",
+    reply: "Change 1: 600\nTo 1: 2024",
+    quote: "The fee was set in 2024 in wide, open talks.",
+    kind: "kept",
+  },
+  {
+    id: "a-rate-per-kg",
+    language: "en",
+    sentence: "Scrap sells at 1800 per kg.",
+    reply: "Change 1: 1800\nTo 1: 2025",
+    quote: "Scrap sells at 2025 per kg.",
+    kind: "rewritten",
+  },
+  {
+    id: "a-rate-per-head",
+    language: "en",
+    sentence: "Catering costs 1500 per head.",
+    reply: "Change 1: 1500\nTo 1: 2024",
+    quote: "Catering costs 2024 per head.",
+    kind: "rewritten",
+  },
 ];
 
 /**
@@ -1016,6 +1050,30 @@ export const REWRITE_OFFER_CASES: readonly RewriteOfferCase[] = [
     id: "a-depth-in-inches",
     sentence: "The trench is 1300 in deep.",
     quote: "The trench is 2022 in deep.",
+    offered: true,
+  },
+  {
+    id: "a-year-before-per-and-a-noun-phrase",
+    sentence: "The levy was set at 300 per unit holders' vote.",
+    quote: "The levy was set in 2021 per unit holders' vote.",
+    offered: false,
+  },
+  {
+    id: "a-year-before-a-dimension-and-a-comma",
+    sentence: "The fee was set 600 in wide, open talks.",
+    quote: "The fee was set in 2024 in wide, open talks.",
+    offered: false,
+  },
+  {
+    id: "a-rate-per-kg",
+    sentence: "Scrap sells at 1800 per kg.",
+    quote: "Scrap sells at 2025 per kg.",
+    offered: true,
+  },
+  {
+    id: "a-rate-per-head",
+    sentence: "Catering costs 1500 per head.",
+    quote: "Catering costs 2024 per head.",
     offered: true,
   },
 ];
