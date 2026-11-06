@@ -1,6 +1,6 @@
 /**
  * Held-out cases for the rules a rewrite with what the Documents say keeps to (#1554), written
- * from the rules alone, before they changed, in five rounds (the later four marked below): each pairs a sentence and a scripted reply with the
+ * from the rules alone, before they changed, in six rounds (the later five marked below): each pairs a sentence and a scripted reply with the
  * quote the check found, and says what a careful reader would allow. A figure or a name is
  * written only when the quote says it of the same thing, in the same terms; "same" only when the
  * sentence already gives the quote's value; otherwise the sentence stays. The names are invented.
@@ -730,6 +730,57 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     quote: "礼堂可容纳 2020 人。",
     kind: "rewritten",
   },
+  // Written after the ninth review, before the rules changed again: only a known unit after a
+  // year-shaped figure, or a currency before it, makes it a measure; any other word keeps it a
+  // year.
+  {
+    id: "a-year-before-an-unlisted-word",
+    language: "en",
+    sentence: "The rebate was 200 except for refunds.",
+    reply: "Change 1: 200\nTo 1: 2023",
+    quote: "The rebate was in 2023 except for refunds.",
+    kind: "kept",
+  },
+  {
+    id: "a-year-before-an-adverb",
+    language: "en",
+    sentence: "The levy was 700 retroactively.",
+    reply: "Change 1: 700\nTo 1: 2022",
+    quote: "The levy was in 2022 retroactively.",
+    kind: "kept",
+  },
+  {
+    id: "a-year-before-a-long-calendar-label-zh",
+    language: "zh-CN",
+    sentence: "考核期为 2 自然年度。",
+    reply: "Change 1: 2\nTo 1: 2024",
+    quote: "考核期为 2024 自然年度。",
+    kind: "kept",
+  },
+  {
+    id: "a-weight-that-looks-like-a-year",
+    language: "en",
+    sentence: "The cargo weighs 1800 kg.",
+    reply: "Change 1: 1800\nTo 1: 2021",
+    quote: "The cargo weighs 2021 kg.",
+    kind: "rewritten",
+  },
+  {
+    id: "a-width-in-inches",
+    language: "en",
+    sentence: "The board is 1200 in wide.",
+    reply: "Change 1: 1200\nTo 1: 2024",
+    quote: "The board is 2024 in wide.",
+    kind: "rewritten",
+  },
+  {
+    id: "a-sum-in-yuan-zh",
+    language: "zh-CN",
+    sentence: "补贴为 1800 元。",
+    reply: "Change 1: 1800\nTo 1: 2024",
+    quote: "补贴为 2024 元。",
+    kind: "rewritten",
+  },
 ];
 
 /**
@@ -877,6 +928,36 @@ export const REWRITE_OFFER_CASES: readonly RewriteOfferCase[] = [
     id: "a-length-in-one-letter",
     sentence: "The track is 1800 m long.",
     quote: "The track is 2025 m long.",
+    offered: true,
+  },
+  {
+    id: "a-year-before-an-unlisted-word",
+    sentence: "The rebate was 200 except for refunds.",
+    quote: "The rebate was in 2023 except for refunds.",
+    offered: false,
+  },
+  {
+    id: "a-year-before-a-long-calendar-label-zh",
+    sentence: "考核期为 2 自然年度。",
+    quote: "考核期为 2024 自然年度。",
+    offered: false,
+  },
+  {
+    id: "a-weight-that-looks-like-a-year",
+    sentence: "The cargo weighs 1800 kg.",
+    quote: "The cargo weighs 2021 kg.",
+    offered: true,
+  },
+  {
+    id: "a-width-in-inches",
+    sentence: "The board is 1200 in wide.",
+    quote: "The board is 2024 in wide.",
+    offered: true,
+  },
+  {
+    id: "a-sum-in-yuan-zh",
+    sentence: "补贴为 1800 元。",
+    quote: "补贴为 2024 元。",
     offered: true,
   },
 ];
