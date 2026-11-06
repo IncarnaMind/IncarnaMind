@@ -673,6 +673,14 @@ test("the silence does not count the card's wait, at the default 320px assistant
   test.setTimeout(240_000);
   const { app, window } = await startWithMinuteHistory();
   const connectorId = await addTideConnector(window);
+  // The Tool asks before it runs, so its card pauses the Answer with no new model call after it.
+  await window.evaluate(async (id) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.setApprovalPolicy({
+      subject: { kind: "tool", connectorId: id, tool: "lookup_tide" },
+      policy: "ask",
+    });
+  }, connectorId);
   const languages = [
     [
       "en",
@@ -686,24 +694,30 @@ test("the silence does not count the card's wait, at the default 320px assistant
   for (const [language, question, whole] of languages) {
     await setLanguage(window, language);
     await setSilentWaitMs(window, 1_500);
-    // Nothing is on its way to the Connector yet, so the answer asks before it sends.
-    await window.evaluate(async (id) => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await bridge.revokeConsent("connectors", `connector:${id}`);
-    }, connectorId);
     await window.keyboard.press("ControlOrMeta+j");
     await window.keyboard.type(question);
     await window.keyboard.press("Enter");
-    const consent = window.getByTestId("consent-dialog");
-    await expect(consent).toBeVisible({ timeout: 15_000 });
+    const approval = window.getByTestId("approval-card");
+    await expect(approval).toBeVisible({ timeout: 15_000 });
     // The card sits open past the 1.5 s silence: that is the case under test, not a wait for the app.
     await window.waitForTimeout(2_500);
     const from = (await waits()).length;
     const answeredAt = await window.evaluate(() => Date.now());
-    await consent.getByTestId("consent-allow").click();
-    await expect(consent).not.toBeVisible();
+    await approval.getByTestId("approval-allow-once").click();
+    // The first Tool call also asks where its arguments go: allowed here, so the Tool runs on.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      for (let tries = 0; tries < 10; tries++) {
+        const [request] = await bridge.listConsentRequests();
+        if (request) {
+          await bridge.respondToConsent(request.requestId, true);
+          return;
+        }
+        await new Promise((done) => setTimeout(done, 50));
+      }
+    });
     const answer = assistantAnswers(window).last();
-    // The Connector still runs: the silence runs from the answer, and its wait joins after its 1.5 s.
+    // The Tool still runs: the silence runs from the answer, and its wait joins after its 1.5 s.
     await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole, {
       timeout: 15_000,
     });

@@ -31,6 +31,7 @@ import {
   type StepRow,
   type StepSource,
   stepRows,
+  stepWordsChanged,
 } from "../../answerSteps";
 import {
   checkedWords,
@@ -234,7 +235,7 @@ export function LiveLine({
   const [rowWidth, setRowWidth] = useState(0);
   const [waitForm, setWaitForm] = useState<"whole" | "short" | "row">("whole");
   const formShown = useRef<"whole" | "short" | "row" | null>(null);
-  const measuredAs = useRef<{ label: string; summary: string; width: number } | null>(null);
+  const measuredAs = useRef<{ label: string; width: number; stepKey: string } | null>(null);
   const minds = useAppStore((state) => state.minds);
   // A Minds' Tool's call names its Mind once it has changed it; before, by its input, else the one asked from.
   const mindOf = (call: AnswerToolCall) => {
@@ -247,7 +248,9 @@ export function LiveLine({
       : askedFrom?.name || namedMind(t, call);
   };
   const python = usePythonRuntime((state) => state.status);
-  const waitingSeconds = useSecondsOn(liveStepKey(shown));
+  const stepKey = liveStepKey(shown);
+  const stepKind = shown.kind;
+  const waitingSeconds = useSecondsOn(stepKey);
   const summary = shown.kind === "thinking" ? shown.summary : "";
   const label = liveText(t, shown, scope, mindOf, python);
   const waiting = shown.kind === "waiting" || shown.kind === "consent";
@@ -316,7 +319,7 @@ export function LiveLine({
           ? "short"
           : "row";
     const before = measuredAs.current;
-    measuredAs.current = { label, summary, width };
+    measuredAs.current = { label, width, stepKey };
     const current = formShown.current;
     if (current === null) {
       formShown.current = target;
@@ -327,13 +330,26 @@ export function LiveLine({
     // grows, but takes it back only when the step's own words change, so it
     // never bounces between rows while the summary streams (#2531).
     const narrower = WAIT_FORM_ORDER[target] > WAIT_FORM_ORDER[current];
-    const stepChanged = before !== null && before.label !== label;
+    // A thinking step's label goes Thinking ↔ Thinking… as only its summary comes and goes: not a step change.
+    const stepChanged =
+      before !== null && stepWordsChanged(before, { label, stepKey, kind: stepKind });
     const resized = before !== null && before.width !== width;
     if (narrower || stepChanged || resized) {
       formShown.current = target;
       setWaitForm(target);
     }
-  }, [whole, short, label, summary, waiting, waitingSeconds, rowWidth, hasToggle]);
+  }, [
+    whole,
+    short,
+    label,
+    summary,
+    waiting,
+    waitingSeconds,
+    rowWidth,
+    hasToggle,
+    stepKey,
+    stepKind,
+  ]);
 
   return (
     <p

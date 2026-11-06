@@ -1941,7 +1941,12 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
 }
 
 /** How the latest Answer's wait showed as it ran: joined on its step's row, or alone on the second. */
-export type AnswerWaitForm = { at: number; form: "joined" | "row"; text: string };
+export type AnswerWaitForm = {
+  at: number;
+  form: "joined" | "row";
+  text: string;
+  step: string;
+};
 
 /** Watches the wait of the latest Answer as it runs, with when each form first showed, for a test that must not miss a brief one. */
 export async function watchAnswerWaits(window: Page): Promise<() => Promise<AnswerWaitForm[]>> {
@@ -1960,10 +1965,12 @@ export async function watchAnswerWaits(window: Page): Promise<() => Promise<Answ
       );
       const form: AnswerWaitForm["form"] | null = row ? "row" : joined ? "joined" : null;
       const text = (row ?? joined)?.textContent ?? "";
-      const key = form === null ? null : `${form}\u0000${text}`;
+      const step =
+        answer?.querySelector('[data-testid="answer-steps-live"]')?.getAttribute("data-step") ?? "";
+      const key = form === null ? null : `${form}\u0000${text}\u0000${step}`;
       if (key === last) return;
       last = key;
-      if (form !== null) seen.push({ at: Date.now(), form, text });
+      if (form !== null) seen.push({ at: Date.now(), form, text, step });
     };
     new MutationObserver(record).observe(document.body, {
       subtree: true,

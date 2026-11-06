@@ -280,12 +280,14 @@ async function askSlowly(window: Page, question: string): Promise<void> {
   await window.keyboard.press("Enter");
 }
 
-/** After the wait gave up the line, a shorter step brought it back onto the first row, joined. */
+/** After the wait gave up the line, a step change brought it back onto the first row, joined. */
 async function expectComeback(waits: () => Promise<AnswerWaitForm[]>, from: number): Promise<void> {
   const seen = (await waits()).slice(from);
   const row = seen.findIndex((each) => each.form === "row");
   expect(row).toBeGreaterThanOrEqual(0);
-  const back = seen.slice(row + 1).find((each) => each.form === "joined");
+  const back = seen
+    .slice(row + 1)
+    .find((each) => each.form === "joined" && each.step !== seen[row]?.step);
   expect(back).toBeDefined();
   expect(back?.text.startsWith("· ")).toBe(true);
 }
@@ -428,7 +430,6 @@ test("at the default 320px assistant the wait joins in its first fitting form, i
     expect(await live.evaluate((line) => line.scrollWidth <= line.clientWidth + 1)).toBe(true);
     await screenshot(window, `wait-320-${language}`);
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
-    // A shorter step frees the line: the short wait comes back onto the first row.
     await expectComeback(waits, from);
   }
   await app.close();
@@ -501,7 +502,6 @@ test("the wait keeps the form that fits as the steps change, and the summary kee
     await expect(wait).toBeVisible();
     await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
-    // After the summary, a shorter step frees the line: the joined wait comes back onto the first row.
     await expectComeback(waits, from);
   }
   await app.close();
