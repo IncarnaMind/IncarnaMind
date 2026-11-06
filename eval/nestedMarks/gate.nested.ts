@@ -7,6 +7,7 @@
  *   INCARNAMIND_EVAL_NESTED_MODEL   the model, `deepseek-flash` by default
  *   INCARNAMIND_EVAL_NESTED_ONLY    case ids, comma-separated: the pilot
  *   INCARNAMIND_EVAL_NESTED_BUDGET  dollars, from the app's meter; it stops before the next case (5)
+ *   INCARNAMIND_EVAL_NESTED_SET     `cases` (the default) or `heldout2`
  *   INCARNAMIND_EVAL_NESTED_SAVED   saved Answers, one JSON line each with its `text` and `page`,
  *                                   to count offline, with no model, where the ask would fire
  */
@@ -17,6 +18,7 @@ import { test } from "vitest";
 import type { Core, CoreEvents } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { EXACT_MARKS_INSTRUCTIONS, exactMarks } from "../../src/core/answers/exactMarks";
+import { markedSentence } from "../../src/core/answers/markerPlacement";
 import { quotationsIn } from "../../src/core/answers/quotedWords";
 import { CNY_PER_USD } from "../../src/core/providers/catalog/billing";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -45,6 +47,8 @@ const ONLY = process.env.INCARNAMIND_EVAL_NESTED_ONLY?.trim()
   : null;
 const BUDGET = Number(process.env.INCARNAMIND_EVAL_NESTED_BUDGET ?? "5") || 5;
 const SAVED = process.env.INCARNAMIND_EVAL_NESTED_SAVED;
+/** Which frozen set: `cases` (the first, a development set since its blind judgment) or `heldout2`. */
+const SET = process.env.INCARNAMIND_EVAL_NESTED_SET?.trim() || "cases";
 
 const QUESTION = { en: "What does my Document say?", zh: "我的文档里写了什么？" };
 
@@ -242,17 +246,13 @@ function summary(rows: readonly Row[]) {
 
 /** The accepted splices, shuffled, with nothing that says which case, model or outcome. */
 function blindFile(rows: readonly Row[]) {
-  const sentenceOf = (text: string) =>
-    text
-      .split(/(?<=[.!?。！？])\s*/u)
-      .find((sentence) => sentence.includes("[^1]") || /“|‘/u.test(sentence)) ?? text;
   const items = rows
     .filter((row) => row.quoteMarksChanged)
     .map((row) => ({
       id: Math.random().toString(36).slice(2, 10),
       lang: row.lang,
-      old: row.oldSentence,
-      new: sentenceOf(row.newText),
+      old: markedSentence(row.oldSentence, 1) ?? row.oldSentence,
+      new: markedSentence(row.newText, 1) ?? row.newText,
       page: row.page.replace(/^# .*\n+/u, "").trim(),
     }));
   for (let at = items.length - 1; at > 0; at--) {
@@ -270,7 +270,7 @@ test("Nested quotation marks, asked once: the gate", { timeout: 4 * 60 * 60_000 
     console.log("No INCARNAMIND_EVAL_NESTED_KEY: the gate's run is skipped.");
     return;
   }
-  const cases = JSON.parse(await readFile(join(HERE, "cases.json"), "utf8")) as Case[];
+  const cases = JSON.parse(await readFile(join(HERE, `${SET}.json`), "utf8")) as Case[];
   const wanted = ONLY ? cases.filter((each) => ONLY.includes(each.id)) : cases;
   const rows: Row[] = [];
   let spent = 0;
@@ -296,7 +296,7 @@ test("Nested quotation marks, asked once: the gate", { timeout: 4 * 60 * 60_000 
     HERE,
     "..",
     "results",
-    `${new Date().toISOString().replace(/[:.]/g, "-")}-nested-marks-${MODEL}`,
+    `${new Date().toISOString().replace(/[:.]/g, "-")}-nested-marks-${SET}-${MODEL}`,
   );
   await mkdir(out, { recursive: true });
   await writeFile(

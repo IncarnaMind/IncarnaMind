@@ -61,6 +61,7 @@ export const EXACT_MARKS_INSTRUCTIONS = [
   "An Answer quoted a Document. In each quotation below the words are the Document's, but the quotation marks inside it are not: the Answer wrote them in the other kind.",
   'For each quotation, read the sentence it is in. When that sentence means the same with the Document\'s marks, give your words again exactly as you wrote them, with only those marks changed to the Document\'s, as {"id": <id>, "quote": "<your words>"}.',
   'Give {"id": <id>, "quote": null} when the marks you wrote carry a meaning in your sentence that the Document\'s don\'t: marks the sentence asks to be typed or kept, a text value where the Document names a field, someone else\'s words, a title.',
+  'Always give null when the quotation is code, a command, SQL, a formula, configuration, a file or field name, or a search query, since the kind of mark is part of what it says there; and when the words around the quotation speak of its marks or what they mark: "single quotes", "double quotes", "a text value", "a string", "the column", "the key", "typed exactly". When unsure, give null.',
   'Reply with JSON only: {"quotes": [...]}.',
 ].join("\n");
 

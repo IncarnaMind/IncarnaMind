@@ -10,6 +10,7 @@ import {
   EXACT_MARKS_INSTRUCTIONS,
   exactMarks,
 } from "../../src/core/answers/exactMarks";
+import { markedSentence } from "../../src/core/answers/markerPlacement";
 import { asksForExactMarks } from "../../src/core/providers/catalog/answerPaths";
 import {
   answerEnded,
@@ -418,4 +419,13 @@ describe("A reply applies only to the Answer it was asked about", () => {
     stop.abort();
     expect(await pending).toBeNull();
   });
+});
+
+test("a sentence with a decimal is one sentence: the review's file and the judge read it whole", () => {
+  const sentence =
+    "The brief explains that ‘the report treats the “carbon budget” as the total the world can still emit for 1.5 degrees’[^1].";
+  expect(markedSentence(`${sentence} It ends there.`, 1)).toBe(sentence.replace("[^1]", ""));
+  expect(markedSentence("简报说“碳预算为1.5度目标前还能排放的总量”[^1]。下一句。", 1)).toBe(
+    "简报说“碳预算为1.5度目标前还能排放的总量”。",
+  );
 });
