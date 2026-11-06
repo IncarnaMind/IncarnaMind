@@ -125,9 +125,8 @@ const TEMPLATE_PROBES: readonly [string, string][] = [
  */
 export function pairEncoder(tokenizer: Tokenizer, maxTokens: number) {
   const tokens = (text: string) => tokenizer.encode(text, { add_special_tokens: false }).ids;
-  const whole = (query: string, text: string) => pairIds(tokenizer, query, text, maxTokens);
-  const template = pairTemplate(tokenizer, tokens);
-  if (!template) return whole;
+  // Found on the first pair, so loading the model reads no text.
+  let template: ReturnType<typeof pairTemplate> | undefined;
   const kept = new Map<string, number[]>();
   const textTokens = (text: string) => {
     const known = kept.get(text);
@@ -139,6 +138,8 @@ export function pairEncoder(tokenizer: Tokenizer, maxTokens: number) {
     return read;
   };
   return (query: string, text: string): number[] => {
+    if (template === undefined) template = pairTemplate(tokenizer, tokens);
+    if (!template) return pairIds(tokenizer, query, text, maxTokens);
     const queryTokens = tokens(query);
     const queryLimit = Math.floor(maxTokens * QUERY_SHARE);
     // As `pairIds` reads a cut query: decoded, then read again.

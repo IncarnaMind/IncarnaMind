@@ -3,7 +3,7 @@
  * the model is shown them numbered, in batches, and decides each. The
  * sentences stay exactly as they are, so each claim is a sentence of the Mind.
  */
-import { generateText, streamText } from "ai";
+import { generateText, streamText, type TextStreamPart, type ToolSet } from "ai";
 import type { ClaimPartPlan, ProviderError } from "../../api";
 import type { PreparedChatModel } from "../../providers/chat";
 import { outputTokens } from "../../providers/outputLimits";
@@ -52,20 +52,20 @@ export interface SortAlong {
 
 /** A sorting reply, streamed: `named` hears each sentence's parts as its record closes. */
 async function streamedReply(
-  request: Parameters<typeof generateText>[0] & { abortSignal: AbortSignal },
+  parts: AsyncIterable<TextStreamPart<ToolSet>>,
   sentences: readonly { number: number; text: string }[],
   named: (number: number, parts: readonly ClaimPartPlan[]) => void,
+  signal: AbortSignal,
 ): Promise<string> {
   const read = claimPartsReader(sentences);
-  const result = streamText({ ...request, onError: () => undefined });
   let text = "";
-  for await (const part of result.fullStream) {
+  for await (const part of parts) {
     if (part.type === "text-delta") {
       text += part.text;
       for (const record of read(part.text)) named(record.number, record.parts);
     } else if (part.type === "error") throw part.error;
   }
-  request.abortSignal.throwIfAborted();
+  signal.throwIfAborted();
   return text;
 }
 
@@ -87,7 +87,7 @@ export async function claimsAmong(
   const ask = async (batch: Batch, tries: number): Promise<Asked> => {
     for (let tried = 0; tried < tries; tried++) {
       try {
-        const request = {
+        const asked = {
           model: prepared.model,
           instructions:
             whose === "someone-else"
@@ -97,14 +97,22 @@ export async function claimsAmong(
                 : FIND_OWN_CLAIMS_INSTRUCTIONS,
           prompt: findClaimsPrompt(batch),
           temperature: answerTemperature(prepared.capabilities.facts.temperature),
-          maxOutputTokens: outputTokens("find-claims"),
           maxRetries: 1,
           abortSignal: sorting,
         };
         const named = along.named;
         const text = named
-          ? await streamedReply(request, batch, (number, parts) => named(number - 1, parts))
-          : (await generateText(request)).text;
+          ? await streamedReply(
+              streamText({
+                ...asked,
+                maxOutputTokens: outputTokens("find-claims"),
+                onError: () => undefined,
+              }).fullStream,
+              batch,
+              (number, parts) => named(number - 1, parts),
+              sorting,
+            )
+          : (await generateText({ ...asked, maxOutputTokens: outputTokens("find-claims") })).text;
         const parts = readClaimParts(text, batch);
         if (parts) return { kind: "read", parts };
       } catch (error) {
