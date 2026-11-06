@@ -910,6 +910,15 @@ const NAMED = {
     others: ["North", "In Central"],
     rewordedTo: "South",
     outOfOrder: "Central's average amount is [=6], and its total amount is [=7].",
+    listed: [
+      "- Central: total amount [=6]",
+      "1. Central's total amount is [=6]",
+      "- Central's total amount is [=6], and Central's average amount is [=7]",
+      "Central's total amount is [=6]",
+    ],
+    nested: "- By region:\n  - Central: total amount [=6]",
+    listedWrong: "- North: total amount [=6]",
+    listedUnclear: "- South: total amount [=6]",
   },
   "zh-CN": {
     total: "中部地区金额合计",
@@ -930,6 +939,15 @@ const NAMED = {
     others: ["北部", "在中部"],
     rewordedTo: "南部",
     outOfOrder: "中部地区平均金额为 [=6]，金额合计为 [=7]。",
+    listed: [
+      "- 中部地区：金额合计 [=6]",
+      "1. 中部地区金额合计为 [=6]",
+      "- 中部地区金额合计为 [=6]，中部地区平均金额为 [=7]",
+      "中部地区金额合计为 [=6]",
+    ],
+    nested: "- 按地区：\n  - 中部地区：金额合计 [=6]",
+    listedWrong: "- 北部地区：金额合计 [=6]",
+    listedUnclear: "- 南部地区：金额合计 [=6]",
   },
 } as const;
 
@@ -1335,7 +1353,9 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       text.insert(0, language === "en" ? "South's total" : "南部地区");
     });
     await client.settled();
-    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
+    // The check left on the full stop is still the sentence's: Needs re-check, as the sentence
+    // shows (#2584).
+    expect(await scheduleStates(core, madeId)).toEqual(["needs-recheck"]);
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" });
     await client.settled();
     expect(stateOf(client, words.reworded)).toMatchObject({
@@ -1885,5 +1905,127 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       expect(analysisVerdicts(client)).toEqual(["supported", shown]);
       core.close();
     }
+  });
+
+  test("a figure that ends its list item or its line has its sentence's one verdict on its row, the badge and Home (#2584)", async () => {
+    const { core, madeId, client } = await walked(
+      language,
+      lines(...words.listed),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported", "supported", "supported", "supported"]);
+    expect(await scheduleStates(core, madeId)).toEqual(Array(5).fill("supported"));
+    expect((await reading(core, client))?.kind).toBe("checked");
+    // Home's row, which the export's line reads too.
+    const home = await homeOf(core, madeId);
+    expect(home.state?.kind).toBe("checked");
+    expect(home.health.supported).toBe(4);
+    core.close();
+  });
+
+  test("a list item's wrong name is Unsupported on its row too, one the judge can't tell and a figure no sentence holds are Not checked, and nothing is green (#2584)", async () => {
+    const [north, south] = language === "en" ? ["North", "South"] : ["北部", "南部"];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(words.nested, words.listedWrong, words.listedUnclear, "- [=7]"),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.startsWith(north)
+          ? { names: "other", verdict: "unsupported" }
+          : sentence.startsWith(south)
+            ? { names: "unclear", verdict: "unsupported" }
+            : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual([
+      "supported",
+      "unsupported",
+      "not-checked analysis-unnamed",
+    ]);
+    expect(await scheduleStates(core, madeId)).toEqual([
+      "supported",
+      "unsupported",
+      "not-checked",
+      "not-checked",
+    ]);
+    expect((await reading(core, client))?.kind).toBe("needs-look");
+    const home = await homeOf(core, madeId);
+    expect(home.state?.kind).not.toBe("checked");
+    expect(home.health.supported).toBe(1);
+    core.close();
+  });
+
+  test("a reply whose Roles line gives a list item to someone else, while its figure's item names it, leaves the figure Not checked on the sentence, its row and the badge (#2584)", async () => {
+    const [item = ""] = words.listed;
+    const [subject, other] = language === "en" ? ["Central", "North"] : ["中部地区", "北部地区"];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.startsWith(subject)
+          ? { verdict: "unsupported", roles: `${subject} / ${other}, other` }
+          : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["not-checked malformed"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
+    expect((await reading(core, client))?.kind).toBe("not-checked");
+    expect((await homeOf(core, madeId)).state?.kind).toBe("not-checked");
+    core.close();
+  });
+  test("a wrong name stays Unsupported on the sentence and its row when the reply's Roles line also gives the sentence to someone else (#2596)", async () => {
+    const [item, subject, roles] =
+      language === "en"
+        ? ["- North: total amount [=6]", "North", "North / Central, other"]
+        : ["- 北部地区：金额合计 [=6]", "北部地区", "北部地区 / 中部地区, other"];
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+      null,
+      (sentence) =>
+        sentence.startsWith(subject)
+          ? { names: "other", verdict: "unsupported", roles }
+          : undefined,
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["unsupported"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["unsupported"]);
+    expect((await reading(core, client))?.kind).toBe("needs-look");
+    core.close();
+  });
+
+  test("a figure that starts its list item has its sentence's verdict on its row (#2596)", async () => {
+    const item =
+      language === "en" ? "- [=6] is Central's total amount" : "- [=6] 是中部地区金额合计";
+    const { core, madeId, client } = await walked(
+      language,
+      lines(item),
+      false,
+      null,
+      withFigures(),
+    );
+    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
+    await client.settled();
+    expect(analysisVerdicts(client)).toEqual(["supported"]);
+    expect(await scheduleStates(core, madeId)).toEqual(["supported"]);
+    expect((await reading(core, client))?.kind).toBe("checked");
+    core.close();
   });
 });
