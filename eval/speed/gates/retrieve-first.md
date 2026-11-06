@@ -48,3 +48,11 @@ This reading was decided after the run, and it applies only to a set that the ch
 - other everyday guard failed: 40 → 46 (11 new, 5 gone).
 
 Every everyday request is an assistant turn. An assistant turn never searches first, and a unit test (`tests/core/retrieveFirst.test.ts`, "an assistant turn … word for word") shows that every request it sends the model is byte-identical with the list on and off. So on this set the gate is path identity, and that test decides it. The deltas are noise: items flipped both ways, and the sign tests (6 against 3, 11 against 5) are not significant. Part of the noise was a fault in the runner: both arms shared one core, so the second arm found the first arm's Note of the same title and wrote into it. Each arm now has a core of its own. A set the changed path does reach is never read this way: its lines hold as written above.
+
+## The Claude Sonnet 5.5 pilot (added on 2026-11-06, before its run)
+
+#2518 fixed quoted words that run on to the next page, one of the three ways the check misread Sonnet 5.5's quoted words in its first gating run. Sonnet 5.5 now runs `gating` alone first, on this file as written, loop against retrieving first, paired, capped at $5. What decides the rest:
+
+- **Every guard holds on `gating`, within its margin** (every Citation found, expected Passages cited and judged right, each 2 fewer at most): `hard` and `everyday` run next, at a cost stated and approved first.
+- **It fails only on known causes:** the model waits, recorded on #1633. Every Citation not found, on both arms, is classed by cause: nested quotation marks (#2504) or a bracketed gloss left out (#2568).
+- **Any miss of another cause** is reported before anything else.
