@@ -1,13 +1,15 @@
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import { thisAnswersRecord, unbackedClaims } from "../../src/core/answers/claimedChanges";
 import { changedMinds } from "../../src/renderer/src/changedMinds";
 import { appliedFact, changeFact } from "../../src/renderer/src/changeFacts";
 import { waitsForUser, whyItWaits } from "../../src/shared/askedChanges";
 import { translate } from "../../src/shared/i18n";
+import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { connectToMind } from "../helpers/mindClient";
+import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
@@ -487,4 +489,160 @@ describe("A held removal, once applied, reads as proposed (#2356)", { timeout: 3
     await resolveChanges(client, "accept");
     expect(shownWithChanges(client)[2]).toBe(each.parking);
   });
+});
+
+const BACK = {
+  en: "Parking: the tenant may use six underground spaces. Each costs 800 a month.",
+  zh: "停车位：承租方可使用地下停车位 6 个。每个车位每月 800 元。",
+};
+
+/** Accepts or rejects the Proposals of one request, as Review does. */
+async function decide(client: MindClient, request: string, outcome: "accept" | "reject") {
+  const ids = new Set(
+    pendingProposals(client.blocks)
+      .filter((proposal) => proposal.request === request)
+      .map((proposal) => proposal.id),
+  );
+  await resolveChanges(client, outcome, (id) => ids.has(id));
+}
+
+describe("A whole paragraph out and two of its sentences written back, decided by the User (#2356)", {
+  timeout: 30_000,
+}, () => {
+  // protects=the two changes of the rerun's third Chinese run (DeepSeek, on 986c05f0a: the Parking paragraph removed whole, then its first two sentences added back after Rent), held together, read as the User decides them: both accepted, in either order, leave the two kept sentences once; the removal alone leaves no Parking paragraph; the write-back alone keeps the User's paragraph beside the copy, nothing lost; and Undo of each decision gives back the Note as it waited; English and Chinese; fails_when=accepting both leaves the User's paragraph or two copies, one decision loses text, or Undo doesn't restore; no_claim=how a probe reads held Proposals as text.
+  test.each([
+    { language: "en", order: "removal first" },
+    { language: "en", order: "write-back first" },
+    { language: "en", order: "removal only" },
+    { language: "en", order: "write-back only" },
+    { language: "zh", order: "removal first" },
+    { language: "zh", order: "write-back first" },
+    { language: "zh", order: "removal only" },
+    { language: "zh", order: "write-back only" },
+  ] as const)("$language, $order", async ({ language, order }) => {
+    const model = stepping([
+      removal(language, PARKING_OUT[language]),
+      { tool: "add_to_mind", input: { after: RENT_START[language], content: BACK[language] } },
+    ]);
+    const { core, mind, client, answer } = await setUp(language, model);
+    const [removing, writing] = changesIn(answer).map((change) => change.request);
+    if (!removing || !writing) throw new Error("The Answer made two changes.");
+    const applied = await core.applyAskedChanges({
+      answerId: answer.id,
+      mindId: mind.id,
+      requests: [removing, writing],
+    });
+    expect(applied?.held).toBe(true);
+    await client.settled();
+    const lease = LEASE[language];
+    const waiting = shownWithChanges(client);
+    expect(waiting).toEqual([
+      lease.name,
+      lease.lines[0],
+      `+ ${BACK[language]}`,
+      `- ${lease.lines[1]}`,
+      lease.lines[2],
+      lease.lines[3],
+    ]);
+    const undo = new Y.UndoManager(client.blocks, {
+      trackedOrigins: new Set(["editor"]),
+      captureTimeout: 0,
+    });
+
+    const steps: [string, "accept" | "reject"][] =
+      order === "removal first"
+        ? [
+            [removing, "accept"],
+            [writing, "accept"],
+          ]
+        : order === "write-back first"
+          ? [
+              [writing, "accept"],
+              [removing, "accept"],
+            ]
+          : order === "removal only"
+            ? [
+                [removing, "accept"],
+                [writing, "reject"],
+              ]
+            : [
+                [removing, "reject"],
+                [writing, "accept"],
+              ];
+    for (const [request, outcome] of steps) await decide(client, request, outcome);
+
+    const expected =
+      order === "removal only"
+        ? [lease.name, lease.lines[0], lease.lines[2], lease.lines[3]]
+        : order === "write-back only"
+          ? [
+              lease.name,
+              lease.lines[0],
+              BACK[language],
+              lease.lines[1],
+              lease.lines[2],
+              lease.lines[3],
+            ]
+          : [lease.name, lease.lines[0], BACK[language], lease.lines[2], lease.lines[3]];
+    expect(shownWithChanges(client)).toEqual(expected);
+    undo.undo();
+    undo.undo();
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual(waiting);
+  });
+
+  // protects=when a later change holds the reply's changes together, the model reads plainly that nothing applied and that all of them wait, the earlier one too, so it can't say the paragraph is gone while it waits (the rerun's third Chinese run said "目前 Note 里那段仍是空的"); English and Chinese; fails_when=the result doesn't say what applied and what waits; no_claim=how a real model words its reply.
+  test.each([
+    { language: "en", name: "Lease terms" },
+    { language: "zh", name: "租赁条款" },
+  ] as const)(
+    "$language, the model told what applied and what waits",
+    async ({ language, name }) => {
+      const model = stepping([
+        removal(language, PARKING_OUT[language]),
+        { tool: "add_to_mind", input: { after: RENT_START[language], content: BACK[language] } },
+      ]);
+      await setUp(language, model);
+
+      expect(lastResult(model)).toContain(
+        `Applied now: nothing in “${name}”. Waiting for the User: all 2 of this reply's changes there, the earlier ones too.`,
+      );
+    },
+  );
+
+  // protects=a removal of the whole paragraph that the reply then revises in place into its two kept sentences, its own waiting text replaced, is one clean removal: it applies, the model is told so, and the Note keeps the two sentences once; English and Chinese; fails_when=the revised-away removal still holds the change, or the model is told it "writes 0 new sentences"; no_claim=what a real model writes.
+  test.each([{ language: "en" }, { language: "zh" }] as const)(
+    "$language, the removal revised in place into the kept sentences",
+    async ({ language }) => {
+      const model = stepping([
+        removal(language, PARKING_OUT[language]),
+        {
+          tool: "edit_mind",
+          input: { part: LEASE[language].part, content: BACK[language], removes_only: true },
+        },
+      ]);
+      const { core, mind, client, answer } = await setUp(language, model);
+
+      const told = lastResult(model);
+      expect(told).toContain("It applies in the Note at once");
+      expect(told).not.toContain("new sentences");
+      const requests = changesIn(answer).map((change) => change.request);
+      expect(whyItWaits(client.doc, new Set(requests))).toBeNull();
+      const applied = await core.applyAskedChanges({
+        answerId: answer.id,
+        mindId: mind.id,
+        requests,
+      });
+      expect(applied?.held).toBe(false);
+      await client.settled();
+      const lease = LEASE[language];
+      expect(shownWithChanges(client)).toEqual([
+        lease.name,
+        lease.lines[0],
+        BACK[language],
+        lease.lines[2],
+        lease.lines[3],
+      ]);
+    },
+  );
 });
