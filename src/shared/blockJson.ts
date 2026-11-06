@@ -50,6 +50,31 @@ const citationAttributeNames: Record<keyof CitationAttributes, true> = {
   id: true,
 };
 
+/** Every attribute of a Citation, its provenance included, with the nulls a note keeps by leaving them out. */
+export function citationAttributesOf(
+  citation: Citation & Partial<Pick<CitationAttributes, "pageChecked" | "keptOver" | "id">>,
+): CitationAttributes {
+  return {
+    passageId: citation.passageId ?? null,
+    documentId: citation.documentId ?? null,
+    documentName: citation.documentName ?? null,
+    contentHash: citation.contentHash ?? null,
+    pageFrom: citation.pageFrom ?? null,
+    pageTo: citation.pageTo ?? null,
+    location: citation.location ?? null,
+    quote: citation.quote ?? null,
+    check: citation.check,
+    checkReason: citation.checkReason ?? null,
+    yourNoteAt: citation.yourNoteAt ?? null,
+    unsure: citation.unsure ?? null,
+    pageChecked: citation.pageChecked ?? null,
+    verdict: citation.verdict ?? null,
+    quotedWords: citation.quotedWords ?? null,
+    keptOver: citation.keptOver ?? null,
+    id: citation.id ?? null,
+  };
+}
+
 export function citationNode(citation: Citation | null): NodeJSON {
   const attrs: CitationAttributes = citation ?? {
     passageId: null,

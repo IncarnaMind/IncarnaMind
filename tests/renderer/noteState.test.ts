@@ -1041,6 +1041,58 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
     expect(citations[0]).not.toHaveProperty("judgedAt");
   });
 
+  const carriedMarks = (blocks: JSONContent[]) => {
+    const marks: Record<string, unknown>[] = [];
+    const collect = (nodes: readonly JSONContent[]) =>
+      nodes.forEach((node) => {
+        for (const mark of node.marks ?? []) {
+          if (mark.type === CLAIM_CHECK_MARK) marks.push(mark.attrs as Record<string, unknown>);
+        }
+        collect(node.content ?? []);
+      });
+    collect(blocks);
+    return marks;
+  };
+
+  test("a marker with no Citation carries nothing", () => {
+    const answer = {
+      id: "answer-dead-marker",
+      text: `${sentence} [^1]`,
+      citations: [] as never,
+      figures: [],
+      status: "done" as const,
+      model: { providerId: "provider", modelId: "model" },
+    };
+    const blocks = withAnswerChecks(pageBlocks(answer, ""), answer, "", null);
+    expect(carriedMarks(blocks as unknown as JSONContent[])).toHaveLength(0);
+  });
+
+  test("a negative judgement wins over a supported one in the same sentence", () => {
+    const costs = {
+      ...citation,
+      marker: 2,
+      passageId: "passage-2",
+      documentId: "costs",
+      documentName: "Costs.pdf",
+      contentHash: "hash-2",
+      check: "unsupported",
+      judgedAt: CHECKED_AT,
+      verdict: "The costs sheet says 8%.",
+    };
+    const answer = {
+      id: "answer-negative",
+      text: `${sentence} [^1][^2]`,
+      citations: [{ ...citation, judgedAt: CHECKED_AT }, costs] as never,
+      figures: [],
+      status: "done" as const,
+      model: { providerId: "provider", modelId: "model" },
+    };
+    const blocks = withAnswerChecks(pageBlocks(answer, ""), answer, "", null);
+    expect(carriedMarks(blocks as unknown as JSONContent[])[0]).toMatchObject({
+      state: "unsupported",
+    });
+  });
+
   test("a marker before its full stop still carries: the common model style", () => {
     const beforeStop = { ...citation, marker: 1 };
     const answer = {

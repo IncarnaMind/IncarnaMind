@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { CITATION_NODE, CLAIM_CHECK_MARK, type Core, type MarkedCitation } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
+import { checkableSentences } from "../../src/core/answers/checks/written";
 import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { citedSentences } from "../../src/shared/citedSentences";
@@ -300,6 +301,8 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
         ...new Map(marks.map((mark) => [(mark as { id: string }).id, mark])).values(),
       ];
       expect(distinct).toMatchObject([{ state: "supported", checkedAt: expect.any(String) }]);
+      // The write's own check leaves the carried sentence to the judgement that settled it.
+      expect(checkableSentences(carried)).toHaveLength(0);
     },
   );
 

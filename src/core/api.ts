@@ -357,8 +357,14 @@ export interface CreateMindInput {
  *   its Replace, re-check and figure paths would carry the old page onto a
  *   new quote. So it opens these Notes read-only. Older content is version 52
  *   content as it is: a Citation without it says nothing of a next page.
+ * - 54: a `claimCheck` mark carried from an Answer names the Answer it came
+ *   from (`fromAnswer`) and the scope that Answer's Question searched (#2313).
+ *   An older version would strip the attribute on save, and the carried check
+ *   would then be re-run by a Note move or a scope comparison, so it opens
+ *   these Notes read-only. Older content is version 53 content as it is: a
+ *   mark without it was checked by this Note itself.
  */
-export const CONTENT_SCHEMA_VERSION = 53;
+export const CONTENT_SCHEMA_VERSION = 54;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

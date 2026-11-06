@@ -647,7 +647,11 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
         continue;
       }
       // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
-      if (current === undefined && relied.has(version.documentId)) {
+      // A carried check relied on every Citation its Answer judged, not only the one that decided.
+      if (
+        current === undefined &&
+        (relied.has(version.documentId) || check.fromAnswer !== undefined)
+      ) {
         return { state: "needs-recheck", why: "document-removed" };
       }
       if (current !== undefined && current !== version.contentHash) {
