@@ -622,6 +622,7 @@ const LISTED_AT = 1_000;
 
 function fakeProc(byPid: Record<number, PidSpec>, app = nested(0, 9000)) {
   const fdReads = new Map<number, number>();
+  const followed = { links: 0, maps: 0 };
   const node = (pid: number, tid: number | null): ProcNode => {
     const spec = byPid[pid];
     if (!spec) throw err("ESRCH");
@@ -636,6 +637,7 @@ function fakeProc(byPid: Record<number, PidSpec>, app = nested(0, 9000)) {
       return at.fds ?? [];
     },
     async readlink(pid, tid, fd) {
+      followed.links += 1;
       const link = node(pid, tid).links?.[fd];
       if (link instanceof Error) throw link;
       return link ?? "/work/named";
@@ -647,6 +649,7 @@ function fakeProc(byPid: Record<number, PidSpec>, app = nested(0, 9000)) {
       return size;
     },
     async *maps(pid, tid) {
+      followed.maps += 1;
       const at = node(pid, tid);
       if (at.mapsErr) throw err(at.mapsErr);
       if (typeof at.maps === "function") yield* at.maps();
@@ -672,7 +675,7 @@ function fakeProc(byPid: Record<number, PidSpec>, app = nested(0, 9000)) {
     },
     ticks: async () => LISTED_AT,
   };
-  return { reader, fdReads };
+  return { reader, fdReads, followed };
 }
 
 const deleted = (bytes: number, inode = "42") => ({
@@ -719,7 +722,13 @@ function linux(
   });
   const each = watcher();
   const stop = meters.meter().watch(root ?? 0, "/w", each.use, each.unmeasured);
-  return { c, meters: Object.assign(meters, { stop }), each, fdReads: proc.fdReads };
+  return {
+    c,
+    meters: Object.assign(meters, { stop }),
+    each,
+    fdReads: proc.fdReads,
+    followed: proc.followed,
+  };
 }
 
 /** The tick on which the run was first told its disk is unknown, counting from 0; -1 if never. */
@@ -841,6 +850,25 @@ describe("the meter, on Linux's /proc", () => {
     await run(starting.meters, starting.c, 44, 250);
     expect(starting.each.peak().unknown).toBe(false);
     expect(starting.each.uses.at(-1)?.folder).toBe(3 * MB);
+  });
+
+  test("8,192 descriptors across a run's processes are read; at 8,193 none is followed and the turn is unknown; a run over that for more than 10 s is stopped", async () => {
+    const fds = (count: number) => Array.from({ length: count }, (_, n) => String(n + 3));
+    const eight: Record<number, PidSpec> = {};
+    for (let pid = 600; pid < 608; pid++) eight[pid] = { leader: { fds: fds(1024) } };
+    // One of the 8,192 is a file with no name left.
+    eight[600] = { leader: { ...deleted(5 * MB), fds: fds(1024) } };
+    const under = linux(eight);
+    await run(under.meters, under.c, 2, 250);
+    expect(under.each.uses.at(-1)?.folder).toBe(5 * MB);
+    // Two turns of 8,192.
+    expect(under.followed.links).toBe(16_384);
+    const over = linux({ ...eight, 608: { leader: { fds: fds(1) } } });
+    await run(over.meters, over.c, 42, 250);
+    expect(over.followed).toEqual({ links: 0, maps: 0 });
+    expect(over.each.uses[40]?.folder).not.toBe("unknown");
+    expect(stoppedAt(over.each)).toBe(41);
+    expect(over.each.reports).toEqual([]);
   });
 
   test("a file held open with no name counts with the named folder, kept apart", async () => {

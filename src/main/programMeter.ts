@@ -323,6 +323,13 @@ const GONE = new Set(["ENOENT", "ESRCH"]);
 /** The kernel sets it as a task starts to exit, before it gives up its memory and files. */
 const PF_EXITING = 0x4;
 
+/**
+ * Most descriptors a run's processes may hold for a turn to read them: past it, following each to
+ * its target would cost the app about a core while the run went on, so the turn reads none and
+ * the disk is unknown (#2351).
+ */
+export const DESCRIPTORS_CAP = 8192;
+
 /** How many PID namespaces below the app's the User's code runs: bubblewrap's, then the helper's. */
 const RUN_NAMESPACE = 2;
 
@@ -416,7 +423,9 @@ async function nspidOf(reader: ProcReader, pid: number | "self"): Promise<string
  * seccomp helper's inner half. No process can climb to a shallower namespace, and the helper's
  * halves make themselves non-dumpable, so the sandbox's own processes are never read. A turn that
  * didn't find the helper's inner half (before it starts, or if the layout ever changed) is
- * `partial`, like one whose maps passed the cap: the disk is unknown that turn.
+ * `partial`, like one whose maps passed the cap or whose processes hold more than
+ * `DESCRIPTORS_CAP` descriptors, which it counts before following any: the disk is unknown that
+ * turn.
  */
 async function procUnlinked(
   reader: ProcReader,
@@ -427,6 +436,8 @@ async function procUnlinked(
   const app = (await nspidOf(reader, "self"))?.length ?? 0;
   let capped = false;
   let helper = false;
+  const user: { pid: number; nspid: string[]; fds: string[]; tid: number | null }[] = [];
+  let descriptors = 0;
   for (const pid of pids) {
     const nspid = await nspidOf(reader, pid);
     if (nspid === null) continue;
@@ -441,25 +452,35 @@ async function procUnlinked(
       helper = true;
       continue;
     }
-    try {
-      const where = await whereToRead(reader, pid, listedAt);
-      if (where === "gone") continue;
-      const held = await readFds(reader, pid, where.fds, where.tid);
-      if (held === "exited") continue;
-      files.push(...held);
-      const mapped = await readMaps(reader, pid, where.tid);
-      files.push(...mapped.files);
-      capped ||= mapped.capped;
-    } catch (error) {
-      const known = error instanceof DiskReadError ? error : undefined;
-      throw new DiskReadError(known?.errno ?? errnoOf(error), known?.path ?? `/proc/${pid}`, pid, {
-        cause: known ? known.cause : error,
-        task: known?.task,
-        nspid,
-      });
-    }
+    const where = await naming(pid, nspid, () => whereToRead(reader, pid, listedAt));
+    if (where === "gone") continue;
+    descriptors += where.fds.length;
+    if (descriptors > DESCRIPTORS_CAP) return { files: [], partial: true };
+    user.push({ pid, nspid, ...where });
+  }
+  for (const { pid, nspid, fds, tid } of user) {
+    const held = await naming(pid, nspid, () => readFds(reader, pid, fds, tid));
+    if (held === "exited") continue;
+    files.push(...held);
+    const mapped = await naming(pid, nspid, () => readMaps(reader, pid, tid));
+    files.push(...mapped.files);
+    capped ||= mapped.capped;
   }
   return { files, partial: capped || !helper };
+}
+
+/** `read`'s result; its failure as a `DiskReadError` that names `pid`'s namespaces. */
+async function naming<T>(pid: number, nspid: readonly string[], read: () => Promise<T>) {
+  try {
+    return await read();
+  } catch (error) {
+    const known = error instanceof DiskReadError ? error : undefined;
+    throw new DiskReadError(known?.errno ?? errnoOf(error), known?.path ?? `/proc/${pid}`, pid, {
+      cause: known ? known.cause : error,
+      task: known?.task,
+      nspid,
+    });
+  }
 }
 
 /**
@@ -650,7 +671,8 @@ interface Watched {
   failed: boolean;
   /** When its disk became unknown, in the current run of unknown turns. */
   unknownSince: number | null;
-  device: Promise<number | undefined> | undefined;
+  /** Its folder's device, read as watching starts, before the program can remove the folder. */
+  device: Promise<number | undefined>;
 }
 
 export interface Meters {
@@ -741,10 +763,6 @@ export function createMeters(options: MetersOptions = {}): Meters {
     let result: { files: UnlinkedFile[]; partial: boolean };
     let device: number | undefined;
     try {
-      each.device ??= stat(each.folder).then(
-        (info) => info.dev,
-        () => undefined,
-      );
       device = await each.device;
       result = await read();
     } catch (error) {
@@ -935,7 +953,10 @@ export function createMeters(options: MetersOptions = {}): Meters {
           ended: null,
           failed: false,
           unknownSince: null,
-          device: undefined,
+          device: stat(folder).then(
+            (info) => info.dev,
+            () => undefined,
+          ),
         };
         watched.add(each);
         if (options.interval !== false && timer === undefined) {
