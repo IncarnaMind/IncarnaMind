@@ -1054,6 +1054,26 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
     return marks;
   };
 
+  test("the same words, quotes and version, judged differently, carry nothing: no one can say which sentence it is", () => {
+    const unsupported = {
+      ...citation,
+      marker: 2,
+      check: "unsupported",
+      judgedAt: CHECKED_AT,
+      verdict: "The plan says December.",
+    };
+    const answer = {
+      id: "answer-ambiguous",
+      text: `${sentence} [^1]\n\n${sentence} [^2]`,
+      citations: [{ ...citation, judgedAt: CHECKED_AT }, unsupported] as never,
+      figures: [],
+      status: "done" as const,
+      model: { providerId: "provider", modelId: "model" },
+    };
+    const blocks = withAnswerChecks(pageBlocks(answer, ""), answer, "", null);
+    expect(carriedMarks(blocks as unknown as JSONContent[])).toHaveLength(0);
+  });
+
   test("a marker with no Citation carries nothing", () => {
     const answer = {
       id: "answer-dead-marker",
@@ -1115,13 +1135,11 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
   });
 
   test("a selection of a repeated sentence takes its own Citation's verdict, never the first one's", () => {
+    // The same Passage and version, quoting different words: only the quote tells them apart.
     const costs = {
       ...citation,
       marker: 2,
-      passageId: "passage-2",
-      documentId: "costs",
-      documentName: "Costs.pdf",
-      contentHash: "hash-2",
+      quote: "The costs sheet says 8%.",
       check: "unsupported",
       judgedAt: CHECKED_AT,
       verdict: "The costs sheet says 8%.",
