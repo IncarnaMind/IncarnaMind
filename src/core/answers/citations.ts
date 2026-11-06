@@ -66,7 +66,7 @@ import {
   type CitedSelection,
   type DocumentKind,
   MAX_CITED_PAGES,
-  type QuotedWords,
+  type QuotedWordsCheck,
   type RejectedRecord,
   type SelectedPart,
 } from "../api";
@@ -1314,10 +1314,11 @@ interface Accepted {
   /** Where it points, for its label, worked out once when the record is taken. */
   location: Citation["location"];
   result: CheckResult | null;
-  /** The Answer's quoted words that its sentence's Citations don't have, when they made `result` not found (#483). */
-  quotedWords?: QuotedWords;
-  /** The page the Answer's quoted words of this record's sentence run on to, past the one it cites (#2504). */
-  quotedWordsRunOn?: CitationLocation;
+  /**
+   * The Answer's quoted words that its sentence's Citations don't have, when they made `result`
+   * not found (#483), or the page they run on to past the one it cites (#2504).
+   */
+  quotedWords?: QuotedWordsCheck;
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
 }
@@ -1360,7 +1361,6 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   checkReason: result?.checkReason ?? null,
   ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
   ...(record.quotedWords && { quotedWords: record.quotedWords }),
-  ...(record.quotedWordsRunOn && { quotedWordsRunOn: record.quotedWordsRunOn }),
 });
 
 export interface CitationSessionEvents {
@@ -2446,7 +2446,8 @@ export function createCitationSession(
         })[0];
         if (runsOn) {
           // Its card names the next page as the Document prints it: the place the User opens is the cited one.
-          runsOn.record.quotedWordsRunOn = locationOf([runsOn.next], null) ?? undefined;
+          const runsOnTo = locationOf([runsOn.next], null);
+          if (runsOnTo) runsOn.record.quotedWords ??= { runsOnTo };
           continue;
         }
         if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
@@ -2466,9 +2467,7 @@ export function createCitationSession(
           const closest = closestWords(units, words, matching);
           if (!nearest || closest.near > nearest.closest.near) nearest = { record, closest };
         }
-        if (!nearest || nearest.record.quotedWords || nearest.record.result?.check !== "found") {
-          continue;
-        }
+        if (nearest?.record.result?.check !== "found") continue;
         nearest.record.result = { check: "not-found", checkReason: "quoted-words-not-on-pages" };
         nearest.record.quotedWords = nearest.closest.shown;
       }

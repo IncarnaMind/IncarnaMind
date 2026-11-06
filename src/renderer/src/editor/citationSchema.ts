@@ -2,7 +2,7 @@ import { mergeAttributes, Node, type NodeViewRenderer } from "@tiptap/core";
 import { Fragment, type NodeType, type Node as ProseMirrorNode, Slice } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { CITATION_NODE, type CitationAttributes } from "../../../core/api";
-import { citationReference, parseQuotedWords } from "../../../shared/citations";
+import { citationReference, parseQuotedWordsCheck } from "../../../shared/citations";
 import { parseLocation } from "../../../shared/locations";
 import { citationIds } from "./citationIds";
 
@@ -129,23 +129,14 @@ export const Citation = Node.create<CitationOptions>({
       },
       // Only a claim check sets it, so a Citation without one stores nothing.
       verdict: { ...dataAttribute("verdict"), default: undefined },
-      // Only quoted words that run on past the cited page set it (#2504).
-      quotedWordsRunOn: {
-        default: undefined,
-        parseHTML: (element: HTMLElement) =>
-          parseLocation(element.getAttribute("data-quoted-words-run-on")) ?? undefined,
-        renderHTML: (attributes: Record<string, unknown>) => {
-          const place = parseLocation(attributes.quotedWordsRunOn);
-          return place ? { "data-quoted-words-run-on": JSON.stringify(place) } : {};
-        },
-      },
-      // Only an Answer whose quoted words weren't found sets it (#483), as JSON in the HTML.
+      // Only an Answer whose quoted words weren't found (#483), or ran on past the cited page
+      // (#2504), sets it, as JSON in the HTML.
       quotedWords: {
         default: undefined,
         parseHTML: (element: HTMLElement) =>
-          parseQuotedWords(element.getAttribute("data-quoted-words")) ?? undefined,
+          parseQuotedWordsCheck(element.getAttribute("data-quoted-words")) ?? undefined,
         renderHTML: (attributes: Record<string, unknown>) => {
-          const words = parseQuotedWords(attributes.quotedWords);
+          const words = parseQuotedWordsCheck(attributes.quotedWords);
           return words ? { "data-quoted-words": JSON.stringify(words) } : {};
         },
       },

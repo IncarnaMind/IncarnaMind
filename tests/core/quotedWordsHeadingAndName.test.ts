@@ -4,6 +4,7 @@
  * mark. Each positive has decoys in the same state, which stay not found.
  */
 import { describe, expect, test } from "vitest";
+import { parseQuotedWords } from "../../src/shared/citations";
 import {
   askAndFinish,
   citingModel,
@@ -95,7 +96,7 @@ describe.each([
   test("the next page opens with the cited page's heading and a continuation mark: found, and the card names the next page", async () => {
     const citation = await citationOf(caseWith(text.first, [continued]), text.quoted);
     expect(citation).toMatchObject(FOUND);
-    expect(citation.quotedWordsRunOn).toMatchObject({ kind: "page", from: 2, to: 2 });
+    expect(citation.quotedWords).toMatchObject({ runsOnTo: { kind: "page", from: 2, to: 2 } });
   });
 
   test("the heading repeated with no continuation mark: not found", async () => {
@@ -345,10 +346,8 @@ test.each([
     EN.quoted,
   );
   expect(citation).toMatchObject(FOUND);
-  expect(citation.quotedWordsRunOn).toMatchObject({
-    kind: "page",
-    from: 2,
-    printed: { from: "12" },
+  expect(citation.quotedWords).toMatchObject({
+    runsOnTo: { kind: "page", from: 2, printed: { from: "12" } },
   });
 });
 
@@ -385,3 +384,31 @@ test.each([
   );
   expect(citation).toMatchObject(FOUND);
 });
+
+const RUN_ON = "no fee is charged when goods are returned within 30 days";
+const MADE_UP = "a restocking fee of ten percent applies";
+
+// protects=one stored value holds what the check of a sentence's quoted words found (#2504): words that aren't on the pages make the Citation not found, and its card shows them, though other quoted words of the sentence run on to the next page, whichever comes first; fails_when=the page they ran on to keeps the Citation found, or takes the place of the words not found; no_claim=none beyond protects.
+test.each([
+  ["the run-on words first", `The notice says “${RUN_ON}” and “${MADE_UP}” [^1].`],
+  ["the words not on the pages first", `The notice says “${MADE_UP}” and “${RUN_ON}” [^1].`],
+])(
+  "quoted words that run on, beside quoted words the pages don't have: not found, %s",
+  async (_, sentence) => {
+    const citation = await citationOf(
+      {
+        file: twoPages("en", EN.first, [], EN.rest),
+        query: EN.query,
+        question: EN.question,
+        quote: EN.quote,
+      },
+      sentence,
+    );
+    expect(citation).toMatchObject(NOT_FOUND);
+    expect(
+      parseQuotedWords(citation.quotedWords)
+        ?.answer.map((piece) => piece.text)
+        .join(""),
+    ).toBe(MADE_UP);
+  },
+);

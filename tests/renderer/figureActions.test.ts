@@ -566,7 +566,7 @@ describe("a figure's own Citation that held a run-on page", () => {
     documentId: "old",
     documentName: "Old",
     quote: "Revenue 10",
-    quotedWordsRunOn: { kind: "page", from: 3, to: 3 },
+    quotedWords: { runsOnTo: { kind: "page", from: 3, to: 3 } },
   };
   const noteWithFigure = () => {
     const ready = setup(
@@ -598,7 +598,7 @@ describe("a figure's own Citation that held a run-on page", () => {
   const runOnPages = (editor: ReturnType<typeof setup>["editor"]) => {
     const pages: unknown[] = [];
     editor.state.doc.descendants((node) => {
-      if (node.type.name === "citation") pages.push(node.attrs.quotedWordsRunOn ?? null);
+      if (node.type.name === "citation") pages.push(node.attrs.quotedWords ?? null);
     });
     return pages;
   };

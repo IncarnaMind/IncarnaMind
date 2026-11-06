@@ -15,6 +15,7 @@ import {
 } from "../core/api";
 import type { NodeJSON } from "./blockJson";
 import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
+import { parseQuotedWords } from "./citations";
 import { parseLocation } from "./locations";
 
 /** At most this many Blocks go into a note at once, and this deep. */
@@ -138,11 +139,15 @@ async function recheckOne(node: NodeJSON, recheck: Recheck): Promise<NodeJSON> {
       if (quoted === null) return node;
       return { ...node, attrs: { ...attrs, check: quoted.check, checkReason: quoted.checkReason } };
     }
+    // The words not found stay for a later check; a next page they ran on to was the old place's.
+    const { quotedWords, ...kept } = attrs;
+    const notFound = parseQuotedWords(quotedWords);
     // A picked area keeps its region: the check finds where its words are, not the User's rectangle.
     return {
       ...node,
       attrs: {
-        ...attrs,
+        ...kept,
+        ...(notFound && { quotedWords: notFound }),
         check: checked.check,
         checkReason: checked.checkReason,
         contentHash: checked.contentHash,

@@ -28,7 +28,7 @@ import type {
 } from "../core/api";
 import { claimCheckActions } from "../core/api";
 import { citedInputs } from "./calculatedFigures";
-import { citationAttributesOf, parseQuotedWords } from "./citations";
+import { citationAttributesOf, parseQuotedWordsCheck } from "./citations";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
 import { graphemeBoundary } from "./graphemes";
 import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
@@ -213,7 +213,7 @@ function citationOf(value: unknown): CitationAttributes | null {
   if (!check) return null;
   const checkReason = CITATION_REASONS.find((reason) => reason === value.checkReason) ?? null;
   if (value.checkReason !== null && !checkReason) return null;
-  const quotedWords = parseQuotedWords(value.quotedWords);
+  const quotedWords = parseQuotedWordsCheck(value.quotedWords);
   return {
     passageId: read.passageId ?? null,
     documentId: read.documentId ?? null,

@@ -23,6 +23,7 @@ import {
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
+  quotedWordsRunOnTo,
   quoteWashedOnOpen,
   withShownName,
 } from "../../../shared/citations";
@@ -32,7 +33,6 @@ import {
   formatLocationWithPdf,
   isTranscriptLocation,
   openKind,
-  parseLocation,
 } from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { useAnswers } from "../answers";
@@ -854,7 +854,7 @@ function CitationCard({
                     : null;
   const removed = state.reason === "document-removed";
   const quotedWords = state.check === "not-found" && parseQuotedWords(attributes.quotedWords);
-  const runOn = parseLocation(attributes.quotedWordsRunOn);
+  const runOn = quotedWordsRunOnTo(attributes.quotedWords);
   const scanned = useScannedQuote(attributes);
   const scannedText = useScannedText(state.reason === "unsure-word" ? state.documentId : null);
   const quote = useReadableQuote(attributes);

@@ -254,7 +254,7 @@ export function addFigureCitation(
       tr.setNodeMarkup(place.to, undefined, {
         ...next.attrs,
         ...citation,
-        quotedWordsRunOn: citation.quotedWordsRunOn ?? null,
+        quotedWords: citation.quotedWords ?? null,
       });
     else tr.insert(place.to, type.create(citation));
   }
@@ -343,7 +343,7 @@ export function changeFiguresToSource(
         tr.setNodeMarkup(at.to, undefined, {
           ...after.attrs,
           ...citation,
-          quotedWordsRunOn: citation.quotedWordsRunOn ?? null,
+          quotedWords: citation.quotedWords ?? null,
         });
       else tr.insert(at.to, type.create(citation));
       // Typed over, the figure keeps the marks of the words around it.
