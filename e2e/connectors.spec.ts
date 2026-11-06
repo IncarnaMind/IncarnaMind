@@ -258,14 +258,13 @@ test("a remote Connector added by URL needs a sign-in, which goes through the br
       const notice = connector.getByTestId("connector-sign-in-notice");
       await expect(notice.getByTestId("plain-text-secrets")).toBeVisible();
       await expect(connector.getByTestId("connector-sign-in")).toBeDisabled();
-      // A no-keyring runner is the only place this notice shows; keep it with the feel check's
-      // videos, which every smoke run uploads.
-      await mkdir("test-results/feel", { recursive: true });
-      await window.screenshot({ path: "test-results/feel/connector-sign-in-plain-text.png" });
+      // A no-keyring runner is the only place this notice shows; keep it for the PR's evidence.
+      await mkdir("test-results", { recursive: true });
+      await window.screenshot({ path: "test-results/connector-sign-in-plain-text.png" });
       await acceptPlainTextKeys(window, notice);
       await expect(connector.getByTestId("connector-sign-in")).toBeEnabled();
       await window.screenshot({
-        path: "test-results/feel/connector-sign-in-plain-text-accepted.png",
+        path: "test-results/connector-sign-in-plain-text-accepted.png",
       });
     }
     // Signing in opens the authorization request and waits for the browser.
