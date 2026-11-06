@@ -25,6 +25,8 @@ import { GENERATED_MARK } from "../../src/core/api";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { requestedRequests, whyItWaits } from "../../src/shared/askedChanges";
+import { resolveProposals } from "../../src/shared/proposals";
+import { changedText } from "../../src/shared/sentenceChanges";
 import { createTempDataFolder, spentBy, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
@@ -257,6 +259,9 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
           clean: number;
           held: number;
           notCleanHeld: number;
+          acceptedChecked: number;
+          acceptedOk: number;
+          cleanUnheld: number;
         }
       >();
       const kept: string[] = [];
@@ -305,19 +310,31 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
                 ),
               );
               const held = requested.size === 0 ? null : whyItWaits(client.doc, requested);
+              const request = edits.at(-1)?.mindChange?.request;
+              const proposed = request ? changedText(client.blocks, request) : null;
+              const pending = held === null ? null : textsOf();
+              if (held === null) await apply(core, second.answer, mind.id);
+              else {
+                client.doc.transact(() => {
+                  resolveProposals(client.blocks, (ref) => requested.has(ref.request), "accept");
+                });
+              }
+              await client.settled();
+              const after = textsOf();
+              const made = followUp.made(before, after);
+              const plain = (text: string) => text.replace(/\s+/g, " ").trim();
+              const accepted = proposed
+                ? proposed.after.every((text) => after.some((line) => plain(line) === plain(text)))
+                : null;
               const clean =
                 sentences !== null &&
                 sentences.takenOut === 1 &&
                 sentences.shortened === 0 &&
                 sentences.rewritten === 0 &&
                 sentences.written === 0;
-              await apply(core, second.answer, mind.id);
-              await client.settled();
-              const after = textsOf();
-              const made = followUp.made(before, after);
-              if (!made) {
+              if (!made || held !== null) {
                 kept.push(
-                  `- ${each.language} “${followUp.ask}”: not made; before ${JSON.stringify(before)}; after ${JSON.stringify(after)}`,
+                  `- ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, held ${held?.why ?? "no"}, accepted ${accepted}; before ${JSON.stringify(before)}; pending ${JSON.stringify(pending)}; proposed ${JSON.stringify(proposed)}; after ${JSON.stringify(after)}`,
                 );
               }
               const flagged = (second.answer.steps?.unbackedClaims ?? []).length > 0;
@@ -330,6 +347,9 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
                 clean: 0,
                 held: 0,
                 notCleanHeld: 0,
+                acceptedChecked: 0,
+                acceptedOk: 0,
+                cleanUnheld: 0,
               };
               if (made) counts.made++;
               if (made && flagged) counts.flagged++;
@@ -338,11 +358,16 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
               if (clean) counts.clean++;
               if (held !== null) counts.held++;
               if (held !== null && !clean) counts.notCleanHeld++;
+              if (accepted !== null) {
+                counts.acceptedChecked++;
+                if (accepted) counts.acceptedOk++;
+              }
+              if (clean && held === null) counts.cleanUnheld++;
               tally.set(followUp, counts);
               if (process.env.INCARNAMIND_LIVE_REPORT) {
                 await appendFile(
                   process.env.INCARNAMIND_LIVE_REPORT,
-                  `run ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, status says not all done ${flagged}, reply says waits or not made ${denied}, removes_only ${JSON.stringify(removes)}, sentences ${JSON.stringify(sentences)}, held ${held?.why ?? "no"}: ${JSON.stringify(second.answer.text).slice(0, 300)}\n`,
+                  `run ${each.language} “${followUp.ask}”: made ${made}, clean ${clean}, accepted ${accepted}, status says not all done ${flagged}, reply says waits or not made ${denied}, removes_only ${JSON.stringify(removes)}, sentences ${JSON.stringify(sentences)}, held ${held?.why ?? "no"}: ${JSON.stringify(second.answer.text).slice(0, 300)}\n`,
                 );
               }
               if (made && (flagged || denied)) {
@@ -367,6 +392,9 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
       let removing = 0;
       let clean = 0;
       let held = 0;
+      let acceptedChecked = 0;
+      let acceptedOk = 0;
+      let cleanUnheld = 0;
       for (const each of LANGUAGES) {
         for (const followUp of each.followUps) {
           if (!jobs.some((job) => job.followUp === followUp)) continue;
@@ -378,6 +406,9 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
             clean: 0,
             held: 0,
             notCleanHeld: 0,
+            acceptedChecked: 0,
+            acceptedOk: 0,
+            cleanUnheld: 0,
           };
           made += counts.made;
           flagged += counts.flagged;
@@ -385,13 +416,16 @@ describe.each(LIVE)("What the reply says an edit did, live: $name", (live) => {
           removing += counts.removing;
           clean += counts.clean;
           held += counts.held;
+          acceptedChecked += counts.acceptedChecked;
+          acceptedOk += counts.acceptedOk;
+          cleanUnheld += counts.cleanUnheld;
           report.push(
-            `  ${each.language} “${followUp.ask}”: made ${counts.made}/${runs}; removes_only true ${counts.removing}/${runs}; one sentence out and nothing else changed ${counts.clean}/${runs}; held ${counts.held}, not clean and held ${counts.notCleanHeld}; of those made, status says not all done ${counts.flagged}, reply says waits or not made ${counts.denied}`,
+            `  ${each.language} “${followUp.ask}”: made ${counts.made}/${runs}; removes_only true ${counts.removing}/${runs}; one sentence out and nothing else changed ${counts.clean}/${runs}; clean and unheld ${counts.cleanUnheld}/${runs}; held ${counts.held}, not clean and held ${counts.notCleanHeld}; accepted matches the proposed text ${counts.acceptedOk}/${counts.acceptedChecked}; of those made, status says not all done ${counts.flagged}, reply says waits or not made ${counts.denied}`,
           );
         }
       }
       report.push(
-        `  all: made ${made}/${jobs.length}; removes_only true ${removing}; one sentence out and nothing else changed ${clean}; held ${held}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; questions asked and answered ${questions}; Answers that never ended ${unended}`,
+        `  all: made ${made}/${jobs.length}; removes_only true ${removing}; one sentence out and nothing else changed ${clean}; clean and unheld ${cleanUnheld}; held ${held}; accepted matches the proposed text ${acceptedOk}/${acceptedChecked}; status says not all done ${flagged}; reply says waits or not made ${denied}; approvals asked and declined ${approvals}; questions asked and answered ${questions}; Answers that never ended ${unended}`,
         ...spentBy(dataDir),
         ...kept,
       );
