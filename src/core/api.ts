@@ -7978,6 +7978,12 @@ export interface ConversationQuestion {
 /** A Citation of an Answer in a conversation: where it goes is its marker ("[^2]") in the text. */
 export interface MarkedCitation extends Citation {
   marker: number;
+  /**
+   * When the sentence judgement settled this Citation, a supported one included (ISO 8601):
+   * absent when only its quote was checked, so a Note made from the Answer carries the judgement
+   * and not the quote check alone (#2313).
+   */
+  judgedAt?: string;
 }
 
 /**

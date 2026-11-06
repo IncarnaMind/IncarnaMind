@@ -21,6 +21,7 @@ import {
   readNoteState,
   unreadForCard,
 } from "../../src/renderer/src/noteState";
+import { pageBlocks, withAnswerChecks } from "../../src/shared/answerBlocks";
 import { setOrigins } from "../../src/shared/blockOrigins";
 import { formatDateTime } from "../../src/shared/dates";
 import { translate } from "../../src/shared/i18n";
@@ -918,5 +919,76 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
     });
     expect(read(doc).filedAnswers).toEqual(new Set(["answer-in-the-note"]));
     doc.destroy();
+  });
+});
+
+describe("A Note made from an Answer carries its judgement (#2313)", () => {
+  const sentence = "The launch is on the eighteenth of November.";
+  const citation = {
+    marker: 1,
+    passageId: "passage-1",
+    documentId: "plan",
+    documentName: "Plan.pdf",
+    contentHash: "hash-1",
+    pageFrom: 2,
+    pageTo: 2,
+    location: null,
+    quote: sentence,
+    check: "found",
+    checkReason: null,
+  };
+  const answer = (citations: readonly object[]) => ({
+    text: `${sentence} [^1]`,
+    citations: citations as never,
+    figures: [],
+    status: "done" as const,
+    model: { providerId: "provider", modelId: "model" },
+  });
+  const blocksOf = (citations: readonly object[]) =>
+    withAnswerChecks(
+      pageBlocks(answer(citations), ""),
+      answer(citations),
+      "",
+    ) as unknown as JSONContent[];
+  const withPlan = (doc: Y.Doc) =>
+    readNoteState({
+      cellFigures: [],
+      doc,
+      documents: [{ id: "plan", contentHash: "hash-1", name: "Plan.pdf" } as never],
+      keptCitationTexts: [],
+      folderId: null,
+    });
+
+  test("a judged supported sentence makes its Note Checked, at the judgement's time", () => {
+    const state = withPlan(source(blocksOf([{ ...citation, judgedAt: CHECKED_AT }]))).state;
+    expect(state).toMatchObject({ kind: "checked", checkedAt: CHECKED_AT, look: 0 });
+  });
+
+  test("a quote check alone is no judgement: its Note stays Not checked", () => {
+    const state = withPlan(source(blocksOf([citation]))).state;
+    expect(state).toMatchObject({ kind: "not-checked", look: 0 });
+  });
+
+  test("a judged unsupported sentence makes its Note need a look, never Checked", () => {
+    const state = withPlan(
+      source(
+        blocksOf([
+          {
+            ...citation,
+            check: "unsupported",
+            judgedAt: CHECKED_AT,
+            verdict: "The plan says December.",
+          },
+        ]),
+      ),
+    ).state;
+    expect(state).toMatchObject({ kind: "needs-look", look: 1 });
+  });
+
+  test("a sentence the judgement didn't settle carries nothing", () => {
+    const state = withPlan(
+      source(blocksOf([{ ...citation, check: "not-checked", judgedAt: CHECKED_AT }])),
+    ).state;
+    expect(state).toMatchObject({ kind: "not-checked" });
   });
 });

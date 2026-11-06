@@ -29,6 +29,19 @@ const CITATION_MARKER = /\[\^(\d{1,4})\]/g;
  * A Citation node, every attribute set (null ones are left out, as y-tiptap
  * stores them); with no Citation, one still being checked.
  */
+const citationAttributeNames: readonly (keyof CitationAttributes)[] = [
+  "passageId",
+  "documentId",
+  "documentName",
+  "contentHash",
+  "pageFrom",
+  "pageTo",
+  "location",
+  "quote",
+  "check",
+  "checkReason",
+];
+
 export function citationNode(citation: Citation | null): NodeJSON {
   const attrs: CitationAttributes = citation ?? {
     passageId: null,
@@ -42,9 +55,10 @@ export function citationNode(citation: Citation | null): NodeJSON {
     check: "checking",
     checkReason: null,
   };
+  const kept = Object.fromEntries(citationAttributeNames.map((name) => [name, attrs[name]]));
   return {
     type: CITATION_NODE,
-    attrs: Object.fromEntries(Object.entries(attrs).filter(([, value]) => value !== null)),
+    attrs: Object.fromEntries(Object.entries(kept).filter(([, value]) => value !== null)),
   };
 }
 
