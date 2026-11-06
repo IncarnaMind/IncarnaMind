@@ -101,6 +101,16 @@ export function sentenceChanges(
   };
 }
 
+/** The sentences of `before` most of whose words `written` holds: written again, as they were or reworded. */
+export function writtenAgain(before: readonly string[], written: readonly string[]): string[] {
+  const words = new Set(sentencesOf(written).flatMap(wordsOf));
+  return sentencesOf(before).flatMap((sentence) => {
+    const own = wordsOf(sentence);
+    const again = own.filter((word) => words.has(word)).length;
+    return own.length > 0 && again / own.length > 0.5 ? [sentence.text] : [];
+  });
+}
+
 /** Whether a change only takes text out: some of the User's, and nothing rewritten or written. */
 export const takesOnlyOut = (changes: SentenceChanges): boolean =>
   changes.rewritten === 0 && changes.written === 0 && changes.takenOut + changes.shortened > 0;
@@ -108,6 +118,37 @@ export const takesOnlyOut = (changes: SentenceChanges): boolean =>
 interface Run {
   insert: unknown;
   attributes?: Record<string, unknown>;
+}
+
+/** The text `requests`' Proposals write, wherever they write it: Blocks added whole, and words added. */
+export function writtenBy(blocks: Y.XmlFragment, requests: ReadonlySet<string>): string[] {
+  const written: string[] = [];
+  const ours = (value: unknown) => {
+    const ref = readProposalRef(value);
+    return ref !== null && requests.has(ref.request);
+  };
+  const visit = (parent: Y.XmlFragment | Y.XmlElement, added: boolean) => {
+    for (const child of parent.toArray()) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
+      const whole = added || (proposal?.kind === "insert" && requests.has(proposal.request));
+      if (!TEXT_BLOCKS.has(child.nodeName)) {
+        visit(child, whole);
+        continue;
+      }
+      let text = "";
+      for (const part of child.toArray()) {
+        if (!(part instanceof Y.XmlText)) continue;
+        for (const run of part.toDelta() as Run[]) {
+          if (typeof run.insert !== "string") continue;
+          if (whole || ours(run.attributes?.[PROPOSAL_INSERT_MARK])) text += run.insert;
+        }
+      }
+      if (text !== "") written.push(text);
+    }
+  };
+  visit(blocks, false);
+  return written;
 }
 
 /**

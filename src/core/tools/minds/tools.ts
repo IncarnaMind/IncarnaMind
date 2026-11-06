@@ -1140,7 +1140,7 @@ export function mindTools(options: MindToolsOptions): {
     const wait = whyItWaits(doc, asked);
     if (wait === null) return APPLIES;
     return wait.why === "more-than-taken-out"
-      ? moreThanTakenOut(mind.name, wait.changes)
+      ? moreThanTakenOut(mind.name, wait.changes, wait.writtenAgain)
       : held(mind.name);
   };
 

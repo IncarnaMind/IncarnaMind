@@ -19,7 +19,13 @@ import {
 } from "../core/api";
 import { diffSteps, splitWords } from "../core/proposals/diff";
 import { proposalRequestOf, readProposalAttribute, readProposalRef } from "./proposals";
-import { changedText, sentenceChanges, takesOnlyOut } from "./sentenceChanges";
+import {
+  changedText,
+  sentenceChanges,
+  takesOnlyOut,
+  writtenAgain,
+  writtenBy,
+} from "./sentenceChanges";
 
 const MOST_OF_YOUR_TEXT = 0.5;
 
@@ -154,12 +160,16 @@ export function translationRequested(doc: Y.Doc, requests: ReadonlySet<string>):
 /**
  * Why the requests' changes wait for the User, or null when they apply: they take out most of the
  * User's own text, or one the assistant said was asked only to take text out does more (#2356),
- * as `changes` says.
+ * as `changes` says, or the reply's other changes there write back what it takes out
+ * (`writtenAgain`).
  */
 export function whyItWaits(
   doc: Y.Doc,
   requests: ReadonlySet<string>,
-): { why: "most-of-their-text" } | { why: "more-than-taken-out"; changes: SentenceChanges } | null {
+):
+  | { why: "most-of-their-text" }
+  | { why: "more-than-taken-out"; changes: SentenceChanges; writtenAgain: string[] }
+  | null {
   if (requests.size === 0) return null;
   const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
   if (
@@ -173,7 +183,12 @@ export function whyItWaits(
     if (made?.source !== "edit-with-ai" || made.removesOnly !== true) continue;
     const { before, after } = changedText(blocks, request);
     const changes = sentenceChanges(before, after);
-    if (!takesOnlyOut(changes)) return { why: "more-than-taken-out", changes };
+    // The reply's other changes may write back what this one takes out: together they do more.
+    const others = new Set([...requests].filter((each) => each !== request));
+    const again = others.size === 0 ? [] : writtenAgain(before, writtenBy(blocks, others));
+    if (!takesOnlyOut(changes) || again.length > 0) {
+      return { why: "more-than-taken-out", changes, writtenAgain: again };
+    }
   }
   return null;
 }

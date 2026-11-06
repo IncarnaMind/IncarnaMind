@@ -342,11 +342,7 @@ export function waitingIn(
     return { kind: "own", blockIds: range.map(idOf), requests, fingerprint: fingerprintOf(range) };
   }
   const others = range.filter((element) => !own.includes(element));
-  return {
-    kind: own.length > 0 && !holdsProposal(others) ? "mixed" : "other",
-    count,
-    applies: false,
-  };
+  return { kind: own.length > 0 && !holdsProposal(others) ? "mixed" : "other", count, applies };
 }
 
 /** The Blocks of `own` in the Mind now, in order; null once they have changed. */

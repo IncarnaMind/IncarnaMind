@@ -53,9 +53,16 @@ export function sentencesSaid(changes: SentenceChanges): string | null {
 
 /**
  * Why a change the assistant said was asked only to take text out waits: what else it does to the
- * User's sentences, each it rewrites named.
+ * User's sentences, each it rewrites named, or those of them the reply's other changes write back.
  */
-export function moreThanTakenOut(name: string, changes: SentenceChanges): string {
+export function moreThanTakenOut(
+  name: string,
+  changes: SentenceChanges,
+  writtenAgain: readonly string[] = [],
+): string {
+  if (writtenAgain.length > 0) {
+    return `This reply's changes there do more than take text out: they write again the User's ${quoted(writtenAgain, writtenAgain.length)}, which they take out, so they wait in “${name}” for them to apply or discard; nothing of their text has changed yet. Say that they wait for them and what they would change, not that you removed anything.`;
+  }
   const { takenOut, shortened, rewritten, written, named } = changes;
   const more =
     rewritten > 0

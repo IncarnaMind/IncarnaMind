@@ -359,6 +359,36 @@ describe("A removal whose sentences another change of the reply writes again wai
     },
   );
 
+  // protects=a removal that took the whole paragraph out while the reply's next change writes one of its sentences into the Rent line itself waits, the model told which sentence is written again; English and Chinese; fails_when=words written into another paragraph aren't read, so the changes apply; no_claim=what a real model writes.
+  test.each([
+    {
+      case: "en",
+      language: "en",
+      rent: `¶1 ${LEASE.en.lines[0]} Each costs 800 a month.`,
+      told: "they write again the User's “Each costs 800 a month.”, which they take out, so they wait in “Lease terms”",
+    },
+    {
+      case: "zh",
+      language: "zh",
+      rent: `¶1 ${LEASE.zh.lines[0]}每个车位每月 800 元。`,
+      told: "they write again the User's “每个车位每月 800 元。”, which they take out, so they wait in “租赁条款”",
+    },
+  ] as const)(
+    "$case, the paragraph out, then one of its sentences written into the Rent line",
+    async (each) => {
+      const model = stepping([
+        removal(each.language, PARKING_OUT[each.language]),
+        removal(each.language, each.rent, RENT_PART[each.language]),
+      ]);
+      const { client, answer } = await setUp(each.language, model);
+
+      expect(lastResult(model)).toContain(each.told);
+      expect(
+        whyItWaits(client.doc, new Set(changesIn(answer).map((change) => change.request)))?.why,
+      ).toBe("more-than-taken-out");
+    },
+  );
+
   // protects=after a removal that took the whole paragraph out and applies at once, a second edit over the Note is refused with the earlier change said to apply with Undo, never to wait for the User's review (DeepSeek, Chinese 23 of the fourth round, whose reply then said a change waits in Review), and the paragraph's removal applies; English and Chinese; fails_when=the refusal says a change waits for the User to accept or reject, or the removal is held; no_claim=how a real model words its reply.
   test.each([
     { case: "Chinese 23", language: "zh" },
