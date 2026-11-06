@@ -27,9 +27,8 @@ async function fold(card: Locator): Promise<{ top: number; bottom: number } | nu
 
 /**
  * Whether every way in shows whole on the card's first screen, or the card shows it scrolls: it
- * overflows and cuts a way at the fold. A machine with a keyring shows all three ways whole; Linux
- * with no keyring draws its notice in between and cuts the last way at the window's bottom, beside
- * the card's scrollbar (#2270).
+ * overflows and cuts a way at the fold. Only a keyless store lengthens the card past the room a
+ * dock may take, so anywhere else a cut way is a regression, not the scroll sign (#2270).
  */
 async function firstScreenShows(card: Locator): Promise<boolean> {
   const screen = await fold(card);
@@ -40,6 +39,7 @@ async function firstScreenShows(card: Locator): Promise<boolean> {
     (box) => box !== null && box.y >= screen.top - 0.5 && box.y + box.height <= screen.bottom + 0.5,
   );
   if (whole) return true;
+  if ((await card.getByTestId("plain-text-secrets").count()) === 0) return false;
   const scrolls = await card.evaluate((el) => el.scrollHeight > el.clientHeight + 0.5);
   const cut = ways.some(
     (box) =>
