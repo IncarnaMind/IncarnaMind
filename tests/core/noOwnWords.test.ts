@@ -100,6 +100,13 @@ const ADDED_BESIDE: readonly Shape[] = [
     after: beside(FEES_ZH, "税金按月支付。"),
   },
   {
+    case: "en, the line between written again in capitals",
+    lines: FEES,
+    reply: between(FEES, "RATES ARE MONTHLY."),
+    asked: "Add the rates line in capitals; keep the existing lines.",
+    after: beside(FEES, "RATES ARE MONTHLY."),
+  },
+  {
     case: "en, a few common words of the line between changed",
     lines: ["It is cold.", "It is what it is.", "What it is now."],
     reply: ["It is cold.", "It is as it is.", "What it is now."],
@@ -469,7 +476,71 @@ const REPLACED: readonly Shape[] = [
   },
 ];
 
-const SHAPES = [...ADDED_BESIDE, ...KEPT_WHOLE, ...NO_EVIDENCE, ...REPLACED];
+const SHORT_PARKING = [
+  "Rent is due on the first.",
+  "Parking spaces are allocated.",
+  "Deposit is three months.",
+] as const;
+const SHORT_PARKING_ZH = ["房租每月一号交。", "停车位由房东分配。", "押金为三个月房租。"] as const;
+
+/**
+ * The known residue (#2589): a new line that says more than half of a line's own words takes its
+ * place, so a short line, or a Chinese one, can be written over by an addition that repeats most of
+ * it; so can the selection's first line, which keeps fix 6's test. Words alone can't tell these
+ * from a rewrite such as "assigned by the landlord"; names in the reply, or a decline, can. These
+ * rows pin what happens today, so a change to it shows.
+ */
+const RESIDUE: readonly Shape[] = [
+  {
+    case: "en, the known residue: a short line between two kept ones, most of its words repeated",
+    lines: SHORT_PARKING,
+    reply: between(SHORT_PARKING, "Parking spaces are free on Sundays."),
+    asked: "Add that parking spaces are free on Sundays; keep the existing lines.",
+    after: between(SHORT_PARKING, "Parking spaces are free on Sundays."),
+  },
+  {
+    case: "zh, the known residue: a short line between two kept ones, most of its words repeated",
+    lines: SHORT_PARKING_ZH,
+    reply: between(SHORT_PARKING_ZH, "停车位由房东周日开放。"),
+    asked: "加一行：停车位由房东周日开放，原有的各行都保留。",
+    after: between(SHORT_PARKING_ZH, "停车位由房东周日开放。"),
+  },
+  {
+    case: "zh, the known residue: a longer line between two kept ones, most of its words repeated",
+    lines: PARKING_ZH,
+    reply: between(PARKING_ZH, "停车位由房东统一周日开放。"),
+    asked: "加一行：停车位由房东统一周日开放，原有的各行都保留。",
+    after: between(PARKING_ZH, "停车位由房东统一周日开放。"),
+  },
+  {
+    case: "en, the known residue: the selection's first line, half of its words repeated",
+    lines: [
+      "Parking spaces are allocated by the landlord.",
+      "Rent is due on the first.",
+      "Deposit is three months.",
+    ],
+    reply: [
+      "Parking spaces are free on Sundays.",
+      "Rent is due on the first.",
+      "Deposit is three months.",
+    ],
+    asked: "Add that parking spaces are free on Sundays; keep the existing lines.",
+    after: [
+      "Parking spaces are free on Sundays.",
+      "Rent is due on the first.",
+      "Deposit is three months.",
+    ],
+  },
+  {
+    case: "zh, the known residue: the selection's first line, half of its words repeated",
+    lines: ["停车位由房东统一分配。", "房租每月一号交。", "押金为三个月房租。"],
+    reply: ["停车位由房东周日开放。", "房租每月一号交。", "押金为三个月房租。"],
+    asked: "加一行：停车位由房东周日开放，原有的各行都保留。",
+    after: ["停车位由房东周日开放。", "房租每月一号交。", "押金为三个月房租。"],
+  },
+];
+
+const SHAPES = [...ADDED_BESIDE, ...KEPT_WHOLE, ...NO_EVIDENCE, ...REPLACED, ...RESIDUE];
 
 const rewrite = (shape: Shape) =>
   `${"named" in shape.reply ? shape.reply.named : shape.reply.join("\n\n")}\n<why>Done.</why>`;
