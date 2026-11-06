@@ -86,6 +86,11 @@ Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when the c
   - teach features where they live, not in onboarding, which only gets the User to a first checked Answer.
 - Build to the interactive prototype's behaviour, not to a still design board: a board fixes the looks only.
 - A UI pull request ticks the template's interaction checklist, shows before and after screenshots, and records the flow in the built app beside the same flow in the prototype, explaining every difference.
+- **A small change takes a short path.** That means interface only, a few lines, and nothing that touches the User's data, privacy or consent, a check's verdict or a Citation, AI behaviour, a migration or a dependency.
+  - Open it ready, not as a draft, so CI starts at once.
+  - Include one test that shows the change, and one before and one after screenshot.
+  - It merges as soon as its CI is green, without a separate review round.
+  - If it turns out to touch any of those areas, it follows the full rules.
 
 ## Commits and pull requests
 
