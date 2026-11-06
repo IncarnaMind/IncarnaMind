@@ -77,8 +77,8 @@ const NOT_MEASURED = [
   "- The first sign of the flows that aren't Answers is the first one the core sends; the window's own pending state, shown at once, isn't seen here.",
 ];
 
-// A paired run (./paired.speed) times its own items instead.
-const baseline = env("PAIRED") === null ? test : test.skip;
+// A paired run (./paired.speed) and the checks' own timing (./checkTimes.speed) time their own items instead.
+const baseline = env("PAIRED") === null && env("CHECK_TIMES") === null ? test : test.skip;
 
 baseline("the speed of every AI flow, on each model and language", async () => {
   const log = createLog();

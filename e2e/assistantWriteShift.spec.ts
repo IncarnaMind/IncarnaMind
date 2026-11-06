@@ -37,7 +37,7 @@ interface Frame {
   question: number | null;
   card: number | null;
   cardHeight: number | null;
-  /** The card's own count of what waits is drawn: its waiting row is complete. */
+  /** The card's own count of what waits is drawn. */
   counted: boolean;
   undo: boolean;
 }
@@ -165,14 +165,15 @@ async function writeShift(
     expect(heightsOf(questions, (frame) => frame.question)).toHaveLength(1);
   }
 
+  // What the User asked for applies at once: while it comes in, the card never says it waits (#1358).
+  expect(frames.some((frame) => frame.card !== null && !frame.undo && frame.counted)).toBe(false);
+
   // The card keeps its height as its waiting row becomes the applied one, so nothing under it
   // moves: its two rows share one cell and it is as tall as the taller. The waiting height is the
-  // last frame before the apply: while the Answer streams, its own count and the paragraph it says
-  // were changed grow with the words arriving, and neither they nor the room they will need are
-  // known in advance; the apply is what must not move the card.
-  const waitingFrames = frames.filter(
-    (frame) => frame.card !== null && !frame.undo && frame.counted,
-  );
+  // last frame before the apply: while the Answer streams, the paragraphs it says were changed grow
+  // with the words arriving, and neither they nor the room they will need are known in advance;
+  // the apply is what must not move the card.
+  const waitingFrames = frames.filter((frame) => frame.card !== null && !frame.undo);
   const waiting = heightsOf(
     finalWaiting ? waitingFrames.slice(-1) : waitingFrames,
     (frame) => frame.cardHeight,
@@ -184,6 +185,41 @@ async function writeShift(
   expect(waiting).toHaveLength(1);
   expect(done).toEqual(waiting);
 
+  await app.close();
+}
+
+/**
+ * A Note the assistant makes (#1358): the card says nothing waits while the write comes in, and is
+ * as tall once it lands as just before.
+ */
+async function madeShift(language: "en" | "zh-CN", width: number) {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await setWindowSize(app, window, width, 900);
+  await dismissChatSetup(window);
+  // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
+  await useLocalChatModel(window);
+  await setLanguage(window, language);
+
+  await sampleFrames(window);
+  await askInAssistant(window, language === "en" ? "write a summary page" : "写一个总结页面");
+  await expect(window.getByTestId("mind-changes-undo")).toBeVisible();
+  await window.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const frames = await stopSampling(window);
+
+  const running = frames.filter((frame) => frame.card !== null && !frame.undo);
+  expect(running.length).toBeGreaterThan(0);
+  expect(running.some((frame) => frame.counted)).toBe(false);
+  const done = heightsOf(
+    frames.filter((frame) => frame.card !== null && frame.undo),
+    (frame) => frame.cardHeight,
+  );
+  expect(done).toHaveLength(1);
+  expect(heightsOf(running.slice(-1), (frame) => frame.cardHeight)).toEqual(done);
   await app.close();
 }
 
@@ -212,5 +248,16 @@ for (const language of ["en", "zh-CN"] as const) {
       question: false,
       finalWaiting: true,
     });
+  });
+}
+
+for (const [language, width] of [
+  ["en", 1440],
+  ["zh-CN", 1440],
+  ["en", 900],
+] as const) {
+  test(`at ${width}px in ${language}, the card of a Note the assistant makes keeps its height as the write lands`, async () => {
+    test.setTimeout(90_000);
+    await madeShift(language, width);
   });
 }

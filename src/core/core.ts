@@ -53,7 +53,9 @@ import {
   holdsText,
   mindSearchScope,
   NO_SCOPE,
+  oneFolderOf,
   type ScopeKind,
+  scopeName,
 } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
@@ -70,6 +72,7 @@ import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
+import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -1013,6 +1016,8 @@ export function createCore(adapters: CoreAdapters): Core {
         prepareRerank();
         documentReady(documentId);
       },
+      // Tagged as soon as its text, or a scan's first pages, can be read, not once embedded (#2308).
+      onText: (documentId) => documentReady(documentId),
       // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
       // conversations. Features other than Citations retain what they need too.
       citedUnits: (documentIds) => {
@@ -1261,6 +1266,8 @@ export function createCore(adapters: CoreAdapters): Core {
     if (wasLocal !== embedding.localOnly()) {
       usageData.localModeChanged();
       privacyChanged();
+      // Documents waiting to be allowed on a cloud service aren't, in Local mode (#2308).
+      events.emit("library.changed", null);
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
       await rerankChanged();
@@ -1381,9 +1388,9 @@ export function createCore(adapters: CoreAdapters): Core {
    * so the chat flow sends "tool-results" too, and asks again for it. So do
    * Skill scripts that can run (#41): what they print could be anything.
    *
-   * Skills alone don't: their Tools (`use_skill`, `read_skill_file`) return
-   * only the text of Skills the User imported, which is sent like the system
-   * prompt, not data fetched from another service.
+   * Skills alone don't add "tool-results": their Tools (`use_skill`,
+   * `read_skill_file`) return only a Skill's own instructions and files, which
+   * the chat flow names as "skill-files".
    */
   const sendsToolResults = () => connectors.anyEnabled() || scriptsOffered();
   /** Whether the chat flow sends "tool-results", as last registered. */
@@ -1806,6 +1813,66 @@ export function createCore(adapters: CoreAdapters): Core {
       : kind === "tag"
         ? (tags.list().find((tag) => tag.id === id)?.name ?? null)
         : (documents.getMany([id])[0]?.name ?? null);
+  const nameSent = (kind: ScopeKind, id: string): string | null => {
+    const linked =
+      kind === "folder" ? folders.list().find((folder) => folder.id === id) : undefined;
+    return linked ? linkedFolderName(linked) : scopeItemName(kind, id);
+  };
+  /**
+   * What a check's scope sees of the Library (#2525), from a Note in `mindId`: the Documents the
+   * scope covers, the Folders, Tags and other notes it may see, with Folder walls applied both
+   * ways, so a walled Folder's Documents are never counted or named for a Note outside it.
+   */
+  const libraryListing = (mindId: string | null, searched: SearchScope | null): LibraryListing => {
+    const ownWall = walledFolder(mindId);
+    const counted = documents.getMany(scopeDocuments(searched, mindId) ?? documents.ids({}));
+    const ids = new Set(counted.map((document) => document.id));
+    // A scope picked before a Folder got its wall may still list it, or one of its Documents: for a
+    // note outside the wall, what is behind it is named from nowhere, only counted among the walls.
+    const constrained =
+      searched && hasSearchScope(searched) ? constrainedScope(searched, mindId) : null;
+    const visible = constrained && {
+      ...constrained,
+      documentIds: constrained.documentIds.filter((id) => walledDocument(id) === ownWall),
+    };
+    const one = oneFolderOf(visible);
+    const within = one === null ? null : new Set(library.subtree(one));
+    const seen = (folderId: string | null) =>
+      walledFolderId(folderId) === ownWall && (within === null || within.has(folderId ?? ""));
+    const named = visible && hasSearchScope(visible) ? scopeName(visible, nameSent) : null;
+    const walls = library.folders().filter((folder) => folder.keepInside).length;
+    const folders = library
+      .folders()
+      .filter((folder) => seen(folder.id))
+      .map((folder) => ({
+        name: folder.name,
+        count: library.treeDocumentIds(folder.id).filter((id) => ids.has(id)).length,
+      }));
+    const notes = minds.list().filter((mind) => mind.id !== mindId && seen(mind.folderId));
+    const unfiled = new Set(library.unfiledDocumentIds());
+    return {
+      source: named
+        ? { kind: "scope", name: named.name ?? "", more: named.more }
+        : ownWall === null && walls > 0
+          ? { kind: "left-out", folders: walls }
+          : { kind: "library" },
+      documents: counted.map(({ name, kind }) => ({ name, kind })),
+      folders,
+      unfiled: one === null ? counted.filter((document) => unfiled.has(document.id)).length : null,
+      tags: tags.list().flatMap((tag) => {
+        const count = counted.filter((document) =>
+          document.tags.some((each) => each.tagId === tag.id),
+        ).length;
+        return count > 0 ? [{ name: tag.name, count }] : [];
+      }),
+      // A note with no typed title is named by its first line, which is its text: it is counted only.
+      notes: {
+        count: notes.length,
+        names: notes.map((mind) => mind.title).filter((title) => title !== ""),
+      },
+      searches: named?.name ? { kind: named.kind, name: named.name } : null,
+    };
+  };
   // A Folder of the Library holds no file that isn't a Document, so it names the folders on disk
   // its Documents are in: a Linked folder filed into it whole names the Linked folder.
   const foldersOnDisk = (folderIds: readonly string[]) => {
@@ -2777,6 +2844,13 @@ export function createCore(adapters: CoreAdapters): Core {
         folderId: mind.folderId,
         scope,
         personId: settings.get().user.personId,
+        language: settings.get().language,
+        keptInside: (documentId) => {
+          const wall = walledDocument(documentId);
+          return wall === null || wall === walledFolder(mind.id)
+            ? null
+            : (walledFolderName(documentId) ?? documentId);
+        },
       });
     });
   }
@@ -2860,6 +2934,7 @@ export function createCore(adapters: CoreAdapters): Core {
     walledFolderName,
     searchedScope,
     pickedDocuments,
+    libraryListing,
     originalOf: (mindId) => {
       const original = wordImports.originalOf(mindId);
       const duplicated = minds.duplicatedFrom(mindId);
@@ -3001,6 +3076,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readableQuote: quoteAsRead,
     language: () => settings.get().language,
     scopeItemName,
+    libraryFactsNow: (mindId) => checks.libraryFactsNow(mindId),
     citationStyle: (mindId) => {
       const { style, textLanguage } = mindStyleAndText(mindId);
       return { style: citationStyles.resolve(style.style, textLanguage), textLanguage };
@@ -3413,7 +3489,9 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const tagger = createTagger({
-    maySend: (id, service) => mayBackgroundSend(db, id, [service], library.turnedOnAt),
+    // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
+    maySend: (id, service) =>
+      !library.inWall(id) && mayBackgroundSend(db, id, [service], library.turnedOnAt),
     db,
     now,
     tags,
@@ -3455,6 +3533,8 @@ export function createCore(adapters: CoreAdapters): Core {
     background,
     rateLimit,
     timers: paceTimers,
+    head: (id) => documents.head(id),
+    headIds: () => documents.headIds(),
   });
   const automaticClassifiers = new Map<string, ReturnType<typeof automaticGroupClassifier>>();
   // Set below, once the examples are made: Organize leaves the example's Documents alone (#1942).
@@ -3468,6 +3548,8 @@ export function createCore(adapters: CoreAdapters): Core {
     settings,
     background,
     isExampleDocument: (documentId) => isExampleDocument(documentId),
+    head: (id) => documents.head(id),
+    localOnly: () => embedding.localOnly(),
     changed: () => {
       events.emit("library.changed", null);
       batches.libraryChanged();
@@ -3570,7 +3652,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const ready = await chat.readiness(choice, "classification");
       if (embedding.localOnly() && "provider" in ready && ready.provider.service)
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      const prepared = await chat.prepareModel(choice, "classification", undefined, permit);
+      const prepared = await chat.prepareModel(choice, "classification", undefined, { permit });
       if (embedding.localOnly() && prepared.provider.service)
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
       // A scan's page images go only where the User allowed them (the "scan-images" flow).
@@ -3583,7 +3665,9 @@ export function createCore(adapters: CoreAdapters): Core {
       const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
       if (imageModel && scanImagesAllowed(imageModel)) {
         chosen = withPageReader(chosen, async () => {
-          const reader = await chat.prepareModel(imageModel, "classification", undefined, permit);
+          const reader = await chat.prepareModel(imageModel, "classification", undefined, {
+            permit,
+          });
           return {
             ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
             model: { id: imageModel.modelId, images: true, reason: "selected" as const },
@@ -5789,6 +5873,7 @@ export function createCore(adapters: CoreAdapters): Core {
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
+    libraryFactsNow: async (mindId) => checks.libraryFactsNow(mindId),
 
     getSecretStorage: async () => secrets.status(),
     acceptPlainTextSecretStorage: async () => secrets.acceptPlainText(),

@@ -6,6 +6,7 @@ import {
   inNoteText,
   keptText,
   leftText,
+  stillWaiting,
 } from "../../src/renderer/src/changeFacts";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -39,8 +40,8 @@ describe("The panel's line after the assistant applied a change (#1559)", () => 
     ],
     [
       { ...row({ wrote: 2 }), filled: false },
-      "Wrote 2 paragraphs in “Q3”",
-      "在“Q3”中已写入 2 个段落",
+      "Added 2 paragraphs to “Q3”",
+      "在“Q3”中添加了 2 个段落",
     ],
   ])("%o", (counts, english, chinese) => {
     expect(appliedFact(t("en"), counts, "Q3")).toBe(english);
@@ -57,7 +58,19 @@ describe("What an Answer did in a Mind, in words (#880), counted by paragraph (#
       "修改了 12 个段落",
     ],
     [row({ changed: 1 }), "Changed 1 paragraph in “Q3”", "Changed 1 paragraph", "修改了 1 个段落"],
-    [row({ wrote: 1 }), "Wrote 1 paragraph in “Q3”", "Wrote 1 paragraph", "写入了 1 个段落"],
+    [row({ wrote: 1 }), "Added 1 paragraph to “Q3”", "Added 1 paragraph", "添加了 1 个段落"],
+    [
+      row({ wrote: 3, filled: true }),
+      "Wrote 3 paragraphs in “Q3”",
+      "Wrote 3 paragraphs",
+      "写入了 3 个段落",
+    ],
+    [
+      row({ wrote: 3, tables: 1 }),
+      "Added 3 paragraphs and a table to “Q3”",
+      "Added 3 paragraphs and a table",
+      "添加了 3 个段落和 1 个表格",
+    ],
     [
       row({ created: true, wrote: 3 }),
       "Created “Q3” and wrote 3 paragraphs",
@@ -104,6 +117,28 @@ describe("What still waits is said in changes, the number the Mind's bar shows (
     expect(leftText(t("en"), row({ wrote: 3 }), null)).toBeNull();
     expect(leftText(t("en"), row({ wrote: 3 }), "gone")).toBeNull();
     expect(leftText(t("en"), row({}), 2)).toBeNull();
+  });
+
+  test("while the Answer runs, what applies at once is not waiting; what it holds back is", () => {
+    const made = row({ created: true, wrote: 35 });
+    // A Note the assistant made: all 22 of its changes in the Note's record apply at once.
+    expect(stillWaiting({ count: 22, applying: 22 })).toBeNull();
+    expect(leftText(t("en"), made, stillWaiting({ count: 22, applying: 22 }))).toBeNull();
+    expect(leftText(t("zh-CN"), made, stillWaiting({ count: 22, applying: 22 }))).toBeNull();
+    // One held back beside them waits, and is the only one said.
+    expect(stillWaiting({ count: 23, applying: 22 })).toBe(1);
+    expect(leftText(t("en"), made, stillWaiting({ count: 23, applying: 22 }))).toBe(
+      "· 1 change waiting",
+    );
+    expect(leftText(t("zh-CN"), made, stillWaiting({ count: 23, applying: 22 }))).toBe(
+      "· 1 处修订待确认",
+    );
+    // Nothing applying at once: every change waits, and none left reads as none.
+    expect(stillWaiting({ count: 2, applying: 0 })).toBe(2);
+    expect(stillWaiting({ count: 0, applying: 0 })).toBe(0);
+    expect(stillWaiting({ count: null, applying: 0 })).toBeNull();
+    expect(stillWaiting({ count: "gone", applying: 0 })).toBe("gone");
+    expect(stillWaiting(undefined)).toBeNull();
   });
 });
 
@@ -167,5 +202,51 @@ describe("The card's second fact: what waits in the Note (#1897)", () => {
     expect(inNoteText(t("en"), null, 0)).toBeNull();
     expect(inNoteText(t("en"), "gone", 0)).toBeNull();
     expect(inNoteText(t("zh-CN"), 2, 2)).toBeNull();
+  });
+});
+
+describe("Whole paragraphs removed, said as removed on the card and the line (#2356)", () => {
+  // protects=a change that only removes whole paragraphs says on the Answer's card and the line over the Note what went, by the paragraph's label or first words and its sentences, in English and Chinese, one paragraph or several, one sentence or more; a removal beside another change still says it changed; fails_when=a removal reads as "Changed", or the counts or the name are wrong; no_claim=the Note's own text.
+  test.each([
+    [
+      row({ changed: 1, removed: { paragraphs: 1, sentences: 3, start: "Parking" } }),
+      "Removed the paragraph “Parking” (3 sentences) from “Q3”",
+      "Removed the paragraph “Parking” (3 sentences)",
+      "从“Q3”中删除了“Parking”一段（3 句）",
+      "删除了“Parking”一段（3 句）",
+    ],
+    [
+      row({ changed: 1, removed: { paragraphs: 1, sentences: 1, start: "停车位" } }),
+      "Removed the paragraph “停车位” (1 sentence) from “Q3”",
+      "Removed the paragraph “停车位” (1 sentence)",
+      "从“Q3”中删除了“停车位”一段（1 句）",
+      "删除了“停车位”一段（1 句）",
+    ],
+    [
+      row({ changed: 1, removed: { paragraphs: 1, sentences: 2, start: "The boat leaves at…" } }),
+      "Removed the paragraph “The boat leaves at…” (2 sentences) from “Q3”",
+      "Removed the paragraph “The boat leaves at…” (2 sentences)",
+      "从“Q3”中删除了“The boat leaves at…”一段（2 句）",
+      "删除了“The boat leaves at…”一段（2 句）",
+    ],
+    [
+      row({ changed: 2, removed: { paragraphs: 2, sentences: 5, start: "Parking" } }),
+      "Removed 2 paragraphs (5 sentences) from “Q3”",
+      "Removed 2 paragraphs (5 sentences)",
+      "从“Q3”中删除了 2 个段落（5 句）",
+      "删除了 2 个段落（5 句）",
+    ],
+    [
+      row({ changed: 2, removed: { paragraphs: 1, sentences: 3, start: "Parking" } }),
+      "Changed 2 paragraphs in “Q3”",
+      "Changed 2 paragraphs",
+      "已修改“Q3”中的 2 段",
+      "修改了 2 个段落",
+    ],
+  ])("%o", (counts, card, line, zhCard, zhLine) => {
+    expect(appliedFact(t("en"), { ...counts, filled: false }, "Q3")).toBe(card);
+    expect(changeFact(t("en"), counts, null)).toBe(line);
+    expect(appliedFact(t("zh-CN"), { ...counts, filled: false }, "Q3")).toBe(zhCard);
+    expect(changeFact(t("zh-CN"), counts, null)).toBe(zhLine);
   });
 });

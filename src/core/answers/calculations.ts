@@ -1903,7 +1903,16 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     // A quote from the middle of a line ("…，88.0 和 91.5") starts with no list's or heading's number.
     // A sheet row's cells are numbers whatever they look like: "Gross profit	1922" holds no year.
     const cells = quoted.units.some((unit) => unit.kind === "rows");
-    let quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
+    const around = {
+      before: page.text.slice(0, page.at),
+      after: page.text.slice(page.at + quote.length),
+    };
+    let quoteContext: FigureContext = {
+      ...context,
+      midLine: page.midLine,
+      around,
+      ...(cells && { dates: true }),
+    };
     const contextProblem = quotePlaceProblem(quote, quoted.units, quoted.matching);
     if (contextProblem) return contextProblem;
     const figures = readFigures(quote, quoteContext);
@@ -1946,7 +1955,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         unitProblem = null;
         const yen = figureContextOf(unit.citation.quote, context.language).yen ?? context.yen;
         context = { ...context, yen };
-        quoteContext = { ...context, midLine: page.midLine, ...(cells && { dates: true }) };
+        quoteContext = { ...quoteContext, yen };
         const at = figure.start;
         const chars = figure.chars;
         const reread = readFigures(quote, quoteContext).find(

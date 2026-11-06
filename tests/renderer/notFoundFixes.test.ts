@@ -286,6 +286,19 @@ describe("a sentence that cites nothing and nothing backs", () => {
     const { editor } = editorHolding([paragraph("One cat.")], false);
     expect(offersNotFound(editor, claimOn(editor, 0, 0))).toBe(false);
   });
+
+  test("a sentence that names an Analysis's figure as another's is offered no Cut and no search: its fix is the User's edit (#2378)", () => {
+    const { editor } = editorHolding([paragraph("North's total amount is 9,450.")]);
+    const misnamed = claimOn(editor, 0, 0, {
+      unsupported: {
+        kind: "analysis-name",
+        reason: "The sentence doesn’t say this figure is Total amount, South",
+      },
+    });
+    expect(offersNotFound(editor, misnamed)).toBe(false);
+    expect(offersFindSources(editor, misnamed)).toBe(false);
+    expect(offersNotFound(editor, claimOn(editor, 0, 0))).toBe(true);
+  });
 });
 
 describe("Find sources is offered where searching papers and the web could help", () => {

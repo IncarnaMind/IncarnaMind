@@ -25,6 +25,17 @@ import {
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
   verdict?: "supported" | "unsupported" | "contradicted";
+  /** What else the sentence asserts beside its Analysis's figures, as a model gives it, and its verdict. */
+  remainder?: { text: string; verdict: "supported" | "unsupported" } | "left out";
+  /** Whether the sentence names each Analysis figure as its label and rule say: same when absent; null leaves it out. */
+  names?: "same" | "other" | "unclear" | null;
+  /**
+   * Fields of each Analysis figure's item in place of the ones `names` gives; `asked` when the check
+   * asked again because they disagreed, so a reply can mend them the second time.
+   */
+  analysisItem?: (
+    asked: boolean,
+  ) => Partial<Record<"verdict" | "relation" | "topic" | "roles" | "scope", string>>;
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   /** The number of `quote` that backs the sentence's figure, as written: its first of a kind when absent. */
@@ -34,6 +45,8 @@ export interface Plan {
   /** What its figure items say the number measures; none by default. */
   measure?: { sentence: string; quote: string | null; match: "same" | "differs" };
   says?: string;
+  /** Its Roles line after the verdict: the sentence's words, " / ", the Passage's, and same, differs or other. */
+  roles?: string;
   /** Its Absence line: no when left out, as the reply form asks of an ordinary sentence; null: no line. */
   absence?: boolean | null;
   /** Its reply instead, once it has searched; given the call, for one that names its figures. */
@@ -83,6 +96,7 @@ export function requestedFigures(call: ModelCall): {
   reading: number | null;
   label: string | null;
   context: string | null;
+  analysis: boolean;
 }[] {
   const match = FIGURES.exec(call.prompt);
   if (!match?.[1]) return [];
@@ -94,9 +108,31 @@ export function requestedFigures(call: ModelCall): {
     const unsettled = Array.isArray(figure.ambiguities) && figure.ambiguities.length > 0;
     const label = typeof figure.label === "string" ? figure.label : null;
     const context = typeof figure.context === "string" ? figure.context : null;
-    return { id: figure.id, shown: figure.shown, reading: unsettled ? 1 : null, label, context };
+    const analysis = isRecord(figure.saved) && figure.saved.analysis != null;
+    return {
+      id: figure.id,
+      shown: figure.shown,
+      reading: unsettled ? 1 : null,
+      label,
+      context,
+      analysis,
+    };
   });
 }
+
+/** What else the sentence asserts, as a plan gives it, in the Figures line's form. */
+const remainderOf = (plan: Plan) =>
+  plan.remainder && plan.remainder !== "left out"
+    ? {
+        text: plan.remainder.text,
+        verdict: plan.remainder.verdict,
+        scope: "same",
+        topic: plan.remainder.verdict === "supported" ? "found" : "not found",
+        roles: "same",
+        says: null,
+        citation: null,
+      }
+    : null;
 
 /** The sentence a check Run is asked about. */
 /**
@@ -186,29 +222,54 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: passage?.id, quote }] } }],
     };
   }
-  const verdict = `Verdict: ${plan.verdict}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
+  const verdict = `Verdict: ${plan.verdict}${plan.roles ? `\nRoles: ${plan.roles}` : ""}${plan.absence === null ? "" : `\nAbsence: ${plan.absence ? "yes" : "no"}`}${plan.says ? `\n${plan.says} [^1]` : ""}`;
   const figures = requestedFigures(call);
   if (figures.length === 0) return { text: verdict };
+  // An Analysis's figure is never looked for in the Passages, as the check's instructions say.
+  const asked = call.prompt.includes("disagrees with itself for an Analysis's figure");
+  const analysed = ({ id, reading }: { id: string; reading: number | null }) => ({
+    id,
+    ...(plan.names !== null && { names: plan.names ?? "same" }),
+    verdict: (plan.names ?? "same") === "same" ? "supported" : "unsupported",
+    scope: "same",
+    topic: "found",
+    roles: "same",
+    says: null,
+    reading,
+    relation: "equals",
+    source: null,
+    calculation: null,
+    ...plan.analysisItem?.(asked),
+  });
   if (!calculation) {
     // With nothing quoted, each figure is one no Passage states.
     if (!quote) {
-      const items = figures.map(({ id, reading }) => ({
-        id,
-        verdict: "unsupported",
-        scope: "same",
-        topic: "not found",
-        roles: "same",
-        says: null,
-        reading,
-        relation: "equals",
-        source: null,
-        calculation: null,
-      }));
-      return { text: `${verdict}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
+      const items = figures.map(({ id, reading, analysis, shown }) =>
+        analysis
+          ? analysed({ id, reading })
+          : {
+              id,
+              verdict: "unsupported",
+              scope: "same",
+              topic: "not found",
+              roles: "same",
+              says: null,
+              reading,
+              relation: "equals",
+              source: null,
+              calculation: null,
+            },
+      );
+      return {
+        text: `${verdict}\nFigures: ${JSON.stringify(
+          plan.remainder === "left out" ? { items } : { items, remainder: remainderOf(plan) },
+        )}`,
+      };
     }
     // Each figure from the cited quote's number of its own kind of unit, or its first.
     const numbers = readFigures(quote, documentFigureContext([{ text: quote }]));
-    const items = figures.map(({ id, shown, reading }) => {
+    const items = figures.map(({ id, shown, reading, analysis }) => {
+      if (analysis) return analysed({ id, reading });
       const kind = readFigures(shown, documentFigureContext([{ text: shown }]))[0]?.unit.kind;
       const source = plan.number
         ? { chars: plan.number }

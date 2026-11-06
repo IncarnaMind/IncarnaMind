@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { analysisInputCitations } from "../../../shared/analysisTables";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import { citedCases } from "../../../shared/caseCitations";
 import {
@@ -10,6 +11,7 @@ import {
   readChart,
   type SourceGrid,
 } from "../../../shared/charts";
+import { figureRunsFor, keptBinding } from "../../../shared/figureRuns";
 import {
   countFigureSteps,
   type FigureContext,
@@ -21,6 +23,8 @@ import {
 import { perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   CALCULATED_FIGURE_NODE,
   type CellFigurePlace,
   CHART_NODE,
@@ -32,7 +36,15 @@ import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
-import { type SelectedSentence, sentenceSpansIn, textOf, wordsOf, wordsReader } from "./sentences";
+import { statesAFrame } from "./analysisNaming";
+import {
+  isTableCaption,
+  type SelectedSentence,
+  sentenceSpansIn,
+  textOf,
+  wordsOf,
+  wordsReader,
+} from "./sentences";
 
 interface Around {
   span: { from: number; to: number };
@@ -232,10 +244,12 @@ function inSentence(
     const reading = readings[0];
     if (readings.length !== 1 || !reading) continue;
     const { context, stretch } = around(start, start + 1);
+    const analysisRecord = calculated.figure.analysis ? recordOf(node) : undefined;
     found.push({
       ...common,
       sentence: stretch,
       context,
+      ...(analysisRecord && { analysisRecord }),
       id: calculated.id,
       locator: {
         kind: "text",
@@ -247,6 +261,136 @@ function inSentence(
     });
   }
   return found.sort((a, b) => a.reading.start - b.reading.start);
+}
+
+/** How much of a run's code the claim judge reads as its rule: a long run's first lines hold its inputs. */
+const JUDGED_CODE = 3000;
+
+function topBlockOf(node: Y.XmlElement): Y.XmlElement {
+  let block: Y.XmlElement = node;
+  while (block.parent instanceof Y.XmlElement) block = block.parent;
+  return block;
+}
+
+/** The heading above a top-level Block, as the judge reads a scale or unit stated there. */
+function headingAbove(block: Y.XmlElement): { heading?: string } {
+  for (let at = block.prevSibling; at; at = at.prevSibling)
+    if (at instanceof Y.XmlElement && at.nodeName === "heading") {
+      const words = plainText(at).trim();
+      return words ? { heading: words.slice(0, 200) } : {};
+    }
+  return {};
+}
+
+/** How much of the Note above a sentence its Analysis figures' scale and currency are read in. */
+const ABOVE_CHARACTERS = 2000;
+
+/**
+ * The lines above a top-level Block that are said of it, nearest first (#2544): its section's
+ * lines, each heading it is under up to the Note's title, and each enclosing section's own opening
+ * lines ("# Report / All amounts below are in thousands. / ## North"). A sibling section's lines
+ * aren't its, nor is a table or chart above, with its caption, which states its own cells' units.
+ * Lines are read up to a bound; the headings above always are.
+ */
+function linesAbove(block: Y.XmlElement): string[] {
+  const lines: string[] = [];
+  let pending: string[] = [];
+  let under = Number.POSITIVE_INFINITY;
+  let read = 0;
+  for (let at = block.prevSibling; at && under > 1; at = at.prevSibling) {
+    if (!(at instanceof Y.XmlElement)) continue;
+    if (at.nodeName === "heading") {
+      const level = Number(at.getAttribute("level")) || 1;
+      if (level < under) {
+        under = level;
+        lines.push(plainText(at).trim(), ...pending);
+      } else read -= pending.reduce((sum, each) => sum + each.length, 0);
+      // A sibling section's lines aren't the sentence's, and take nothing from the bound.
+      pending = [];
+      continue;
+    }
+    if (read >= ABOVE_CHARACTERS || !saysOfText(at)) continue;
+    const words = plainText(at)
+      .trim()
+      .slice(-(ABOVE_CHARACTERS - read));
+    read += words.length;
+    if (under === Number.POSITIVE_INFINITY) lines.push(words);
+    else pending.push(words);
+  }
+  // Lines before the first heading open the whole Note.
+  return [...lines, ...pending].filter(Boolean);
+}
+
+/** A record without what it read above its Block, which `withAboveNow` reads again. */
+const withoutAbove = ({
+  heading: _heading,
+  above: _above,
+  ...record
+}: NonNullable<CheckFigure["analysisRecord"]>) => record;
+
+/**
+ * `figures` with each Analysis figure's heading and lines above read from the Note as it is now,
+ * when a check sends its sentence (#2544): a heading or line typed above since the Block's
+ * figures were read is the sentence's too. Only the lines that state a scale, currency or percent
+ * are kept, since the check's record keeps them.
+ */
+export function withAboveNow<Figure extends CheckFigure>(
+  figures: readonly Figure[],
+  element: Y.XmlElement,
+): Figure[] {
+  if (!figures.some((figure) => figure.analysisRecord)) return [...figures];
+  const block = topBlockOf(element);
+  const framing = linesAbove(block).filter(statesAFrame);
+  return figures.map((figure) =>
+    figure.analysisRecord
+      ? {
+          ...figure,
+          analysisRecord: {
+            ...withoutAbove(figure.analysisRecord),
+            ...headingAbove(block),
+            ...(framing.length > 0 && { above: framing.join("\n") }),
+          },
+        }
+      : figure,
+  );
+}
+
+/** A line of the Note's own text, not a table, a chart or a table's caption. */
+const saysOfText = (line: Y.XmlElement) =>
+  line.nodeName !== "table" &&
+  line.nodeName !== CHART_NODE &&
+  !(line.nextSibling instanceof Y.XmlElement && line.nextSibling.nodeName === "table") &&
+  !line
+    .toArray()
+    .some((part) => part instanceof Y.XmlElement && part.nodeName === ANALYSIS_TABLE_NODE);
+
+/** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
+function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
+  const doc = node.doc;
+  const figure = readCalculatedFigureAttributes(node.getAttributes());
+  if (!doc || !figure?.figure.analysis) return { recalculated: false, citations: [] };
+  try {
+    const [run] = figureRunsFor(doc, [nodeOf(node)]);
+    const value = run?.values.find((each) => each.name === figure.figure.analysis?.result);
+    // No record of it: the Analysis it came from is gone.
+    if (!run || !value) return undefined;
+    return {
+      recalculated: value.check?.kind === "same",
+      citations: analysisInputCitations(run.inputs),
+      label: value.label,
+      of: value.of ?? null,
+      vocabulary: [
+        ...(value.of ? [value.of.input, ...value.of.columns] : []),
+        ...(value.unit ? [value.unit] : []),
+      ],
+      code: run.code.slice(0, JUDGED_CODE),
+      unit: value.unit ?? null,
+      ...headingAbove(topBlockOf(node)),
+    };
+  } catch (error) {
+    console.error("Reading an Analysis figure's record for its check failed:", error);
+    return { recalculated: false, citations: [] };
+  }
 }
 
 export function figuresInSentence(sentence: SelectedSentence): FigureOccurrence[] {
@@ -290,7 +434,8 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
     },
   ]);
   return chartCells(chart).flatMap(({ row, series, value }): FigureOccurrence[] => {
-    if (!plotted.has(`${row}:${series}`)) return [];
+    // An Analysis's own value is its table's, which counts once, as the run's (#2378).
+    if (!plotted.has(`${row}:${series}`) || value.fromAnalysis) return [];
     const readings = readFigures(value.shown, {
       ...document,
       dates: true,
@@ -370,6 +515,12 @@ function figuresOfBlock(
     block.nodeName === "table" && before instanceof Y.XmlElement && before.nodeName !== "table"
       ? `${noteKey}\u0000${plainText(before)}`
       : noteKey;
+  // An Analysis's own table counts once, as its run's, never cell by cell (#2378).
+  if (
+    block.nodeName === "table" &&
+    keptBinding(block.doc, block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
+  )
+    return [];
   const read = readFiguresOf(block);
   if (read.readWith === key) return read.figures;
   const grids = new Map<Y.XmlElement, SourceGrid>();
@@ -377,7 +528,7 @@ function figuresOfBlock(
   for (const { element, busy } of textBlocksOf(block, { charts: true })) {
     if (busy) continue;
     if (element.nodeName === CHART_NODE) found.push(...inChart(element));
-    else if (element.nodeName === "paragraph") {
+    else if (element.nodeName === "paragraph" && !isTableCaption(element)) {
       const blockId = element.getAttribute("id");
       if (typeof blockId !== "string") continue;
       const text = textOf(element);

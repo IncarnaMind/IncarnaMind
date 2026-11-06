@@ -35,6 +35,7 @@ import {
   pendingProposals,
   proposalRequestOf,
   recordProposalRequest,
+  removesOnlyAsked,
   resolveProposals,
   waitingChanges,
 } from "../../shared/proposals";
@@ -141,8 +142,8 @@ const failedEdit = (failure: unknown): EditWithAiResult =>
     ? { kind: "local-mode" }
     : { kind: "failed", error: classifyProviderError(failure) };
 
-/** What the "edits" flow sends: the selected text, with the paragraphs it is in. */
-export const EDITS_FLOW_SENDS = ["selection"] as const;
+/** What the "edits" flow sends: the selected text, with the paragraphs it is in, and cited text's quotes when a change rewrites or removes it. */
+export const EDITS_FLOW_SENDS = ["selection", "source-quotes"] as const;
 
 /** The most text one request edits, in characters: more is better done a part at a time. */
 export const MAX_SELECTION_CHARACTERS = 12_000;
@@ -206,6 +207,8 @@ interface Ask {
   instruction: string;
   model: ChatModelChoice | null;
   requested?: RequestedChange;
+  /** The User asked only for text to go, as the assistant says (#2356). */
+  removesOnly?: true;
 }
 
 interface ParsedInput extends Ask {
@@ -378,6 +381,8 @@ export interface ProposeInput {
   requested: RequestedChange | null;
   /** Requests started by this Answer, whose own changes a later call in the same turn may revise. */
   ownRequests?: ReadonlySet<string>;
+  /** The User asked only for text to go, as the assistant says: a change that does more waits for them (#2356). */
+  removesOnly?: boolean;
 }
 
 export interface Proposed {
@@ -393,6 +398,7 @@ const askOf = (input: ProposeInput): Ask => ({
   instruction: input.instruction,
   model: { providerId: input.prepared.provider.id, modelId: input.prepared.modelId },
   ...(input.requested && { requested: input.requested }),
+  ...(input.removesOnly && { removesOnly: true }),
 });
 
 interface EditCall {
@@ -677,6 +683,7 @@ export function createEdits(options: EditsOptions) {
     // How many, before the first part streams: a cloud model's estimate shows first (#83).
     options.writing(mindId, null, { at: 1, of: total });
     const leftOut: LeftOutPart[] = [];
+    const unnamed: LeftOutPart[] = [];
     const notes: Notes = { unmatchedMarkers: 0, unlinkedSources: 0, extraCells: 0 };
     let droppedCitations = 0;
     let held = false;
@@ -731,6 +738,7 @@ export function createEdits(options: EditsOptions) {
           held ||= result.held === true;
           droppedCitations += result.droppedCitations;
           leftOut.push(...(result.leftOut ?? []));
+          unnamed.push(...(result.unnamed ?? []));
           addNotes(notes, {
             unmatchedMarkers: result.unmatchedMarkers ?? 0,
             unlinkedSources: result.unlinkedSources ?? 0,
@@ -774,6 +782,7 @@ export function createEdits(options: EditsOptions) {
       ...someNotes(notes),
       ...(held && { held: true as const }),
       ...(leftOut.length > 0 && { leftOut }),
+      ...(unnamed.length > 0 && { unnamed }),
       ...(changed && { stopped: "changed" as const }),
       stateVector: content.stateVector(mindId),
     };
@@ -834,6 +843,7 @@ export function createEdits(options: EditsOptions) {
                 ? "keep"
                 : "remove",
             named,
+            removesOnly: ask.removesOnly === true,
           },
         );
     let held = false;
@@ -848,6 +858,7 @@ export function createEdits(options: EditsOptions) {
       action: ask.action,
       instruction: ask.instruction,
       ...(ask.requested && { requested: ask.requested }),
+      ...(ask.removesOnly && { removesOnly: true }),
     };
     const mine = (mind: Y.XmlFragment) =>
       pendingProposals(mind).filter((each) => each.request === request);
@@ -864,6 +875,7 @@ export function createEdits(options: EditsOptions) {
       const count = requestId === undefined ? now.count : landed ? proposed : 0;
       if (count === 0) return { kind: "changed" };
       const leftOut = stream?.leftOut() ?? [];
+      const unnamed = stream?.unnamed() ?? [];
       return {
         kind: "proposed",
         request,
@@ -873,6 +885,7 @@ export function createEdits(options: EditsOptions) {
         ...(stream && someNotes(stream.written().notes)),
         ...(held && { held: true as const }),
         ...(leftOut.length > 0 && { leftOut }),
+        ...(unnamed.length > 0 && { unnamed }),
         stateVector: content.stateVector(mindId),
       };
     };
@@ -883,7 +896,9 @@ export function createEdits(options: EditsOptions) {
         selected: selection.characters,
       });
     const appliesNow = () =>
-      explain || ask.action === "translate" || (stream?.extent().mapped ?? false);
+      explain ||
+      ask.action === "translate" ||
+      (stream ? stream.extent().mapped && !holdsBack(stream) : false);
     let wrote = false;
     let refused = false;
     /** What it wrote holds a Citation, footnote or figure its reply didn't place: nothing more goes in. */
@@ -1213,9 +1228,20 @@ export function createEdits(options: EditsOptions) {
       if (unclear.length > 0) return nothing({ kind: "unplaced", quotes: unclear });
       if (sameText(reply, passage)) return nothing({ kind: "unchanged" });
       const request = randomUUID();
+      // A revision asked only to take text out, or of a removal that was, is held to it.
+      const removing =
+        input.removesOnly === true ||
+        content.read(input.mindId, (mind) => {
+          const doc = mind.doc;
+          return doc !== null && own.requests.some((each) => removesOnlyAsked(doc, each));
+        });
       const written = fork.transact(() => {
         const fresh = freshCitations(selection, options.recheck)(reply);
-        const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh, { named });
+        // Only the call's own word sets a reply aside: an inherited one only holds it (#2356).
+        const rewritten = proposeRewrite(selection, reply, request, randomUUID, fresh, {
+          named,
+          removesOnly: input.removesOnly === true,
+        });
         resolveProposals(blocks, (each) => each.request === request, "accept");
         return rewritten;
       });
@@ -1226,7 +1252,10 @@ export function createEdits(options: EditsOptions) {
       if (written.notPlaced) return nothing({ kind: "not-placed" });
       if (written.unplaced) return nothing({ kind: "unplaced", quotes: written.unplaced });
       if (written.proposals.length === 0 || written.onlyAside)
-        return nothing({ kind: "unchanged" });
+        return nothing({
+          kind: "unchanged",
+          ...(written.aside && { said: written.aside.join(" ") }),
+        });
       const { droppedCitations, notes } = written;
       const revised = stretch().map((element) => element.clone());
       const made: ProposalRequest = {
@@ -1239,11 +1268,13 @@ export function createEdits(options: EditsOptions) {
       input.beforeWriting();
       const blockIds = content.edit(input.mindId, (mind) => {
         const asked = input.requested !== null && ownAsked(mind, own);
+        const doc = mind.doc;
         const ids = replaceOwn(mind, own, revised, request, input.ownRequests);
-        if (ids && mind.doc) {
-          recordProposalRequest(mind.doc, request, {
+        if (ids && doc) {
+          recordProposalRequest(doc, request, {
             ...made,
             ...(asked && { requested: "edit" }),
+            ...(removing && { removesOnly: true }),
           });
         }
         return ids;

@@ -232,6 +232,24 @@ export interface ScanJob {
    * found), and those read before the job was stopped.
    */
   keep: { contentHash: string; units: TextUnit[] } | null;
+  /**
+   * How many of the first pages, and of their first Passages, to say as soon as they are read
+   * (`DocumentHead`), before the pages after them (#2308).
+   */
+  head?: { pages: number; passages: number };
+}
+
+/**
+ * The start of a version whose scanned pages are still being read: its first pages and first
+ * Passages, built as the whole read builds them, so the Library classifies it once from what
+ * it would read of the finished Document (#2308). `passages` is empty when the first pages
+ * don't hold all of them yet (blank or near-blank pages), and the Document waits to be read.
+ */
+export interface DocumentHead {
+  contentHash: string;
+  pageCount: number;
+  passages: string[];
+  units: { page: number; kind: TextUnit["kind"]; label: TextUnit["label"]; text: string }[];
 }
 
 /** Reads only a Document's metadata (its creation date): nothing is extracted or embedded. */
@@ -371,6 +389,8 @@ export interface ReadingChannel {
   log(event: string, fields: LogFields): void;
   /** `read` of `of` scanned pages of version `contentHash` are read; `unit` is the one just read. */
   progress(contentHash: string, read: number, of: number, unit: TextUnit | null): void;
+  /** The version's first pages are read (`ScanJob.head`). */
+  head(head: DocumentHead): void;
   signal: AbortSignal;
 }
 
@@ -401,6 +421,7 @@ export type WorkerResponse =
       id: number;
       progress: { contentHash: string; read: number; of: number; unit: TextUnit | null };
     }
+  | { id: number; head: DocumentHead }
   | { id: number; request: number; page: number; picture: PagePicture }
   | { id: number; request: number; page: number; file: Uint8Array }
   | { id: number; log: { event: string; fields: LogFields } };
@@ -482,6 +503,7 @@ export async function processFile(
   const bytes = await readBytes(job.file);
   if (!(bytes instanceof Uint8Array)) return bytes;
   const version = { contentHash: sha256(bytes), size: bytes.byteLength };
+  const head = job.scan?.head;
   const reading: PageReading | null =
     job.scan && channel
       ? {
@@ -496,6 +518,16 @@ export async function processFile(
               ? job.scan.keep.units.map((unit) => [unit.page, unit])
               : [],
           ),
+          ...(head &&
+            job.kind === "pdf" && {
+              head: {
+                pages: head.pages,
+                read: (units, keptBreaks, pageCount) =>
+                  channel.head(
+                    headOf(version.contentHash, units, keptBreaks, head.passages, pageCount),
+                  ),
+              },
+            }),
         }
       : null;
   const readPicture =
@@ -676,33 +708,7 @@ async function processBytes(
       readHiddenSheets,
     );
     const firstPages = extracted.units.slice(0, REFERENCE_PAGES).map((unit) => unit.text);
-    // The running headers go while a page's lines are the ones extraction joined as they
-    // always were; the wider join comes after, where it reaches the model.
-    const starts: number[] = [];
-    const stripped =
-      kind === "pdf"
-        ? stripBoilerplate(addDepositionAnchors(extracted.units), BOILERPLATE_PARAMETERS, starts)
-        : extracted.units;
-    // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
-    // layout, as a transcript's numbered lines are, and joining two of them would merge a
-    // table's rows or a deposition's lines (and move their anchors).
-    const laid =
-      kind === "pdf"
-        ? stripped.map((unit, index) => {
-            if (unit.label?.scan || hasPrintedLines(unit)) return unit;
-            const kept = unit.page === null ? undefined : extracted.keptBreaks?.get(unit.page);
-            return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
-          })
-        : stripped;
-    // The running header a page had before it was stripped, or a Word section's header or footer,
-    // kept as its scale marker: a page that wrote "(£'000)" there scaled its amounts, which the
-    // stored text doesn't show (#1001, #2365).
-    const markerOf = (written: string) => pageScale(written) ?? "";
-    const pages = laid.map(({ runningText, ...unit }, index) => {
-      const scaleMarker =
-        markerOf(runningText ?? "") || markerOf(extracted.units[index]?.text ?? "");
-      return { ...unit, scaleMarker };
-    });
+    const pages = laidOutPages(kind, extracted.units, extracted.keptBreaks);
     const { pageCount, unread, parts } = extracted;
     const passages = buildPassages(pages).map((passage) => ({
       ...passage,
@@ -738,6 +744,62 @@ async function processBytes(
         : { outcome: "failed", reason: "processing-error", message: messageOf(error) };
     return { processed, firstPages: [] };
   }
+}
+
+/** The extracted Units as Passages are built from them, and as they are stored. */
+function laidOutPages(
+  kind: DocumentKind,
+  units: readonly TextUnit[],
+  keptBreaks: ReadonlyMap<number, ReadonlySet<number>> | undefined,
+) {
+  // The running headers go while a page's lines are the ones extraction joined as they
+  // always were; the wider join comes after, where it reaches the model.
+  const starts: number[] = [];
+  const stripped =
+    kind === "pdf"
+      ? stripBoilerplate(addDepositionAnchors(units), BOILERPLATE_PARAMETERS, starts)
+      : units;
+  // Only a page pdf.js read has lines that break a sentence; a scanned page's rows are its
+  // layout, as a transcript's numbered lines are, and joining two of them would merge a
+  // table's rows or a deposition's lines (and move their anchors).
+  const laid =
+    kind === "pdf"
+      ? stripped.map((unit, index) => {
+          if (unit.label?.scan || hasPrintedLines(unit)) return unit;
+          const kept = unit.page === null ? undefined : keptBreaks?.get(unit.page);
+          return { ...unit, text: joinCjkLineWraps(unit.text, moved(kept, starts[index] ?? 0)) };
+        })
+      : stripped;
+  // The running header a page had before it was stripped, or a Word section's header or footer,
+  // kept as its scale marker: a page that wrote "(£'000)" there scaled its amounts, which the
+  // stored text doesn't show (#1001, #2365).
+  const markerOf = (written: string) => pageScale(written) ?? "";
+  return laid.map(({ runningText, ...unit }, index) => {
+    const scaleMarker = markerOf(runningText ?? "") || markerOf(units[index]?.text ?? "");
+    return { ...unit, scaleMarker };
+  });
+}
+
+/**
+ * A PDF's first pages as the Library reads them (`DocumentHead`). Its first `passages` Passages
+ * are given only once a further one shows they are whole, or the first pages are all of it.
+ */
+function headOf(
+  contentHash: string,
+  units: readonly TextUnit[],
+  keptBreaks: ReadonlyMap<number, ReadonlySet<number>>,
+  passages: number,
+  pageCount: number,
+): DocumentHead {
+  const pages = laidOutPages("pdf", units, keptBreaks);
+  const built = buildPassages(pages);
+  const whole = built.length > passages || pages.length >= pageCount;
+  return {
+    contentHash,
+    pageCount,
+    passages: whole ? built.slice(0, passages).map((passage) => passage.text) : [],
+    units: pages.map(({ page, kind, label, text }) => ({ page, kind, label, text })),
+  };
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));

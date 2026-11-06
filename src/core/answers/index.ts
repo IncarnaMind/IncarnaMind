@@ -46,8 +46,8 @@ import { asGenerated } from "../../shared/aiText";
 import { withAnalysisPictures } from "../../shared/analysisPictures";
 import {
   analysisTablesOf,
-  countCitations,
-  withAnalysisTableCitations,
+  countBoundTables,
+  withAnalysisTables,
 } from "../../shared/analysisTables";
 import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
@@ -94,7 +94,7 @@ import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
 import type { AnalysisRuntime } from "../adapters";
-import { withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
+import { chartsPlacedIn, withAnalysisResults, withEveryChartPlaced } from "../analysis/markers";
 import { createAnalysisRecorder } from "../analysis/recorder";
 import { analysisTool } from "../analysis/tool";
 import {
@@ -1747,9 +1747,9 @@ export function createAnswers(options: AnswersOptions) {
                   ? (marker) => session.finalNode(marker)
                   : (marker) => session.streamingNode(marker),
               );
-              const drawn = withAnalysisTableCitations(
+              const drawn = withAnalysisTables(
                 withAnalysisPictures(blocks, analyses),
-                analyses,
+                analyses.map((analysis) => ({ answerId, analysis })),
               );
               return asGenerated(
                 calculating
@@ -2378,12 +2378,12 @@ export function createAnswers(options: AnswersOptions) {
       // Nothing is sent before the User says: the Answer waits for them.
       if (consenting) showPhase();
       let prepared: PreparedChatModel;
+      // Help during a call is read within seconds: the model answers without thinking first.
+      const thinking = help
+        ? "off"
+        : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer"));
       try {
-        prepared = await options.prepareModel(
-          model,
-          // Help during a call is read within seconds: the model answers without thinking first.
-          help ? "off" : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer")),
-        );
+        prepared = await options.prepareModel(model, thinking);
       } catch (error) {
         finish({ status: "failed", error: failureOf(error) });
         return;
@@ -2777,6 +2777,14 @@ export function createAnswers(options: AnswersOptions) {
                   ...analyses,
                   ...(input.assistant?.lastAnswer?.answer.analyses ?? []),
                 ];
+                const last = input.assistant?.lastAnswer?.answer;
+                const markerRuns = [
+                  ...analyses.map((analysis) => ({ answerId, analysis })),
+                  ...(last?.analyses ?? []).map((analysis) => ({
+                    answerId: last?.id ?? "",
+                    analysis,
+                  })),
+                ];
                 const markdown = withAnalysisResults(
                   calculating
                     ? withPrintedFigures(citeFigures(written.markdown))
@@ -2818,12 +2826,12 @@ export function createAnswers(options: AnswersOptions) {
                       analyses,
                     })
                   : cited;
-                // An Analysis's table cites the rows it read, so content that gives one isn't uncited.
-                const citedTables = withAnalysisTableCitations(uncited, markerAnalyses);
-                const blocks = asGenerated(citedTables);
+                // An Analysis's own table names the rows and files it read, so content that gives one isn't uncited.
+                const bound = withAnalysisTables(uncited, markerRuns);
+                const blocks = asGenerated(bound);
                 return {
                   blocks,
-                  cited: found + notFound + countCitations(citedTables) - countCitations(uncited),
+                  cited: found + notFound + countBoundTables(bound),
                   notFound,
                   unrecorded,
                   firstUnrecorded,
@@ -2832,7 +2840,8 @@ export function createAnswers(options: AnswersOptions) {
                   unlinkedSources: tables.unlinked,
                   extraCells: tables.extraCells,
                   searchTalk: written.left,
-                  analysisTables: analysisTablesOf(markerAnalyses),
+                  analysisTables: analysisTablesOf(markerRuns),
+                  chartsPlaced: chartsPlacedIn(written.markdown, markerAnalyses),
                 };
               },
               changed: (toolCallId, change) => {
@@ -3192,8 +3201,11 @@ export function createAnswers(options: AnswersOptions) {
       // An Answer the User reads holds its claims of Tools to its calls; a check's, a cell's or a
       // call's help is read by its own flow, which offers no calculate to call.
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
+      // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
+      // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
+      const checksClaims = !help;
       const turnChecks: TurnCheck[] = [
-        ...(mindsTools || commandsOffered
+        ...((mindsTools || commandsOffered) && checksClaims
           ? [
               {
                 name: "claimed-change",

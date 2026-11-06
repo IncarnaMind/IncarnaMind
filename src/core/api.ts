@@ -49,14 +49,20 @@ export type {
  * the renderer import it.
  */
 import type {
+  AnalysisColumnCheck,
   AnalysisEnd,
+  AnalysisFigureRows,
   AnalysisLanguage,
   AnalysisOutput,
   AnalysisRecalculation,
+  AnalysisTable,
+  AnalysisTableCheck,
+  AnalysisTableKey,
   AnalysisUnavailableReason,
   AnalysisValue,
   AnalysisVersions,
 } from "../shared/analysis";
+import type { AnalysisTableColumn } from "../shared/analysisTables";
 import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/citationStyles";
 import type { DrawnPage } from "../shared/citedPage";
 import type { ClaimCheckShown } from "../shared/claimChecks";
@@ -334,8 +340,17 @@ export interface CreateMindInput {
  *   write the parts again without them and name the newest model for every
  *   part, so it opens these Notes read-only. Older content is version 51
  *   content as it is: a part with none was judged by its mark's model.
+ * - 52: an Analysis's table is one calculated object (#2378): the table Block
+ *   carries its binding to the run (`analysisTable`), its caption ends with an
+ *   `analysisTable` marker node, and the Note's Analysis records keep the
+ *   run's tables and what IncarnaMind made of each column. An older editor
+ *   would drop the node and the attribute, so it opens these Notes read-only.
+ *   Older content is version 51 content as it is: a table written before is a
+ *   typed table, checked as one. A figure check of an Analysis's figure also
+ *   records whether the claim judge read its sentence as naming it (`named`);
+ *   one without it shows Not checked until the next Check.
  */
-export const CONTENT_SCHEMA_VERSION = 51;
+export const CONTENT_SCHEMA_VERSION = 52;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -664,6 +679,8 @@ export type ProposalRequest =
       instruction?: string;
       /** Why the model changed the text, in its few words (#202); absent when it didn't say. */
       reason?: string;
+      /** The assistant said the User asked only for text to go: a change that does more waits for them (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
   | (ProposalMaker & {
@@ -671,6 +688,8 @@ export type ProposalRequest =
       requested?: RequestedChange;
       action?: EditAction;
       instruction?: string;
+      /** It revises a change the assistant said was asked only to take text out, and is held to it (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
@@ -1449,6 +1468,29 @@ export interface EditAsk {
 export type ChartProblem = "noTable" | "noNumbers" | "needsTwo" | "uncited";
 
 /**
+ * What an edit does to the User's sentences in the paragraphs it touches (#2356): each kept word
+ * for word, taken out whole, shortened by words taken out, or rewritten (joined to another or
+ * reworded); and how many it writes that aren't one of theirs with words taken out.
+ */
+export interface SentenceChanges {
+  kept: number;
+  takenOut: number;
+  shortened: number;
+  rewritten: number;
+  written: number;
+  /** The first few of the User's sentences taken out whole and rewritten, as they read. */
+  named: { takenOut: string[]; rewritten: string[] };
+}
+
+/** Whole paragraphs a change removes and nothing else (`paragraphsRemoved`): how many, their sentences, and how the first is named. */
+export interface RemovedParagraphs {
+  paragraphs: number;
+  sentences: number;
+  /** The first one's label ("Parking"), or its first words, "…" when cut. */
+  start: string;
+}
+
+/**
  * What a call of a Minds' Tool did (#202): the changes it proposed in one
  * Mind, which wait there for the User to accept or reject them.
  */
@@ -1464,6 +1506,12 @@ export interface MindChange {
   proposals: number;
   /** How many paragraphs they change, add or remove, each once (`changedParagraphs`). Absent: none. */
   changed?: number;
+  /** Every paragraph and table it changes it adds whole, changing none of the User's (`addsOnly`). */
+  added?: true;
+  /** What it does to the User's sentences, read from the text before and after it (`sentenceChanges`). Absent: it touches none. */
+  sentences?: SentenceChanges;
+  /** It only removes whole paragraphs, none of the User's other text changed (`onlyRemoves`). */
+  removed?: RemovedParagraphs;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;
   /** How many tables it added. Absent: none. */
@@ -1508,7 +1556,8 @@ export interface MindChange {
    * stopped it, if anything did. Those it couldn't check, or didn't, are marked
    * not checked, under `request`; `blocked` says how many of them the User's own
    * choice kept from being sent (the flow turned off, or Local mode), which
-   * checking again can't change. Absent: none was checked.
+   * checking again can't change, or how many wait for the User to allow what
+   * checks send now ("consent-widened"). Absent: none was checked.
    */
   selfCheck?: {
     request: string;
@@ -1521,7 +1570,7 @@ export interface MindChange {
     checked: number;
     failed: number;
     stop?: RunStop;
-    blocked?: { reason: "consent-revoked" | "local-mode"; count: number };
+    blocked?: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number };
   };
 }
 
@@ -1565,6 +1614,22 @@ export interface SkillScriptRun {
 export const CITATION_NODE = "citation";
 
 export const CALCULATED_FIGURE_NODE = "calculatedFigure";
+
+/**
+ * A table an Analysis gave is one calculated object (#2378): its table Block holds
+ * `ANALYSIS_TABLE_ATTRIBUTE`, the run and which of its tables it is, and its cells stay text. The
+ * caption line above it ends with `ANALYSIS_TABLE_NODE`, an inline marker that holds the same
+ * binding and takes the next number in the one series with Citations, figures and footnotes.
+ */
+export const ANALYSIS_TABLE_NODE = "analysisTable";
+export const ANALYSIS_TABLE_ATTRIBUTE = "analysisTable";
+
+/** Which Analysis run a table Block, or its caption's marker, is, as the Note's `figureRuns` keep it. */
+export interface AnalysisTableBinding {
+  /** The run's id in the Note's `MIND_FIGURE_RUNS_FIELD`. */
+  id: string;
+  table: AnalysisTableKey;
+}
 
 /**
  * The node type of a footnote the User writes: an inline node at its marker,
@@ -2621,7 +2686,40 @@ export type CitationLocation =
    * file itself. `value` is the property as the file gives it: an ISO 8601 date, the author, a
    * count, the size in bytes, or the name.
    */
-  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea);
+  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea)
+  /**
+   * The Library's own facts, not a Document's text (#2525): a check's evidence for a sentence
+   * about the Library itself, as the check's scope saw it, Folder walls applied.
+   */
+  | ({ kind: "library"; source: LibrarySource; fact: LibraryFact } & MaybeArea);
+
+/**
+ * Where a check's Library facts come from, in the scope chip's words (#2525): the whole Library,
+ * every Document but the walled Folders a Note outside them leaves out, or a Search scope by the
+ * name its first Folder, Tag or Document has and how many more it names.
+ */
+export type LibrarySource =
+  | { kind: "library" }
+  | { kind: "left-out"; folders: number }
+  | { kind: "scope"; name: string; more: number };
+
+/**
+ * One fact of the Library a check can cite (#2525). Every count is of the Documents, Folders,
+ * Tags or notes the check's scope sees; "notes" leaves out the note being checked; "shared" is how
+ * many names more than one Document shares.
+ */
+export type LibraryFact =
+  | { kind: "documents"; count: number }
+  | { kind: "shared"; count: number }
+  | { kind: "folder"; name: string; count: number }
+  | { kind: "unfiled"; count: number }
+  | { kind: "format"; format: DocumentKind; count: number }
+  | { kind: "name"; name: string; count: number }
+  | { kind: "folders"; count: number }
+  | { kind: "tags"; count: number }
+  | { kind: "tag"; name: string; count: number }
+  | { kind: "notes"; count: number }
+  | { kind: "note"; name: string };
 
 /** A stretch of words, and whether the Document has it where the Answer's quoted words were looked for. */
 export interface QuotedPiece {
@@ -2958,6 +3056,8 @@ export interface AnswerAnalysis {
   };
   /** What IncarnaMind made of each `figure()` figure, by its result's name (ADR-0025). */
   recalculations?: { result: string; check: AnalysisRecalculation }[];
+  /** What IncarnaMind made of each column of numbers of each table it gave (#2378). */
+  tableChecks?: AnalysisTableCheck[];
   /** `run_code` only (ADR-0025): the Documents it copied into ../inputs, by the names the code read them by. */
   files?: AnalysisFile[];
   /** `run_code` only: what the code left in out/, within its limits; `left` past them. */
@@ -2999,6 +3099,17 @@ export interface RetainedFigureAnalysis
   > {
   id: string;
   values: RetainedFigureValue[];
+  /** Its tables a Note holds, each one calculated object (#2378); absent when it holds none. */
+  tables?: RetainedAnalysisTable[];
+}
+
+/** A table a Note kept from its Analysis: what the run gave, and what IncarnaMind made of its columns. */
+export interface RetainedAnalysisTable {
+  key: AnalysisTableKey;
+  /** What the Analysis called it: its caption's first words. */
+  label: string;
+  table: AnalysisTable;
+  columns: AnalysisColumnCheck[];
 }
 
 /** A number a calculated figure is worked out from: one read from a Citation's quote. */
@@ -3080,7 +3191,10 @@ export interface EditCause {
   requestId: string;
   /** Its Proposals' `ProposalRef.request`. */
   request: string;
-  /** Drawn as applied while it streams in; false until its new text maps onto the selection. */
+  /**
+   * Drawn as applied while it streams in: its new text maps onto the selection, and what it has
+   * written so far would not wait for the User.
+   */
   apply: boolean;
 }
 
@@ -5664,9 +5778,11 @@ export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt:
 /**
  * Why a full watch of a Mind ended before it finished: a stop a Run gives way
  * to, or the User stopping it. A cancelled watch is never a complete one: the
- * next Check sweeps every cited sentence again (#1941).
+ * next Check sweeps every cited sentence again (#1941). "consent-widened": it
+ * waits, unsent, for the User to allow what the checks flow sends now, which
+ * they allowed before it sent more (#2525).
  */
-export type WatchStop = RunStop | { reason: "cancelled" };
+export type WatchStop = RunStop | { reason: "cancelled" } | { reason: "consent-widened" };
 
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
@@ -6495,6 +6611,8 @@ export type EditWithAiResult =
       stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
+      /** The paragraphs of the selection a reply by names didn't name, as they were (#2356). Absent: none. */
+      unnamed?: LeftOutPart[];
       /**
        * The Mind's Yjs state vector once the Proposals were written. This reply can reach a
        * window before the last `"mind.update"` that wrote them, so a window waits until its
@@ -6594,6 +6712,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
+ * - "consent-widened": the User allowed checks to the model's service before checks sent more, so
+ *   what the assistant wrote waited, unsent, for them to allow the more (#2525).
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
@@ -6612,6 +6732,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "figures-not-read": the figures in a text of a Document the check read couldn't be read; its
  *   detail is where, as `src/shared/unreadFigures.ts` writes it, or null when that isn't known.
  * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
+ * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
+ *   reading of its Documents' names (#2525). No check can change that.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -6628,6 +6750,7 @@ export type ClaimCheckFailure =
   | "too-many"
   | "consent-revoked"
   | "local-mode"
+  | "consent-widened"
   | "absence-read-limit"
   | "absence-unconfirmed"
   | "absence-other-document"
@@ -6645,11 +6768,22 @@ export type ClaimCheckFailure =
   | "figures-not-read"
   | "sentence-figures-not-read"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
-  | "other-cell";
+  | "other-cell"
+  | "library-unsettled"
+  /** An Analysis's figure that IncarnaMind didn't work out again: its code's, from the saved run (#2378). */
+  | "analysis"
+  /** An Analysis's figure whose run the Note no longer keeps, as when its Analysis was deleted (#2378). */
+  | "analysis-gone"
+  /**
+   * An Analysis's figure the claim judge didn't read as named by its sentence, or whose own clause
+   * also names another group, a negation or a comparison; its detail is the figure's label (#2378).
+   */
+  | "analysis-unnamed";
 
 /** Why a sentence was found unsupported, as the check gave it. */
 export interface UnsupportedReason {
-  kind?: "forecast-certainty" | "unbacked-cause";
+  /** "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378). */
+  kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name";
   /** One plain sentence on what no Passage states; null when the reply gave none. */
   reason: string | null;
   /** A short phrase for what the Passages do state of the sentence ("the speed comparison"); null when none. */
@@ -6736,6 +6870,11 @@ export interface ClaimPartSpan {
 export interface ClaimPartPlan {
   span: ClaimPartSpan;
   kind: "fact" | "opinion";
+  /**
+   * An "opinion" part that is about the note or Answer it is in, not the Documents ("listed
+   * below", #2525): set aside as an opinion is, and never called one.
+   */
+  itself?: true;
 }
 
 export interface ClaimPartCoverageMember {
@@ -6924,9 +7063,35 @@ export interface CheckFigure {
   calculated: CalculatedFigureAttributes | null;
   context?: string;
   label?: string;
+  /**
+   * An Analysis's figure, as the Note keeps its run (#2378): whether IncarnaMind worked it out
+   * again to the same number, and what the Analysis read. A check decides it from this alone.
+   */
+  analysisRecord?: {
+    recalculated: boolean;
+    citations: Citation[];
+    /** What the Analysis called it, and the rows of the input it was worked out from. */
+    label?: string;
+    of?: AnalysisFigureRows | null;
+    /** The Analysis's own words for its input, its columns and the figure's unit. */
+    vocabulary?: string[];
+    /** The run's code, cut to a few thousand characters: the claim judge's evidence of its rule. */
+    code?: string;
+    /** The figure's own unit as the Analysis gave it; null for a plain number. */
+    unit?: string | null;
+    /** The heading above the sentence, which may state a scale or unit for its numbers. */
+    heading?: string;
+    /**
+     * The lines above the sentence in its section and every heading it is under, nearest first,
+     * that state a scale, currency or percent, which a reader takes for its numbers too (#2544).
+     */
+    above?: string;
+  };
 }
 
 export interface FigureFinding extends CheckFigure {
+  /** An Analysis's figure the claim judge read its sentence as naming, as its label and rule say (#2378). */
+  named?: true;
   sourceInput: FigureInput | null;
   source?: Citation | null;
   roundedFrom: number | null;
@@ -6951,10 +7116,16 @@ export type FigureScheduleReason =
   | "not-found"
   | "quote-not-found"
   | "needs-recheck"
-  | "doesnt-add-up";
+  | "doesnt-add-up"
+  | "differs-from-analysis";
 
 export interface FigureScheduleRow extends FigureFinding {
   number: number;
+  /**
+   * An Analysis's own table (#2378), one row however many cells it has: its caption and each column
+   * of numbers, which open under the row. Its `reading` is its caption's, which holds no figure.
+   */
+  analysisTable?: { title: string; columns: AnalysisTableColumn[] };
   sentence: TextStretch | null;
   shown: ClaimCheckShown;
   reason: FigureScheduleReason | null;
@@ -8780,6 +8951,15 @@ export const dataKinds = [
   "other-minds",
   "live-transcript",
   "pictures",
+  "skill-files",
+  "analysis-results",
+  "source-quotes",
+  "note-catalogue",
+  "library-counts",
+  "library-names",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -12666,6 +12846,11 @@ export interface CoreApi {
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
+  /**
+   * The Library's facts the Mind's checks rest on (#2525), as the Library gives them now, by each
+   * fact's version id: what the window compares a check's versions with. Sends nothing.
+   */
+  libraryFactsNow(mindId: string): Promise<Record<string, string>>;
 
   getSecretStorage(): Promise<SecretStorageStatus>;
   /** The User accepts storing keys without keyring protection on this device. */
@@ -13864,6 +14049,7 @@ const methods: Record<CoreApiMethod, true> = {
   getFigureScheduleChange: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
+  libraryFactsNow: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
   detectOllama: true,

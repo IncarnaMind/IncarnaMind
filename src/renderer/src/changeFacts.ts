@@ -5,6 +5,7 @@
  * counts always agree (#880). What was done counts by paragraph (#1028); what still waits counts
  * changes, as the Mind's bar and its change card do (#1358).
  */
+import type { RemovedParagraphs } from "../../core/api";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import type { ChangedMind } from "./changedMinds";
 
@@ -13,12 +14,42 @@ type Translate = (key: MessageKey, params?: MessageParams) => string;
 /** What was done in one Mind: paragraphs changed, paragraphs written in whole Blocks, tables and charts added. */
 export interface ChangeCounts {
   created: boolean;
+  /** It was written into while it held nothing: its paragraphs were written, not added. */
+  filled?: boolean;
   changed: number;
   wrote: number;
   tables: number;
   /** Absent: none. */
   charts?: number;
+  /** The whole paragraphs removals took out (#2356). Absent: none. */
+  removed?: RemovedParagraphs;
 }
+
+/** Whole paragraphs removed, nothing else changed: "Removed the paragraph “Parking” (3 sentences)", with the Note's name on the card. */
+export function removedFact(t: Translate, removed: RemovedParagraphs, name: string | null): string {
+  const sentences =
+    removed.sentences === 1
+      ? t("edit.count.sentences.one")
+      : t("edit.count.sentences", { count: removed.sentences });
+  if (removed.paragraphs === 1) {
+    return name === null
+      ? t("edit.removed.one", { start: removed.start, sentences })
+      : t("mindChanges.removed.one", { start: removed.start, sentences, mind: name });
+  }
+  return name === null
+    ? t("edit.removed", { count: removed.paragraphs, sentences })
+    : t("mindChanges.removed", { count: removed.paragraphs, sentences, mind: name });
+}
+
+/** The whole paragraphs its removals took out, when nothing else changed there; null otherwise. */
+const removedOnly = (row: ChangeCounts): RemovedParagraphs | null =>
+  row.removed &&
+  row.removed.paragraphs === row.changed &&
+  row.wrote === 0 &&
+  row.tables === 0 &&
+  (row.charts ?? 0) === 0
+    ? row.removed
+    : null;
 
 const counted = (t: Translate, count: number, what: "tables" | "paragraphs" | "charts") =>
   count === 1 ? t(`mindChanges.count.${what}.one`) : t(`mindChanges.count.${what}`, { count });
@@ -61,8 +92,8 @@ export function inNoteText(
 }
 
 /**
- * How many of a row's changes wait there and aren't being applied at once: what its line counts,
- * and what the Note's own count leaves out beside it (#1325).
+ * How many of a row's changes wait there and aren't being applied at once: what the Note's own
+ * count leaves out beside it (#1325).
  */
 export function ownWaiting(
   row: { count: number | "gone" | null; applying: number } | undefined,
@@ -71,12 +102,30 @@ export function ownWaiting(
   return Math.max(0, row.count - row.applying);
 }
 
+/**
+ * What a row's line says waits while its Answer runs: the changes the Note's bar shows waiting.
+ * Those this window applies at once are drawn as applied and stay in the Note's record only until
+ * the Answer ends, so while every one of them does, nothing waits to be said (#1358).
+ */
+export function stillWaiting(
+  row: { count: number | "gone" | null; applying: number } | undefined,
+): number | "gone" | null {
+  const own = ownWaiting(row);
+  return own === 0 && row !== undefined && row.applying > 0 ? null : own;
+}
+
+/** A whole new Note, or one written into while it held nothing: its paragraphs were written, not added. */
+const wroteNote = (row: ChangeCounts) => row.created || row.filled === true;
+
 export function changeFact(t: Translate, row: ChangeCounts, name: string | null): string {
   const count = row.wrote + row.changed;
   if (row.tables > 0 || (row.charts ?? 0) > 0) return tablesFact(t, row, name);
+  const removed = removedOnly(row);
+  if (removed) return removedFact(t, removed, name);
   if (name === null) {
     if (row.changed === 0 && count > 0) {
-      return count === 1 ? t("edit.wrote.one") : t("edit.wrote", { count });
+      if (wroteNote(row)) return count === 1 ? t("edit.wrote.one") : t("edit.wrote", { count });
+      return count === 1 ? t("edit.added.one") : t("edit.added", { count });
     }
     return count === 1 ? t("edit.applied.one") : t("edit.applied", { count });
   }
@@ -88,9 +137,14 @@ export function changeFact(t: Translate, row: ChangeCounts, name: string | null)
   }
   if (count === 0) return t("mindChanges.one.edited", { mind: name });
   if (row.changed === 0) {
+    if (row.filled) {
+      return count === 1
+        ? t("mindChanges.wrote.one", { mind: name })
+        : t("mindChanges.wrote", { mind: name, count });
+    }
     return count === 1
-      ? t("mindChanges.wrote.one", { mind: name })
-      : t("mindChanges.wrote", { mind: name, count });
+      ? t("mindChanges.added.one", { mind: name })
+      : t("mindChanges.added", { mind: name, count });
   }
   return count === 1
     ? t("mindChanges.changed.one", { mind: name })
@@ -109,6 +163,8 @@ export function appliedFact(
 ): string {
   if (row.created) return t("mindChanges.applied.created", { mind: name });
   if (row.filled) return t("mindChanges.applied.filled", { mind: name });
+  const removed = removedOnly(row);
+  if (removed) return removedFact(t, removed, name);
   if (row.changed > 0 && row.wrote === 0 && row.tables === 0 && (row.charts ?? 0) === 0) {
     return row.changed === 1
       ? t("mindChanges.applied.changed.one", { mind: name })
@@ -122,9 +178,11 @@ function tablesFact(t: Translate, row: ChangeCounts, name: string | null): strin
   const count = row.wrote + row.changed;
   if (name === null) {
     if (count === 0) return t("edit.tables", { tables });
-    return row.changed === 0
-      ? t("edit.wrote.tables", { paragraphs: counted(t, count, "paragraphs"), tables })
-      : t("edit.applied.tables", { paragraphs: counted(t, count, "paragraphs"), tables });
+    const paragraphs = counted(t, count, "paragraphs");
+    if (row.changed > 0) return t("edit.applied.tables", { paragraphs, tables });
+    return wroteNote(row)
+      ? t("edit.wrote.tables", { paragraphs, tables })
+      : t("edit.added.tables", { paragraphs, tables });
   }
   if (count === 0) {
     return row.created
@@ -133,8 +191,10 @@ function tablesFact(t: Translate, row: ChangeCounts, name: string | null): strin
   }
   const paragraphs = counted(t, count, "paragraphs");
   if (row.created) return t("mindChanges.created.wrote.tables", { mind: name, paragraphs, tables });
-  if (row.changed === 0) return t("mindChanges.wrote.tables", { mind: name, paragraphs, tables });
-  return t("mindChanges.changed.tables", { mind: name, paragraphs, tables });
+  if (row.changed > 0) return t("mindChanges.changed.tables", { mind: name, paragraphs, tables });
+  return row.filled
+    ? t("mindChanges.wrote.tables", { mind: name, paragraphs, tables })
+    : t("mindChanges.added.tables", { mind: name, paragraphs, tables });
 }
 
 /**

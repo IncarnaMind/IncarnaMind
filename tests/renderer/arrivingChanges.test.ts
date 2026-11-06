@@ -166,4 +166,31 @@ describe("The changes a card leaves out (#1325)", () => {
     expect(arrivingNow(doc, "r1", settled)).toBe(false);
     expect(stillWaiting(doc, settled)).toBe(1);
   });
+
+  // protects=a Note that opens while one Answer runs draws an earlier Answer's asked change as waiting, as the card counts it (#1358); fails_when=the editor takes every asked request it hasn't seen as applying; no_claim=which Note the editor shows.
+  test("for every Note: an ended Answer's asked change is not applying while another Answer arrives", () => {
+    const { doc } = mind([
+      { request: "r1", asked: true },
+      { request: "r2", asked: true },
+    ]);
+    const elsewhere = {
+      kind: "answer",
+      id: "a2",
+      toolCalls: [
+        {
+          ...call("r2"),
+          mindChange: { mindId: "other", created: false, request: "r2", proposals: 1, changed: 1 },
+        },
+      ],
+    } as unknown as ConversationMessage;
+    const arriving = arrivingInMind([answer("a1", "r1"), elsewhere], null, new Set(["a2"]));
+
+    expect(arriving).toEqual({
+      requests: new Set(["r2"]),
+      known: new Set(["r1", "r2"]),
+      open: true,
+    });
+    expect(arrivingNow(doc, "r1", arriving)).toBe(false);
+    expect(arrivingNow(doc, "r2", arriving)).toBe(true);
+  });
 });
