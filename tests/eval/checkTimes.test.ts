@@ -3,7 +3,7 @@
  * shows it, so its first verdict is never a mark that shows none.
  */
 import { describe, expect, test } from "vitest";
-import { firstVerdictMs, type Landed, shownState } from "../../eval/speed/checkTimes";
+import { firstVerdictMs, type Landed, shownMark, shownState } from "../../eval/speed/checkTimes";
 import type { ClaimCheckAttributes } from "../../src/core/api";
 
 const WRITTEN = "Spring tides come at new and full moon, and they flood the harbour every year.";
@@ -56,5 +56,18 @@ describe("The check timing's first verdict", () => {
         { sentence: 2, ms: 2_000, verdict: "unsupported" },
       ]),
     ).toBe(2_000);
+  });
+});
+
+describe("The check timing's marks", () => {
+  // protects=a Not checked mark keeps the reason the mark gives, so a run's report says why each sentence wasn't checked (#2532); fails_when=only the state is kept; no_claim=how the page words the reason.
+  test("a Not checked mark keeps its reason, and a verdict has none", () => {
+    expect(shownMark({ ...mark("not-checked", CUT), reason: "malformed" }, CUT, new Map())).toEqual(
+      {
+        verdict: "not-checked",
+        reason: "malformed",
+      },
+    );
+    expect(shownMark(mark("supported", CUT), CUT, new Map())).toEqual({ verdict: "supported" });
   });
 });

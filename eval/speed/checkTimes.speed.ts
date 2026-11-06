@@ -55,7 +55,7 @@ import {
   firstVerdictMs,
   type Landed,
   repeatCounter,
-  shownState,
+  shownMark,
 } from "./checkTimes";
 import { env, list, modelsAsked, spentUsd } from "./settings";
 import { HELD_OUT_DOCUMENTS, HELD_OUT_ITEMS } from "./writtenHeldOut";
@@ -178,8 +178,8 @@ function watchNote(
     for (const span of claimSpans(readMind({ blocks: doc.getXmlFragment(MIND_CONTENT_FIELD) }))) {
       if (!span.check?.state) continue;
       firstMarkMs ??= since();
-      const state = shownState(span.check, span.sentence.text, versions);
-      if (state === "checking") continue;
+      const shown = shownMark(span.check, span.sentence.text, versions);
+      if (shown.verdict === "checking") continue;
       const text = (span.check?.text ?? span.sentence.text).trim();
       const exact = sentences.indexOf(text);
       const index =
@@ -187,7 +187,7 @@ function watchNote(
           ? exact
           : sentences.findIndex((sentence) => text.includes(sentence) || sentence.includes(text));
       if (index >= 0 && !landed.some((each) => each.sentence === index))
-        landed.push({ sentence: index, ms: since(), verdict: state });
+        landed.push({ sentence: index, ms: since(), ...shown });
     }
   };
   doc.on("update", read);

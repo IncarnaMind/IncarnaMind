@@ -275,18 +275,35 @@ export interface Landed {
   sentence: number;
   ms: number;
   verdict: string;
+  /** Why a mark shows Not checked, as the mark says. */
+  reason?: string;
 }
 
 /**
  * What a sentence's mark shows, by the page's own rule: a cut sentence's mark, whose words are no
  * longer the sentence's, shows it needs checking again, whatever its stored verdict.
  */
+export const shownMark = (
+  check: ClaimCheckAttributes,
+  text: string,
+  versions: ReadonlyMap<string, string>,
+): Pick<Landed, "verdict" | "reason"> => {
+  const shown = claimCheckShown(check, {
+    text,
+    versions,
+    folderId: check.scope.folderId,
+    scope: null,
+  });
+  return shown.state === "not-checked"
+    ? { verdict: shown.state, reason: shown.reason }
+    : { verdict: shown.state };
+};
+
 export const shownState = (
   check: ClaimCheckAttributes,
   text: string,
   versions: ReadonlyMap<string, string>,
-): string =>
-  claimCheckShown(check, { text, versions, folderId: check.scope.folderId, scope: null }).state;
+): string => shownMark(check, text, versions).verdict;
 
 /** A mark that shows no verdict on the sentence: it couldn't be checked, or needs checking again. */
 const NO_VERDICT: ReadonlySet<string> = new Set([
@@ -358,6 +375,7 @@ export function perSentence(run: FlowTimes, count: number) {
       queuedMs: first === null ? null : first - run.checkStartMs,
       landedMs: landed?.ms ?? null,
       verdict: landed?.verdict ?? null,
+      reason: landed?.reason ?? null,
       requests: mine.length,
       byKind,
       searches: sum(mine.map((request) => request.searches)),
@@ -455,7 +473,7 @@ export function checkTimesReport(runs: readonly FlowTimes[], counts: Map<string,
     for (const run of list) {
       for (const each of perSentence(run, count)) {
         lines.push(
-          `| ${run.run} · ${each.index + 1} | ${each.verdict ?? "–"} | ${s(each.queuedMs)} | ${s(each.landedMs)} | ${each.requests} (${[...each.byKind].map(([kind, n]) => `${kind} ${n}`).join(", ")}) | ${each.searches} | ${each.nudges.join(", ") || "–"} | ${each.retries} | ${s(each.modelMs)} | ${s(each.waitFirstByteMs)} | ${s(each.thinkingMs)} | ${s(each.gapsMs)} |`,
+          `| ${run.run} · ${each.index + 1} | ${each.verdict ?? "–"}${each.reason ? ` (${each.reason})` : ""} | ${s(each.queuedMs)} | ${s(each.landedMs)} | ${each.requests} (${[...each.byKind].map(([kind, n]) => `${kind} ${n}`).join(", ")}) | ${each.searches} | ${each.nudges.join(", ") || "–"} | ${each.retries} | ${s(each.modelMs)} | ${s(each.waitFirstByteMs)} | ${s(each.thinkingMs)} | ${s(each.gapsMs)} |`,
         );
       }
       const unplaced = run.requests.filter((request) => request.sentences.length === 0);
