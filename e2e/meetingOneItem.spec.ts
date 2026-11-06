@@ -5,19 +5,16 @@ import type { CoreBridge, Meeting } from "../src/core/api";
 import { openDatabase } from "../src/core/storage";
 import { migrations } from "../src/core/storage/migrations";
 import {
+  acceptPlainTextKeys,
   addDocuments,
-  closeSettings,
   createDataFolder,
   dismissChatSetup,
   launchApp,
-  openAdvancedModels,
-  openSettings,
   pointAndClick,
   recordMeetingNow,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  useLocalChatModel,
 } from "./app";
 
 /**
@@ -500,31 +497,28 @@ test("a meeting two walls keep apart from its Transcript stays where it is, and 
   await again.app.close();
 });
 
-test("with automatic tagging on, the User's new Document is tagged and the meeting's Transcript is not", async () => {
+test("with a cloud tagging model, a dropped Document waits for Allow, which tags it, and the meeting's Transcript stays untagged", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
+  await acceptPlainTextKeys(window);
   await setWindowSize(app, window, 1440, 900);
-  await useLocalChatModel(window);
-  const settings = await openSettings(window, "models");
-  const section = await openAdvancedModels(settings);
-  await section.scrollIntoViewIfNeeded();
-  const automatic = section.getByRole("checkbox", {
-    name: /^Tag and sort new Documents automatically/,
+  await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const provider = await bridge.saveChatProvider({
+      kind: "deepseek",
+      apiKey: "sk-test-not-a-real-key",
+      modelId: "deepseek-flash",
+    });
+    await bridge.createLibraryGroup({ name: "Research", description: "" });
+    const library = await bridge.getLibrary();
+    await bridge.saveLibrarySettings({
+      ...library.settings,
+      classifier: {
+        kind: "chat",
+        choice: { providerId: provider.id, modelId: "deepseek-flash" },
+      },
+    });
   });
-  await expect(automatic).toBeChecked();
-  const providerId = await window.evaluate(
-    async () =>
-      (
-        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listChatProviders()
-      )[0]?.id,
-  );
-  if (!providerId) throw new Error("No provider");
-  await section.getByTestId("tagging-other").click();
-  const form = section.getByTestId("tagging-other-form");
-  await form.getByLabel("Connection", { exact: true }).selectOption(providerId);
-  await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
-  await form.getByRole("button", { name: "Use this model", exact: true }).click();
-  await closeSettings(window);
 
   const { meeting } = await recordAndStop(window);
   const transcriptId = meeting.transcript?.documentId as string;
@@ -532,11 +526,24 @@ test("with automatic tagging on, the User's new Document is tagged and the meeti
   const path = join(sources, "Research notes.txt");
   await writeFile(path, "Research report about membrane separation and water filtration.");
   await addDocuments(window, [path]);
-  const row = window.getByTestId("document-list-item").filter({ hasText: "Research notes" });
-  await expect(row).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
+  const consent = window.getByTestId("sort-consent");
+  await expect(consent).toBeVisible({ timeout: 15_000 });
+  await expect(consent).toContainText("1 to organize");
+  await expect(consent.getByTestId("sort-consent-allow")).toHaveText("Allow DeepSeek");
+  const before = await (await core(window)).evaluate(async (bridge) => bridge.listDocuments());
+  expect(before.find((each) => each.name === "Research notes")?.tagging).toBe("off");
+  expect(before.find((each) => each.id === transcriptId)?.tagging).not.toBe("tagged");
 
-  const documents = await (await core(window)).evaluate(async (bridge) => bridge.listDocuments());
-  const transcript = documents.find((each) => each.id === transcriptId);
+  await pointAndClick(window, consent.getByTestId("sort-consent-allow"));
+  await expect(consent).toHaveCount(0, { timeout: 15_000 });
+  await expect(window.getByRole("treeitem", { name: /^Report 1/ })).toBeVisible({
+    timeout: 30_000,
+  });
+  const after = await (await core(window)).evaluate(async (bridge) => bridge.listDocuments());
+  const afterDoc = after.find((each) => each.name === "Research notes");
+  expect(afterDoc?.tagging).toBe("tagged");
+  expect((afterDoc?.tags ?? []).length).toBeGreaterThan(0);
+  const transcript = after.find((each) => each.id === transcriptId);
   expect(transcript?.tagging).not.toBe("tagged");
   expect(transcript?.tags).toEqual([]);
   await app.close();
