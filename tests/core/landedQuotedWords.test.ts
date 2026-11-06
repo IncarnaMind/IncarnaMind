@@ -1,11 +1,13 @@
+import { writeFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
-import type { CitationAttributes, ConversationAnswer, Core } from "../../src/core";
+import type { ConversationAnswer, Core } from "../../src/core";
 import { messageReference } from "../../src/core";
 import { answerBlocks } from "../../src/shared/answerBlocks";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { parseQuotedWords } from "../../src/shared/citations";
 import { recheckCitations } from "../../src/shared/noteBlocks";
 import { answerEnded, citingModel, setUpWithDocuments } from "../helpers/citations";
+import { waitForProcessing } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { buildPdf } from "../helpers/pdf";
@@ -68,14 +70,16 @@ async function answerQuoting(language: Language, words: string) {
     ],
     answer: wanted.sentence(words),
   });
-  const { core } = await setUpWithDocuments(model, [{ name: wanted.name, contents: wanted.pdf }]);
+  const { core, documents } = await setUpWithDocuments(model, [
+    { name: wanted.name, contents: wanted.pdf },
+  ]);
   const result = await core.askInConversation({ text: wanted.question });
   if (!result.asked) throw new Error("Not asked.");
   await answerEnded(core, result.answerId);
   const { messages } = await core.getConversation(result.conversation.id);
   const answer = messages.find((each) => each.id === result.answerId);
   if (answer?.kind !== "answer") throw new Error("No Answer.");
-  return { core, answer, question: wanted.question };
+  return { core, answer, question: wanted.question, document: documents[0] };
 }
 
 function citationsOf(blocks: readonly NodeJSON[]): Record<string, unknown>[] {
@@ -148,7 +152,7 @@ describe.each(Object.keys(CASES) as Language[])(
           check: "not-found",
           checkReason: "quoted-words-not-on-pages",
         });
-        expect(words(landed as CitationAttributes)).toBe(CASES[language].madeUp);
+        expect(words(landed ?? {})).toBe(CASES[language].madeUp);
       },
     );
 
@@ -193,4 +197,22 @@ test("checked again with the words the Answer quoted, a Citation is found only w
     check: "found",
     checkReason: null,
   });
+});
+
+// protects=after its Document changed, a landing checks a Citation in the version it quotes (ADR-0017's amendment), and the words the Answer quoted are looked for there too (#2612); fails_when=the quoted version's check reads the quote alone; no_claim=none beyond protects.
+test("after its Document changed, a Citation not found for its quoted words lands not found", async () => {
+  const { core, answer, question, document } = await answerQuoting("en", CASES.en.madeUp);
+  if (!document?.path) throw new Error("No Document.");
+  await writeFile(
+    document.path,
+    buildPdf([
+      { lines: ["Tides and the Moon", "The Moon raises two tidal bulges on the Earth."] },
+      { lines: ["Spring and neap tides", CASES.en.quote, "Neap tides come at the quarter moons."] },
+    ]),
+  );
+  await core.reconcileDocuments();
+  await waitForProcessing(core, [document.id]);
+
+  const [landed] = await LANDINGS["Add to note"](core, answer, question);
+  expect(landed).toMatchObject({ check: "not-found", checkReason: "quoted-words-not-on-pages" });
 });

@@ -1008,7 +1008,7 @@ describe("A scan's page confirmation (#535)", () => {
   });
 });
 
-// protects=Update the sentence… writes over what the check of the Answer's quoted words found (#2504): the next page they ran on to, and words not found, were the old quote's, whether its words changed or it moved; fails_when=the updated Citation keeps either; no_claim=how the card shows the update.
+// protects=Update the sentence… writes over what the check of the Answer's quoted words found (#2504): the next page they ran on to was the old quote's, whether its words changed or it moved, and words not found go with a sentence rewritten to the changed words; fails_when=the updated Citation keeps them; no_claim=how the card shows the update.
 describe("Update the sentence…, on a Citation whose quoted words were checked", () => {
   const cited = {
     pageFrom: 3,
@@ -1040,23 +1040,20 @@ describe("Update the sentence…, on a Citation whose quoted words were checked"
     ],
     ["it moved", { ...found, pageFrom: 5, pageTo: 5, location: { kind: "page", from: 5, to: 5 } }],
   ];
-  test.each(
-    rechecks.flatMap(
-      ([how, recheck]) =>
-        [
-          [how, "ran on to the next page", { runsOnTo: { kind: "page", from: 4, to: 4 } }, recheck],
-          [
-            how,
-            "weren't on the page",
-            { answer: [{ text: "no fee at all", found: false }], closest: null },
-            recheck,
-          ],
-        ] as const,
-    ),
-  )(
+  const runOn = { runsOnTo: { kind: "page", from: 4, to: 4 } } as const;
+  const notFound = { answer: [{ text: "no fee at all", found: false }], closest: null };
+  const [changed, moved] = rechecks.map(([, recheck]) => recheck) as [
+    CitationRecheck,
+    CitationRecheck,
+  ];
+  test.each([
+    ["its words changed", "ran on to the next page", runOn, changed],
+    ["its words changed", "weren't on the page", notFound, changed],
+    ["it moved", "ran on to the next page", runOn, moved],
+  ] as const)(
     "%s, and its quoted words %s: the updated Citation says nothing of them",
     (_, __, quotedWords, recheck) => {
-      const update = newVersionCitation(cited, recheck);
+      const update = newVersionCitation({ ...cited, quotedWords }, recheck);
       expect(update).not.toBeNull();
       expect({ ...cited, quotedWords, ...update }).toMatchObject({
         contentHash: "v2",
@@ -1064,4 +1061,15 @@ describe("Update the sentence…, on a Citation whose quoted words were checked"
       });
     },
   );
+
+  // protects=a Citation not found for its Answer's quoted words stays not found when Update the sentence… follows its quote to where it moved: the sentence keeps its words, and the check found only the quote (#2612); fails_when=the update reads it found; no_claim=whether the new page has the words, which the next check of the Note tells.
+  test("it moved, and its quoted words weren't on the page: still not found, with those words", () => {
+    expect(newVersionCitation({ ...cited, quotedWords: notFound }, moved)).toMatchObject({
+      contentHash: "v2",
+      pageFrom: 5,
+      check: "not-found",
+      checkReason: "quoted-words-not-on-pages",
+      quotedWords: notFound,
+    });
+  });
 });

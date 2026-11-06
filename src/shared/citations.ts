@@ -457,7 +457,9 @@ export function needsRecheck(
  * Null when the current version holds nothing to cite in its place.
  */
 export function newVersionCitation(
-  attributes: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "quote">>,
+  attributes: Partial<
+    Pick<CitationAttributes, "pageFrom" | "pageTo" | "location" | "quote" | "quotedWords">
+  >,
   recheck: RecheckResult | "failed" | null,
 ): Partial<CitationAttributes> | null {
   if (recheck === null || recheck === "failed" || "keptInside" in recheck) return null;
@@ -468,6 +470,10 @@ export function newVersionCitation(
       ? { ...recheck, quote: attributes.quote ?? "" }
       : null);
   if (!now || now.contentHash === null) return null;
+  // Followed to where its quote moved, the sentence keeps its words: those the page didn't have
+  // stay not found (#2612). Changed words are cited anew, with the sentence rewritten to them.
+  const asked = recheck.changed?.now ? null : parseQuotedWords(attributes.quotedWords);
+  const stays = asked !== null && now.check === "found";
   return {
     passageId: now.passageId,
     contentHash: now.contentHash,
@@ -475,14 +481,14 @@ export function newVersionCitation(
     pageTo: now.pageTo,
     location: now.location,
     quote: now.quote,
-    check: now.check,
-    checkReason: now.checkReason,
+    check: stays ? "not-found" : now.check,
+    checkReason: stays ? "quoted-words-not-on-pages" : now.checkReason,
     // The version it moves to has the date of that version of the User's note (#335).
     ...(now.yourNoteAt && { yourNoteAt: now.yourNoteAt }),
     // The confirmation was for the quote and page the User looked at, and those changed.
     pageChecked: null,
     unsure: now.unsure ?? null,
-    quotedWords: null,
+    quotedWords: stays ? asked : null,
     verdict: null,
     keptOver: null,
   };
