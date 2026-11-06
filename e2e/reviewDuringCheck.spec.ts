@@ -309,8 +309,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.locator('[data-testid="mind-editor"]:visible')).toBeFocused();
     await expect(answer).toHaveAttribute("data-status", "streaming");
 
+    // Done, the Note it made stays behind the one the User went to (#2572).
     await releaseChecks(app);
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+    await expect(window.getByTestId("mind-tab").filter({ hasText: "Tide summary" })).toHaveCount(1);
+    await expect(frontMindName(window)).toHaveText("Harbour notes");
     await app.close();
   });
 }
