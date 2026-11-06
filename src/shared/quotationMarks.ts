@@ -124,8 +124,12 @@ const pastGap = (text: string, index: number, step: 1 | -1) =>
 const SQL_STATEMENT =
   /\bselect\b.*\bfrom\b|\binsert\s+into\b|\bupdate\b.*\bset\b|\bdelete\s+from\b|\b(?:order|group)\s+by\b/is;
 const OPTION = /(?:^|\s)-\p{L}/u;
-/** Where a sentence ends: its punctuation or a blank line, not a line break inside it. */
-const SENTENCE_END = /[.!?。！？]|\n[^\S\n]*\n/g;
+/**
+ * Where a sentence ends: a full stop, "!" or "?" before whitespace or the text's end, CJK sentence
+ * punctuation, or a blank line. A dot inside a word, a name or a number ("users.id", "3.5") and a
+ * line break inside a sentence don't end it.
+ */
+const SENTENCE_END = /[.!?](?=\s|$)|[。！？]|\n[^\S\n]*\n/g;
 
 /** The spans of `text`'s sentences that aren't prose, in order: a code character, a command option or SQL. */
 function codeSentences(text: string): [number, number][] {

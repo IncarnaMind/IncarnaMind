@@ -611,6 +611,17 @@ describe("which double marks are quotation marks (#2504)", () => {
     );
     const brokenZh = "运行 SELECT\n“name” FROM users 读取每个名字。";
     expect(findQuote(brokenZh, "运行 SELECT\n‘name’ FROM users 读取每个名字")).toBeNull();
+    const spanning = "Run echo “hello. $name” now.";
+    expect(findQuote(spanning, "run echo ‘hello. $name’ now")).toBeNull();
+    expect(covered(spanning, "run echo “hello. $name” now")).toBe(spanning.slice(0, -1));
+    const qualified = "SELECT “name”, users.id FROM users;";
+    expect(findQuote(qualified, "select ‘name’, users.id from users;")).toBeNull();
+    expect(covered(qualified, "select “name”, users.id from users;")).toBe(qualified);
+    const unqualified = "SELECT “name”, usersid FROM users;";
+    expect(findQuote(unqualified, "select ‘name’, usersid from users;")).toBeNull();
+    expect(covered(unqualified, "select “name”, usersid from users;")).toBe(unqualified);
+    const qualifiedZh = "运行 SELECT “name”, users.id FROM users 读取名字。";
+    expect(findQuote(qualifiedZh, "运行 SELECT ‘name’, users.id FROM users 读取名字")).toBeNull();
     const nextSentence = "He said “go.” Then he left. Use x = 5.";
     expect(covered(nextSentence, "he said ‘go.’ then he left")).toBe("He said “go.” Then he left");
     const hamlet = "He read a line from “Hamlet” aloud.";
