@@ -2593,14 +2593,25 @@ test.each([
     verdict: "contradicted",
   },
   {
-    name: "a quote far into its page with no sign word",
+    name: "a quote far into its page under a heading, with no sign word",
+    claim: "The rent is $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `${"The Tenant shall keep the premises in good repair. ".repeat(12)}\nRent\nThe rent is sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["The rent is sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "a quote far into its page with no heading above it keeps main's minus",
     claim: "The rent is $62,000.",
     figure: "$62,000",
     language: "en",
     body: `${"The Tenant shall keep the premises in good repair. ".repeat(12)}The rent is sixty-two thousand dollars ($62,000.00).`,
     quotes: ["The rent is sixty-two thousand dollars ($62,000.00)."],
     number: "$62,000.00",
-    supported: true,
+    supported: false,
+    verdict: "contradicted",
   },
   {
     name: "a (−) on the line before the quote",
@@ -2625,14 +2636,25 @@ test.each([
     verdict: "contradicted",
   },
   {
-    name: "a sign word more than 400 characters before the quote",
+    name: "a sign word more than 400 characters before the quote, in an earlier paragraph",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve turned negative in May. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\n\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: true,
+  },
+  {
+    name: "a sign word more than 400 characters before the quote, with no break between, keeps main's minus",
     claim: "The reserve was $62,000.",
     figure: "$62,000",
     language: "en",
     body: `The reserve turned negative in May. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}At year end it stood at sixty-two thousand dollars ($62,000.00).`,
     quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
     number: "$62,000.00",
-    supported: true,
+    supported: false,
+    verdict: "contradicted",
   },
   {
     name: "a sign word more than 400 characters after the quote",
@@ -2704,7 +2726,7 @@ test.each([
     claim: "The fund's cash was $62,000.",
     figure: "$62,000",
     language: "en",
-    body: `The fund turned negative ${"x".repeat(390)} By year end it was sixty-two thousand dollars ($62,000.00).`,
+    body: `The fund turned negative ${"x".repeat(389)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
     quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
     number: "$62,000.00",
     supported: false,
@@ -2715,7 +2737,7 @@ test.each([
     claim: "The fund's cash was $62,000.",
     figure: "$62,000",
     language: "en",
-    body: `The fund turned negative ${"x".repeat(391)} By year end it was sixty-two thousand dollars ($62,000.00).`,
+    body: `The fund turned negative ${"x".repeat(390)}\n\nBy year end it was sixty-two thousand dollars ($62,000.00).`,
     quotes: ["By year end it was sixty-two thousand dollars ($62,000.00)."],
     number: "$62,000.00",
     supported: true,
@@ -2816,6 +2838,39 @@ test.each([
     supported: true,
   },
   {
+    name: "a far sign word, a cut-off line and a long line above the quote keep main's minus",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve is negative. ${"The Tenant shall keep the premises in good repair. ".repeat(4)}Notes on the reserve follow\n${"The Tenant shall keep the premises in good repair. ".repeat(7)}and the parties agree that\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a far sign word and a short sentence on its own line above the quote keep main's minus",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve is negative. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\nPayment is due monthly.\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "a far sign word and a line too long for a heading above the quote keep main's minus",
+    claim: "The reserve was $62,000.",
+    figure: "$62,000",
+    language: "en",
+    body: `The reserve is negative. ${"The Tenant shall keep the premises in good repair. ".repeat(9)}\nSchedule of the payments due under the lease in the second year\nAt year end it stood at sixty-two thousand dollars ($62,000.00).`,
+    quotes: ["At year end it stood at sixty-two thousand dollars ($62,000.00)."],
+    number: "$62,000.00",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
     name: "English words with an article",
     claim: "The deposit is $160,000.",
     figure: "$160,000",
@@ -2874,12 +2929,11 @@ const backs = (probe: SignProbe, sign: (typeof signs)[number]) =>
   (probe.truth === "neg") === (sign === "minus");
 
 test.each(signProbes)(
-  "$id ($shape): no claim main checks right is checked wrong here, but for a sign more than 400 characters before a quote (#2341, #2578)",
+  "$id ($shape): no claim main checks right is checked wrong here (#2341)",
   (probe) => {
     for (const sign of signs) {
       const right = (verdict: string) => (verdict === "supported") === backs(probe, sign);
-      if (right(probe.main[sign]) && probe.shape !== "farRealBefore")
-        expect(right(probe.expected[sign])).toBe(true);
+      if (right(probe.main[sign])) expect(right(probe.expected[sign])).toBe(true);
     }
   },
 );

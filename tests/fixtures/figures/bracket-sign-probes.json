@@ -64,8 +64,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -116,8 +116,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -134,8 +134,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -152,8 +152,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -170,8 +170,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -188,8 +188,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -206,8 +206,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -224,8 +224,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -242,8 +242,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -332,8 +332,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -350,8 +350,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -368,8 +368,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
@@ -386,8 +386,8 @@
       "minus": "supported"
     },
     "expected": {
-      "amount": "supported",
-      "minus": "contradicted"
+      "amount": "contradicted",
+      "minus": "supported"
     }
   },
   {
