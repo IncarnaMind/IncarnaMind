@@ -1,6 +1,6 @@
 /**
  * Held-out cases for the rules a rewrite with what the Documents say keeps to (#1554), written
- * from the rules alone, before they changed, in two rounds (the second marked below): each pairs a sentence and a scripted reply with the
+ * from the rules alone, before they changed, in three rounds (the later two marked below): each pairs a sentence and a scripted reply with the
  * quote the check found, and says what a careful reader would allow. A figure or a name is
  * written only when the quote says it of the same thing, in the same terms; "same" only when the
  * sentence already gives the quote's value; otherwise the sentence stays. The names are invented.
@@ -562,6 +562,81 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     quote: "停车费不是 350 元。",
     kind: "none",
   },
+  // Written after the sixth review, before the rules changed again: a word said again before
+  // the figure says whose figure it is, so the quote must say it again in the same place.
+  {
+    id: "said-again-other-party",
+    language: "en",
+    sentence: "The Buyer notifies the Seller, and the Buyer then refunds $1,200.",
+    reply: "Change 1: $1,200\nTo 1: $1,500",
+    quote: "The Buyer notifies the Seller, and the Seller then refunds $1,500.",
+    kind: "kept",
+  },
+  {
+    id: "said-again-other-party-same-value",
+    language: "en",
+    sentence: "The Buyer notifies the Seller, and the Buyer then refunds $1,500.",
+    reply: NONE,
+    quote: "The Buyer notifies the Seller, and the Seller then refunds $1,500.",
+    kind: "none",
+  },
+  {
+    id: "said-again-same-party",
+    language: "en",
+    sentence: "The Buyer notifies the Seller, and the Seller then refunds $1,200.",
+    reply: "Change 1: $1,200\nTo 1: $1,500",
+    quote: "The Buyer notifies the Seller, and the Seller then refunds $1,500.",
+    kind: "rewritten",
+  },
+  {
+    id: "said-again-same-party-same-value",
+    language: "en",
+    sentence: "The Buyer notifies the Seller, and the Seller then refunds $1,500.",
+    reply: NONE,
+    quote: "The Buyer notifies the Seller, and the Seller then refunds $1,500.",
+    kind: "same",
+  },
+  {
+    // Other terms: the quote leaves the payer unsaid the second time.
+    id: "said-again-only-in-the-sentence",
+    language: "en",
+    sentence: "The guest pays the host, then the guest pays the cleaner $40.",
+    reply: "Change 1: $40\nTo 1: $60",
+    quote: "The guest pays the host, then pays the cleaner $60.",
+    kind: "kept",
+  },
+  {
+    id: "said-again-other-party-zh",
+    language: "zh-CN",
+    sentence: "甲方通知乙方后，甲方退还 800 元。",
+    reply: "Change 1: 800\nTo 1: 900",
+    quote: "甲方通知乙方后，乙方退还 900 元。",
+    kind: "kept",
+  },
+  {
+    id: "said-again-other-party-same-value-zh",
+    language: "zh-CN",
+    sentence: "甲方通知乙方后，甲方退还 900 元。",
+    reply: NONE,
+    quote: "甲方通知乙方后，乙方退还 900 元。",
+    kind: "none",
+  },
+  {
+    id: "said-again-same-party-zh",
+    language: "zh-CN",
+    sentence: "甲方通知乙方后，乙方退还 800 元。",
+    reply: "Change 1: 800\nTo 1: 900",
+    quote: "甲方通知乙方后，乙方退还 900 元。",
+    kind: "rewritten",
+  },
+  {
+    id: "said-again-same-party-same-value-zh",
+    language: "zh-CN",
+    sentence: "甲方通知乙方后，乙方退还 900 元。",
+    reply: NONE,
+    quote: "甲方通知乙方后，乙方退还 900 元。",
+    kind: "same",
+  },
 ];
 
 /**
@@ -632,5 +707,29 @@ export const REWRITE_OFFER_CASES: readonly RewriteOfferCase[] = [
     sentence: "The pool opened in 2019.",
     quote: "The pool opened in 2021.",
     offered: false,
+  },
+  {
+    id: "said-again-other-party",
+    sentence: "The Buyer notifies the Seller, and the Buyer then refunds $1,200.",
+    quote: "The Buyer notifies the Seller, and the Seller then refunds $1,500.",
+    offered: false,
+  },
+  {
+    id: "said-again-same-party",
+    sentence: "The Buyer notifies the Seller, and the Seller then refunds $1,200.",
+    quote: "The Buyer notifies the Seller, and the Seller then refunds $1,500.",
+    offered: true,
+  },
+  {
+    id: "said-again-other-party-zh",
+    sentence: "甲方通知乙方后，甲方退还 800 元。",
+    quote: "甲方通知乙方后，乙方退还 900 元。",
+    offered: false,
+  },
+  {
+    id: "said-again-same-party-zh",
+    sentence: "甲方通知乙方后，乙方退还 800 元。",
+    quote: "甲方通知乙方后，乙方退还 900 元。",
+    offered: true,
   },
 ];
