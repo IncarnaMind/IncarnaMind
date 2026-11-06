@@ -58,13 +58,14 @@ import {
   changedParagraphs,
   changeKinds,
   countChanged,
+  onlyRemoves,
   pendingProposals,
   readProposalAttribute,
   recordProposalRequest,
   resolveProposals,
   waitingChanges,
 } from "../../../shared/proposals";
-import { changedText, sentenceChanges } from "../../../shared/sentenceChanges";
+import { changedText, paragraphsRemoved, sentenceChanges } from "../../../shared/sentenceChanges";
 import { sentenceSpans } from "../../../shared/sentences";
 import { countText } from "../../../shared/wordCount";
 import {
@@ -2086,14 +2087,16 @@ export function mindTools(options: MindToolsOptions): {
     const done =
       outcome !== APPLIES
         ? `Proposed ${changes(proposals)} in`
-        : change.added
-          ? // Lines added beside the User's, which stay, are no change to them (#2356).
-            `Added ${[
-              ...((change.changed ?? 0) > 0 ? [paragraphsSaid(change.changed ?? 0)] : []),
-              ...((change.tables ?? 0) > 0 ? [tablesSaid(change.tables ?? 0)] : []),
-            ].join(" and ")} to`
-          : // "Changed", never "Made": a reply that copies it would read as making a Mind (./claimedChanges).
-            `Changed ${proposals === 1 ? "1 place" : `${proposals} places`} in`;
+        : change.removed
+          ? `Removed ${paragraphsSaid(change.removed.paragraphs)} (${change.removed.sentences === 1 ? "1 sentence" : `${change.removed.sentences} sentences`}) from`
+          : change.added
+            ? // Lines added beside the User's, which stay, are no change to them (#2356).
+              `Added ${[
+                ...((change.changed ?? 0) > 0 ? [paragraphsSaid(change.changed ?? 0)] : []),
+                ...((change.tables ?? 0) > 0 ? [tablesSaid(change.tables ?? 0)] : []),
+              ].join(" and ")} to`
+            : // "Changed", never "Made": a reply that copies it would read as making a Mind (./claimedChanges).
+              `Changed ${proposals === 1 ? "1 place" : `${proposals} places`} in`;
     return `${done} “${mind.name}”${went}. ${outcome}`;
   };
 
@@ -2412,6 +2415,12 @@ export function mindTools(options: MindToolsOptions): {
       }));
       const changed = countChanged(kinds);
       const added = addsOnly(kinds);
+      const removed =
+        !revised && onlyRemoves(kinds)
+          ? minds.read(mind.id, (note) =>
+              paragraphsRemoved(changedText(note, result.request).before),
+            )
+          : null;
       const sentences = revised
         ? null
         : minds.read(mind.id, (note) => {
@@ -2434,6 +2443,7 @@ export function mindTools(options: MindToolsOptions): {
             ...(added && { added: true }),
             ...(tables > 0 && { tables }),
             ...(sentences && { sentences }),
+            ...(removed && { removed }),
             ...notes,
           };
       if (revised) {

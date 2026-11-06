@@ -14,6 +14,7 @@ import {
   changedParagraphs,
   changeKinds,
   decideProposals,
+  onlyRemoves,
   pendingProposals,
   waitingChanges,
 } from "../../src/shared/proposals";
@@ -404,5 +405,53 @@ describe("A change that only adds paragraphs or tables says it added them (#2356
     expect(appliedText((key, params) => translate("zh-CN", key, params), changed)).toBe(
       "修改了 1 个段落",
     );
+  });
+});
+
+describe("A change that only removes whole paragraphs says what went (#2356)", () => {
+  const removesOnly = (content: JSONContent[]) =>
+    onlyRemoves(changeKinds(mind(content).blocks, ours));
+  const en = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+    translate("en", key, params);
+  const zh = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+    translate("zh-CN", key, params);
+
+  // protects=a change whose every paragraph goes whole, the rest kept, only removes, and the applied line, its Undo notice and Review say exactly what went, by the paragraph's label or first words and its sentences, in English and Chinese, one paragraph or several, one sentence or more; a change that also rewords, adds or takes a table still says it changed; fails_when=a removal reads as "Changed", or a rewrite as "Removed"; no_claim=the assistant's own reply.
+  test("a paragraph removed whole is said as removed, by its name and sentences", () => {
+    expect(removesOnly([plain("Kept."), removed("Parking: six spaces. Each 800.")])).toBe(true);
+    expect(removesOnly([removed("停车位：六个。"), added("停车位：六个车位。")])).toBe(false);
+    expect(removesOnly([removed("Kept out."), reworded("Room 102", "Room 103")])).toBe(false);
+    expect(removesOnly([table([plain("A table.")], whole("delete"))])).toBe(false);
+    expect(removesOnly([plain("Kept.")])).toBe(false);
+
+    const parking = {
+      paragraphs: 1,
+      tables: 0,
+      removed: { paragraphs: 1, sentences: 3, start: "Parking" },
+    };
+    expect(appliedText(en, parking)).toBe("Removed the paragraph “Parking” (3 sentences)");
+    const zhParking = {
+      paragraphs: 1,
+      tables: 0,
+      removed: { paragraphs: 1, sentences: 3, start: "停车位" },
+    };
+    expect(appliedText(zh, zhParking)).toBe("删除了“停车位”一段（3 句）");
+    const one = {
+      paragraphs: 1,
+      tables: 0,
+      removed: { paragraphs: 1, sentences: 1, start: "The boat leaves at…" },
+    };
+    expect(appliedText(en, one)).toBe("Removed the paragraph “The boat leaves at…” (1 sentence)");
+    expect(
+      appliedText(zh, { ...one, removed: { ...one.removed, start: "请带一件厚外套和…" } }),
+    ).toBe("删除了“请带一件厚外套和…”一段（1 句）");
+    const several = {
+      paragraphs: 2,
+      tables: 0,
+      removed: { paragraphs: 2, sentences: 5, start: "Parking" },
+    };
+    expect(appliedText(en, several)).toBe("Removed 2 paragraphs (5 sentences)");
+    expect(appliedText(zh, several)).toBe("删除了 2 个段落（5 句）");
+    expect(appliedText(en, { paragraphs: 2, tables: 0 })).toBe("Changed 2 paragraphs");
   });
 });

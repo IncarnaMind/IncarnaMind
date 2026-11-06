@@ -348,7 +348,7 @@ test("under Review changes, a paragraph that arrives after an edit's new Block a
   await expect(paragraphs).toHaveText([FIRST, THIRD, "Added later."]);
 });
 
-test("“delete the second paragraph” applies at once", async () => {
+test("“delete the second paragraph” applies at once, said as the paragraph removed", async () => {
   const { window } = await launch();
   await useLocalChatModel(window);
   const { editor, paragraphs } = await mindWith(window, [FIRST, SECOND, THIRD]);
@@ -357,7 +357,9 @@ test("“delete the second paragraph” applies at once", async () => {
   await selectAll(window, editor);
   await askToChange(window, "delete the second paragraph");
   await expect(paragraphs).toHaveText([FIRST, THIRD]);
-  await expect(line.getByTestId("applied-count")).toHaveText("Changed 1 paragraph");
+  await expect(line.getByTestId("applied-count")).toHaveText(
+    "Removed the paragraph “It is a big…” (1 sentence)",
+  );
   await expect(editor.getByTestId("applied-kept")).toHaveCount(0);
 });
 

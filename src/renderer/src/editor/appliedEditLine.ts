@@ -21,11 +21,12 @@ import {
   ySyncPluginKey,
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
-import { BLOCK_ID_ATTRIBUTE, type EditPart } from "../../../core/api";
+import { BLOCK_ID_ATTRIBUTE, type EditPart, type RemovedParagraphs } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
-import { addsOnly, type ChangeKind, countChanged } from "../../../shared/proposals";
-import { type ChangeCounts, changeFact } from "../changeFacts";
+import { addsOnly, type ChangeKind, countChanged, onlyRemoves } from "../../../shared/proposals";
+import { paragraphsRemoved } from "../../../shared/sentenceChanges";
+import { type ChangeCounts, changeFact, removedFact } from "../changeFacts";
 import { SPARK_PATH } from "../components/iconPaths";
 import type { EstimateLine } from "../cost";
 import { anchorOf } from "./arrivedChanges";
@@ -478,6 +479,8 @@ export interface ChangedBlocks {
   tables: number;
   /** Every paragraph and table counted was added whole, the User's kept: added, not changed (`addsOnly`). */
   added?: true;
+  /** Every paragraph counted was removed whole, and nothing else changed (`onlyRemoves`). */
+  removed?: RemovedParagraphs;
 }
 
 /** Whether a paragraph or heading lies wholly between two positions. */
@@ -503,6 +506,7 @@ export function changedBlocksOf(
   changes: readonly AppliedChange[],
 ): ChangedBlocks {
   const kinds: ChangeKind[] = [];
+  const removedTexts: string[] = [];
   const counted = new Set<number>();
   const tables = new Set<number>();
   let removedTables = 0;
@@ -527,6 +531,7 @@ export function changedBlocksOf(
         if (COUNTED.has(node.type.name)) {
           blocks++;
           kinds.push(node.type.name === "heading" ? "title-removed" : "removed");
+          if (node.type.name !== "heading") removedTexts.push(node.textContent);
         }
         return !node.isTextblock;
       });
@@ -552,6 +557,7 @@ export function changedBlocksOf(
     paragraphs: countChanged(kinds),
     tables: tables.size + removedTables,
     ...(addsOnly(kinds) && { added: true }),
+    ...(onlyRemoves(kinds) && { removed: paragraphsRemoved(removedTexts) }),
   };
 }
 
@@ -571,6 +577,7 @@ const changesIn = (t: Translate, { paragraphs, tables }: ChangedBlocks): string 
 /** What the applied line and its Undo notice say an edit changed: "Changed 3 paragraphs and 1 table". */
 export function appliedText(t: Translate, blocks: ChangedBlocks): string {
   if (blocks.added) return addedText(t, blocks);
+  if (blocks.removed) return removedFact(t, blocks.removed, null);
   if (blocks.tables > 0) return t("edit.applied.changes", { changes: changesIn(t, blocks) });
   return blocks.paragraphs === 1
     ? t("edit.applied.one")
@@ -596,6 +603,7 @@ function addedText(t: Translate, { paragraphs, tables }: ChangedBlocks): string 
 
 function reviewText(t: Translate, blocks: ChangedBlocks, byAssistant: boolean): string {
   if (blocks.added) return addedText(t, blocks);
+  if (blocks.removed) return removedFact(t, blocks.removed, null);
   if (blocks.tables > 0) {
     const changes = changesIn(t, blocks);
     return byAssistant

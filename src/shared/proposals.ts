@@ -540,6 +540,16 @@ export function addsOnly(kinds: Iterable<ChangeKind>): boolean {
   return added;
 }
 
+/** Every paragraph the change counts it removes whole: a removal and nothing else (#2356). */
+export function onlyRemoves(kinds: Iterable<ChangeKind>): boolean {
+  let removed = false;
+  for (const kind of kinds) {
+    if (kind === "removed") removed = true;
+    else if (kind !== "kept") return false;
+  }
+  return removed;
+}
+
 /**
  * How many paragraphs the Proposals that `belongs` takes change (`countChanged`): those whose
  * words they change, and those they add or remove whole, but for the cells of a table they add

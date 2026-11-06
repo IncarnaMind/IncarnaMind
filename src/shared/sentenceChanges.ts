@@ -10,6 +10,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
+  type RemovedParagraphs,
   type SentenceChanges,
 } from "../core/api";
 import { splitWords } from "../core/proposals/diff";
@@ -109,6 +110,46 @@ export function writtenAgain(before: readonly string[], written: readonly string
     const again = own.filter((word) => words.has(word)).length;
     return own.length > 0 && again / own.length > 0.5 ? [sentence.text] : [];
   });
+}
+
+const HAN = /\p{Script=Han}/u;
+/** The most words, or Chinese characters, a paragraph is named by. */
+const START_WORDS = 4;
+const START_CHARACTERS = 8;
+
+/** The start of `text`: its first words, or first Chinese characters, and whether that is all of it. */
+function firstOf(text: string): { start: string; whole: boolean } {
+  if (HAN.test(text)) {
+    const characters = [...text];
+    let seen = 0;
+    let at = 0;
+    while (at < characters.length && seen < START_CHARACTERS) {
+      if ((characters[at] ?? "").trim() !== "") seen++;
+      at++;
+    }
+    const rest = characters.slice(at).join("");
+    return { start: characters.slice(0, at).join("").trimEnd(), whole: rest.trim() === "" };
+  }
+  const words = text.split(" ");
+  return { start: words.slice(0, START_WORDS).join(" "), whole: words.length <= START_WORDS };
+}
+
+/** How a paragraph is named where its removal is said: its label without the colon ("Parking"), or its first words. */
+export function paragraphStart(text: string): string {
+  const plain = text.replace(/\s+/gu, " ").trim();
+  const label = /^([^:：]+)[:：]\s*\S/u.exec(plain)?.[1]?.trim();
+  if (label && firstOf(label).whole) return label;
+  const { start, whole } = firstOf(plain);
+  return whole ? start : `${start}…`;
+}
+
+/** What removing these whole paragraphs takes out, as the line and the card say it. */
+export function paragraphsRemoved(paragraphs: readonly string[]): RemovedParagraphs {
+  return {
+    paragraphs: paragraphs.length,
+    sentences: sentencesOf(paragraphs).length,
+    start: paragraphStart(paragraphs[0] ?? ""),
+  };
 }
 
 /** Whether a change only takes text out: some of the User's, and nothing rewritten or written. */

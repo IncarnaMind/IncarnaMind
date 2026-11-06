@@ -253,6 +253,19 @@ describe("What an edit did to the User's sentences is said from the change, not 
 
 type Step = { tool: string; input: Record<string, unknown>; edit?: string };
 
+/** Every Tool result the model read in its last request, in order. */
+const results = (model: MockLanguageModelV4) =>
+  (model.doStreamCalls.at(-1)?.prompt ?? []).flatMap((message) =>
+    message.role === "tool"
+      ? message.content.flatMap((part) =>
+          part.type === "tool-result" &&
+          (part.output.type === "text" || part.output.type === "error-text")
+            ? [part.output.value]
+            : [],
+        )
+      : [],
+  );
+
 /** A scripted Answer that makes `steps` one after another, each edit_mind rewrite as its `edit` says, then replies. */
 function stepping(steps: readonly Step[], reply = "Done.") {
   const edits = steps.flatMap((step) => (step.edit === undefined ? [] : [step.edit]));
@@ -391,8 +404,20 @@ describe("A removal whose sentences another change of the reply writes again wai
 
   // protects=after a removal that took the whole paragraph out and applies at once, a second edit over the Note is refused with the earlier change said to apply with Undo, never to wait for the User's review (DeepSeek, Chinese 23 of the fourth round, whose reply then said a change waits in Review), and the paragraph's removal applies; English and Chinese; fails_when=the refusal says a change waits for the User to accept or reject, or the removal is held; no_claim=how a real model words its reply.
   test.each([
-    { case: "Chinese 23", language: "zh" },
-    { case: "en, as Chinese 23", language: "en" },
+    {
+      case: "Chinese 23",
+      language: "zh",
+      removed: "Removed 1 paragraph (3 sentences) from “租赁条款”",
+      card: "从“租赁条款”中删除了“停车位”一段（3 句）",
+      line: "删除了“停车位”一段（3 句）",
+    },
+    {
+      case: "en, as Chinese 23",
+      language: "en",
+      removed: "Removed 1 paragraph (3 sentences) from “Lease terms”",
+      card: "Removed the paragraph “Parking” (3 sentences) from “Lease terms”",
+      line: "Removed the paragraph “Parking” (3 sentences)",
+    },
   ] as const)("held out: $case, a second edit after the paragraph went", async (each) => {
     const model = stepping([
       removal(each.language, PARKING_OUT[each.language]),
@@ -401,6 +426,8 @@ describe("A removal whose sentences another change of the reply writes again wai
     const { core, mind, client, answer } = await setUp(each.language, model);
 
     const told = lastResult(model);
+    expect(results(model)[0]).toContain(`${each.removed} (`);
+    expect(results(model)[0]).toContain("It applies in the Note at once, with Undo.");
     expect(told).toContain(
       "The earlier requested changes in that text apply in the Note with Undo; they are not waiting for review.",
     );
@@ -415,6 +442,12 @@ describe("A removal whose sentences another change of the reply writes again wai
       requests,
     });
     expect(applied?.held).toBe(false);
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate(each.language === "zh" ? "zh-CN" : "en", key, params);
+    const [row] = changedMinds(answer);
+    if (!row) throw new Error("The Answer changed no Note.");
+    expect(appliedFact(t, row, LEASE[each.language].name)).toBe(each.card);
+    expect(changeFact(t, row, null)).toBe(each.line);
     await client.settled();
     expect(shownWithChanges(client)).toEqual([
       LEASE[each.language].name,

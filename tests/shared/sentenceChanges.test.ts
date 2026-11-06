@@ -4,7 +4,13 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import { MIND_CONTENT_FIELD } from "../../src/core/api";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { changedText, sentenceChanges, takesOnlyOut } from "../../src/shared/sentenceChanges";
+import {
+  changedText,
+  paragraphStart,
+  paragraphsRemoved,
+  sentenceChanges,
+  takesOnlyOut,
+} from "../../src/shared/sentenceChanges";
 
 /*
  * What an edit does to the User's sentences, read from the text before and after it (#2356): the
@@ -284,6 +290,34 @@ describe("The text a request's Proposals change, before and after (#2356)", () =
       takenOut: 1,
       rewritten: 2,
       written: 1,
+    });
+  });
+});
+
+describe("How a paragraph removed whole is named (#2356)", () => {
+  // protects=a removed paragraph is named by its label without the colon when it starts with one ("Parking", 停车位), else by its first 4 words or 8 Chinese characters with "…" when cut, whole when short, and its sentences are counted; fails_when=the label keeps its colon, a long paragraph isn't cut, or a short one is; no_claim=how the line shows it.
+  test.each([
+    [PARKING.en, "Parking"],
+    [PARKING.zh, "停车位"],
+    ["The boat leaves at nine and returns at five.", "The boat leaves at…"],
+    ["请带一件厚外套和手套，山上风大。", "请带一件厚外套和…"],
+    ["Bring a coat.", "Bring a coat."],
+    ["带外套。", "带外套。"],
+    ["What the tenant and the landlord agreed: rent first.", "What the tenant and…"],
+  ])("%s", (text, start) => {
+    expect(paragraphStart(text)).toBe(start);
+  });
+
+  test("its sentences are counted, the first paragraph named", () => {
+    expect(paragraphsRemoved([PARKING.en])).toEqual({
+      paragraphs: 1,
+      sentences: 3,
+      start: "Parking",
+    });
+    expect(paragraphsRemoved([PARKING.zh, "押金：三个月租金，由出租方保管。"])).toEqual({
+      paragraphs: 2,
+      sentences: 4,
+      start: "停车位",
     });
   });
 });

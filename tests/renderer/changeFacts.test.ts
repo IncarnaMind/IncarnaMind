@@ -181,3 +181,49 @@ describe("The card's second fact: what waits in the Note (#1897)", () => {
     expect(inNoteText(t("zh-CN"), 2, 2)).toBeNull();
   });
 });
+
+describe("Whole paragraphs removed, said as removed on the card and the line (#2356)", () => {
+  // protects=a change that only removes whole paragraphs says on the Answer's card and the line over the Note what went, by the paragraph's label or first words and its sentences, in English and Chinese, one paragraph or several, one sentence or more; a removal beside another change still says it changed; fails_when=a removal reads as "Changed", or the counts or the name are wrong; no_claim=the Note's own text.
+  test.each([
+    [
+      row({ changed: 1, removed: { paragraphs: 1, sentences: 3, start: "Parking" } }),
+      "Removed the paragraph “Parking” (3 sentences) from “Q3”",
+      "Removed the paragraph “Parking” (3 sentences)",
+      "从“Q3”中删除了“Parking”一段（3 句）",
+      "删除了“Parking”一段（3 句）",
+    ],
+    [
+      row({ changed: 1, removed: { paragraphs: 1, sentences: 1, start: "停车位" } }),
+      "Removed the paragraph “停车位” (1 sentence) from “Q3”",
+      "Removed the paragraph “停车位” (1 sentence)",
+      "从“Q3”中删除了“停车位”一段（1 句）",
+      "删除了“停车位”一段（1 句）",
+    ],
+    [
+      row({ changed: 1, removed: { paragraphs: 1, sentences: 2, start: "The boat leaves at…" } }),
+      "Removed the paragraph “The boat leaves at…” (2 sentences) from “Q3”",
+      "Removed the paragraph “The boat leaves at…” (2 sentences)",
+      "从“Q3”中删除了“The boat leaves at…”一段（2 句）",
+      "删除了“The boat leaves at…”一段（2 句）",
+    ],
+    [
+      row({ changed: 2, removed: { paragraphs: 2, sentences: 5, start: "Parking" } }),
+      "Removed 2 paragraphs (5 sentences) from “Q3”",
+      "Removed 2 paragraphs (5 sentences)",
+      "从“Q3”中删除了 2 个段落（5 句）",
+      "删除了 2 个段落（5 句）",
+    ],
+    [
+      row({ changed: 2, removed: { paragraphs: 1, sentences: 3, start: "Parking" } }),
+      "Changed 2 paragraphs in “Q3”",
+      "Changed 2 paragraphs",
+      "已修改“Q3”中的 2 段",
+      "修改了 2 个段落",
+    ],
+  ])("%o", (counts, card, line, zhCard, zhLine) => {
+    expect(appliedFact(t("en"), { ...counts, filled: false }, "Q3")).toBe(card);
+    expect(changeFact(t("en"), counts, null)).toBe(line);
+    expect(appliedFact(t("zh-CN"), { ...counts, filled: false }, "Q3")).toBe(zhCard);
+    expect(changeFact(t("zh-CN"), counts, null)).toBe(zhLine);
+  });
+});

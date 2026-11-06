@@ -1465,6 +1465,14 @@ export interface SentenceChanges {
   named: { takenOut: string[]; rewritten: string[] };
 }
 
+/** Whole paragraphs a change removes and nothing else (`paragraphsRemoved`): how many, their sentences, and how the first is named. */
+export interface RemovedParagraphs {
+  paragraphs: number;
+  sentences: number;
+  /** The first one's label ("Parking"), or its first words, "…" when cut. */
+  start: string;
+}
+
 /**
  * What a call of a Minds' Tool did (#202): the changes it proposed in one
  * Mind, which wait there for the User to accept or reject them.
@@ -1485,6 +1493,8 @@ export interface MindChange {
   added?: true;
   /** What it does to the User's sentences, read from the text before and after it (`sentenceChanges`). Absent: it touches none. */
   sentences?: SentenceChanges;
+  /** It only removes whole paragraphs, none of the User's other text changed (`onlyRemoves`). */
+  removed?: RemovedParagraphs;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;
   /** How many tables it added. Absent: none. */
