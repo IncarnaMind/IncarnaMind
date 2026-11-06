@@ -2475,6 +2475,8 @@ export function createRewriteStream(
     const index = indexOf.get(segment) ?? -1;
     return (ownShare[index] ?? 0) > HALF_ITS_OWN || (ofOwn[index] ?? 0) >= HALF_ITS_OWN;
   };
+  const hasOwnWords = (segment: Segment) =>
+    [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word));
   /** Much like one of the selection's paragraphs, whichever it is. */
   const resembles = (paragraph: NewParagraph) =>
     nearnessOf(paragraph).alike.some((alike) => alike >= MOVED_LIKENESS);
@@ -2686,7 +2688,8 @@ export function createRewriteStream(
     // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
     // old, each written as their kind. Between two places the text holds, where it pairs with
     // the selection's paragraphs or starts as the selection does, that is one in the place of
-    // one that says more than half of that one's own words, or several each more than half like
+    // one that says more than half of that one's own words (more than half like it when it has
+    // none, each of its words also in another's, so no word can say a line is it), or several each more than half like
     // the one in its place, since a stray line such as "Changed to:" beside a new one names none,
     // and a new line on the pattern of the two around it says nothing of the one between (#2356). After the last (a partial text stops early, so
     // its end holds no place), each must also say in its words which it is: `TELLING_WORDS` of
@@ -2698,7 +2701,9 @@ export function createRewriteStream(
       held.every((paragraph) => !paragraph.asOther) &&
       (bounded
         ? held.length === 1
-          ? saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
+          ? hasOwnWords(between[0] as Segment)
+            ? saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
+            : placeLikeness(between[0] as Segment, held[0] as NewParagraph) > MOVED_LIKENESS
           : held.every(
               (paragraph, index) =>
                 placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
