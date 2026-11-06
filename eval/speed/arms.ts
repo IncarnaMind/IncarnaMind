@@ -30,8 +30,6 @@ export interface Arm {
   paths?: {
     writesThenCites?: boolean;
     retrievesFirst?: boolean;
-    helpsQuickFirst?: boolean;
-    checksHelpClaims?: boolean;
   };
   /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
   checks?: { quickFirstLook?: boolean };
@@ -96,15 +94,9 @@ export const ARMS: readonly Arm[] = [
         : { ...spec, thinking: "summary" },
   },
   {
-    id: "help-claims-checked",
-    label: "call help's reply checked for changes it claims once it is written, as before #2526",
-    paths: { checksHelpClaims: true },
-  },
-  {
-    id: "quick-help",
-    label:
-      "call help on the quick-tasks model, thinking off, the User's model only when its reply is flagged or a quote isn't found (#2526)",
-    paths: { helpsQuickFirst: true },
+    id: "answer-thinking",
+    label: "call help's model thinking as the normal path does, as before #2526",
+    spec: (spec) => (spec.thinking === "off" ? { ...spec, thinking: "answer" } : spec),
   },
   {
     id: "newest-stretch",
@@ -151,8 +143,6 @@ export function armSwitch() {
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
     retrievesFirst: () => current?.paths?.retrievesFirst,
-    helpsQuickFirst: () => current?.paths?.helpsQuickFirst,
-    checksHelpClaims: () => current?.paths?.checksHelpClaims,
   };
   const checkPaths: CheckPathsOverride = {
     quickFirstLook: () => current?.checks?.quickFirstLook,

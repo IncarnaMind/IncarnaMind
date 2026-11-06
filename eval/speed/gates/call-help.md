@@ -38,17 +38,23 @@ $15 for all the runs of this work, held by the runner itself: each run reads wha
 
 Per model and step: the times to the first sign, the first words, the first whole option and the end; where the time went (each request's first byte, first text and end, the requests for other steps, reasoning); model calls; how often a reply searched again or went to the User's model; each language's counts; the load; and what each run cost.
 
-## A step found by the first measurement (added on 2026-11-04, before its run)
+## What the remaining change compares (written before its run, committed before it)
 
-The first press measured (Claude Haiku 5.5, en-answer-sso, a smoke run of the harness) showed the reply in one call, its first words at 0.9 s, and its end held 1.2 s more by a check of the changes it claims, which asks a model again. Call help is offered no Tool that changes a Note or runs a command, and its reply is lines for the User to say, so that check has nothing to protect there. The branch skips it for call help by default; its run pairs `help-claims-checked` (today's path, the check kept) against `today` (the branch), held to every line above.
+After the review, the change this PR ships is call help's model thinking off, and its reply checked as any other reply is: the quick-tasks-model path and its arm are not in the product. This run pairs `answer-thinking` (the normal path's thinking, as before the change) against `today` (the branch), one case after the other, on Claude Haiku 5.5 and Claude Sonnet 5.5, in English and Chinese, one run per case.
 
-## False Supported counted over the set (added on 2026-11-04, after two smoke runs of one case, before any full run)
+**What counts as faster:** the seconds from the press to the first whole option's words (the panel's first useful words), per case, each language and model its own; the first streamed words are reported beside it but not held. **The spread:** the item-by-item difference. A model and language hold when the branch's median is at least 0.3 s sooner and no guard line above moves: cited, judged right, false Supported counted over the set, and the other guards. Any guard line that moves fails the step whatever the time. The arm differs from main by the claims check too, which the step below measured on its own (the reply was the same path sampled twice; the end came 1.2–1.3 s sooner; the check rewrote one reply in 90).
+
+## A step found by the first measurement (written before its run, committed after it)
+
+The first press measured (Claude Haiku 5.5, en-answer-sso, a smoke run of the harness) showed the reply in one call, its first words at 0.9 s, and its end held 1.2 s more by a check of the changes it claims, which asks a model again. Call help is offered no Tool that changes a Note or runs a command, and its reply is lines for the User to say, so that check has nothing to protect there. The branch skips it for call help; over both runs the check rewrote one reply in 90, and call help's replies are written without it. The run that measured the step paired `help-claims-checked` (today's path, the check kept) against `today` (the branch), held to every line above.
+
+## False Supported counted over the set (written before the full runs, committed after them)
 
 Two smoke runs on Claude Haiku 5.5 stopped at their first case, en-answer-sso, on a sentence only the step's arm wrote: "Team doesn't include single sign-on, so Enterprise is the plan that meets your security review", cited to the Enterprise line, which doesn't say it. The second pairing was `help-claims-checked` against `today`, which send the same requests until the reply is written: its reply can't depend on the arm, so the difference was chance, the same sentence written on one sample and not the other. Today's path writes it too. Stopping at the first new one would end every run at its first case where a reply varies, so for this set (`INCARNAMIND_EVAL_SPEED_FALSE_SUPPORTED=counted`) false Supported is held as a count instead: a step holds only where its arm has no more cases with a false Supported than today's path, over the cases both finished, and each case with one, on either arm, is listed with its sentence. Every other line above holds as written.
 
 ## How the claims step's runs were read (added on 2026-11-05, after its runs)
 
-This reading was decided after both runs, and it applies only to the step that skips the check of the changes a reply claims. That check runs once the reply is written; a unit test (`tests/core/quickHelp.test.ts`, "with the check kept, as before …") shows every request until then is the same with the check and without it. So the reply each arm shows is the same path sampled twice, and a guard that moves between the arms moves by chance. As written, one line failed on each model, each the other way on the other:
+This reading was decided after both runs, and it applies only to the step that skips the check of the changes a reply claims. That check runs once the reply is written; until then every request is the same with the check and without it, so the reply each arm showed is the same path sampled twice, and a guard that moved between the arms moved by chance. As written, one line failed on each model, each the other way on the other:
 
 - Claude Haiku 5.5: false Supported 10 → 13 cases (10 new, 7 gone); cited 18 → 19, judged right 11 → 14.
 - Claude Sonnet 5.5: cited 18 → 16 (2 lost, both Chinese, none gained); judged right 15 → 16, false Supported 18 → 14.

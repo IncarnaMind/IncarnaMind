@@ -2289,13 +2289,6 @@ export function createCitationSession(
       for (const record of records.values()) record.result ??= check(record);
     },
 
-    /** Forgets every record, and what the model was asked to fix, for a reply written again from the start. */
-    forget(): void {
-      records.clear();
-      toFix.clear();
-      rejected.length = 0;
-    },
-
     /**
      * Checks the words an Answer put in quotation marks (#483), after `check`:
      * each span (see ./quotedWords) is looked for with the Citation check's own

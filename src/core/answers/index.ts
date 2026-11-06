@@ -371,7 +371,6 @@ import { readKinds } from "./readKinds";
 import { withoutSearchTalk } from "./searchTalk";
 import { setAsideMarksInWords } from "./sheetRows";
 import type { ChangeStates } from "./toolRecord";
-import { toolTextIn } from "./toolText";
 import type { TurnCheck } from "./turnChecks";
 
 export type { AnswerDocuments } from "./citations";
@@ -428,8 +427,6 @@ interface WrittenAnswer {
   read: AnswerRead | null;
   /** How it was reached: what an Answer in a conversation shows above its text (#391). */
   steps: AnswerSteps;
-  /** The model writing it, where that isn't the one it was asked of: call help's quick model (#2526). */
-  writtenBy: ChatModelChoice | null;
 }
 
 /** The Mind a Question in a conversation reads, as read when it was asked (or its Answer regenerated). */
@@ -643,14 +640,6 @@ export interface AnswersOptions {
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
   ): Promise<PreparedChatModel["model"]>;
-  /**
-   * The model call help answers on first under `answers`, thinking off, before the User's own
-   * (#2526): its provider's quick-tasks model where the list beside the catalog admits the pair;
-   * null: the User's model from the start.
-   */
-  helpModel?(answers: ChatModelChoice): ChatModelChoice | null;
-  /** Whether call help's reply is checked for changes it claims; by default it isn't (#2526). */
-  checksHelpClaims?(): boolean;
   /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
@@ -1788,7 +1777,6 @@ export function createAnswers(options: AnswersOptions) {
             textOrigin,
             read,
             steps: steps(),
-            writtenBy,
           },
           outcome,
         );
@@ -1798,8 +1786,6 @@ export function createAnswers(options: AnswersOptions) {
       }
     };
 
-    /** Call help's quick model while it writes the reply; null: the model it was asked of (#2526). */
-    let writtenBy: ChatModelChoice | null = null;
     let settled = false;
     /** The text as it ends: each quote checked, once, and the markers no Citation backs taken out. */
     const settle = () => {
@@ -2393,24 +2379,11 @@ export function createAnswers(options: AnswersOptions) {
       const thinking = help
         ? "off"
         : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer"));
-      /** The quick model call help answers on first, until its reply escalates to the User's. */
-      let quickHelp = help ? (options.helpModel?.(model) ?? null) : null;
       try {
-        prepared = await options.prepareModel(quickHelp ?? model, thinking);
-        writtenBy = quickHelp;
+        prepared = await options.prepareModel(model, thinking);
       } catch (error) {
-        if (quickHelp === null) {
-          finish({ status: "failed", error: failureOf(error) });
-          return;
-        }
-        console.error(`The quick-tasks model couldn't answer call help: ${messageOf(error)}`);
-        quickHelp = null;
-        try {
-          prepared = await options.prepareModel(model, thinking);
-        } catch (again) {
-          finish({ status: "failed", error: failureOf(again) });
-          return;
-        }
+        finish({ status: "failed", error: failureOf(error) });
+        return;
       }
       calculating = offersCalculate(prepared.capabilities);
       workbookToolsOffered =
@@ -3227,7 +3200,7 @@ export function createAnswers(options: AnswersOptions) {
       const readByUser = !outside && !help && !input.task && input.toolSet !== "check";
       // Call help is offered no Tool that changes a Note or runs a command, and its reply is lines
       // for the User to say: a claim of a change can't be the app's, so it isn't checked (#2526).
-      const checksClaims = !help || options.checksHelpClaims?.() === true;
+      const checksClaims = !help;
       const turnChecks: TurnCheck[] = [
         ...((mindsTools || commandsOffered) && checksClaims
           ? [
@@ -3390,24 +3363,6 @@ export function createAnswers(options: AnswersOptions) {
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
       let writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
-      /** What the reply starts with before any model writes: the line saying the live text is behind. */
-      const leadIn = markdown;
-      /**
-       * Whether the quick model's call help goes to the User's model (#2526): it failed, the checks
-       * flagged it (a claim no Tool backs, a Tool's call left as text, nothing written), or a quote
-       * it shows isn't on its page.
-       */
-      const escalates = (ended: Outcome): boolean => {
-        if (ended.status === "stopped") return false;
-        if (ended.status === "failed") return true;
-        if (unbackedClaims.length > 0 || unbackedCommands.length > 0 || unrunTools.length > 0)
-          return true;
-        const text = withoutFootnoteDefinitions(markdown).slice(leadIn.length);
-        if (text.trim() === "" || toolTextIn(text).length > 0) return true;
-        const shown = new Set(markersIn(text));
-        return (session.tools.unfoundQuotes?.() ?? []).some((quote) => shown.has(quote.marker));
-      };
-      for (;;) {
         for await (const event of engine.generate({
           instructions: (
             mode,
@@ -3800,32 +3755,6 @@ export function createAnswers(options: AnswersOptions) {
               break;
           }
         }
-        // Escalated, the User's model writes the reply again from the start, as if the quick one
-        // had never written: what it recorded goes too, so no marker of the new reply finds it.
-        if (quickHelp !== null && !finished && escalates(outcome)) {
-          quickHelp = null;
-          try {
-            prepared = await options.prepareModel(model, thinking);
-          } catch (error) {
-            // The quick reply stands as it ended, its checks shown on it, rather than none at all.
-            options.reportError(error);
-            break;
-          }
-          if (finished) return;
-          writtenBy = model;
-          writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
-          session.forget();
-          unbackedClaims = [];
-          unbackedCommands = [];
-          unrunTools = [];
-          markdown = leadIn;
-          if (leadIn === "") firstTextAt = null;
-          outcome = { status: "stopped" };
-          writeSoon();
-          continue;
-        }
-        break;
-      }
       settleMinds(outcome.status === "failed");
       finish(outcome);
     };
@@ -3972,7 +3901,6 @@ export function createAnswers(options: AnswersOptions) {
         textOrigin: answer.textOrigin,
         read: answer.read,
         steps: answer.steps,
-        ...(answer.writtenBy && { model: answer.writtenBy }),
         ...(outcome && {
           outcome: {
             status: outcome.status,

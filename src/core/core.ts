@@ -282,7 +282,7 @@ import { nativePageSetup } from "./pageSetup";
 import { createPrivacy, type NetworkTrafficRegistry } from "./privacy";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
-import { helpsQuickFirst, retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import { retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
 import { CHAT_FLOW_SENDS, createChat, type PreparedChatModel } from "./providers/chat";
 import { CHATGPT_PLAN_ENDPOINTS, createChatGptPlan } from "./providers/chatgpt/plan";
 import { createClaudeAccount } from "./providers/claudeAccount/account";
@@ -2118,24 +2118,6 @@ export function createCore(adapters: CoreAdapters): Core {
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
       retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
-    checksHelpClaims: () => adapters.answerPaths?.checksHelpClaims?.() ?? false,
-    helpModel(answers) {
-      const quick = chat.quickTasksModel(answers);
-      // Only the same provider's quick model is the service the User chose for Answers: one they
-      // set from another provider, or a service beside a model on this computer, never hears the call.
-      if (!quick || quick.providerId !== answers.providerId || quick.modelId === answers.modelId)
-        return null;
-      const asked = chat.describeModel(answers);
-      const first = chat.describeModel(quick);
-      if (!asked || !first) return null;
-      return helpsQuickFirst(
-        { catalogId: asked.catalogId, modelId: answers.modelId },
-        { catalogId: first.catalogId, modelId: quick.modelId },
-        adapters.answerPaths,
-      )
-        ? quick
-        : null;
-    },
     async prepareQuickModel(answers, prepared) {
       const quick = chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
