@@ -7,7 +7,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "A02",
@@ -17,7 +24,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "A03",
@@ -27,7 +41,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "A04",
@@ -38,7 +59,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "A05",
@@ -48,7 +76,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "A06",
@@ -58,7 +93,14 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "A07",
@@ -69,7 +111,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "B01",
@@ -80,7 +129,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "B02",
@@ -91,7 +147,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "B03",
@@ -102,7 +165,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "B04",
@@ -113,7 +183,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "B05",
@@ -124,7 +201,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "B06",
@@ -135,7 +219,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "B07",
@@ -146,7 +237,14 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "C01",
@@ -157,7 +255,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "C02",
@@ -168,7 +273,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "C03",
@@ -179,7 +291,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "C04",
@@ -190,7 +309,14 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "D01",
@@ -201,7 +327,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "D02",
@@ -212,7 +345,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "D03",
@@ -223,7 +363,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "D04",
@@ -234,7 +381,14 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "E01",
@@ -244,7 +398,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "E02",
@@ -254,7 +415,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "E03",
@@ -265,7 +433,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "E04",
@@ -275,7 +450,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "E05",
@@ -286,7 +468,14 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "F01",
@@ -296,7 +485,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "pos",
-    "asMain": true
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "F02",
@@ -307,7 +503,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "pos",
-    "asMain": true
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "F03",
@@ -317,7 +520,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "pos",
-    "asMain": true
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "F04",
@@ -328,7 +538,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "pos",
-    "asMain": true
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "G01",
@@ -339,7 +556,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "neg",
-    "asMain": true
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "G02",
@@ -349,7 +573,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "neg",
-    "asMain": true
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "G03",
@@ -360,7 +591,14 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "neg",
-    "asMain": true
+    "main": {
+      "amount": "supported",
+      "minus": "contradicted"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "G04",
@@ -370,7 +608,14 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "neg",
-    "asMain": true
+    "main": {
+      "amount": "supported",
+      "minus": "contradicted"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "H01",
@@ -381,7 +626,14 @@
     "amount": "$95,000",
     "number": "$95,000.00",
     "truth": "neg",
-    "asMain": true
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "H02",
@@ -392,7 +644,14 @@
     "amount": "¥95,000",
     "number": "95,000",
     "truth": "neg",
-    "asMain": true
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "I01",
@@ -402,7 +661,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "I02",
@@ -412,7 +678,14 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "pos",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "supported",
+      "minus": "contradicted"
+    }
   },
   {
     "id": "I03",
@@ -422,7 +695,14 @@
     "amount": "$2,600,000",
     "number": "$2,600,000",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   },
   {
     "id": "I04",
@@ -432,6 +712,13 @@
     "amount": "¥2,600,000",
     "number": "2,600,000",
     "truth": "neg",
-    "asMain": false
+    "main": {
+      "amount": "contradicted",
+      "minus": "supported"
+    },
+    "expected": {
+      "amount": "contradicted",
+      "minus": "supported"
+    }
   }
 ]

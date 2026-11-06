@@ -2940,6 +2940,19 @@ describe("a bracket right after an amount (#2341)", () => {
       [f("2.5万", 25000, { scale: "万" }), f("（25,000）", -25000)],
     ],
     [
+      "Revenue $1.2m ($1,200,000)",
+      { ...EN, header: "２０２５ ２０２４" },
+      [
+        f("$1.2m", 1200000, { unit: "USD", scale: "m" }),
+        f("($1,200,000)", -1200000, { unit: "USD" }),
+      ],
+    ],
+    [
+      "营业收入 2.5万 （25,000）",
+      { ...ZH, header: "２０２５年度 ２０２４年度" },
+      [f("2.5万", 25000, { scale: "万" }), f("（25,000）", -25000)],
+    ],
+    [
       "Despite a negative outlook, the rent is sixty-two thousand dollars ($62,000.00).",
       EN,
       [f("($62,000.00)", -62000, { unit: "USD" })],

@@ -2760,6 +2760,27 @@ test.each([
     verdict: "contradicted",
   },
   {
+    name: "a second year's figure under full-width years above the quote",
+    claim: "Cash at bank in 2024 was $1,200,000.",
+    figure: "$1,200,000",
+    language: "en",
+    body: "Cash flow statement\n２０２５ ２０２４\nCash at bank $1.2m ($1,200,000)",
+    quotes: ["Cash at bank $1.2m ($1,200,000)"],
+    number: "$1,200,000",
+    supported: false,
+    verdict: "contradicted",
+  },
+  {
+    name: "the signed sentence under full-width years above the quote",
+    claim: "Cash at bank in 2024 was -$1,200,000.",
+    figure: "-$1,200,000",
+    language: "en",
+    body: "Cash flow statement\n２０２５ ２０２４\nCash at bank $1.2m ($1,200,000)",
+    quotes: ["Cash at bank $1.2m ($1,200,000)"],
+    number: "$1,200,000",
+    supported: true,
+  },
+  {
     name: "English words with an article",
     claim: "The deposit is $160,000.",
     figure: "$160,000",
@@ -2792,6 +2813,8 @@ test.each([
   if ("verdict" in each) expect(result.verdict).toBe(each.verdict);
 });
 
+type Verdicts = { amount: "supported" | "contradicted"; minus: "supported" | "contradicted" };
+
 interface SignProbe {
   id: string;
   shape: string;
@@ -2801,20 +2824,35 @@ interface SignProbe {
   amount: string;
   number: string;
   truth: "pos" | "neg";
-  asMain: boolean;
+  main: Verdicts;
+  expected: Verdicts;
 }
 
 // Written before it was run (#2341): restatements beside sign words near and far, false sign
 // claims, headers of periods and "Less:" lines, each checked with its amount and with its minus.
-// A claim the Document doesn't back is never Supported, except where a sign word stands more than
-// 400 characters from the quote, and where the reader keeps main's minus by design.
+// Both claims are pinned to the verdict the Check gives, and main's verdicts are kept beside them.
 const signProbes = JSON.parse(
   readFileSync(join(__dirname, "../fixtures/figures/bracket-sign-probes.json"), "utf8"),
 ) as SignProbe[];
-test.each(signProbes.flatMap((probe) => [false, true].map((signed) => ({ ...probe, signed }))))(
-  "$id ($shape), with its minus $signed: a claim the Document doesn't back isn't Supported (#2341)",
+const signs = ["amount", "minus"] as const;
+const backs = (probe: SignProbe, sign: (typeof signs)[number]) =>
+  (probe.truth === "neg") === (sign === "minus");
+
+test.each(signProbes)(
+  "$id ($shape): no claim main checks right is checked wrong here, but for a sign more than 400 characters before a quote (#2341, #2578)",
+  (probe) => {
+    for (const sign of signs) {
+      const right = (verdict: string) => (verdict === "supported") === backs(probe, sign);
+      if (right(probe.main[sign]) && probe.shape !== "farRealBefore")
+        expect(right(probe.expected[sign])).toBe(true);
+    }
+  },
+);
+
+test.each(signProbes.flatMap((probe) => signs.map((sign) => ({ ...probe, sign }))))(
+  "$id ($shape), $sign: the Check gives its pinned verdict (#2341)",
   async (probe) => {
-    const shown = `${probe.signed ? "-" : ""}${probe.amount}`;
+    const shown = `${probe.sign === "minus" ? "-" : ""}${probe.amount}`;
     const claim = probe.lang === "zh-CN" ? `金额为${shown}。` : `The amount is ${shown}.`;
     const { result } = await checkWith({
       claim,
@@ -2828,9 +2866,7 @@ test.each(signProbes.flatMap((probe) => [false, true].map((signed) => ({ ...prob
         },
       ]),
     });
-    const backed = (probe.truth === "neg") === probe.signed;
-    if (!backed && probe.shape !== "farRealBefore" && !probe.asMain)
-      expect(result.verdict).not.toBe("supported");
+    expect(result.verdict).toBe(probe.expected[probe.sign]);
   },
 );
 
