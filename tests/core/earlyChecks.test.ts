@@ -107,7 +107,7 @@ test("the run takes an early check that sends the same, and the others stop at o
   expect(await fresh).toBe(RESULT);
 });
 
-// protects=an early check whose request is the same but whose sources changed meanwhile (a Document renamed so a record cite's source is no longer one, a source chosen in the Note) is stopped and checked again, not taken (#2532); fails_when=only the request decides what is taken; no_claim=which changes count, which the core's Library revision and the Note's record-cite inputs say.
+// protects=an early check whose request is the same but whose sources changed meanwhile (a Document renamed so a record cite's source is no longer one, a source chosen in the Note) is stopped and checked again, not taken (#2532); fails_when=only the request decides what is taken; no_claim=which changes count, which the core's Library state and the Note's record-cite inputs say.
 test("an early check is stopped, not taken, when what it reads besides its request changed", async () => {
   const { early, sent, finish, run, limit } = setUp(3);
   let library = 1;

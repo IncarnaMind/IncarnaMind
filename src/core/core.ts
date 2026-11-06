@@ -106,7 +106,6 @@ import {
   CONTENT_SCHEMA_VERSION,
   type ConversationAskResult,
   type CoreApi,
-  type CoreEventName,
   type CoreEventSource,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
@@ -599,29 +598,6 @@ const STILL_PROCESSING: ReadonlySet<DocumentStatus> = new Set([
   "embedding",
 ]);
 
-/**
- * The events that change what a check reads of the Library at run time: its Documents, names,
- * Folders and Tags. A Document counts once it is read (or can't be), not at each step of reading,
- * and a model's own status (loading, downloading) changes nothing a search finds.
- */
-const LIBRARY_EVENTS: ReadonlySet<CoreEventName> = new Set<CoreEventName>([
-  "documents.renamed",
-  "documents.removed",
-  "documents.moved",
-  "documents.batch",
-  "documents.tagged",
-  "library.changed",
-  "library.assignments",
-  "folders.changed",
-  "tags.changed",
-  "settings.changed",
-]);
-const READ_STATES: ReadonlySet<DocumentStatus> = new Set<DocumentStatus>([
-  "ready",
-  "failed",
-  "no-text",
-]);
-
 export function createCore(adapters: CoreAdapters): Core {
   const { dataDir } = adapters.paths;
   mkdirSync(dataDir, { recursive: true });
@@ -652,14 +628,7 @@ export function createCore(adapters: CoreAdapters): Core {
     throw error;
   }
   const events = createEventHub();
-  /** Counts the changes to what a check reads of the Library besides its request (#2532). */
-  let libraryRevision = 0;
-  events.onAny((event) => {
-    if (LIBRARY_EVENTS.has(event)) libraryRevision++;
-  });
-  events.on("document.status", (document) => {
-    if (READ_STATES.has(document.status)) libraryRevision++;
-  });
+
   const knownSecrets = new Set<string>();
   // Logs what happens from here on, from the events: never the User's content.
   const activity = logActivity(events, adapters.log ?? silentLogger, knownSecrets);
@@ -2851,7 +2820,23 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const checks = createChecks({
     language: () => settings.get().language,
-    libraryRevision: () => libraryRevision,
+    // What a check reads of the Documents as it runs: their words, names and whether it may use
+    // them. Its scope, their Folders and Tags are taken when the run starts (#2532).
+    libraryState: () =>
+      JSON.stringify(
+        documents
+          .list()
+          .map((document) => [
+            document.id,
+            document.name,
+            document.title,
+            document.contentHash,
+            document.status,
+            document.notCited,
+            document.ownFile,
+            document.readHiddenSheets,
+          ]),
+      ),
     content,
     requireMind: (mindId) => {
       writableMind(mindId);

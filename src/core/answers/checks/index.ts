@@ -231,8 +231,8 @@ export interface ChecksOptions
   > {
   /** The interface language: what a check's sentence is written in. */
   language(): Language;
-  /** Grows whenever what a check reads of the Library at run time may have changed. */
-  libraryRevision(): number;
+  /** What a check reads of the Library as it runs, as text that differs whenever that does. */
+  libraryState(): string;
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   /** What contradiction watch needs besides (#112). */
   watch: Pick<

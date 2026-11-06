@@ -115,8 +115,8 @@ export interface MindCheckOptions extends RunChecksOptions {
   isRunning(requestId: string): boolean;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
-  /** Grows whenever what a check reads of the Library at run time may have changed. */
-  libraryRevision(): number;
+  /** What a check reads of the Library as it runs, as text that differs whenever that does. */
+  libraryState(): string;
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
@@ -743,16 +743,27 @@ export function createMindCheck(options: MindCheckOptions) {
      * What a claim's check reads besides its request: the Library, and for a record cite the
      * Note's source choices and the paragraphs an `Id.` or `supra` refers back to.
      */
+    let libraryNow: string | null = null;
+    // Read once for all the checks it is asked for at the same moment.
+    const library = () => {
+      if (libraryNow === null) {
+        libraryNow = options.libraryState();
+        queueMicrotask(() => {
+          libraryNow = null;
+        });
+      }
+      return libraryNow;
+    };
     const readsNow = (claim: SelectedSentence) => {
       const cites = recordCiteSpans(noteTextOf(claim)).length > 0;
       return () =>
         cites
           ? JSON.stringify([
-              options.libraryRevision(),
+              library(),
               content.readSettings(mindId, readRecordCiteChoices),
               content.read(mindId, recordCiteParagraphs),
             ])
-          : String(options.libraryRevision());
+          : library();
     };
     /** Starts a claim's check before the run's marks are written (`earlyChecks`). */
     const startEarly = (claim: SelectedSentence, named?: readonly ClaimPartPlan[]) => {

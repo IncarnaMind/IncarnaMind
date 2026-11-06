@@ -1766,16 +1766,21 @@ describe("Check this note starts each sentence's check once its claims are named
     expect(shown.find((each) => each.sentence === MOON)?.shown.state).toBe("supported");
   });
 
-  // protects=a check started early is kept when only a model's own status changes meanwhile (the reranking model loading, as it does at a session's first search), which changes nothing a search finds (#2532); fails_when=a model's status counts as a Library change and the early check is sent again; no_claim=a change of the reranker the User chooses.
-  test("a check started early is kept when the reranking model's status changes before the claims are named", async () => {
+  // protects=a check started early is kept when only a model's own status (the reranking model loading, as at a session's first search) or a Document's Tags (as background tagging sets them) change meanwhile, neither of which a check's search reads (#2532); fails_when=either counts as a change and the early check is sent again; no_claim=a sentence about the Library's Tags, whose early check reads them as they were when it started.
+  test("a check started early is kept when the reranking model's status or a Document's Tags change before the claims are named", async () => {
     const { core, mindId, sort, runsOf } = await noteOfTwo("held");
-    const statuses: string[] = [];
-    core.on("rerank.changed", (settings) => statuses.push(settings.model.state));
+    const changes: string[] = [];
+    core.on("rerank.changed", () => changes.push("rerank"));
+    core.on("documents.tagged", () => changes.push("tagged"));
 
     const checking = core.checkMind(request(mindId, "all"));
     await vi.waitFor(() => expect(runsOf(MOON)).toHaveLength(1));
     await core.downloadRerankingModel();
-    expect(statuses.length).toBeGreaterThan(0);
+    const [tides] = await core.listDocuments();
+    if (!tides) throw new Error("The Document is missing.");
+    const tag = await core.createTag({ name: "Tides" });
+    await core.addDocumentTag(tides.id, tag.id);
+    expect(changes).toEqual(expect.arrayContaining(["rerank", "tagged"]));
     sort.release();
 
     expect(await checking).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
