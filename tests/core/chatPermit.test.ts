@@ -74,14 +74,12 @@ describe("A run permit at model preparation", () => {
 
       await expect(
         chat.prepareModel(choice, "classification", undefined, {
-          flow: "classification",
-          serviceId: openai.service.id,
+          permit: { flow: "classification", serviceId: openai.service.id },
         }),
       ).rejects.toThrow(ChatNotReadyError);
 
       const matched = await chat.prepareModel(choice, "classification", undefined, {
-        flow: "classification",
-        serviceId: anthropic.service.id,
+        permit: { flow: "classification", serviceId: anthropic.service.id },
       });
       expect(matched.provider.service?.id).toBe(anthropic.service.id);
     } finally {

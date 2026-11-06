@@ -23,7 +23,7 @@ import { type CalculationSession, documentFigureContext, whole } from "../calcul
 import { namingHolds } from "./analysisNaming";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
-import { FIGURES, type ReadVerdict, readVerdict } from "./prompt";
+import { FIGURES, figureHandle, type ReadVerdict, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
@@ -123,6 +123,7 @@ export function readFigureReply(
     return null;
   const ids = new Set(figures.map((figure) => figure.id));
   if (ids.size !== figures.length) return null;
+  const byHandle = new Map(figures.map((figure, index) => [figureHandle(index), figure.id]));
   // An Analysis's figure is judged by its name alone: a source or calculation given for it is
   // never read, so one written as prose doesn't make the reply unreadable (#2378).
   const analysed = new Set(
@@ -130,8 +131,9 @@ export function readFigureReply(
   );
   const items: FigureReplyItem[] = [];
   for (const given of value.items) {
+    const id = isRecord(given) && typeof given.id === "string" ? byHandle.get(given.id) : undefined;
     const raw =
-      isRecord(given) && typeof given.id === "string" && analysed.has(given.id)
+      isRecord(given) && id !== undefined && analysed.has(id)
         ? { ...given, source: null, calculation: null, reading: null }
         : given;
     const judgment = judgmentOf(raw);
@@ -140,8 +142,8 @@ export function readFigureReply(
     if (
       !isRecord(raw) ||
       !judgment ||
-      typeof raw.id !== "string" ||
-      !ids.delete(raw.id) ||
+      id === undefined ||
+      !ids.delete(id) ||
       reading === undefined ||
       calculation === undefined ||
       (raw.relation !== "equals" && raw.relation !== "at most" && raw.relation !== "at least")
@@ -183,7 +185,7 @@ export function readFigureReply(
     if (source && calculation !== null) return null;
     items.push({
       ...judgment,
-      id: raw.id,
+      id,
       measure: readMeasure(raw.measure),
       reading,
       relation: raw.relation,

@@ -1212,6 +1212,7 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.unit.library": "Your Library has {amount}, not {figure}.",
   "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
@@ -1260,7 +1261,15 @@ export const en = {
   "opinions.one": "1 opinion left out",
   "opinions.count": "{count} opinions left out",
   "opinions.show": "Show",
+  "opinions.itself.one": "1 sentence about this note left out",
+  "opinions.itself": "{count} sentences about this note left out",
+  "opinions.both.one.one": "1 opinion and 1 sentence about this note left out",
+  "opinions.both.one.other": "1 opinion and {itself} sentences about this note left out",
+  "opinions.both.other.one": "{opinions} opinions and 1 sentence about this note left out",
+  "opinions.both.other.other":
+    "{opinions} opinions and {itself} sentences about this note left out",
   "claim.opinion": "Left out as an opinion",
+  "claim.itself": "About this note, not the Documents: left out",
   "claim.checkAnyway": "Check anyway",
   "claim.part.checking": "Checking this part…",
   "claim.parts.more": "{count} more",
@@ -1307,6 +1316,8 @@ export const en = {
   "claim.checkNow": "Check now",
   "claim.reason.consent-revoked": "Not checked: you turned off sending to this service.",
   "claim.reason.local-mode": "Not checked: everything stays on this computer.",
+  "claim.reason.consent-widened": "Checks now send more than when you allowed them",
+  "claim.reviewConsent": "Review…",
   "claim.reason.absence-read-limit":
     "A sentence that says something is absent needs its Document read whole.",
   "claim.reason.absence-unconfirmed":
@@ -1336,6 +1347,7 @@ export const en = {
   "claim.reason.figures-not-read.whole": "The figures in “{document}” couldn’t be read.",
   "claim.reason.figures-not-read.unknown": "The figures in a Document couldn’t be read.",
   "claim.reason.sentence-figures-not-read": "The figures in this sentence couldn’t be read.",
+  "claim.reason.library-unsettled": "Only your Library’s counts, names and kinds can be checked.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
@@ -1346,6 +1358,30 @@ export const en = {
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
   "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
+  "claim.recheck.library": "Your Library has changed since this was checked.",
+  "claim.library.row": "{source}: {fact}",
+  "claim.library.source.library": "Your Library",
+  "claim.library.source.scope": "“{name}”",
+  "claim.library.source.scope.more": "“{name}” and {count} more",
+  "claim.library.documents.one": "1 Document",
+  "claim.library.documents": "{count} Documents",
+  "claim.library.folder.one": "1 Document in “{folder}”",
+  "claim.library.folder": "{count} Documents in “{folder}”",
+  "claim.library.unfiled.one": "1 Document not in a Folder",
+  "claim.library.unfiled": "{count} Documents not in a Folder",
+  "claim.library.name.one": "1 Document named “{name}”",
+  "claim.library.name": "{count} Documents named “{name}”",
+  "claim.library.shared.one": "1 name shared by several Documents",
+  "claim.library.shared": "{count} names shared by several Documents",
+  "claim.library.folders.one": "1 Folder",
+  "claim.library.folders": "{count} Folders",
+  "claim.library.tags.one": "1 Tag",
+  "claim.library.tags": "{count} Tags",
+  "claim.library.tag.one": "1 Document tagged “{tag}”",
+  "claim.library.tag": "{count} Documents tagged “{tag}”",
+  "claim.library.notes.one": "1 other note",
+  "claim.library.notes": "{count} other notes",
+  "claim.library.note": "the note “{name}”",
   "health.label": "Claims and Citations",
   "health.found.one": "1 Citation found",
   "health.found": "{count} Citations found",
@@ -2917,7 +2953,8 @@ export const en = {
   "providers.sendsLine": "Sends your questions and document text to {provider}.",
   "providers.sends.chat":
     "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
-  "providers.sends.checks": "each sentence you check",
+  "providers.sends.checks":
+    "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
   "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
   "providers.sends.edits": "the text you ask the assistant to change",
   "providers.sends.onRequest":
@@ -3193,6 +3230,16 @@ export const en = {
   "consent.data.document-names":
     "The names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50 Documents)",
   "consent.data.other-minds": "Part of another note, when a Question names it",
+  "consent.data.library-counts":
+    "For a sentence about your Library: how many Documents in all, not in a Folder and of each kind, how many Folders, Tags and other notes, how many names are shared by several Documents, and how many more items the note’s search has",
+  "consent.data.library-names":
+    "For a sentence about your Library: the name of the Folder, Tag or Document the note searches, and the names of Documents, Folders, Tags and notes that match the sentence’s words, with each one’s kind and count and how many more matched",
+  "consent.data.file-properties":
+    "A file’s name, its own dates (or this computer’s when it has none), author, page, slide or sheet count and size, for a sentence about the file",
+  "consent.data.absence-documents":
+    "Whole Documents in the scope, up to 40 pages in all, for a sentence that says something is absent",
+  "consent.data.watched-sentences":
+    "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":
@@ -4822,6 +4869,8 @@ export const en = {
     "Needs re-check: checked before each of its figures was checked with its own source.",
   "export.comment.sentence.needs-recheck.referent":
     "Needs re-check: the record cite its Id. or supra refers back to has changed.",
+  "export.comment.sentence.needs-recheck.library":
+    "Needs re-check: your Library has changed since this was checked.",
   "export.comment.recordCite.result": "{raw}: {outcome}",
   "export.comment.recordCite.passage": "Passage: {passage}",
   "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
@@ -6893,6 +6942,10 @@ export const en = {
     "1 sentence couldn’t be checked: you turned off sending to this service",
   "selfCheck.localMode": "{count} sentences couldn’t be checked: everything stays on this computer",
   "selfCheck.localMode.one": "1 sentence couldn’t be checked: everything stays on this computer",
+  "selfCheck.consentWidened":
+    "{count} sentences couldn’t be checked: checks now send more than when you allowed them",
+  "selfCheck.consentWidened.one":
+    "1 sentence couldn’t be checked: checks now send more than when you allowed them",
   "selfCheck.planLimit": "{count} sentences couldn’t be checked: plan limit reached",
   "selfCheck.planLimit.one": "1 sentence couldn’t be checked: plan limit reached",
   "selfCheck.resumesAt": "Resumes at {time}",

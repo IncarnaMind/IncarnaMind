@@ -18,6 +18,7 @@ import { formatDate } from "../../shared/dates";
 import { titleWithoutSite } from "../../shared/documentNames";
 import { propertyWords } from "../../shared/fileProperties";
 import { translate } from "../../shared/i18n";
+import { factWords, sourceWords } from "../../shared/libraryFacts";
 import { citationLocation, type Translate } from "../../shared/locations";
 import { mindCommentsOf } from "../../shared/mindComments";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -115,6 +116,8 @@ export interface ExportsDependencies {
   language(): Language;
   /** A Folder's, Tag's or Document's name; null for one that isn't there. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
+  /** The Library's facts the Mind's checks rest on, as it gives them now (`CoreApi.libraryFactsNow`). */
+  libraryFactsNow(mindId: string): Record<string, string>;
   /** The Mind's citation style (#289), and the language its text is in, which a style may take. */
   citationStyle(mindId: string): { style: ResolvedCitationStyle; textLanguage: Language };
   /** The family the Mind's font is written as in Word and HTML; null: the default. */
@@ -262,6 +265,7 @@ export function createExports(deps: ExportsDependencies) {
       leaveOutHiddenColumns: true,
       leavesApp: true,
     };
+    const libraryNow = Object.entries(deps.libraryFactsNow(mind.id));
     const {
       read,
       questions,
@@ -284,16 +288,20 @@ export function createExports(deps: ExportsDependencies) {
         readOptions.review = reviewReading(fragment);
       else if (doc && fromWord) readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {
-        versions: new Map(documents.map((document) => [document.id, document.contentHash])),
+        versions: new Map([
+          ...documents.map((document) => [document.id, document.contentHash] as const),
+          ...libraryNow,
+        ]),
         folderId: mind.folderId,
         scope: doc ? mindScopeOf(doc) : null,
         scopeItemName: deps.scopeItemName,
         sourceOf: (passage) => footnoteOf(passage, documents, kept, language, deps).source,
         quoteOf: (passage) => {
           const location = citationLocation(passage);
-          return location?.kind === "properties"
-            ? propertyWords(location, (key, params) => translate(language, key, params), language)
-            : (passage.quote ?? "");
+          const t: Translate = (key, params) => translate(language, key, params);
+          if (location?.kind === "properties") return propertyWords(location, t, language);
+          if (location?.kind === "library") return factWords(location.fact, t, language);
+          return passage.quote ?? "";
         },
       });
       checkedOf = checkedLines(fragment, documents, language);
@@ -1143,6 +1151,11 @@ export function footnoteOf(
         }
       : null;
   const web = documents.find((each) => each.id === state.documentId)?.web;
+  const ofLibrary = citationLocation(attributes);
+  // The Library's facts are no Document's: the note names where they came from (#2525).
+  if (ofLibrary?.kind === "library") {
+    return { source: sourceWords(ofLibrary.source, t, language), unverified: false };
+  }
   if (!web) {
     return {
       // A file's properties are no place in its text: a plain note says what was read (#2458).
