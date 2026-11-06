@@ -44,3 +44,13 @@ The runs were made at 32dc8ee60 against 9d23dc0a4, in the order above, on a dire
 - **Spent:** $2.78 on these runs, and $0.06 on one Check this Note for the reranker's waits.
 
 So the step doesn't hold every bar: the end in Sonnet's English cell, and the verdict of one sentence in Haiku's Chinese cell. Whether it ships is decided in a dated note below.
+
+## Decision, 2026-11-06
+
+The end-time line is not met in one cell, Sonnet 5.5 English, where it ended 4.1 s later against a 0.8 s spread. The step ships anyway, because the mechanism rules the step out as the cause:
+
+- every request matches main byte for byte, so no verdict can differ because of the step;
+- in every run of both arms, the end came 0.01–0.09 s after the last model request, so the end is set by the slowest check's requests, not by the landing;
+- the runs differed in how many sentences were cut, 0 to 3, and each cut adds a check.
+
+The first mark comes 9.8–17.5 s sooner in all four cells, and the end is no later in the other three. The one decoy that differs, h2-zh-copy-damage, is sampling noise on identical requests. It went the other way in English, and it is a false Supported on main too.
