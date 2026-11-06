@@ -88,8 +88,18 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
     expect(await core.listDataFlows()).toEqual([
       allowed("chat", [...CHAT_FLOW_SENDS]),
       allowed("suggestions", ["writing", "writing-passages"]),
-      allowed("edits", ["selection"]),
-      allowed("checks", ["selection", "passages", "verified-document", "blocks"]),
+      allowed("edits", ["selection", "source-quotes"]),
+      allowed("checks", [
+        "selection",
+        "passages",
+        "verified-document",
+        "blocks",
+        "library-counts",
+        "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
+      ]),
       {
         flow: {
           id: "document-check",
@@ -138,8 +148,11 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
     expect(first.request.newKinds).toEqual([
       "document-names",
       "other-minds",
+      "note-catalogue",
       "live-transcript",
       "pictures",
+      "skill-files",
+      "analysis-results",
     ]);
     await core.respondToConsent(first.request.requestId, true);
     expect(await first.result).toMatchObject({ modelId: "gpt-5.4-mini" });
@@ -251,7 +264,17 @@ describe("Decisions made before choosing was the consent", () => {
             AT,
           ],
         );
-      decided("checks", "accepted", ["selection", "passages", "verified-document", "blocks"]);
+      decided("checks", "accepted", [
+        "selection",
+        "passages",
+        "verified-document",
+        "blocks",
+        "library-counts",
+        "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
+      ]);
       decided("edits", "declined", []);
     } finally {
       db.close();
@@ -264,7 +287,17 @@ describe("Decisions made before choosing was the consent", () => {
       flow: {
         id: "checks",
         service: OPENAI_SERVICE,
-        sends: ["selection", "passages", "verified-document", "blocks"],
+        sends: [
+          "selection",
+          "passages",
+          "verified-document",
+          "blocks",
+          "library-counts",
+          "library-names",
+          "file-properties",
+          "absence-documents",
+          "watched-sentences",
+        ],
       },
       consent: "accepted",
       decidedAt: AT,
@@ -356,8 +389,18 @@ describe("Data-flow consent", () => {
       },
       // Suggestions, Edit with AI, the checks (#96, #97) and tagging go there too.
       notAsked("suggestions", ["writing", "writing-passages"]),
-      notAsked("edits", ["selection"]),
-      notAsked("checks", ["selection", "passages", "verified-document", "blocks"]),
+      notAsked("edits", ["selection", "source-quotes"]),
+      notAsked("checks", [
+        "selection",
+        "passages",
+        "verified-document",
+        "blocks",
+        "library-counts",
+        "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
+      ]),
       notAsked("document-check", ["selection", "whole-document"]),
       notAsked("tagging", ["tags", "document-excerpts"]),
     ]);

@@ -1,4 +1,4 @@
-import type { LayoutTab } from "../../core/api";
+import type { DocumentPlace, LayoutTab } from "../../core/api";
 import { groupsMerged } from "./layoutSlice";
 import { useAppStore } from "./store";
 
@@ -36,4 +36,32 @@ export function showTranscript(documentId: string, fromGroupId: string | undefin
 
 export function hideTranscript(tabId: string): void {
   useAppStore.getState().closeTab(tabId);
+}
+
+/**
+ * A hit inside a Meeting's Transcript is its Note's (#2528): the Note opens where the User is,
+ * then its Transcript beside it at the words found, as Show transcript opens it.
+ */
+export async function openTranscriptOfNote(
+  mindId: string,
+  documentId: string,
+  place: DocumentPlace,
+): Promise<void> {
+  const store = useAppStore.getState();
+  const layout = await store.changeLayout({
+    type: "open",
+    item: { kind: "mind", mindId },
+    where: { in: "place" },
+  });
+  const noteGroup = layout?.groups.find((group) =>
+    group.tabs.some((tab) => tab.item.kind === "mind" && tab.item.mindId === mindId),
+  );
+  await store.changeLayout({
+    type: "open",
+    item: { kind: "document", documentId },
+    ...(Object.keys(place).length > 0 && { place }),
+    preview: false,
+    where: { in: "side", ...(noteGroup && { from: noteGroup.id }) },
+    focus: groupsMerged(),
+  });
 }

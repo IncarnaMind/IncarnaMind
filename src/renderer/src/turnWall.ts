@@ -4,7 +4,7 @@
  * never works it out itself, so its chip, its scope and where a saved paste goes follow what
  * Answers search.
  */
-import { useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import type { TurnPlace } from "../../core/api";
 import { useConversations, useOpenConversation } from "./conversations";
 import { core } from "./core";
@@ -12,7 +12,7 @@ import { MindIdContext } from "./editor/mindContext";
 import { describeError } from "./errors";
 import { folderWallOf } from "./folders";
 import { useAppStore } from "./store";
-import { keptInsideName } from "./walls";
+import { keptInsideName, wallsOf } from "./walls";
 
 /** How the core says the Note or conversation a Question would be asked in is deleted. */
 const GONE: ReadonlySet<string> = new Set(["error.mind.notFound", "error.conversation.notFound"]);
@@ -77,11 +77,30 @@ export function useKeptInside(documentId: string | null): string | null {
   const conversation = useOpenConversation();
   return useAppStore((state) =>
     keptInsideName(
-      state.library,
+      wallsOf(state),
       documentId,
       mindId !== null
         ? (state.minds.find((mind) => mind.id === mindId)?.folderId ?? null)
         : (conversation?.folderId ?? null),
     ),
+  );
+}
+
+/**
+ * `useKeptInside` for every Document at once, as an Analysis's table and chart need it (#2378): the
+ * walled Folder that keeps each inside it, seen from where they are shown; null when it may be read.
+ */
+export function useKeptInsideOf(): (documentId: string | null) => string | null {
+  const mindId = useContext(MindIdContext);
+  const conversation = useOpenConversation();
+  const library = useAppStore((state) => state.library);
+  const folderId = useAppStore((state) =>
+    mindId !== null
+      ? (state.minds.find((mind) => mind.id === mindId)?.folderId ?? null)
+      : (conversation?.folderId ?? null),
+  );
+  return useCallback(
+    (documentId) => keptInsideName(library, documentId, folderId),
+    [library, folderId],
   );
 }

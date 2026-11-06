@@ -1,5 +1,5 @@
 import type { ProviderError } from "../../core/api";
-import type { ErrorWording } from "../../core/errors";
+import { type ErrorWording, TranslatableError } from "../../core/errors";
 import { takeWording } from "../../shared/errorWording";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { systemReason } from "../../shared/systemReasons";
@@ -42,7 +42,11 @@ export function describeError(error: unknown): ErrorDescription {
   const inner = wrapped ? (wrapped[2] ?? "") : text;
   const named = CLASS_NAME.exec(inner);
   const className = named ? named[1] : error instanceof Error ? error.name : null;
-  const { sentence, wording } = takeWording(named ? (named[2] ?? "") : inner);
+  const taken = takeWording(named ? (named[2] ?? "") : inner);
+  const { sentence } = taken;
+  // One thrown in this window never crossed from the main process, so its wording is still on it.
+  const wording =
+    error instanceof TranslatableError && error.wording ? error.wording : taken.wording;
   const message = sentence.replace(STACK_FROM, "").trim();
   const reason = systemReason(message);
   const said = `${className || "Error"}: ${message}`;

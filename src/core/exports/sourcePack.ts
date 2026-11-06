@@ -69,7 +69,10 @@ export function numberCitations(
         found.push({ number, footnote: item.footnote, attributes });
         together = true;
       } else if (item.kind === "footnote") {
-        numbering.footnote();
+        const number = numbering.footnote();
+        // An Analysis table's note names the rows it was worked out from: their pages go in too (#2378).
+        for (const footnote of item.cites ?? [])
+          found.push({ number, footnote, attributes: attributesOf.get(footnote) ?? {} });
         together = false;
       } else if (item.kind === "figure") {
         if (form === "in-text") cited += 1;
