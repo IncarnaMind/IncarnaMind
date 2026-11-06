@@ -1,6 +1,6 @@
 /**
  * Held-out cases for the rules a rewrite with what the Documents say keeps to (#1554), written
- * from the rules alone, before they changed, in six rounds (the later five marked below): each pairs a sentence and a scripted reply with the
+ * from the rules alone, before they changed, in seven rounds (the later six marked below): each pairs a sentence and a scripted reply with the
  * quote the check found, and says what a careful reader would allow. A figure or a name is
  * written only when the quote says it of the same thing, in the same terms; "same" only when the
  * sentence already gives the quote's value; otherwise the sentence stays. The names are invented.
@@ -781,6 +781,40 @@ export const REWRITE_RULE_CASES: readonly RewriteRuleCase[] = [
     quote: "补贴为 2024 元。",
     kind: "rewritten",
   },
+  // Written after the tenth review, before the rules changed again: "per" is a rate only before
+  // what is counted, and "in" is inches only in a bare dimension at the clause's end.
+  {
+    id: "a-year-before-per-as-according-to",
+    language: "en",
+    sentence: "The levy was set at 300 per the council's notice.",
+    reply: "Change 1: 300\nTo 1: 2021",
+    quote: "The levy was set in 2021 per the council's notice.",
+    kind: "kept",
+  },
+  {
+    id: "a-year-before-in-long-and-more",
+    language: "en",
+    sentence: "The fee was set 600 in long talks.",
+    reply: "Change 1: 600\nTo 1: 2024",
+    quote: "The fee was set in 2024 in long talks.",
+    kind: "kept",
+  },
+  {
+    id: "a-rate-that-looks-like-a-year",
+    language: "en",
+    sentence: "The hire costs 1800 per day.",
+    reply: "Change 1: 1800\nTo 1: 2025",
+    quote: "The hire costs 2025 per day.",
+    kind: "rewritten",
+  },
+  {
+    id: "a-depth-in-inches",
+    language: "en",
+    sentence: "The trench is 1300 in deep.",
+    reply: "Change 1: 1300\nTo 1: 2022",
+    quote: "The trench is 2022 in deep.",
+    kind: "rewritten",
+  },
 ];
 
 /**
@@ -958,6 +992,30 @@ export const REWRITE_OFFER_CASES: readonly RewriteOfferCase[] = [
     id: "a-sum-in-yuan-zh",
     sentence: "补贴为 1800 元。",
     quote: "补贴为 2024 元。",
+    offered: true,
+  },
+  {
+    id: "a-year-before-per-as-according-to",
+    sentence: "The levy was set at 300 per the council's notice.",
+    quote: "The levy was set in 2021 per the council's notice.",
+    offered: false,
+  },
+  {
+    id: "a-year-before-in-long-and-more",
+    sentence: "The fee was set 600 in long talks.",
+    quote: "The fee was set in 2024 in long talks.",
+    offered: false,
+  },
+  {
+    id: "a-rate-that-looks-like-a-year",
+    sentence: "The hire costs 1800 per day.",
+    quote: "The hire costs 2025 per day.",
+    offered: true,
+  },
+  {
+    id: "a-depth-in-inches",
+    sentence: "The trench is 1300 in deep.",
+    quote: "The trench is 2022 in deep.",
     offered: true,
   },
 ];
