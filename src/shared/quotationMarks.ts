@@ -13,8 +13,9 @@
  *   measure's, so they need no clear side;
  * - every sentence the pair is in, from its opening to its closing mark, is prose: one with no code
  *   character, read from the text's own characters ("echo ‘$HOME’", "echo “a.$b”", a backtick), and
- *   no command option ("ls -la"); and the pair is in no SQL statement, found in any case before the
- *   text is cut into sentences ("select “name”, users. id from users").
+ *   no command option ("ls -la");
+ * - the text holds no SQL anywhere, in any case ("select “name”, users. id from users"): then no
+ *   mark in it folds.
  *
  * Straight marks " and ' are never quotation marks here: they delimit code as often as prose, where
  * one kind isn't the other ("SELECT "name"" names a column, "SELECT 'name'" is a string).
@@ -121,18 +122,37 @@ function past(text: string, index: number, step: 1 | -1, skipped: number): numbe
 const pastGap = (text: string, index: number, step: 1 | -1) =>
   past(text, index, step, SPACE | HIDDEN);
 
-/** Where an SQL statement may start, and the shape it must have from there, in any case. */
-const SQL_START = /\b(?:select|insert|update|delete|order\s+by|group\s+by)\b/gi;
-const SQL_SHAPE =
-  /^(?:select\b.*\bfrom\b|insert\s+into\b|update\b.*\bset\b|delete\s+from\b|order|group)/is;
 /**
- * An SQL statement runs to a blank line or the text's end, across sentences and line breaks. A ";"
- * ends nothing: it may be inside a string ("'semi;colon'"), so where SQL may be, marks stay exact.
+ * SQL's own words, in any case: a text with "select" and a later "from", "update" and a later
+ * "set", or "insert into", "delete from", "order by" or "group by" anywhere may be SQL, and no mark
+ * in it folds. No statement boundary is read, as a ";" or a blank line may sit inside a string.
  */
-const STATEMENT_END = /\n[^\S\n]*\n/g;
-/** How far a statement is read from its first word, so a text of many is read in one pass. */
-const STATEMENT_REACH = 2000;
-const OPTION = /(?:^|\s)-\p{L}/u;
+const SQL_WORDS =
+  /\b(?:select|from|update|set|insert\s+into|delete\s+from|order\s+by|group\s+by)\b/gi;
+
+function holdsSql(text: string): boolean {
+  let select = false;
+  let update = false;
+  for (const [word] of text.matchAll(SQL_WORDS)) {
+    const lower = word.toLowerCase();
+    if (lower === "select") select = true;
+    else if (lower === "update") update = true;
+    else if (lower === "from") {
+      if (select) return true;
+    } else if (lower === "set") {
+      if (update) return true;
+    } else return true;
+  }
+  return false;
+}
+
+/** `text` without what the normaliser drops, so a soft hyphen can't hide a word ("SEL\u00adECT"). */
+const visible = (text: string) =>
+  [...INVISIBLE].some((char) => text.includes(char))
+    ? [...text].filter((char) => !INVISIBLE.has(char)).join("")
+    : text;
+
+const OPTION = /(?:^|\s)--?\p{L}/u;
 /**
  * Where a sentence ends: a full stop, "!" or "?" before whitespace or the text's end, CJK sentence
  * punctuation, or a blank line. A dot inside a word, a name or a number ("3.5") and a line break
@@ -140,26 +160,16 @@ const OPTION = /(?:^|\s)-\p{L}/u;
  */
 const SENTENCE_END = /[.!?](?=\s|$)|[。！？]|\n[^\S\n]*\n/g;
 
-/** The spans of `text`'s SQL statements: SQL is found before the text is cut into sentences. */
-function sqlStatements(text: string): [number, number][] {
-  const ends = [...text.matchAll(STATEMENT_END)].map((end) => end.index);
-  const spans: [number, number][] = [];
-  let next = 0;
-  for (const { index: start } of text.matchAll(SQL_START)) {
-    if (start < (spans.at(-1)?.[1] ?? 0)) continue;
-    while (next < ends.length && (ends[next] as number) < start) next++;
-    const end = Math.min(ends[next] ?? text.length, start + STATEMENT_REACH);
-    if (SQL_SHAPE.test(text.slice(start, end))) spans.push([start, end]);
-  }
-  return spans;
-}
-
-/** The spans of `text` that aren't prose, in order: SQL statements, and sentences with code characters or options. */
+/**
+ * The spans of `text` that aren't prose, in order: all of it if it holds SQL, else its sentences
+ * with a code character or a command option.
+ */
 function codeSpans(text: string): [number, number][] {
-  const spans = sqlStatements(text);
+  if (holdsSql(visible(text))) return [[0, text.length]];
+  const spans: [number, number][] = [];
   const check = (from: number, to: number) => {
     const words = text.slice(from, to);
-    let code = OPTION.test(words);
+    let code = OPTION.test(visible(words));
     for (let at_ = 0; !code && at_ < words.length; at_++) code = (at(words, at_) & CODE) !== 0;
     if (code) spans.push([from, to]);
   };
@@ -169,14 +179,7 @@ function codeSpans(text: string): [number, number][] {
     start = end.index + end[0].length;
   }
   check(start, text.length);
-  spans.sort((a, b) => a[0] - b[0]);
-  const merged: [number, number][] = [];
-  for (const span of spans) {
-    const last = merged.at(-1);
-    if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
-    else merged.push([span[0], span[1]]);
-  }
-  return merged;
+  return spans;
 }
 
 /** Whether the code unit at `index`, just outside an opening mark, ends a word rather than code or a number. */
