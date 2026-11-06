@@ -51,7 +51,7 @@ import {
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
-import { CJK, foldRadicals, nameKey } from "../../shared/text";
+import { foldRadicals, nameKey } from "../../shared/text";
 import { sameRun } from "../../shared/units";
 import {
   type AskedQuote,
@@ -1383,71 +1383,6 @@ export interface CitationSessionEvents {
  * Passages, which a search that finds nothing gives instead, once. `ids`: the Citations the
  * Question context shows, which a record names by id to keep one as it is.
  */
-/**
- * A continuation mark at the end of a heading a next page repeats (#2504), on the line's NFKC
- * form. The set is closed and typographic, so it names no content: a repeated line without one is
- * never left out.
- */
-const CONTINUED =
-  /\s*\((?:continued|continued from previous page|cont\.|cont['’]d|contd\.?|续|續|续上页|續上頁|接上页|接上頁|承上页|承上頁)\)$/iu;
-/** The most lines, and characters, of a heading a next page repeats that may be left out. */
-const MAX_HEADING_LINES = 3;
-const MAX_HEADING_CHARACTERS = 200;
-/**
- * How much longer than a heading the line under it on the cited page is, a paragraph's, while a
- * list's lines follow each other at about one length ("Aspirin 81 mg" above "Lisinopril 10 mg").
- * On the next page the line under it may be the short end of the sentence that ran on, or a
- * paragraph's, but not a line of about its own length, a list's next item.
- */
-const UNDER_HEADING = 1.5;
-const CJK_CHARACTER = new RegExp(`[${CJK}]`, "gu");
-
-const lineKey = (line: string) => line.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
-
-/** A heading's length, not a word's: three words or 12 characters, or six CJK characters ("Total" is never one). */
-const headingSized = (line: string) =>
-  (line.match(CJK_CHARACTER)?.length ?? 0) >= 6 ||
-  (!(line.match(CJK_CHARACTER)?.length ?? 0) &&
-    (line.trim().split(/\s+/).length >= 3 || line.trim().length >= 12));
-
-/**
- * The next page's text without the heading it opens with, when that heading is a run of the cited
- * page's own lines, in order, each repeated with a continuation mark; and where that run ends on
- * the cited page; on both pages the line under the run is a paragraph's, much longer than the
- * run's last line, so a list item repeated as "(continued)" is never left out. Null when the next
- * page opens any other way. A CJK heading the app joined to
- * the line after it when it reflowed the text is no line of its own, so it never counts: a content
- * line that starts with the same words can't be told from it.
- */
-function withoutContinuedHeading(
-  cited: string,
-  next: string,
-): { text: string; headingEnds: number } | null {
-  const lines = next.split("\n");
-  // The mark is read on its NFKC form, so a full-width bracket is the half-width one.
-  const read = lines.map((line) => line.normalize("NFKC"));
-  let count = 0;
-  while (count < MAX_HEADING_LINES && CONTINUED.test(read[count] ?? "")) count++;
-  if (count === 0 || CONTINUED.test(read[count] ?? "")) return null;
-  const heading = read.slice(0, count).map((line) => line.replace(CONTINUED, ""));
-  if (heading.join("").length > MAX_HEADING_CHARACTERS || !heading.every(headingSized)) return null;
-  const last = (heading[count - 1] as string).trim().length;
-  const length = (line: string | undefined) => (line ?? "").trim().length;
-  const after = length(read[count]);
-  if (after > last / UNDER_HEADING && after < last * UNDER_HEADING) return null;
-  const own = cited.split("\n");
-  const at = own.findIndex(
-    (_, start) =>
-      heading.every((line, index) => lineKey(own[start + index] ?? "") === lineKey(line)) &&
-      length(own[start + count]) >= last * UNDER_HEADING,
-  );
-  if (at < 0) return null;
-  return {
-    text: lines.slice(count).join("\n"),
-    headingEnds: own.slice(0, at + count).join("\n").length,
-  };
-}
-
 export function createCitationSession(
   documents: Omit<AnswerDocuments, "search" | "searchableCount"> &
     Partial<Pick<AnswerDocuments, "search" | "searchableCount">>,
@@ -2395,18 +2330,7 @@ export function createCitationSession(
         const nextPage = units[next] as PageText;
         const found = quoteInUnits(units, words, matching);
         const nextStarts = joinUnits(units).starts[next] ?? 0;
-        if (found?.every((range) => range.start < nextStarts)) return nextPage;
-        // A next page may open with the cited page's heading again, marked as continued.
-        const onPage = units.slice(0, next);
-        const lifted = withoutContinuedHeading(joinUnits(onPage).text, nextPage.text);
-        if (!lifted) return null;
-        const read = [...onPage, { ...nextPage, text: lifted.text }];
-        const again = quoteInUnits(read, words, matching);
-        const starts = joinUnits(read).starts[next] ?? 0;
-        return again?.every((range) => range.start < starts) === true &&
-          (again[0] as TextRange).start >= lifted.headingEnds
-          ? nextPage
-          : null;
+        return found?.every((range) => range.start < nextStarts) === true ? nextPage : null;
       };
       /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
       const titled = (
