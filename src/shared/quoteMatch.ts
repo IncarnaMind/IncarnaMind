@@ -16,12 +16,6 @@
  *   quote that starts mid-sentence is often given a capital;
  * - the quote marks and dashes the shared normaliser leaves alone ("‹", "›",
  *   "ʼ", "⸺", "⸻") are unified too;
- * - a quotation mark matches a quotation mark of either kind, as a quote
- *   nested in a quote is written in the other kind of mark ("the ‘soft
- *   weights’ property" for the page's “soft weights”, #2504). Only the marks
- *   of a clear pair around plain words are quotation marks; an inch, a second,
- *   a prime, an apostrophe or a mark in code matches only itself
- *   (./quotationMarks);
  * - a reference or footnote mark "[^36]" reads "[36]": models write a paper's
  *   reference "[36]" in the syntax of our own Citation markers. Only matching
  *   reads it so: the markers in an Answer's text are never touched;
@@ -92,7 +86,6 @@
  */
 import { numberFormatting } from "./figures";
 import { SIMPLIFIED } from "./hanVariants";
-import { markQuotationMarks, matchesOf, sameChar } from "./quotationMarks";
 import { type NormalisedUnit, normaliseWithOffsets } from "./text";
 
 /** A span of the original text, in UTF-16 offsets; `end` is exclusive. */
@@ -272,7 +265,6 @@ function matchUnits(text: string, numbers?: GroupSpaces): NormalisedUnit[] {
     cellBreaksAsSpaces(text.replace(SOFT_HYPHEN_AT_LINE_END, "-")),
   );
   const folded = units.map((unit) => ({ ...unit, char: fold(unit.char) }));
-  markQuotationMarks(text, folded);
   for (let at = 0; at + 3 < folded.length; at++) {
     if (folded[at]?.char !== "[" || folded[at + 1]?.char !== "^") continue;
     let end = at + 2;
@@ -347,8 +339,7 @@ function matchAt(units: readonly NormalisedUnit[], needle: string, first: number
     at++;
     if (unit.optional && needle[index] !== "-") continue; // skip a line-end hyphen
     if (!unit.optional && unit.removed) continue;
-    const want = needle[index];
-    if (unit.char !== want && !sameChar(unit.char, want)) return -1;
+    if (unit.char !== needle[index]) return -1;
     last = at - 1;
     index++;
     // The line break after a line-end hyphen, copied as a space ("inter- national").
@@ -364,11 +355,9 @@ function findFrom(
   from: number,
   accept?: Accept,
 ): { first: number; last: number } | null {
-  const [one, two, three] = matchesOf(needle[0] ?? "");
   for (let first = from; first < units.length; first++) {
     const unit = units[first] as NormalisedUnit;
-    const char = unit.char;
-    if (unit.removed || (char !== one && char !== two && char !== three)) continue;
+    if (unit.removed || unit.char !== needle[0]) continue;
     const last = matchAt(units, needle, first);
     if (last >= 0 && (!accept || accept(needle, first, last))) return { first, last };
   }

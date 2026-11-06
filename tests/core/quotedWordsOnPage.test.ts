@@ -1,8 +1,7 @@
 /**
- * Words an Answer quotes from its Document are found when they are on the page (#2504): a quote
- * nested in the quote written in the other kind of mark, and words that run on from the cited page
- * to the next. A quote that changes a word or a number, adds a "not", takes a word from another
- * line or leaves words out still shows Quote not found.
+ * Words an Answer quotes from its Document are found when they run on from the cited page to the
+ * next (#2504). A quote that changes a word or a number, takes a word from another line or leaves
+ * words out still shows Quote not found.
  */
 import { describe, expect, test } from "vitest";
 import {
@@ -39,52 +38,6 @@ async function checkOf({ file, query, question, quote }: Case, sentence: string)
 
 const FOUND = { check: "found", checkReason: null };
 const NOT_FOUND = { check: "not-found", checkReason: "quoted-words-not-on-pages" };
-
-const NESTED = {
-  en: {
-    file: {
-      name: "Returns policy.md",
-      contents:
-        "# Returns policy\n\nThe “cooling-off period” lasts 14 days from delivery for every order.\n",
-    },
-    query: "cooling-off period",
-    question: "How long is the cooling-off period?",
-    quote: "The “cooling-off period” lasts 14 days from delivery",
-    found: "It says “the ‘cooling-off period’ lasts 14 days from delivery for every order” [^1].",
-    number: "It says “the ‘cooling-off period’ lasts 15 days from delivery for every order” [^1].",
-    not: "It says “the ‘cooling-off period’ does not last 14 days from delivery” [^1].",
-  },
-  zh: {
-    file: {
-      name: "注意力机制.md",
-      contents:
-        "# 注意力机制\n\n注意力机制的灵活性来自于它的“软权重”特性，即这种权重是可以在运行时改变的，模型共有12层。\n",
-    },
-    query: "软权重",
-    question: "注意力机制为什么更灵活？",
-    quote: "注意力机制的灵活性来自于它的“软权重”特性",
-    found:
-      "文中写道“注意力机制的灵活性来自于它的‘软权重’特性，即这种权重是可以在运行时改变的，模型共有12层”[^1]。",
-    number:
-      "文中写道“注意力机制的灵活性来自于它的‘软权重’特性，即这种权重是可以在运行时改变的，模型共有13层”[^1]。",
-    not: "文中写道“注意力机制的灵活性来自于它的‘软权重’特性，即这种权重是不可以在运行时改变的”[^1]。",
-  },
-} as const;
-
-describe.each(["en", "zh"] as const)("A quote nested in the quote (%s)", (language) => {
-  const nested = NESTED[language];
-
-  test("written in the other kind of quotation mark, the words are the page's: found", async () => {
-    expect(await checkOf(nested, nested.found)).toEqual(FOUND);
-  });
-
-  test.each([
-    ["a changed number", "number"],
-    ["an added not", "not"],
-  ] as const)("with %s, not found", async (_, key) => {
-    expect(await checkOf(nested, nested[key])).toEqual(NOT_FOUND);
-  });
-});
 
 const RUN_ON = {
   en: {
@@ -194,83 +147,6 @@ describe("Quoted words that run on to the next slide", () => {
     expect(
       await checkOf(deck, "It says “costs fell 4% this year and revenue grew 12% in Asia” [^1]."),
     ).toEqual(NOT_FOUND);
-  });
-});
-
-const QUOTE_NOT_FOUND = { check: "not-found", checkReason: "quote-not-on-pages" };
-
-const INCHES = {
-  en: {
-    file: {
-      name: "Driveway.md",
-      contents:
-        "# Driveway\n\n“Use a 6” pipe under the drive,” the fitter said, “and gravel on top.”\n",
-    },
-    query: "pipe under the drive",
-    question: "Which pipe goes under the drive?",
-    quote: "Use a 6” pipe under the drive",
-    feet: "Use a 6’ pipe under the drive",
-    answer: "The fitter says to use a six-inch pipe [^1].",
-    quoted: "The fitter says “use a 6’ pipe under the drive” [^1].",
-  },
-  zh: {
-    file: {
-      name: "车道.md",
-      contents: "# 车道\n\n师傅说：“车道下面要用6”的管子，上面铺碎石。”\n",
-    },
-    query: "车道下面",
-    question: "车道下面用什么管子？",
-    quote: "车道下面要用6”的管子",
-    feet: "车道下面要用6’的管子",
-    answer: "师傅说车道下面用六英寸的管子[^1]。",
-    quoted: "师傅说“车道下面要用6’的管子”[^1]。",
-  },
-  "en after a quote ending in a number": {
-    file: {
-      name: "Drive.md",
-      contents: "# Drive\n\nSee “Table 3” for the parts. Use a 6” pipe under the drive.\n",
-    },
-    query: "pipe under the drive",
-    question: "Which pipe goes under the drive?",
-    quote: "Use a 6” pipe under the drive",
-    feet: "Use a 6’ pipe under the drive",
-    answer: "Use a six-inch pipe [^1].",
-    quoted: "It says “use a 6’ pipe under the drive” [^1].",
-  },
-  "zh after a quote ending in a number": {
-    file: {
-      name: "车道说明.md",
-      contents: "# 车道说明\n\n见“表3”中的零件。车道下面要用6”的管子。\n",
-    },
-    query: "车道下面",
-    question: "车道下面用什么管子？",
-    quote: "车道下面要用6”的管子",
-    feet: "车道下面要用6’的管子",
-    answer: "车道下面用六英寸的管子[^1]。",
-    quoted: "文中写道“车道下面要用6’的管子”[^1]。",
-  },
-} as const;
-
-describe.each([
-  "en",
-  "zh",
-  "en after a quote ending in a number",
-  "zh after a quote ending in a number",
-] as const)("Inches inside quoted speech (%s)", (language) => {
-  const inches = INCHES[language];
-
-  test("the record's quote with the page's inches: found", async () => {
-    expect(await checkOf(inches, inches.answer)).toEqual(FOUND);
-  });
-
-  test("the record's quote with feet for the page's inches: not found", async () => {
-    expect(await checkOf({ ...inches, quote: inches.feet }, inches.answer)).toEqual(
-      QUOTE_NOT_FOUND,
-    );
-  });
-
-  test("the Answer's quoted words with feet for the page's inches: not found", async () => {
-    expect(await checkOf(inches, inches.quoted)).toEqual(NOT_FOUND);
   });
 });
 
