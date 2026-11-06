@@ -1515,6 +1515,7 @@ describe("the scale forms a Document states apart from its figures (#2365)", () 
     ["一万人", [], []],
     ["约3（万）人", [], []],
     ["人民币千万不要", [], []],
+    ["所以千元以下的产品", [], []],
     ["今欠到吴梅废书款伍拾肆万捌仟元整", [], []],
     ["他是村里的万元户", [], []],
     ["(K) the Seller's costs", [], []],

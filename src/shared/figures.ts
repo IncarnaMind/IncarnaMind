@@ -1348,8 +1348,9 @@ const STATEMENTS: readonly RegExp[] = [
     `[(（][^()（）\\n]{0,12}?(?<![${BEFORE_CN_SCALE}])(?<scale>${CN_STATED_SCALES})(?<unit>元)[^()（）\\n]{0,12}?[)）]`,
     "dgu",
   ),
-  // "以千元列示", "以万元计": a scale and 元 the line says its figures are shown in.
-  new RegExp(`以(?<scale>${CN_STATED_SCALES})(?<unit>元)(?:列示|计)?`, "dgu"),
+  // "以千元列示", "以万元计": a scale and 元 the line says its figures are shown in; "所以千元"
+  // is not a statement.
+  new RegExp(`(?<!所)以(?<scale>${CN_STATED_SCALES})(?<unit>元)(?:列示|计)?`, "dgu"),
   new RegExp(
     `(?<![${BEFORE_CN_SCALE}])(?<before>${HAN_CURRENCIES}|RMB)?(?<scale>${CN_SCALES_AFTER_WORDS})(?<unit>${CN_UNIT_WORDS})(?![户\\p{Script=Han}])`,
     "dgu",
