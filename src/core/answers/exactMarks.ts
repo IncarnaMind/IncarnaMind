@@ -266,6 +266,18 @@ function spliced(quotation: string, words: string, reply: string): string {
   return `${open}${reply}${parts.tail}${close}`;
 }
 
+/**
+ * Whether the Answer wrote the quotation as code: holding inline code, or inside it. The Answer's
+ * own formatting says so, and a code block's quotations are never read at all (./quotedWords).
+ */
+function writtenAsCode(sentence: string, quotation: string): boolean {
+  if (quotation.includes("`")) return true;
+  const at = sentence.indexOf(quotation);
+  return [...sentence.matchAll(/`[^`]*`/g)].some(
+    (code) => code.index <= at && at + quotation.length <= code.index + code[0].length,
+  );
+}
+
 /** Where `part` is in `text`, once only; null when it isn't, or is more than once. */
 function onlyPlace(text: string, part: string): TextRange | null {
   const start = text.indexOf(part);
@@ -317,6 +329,7 @@ export async function exactMarks(request: ExactMarksRequest): Promise<ExactMarks
     const at = onlyPlace(markdown, quotation);
     const within = onlyPlace(markdown, sentence);
     if (/…|\.\.\./u.test(words) || !partsOf(quotation, words) || !at || !within) continue;
+    if (writtenAsCode(sentence, quotation)) continue;
     if (at.start < within.start || at.end > within.end) continue;
     const found = cited.flatMap((pages) => {
       const read = pages.units.map((unit) => ({ ...unit, text: asOneMark(unit.text) }));

@@ -214,6 +214,16 @@ describe("What the second reading never asks about", () => {
     expect(citation.check).toBe("not-found");
   });
 
+  test("a quotation the Answer writes as code, in inline code, is never asked about", async () => {
+    const { citation, asked } = await answer(
+      RETURNS,
+      "It says `“the ‘cooling-off period’ lasts 14 days from delivery for every order”`[^1].",
+      quotes(PAGE_EN),
+    );
+    expect(asked).toHaveLength(0);
+    expect(citation.check).toBe("not-found");
+  });
+
   test("a matching quote isn't asked about", async () => {
     const { citation, asked } = await answer(
       RETURNS,
