@@ -18,6 +18,7 @@ import {
   analysisTableMatch,
   analysisTableShown,
   analysisTablesOf,
+  captionMisnames,
   columnEarns,
   columnLine,
   holdsTableAgain,
@@ -384,6 +385,45 @@ describe("a bound table reads as its run while the Note keeps the run's headings
     }
     for (const caption of ["Revenue by region", "Total revenue by region", "各地区收入合计"])
       expect(captioned(caption).state.kind, caption).toBe("recalculated");
+  });
+
+  test("a caption that says its figures are other than the rules make them takes the ✓ away, failing closed", () => {
+    const captioned = (caption: string) =>
+      analysisTableShown(bound(tableBlock(rows)), kept(rows), "en", null, null, caption);
+    for (const caption of [
+      "Median revenue by region",
+      "Revenue by region ($)",
+      "Revenue by region (€)",
+      "Revenue by region (%)",
+      "Revenue by region ($k)",
+      "Revenue by region (USD m)",
+      "Revenue per order by region",
+      "Revenue by region, 2025",
+      "各地区收入中位数",
+      "各地区收入（元）",
+      "各地区收入（%）",
+      "各地区收入（千美元）",
+      "各地区每单收入",
+      "2025年各地区收入",
+    ]) {
+      const read = captioned(caption);
+      expect(read.state.kind, caption).toBe("calculated");
+      expect(read.columns.map(columnEarns), caption).toEqual([false]);
+    }
+    // A plain caption that names the table rightly keeps its ✓, in either language.
+    for (const caption of [
+      "Revenue by region",
+      "Total revenue by region",
+      "各地区收入",
+      "各地区收入合计",
+    ])
+      expect(captioned(caption).state.kind, caption).toBe("recalculated");
+    // A period the table itself holds is the table's own; one it doesn't is another figure.
+    expect(captionMisnames("Revenue by region, 2025", "sum", "Region Revenue 2025")).toBe(false);
+    expect(captionMisnames("Revenue by region, 2025", "sum", "Region Revenue")).toBe(true);
+    // Average over an average column is its own word.
+    expect(captionMisnames("Average revenue by region", "mean")).toBe(false);
+    expect(captionMisnames("Average revenue by region", "sum")).toBe(true);
   });
 
   test("a heading the User renames, or a column they add, leaves it not recalculated", () => {

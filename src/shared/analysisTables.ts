@@ -517,11 +517,12 @@ export function analysisTableShown(
     if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
       return { state: { kind: "needs-recheck", why: "new-version" }, columns, missing };
   }
+  const held = [...headings, ...rows.map((row) => row[0] ?? "")].join(" ");
   const read =
     caption === null
       ? columns
       : columns.map((column) =>
-          column.rule && captionMisnames(caption, column.rule.how)
+          column.rule && captionMisnames(caption, column.rule.how, held)
             ? { ...column, captionMisnames: true as const }
             : column,
         );
@@ -540,19 +541,28 @@ const underItsInput = (column: AnalysisTableColumn, rule: AnalysisColumnRule) =>
 export const columnEarns = (column: AnalysisTableColumn): boolean =>
   column.rule !== null && !column.captionMisnames && underItsInput(column, column.rule);
 
+/** A currency, by its sign or code, in English or Chinese. */
+const CURRENCY = /[$€£¥￥₹₩]|\b(?:usd|eur|gbp|cny|rmb|jpy|chf|aud|cad|hkd)\b|元|英镑|镑/iu;
+/** A percent, a rate per item, a scale by its abbreviation, or an aggregate no rule works out. */
+const NOT_ITS_FIGURES =
+  /[%％]|\bper ?cent\b|百分|\bper\b|每|\b(?:k|m|mn|bn|mm|000s?)\b|\bmedian\b|中位|thousands?|millions?|billions?|[千万亿]/iu;
+/** A period: a year or any number, a quarter, a month, a week or a day. */
+const PERIOD =
+  /\p{N}+|\b(?:q[1-4]|quarters?|quarterly|months?|monthly|years?|yearly|annual|weeks?|weekly|days?|daily|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b|年|季度?|月|周|日/giu;
+
 /**
- * Whether a caption names a way of working a column out other than `how` (#2378): "Total amount by
- * region" over averages, or "Average amount" over sums. Such a column keeps its line, which says
- * what it is, but earns no ✓.
+ * Whether a caption says the table's figures are other than its columns' rules make them (#2378),
+ * failing closed: another way of working them out ("Total amount by region" over averages, a
+ * median), a currency, a percent, a rate per item, a scale, or a period `held` (the table's
+ * headings and row labels) doesn't hold. Such a column keeps its line, which says what it is, but
+ * earns no ✓.
  */
-export function captionMisnames(caption: string, how: FigureHow): boolean {
-  const words = new Set(caption.toLowerCase().match(/\p{L}+/gu) ?? []);
-  // A run's table gives its numbers as they are: a caption "in thousands" says they are others.
-  if (
-    ["thousand", "million", "billion"].some((word) => words.has(word) || words.has(`${word}s`)) ||
-    /[千万亿]/u.test(caption)
-  )
+export function captionMisnames(caption: string, how: FigureHow, held = ""): boolean {
+  if (CURRENCY.test(caption) || NOT_ITS_FIGURES.test(caption)) return true;
+  const table = held.toLowerCase();
+  if ([...caption.matchAll(PERIOD)].some(([period]) => !table.includes(period.toLowerCase())))
     return true;
+  const words = new Set(caption.toLowerCase().match(/\p{L}+/gu) ?? []);
   return FIGURE_HOW.some(
     (other) =>
       other !== how &&
