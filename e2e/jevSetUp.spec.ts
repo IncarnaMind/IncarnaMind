@@ -81,6 +81,14 @@ async function fitsIn(element: Locator, container: Locator): Promise<boolean> {
   return inner.x >= outer.x - 0.5 && inner.x + inner.width <= outer.x + outer.width + 0.5;
 }
 
+/** Whether the element's top, or all of it, shows inside the card, which scrolls in a short window. */
+async function showsIn(element: Locator, card: Locator, whole: boolean): Promise<boolean> {
+  const [inner, outer] = await Promise.all([element.boundingBox(), card.boundingBox()]);
+  if (!inner || !outer) throw new Error("Not on screen.");
+  const bottom = whole ? inner.y + inner.height : inner.y + 1;
+  return inner.y >= outer.y - 0.5 && bottom <= outer.y + outer.height + 0.5;
+}
+
 async function launch(language: "en" | "zh-CN", width: number, height: number) {
   const { app, window } = await launchApp(dataDir, { fakeChat: true, jev: typeSafe.url });
   await setWindowSize(app, window, width, height);
@@ -147,6 +155,9 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(use).toHaveText(translate(language, "setup.step.useThis"));
         expect(await fitsIn(form, card)).toBe(true);
         expect(await fitsIn(use, card)).toBe(true);
+        expect(await showsIn(field, card, true), "the key field shows").toBe(true);
+        // Where the card has the room, the form's buttons show with the field.
+        if (height >= 900) expect(await showsIn(use, card, true), "Use this shows").toBe(true);
         expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
           true,
         );
@@ -177,6 +188,9 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(form.getByTestId("connection-test")).toContainText(
           translate(language, "providers.test.auth"),
         );
+        await expect
+          .poll(() => showsIn(form.getByTestId("connection-test"), card, false))
+          .toBe(true);
         expect(typeSafe.requests).toEqual(["Bearer jev-a-wrong-key"]);
         expect((await library(window)).classifier).toEqual({ kind: "automatic" });
         await expect(card.getByTestId("setup-step-sorting")).not.toHaveAttribute("data-done");

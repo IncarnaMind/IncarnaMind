@@ -176,6 +176,8 @@ export function JevForm({
   const [error, setError] = useState<string | null>(null);
   const [secretStorage, setSecretStorage] = useState<SecretStorageStatus | null>(null);
   const keyField = useRef<HTMLInputElement>(null);
+  const buttons = useRef<HTMLDivElement>(null);
+  const problem = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
   useEffect(
     () => () => {
@@ -188,9 +190,18 @@ export function JevForm({
     core.getSecretStorage().then(setSecretStorage, () => undefined);
   }, []);
   const fromPicker = sorting !== undefined;
+  // In the setup card, which scrolls in a short window, the form's buttons come into view with
+  // the key field, and the field wins where both can't show.
   useEffect(() => {
-    if (fromPicker) keyField.current?.focus();
+    if (!fromPicker) return;
+    keyField.current?.focus({ preventScroll: true });
+    buttons.current?.scrollIntoView({ block: "nearest" });
+    keyField.current?.scrollIntoView({ block: "nearest" });
   }, [fromPicker]);
+  const failed = error !== null || (test !== null && !test.ok);
+  useEffect(() => {
+    if (fromPicker && failed) problem.current?.scrollIntoView({ block: "nearest" });
+  }, [fromPicker, failed]);
 
   const hasKey = key.text !== "" || current.hasApiKey;
   const keyBlocked = key.text !== "" && secretStorage !== null && !secretStorage.canSave;
@@ -343,7 +354,7 @@ export function JevForm({
           {t("jev.form.sends")}
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-2">
+      <div ref={buttons} className="flex flex-wrap items-center gap-2">
         <button
           type="submit"
           data-testid="jev-save"
@@ -374,12 +385,16 @@ export function JevForm({
         </button>
       </div>
 
-      {test && <TestResult result={test} />}
-      {error && (
-        <p role="alert" className={errorTextClass}>
-          <ProblemMark />
-          {error}
-        </p>
+      {(test || error) && (
+        <div ref={problem} className="flex flex-col gap-3">
+          {test && <TestResult result={test} />}
+          {error && (
+            <p role="alert" className={errorTextClass}>
+              <ProblemMark />
+              {error}
+            </p>
+          )}
+        </div>
       )}
     </form>
   );
