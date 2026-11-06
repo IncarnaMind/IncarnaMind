@@ -148,10 +148,22 @@ export interface FigureContext {
    */
   accounts?: boolean;
   /**
+   * The Document says amounts in brackets are negative ("Amounts in brackets are negative"), so a
+   * bracket after an amount is never read as giving that amount again. Left out, it is worked out
+   * from the text read.
+   */
+  negativeBrackets?: boolean;
+  /**
    * The text starts inside a line of its Document, as a quote from the middle of one does: a
    * number at its start is neither a list's nor a heading's (#1969).
    */
   midLine?: boolean;
+  /**
+   * The Document's text on either side of the text read, when that is a quote from it. A sign word
+   * there ("The reserve turned negative in May." before "At year end it stood at …") keeps the
+   * minus of a bracket that gives an amount again.
+   */
+  around?: { before: string; after: string } | null;
 }
 
 /** A scale or unit stated apart from the figures it applies to: "单位：万元", "(in millions)". */
@@ -693,6 +705,7 @@ export interface FigureFacts {
   cny: boolean;
   jpy: boolean;
   accounts: boolean;
+  negativeBrackets: boolean;
 }
 
 export function figureFactsOf(text: string, language: string | null): FigureFacts {
@@ -703,6 +716,7 @@ export function figureFactsOf(text: string, language: string | null): FigureFact
     cny: CNY_WORDS.test(s),
     jpy: JPY_WORDS.test(s),
     accounts: writesAccounts(s, statementsIn(prepared, text, settle({ language }))),
+    negativeBrackets: SAYS_BRACKETS_NEGATIVE.test(s),
   };
 }
 
@@ -730,6 +744,7 @@ export function figureContextOfFacts(
     separators: separatorsFrom(evidence),
     yen: disputed ? "unsure" : (settled ?? (cny && !jpy ? "CNY" : jpy && !cny ? "JPY" : null)),
     accounts: parts.some((part) => part.accounts),
+    negativeBrackets: parts.some((part) => part.negativeBrackets),
   };
 }
 
@@ -780,7 +795,69 @@ interface Settled {
   dates: boolean;
   chinese: boolean;
   accounts: boolean;
+  negativeBrackets: boolean;
+  /** A header of periods ("2025 2024", "本期 上期", "２０２５ ２０２４") applies to the text read, or stands above it on the page. */
+  periodColumns: boolean;
+  /** The page above a quote runs on past the 400 characters read with no blank line in them. */
+  pageCut: boolean;
+  /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
+  before: string;
+  after: string;
 }
+
+/**
+ * A year or a period that heads a column of figures: "2025", "FY2024", "2024年度", 本期, 上年, "prior
+ * year". A Chinese character may stand right beside it, as the text read drops the space there.
+ */
+const PERIOD =
+  /(?<![A-Za-z\d])(?:FY ?)?(?:19|20)\d{2}(?:年度?(?![A-Za-z])|(?![\p{L}\d]))|本期|上期|本年度?|上年度?|期末|期初|年初|年末|(?:current|prior|previous|this|last) (?:year|period)/giu;
+
+/** Whether a line of `text` heads columns of periods: two periods and at most three other words, as in "2025 2024", "项目 本期 上期" or "Item 31 December 2025 31 December 2024". */
+function headsPeriods(text: string): boolean {
+  return text.split("\n").some((line) => {
+    const periods = line.match(PERIOD)?.length ?? 0;
+    return periods >= 2 && (line.replace(PERIOD, " ").match(/\p{L}+/gu)?.length ?? 0) <= 3;
+  });
+}
+
+/** Where the first line of `prepared` that heads columns of periods ends, or Infinity. */
+const periodHeaderEnds = new WeakMap<Prepared, number>();
+function periodHeaderEnd(prepared: Prepared): number {
+  let end = periodHeaderEnds.get(prepared);
+  if (end === undefined) {
+    end = Number.POSITIVE_INFINITY;
+    const { s, lineStarts } = prepared;
+    // A line break beside a Chinese character is gone from the text read; lineStarts keeps it.
+    const starts = new Set([0, ...lineStarts]);
+    for (let at = s.indexOf("\n"); at >= 0; at = s.indexOf("\n", at + 1)) starts.add(at + 1);
+    const sorted = [...starts].sort((a, b) => a - b);
+    for (const [index, start] of sorted.entries()) {
+      const stop = sorted[index + 1] ?? s.length;
+      if (headsPeriods(s.slice(start, stop))) {
+        end = stop;
+        break;
+      }
+    }
+    periodHeaderEnds.set(prepared, end);
+  }
+  return end;
+}
+
+/**
+ * Whether the page above a quote runs on past the 400 characters the reader looks at with no blank
+ * line in them, so that the start of the amount's paragraph is out of sight. A short or numbered line
+ * may carry a sentence on ("and was reported as", "as set out in cl." then "3. It was …"), so only a
+ * blank line counts.
+ */
+function pageCut(before: string): boolean {
+  if (before.length <= 400) return false;
+  // The first piece may start mid-line and the last is the quote's own line: only those between count.
+  const lines = before.slice(-400).split("\n").slice(1, -1);
+  return !lines.some((line) => line.trim() === "");
+}
+
+/** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
+const DASHES = /[\u2010-\u2015\u2212]/g;
 
 function settle(context: FigureContext): Settled {
   const byLanguage = context.language ? languageSeparators(context.language) : null;
@@ -804,6 +881,13 @@ function settle(context: FigureContext): Settled {
     dates: context.dates === true,
     chinese: tag?.language === "zh",
     accounts: context.accounts === true,
+    negativeBrackets: context.negativeBrackets === true,
+    pageCut: pageCut(context.around?.before ?? ""),
+    periodColumns: headsPeriods(
+      `${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC"),
+    ),
+    before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
+    after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
 }
 
@@ -2456,12 +2540,199 @@ function coreAt(s: string, at: number, settled: Settled): Core[] | null {
   return [found];
 }
 
+// "a" as in "a hundred thousand".
+const EN_NUMBER_WORDS: ReadonlyMap<string, number> = new Map([
+  ["a", 1],
+  ...(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen " +
+    "fifteen sixteen seventeen eighteen nineteen"
+  )
+    .split(" ")
+    .map((word, value) => [word, value] as const),
+  ..."twenty thirty forty fifty sixty seventy eighty ninety"
+    .split(" ")
+    .map((word, index) => [word, (index + 2) * 10] as const),
+]);
+const EN_WORD_SCALES: ReadonlyMap<string, number> = new Map([
+  ["thousand", 1e3],
+  ["million", 1e6],
+  ["billion", 1e9],
+  ["trillion", 1e12],
+]);
+const isNumberWord = (word: string) =>
+  EN_NUMBER_WORDS.has(word) || EN_WORD_SCALES.has(word) || word === "hundred" || word === "and";
+
+/**
+ * The amount English words end `text` with, the currencies they name and where they start:
+ * "Seventy-Five Thousand Dollars" is 75,000 in dollars, "a hundred thousand" 100,000, and "Twelve
+ * Thousand and 50/100 Dollars" 12,000.50. Null when no number word ends it.
+ */
+function amountInWords(
+  text: string,
+  settled: Settled,
+): { value: number; codes: string[]; start: number } | null {
+  const words = [...text.matchAll(/[^\s,-]+/g)].map((match) => ({
+    word: match[0],
+    lower: match[0].toLowerCase(),
+    at: match.index,
+  }));
+  const takeCents = () => {
+    const digits = /^(\d{2})\/100$/.exec(words.at(-1)?.word ?? "")?.[1];
+    if (digits === undefined) return undefined;
+    words.pop();
+    if (words.at(-1)?.lower === "and") words.pop();
+    return digits;
+  };
+  let cents = takeCents();
+  let codes: string[] = [];
+  for (const size of isNumberWord(words.at(-1)?.lower ?? "") ? [] : [3, 2, 1]) {
+    if (words.length <= size) continue;
+    const phrase = words.slice(-size).map((each) => each.word);
+    codes = currencyCodes(phrase.join(" "), settled);
+    if (codes.length > 0) {
+      words.splice(-size);
+      break;
+    }
+  }
+  cents ??= takeCents();
+  let start = words.length;
+  while (start > 0 && isNumberWord(words[start - 1]?.lower ?? "")) start--;
+  let total = 0;
+  let group = 0;
+  let counted = false;
+  for (const { lower } of words.slice(start)) {
+    const unit = EN_NUMBER_WORDS.get(lower);
+    const scale = EN_WORD_SCALES.get(lower);
+    if (unit !== undefined) {
+      group += unit;
+      counted = true;
+    } else if (lower === "hundred") group *= 100;
+    else if (scale !== undefined) {
+      total += group * scale;
+      group = 0;
+    }
+  }
+  const first = words[start];
+  return counted && first
+    ? { value: Number(`${total + group}.${cents ?? 0}`), codes, start: first.at }
+    : null;
+}
+
+/**
+ * Words right before an amount that may give it a sign the reader doesn't read as one: "less", "a
+ * deficit of", "decreased by", "亏损", "减少", "扣除"; or a minus or a △ written on it.
+ */
+const SIGN_BEFORE =
+  /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除|减去|扣减|抵扣|减除)[ \u00a0]*[为了]?$|-[ \u00a0]*$|[△▲▽▼][ \u00a0]*$/i;
+
+/**
+ * A word that says or may say an amount is below zero, or is taken off, in the text around it:
+ * "minus", "negative", "loss", "deficit", "less", "deducted", "overdrawn", "OD", "in the red",
+ * "below zero", "in debit", "-ve", "(−)", 负, 亏, 损失, 透支, 赤字, 逆差, 缺口, 红字, 小于零. A loss's
+ * size ("The loss was …") keeps the minus too, as main reads it. Not a "negative pledge", "less
+ * than", 负责, 负担, 负债, 负面, 自负, 幸亏 or 多亏.
+ */
+const NEGATIVE_WORD =
+  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|loss(?:es)?|deficits?|less(?! than)|deduct(?:s|ed|ing|ions?)?|(?:below|under|less than) zero|in debit|-ve|od|(?:shown|printed) in red|under ?water)(?![A-Za-z])|(?<!自)负(?![责担债面])|(?<![幸多])亏|损失|透支|赤字|逆差|缺口|[小低]于零|红字|\(-\)/i;
+
+/** A line that subtracts what follows: "Less: deposit paid …", "减：已付定金 …", a "Less" cell or heading. */
+const DEDUCTION_LINE = /^[\s|]*(?:less|deduct|减)[ \u00a0]*(?:[:：-]|\t|\||$)/im;
+
+/** The Document says amounts in brackets are negative: "Amounts in brackets are negative", "括号内数字为负数". */
+const SAYS_BRACKETS_NEGATIVE =
+  /(?<![A-Za-z])(?:brackets?|parenthes[ie]s)(?![A-Za-z])[^.\n]{0,60}(?<![A-Za-z])negative(?![A-Za-z])|(?<![A-Za-z])negative(?![A-Za-z])[^.\n]{0,60}(?<![A-Za-z])(?:brackets?|parenthes[ie]s)(?![A-Za-z])|括号[^。\n]{0,20}(?:负数|为负(?![责担]))|负数[^。\n]{0,20}括号/i;
+
+/**
+ * Whether a figure in brackets gives again the amount written right before it, in figures:
+ * "人民币九万八千元（¥98,000）", "USD 1.2 million ($1,200,000)", "Seventy-Five Thousand Dollars
+ * ($75,000.00)"; and the one currency the two agree on, which settles a bare "$" or "¥" in the
+ * bracket. Null when it doesn't. Only an amount in words or with a scale word is given again so:
+ * two cells of a statement line write one form twice, as an elimination's "3,600 (3,600)" does,
+ * and a tab or a line between them parts two cells. Where the words may give the amount a sign, or
+ * the Document says brackets are negative, the bracket is read as before.
+ */
+function restates(
+  prepared: Prepared,
+  before: Draft | undefined,
+  floor: number,
+  bracket: number,
+  inner: Draft,
+  settled: Settled,
+): { currency: string | null } | null {
+  const { s } = prepared;
+  if (settled.negativeBrackets) return null;
+  const value = readingOf({ ...inner, negative: false }).value;
+  // No further back than one amount's words reach, so a long line costs no more.
+  const near = Math.max(0, bracket - 160);
+  const line = near + s.slice(near, bracket).lastIndexOf("\n") + 1;
+  // Under a header of periods a bracket may be another year's figure, as main reads it (#2341).
+  if (settled.periodColumns || periodHeaderEnd(prepared) <= bracket) return null;
+  // "人民币九万八千元整（¥98,000.00）": 整 closes an amount in words.
+  const gap = /整?[ \u00a0]*$/.exec(s.slice(Math.max(floor, line), bracket))?.[0].length ?? 0;
+  const end = bracket - gap;
+  for (let at = end; at <= bracket; at++)
+    if (prepared.tabbed.has(at) || prepared.lineStarts.has(at)) return null;
+  const signed = (from: number) => {
+    // A sign word can be lines or sentences before or after the amount it gives a sign to ("The
+    // balance was negative. It was …", "… ($62,000.00), turned negative"), and a stop can't tell a
+    // sentence's end from an abbreviation's ("St. Louis", "acct. A12"), so all the text within 400
+    // characters counts, the Document's around a quote too. Words that start further into the text
+    // read, or a quote whose page runs further back with no blank line or heading in sight, keep the
+    // bracket's minus: the reader can't see where the amount's part of the page starts (#2578).
+    if (from > 400 || settled.pageCut) return true;
+    const after = s.slice(inner.to, inner.to + 400) + settled.after;
+    const window = settled.before + s.slice(0, from);
+    if (NEGATIVE_WORD.test(window) || NEGATIVE_WORD.test(after) || DEDUCTION_LINE.test(window))
+      return true;
+    const start = s.lastIndexOf("\n", from - 1) + 1;
+    // "减", a tab, "已付定金": the tab beside a Chinese character is gone from the text read.
+    const label = /^[\s|]*减/.exec(s.slice(start, from))?.[0].length;
+    return (
+      SIGN_BEFORE.test(window.slice(-24)) ||
+      (label !== undefined && prepared.tabbed.has(start + label))
+    );
+  };
+  // A bare "$" is whichever dollar the words name: "Australian Dollars ($98,000)".
+  const sign = inner.currencyAt ? s.slice(inner.currencyAt.from, inner.currencyAt.to) : "";
+  const codes = [...inner.currencies, ...(SIGN_CURRENCIES[sign] ?? [])];
+  const agreed = (named: readonly string[]) => {
+    const both = named.filter((code) => codes.includes(code));
+    return { currency: both.length === 1 ? (both[0] ?? null) : null };
+  };
+  if (before && before.to === end) {
+    if (!before.core.chinese && before.scaleWord === null) return null;
+    if (before.signUnsure) return null;
+    const unitsAgree =
+      before.unit.kind === "plain" ||
+      inner.unit.kind === "plain" ||
+      (before.unit.kind === "currency" && inner.unit.kind === "currency"
+        ? before.currencies.some((code) => codes.includes(code))
+        : JSON.stringify(before.unit) === JSON.stringify(inner.unit));
+    return unitsAgree && readingOf(before).value === value && !signed(before.from)
+      ? agreed(before.currencies)
+      : null;
+  }
+  // Back to the line's or the cell's start, not to the last figure: "and 50/100" may have been
+  // read as a date.
+  const from = line + s.slice(line, end).lastIndexOf("\t") + 1;
+  const words = amountInWords(s.slice(from, end), settled);
+  return words !== null &&
+    words.value === value &&
+    (words.codes.length === 0 ||
+      inner.currencies.length === 0 ||
+      words.codes.some((code) => codes.includes(code))) &&
+    !signed(from + words.start)
+    ? agreed(words.codes)
+    : null;
+}
+
 /** Reads the words around a number into a figure; null when it isn't one (a year, a reference, a word). */
 function readAround(
   prepared: Prepared,
   found: Core,
   floor: number,
   settled: Settled,
+  before?: Draft,
 ): Draft | null {
   const { s } = prepared;
   const draft: Draft = {
@@ -2734,7 +3005,17 @@ function readAround(
       (isAlnum(s[bracket - 1]) || s[bracket - 1] === ")");
     // In running text brackets are an aside; only a table's cell or a statement line makes one a minus.
     const row = glued || reference ? null : rowOf(prepared, outer?.from ?? bracket, close + 1);
+    // Brackets that give the amount before them again are neither a minus nor a question, and
+    // make no figure of a "thirty (30) days" that has none.
+    const aside = restates(prepared, before, floor, bracket, draft, settled);
+    // "Australian Dollars ($98,000)": the bracket's "$" is the dollar its words name.
+    const restate = () => {
+      if (!aside?.currency) return;
+      draft.currencies = [aside.currency];
+      draft.unit = { kind: "currency", code: aside.currency };
+    };
     const negate = () => {
+      if (aside) return restate();
       draft.negative = true;
       if (outer) {
         draft.currencies = outer.codes;
@@ -2757,6 +3038,7 @@ function readAround(
       right = close + 1;
     };
     const question = () => {
+      if (aside) return restate();
       draft.signUnsure = true;
       enclose();
     };
@@ -3126,6 +3408,7 @@ function figuresIn(text: string, context: FigureContext): Figure[] {
   const settled = {
     ...plain,
     accounts: context.accounts ?? writesAccounts(s, [...statements, ...header]),
+    negativeBrackets: context.negativeBrackets ?? SAYS_BRACKETS_NEGATIVE.test(s),
   };
   const dateSpans = datesIn(s);
   const blocked = [...statements, ...dateSpans].sort((a, b) => a.from - b.from);
@@ -3166,7 +3449,7 @@ function figuresIn(text: string, context: FigureContext): Figure[] {
     }
     let next = at + 1;
     for (const found of cores) {
-      const draft = readAround(prepared, found, floor, settled);
+      const draft = readAround(prepared, found, floor, settled, drafts.at(-1));
       next = Math.max(next, found.to);
       if (!draft) {
         // The other end of a reference's or a year's range isn't a figure either: "pp. 3–5".

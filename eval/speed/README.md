@@ -71,6 +71,16 @@ Each kind's effort in the catalog (`RequestQuirks.effort`) is chosen against the
 - **DeepSeek** (`answer` and `task`, DeepSeek Flash): `gating` and `cells`, and `everyday` with `EACH=10`; its assistant writes and edits also on `npm run eval:minds` against main, with no wrong Mind or paragraph changed and no change claimed that wasn't made.
 - **Unmeasured, so unchanged:** Kimi (its API answered every request with 429 when this was measured), OpenAI and the ChatGPT plan, Qwen, GLM and Google. A Research Task's steps and its draft keep the default on every provider: no set here judges them yet.
 
+## Where a check's time goes (#2532)
+
+`INCARNAMIND_EVAL_SPEED_CHECK_TIMES=note,write,answer` times each kind of check from the User's action instead of the flows above (`checkTimes.speed.ts`), in a Library of an employment agreement, membership rules and the example's Documents:
+
+- `note`: Check this Note on a Note of 10 sentences (`eval/repeats`' `en` and `en-paraphrases`, or their Chinese twins), the claims named first as the app names them.
+- `write`: the assistant writes 30 cited paragraphs into a new Note, and the first of them its check reads are checked before they land. Its times are from the ask; the scripted write lands at 0.1–0.3 s.
+- `answer`: an Answer of 30 cited sentences, judged in batches once it ends (#2311).
+
+The 30 sentences are the second held-out written set's (`writtenHeldOut.ts`) over the membership rules. The writing and the Answer are scripted, so only the checks' requests reach the model under test. Each run's report gives when the claims were named (or the write or Answer ended), the first mark on the page, the first verdict (the first mark that isn't Not checked), the end, and for each sentence every request its check made (its kind, turn, the turn check that sent it back, its searches, its wait for the first byte, its thinking, its cached tokens, any failure), the time between them (searching, reranking, waiting for a place) and when its verdict landed. `INCARNAMIND_EVAL_SPEED_THINKING` (`summary` or `off`) sets how every model thinks, which only an Answer's batches feel, and `INCARNAMIND_EVAL_SPEED_LIBRARY=mixed` adds the mixed sample set, so a search reranks as many Passages as in a real Library. A write's reranks include the scripted write's own searches, which also leave the reranker warm before its checks. `RUNS` (2 by default), `LANGUAGES` and `STOP_USD` (3 by default) work as above. A speedup is held to `gates/check-speed.md`. Twelve at once was measured at commit 47c376aaa, through a catalog fact since taken out (`gates/check-speed-twelve.md`).
+
 ## The token audit (#1634)
 
 `INCARNAMIND_EVAL_SPEED_AUDIT=1` adds the token audit to the same run, or `npm run eval:speed:tokens`. For each model call it measures the exact prompt the core assembled and writes, per request kind and per flow:
