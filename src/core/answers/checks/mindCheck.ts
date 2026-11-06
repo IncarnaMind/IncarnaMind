@@ -26,7 +26,7 @@ import * as Y from "yjs";
 import { citedCases } from "../../../shared/caseCitations";
 import type { SourceGrid } from "../../../shared/charts";
 import { addedCouldChange, checkedSentence, claimCheckShown } from "../../../shared/claimChecks";
-import { withFigureFacts } from "../../../shared/claimParts";
+import { planOf, withFigureFacts } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS, beginFigureCheck } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
@@ -221,6 +221,7 @@ export function createMindCheck(options: MindCheckOptions) {
         })),
         "own",
         signal,
+        true,
       );
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
@@ -627,9 +628,7 @@ export function createMindCheck(options: MindCheckOptions) {
         );
         const previousParts = owners.find((each) => each.check.text === sentence.text)?.check.parts;
         const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
-        const parts =
-          sorted.get(mindId)?.get(sentence.text) ??
-          previousParts?.map(({ span, kind }) => ({ span, kind }));
+        const parts = sorted.get(mindId)?.get(sentence.text) ?? previousParts?.map(planOf);
         const within = scopeFor(claim);
         const mark: ClaimCheckAttributes = {
           id: randomUUID(),
@@ -680,6 +679,7 @@ export function createMindCheck(options: MindCheckOptions) {
             recordClaim: noteTextOf(sentence),
             place: { blockId: sentence.blockId, from: sentence.from },
             scope: within.scope,
+            searched: within.wanted,
             ...(row
               ? { parts: [{ kind: "fact" as const, span: { start: 0, end: row.claim.length } }] }
               : parts && { parts }),
@@ -706,6 +706,7 @@ export function createMindCheck(options: MindCheckOptions) {
       mindId,
       queued,
       scope: scope.scope,
+      searched: scope.wanted,
       prepared: ready.prepared,
       signal,
     });

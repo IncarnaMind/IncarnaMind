@@ -1,4 +1,5 @@
 import { fingerprintOfMind } from "../../../shared/mindState";
+import { useLibraryFactsNow } from "../editor/libraryFactsNow";
 import { OpinionMenu } from "../editor/OpinionMenu";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
@@ -40,6 +41,7 @@ import { shortcutLabel } from "../commands/keymap";
 import { commentIdsOf, commentOnSelection } from "../comments";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { useComposer } from "../composer";
+import { useConversations } from "../conversations";
 import { core } from "../core";
 import { AnalysisTableView } from "../editor/AnalysisTableView";
 import { AnswerView } from "../editor/AnswerView";
@@ -528,7 +530,11 @@ function MindEditorView({
           onAsk: (current, questionId) => void askInEditor(current, mindId, questionId),
         }),
         QuestionFold.configure({ mindId }),
-        ProposalReview.configure({ translate: translateNow, asked: askedInThisWindow }),
+        ProposalReview.configure({
+          translate: translateNow,
+          asked: (current, request) =>
+            askedInThisWindow(current, request, useConversations.getState().messages),
+        }),
         ReviewPick,
         ProposalRewrites.configure({ translate: translateNow }),
         AppliedEditLine.configure({
@@ -566,9 +572,16 @@ function MindEditorView({
   const folderId = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
   );
+  const libraryFacts = useLibraryFactsNow(editor, mindId);
   const versions = useMemo(
-    () => (documents ? new Map(documents.map((each) => [each.id, each.contentHash])) : null),
-    [documents],
+    () =>
+      documents
+        ? new Map([
+            ...documents.map((each) => [each.id, each.contentHash] as const),
+            ...libraryFacts,
+          ])
+        : null,
+    [documents, libraryFacts],
   );
   const scope = useMindScope(doc);
   const schedule = useFigureSchedule(mindId, doc);

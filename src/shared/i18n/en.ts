@@ -1212,6 +1212,7 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.unit.library": "Your Library has {amount}, not {figure}.",
   "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
@@ -1260,7 +1261,15 @@ export const en = {
   "opinions.one": "1 opinion left out",
   "opinions.count": "{count} opinions left out",
   "opinions.show": "Show",
+  "opinions.itself.one": "1 sentence about this note left out",
+  "opinions.itself": "{count} sentences about this note left out",
+  "opinions.both.one.one": "1 opinion and 1 sentence about this note left out",
+  "opinions.both.one.other": "1 opinion and {itself} sentences about this note left out",
+  "opinions.both.other.one": "{opinions} opinions and 1 sentence about this note left out",
+  "opinions.both.other.other":
+    "{opinions} opinions and {itself} sentences about this note left out",
   "claim.opinion": "Left out as an opinion",
+  "claim.itself": "About this note, not the Documents: left out",
   "claim.checkAnyway": "Check anyway",
   "claim.part.checking": "Checking this part…",
   "claim.parts.more": "{count} more",
@@ -1307,6 +1316,8 @@ export const en = {
   "claim.checkNow": "Check now",
   "claim.reason.consent-revoked": "Not checked: you turned off sending to this service.",
   "claim.reason.local-mode": "Not checked: everything stays on this computer.",
+  "claim.reason.consent-widened": "Checks now send more than when you allowed them",
+  "claim.reviewConsent": "Review…",
   "claim.reason.absence-read-limit":
     "A sentence that says something is absent needs its Document read whole.",
   "claim.reason.absence-unconfirmed":
@@ -1336,6 +1347,7 @@ export const en = {
   "claim.reason.figures-not-read.whole": "The figures in “{document}” couldn’t be read.",
   "claim.reason.figures-not-read.unknown": "The figures in a Document couldn’t be read.",
   "claim.reason.sentence-figures-not-read": "The figures in this sentence couldn’t be read.",
+  "claim.reason.library-unsettled": "Only your Library’s counts, names and kinds can be checked.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
@@ -1346,6 +1358,30 @@ export const en = {
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
   "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
+  "claim.recheck.library": "Your Library has changed since this was checked.",
+  "claim.library.row": "{source}: {fact}",
+  "claim.library.source.library": "Your Library",
+  "claim.library.source.scope": "“{name}”",
+  "claim.library.source.scope.more": "“{name}” and {count} more",
+  "claim.library.documents.one": "1 Document",
+  "claim.library.documents": "{count} Documents",
+  "claim.library.folder.one": "1 Document in “{folder}”",
+  "claim.library.folder": "{count} Documents in “{folder}”",
+  "claim.library.unfiled.one": "1 Document not in a Folder",
+  "claim.library.unfiled": "{count} Documents not in a Folder",
+  "claim.library.name.one": "1 Document named “{name}”",
+  "claim.library.name": "{count} Documents named “{name}”",
+  "claim.library.shared.one": "1 name shared by several Documents",
+  "claim.library.shared": "{count} names shared by several Documents",
+  "claim.library.folders.one": "1 Folder",
+  "claim.library.folders": "{count} Folders",
+  "claim.library.tags.one": "1 Tag",
+  "claim.library.tags": "{count} Tags",
+  "claim.library.tag.one": "1 Document tagged “{tag}”",
+  "claim.library.tag": "{count} Documents tagged “{tag}”",
+  "claim.library.notes.one": "1 other note",
+  "claim.library.notes": "{count} other notes",
+  "claim.library.note": "the note “{name}”",
   "health.label": "Claims and Citations",
   "health.found.one": "1 Citation found",
   "health.found": "{count} Citations found",
@@ -2390,11 +2426,12 @@ export const en = {
   "status.retry": "Retry",
   "webPages.add.title": "Add web pages",
   "webPages.add.note": "Paste an address, or several, one per line.",
-  "webPages.add.fetch": "Fetched once from this computer, kept as a Document.",
+  "webPages.add.fetch":
+    "Fetched once from this computer and kept as a Document; the request names your interface language.",
   "webPages.add.fetch.details":
     "The article’s pictures come with it, and may come from the site’s image servers. Nothing else on the page is loaded.",
   "webPages.add.fetch.details.keepLook":
-    "The article’s pictures come with it, and may come from the site’s image servers.",
+    "The article’s pictures come with it, and may come from the site’s image servers; keeping the look also loads the page’s scripts, stylesheets, fonts, frames and media, which may come from other sites.",
   "webPages.add.label": "Addresses",
   "webPages.add.invalid": "Not a web address: {line}",
   "webPages.add.cancel": "Cancel",
@@ -2409,7 +2446,8 @@ export const en = {
   "webPages.fetchAgainFailed": "Couldn’t fetch “{name}” again: {reason}",
   "webPages.tryAgain": "Try again",
   "webPages.add.keepLook": "Keep the page as it looks",
-  "webPages.keepLook.body": "Also keeps a PDF; the site sees a second visit.",
+  "webPages.keepLook.body":
+    "Also keeps a PDF, loading the page once more as a browser would; every site it loads anything from sees that visit.",
   "webPages.reason.invalid-address": "it isn’t a web address",
   "webPages.reason.unreachable": "the site can’t be reached",
   "webPages.reason.timed-out": "the site took too long to answer",
@@ -2923,10 +2961,13 @@ export const en = {
   "providers.form.save": "Use this service",
   "providers.sendsLine": "Sends your questions and document text to {provider}.",
   "providers.sends.chat":
-    "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
-  "providers.sends.checks": "each sentence you check",
-  "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
-  "providers.sends.edits": "the text you ask the assistant to change",
+    "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages",
+  "providers.sends.checks":
+    "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
+  "providers.sends.suggestions":
+    "the paragraph you pause on and up to 8 matching passages, each with its Document name and location, for writing suggestions",
+  "providers.sends.edits":
+    "the text you ask the assistant to change, the paragraphs it is in and, when the change rewrites or removes cited text, that Citation’s quote",
   "providers.sends.onRequest":
     "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ and Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   "providers.form.saving": "Saving…",
@@ -3200,11 +3241,27 @@ export const en = {
   "consent.data.document-names":
     "The names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50 Documents)",
   "consent.data.other-minds": "Part of another note, when a Question names it",
+  "consent.data.note-catalogue":
+    "The names of up to 30 of your most recently changed notes, noting which an Answer wrote",
+  "consent.data.library-counts":
+    "For a sentence about your Library: how many Documents in all, not in a Folder and of each kind, how many Folders, Tags and other notes, how many names are shared by several Documents, and how many more items the note’s search has",
+  "consent.data.library-names":
+    "For a sentence about your Library: the name of the Folder, Tag or Document the note searches, and the names of Documents, Folders, Tags and notes that match the sentence’s words, with each one’s kind and count and how many more matched",
+  "consent.data.file-properties":
+    "A file’s name, its own dates (or this computer’s when it has none), author, page, slide or sheet count and size, for a sentence about the file",
+  "consent.data.absence-documents":
+    "Whole Documents in the scope, up to 40 pages in all, for a sentence that says something is absent",
+  "consent.data.watched-sentences":
+    "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":
     "passages from your Documents that match the Question, with their Documents’ names and pages",
-  "consent.data.tool-results": "Results of Connectors, Skill scripts and Analyses an Answer uses",
+  "consent.data.tool-results": "Results of Connectors and Skill scripts an Answer uses",
+  "consent.data.skill-files":
+    "The names and descriptions of the Skills that are on, and the instructions and files of the Skills an Answer loads",
+  "consent.data.analysis-results":
+    "The capped report of each Analysis an Answer runs: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, the figures and table rows it works out, its chart and picture titles, the numbers written in its code, printed results and text-file excerpts",
   "consent.flow.tagging": "Automatic Tags",
   "consent.flow.tagging.purpose": "tag your Documents automatically",
   "consent.data.tags": "The names and descriptions of your Tags",
@@ -3224,7 +3281,8 @@ export const en = {
   "consent.flow.suggestions": "Writing suggestions",
   "consent.flow.suggestions.purpose": "suggest how your writing goes on",
   "consent.data.writing": "The paragraph you’re writing, each time you pause at its end",
-  "consent.data.writing-passages": "Up to 8 passages from your Documents that match it",
+  "consent.data.writing-passages":
+    "Up to 8 matching passages from your Documents, each with its Document’s name and location",
   "consent.flow.rerank": "Reranking",
   "consent.flow.rerank.purpose": "put the best search results first",
   "consent.flow.connectors": "Connectors",
@@ -3238,19 +3296,23 @@ export const en = {
   "consent.data.references": "Each reference as written (authors, title, year, DOI), nothing else",
   "consent.flow.connector-registry": "Connector search",
   "consent.flow.connector-registry.purpose": "find community connectors in the MCP Registry",
-  "consent.data.connector-search": "What you type in the Connectors search, and nothing else",
+  "consent.data.connector-search":
+    "What you type in the Connectors search, sent on every search; IncarnaMind asks before the first one",
   "consent.flow.transcription": "Meeting transcription",
   "consent.flow.transcription.purpose": "turn what’s said in your meetings into text",
   "consent.data.meeting-audio": "Meeting audio while you record, other people’s voices included",
   "consent.flow.find-sources": "Find sources",
   "consent.flow.find-sources.purpose": "find papers and other sources, and add the ones you choose",
-  "consent.data.search-terms": "What you search for: the words and filters, such as years",
+  "consent.data.search-terms":
+    "What you or an Answer search for: the words and filters, such as years. An Answer’s words are written by the model from your Question and what it read, so they can include its text.",
   "consent.data.work-ids":
     "The ID of each work you add: DOI, arXiv, PubMed, label set, NCT or citation",
   "consent.data.provider-key": "Your own key for this service, which it needs to answer",
   "consent.flow.edits": "Edit with AI",
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
+  "consent.data.source-quotes":
+    "The quotes from your Documents that the selected text’s Citations name, when a change rewrites or removes cited text",
 
   "reference.citeAs": "Cite as",
   "reference.citeAs.label": "Cite as: {name}",
@@ -3448,7 +3510,7 @@ export const en = {
   "privacy.crashReports.toggle": "Send crash reports",
   "privacy.crashReports.body": "Off until you turn it on. Never includes your text.",
   "privacy.crashReports.body.details":
-    "The report holds the error, where in IncarnaMind’s code it happened, the app version and your operating system. File paths, your Documents’ text, your notes, Questions and Answers are removed first, and no IP address is stored with it.",
+    "The report holds the error, where in IncarnaMind’s code it happened and when, the app version, your operating system and its version, your computer’s chip type and model family, its processor count and memory size, and the versions of Electron, Chrome and Node that IncarnaMind runs on. File paths, your Documents’ text, your notes, Questions and Answers are removed first, and no IP address is stored with it.",
   "privacy.intro.usageData": "IncarnaMind collects usage data only if you agree.",
   "privacy.traffic.usage-data": "Usage data",
   "privacy.traffic.usage-data.tip":
@@ -4829,6 +4891,8 @@ export const en = {
     "Needs re-check: checked before each of its figures was checked with its own source.",
   "export.comment.sentence.needs-recheck.referent":
     "Needs re-check: the record cite its Id. or supra refers back to has changed.",
+  "export.comment.sentence.needs-recheck.library":
+    "Needs re-check: your Library has changed since this was checked.",
   "export.comment.recordCite.result": "{raw}: {outcome}",
   "export.comment.recordCite.passage": "Passage: {passage}",
   "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
@@ -6905,6 +6969,10 @@ export const en = {
     "1 sentence couldn’t be checked: you turned off sending to this service",
   "selfCheck.localMode": "{count} sentences couldn’t be checked: everything stays on this computer",
   "selfCheck.localMode.one": "1 sentence couldn’t be checked: everything stays on this computer",
+  "selfCheck.consentWidened":
+    "{count} sentences couldn’t be checked: checks now send more than when you allowed them",
+  "selfCheck.consentWidened.one":
+    "1 sentence couldn’t be checked: checks now send more than when you allowed them",
   "selfCheck.planLimit": "{count} sentences couldn’t be checked: plan limit reached",
   "selfCheck.planLimit.one": "1 sentence couldn’t be checked: plan limit reached",
   "selfCheck.resumesAt": "Resumes at {time}",
@@ -7059,8 +7127,9 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, as the agent reads them",
-  "consent.data.scoped-minds": "Your notes in those Folders, when the agent reads them",
+    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; and, for a search, which page of results it is and whether more follow",
+  "consent.data.scoped-minds":
+    "The shared Folders’ names, internal ids and Document counts, the names, internal ids and last-change times of the notes in them when the agent lists them, and the part of a note it reads, with where the next part starts",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
   "consent.flow.web-search": "Web search",
   "consent.flow.web-search.purpose": "search the web for your Questions",
@@ -7200,7 +7269,7 @@ export const en = {
   "agents.reason.waiting": "a paragraph had changes waiting",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders and the notes in them. What it reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders and the notes in them. Listing them sends each Folder’s name, internal id and Document count, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",

@@ -142,8 +142,8 @@ const failedEdit = (failure: unknown): EditWithAiResult =>
     ? { kind: "local-mode" }
     : { kind: "failed", error: classifyProviderError(failure) };
 
-/** What the "edits" flow sends: the selected text, with the paragraphs it is in. */
-export const EDITS_FLOW_SENDS = ["selection"] as const;
+/** What the "edits" flow sends: the selected text, with the paragraphs it is in, and cited text's quotes when a change rewrites or removes it. */
+export const EDITS_FLOW_SENDS = ["selection", "source-quotes"] as const;
 
 /** The most text one request edits, in characters: more is better done a part at a time. */
 export const MAX_SELECTION_CHARACTERS = 12_000;

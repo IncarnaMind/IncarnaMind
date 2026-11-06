@@ -43,6 +43,7 @@ import {
 } from "./claimParts";
 import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figureChecks";
 import type { MessageKey } from "./i18n";
+import { readLibraryVersion } from "./libraryFacts";
 import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableCheckSentence, comparableSentence, isClaim } from "./sentences";
@@ -380,7 +381,9 @@ export type RecheckReason =
   /** Checked before each of its figures was checked with its own source (#1459). */
   | "figures"
   /** What one of its `Id.` or `supra` refers back to reads otherwise now (#1709). */
-  | "referent";
+  | "referent"
+  /** A fact of the Library it rests on says otherwise now (#2525). */
+  | "library";
 
 /** A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows nothing. */
 export type ClaimCheckShown =
@@ -391,12 +394,16 @@ export type ClaimCheckShown =
   | { state: "kept" };
 
 /**
- * The one failure a check on the same sentence and Documents cannot settle: the Citation it needs
- * is kept inside another Folder. A reply that failed, was refused or couldn't be used, a service
+ * The failures a check on the same sentence and Documents cannot settle: the Citation it needs
+ * is kept inside another Folder, or the sentence describes the Library in a way its facts can't
+ * settle (#2525). A reply that failed, was refused or couldn't be used, a service
  * limit, a cap, a stop, or a sentence a later Check takes may be settled next time, so those stay
  * Not checked.
  */
-export const UNCHECKABLE_FAILURES: ReadonlySet<ClaimCheckFailure> = new Set(["kept-inside"]);
+export const UNCHECKABLE_FAILURES: ReadonlySet<ClaimCheckFailure> = new Set([
+  "kept-inside",
+  "library-unsettled",
+]);
 
 /** Whether a check's result is one a check cannot settle for this sentence, rather than one still to make. */
 export function cantBeChecked(shown: ClaimCheckShown): boolean {
@@ -632,6 +639,12 @@ function basisShown(check: ClaimCheckBasis, now: ClaimCheckNow): ClaimCheckShown
     ]);
     for (const version of check.versions) {
       const current = now.versions.get(version.documentId);
+      // A fact of the Library not known yet is taken as it was: the window asks for them apart.
+      if (readLibraryVersion(version.documentId)) {
+        if (current !== undefined && current !== version.contentHash)
+          return { state: "needs-recheck", why: "library" };
+        continue;
+      }
       // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).
       if (current === undefined && relied.has(version.documentId)) {
         return { state: "needs-recheck", why: "document-removed" };

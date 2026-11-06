@@ -1556,7 +1556,8 @@ export interface MindChange {
    * stopped it, if anything did. Those it couldn't check, or didn't, are marked
    * not checked, under `request`; `blocked` says how many of them the User's own
    * choice kept from being sent (the flow turned off, or Local mode), which
-   * checking again can't change. Absent: none was checked.
+   * checking again can't change, or how many wait for the User to allow what
+   * checks send now ("consent-widened"). Absent: none was checked.
    */
   selfCheck?: {
     request: string;
@@ -1569,7 +1570,7 @@ export interface MindChange {
     checked: number;
     failed: number;
     stop?: RunStop;
-    blocked?: { reason: "consent-revoked" | "local-mode"; count: number };
+    blocked?: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number };
   };
 }
 
@@ -2568,7 +2569,40 @@ export type CitationLocation =
    * file itself. `value` is the property as the file gives it: an ISO 8601 date, the author, a
    * count, the size in bytes, or the name.
    */
-  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea);
+  | ({ kind: "properties"; property: FilePropertyName; value: string } & MaybeArea)
+  /**
+   * The Library's own facts, not a Document's text (#2525): a check's evidence for a sentence
+   * about the Library itself, as the check's scope saw it, Folder walls applied.
+   */
+  | ({ kind: "library"; source: LibrarySource; fact: LibraryFact } & MaybeArea);
+
+/**
+ * Where a check's Library facts come from, in the scope chip's words (#2525): the whole Library,
+ * every Document but the walled Folders a Note outside them leaves out, or a Search scope by the
+ * name its first Folder, Tag or Document has and how many more it names.
+ */
+export type LibrarySource =
+  | { kind: "library" }
+  | { kind: "left-out"; folders: number }
+  | { kind: "scope"; name: string; more: number };
+
+/**
+ * One fact of the Library a check can cite (#2525). Every count is of the Documents, Folders,
+ * Tags or notes the check's scope sees; "notes" leaves out the note being checked; "shared" is how
+ * many names more than one Document shares.
+ */
+export type LibraryFact =
+  | { kind: "documents"; count: number }
+  | { kind: "shared"; count: number }
+  | { kind: "folder"; name: string; count: number }
+  | { kind: "unfiled"; count: number }
+  | { kind: "format"; format: DocumentKind; count: number }
+  | { kind: "name"; name: string; count: number }
+  | { kind: "folders"; count: number }
+  | { kind: "tags"; count: number }
+  | { kind: "tag"; name: string; count: number }
+  | { kind: "notes"; count: number }
+  | { kind: "note"; name: string };
 
 /** A stretch of words, and whether the Document has it where the Answer's quoted words were looked for. */
 export interface QuotedPiece {
@@ -5627,9 +5661,11 @@ export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt:
 /**
  * Why a full watch of a Mind ended before it finished: a stop a Run gives way
  * to, or the User stopping it. A cancelled watch is never a complete one: the
- * next Check sweeps every cited sentence again (#1941).
+ * next Check sweeps every cited sentence again (#1941). "consent-widened": it
+ * waits, unsent, for the User to allow what the checks flow sends now, which
+ * they allowed before it sent more (#2525).
  */
-export type WatchStop = RunStop | { reason: "cancelled" };
+export type WatchStop = RunStop | { reason: "cancelled" } | { reason: "consent-widened" };
 
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
@@ -6559,6 +6595,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
+ * - "consent-widened": the User allowed checks to the model's service before checks sent more, so
+ *   what the assistant wrote waited, unsent, for them to allow the more (#2525).
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
@@ -6577,6 +6615,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "figures-not-read": the figures in a text of a Document the check read couldn't be read; its
  *   detail is where, as `src/shared/unreadFigures.ts` writes it, or null when that isn't known.
  * - "sentence-figures-not-read": the figures in the sentence itself couldn't be read.
+ * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
+ *   reading of its Documents' names (#2525). No check can change that.
  */
 export type ClaimCheckFailure =
   | "refused"
@@ -6593,6 +6633,7 @@ export type ClaimCheckFailure =
   | "too-many"
   | "consent-revoked"
   | "local-mode"
+  | "consent-widened"
   | "absence-read-limit"
   | "absence-unconfirmed"
   | "absence-other-document"
@@ -6611,6 +6652,7 @@ export type ClaimCheckFailure =
   | "sentence-figures-not-read"
   /** A figure's equal number that the quoted table gives in another row's or column's cell. */
   | "other-cell"
+  | "library-unsettled"
   /** An Analysis's figure that IncarnaMind didn't work out again: its code's, from the saved run (#2378). */
   | "analysis"
   /** An Analysis's figure whose run the Note no longer keeps, as when its Analysis was deleted (#2378). */
@@ -6711,6 +6753,11 @@ export interface ClaimPartSpan {
 export interface ClaimPartPlan {
   span: ClaimPartSpan;
   kind: "fact" | "opinion";
+  /**
+   * An "opinion" part that is about the note or Answer it is in, not the Documents ("listed
+   * below", #2525): set aside as an opinion is, and never called one.
+   */
+  itself?: true;
 }
 
 export interface ClaimPartCoverageMember {
@@ -6917,6 +6964,11 @@ export interface CheckFigure {
     unit?: string | null;
     /** The heading above the sentence, which may state a scale or unit for its numbers. */
     heading?: string;
+    /**
+     * The lines above the sentence in its section and every heading it is under, nearest first,
+     * that state a scale, currency or percent, which a reader takes for its numbers too (#2544).
+     */
+    above?: string;
   };
 }
 
@@ -8773,6 +8825,15 @@ export const dataKinds = [
   "other-minds",
   "live-transcript",
   "pictures",
+  "skill-files",
+  "analysis-results",
+  "source-quotes",
+  "note-catalogue",
+  "library-counts",
+  "library-names",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -12626,6 +12687,11 @@ export interface CoreApi {
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
+  /**
+   * The Library's facts the Mind's checks rest on (#2525), as the Library gives them now, by each
+   * fact's version id: what the window compares a check's versions with. Sends nothing.
+   */
+  libraryFactsNow(mindId: string): Promise<Record<string, string>>;
 
   getSecretStorage(): Promise<SecretStorageStatus>;
   /** The User accepts storing keys without keyring protection on this device. */
@@ -13813,6 +13879,7 @@ const methods: Record<CoreApiMethod, true> = {
   getFigureScheduleChange: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
+  libraryFactsNow: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
   detectOllama: true,

@@ -42,7 +42,12 @@ import {
 } from "../../api";
 import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
 import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
-import { type FigureOccurrence, figuresInMind, inTableCell } from "./figureOccurrences";
+import {
+  type FigureOccurrence,
+  figuresInMind,
+  inTableCell,
+  withAboveNow,
+} from "./figureOccurrences";
 
 const BREAK = "hardBreak";
 
@@ -175,7 +180,9 @@ export function checkText(sentence: SelectedSentence) {
     context:
       (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
       wordsOf(sentence.element),
-    ...(sentence.figures?.length && { figures: sentence.figures }),
+    ...(sentence.figures?.length && {
+      figures: withAboveNow(sentence.figures, sentence.element),
+    }),
   };
 }
 

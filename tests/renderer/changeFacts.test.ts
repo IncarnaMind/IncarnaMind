@@ -6,6 +6,7 @@ import {
   inNoteText,
   keptText,
   leftText,
+  stillWaiting,
 } from "../../src/renderer/src/changeFacts";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
@@ -116,6 +117,28 @@ describe("What still waits is said in changes, the number the Mind's bar shows (
     expect(leftText(t("en"), row({ wrote: 3 }), null)).toBeNull();
     expect(leftText(t("en"), row({ wrote: 3 }), "gone")).toBeNull();
     expect(leftText(t("en"), row({}), 2)).toBeNull();
+  });
+
+  test("while the Answer runs, what applies at once is not waiting; what it holds back is", () => {
+    const made = row({ created: true, wrote: 35 });
+    // A Note the assistant made: all 22 of its changes in the Note's record apply at once.
+    expect(stillWaiting({ count: 22, applying: 22 })).toBeNull();
+    expect(leftText(t("en"), made, stillWaiting({ count: 22, applying: 22 }))).toBeNull();
+    expect(leftText(t("zh-CN"), made, stillWaiting({ count: 22, applying: 22 }))).toBeNull();
+    // One held back beside them waits, and is the only one said.
+    expect(stillWaiting({ count: 23, applying: 22 })).toBe(1);
+    expect(leftText(t("en"), made, stillWaiting({ count: 23, applying: 22 }))).toBe(
+      "· 1 change waiting",
+    );
+    expect(leftText(t("zh-CN"), made, stillWaiting({ count: 23, applying: 22 }))).toBe(
+      "· 1 处修订待确认",
+    );
+    // Nothing applying at once: every change waits, and none left reads as none.
+    expect(stillWaiting({ count: 2, applying: 0 })).toBe(2);
+    expect(stillWaiting({ count: 0, applying: 0 })).toBe(0);
+    expect(stillWaiting({ count: null, applying: 0 })).toBeNull();
+    expect(stillWaiting({ count: "gone", applying: 0 })).toBe("gone");
+    expect(stillWaiting(undefined)).toBeNull();
   });
 });
 

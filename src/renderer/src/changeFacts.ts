@@ -92,14 +92,26 @@ export function inNoteText(
 }
 
 /**
- * How many of a row's changes wait there and aren't being applied at once: what its line counts,
- * and what the Note's own count leaves out beside it (#1325).
+ * How many of a row's changes wait there and aren't being applied at once: what the Note's own
+ * count leaves out beside it (#1325).
  */
 export function ownWaiting(
   row: { count: number | "gone" | null; applying: number } | undefined,
 ): number | "gone" | null {
   if (!row || row.count === null || row.count === "gone") return row?.count ?? null;
   return Math.max(0, row.count - row.applying);
+}
+
+/**
+ * What a row's line says waits while its Answer runs: the changes the Note's bar shows waiting.
+ * Those this window applies at once are drawn as applied and stay in the Note's record only until
+ * the Answer ends, so while every one of them does, nothing waits to be said (#1358).
+ */
+export function stillWaiting(
+  row: { count: number | "gone" | null; applying: number } | undefined,
+): number | "gone" | null {
+  const own = ownWaiting(row);
+  return own === 0 && row !== undefined && row.applying > 0 ? null : own;
 }
 
 /** A whole new Note, or one written into while it held nothing: its paragraphs were written, not added. */
