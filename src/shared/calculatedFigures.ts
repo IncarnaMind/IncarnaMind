@@ -112,12 +112,12 @@ export function readFigureCitation(value: unknown): Citation | null {
     checkReason: reason,
     ...(words && {
       quotedWords:
-        "runsOnTo" in words
-          ? words
-          : {
+        "answer" in words
+          ? {
               answer: words.answer.map(({ text, found }) => ({ text, found })),
               closest: words.closest?.map(({ text, found }) => ({ text, found })) ?? null,
-            },
+            }
+          : words,
     }),
   };
 }

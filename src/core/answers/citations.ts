@@ -51,7 +51,7 @@ import {
   type TextRange,
 } from "../../shared/quoteMatch";
 import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
-import { foldRadicals, nameKey } from "../../shared/text";
+import { CJK, foldRadicals, nameKey } from "../../shared/text";
 import { sameRun } from "../../shared/units";
 import {
   type AskedQuote,
@@ -520,6 +520,23 @@ function versionOf(documents: RecheckDocuments, documentId: string, contentHash:
 }
 
 type Rechecked = Pick<CitationToRecheck, "documentId" | "quote" | "pageFrom" | "pageTo">;
+
+/**
+ * The ways a Document's name, as the app shows it, is read for a name in quotation marks (#2504):
+ * whole, and each part at a separator, as `nameKey` reads them. Its extension is taken off, and it
+ * splits at " - ", " – ", " — ", "|", "｜", "－", "—", "―" and "_", and at "-" or "–" next to a CJK
+ * character, never inside a Latin word ("Cooling-off"). A middle dot doesn't split: it joins a
+ * name ("列夫·托尔斯泰").
+ */
+function nameKeys(name: string): Set<string> {
+  const bare = name.replace(/\.[A-Za-z0-9]{1,5}$/u, "");
+  const parts = bare.split(NAME_SEPARATOR);
+  return new Set([name, bare, ...parts].map(nameKey).filter((key) => key !== ""));
+}
+const NAME_SEPARATOR = new RegExp(
+  `\\s[-–—―]\\s|[|｜－—―_]|(?<=[${CJK}])[-–]|[-–](?=[${CJK}])`,
+  "u",
+);
 
 /**
  * Checks a Citation again against its Document's current version (see
@@ -2350,7 +2367,6 @@ export function createCitationSession(
         [...records.values()].map(({ source }) => nameKey(source.documentName)),
       );
       for (const { words, markers } of quoted) {
-        if (names.has(nameKey(words))) continue;
         const cited = [...new Set(markers)].flatMap((marker) => {
           const record = records.get(marker);
           return record
@@ -2365,6 +2381,12 @@ export function createCitationSession(
         });
         if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
         if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
+        // The name of a Document the sentence cites, or a part of it, is a name, not a quote: the
+        // Citation says so and keeps its own quote's check, never found or not found by it.
+        const key = nameKey(words);
+        const named = cited.filter(({ record }) => nameKeys(record.source.documentName).has(key));
+        for (const { record } of named) record.quotedWords ??= { name: words };
+        if (named.length > 0 || names.has(key)) continue;
         const runsOn = cited.flatMap(({ record, matching }) => {
           const next = runsOnToNextPage(record, words, matching);
           return next ? [{ record, next }] : [];
