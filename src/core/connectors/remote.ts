@@ -195,15 +195,15 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 /** Why connecting to a remote server failed, in terms the User can act on. */
 export function remoteError(
   error: unknown,
-  options: { step?: ConnectorFailureStep; secrets?: readonly string[] } = {},
+  options: { step?: ConnectorFailureStep; secrets?: readonly string[]; status?: number } = {},
 ): ConnectorError {
   const base = { command: null, install: null, retrying: false };
   const status =
-    sdk && (error instanceof sdk.StreamableHTTPError || error instanceof sdk.SseError)
+    (sdk && (error instanceof sdk.StreamableHTTPError || error instanceof sdk.SseError)
       ? error.code
       : typeof (error as { status?: unknown }).status === "number"
         ? (error as { status: number }).status
-        : undefined;
+        : undefined) ?? options.status;
   const detail = redactMessage(hideHeaders(options.secrets ?? [])(messageOf(error)));
   const cause = (failure: ConnectorError): ConnectorError => ({
     ...failure,
@@ -238,9 +238,12 @@ export function remoteError(
   });
 }
 
-/** Why a sign-in didn't work, for the User. */
-export function signInError(error: unknown): ConnectorSignInError {
-  const message = messageOf(error);
+/** Why a sign-in didn't work, for the User; `secrets` are the values no message may keep. */
+export function signInError(
+  error: unknown,
+  options: { secrets?: readonly string[] } = {},
+): ConnectorSignInError {
+  const message = redactMessage(hideHeaders(options.secrets ?? [])(messageOf(error)));
   const flow = causedBy(error, OAuthFlowError);
   if (flow) return { kind: flow.reason, message: flow.message };
   if (causedBy(error, HeldBackError)) return { kind: "held-back", message };

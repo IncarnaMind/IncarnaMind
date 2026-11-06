@@ -587,6 +587,51 @@ describe("Tokens", { timeout: 30_000 }, () => {
     expect(JSON.stringify(logged)).not.toContain(refreshToken);
   });
 
+  test("an OAuth refresh refused with its client secret in the answer keeps it out of the failure and the log, with the status (#2025)", async () => {
+    const clock = manualClock();
+    const dataDir = await createTempDataFolder();
+    const keychain = createMemoryKeychain();
+    const setup = await setUp({ now: clock.now, keychain, paths: { dataDir } });
+    const added = await addWiki(setup);
+    await setup.core.setConnectorClient(added.id, {
+      clientId: MANUAL_CLIENT_ID,
+      clientSecret: MANUAL_CLIENT_SECRET,
+    });
+    const signed = await setup.core.signInToConnector(added.id);
+    expect(signed).toMatchObject({ ok: true, connector: { state: "ready" } });
+    const { fake } = setup;
+    const id = added.id;
+    const stored = tokensIn(keychain, id) as {
+      tokens: { access_token: string; refresh_token: string };
+      expiresAt: number;
+    };
+    setup.core.close();
+    // The server refuses the renewal and echoes the client secret that signed the request.
+    fake.refreshRefusal = {
+      status: 500,
+      body: {
+        error: "invalid_request",
+        error_description: `client_secret ${MANUAL_CLIENT_SECRET}`,
+      },
+    };
+    await keychain.set(`connector:${id}:oauth-tokens`, JSON.stringify({ ...stored, expiresAt: 0 }));
+    clock.advance(2 * 3600_000);
+    const logged: { event: string; fields?: Record<string, unknown> }[] = [];
+    const record = (event: string, fields?: Record<string, unknown>) =>
+      logged.push({ event, fields });
+    const restarted = startCore(dataDir, {
+      keychain,
+      now: clock.now,
+      browser: createFakeBrowser(fake),
+      log: { info: record, warn: record, error: record },
+    });
+    const failed = await connectorState(restarted, id, "error");
+    expect(refreshes(fake)).toHaveLength(1);
+    expect(failed.error).toMatchObject({ kind: "failed", step: "sign-in", status: 500 });
+    expect(JSON.stringify(failed)).not.toContain(MANUAL_CLIENT_SECRET);
+    expect(JSON.stringify(logged)).not.toContain(MANUAL_CLIENT_SECRET);
+  });
+
   test("calls that find the token refused at the same time share one refresh", async () => {
     const model = scriptedModel((call: ModelCall) => {
       const found = call.results.filter((result) => result.tool === SEARCH);

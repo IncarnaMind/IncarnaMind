@@ -946,7 +946,7 @@ export function createConnectors(options: ConnectorsOptions) {
                   : unreachable
                     ? new TypeError("fetch failed")
                     : error,
-                { step, secrets: logSecrets() },
+                { step, secrets: logSecrets(), status: auth.lastStatus() ?? undefined },
               ),
         );
     }
@@ -1412,7 +1412,9 @@ export function createConnectors(options: ConnectorsOptions) {
         failure =
           auth.heldBackCount() > held
             ? { kind: "held-back", message: heldBackMessage }
-            : signInError(error);
+            : signInError(error, {
+                secrets: [...runtime.headerValues, ...auth.credentials()],
+              });
       } finally {
         if (runtime.signingIn?.controller === controller) runtime.signingIn = null;
       }

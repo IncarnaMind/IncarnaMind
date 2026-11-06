@@ -5537,6 +5537,7 @@ export const zhCN = {
     "此系统没有可用的密钥环，IncarnaMind 无法安全地保存你的登录信息。",
   "remoteConnectors.signIn.error.held-back": "它的登录服务在另一台电脑上，所以没有发送任何内容。",
   "remoteConnectors.signIn.error.failed": "未能登录。",
+  "remoteConnectors.storage.tryAgain": "重试",
   "remoteConnectors.signIn.heldBack": "已暂停：它的登录服务在另一台电脑上。",
   "remoteConnectors.signIn.heldBack.details":
     "已开启“所有内容都留在这台电脑上”，而它的登录服务在另一台电脑上，所以不会续期或开始登录，它的工具也不会使用。关闭这项设置后，它会接着之前的状态继续使用。",
