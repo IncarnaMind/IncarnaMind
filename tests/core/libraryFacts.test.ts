@@ -720,6 +720,66 @@ describe("a verdict the facts must decide", () => {
   });
 });
 
+describe.each(["en", "zh-CN"] as const)("a name with digits in it (%s)", (language) => {
+  const zh = language === "zh-CN";
+  const twins = (name: string) => [
+    { name: `${name}.txt`, contents: "First copy of the ledger." },
+    { name: `${name}.md`, contents: "# Ledger\n\nSecond copy of the ledger." },
+  ];
+
+  // protects=the digits of a Document's name count nothing: "Ledger 0007 appears twice" is never Contradicted by the line that says two share that name; fails_when=the "0007" is read as a count and judged against "Documents named “Ledger 0007”: 2".
+  test("a name's number is no count, for or against", async () => {
+    const name = zh ? "档案 0007" : "Ledger 0007";
+    const sentence = zh
+      ? `${name} 在你的资料库中出现了两次。`
+      : `${name} appears twice in your Library.`;
+    const setup = await setUp(
+      twins(name),
+      {
+        [sentence]: {
+          verdict: "contradicted",
+          quote: `Documents named “${name}”: 2`,
+          line: "name",
+        },
+      },
+      language,
+    );
+    const { check } = await checkInNote(setup.core, sentence);
+    expect(setup.factsSent()).toContain(`Documents named “${name}”: 2`);
+    expect(check.state).not.toBe("contradicted");
+  });
+
+  // protects=a count written in words is held to the facts though the sentence has digits in a name, both ways; fails_when="Ledger A7 appears three times" reads Supported by "Documents named “Ledger A7”: 2", or "appears twice" reads Contradicted by it.
+  test("a count in words is held to the facts beside a name's digits", async () => {
+    const name = zh ? "档案 A7" : "Ledger A7";
+    const thrice = zh
+      ? `${name} 在你的资料库中出现了三次。`
+      : `${name} appears three times in your Library.`;
+    const twice = zh
+      ? `${name} 在你的资料库中出现了两次。`
+      : `${name} appears twice in your Library.`;
+    const line = `Documents named “${name}”: 2`;
+    const wrong = await setUp(
+      twins(name),
+      { [thrice]: { verdict: "supported", quote: line, line: "name" } },
+      language,
+    );
+    expect((await checkInNote(wrong.core, thrice)).check.state).not.toBe("supported");
+    const right = await setUp(
+      twins(name),
+      { [twice]: { verdict: "supported", quote: line, line: "name" } },
+      language,
+    );
+    expect((await checkInNote(right.core, twice)).check.state).toBe("supported");
+    const turned = await setUp(
+      twins(name),
+      { [twice]: { verdict: "contradicted", quote: line, line: "name" } },
+      language,
+    );
+    expect((await checkInNote(turned.core, twice)).check.state).not.toBe("contradicted");
+  });
+});
+
 describe("a count wrong by its scale or unit", () => {
   // protects=a Library count is decided by its own figure, scale and unit: "22 thousand" or "22 GB" never reads Supported by "Documents in all: 22"; fails_when=the judge's Supported stands on the bare number.
   test.each([

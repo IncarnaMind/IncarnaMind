@@ -562,19 +562,20 @@ function libraryRun(
       const checked = held(figure.result, [figure.source, figure.sourceInput?.citation], false);
       if (checked === null) return unread();
       // A count of things has no scale word, share, price or size: "22 thousand" or "22 GB" is
-      // never "Documents in all: 22", whatever the reply says.
-      if (
-        checked.verdict === "supported" &&
-        factOf(checked.evidence) !== undefined &&
-        !readsAsCount(figure)
-      )
-        return unread();
-      const judged = { ...checked, versions: ownVersions(checked.versions) };
+      // never "Documents in all: 22", nor the "0007" of "Ledger 0007" a count, for or against,
+      // whatever the reply says.
       // A figure's source is a number in a Document's text, which the Note may cite or change the
       // figure to; a fact it was compared with is only its result's evidence.
       const fromFact = [figure.source, figure.sourceInput?.citation].some(
         (citation) => factOf(citation) !== undefined,
       );
+      if (
+        (checked.verdict === "supported" || checked.verdict === "contradicted") &&
+        (factOf(checked.evidence) !== undefined || fromFact) &&
+        !readsAsCount(figure)
+      )
+        return unread();
+      const judged = { ...checked, versions: ownVersions(checked.versions) };
       figures.push(
         fromFact
           ? {
@@ -630,6 +631,8 @@ function libraryRun(
     // one ask is spent, and a Document line describing the files never decides the Library.
     if (judged.verdict === "supported" && restsOn.length === 0) return unread();
     if (judged.verdict === "supported" && !countWordsHold(sentence, restsOn)) return unread();
+    // A count it writes in words that the facts it cites give bears it out: no contradiction.
+    if (judged.verdict === "contradicted" && countWordsAgree(sentence, restsOn)) return unread();
     const unsupported = facts !== null && judged.verdict === "unsupported";
     const kept = versionsOf(versions, rests, unsupported);
     // A sentence with figures is marked with its figures' versions: each keeps the facts too.
@@ -727,19 +730,31 @@ function hanCount(numeral: string): number | null {
   return ten === null || one === null ? null : ten * 10 + one;
 }
 
-/**
- * A sentence that writes its count in words ("twelve Documents", "appears twice", "两份") holds
- * only when a fact it rests on gives that count: the figure checks read digits alone.
- */
-function countWordsHold(sentence: string, facts: readonly LibraryFact[]): boolean {
-  if (/\d/.test(sentence)) return true;
-  const counts = facts.flatMap((fact) => (fact.kind === "note" ? [] : [fact.count]));
-  if (counts.length === 0) return true;
-  const said = [...sentence.matchAll(COUNT_WORD)].flatMap((match) => {
+/** The counts a sentence writes in words ("twelve Documents", "appears twice", "两份"). */
+const countWords = (sentence: string): number[] =>
+  [...sentence.matchAll(COUNT_WORD)].flatMap((match) => {
     const value = match[1] ? WORD_COUNTS[match[1].toLowerCase()] : hanCount(match[2] ?? "");
     return value === undefined || value === null ? [] : [value];
   });
-  return said.length === 0 || said.some((value) => counts.includes(value));
+
+const countsOf = (facts: readonly LibraryFact[]) =>
+  facts.flatMap((fact) => (fact.kind === "note" ? [] : [fact.count]));
+
+/**
+ * A sentence that writes its count in words holds only when a fact it rests on gives that count,
+ * digits in it or not: a Document's name holds digits ("Ledger 0007") that count nothing.
+ */
+function countWordsHold(sentence: string, facts: readonly LibraryFact[]): boolean {
+  const counts = countsOf(facts);
+  const said = countWords(sentence);
+  return counts.length === 0 || said.length === 0 || said.some((value) => counts.includes(value));
+}
+
+/** Whether every count a sentence writes in words is one the facts it rests on give. */
+function countWordsAgree(sentence: string, facts: readonly LibraryFact[]): boolean {
+  const counts = countsOf(facts);
+  const said = countWords(sentence);
+  return counts.length > 0 && said.length > 0 && said.every((value) => counts.includes(value));
 }
 
 /** Not checked for `why`, its figures and its other words too. */
