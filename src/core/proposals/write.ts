@@ -2689,7 +2689,8 @@ export function createRewriteStream(
     // old, each written as their kind. Between two places the text holds, where it pairs with
     // the selection's paragraphs or starts as the selection does, that is one in the place of
     // one that says more than half of that one's own words (more than half like it when it has
-    // none, each of its words also in another's, so no word can say a line is it), or several each more than half like
+    // none and isn't the selection's first, which takes the text's first (#2333): no word can say
+    // a line is it), or several each more than half like
     // the one in its place, since a stray line such as "Changed to:" beside a new one names none,
     // and a new line on the pattern of the two around it says nothing of the one between (#2356). After the last (a partial text stops early, so
     // its end holds no place), each must also say in its words which it is: `TELLING_WORDS` of
@@ -2701,9 +2702,9 @@ export function createRewriteStream(
       held.every((paragraph) => !paragraph.asOther) &&
       (bounded
         ? held.length === 1
-          ? hasOwnWords(between[0] as Segment)
-            ? saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
-            : placeLikeness(between[0] as Segment, held[0] as NewParagraph) > MOVED_LIKENESS
+          ? from > 0 && !hasOwnWords(between[0] as Segment)
+            ? placeLikeness(between[0] as Segment, held[0] as NewParagraph) > MOVED_LIKENESS
+            : saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
           : held.every(
               (paragraph, index) =>
                 placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
