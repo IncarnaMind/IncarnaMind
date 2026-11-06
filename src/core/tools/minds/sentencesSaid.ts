@@ -5,18 +5,22 @@
  */
 import type { SentenceChanges } from "../../api";
 
-/** How much of a sentence the model is told, at most. */
+/** The most sentences the model is told of at once, and how much of each. */
+const SHOWN_SENTENCES = 6;
 const SENTENCE_CHARACTERS = 110;
 
-const quoted = (sentences: readonly string[], count: number) => {
-  const shown = sentences.map((sentence) =>
-    sentence.length > SENTENCE_CHARACTERS
-      ? `“${sentence.slice(0, SENTENCE_CHARACTERS)}…”`
-      : `“${sentence}”`,
-  );
+/** Sentences as the model is told them: a few, each cut short, and how many of `count` more there are. */
+export function quoted(sentences: readonly string[], count = sentences.length): string {
+  const shown = sentences
+    .slice(0, SHOWN_SENTENCES)
+    .map((sentence) =>
+      sentence.length > SENTENCE_CHARACTERS
+        ? `“${sentence.slice(0, SENTENCE_CHARACTERS)}…”`
+        : `“${sentence}”`,
+    );
   const more = count > shown.length ? ` and ${count - shown.length} more` : "";
   return `${shown.join(", ")}${more}`;
-};
+}
 
 const sentences = (count: number) => (count === 1 ? "1 sentence" : `${count} sentences`);
 

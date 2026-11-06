@@ -138,7 +138,7 @@ import {
   chartProperty,
 } from "./charts";
 import { addedUncited, lengthSaid, lengthToWrite, offLength, timesAsked } from "./lengthAsked";
-import { moreThanTakenOut, sentencesSaid } from "./sentencesSaid";
+import { moreThanTakenOut, quoted, sentencesSaid } from "./sentencesSaid";
 import { textKey, tokensOf } from "./words";
 
 const PROVIDER: ToolProviderInfo = { kind: "minds", id: "minds", name: "Notes" };
@@ -704,21 +704,6 @@ const plainSentence = (sentence: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** The most sentences the model is told were taken out, and how much of each. */
-const TAKEN_OUT_SENTENCES = 6;
-const TAKEN_OUT_CHARACTERS = 110;
-
-/** The text a rewrite marked to take out, as the model is told it: a few, each cut short. */
-const quotesSaid = (quotes: readonly string[]) =>
-  quotes
-    .slice(0, TAKEN_OUT_SENTENCES)
-    .map((quote) =>
-      quote.length > TAKEN_OUT_CHARACTERS
-        ? `“${quote.slice(0, TAKEN_OUT_CHARACTERS)}…”`
-        : `“${quote}”`,
-    )
-    .join(", ");
-
 /**
  * What a rewrite left as it was, as the model is told so it reports what happened and not what it
  * meant to do: the sentences of the parts it left out (`leftOut`) that stay, and those of the
@@ -735,18 +720,6 @@ function stayedSaid(after: string, leftOut = "", unnamed = ""): string | null {
         return sentenceSpans(bare).map((span) => plainSentence(bare.slice(span.from, span.to)));
       })
       .filter((sentence) => sentence !== "");
-  const quoted = (sentences: readonly string[]) => {
-    const shown = sentences.slice(0, TAKEN_OUT_SENTENCES).map((sentence) => {
-      const cut =
-        sentence.length > TAKEN_OUT_CHARACTERS
-          ? `${sentence.slice(0, TAKEN_OUT_CHARACTERS)}…`
-          : sentence;
-      return `“${cut}”`;
-    });
-    const more =
-      sentences.length > shown.length ? ` and ${sentences.length - shown.length} more` : "";
-    return `${shown.join(", ")}${more}`;
-  };
   const now = new Set(sentencesOf(after));
   // A paragraph the rewrite left out stays unless it quoted it as taken out (#2180): said plainly,
   // so its own "removed" is not repeated. Only those the edit itself counts as left out: one a
@@ -945,7 +918,7 @@ function notProposed(
     case "unplaced":
       return new Refusal(
         { kind: "unplaced", mindId },
-        `Nothing was proposed in “${name}”: the rewrite marked text to take out that isn't there word for word in one place: ${quotesSaid(result.quotes)}. The text is as it was: don't say it was changed or removed. To try again, name the words exactly as “${name}” has them.`,
+        `Nothing was proposed in “${name}”: the rewrite marked text to take out that isn't there word for word in one place: ${quoted(result.quotes)}. The text is as it was: don't say it was changed or removed. To try again, name the words exactly as “${name}” has them.`,
       );
     case "misnamed":
       return new Refusal(
