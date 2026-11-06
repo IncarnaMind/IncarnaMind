@@ -1,0 +1,129 @@
+{
+  "requests": [
+    {
+      "index": 0,
+      "tools": [
+        "search_documents",
+        "cite"
+      ],
+      "json": false,
+      "system": "Answer the question.",
+      "prompt": "When does the tide turn?",
+      "results": [],
+      "messages": [
+        {
+          "role": "system",
+          "content": "Answer the question."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "When does the tide turn?"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "tools": [
+        "search_documents",
+        "cite"
+      ],
+      "json": false,
+      "system": "Answer the question.",
+      "prompt": "When does the tide turn?\n\nThe tide turns at noon.\n\nSay how often it turns.",
+      "results": [],
+      "messages": [
+        {
+          "role": "system",
+          "content": "Answer the question."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "When does the tide turn?"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "The tide turns at noon."
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Say how often it turns."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "type": "support",
+      "support": "tools"
+    },
+    {
+      "type": "text-delta",
+      "text": "The tide"
+    },
+    {
+      "type": "text-delta",
+      "text": " turns a"
+    },
+    {
+      "type": "text-delta",
+      "text": "t noon."
+    },
+    {
+      "type": "usage",
+      "usage": {
+        "inputTokens": 5,
+        "outputTokens": 1
+      }
+    },
+    {
+      "type": "text-retracted",
+      "length": 23
+    },
+    {
+      "type": "text-delta",
+      "text": "The tide"
+    },
+    {
+      "type": "text-delta",
+      "text": " turns "
+    },
+    {
+      "type": "text-delta",
+      "text": "twice a d"
+    },
+    {
+      "type": "text-delta",
+      "text": "ay."
+    },
+    {
+      "type": "usage",
+      "usage": {
+        "inputTokens": 5,
+        "outputTokens": 1
+      }
+    },
+    {
+      "type": "finished"
+    }
+  ]
+}
