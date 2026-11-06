@@ -265,7 +265,7 @@ import {
 } from "./minds";
 import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
-import { newestReads } from "./newest";
+import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
 import { createOutputFiles, fileProblem, fingerprintOf } from "./outputFiles";
@@ -3756,6 +3756,8 @@ export function createCore(adapters: CoreAdapters): Core {
    * this is the start, which keeps the pause a quit interrupted.
    */
   const taggingChanged = async (endsPause = true) => {
+    // No newest-read guard: this carries no list, only a "library.changed" that makes the Tagging
+    // settings read the models again, so an older list can't be emitted (#2398).
     try {
       await tagging.resolve();
     } catch (error) {
@@ -3827,7 +3829,11 @@ export function createCore(adapters: CoreAdapters): Core {
   const readinessChanged = async () => {
     const newest = readinessRead();
     try {
-      const readiness = await chat.readiness();
+      const readiness = await readNewest(
+        newest,
+        () => chat.readiness(),
+        () => lifetime.signal.aborted,
+      );
       if (!lifetime.signal.aborted && newest()) events.emit("chatReadiness.changed", readiness);
     } catch (error) {
       // Reading the keychain is async, so the core may have closed meanwhile: nobody is listening.
@@ -3840,6 +3846,8 @@ export function createCore(adapters: CoreAdapters): Core {
   chatGptChanged = () => {
     const report = async () => {
       const newest = chatGptRead();
+      // The status never rejects: a keychain failure reads as "unreadable" and a model-list
+      // failure as the known models, so there is no failed newest read to retry (#2398).
       const status = await chatGpt.status();
       if (lifetime.signal.aborted) return;
       if (newest()) events.emit("chatGptPlan.changed", status);
@@ -3863,6 +3871,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Not a readiness change: the renderer keeps its model lists.
   chatGptLimitsChanged = () => {
     const newest = chatGptRead();
+    // As the plan's status, this read never rejects (#2398).
     chatGpt.status().then(
       (status) => {
         if (!lifetime.signal.aborted && newest()) events.emit("chatGptPlan.changed", status);
@@ -3876,6 +3885,8 @@ export function createCore(adapters: CoreAdapters): Core {
   copilotChanged = () => {
     const report = async () => {
       const newest = copilotRead();
+      // As the ChatGPT plan's status, this never rejects: a keychain failure reads as "unreadable",
+      // so there is no failed newest read to retry (#2398).
       const status = await copilot.status();
       if (lifetime.signal.aborted) return;
       if (newest()) events.emit("copilot.changed", status);
@@ -4054,7 +4065,11 @@ export function createCore(adapters: CoreAdapters): Core {
   /** After the User allows or revokes a flow: the flows as they are now, and what that changes. */
   const dataFlowsChanged = async () => {
     const newest = dataFlowsRead();
-    const flows = await consent.listRegistered();
+    const flows = await readNewest(
+      newest,
+      () => consent.listRegistered(),
+      () => lifetime.signal.aborted,
+    );
     if (lifetime.signal.aborted) return;
     if (newest()) events.emit("dataFlows.changed", flows);
     await readinessChanged();
