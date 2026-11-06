@@ -2308,6 +2308,33 @@ export const migrations: readonly Migration[] = [
   {
     version: 129,
     description:
+      "A saved DeepSeek model id the API no longer serves moves to deepseek-flash (#2567)",
+    sql: `
+      -- DeepSeek's API serves deepseek-flash and deepseek-v4-pro only. A choice saved before the
+      -- old ids went would fail at its first request.
+      UPDATE user_settings
+        SET value = json_set(value, '$.modelId', 'deepseek-flash'),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL
+          AND key IN ('chatModel', 'quickTasksModel', 'imageModel')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.modelId') END IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.providerId') END IN (
+            SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
+          );
+      UPDATE device_settings
+        SET value = json_set(value, '$.modelId', 'deepseek-flash'),
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE deleted_at IS NULL
+          AND key = 'lastChatModel'
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.modelId') END IN ('deepseek-v4-flash', 'deepseek-v4-flash-vision-exp')
+          AND CASE WHEN json_valid(value) THEN json_extract(value, '$.providerId') END IN (
+            SELECT id FROM chat_providers WHERE kind = 'deepseek' AND deleted_at IS NULL
+          );
+    `,
+  },
+  {
+    version: 130,
+    description:
       "A Meeting's Transcript belongs to its Note: it goes where the Note goes, with no Folder, Tags or row of its own (#2528)",
     sql: `
       -- The Note whose Meeting this Document is the Transcript of. Null for every other Document:
