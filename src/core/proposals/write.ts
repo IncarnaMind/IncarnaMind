@@ -2475,8 +2475,16 @@ export function createRewriteStream(
     const index = indexOf.get(segment) ?? -1;
     return (ownShare[index] ?? 0) > HALF_ITS_OWN || (ofOwn[index] ?? 0) >= HALF_ITS_OWN;
   };
-  const hasOwnWords = (segment: Segment) =>
-    [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word));
+  /**
+   * Whether a new paragraph's words say it is this one: as `saysItsOwn`, of one with words of its
+   * own. One after the selection's first with none, each also in another's, can't be told by words
+   * from a line added beside it, however alike they are (#2356); the selection's first takes the
+   * text's first (#2333).
+   */
+  const toldByWords = (segment: Segment, paragraph: NewParagraph) =>
+    (indexOf.get(segment) === 0 ||
+      [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word))) &&
+    saysItsOwn(segment, paragraph);
   /** Much like one of the selection's paragraphs, whichever it is. */
   const resembles = (paragraph: NewParagraph) =>
     nearnessOf(paragraph).alike.some((alike) => alike >= MOVED_LIKENESS);
@@ -2515,7 +2523,7 @@ export function createRewriteStream(
       );
     return (
       (mine >= least &&
-        (!saysOwn || saysItsOwn(segment, paragraph)) &&
+        (!saysOwn || toldByWords(segment, paragraph)) &&
         rivals((at) => (alike[at] ?? 0) <= mine - CLEARLY_MORE)) ||
       (words >= TELLING_WORDS &&
         (cover[index] ?? 0) >= NEARLY_ALL &&
@@ -2688,9 +2696,7 @@ export function createRewriteStream(
     // (#2333). A place says which paragraph a new one is only in a stretch of as many new ones as
     // old, each written as their kind. Between two places the text holds, where it pairs with
     // the selection's paragraphs or starts as the selection does, that is one in the place of
-    // one that says more than half of that one's own words (more than half like it when it has
-    // none and isn't the selection's first, which takes the text's first (#2333): no word can say
-    // a line is it), or several each more than half like
+    // one that says more than half of that one's own words, or several each more than half like
     // the one in its place, since a stray line such as "Changed to:" beside a new one names none,
     // and a new line on the pattern of the two around it says nothing of the one between (#2356). After the last (a partial text stops early, so
     // its end holds no place), each must also say in its words which it is: `TELLING_WORDS` of
@@ -2702,9 +2708,7 @@ export function createRewriteStream(
       held.every((paragraph) => !paragraph.asOther) &&
       (bounded
         ? held.length === 1
-          ? from > 0 && !hasOwnWords(between[0] as Segment)
-            ? placeLikeness(between[0] as Segment, held[0] as NewParagraph) > MOVED_LIKENESS
-            : saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
+          ? toldByWords(between[0] as Segment, held[0] as NewParagraph)
           : held.every(
               (paragraph, index) =>
                 placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
