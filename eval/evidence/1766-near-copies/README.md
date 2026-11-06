@@ -8,6 +8,7 @@ Summaries of the real-model runs behind #2515, one file a run. Each case of `tes
 - `pending-main.md`: the reported, beyond-examples, second-look, condition-forms and ask-paths files on `main`'s check, both models.
 - `table-main.md`: the table-cell set, few cells, on `main`'s check, both models.
 - `after-haiku-e3b251ea8.md`: every held-out file on this pull request's check at e3b251ea8, Haiku 5.5, beside `main`.
+- `after-haiku-60a7298ba.md`: the same at 60a7298ba, with the root-cause file and its run on `main`, beside e3b251ea8 and `main`.
 - `repeats-relabel-main.md`: the sentences the 2026-11-04 relabel added or changed, on `main`'s check.
 - `repeats-main-haiku.md`, `repeats-main-sonnet.md`: the recall and conflict sets on `main`, under the labels as they were before 2026-11-04. The relabel of that day (the ruling on #1708) turns six of their Supported sentences into Unsupported ones: on Haiku 5.5 that is 18 false Supported checks, on Sonnet 5.5 six.
 
