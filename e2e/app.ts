@@ -2863,8 +2863,10 @@ export interface FootFade {
   /** The frame says more lies below what shows (`data-more-after`). */
   marked: boolean;
   fade: number;
-  /** The frame's lower edge, where the fade ends. */
+  /** The frame's lower edge. */
   foot: number;
+  /** Where the fade ends, which is the foot when it is drawn. */
+  fadeBottom: number | null;
   /** The text line the foot cuts in two, with the line height its element sets. */
   cut: { top: number; bottom: number; lineHeight: number } | null;
   /** The lowest edge of any text line. */
@@ -2916,10 +2918,20 @@ export const footFadeOf = (frame: Locator, text: string): Promise<FootFade> =>
         }
       }
     }
+    // A pseudo-element has no box to measure: a real element with its sticky rule stands in.
+    let fadeBottom: number | null = null;
+    if (edge.display !== "none") {
+      const stand = document.createElement("div");
+      stand.style.cssText = `position: sticky; bottom: ${edge.bottom}; display: block; height: ${edge.height}; margin-top: ${edge.marginTop};`;
+      element.append(stand);
+      fadeBottom = stand.getBoundingClientRect().bottom;
+      stand.remove();
+    }
     return {
       marked: element.hasAttribute("data-more-after"),
       fade: edge.display === "none" ? 0 : Number.parseFloat(edge.height),
       foot,
+      fadeBottom,
       cut,
       last,
     };

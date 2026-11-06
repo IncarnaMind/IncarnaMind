@@ -463,6 +463,7 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(edge.background).toContain("linear-gradient");
     const shown = await footFadeOf(body, "*");
     if (!shown.cut) throw new Error("The foot cut no line.");
+    expect(shown.fadeBottom).toBeCloseTo(shown.foot, 0);
     expect(shown.fade).toBeGreaterThanOrEqual(1.5 * shown.cut.lineHeight);
     expect(shown.cut.top).toBeGreaterThanOrEqual(shown.foot - shown.fade - 0.5);
     await screenshotOf(body, `card-body-${language}-900-cut`);

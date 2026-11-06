@@ -87,6 +87,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect.poll(marked, { message: `cut, ${at}` }).toBe(true);
       const cutting = await footFadeOf(thread, READING);
       if (!cutting.cut) throw new Error(`The foot cut no line, ${at}.`);
+      expect(cutting.fadeBottom, at).toBeCloseTo(cutting.foot, 0);
       expect(cutting.fade, at).toBeGreaterThanOrEqual(1.5 * cutting.cut.lineHeight);
       expect(cutting.cut.top, at).toBeGreaterThanOrEqual(cutting.foot - cutting.fade - 0.5);
       if (SCREENSHOTS) {
