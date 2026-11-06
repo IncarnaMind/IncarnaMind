@@ -97,17 +97,18 @@ export function Workbench({
   const groups = useMemo(() => <TabGroups />, []);
 
   const width = sideWidth(shown.width, room.width);
-  // The first Question waits on choosing a model: its card takes the column's room, as a waiting
-  // question does (#1400), so every way in shows in a short window (#2270).
+  // The first Question waits on choosing a model: its card grows the dock to the height a dock may
+  // take, which keeps the Note's own room, so every way in shows in a short window (#2270).
   const settingUp = useSettingUp();
   const resized = useQuestionRoom((state) => state.resized);
+  const trayWaiting = useQuestionRoom((state) => state.fits !== null);
   const trayFits = useQuestionRoom((state) => (state.resized ? null : state.fits));
   const setupFits =
-    settingUp && !resized && dock === "bottom" && !folded ? questionMax(room.height) : null;
+    settingUp && !resized && dock === "bottom" && !folded ? bottomMax(room.height) : null;
   const needed = trayFits ?? setupFits;
-  const waits = needed !== null && dock === "bottom" && !folded;
-  // One largest height while a question waits or the setup card shows, for its growth, the keys and a drag alike.
-  const tallest = waits || settingUp ? questionMax(room.height) : bottomMax(room.height);
+  const waits = (trayWaiting || settingUp) && dock === "bottom" && !folded;
+  // One largest height while a question waits, for its growth, the keys and a drag alike.
+  const tallest = waits ? questionMax(room.height) : bottomMax(room.height);
   const ownHeight = bottomHeight(shown.height, room.height, tallest);
   const height =
     waits && needed !== null ? questionHeight(ownHeight, needed, room.height) : ownHeight;

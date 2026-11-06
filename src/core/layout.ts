@@ -502,24 +502,10 @@ function takeOut(group: LayoutGroup, tab: LayoutTab): number {
   return index;
 }
 
-/** What a new group takes of the pair's width when a Document opens beside a Mind: the Note is what the User came to write (#2270). */
-const BESIDE_NOTE_SHARE = 1 / 3;
-
-/** A new, empty group at `at`, taking `share` of `beside`'s width. */
-function addGroup(
-  layout: Layout,
-  at: number,
-  beside: LayoutGroup,
-  newId: () => string,
-  share = 0.5,
-) {
-  const group: LayoutGroup = {
-    id: newId(),
-    tabs: [],
-    activeTabId: null,
-    width: beside.width * share,
-  };
-  beside.width *= 1 - share;
+/** A new, empty group at `at`, taking half of `beside`'s width. */
+function addGroup(layout: Layout, at: number, beside: LayoutGroup, newId: () => string) {
+  const group: LayoutGroup = { id: newId(), tabs: [], activeTabId: null, width: beside.width / 2 };
+  beside.width /= 2;
   layout.groups.splice(at, 0, group);
   return group;
 }
@@ -547,17 +533,12 @@ function homeFor(
 }
 
 /** The group right of `from`, made if there is room, else the one left of it. */
-function sideGroup(
-  layout: Layout,
-  from: LayoutGroup,
-  newId: () => string,
-  share = 0.5,
-): LayoutGroup {
+function sideGroup(layout: Layout, from: LayoutGroup, newId: () => string): LayoutGroup {
   if (from.tabs.length === 0) return from;
   const index = layout.groups.indexOf(from);
   const right = layout.groups[index + 1];
   if (right) return right;
-  if (layout.groups.length < MAX_TAB_GROUPS) return addGroup(layout, index + 1, from, newId, share);
+  if (layout.groups.length < MAX_TAB_GROUPS) return addGroup(layout, index + 1, from, newId);
   return layout.groups[index - 1] ?? from;
 }
 
@@ -636,8 +617,6 @@ function open(
       ? requireGroup(layout, where.from)
       : focusedGroup(layout);
   const shown = from.tabs.find((tab) => tab.id === from.activeTabId);
-  const newGroupShare =
-    item.kind === "document" && shown?.item.kind === "mind" ? BESIDE_NOTE_SHARE : 0.5;
   // The Library and Home have one tab per window; anything else is revealed wherever it is
   // open, and only a tab asked for in a group (Open in a new tab) can be a second one.
   const found = where.in !== "group" || oneTabEach(item) ? findOpen(layout, item) : null;
@@ -661,9 +640,9 @@ function open(
       where.groupId === undefined ? focusedGroup(layout) : requireGroup(layout, where.groupId);
     before = where.before;
   } else if (where.in === "side") {
-    target = sideGroup(layout, from, newId, newGroupShare);
+    target = sideGroup(layout, from, newId);
   } else if (where.in === "beside") {
-    target = shown?.item.kind === "document" ? from : sideGroup(layout, from, newId, newGroupShare);
+    target = shown?.item.kind === "document" ? from : sideGroup(layout, from, newId);
   } else {
     target = from;
   }

@@ -408,7 +408,7 @@ async function ownDocuments(window: Page): Promise<{ reading: boolean; ready: bo
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [900, 1600]) {
-    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a long one (${language}, ${width}px)`, async () => {
+    test(`the Ask line holds one height as their file is read, fails, becomes the Question, or a second Document makes it neutral (${language}, ${width}px)`, async () => {
       test.setTimeout(180_000);
       const sources = await createDataFolder();
       const slow = join(sources, "Harbour times.pdf");
@@ -471,23 +471,17 @@ for (const language of ["en", "zh-CN"] as const) {
         ready = await height();
         expect(ready, `${language} ${width}px, reading to ready`).toBe(reading);
 
+        // A second Document of theirs: the Question turns neutral and asks about both, so the line
+        // keeps its one height with a Question short enough to fit. The line's cut is tested below.
         await a.window.getByTestId("add-documents-input").setInputFiles([long]);
-        await expect(button).toHaveAttribute("title", new RegExp(LONG_NAME.slice(0, 24)));
+        const neutral =
+          language === "en"
+            ? "Ask: “What do your 2 Documents say?”"
+            : "提问：这 2 个文档讲了什么？";
+        await expect(button).toHaveAttribute("title", neutral);
         const cut = await height();
-        expect(cut, `${language} ${width}px, a long Question`).toBe(reading);
-        // The whole Question stays the line's name and its tooltip, and the line cuts it.
-        expect(await button.getAttribute("aria-label")).toContain(LONG_NAME);
-        const wholeLabel = (await button.getAttribute("title")) ?? "";
-        const shownLabel = await button.innerText();
-        expect(shownLabel.endsWith("…"), `${language} ${width}px, cut`).toBe(true);
-        expect(wholeLabel.startsWith(shownLabel.slice(0, -1))).toBe(true);
-        if (language === "en")
-          // English cuts at a word's end, so what follows the shown text starts a word.
-          expect(
-            wholeLabel.slice(shownLabel.length - 1),
-            `${language} ${width}px, a word's end`,
-          ).toMatch(/^\s/u);
-        await shot(a.window, `ask-line-long-${language}-${width}`);
+        expect(cut, `${language} ${width}px, two Documents`).toBe(reading);
+        await shot(a.window, `ask-line-two-${language}-${width}`);
       } finally {
         await a.app.close();
         await removeDataFolder(first);
