@@ -8108,6 +8108,12 @@ export interface AskInConversationInput {
   quotes?: AskedQuote[] | null;
   /** Its Search scope; none or null: every Document. */
   scope?: SearchScope | null;
+  /**
+   * The Folder the Library is open on, when the Question comes from the Library with no Note:
+   * what "this folder" means there (#2529). Checked against the walls as a Note's Folder is,
+   * and not kept with the Question.
+   */
+  folderInFrontId?: string | null;
   /** The model to answer with; none or null: the default. */
   model?: ChatModelChoice | null;
   /** A Skill to load up front, by name. */
@@ -8134,6 +8140,11 @@ export interface ConversationAnswerInput {
   clearScope?: boolean;
   /** Regenerating: the Documents open on screen now, as `AskInConversationInput.onScreen`. */
   onScreen?: string[] | null;
+  /**
+   * Regenerating: the Folder the Library is open on, as `AskInConversationInput.folderInFrontId`,
+   * so Try again means the same Folder as the first Answer did (#2529).
+   */
+  folderInFrontId?: string | null;
   /**
    * Regenerating: write it with this model, and keep the Question on it, as when the model it was
    * asked with failed and the User chose another (#1848). Absent: the Question's own.

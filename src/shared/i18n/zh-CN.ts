@@ -4915,6 +4915,7 @@ export const zhCN = {
     "已按纯文本复制：这个数字保存的输入不完整，核对结果没有一起复制。请重新核对这个数字后再复制。",
   "error.conversation.notFound": "这个对话不存在或已删除。",
   "error.question.empty": "先输入问题，再提问。",
+  "error.question.folderInFront": "前置文件夹必须是文件夹的 id，或为 null。",
   "error.question.analyseChoice": "问题是否可以分析数据只能是 true 或 false。",
   "error.estimate.searches": "估算的联网搜索次数应在 0 到 {max} 之间。",
   "error.estimate.each": "估算只能针对回答或核对。",

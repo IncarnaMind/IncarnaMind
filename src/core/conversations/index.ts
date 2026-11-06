@@ -90,6 +90,8 @@ export interface QuestionInput {
   commands: CommandWindow | null;
   quotes: AskedQuote[];
   scope: SearchScope | null;
+  /** The Folder the Library is open on when there is no Note (#2529); not kept with the Question. */
+  folderInFront: string | null;
   model: ChatModelChoice | null;
   forcedSkill: string | null;
   /** Asked with "Analyse data…": its Answer may run an Analysis whatever its scope holds (#447). */
@@ -126,6 +128,16 @@ export interface Turn {
 export interface AddedTurn {
   turn: Turn;
   previousConversationUpdatedAt: string | null;
+}
+
+/**
+ * What a Try again reads, kept on its Question in the same transaction as the Answer's reset
+ * (#2529): a field left undefined keeps what the Question had. Written together, an interrupted
+ * Try again leaves the old origin with its old Answer, never a new Folder over text it holds.
+ */
+export interface RetryOrigin {
+  folderId?: string;
+  scope?: SearchScope | null;
 }
 
 interface ConversationRow {
@@ -1006,7 +1018,8 @@ export function createConversations(db: Database, now: () => string) {
      */
     parseQuestion(input: unknown): QuestionInput {
       if (!isRecord(input)) throw new InvalidInputError("askInConversation expects an object.");
-      const { text, conversationId, mindId, model, forcedSkill, focus, analyse } = input;
+      const { text, conversationId, mindId, model, forcedSkill, focus, analyse, folderInFrontId } =
+        input;
       if (typeof text !== "string" || text.trim() === "") {
         throw new InvalidInputError({ key: "error.question.empty" });
       }
@@ -1039,6 +1052,13 @@ export function createConversations(db: Database, now: () => string) {
       if (analyse !== undefined && typeof analyse !== "boolean") {
         throw new InvalidInputError({ key: "error.question.analyseChoice" });
       }
+      if (
+        folderInFrontId !== undefined &&
+        folderInFrontId !== null &&
+        (typeof folderInFrontId !== "string" || folderInFrontId === "")
+      ) {
+        throw new InvalidInputError({ key: "error.question.folderInFront" });
+      }
       return {
         conversationId:
           conversationId === undefined || conversationId === null
@@ -1051,6 +1071,7 @@ export function createConversations(db: Database, now: () => string) {
         commands: parseCommandWindow(input.clientId, input.commands),
         quotes: parseQuotes(input.quotes),
         scope: parseSearchScope(input.scope),
+        folderInFront: typeof folderInFrontId === "string" ? folderInFrontId : null,
         model: model ?? null,
         forcedSkill: typeof forcedSkill === "string" ? forcedSkill : null,
         analyse: analyse === true,
@@ -1303,12 +1324,28 @@ export function createConversations(db: Database, now: () => string) {
       answerId: string,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
+      origin?: RetryOrigin,
     ): Turn {
       return db.transaction(() => {
         const answer = liveMessage(answerId);
         const question = liveMessage(answer?.question_id);
         if (!answer || !question)
           throw new NotFoundError({ key: "error.answer.notInConversation" });
+        if (origin) {
+          const at = now();
+          if (origin.scope !== undefined) {
+            db.run(
+              "UPDATE conversation_messages SET scope = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
+              [origin.scope ? JSON.stringify(origin.scope) : null, at, question.id],
+            );
+          }
+          if (origin.folderId !== undefined) {
+            db.run(
+              "UPDATE conversation_messages SET folder_asked_in = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
+              [origin.folderId, at, question.id],
+            );
+          }
+        }
         db.run(
           `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', analyses = '[]', tool_calls = '[]',
              status = 'streaming', error_kind = NULL, error_message = NULL,
@@ -1325,7 +1362,7 @@ export function createConversations(db: Database, now: () => string) {
           ],
         );
         db.run("DELETE FROM conversation_messages_fts WHERE rowid = ?", [BigInt(answer.seq)]);
-        return turnOf(question, answerId);
+        return turnOf(origin ? (liveMessage(question.id) ?? question) : question, answerId);
       });
     },
 
