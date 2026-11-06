@@ -221,12 +221,18 @@ async function noteFlow(
   await client.settled();
   recorder.begin(sentences);
   const watch = watchNote(client.doc, sentences, recorder.since, await versionsOf(core));
-  const checking = core.checkMind({
-    requestId: `note-${run}-${Date.now()}`,
-    mindId,
-    mode: "all",
-    model: choice,
-  });
+  let doneMs = 0;
+  // Its end is taken when the check ends, not after a search asked during it.
+  const checking = core
+    .checkMind({
+      requestId: `note-${run}-${Date.now()}`,
+      mindId,
+      mode: "all",
+      model: choice,
+    })
+    .then(() => {
+      doneMs = recorder.since();
+    });
   const searchedDuring = await searchDuring(
     core,
     mindId,
@@ -236,7 +242,6 @@ async function noteFlow(
     checking,
   );
   await checking;
-  const doneMs = recorder.since();
   watch.stop();
   return {
     checkStartMs: watch.firstMarkMs() ?? doneMs,
