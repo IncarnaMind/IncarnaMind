@@ -796,9 +796,49 @@ interface Settled {
   chinese: boolean;
   accounts: boolean;
   negativeBrackets: boolean;
+  /** A header of periods ("2025 2024", "本期 上期") applies to the text read, or stands above it on the page. */
+  periodColumns: boolean;
   /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
   before: string;
   after: string;
+}
+
+/**
+ * A year or a period that heads a column of figures: "2025", "FY2024", "2024年度", 本期, 上年, "prior
+ * year". A Chinese character may stand right beside it, as the text read drops the space there.
+ */
+const PERIOD =
+  /(?<![A-Za-z\d])(?:FY ?)?(?:19|20)\d{2}(?:年度?(?![A-Za-z])|(?![\p{L}\d]))|本期|上期|本年度?|上年度?|期末|期初|年初|年末|(?:current|prior|previous|this|last) (?:year|period)/giu;
+
+/** Whether a line of `text` heads columns of periods: two periods and at most three other words, as in "2025 2024", "项目 本期 上期" or "Item 31 December 2025 31 December 2024". */
+function headsPeriods(text: string): boolean {
+  return text.split("\n").some((line) => {
+    const periods = line.match(PERIOD)?.length ?? 0;
+    return periods >= 2 && (line.replace(PERIOD, " ").match(/\p{L}+/gu)?.length ?? 0) <= 3;
+  });
+}
+
+/** Where the first line of `prepared` that heads columns of periods ends, or Infinity. */
+const periodHeaderEnds = new WeakMap<Prepared, number>();
+function periodHeaderEnd(prepared: Prepared): number {
+  let end = periodHeaderEnds.get(prepared);
+  if (end === undefined) {
+    end = Number.POSITIVE_INFINITY;
+    const { s, lineStarts } = prepared;
+    // A line break beside a Chinese character is gone from the text read; lineStarts keeps it.
+    const starts = new Set([0, ...lineStarts]);
+    for (let at = s.indexOf("\n"); at >= 0; at = s.indexOf("\n", at + 1)) starts.add(at + 1);
+    const sorted = [...starts].sort((a, b) => a - b);
+    for (const [index, start] of sorted.entries()) {
+      const stop = sorted[index + 1] ?? s.length;
+      if (headsPeriods(s.slice(start, stop))) {
+        end = stop;
+        break;
+      }
+    }
+    periodHeaderEnds.set(prepared, end);
+  }
+  return end;
 }
 
 /** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
@@ -827,6 +867,7 @@ function settle(context: FigureContext): Settled {
     chinese: tag?.language === "zh",
     accounts: context.accounts === true,
     negativeBrackets: context.negativeBrackets === true,
+    periodColumns: headsPeriods(context.header ?? "") || headsPeriods(context.around?.before ?? ""),
     before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
     after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
@@ -2567,16 +2608,17 @@ const SIGN_BEFORE =
   /(?:(?<![A-Za-z])(?:less|deficits?|loss(?:es)?|decreas(?:e|es|ed))(?: (?:of|by))?|亏损|赤字|减少|下降|损失|扣除|减去|扣减|抵扣|减除)[ \u00a0]*[为了]?$|-[ \u00a0]*$|[△▲▽▼][ \u00a0]*$/i;
 
 /**
- * A word that says an amount is below zero, in the text around it: "minus", "negative", "a net
- * loss", "overdrawn", "OD", "in the red", "printed in red", "below zero", "in debit", "-ve", "(−)",
- * 负, 亏损, 透支, 赤字, 红字, 小于零, 由盈转亏. Not a "negative pledge", nor 负责, 负担, 负债, 负面 or 自负,
- * nor "the loss was", which gives a loss's size.
+ * A word that says or may say an amount is below zero, or is taken off, in the text around it:
+ * "minus", "negative", "loss", "deficit", "less", "deducted", "overdrawn", "OD", "in the red",
+ * "below zero", "in debit", "-ve", "(−)", 负, 亏, 损失, 透支, 赤字, 逆差, 缺口, 红字, 小于零. A loss's
+ * size ("The loss was …") keeps the minus too, as main reads it. Not a "negative pledge", "less
+ * than", 负责, 负担, 负债, 负面, 自负, 幸亏 or 多亏.
  */
 const NEGATIVE_WORD =
-  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|in deficit|an? (?:[a-z-]+ ){0,2}(?:loss|deficit)|loss-making|(?:below|under|less than) zero|in debit|-ve|od|(?:shown|printed) in red|under ?water)(?![A-Za-z])|(?<!自)负(?![责担债面])|亏损|透支|赤字|转亏|为亏|净亏|亏了|[小低]于零|红字|\(-\)/i;
+  /(?<![A-Za-z])(?:minus|negative(?! pledge)|overdrawn|overdrafts?|in(?:to)? the red|loss(?:es)?|deficits?|less(?! than)|deduct(?:s|ed|ing|ions?)?|(?:below|under|less than) zero|in debit|-ve|od|(?:shown|printed) in red|under ?water)(?![A-Za-z])|(?<!自)负(?![责担债面])|(?<![幸多])亏|损失|透支|赤字|逆差|缺口|[小低]于零|红字|\(-\)/i;
 
-/** A line that subtracts what it holds: "Less: deposit paid …", "减：已付定金 …", a table's "Less" cell. */
-const DEDUCTION_LINE = /^[\s|]*(?:less|deduct|减)[ \u00a0]*(?:[:：-]|\t|\|)/i;
+/** A line that subtracts what follows: "Less: deposit paid …", "减：已付定金 …", a "Less" cell or heading. */
+const DEDUCTION_LINE = /^[\s|]*(?:less|deduct|减)[ \u00a0]*(?:[:：-]|\t|\||$)/im;
 
 /** The Document says amounts in brackets are negative: "Amounts in brackets are negative", "括号内数字为负数". */
 const SAYS_BRACKETS_NEGATIVE =
@@ -2605,6 +2647,8 @@ function restates(
   // No further back than one amount's words reach, so a long line costs no more.
   const near = Math.max(0, bracket - 160);
   const line = near + s.slice(near, bracket).lastIndexOf("\n") + 1;
+  // Under a header of periods a bracket may be another year's figure, as main reads it (#2341).
+  if (settled.periodColumns || periodHeaderEnd(prepared) <= bracket) return null;
   // "人民币九万八千元整（¥98,000.00）": 整 closes an amount in words.
   const gap = /整?[ \u00a0]*$/.exec(s.slice(Math.max(floor, line), bracket))?.[0].length ?? 0;
   const end = bracket - gap;
@@ -2618,18 +2662,14 @@ function restates(
     // read keep the bracket's minus: the reader doesn't look that far back.
     if (from > 400) return true;
     const after = s.slice(inner.to, inner.to + 400) + settled.after;
-    if (NEGATIVE_WORD.test(settled.before + s.slice(0, from)) || NEGATIVE_WORD.test(after))
+    const window = settled.before + s.slice(0, from);
+    if (NEGATIVE_WORD.test(window) || NEGATIVE_WORD.test(after) || DEDUCTION_LINE.test(window))
       return true;
     const start = s.lastIndexOf("\n", from - 1) + 1;
-    const own = s.slice(start, from);
-    // A quote from the middle of a line: "Less: " before "retention held back …".
-    const lead =
-      (start === 0 ? settled.before.slice(settled.before.lastIndexOf("\n") + 1) : "") + own;
     // "减", a tab, "已付定金": the tab beside a Chinese character is gone from the text read.
-    const label = /^[\s|]*减/.exec(own)?.[0].length;
+    const label = /^[\s|]*减/.exec(s.slice(start, from))?.[0].length;
     return (
-      SIGN_BEFORE.test(lead.slice(-24)) ||
-      DEDUCTION_LINE.test(lead) ||
+      SIGN_BEFORE.test(window.slice(-24)) ||
       (label !== undefined && prepared.tabbed.has(start + label))
     );
   };
