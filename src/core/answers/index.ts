@@ -3771,13 +3771,16 @@ export function createAnswers(options: AnswersOptions) {
       ) {
         activity = "checking-quotes";
         showPhase();
+        // The Answer's own model, not thinking: the ask is a copy, and the Answer waits for it.
+        const copying = await options.prepareModel(model, "off");
         const asked = await exactMarks({
-          model: prepared.model,
+          model: copying.model,
           markdown,
           quotations: quotationsIn(withoutFootnoteDefinitions(markdown)),
           unfound: (words, markers) => session.unfoundQuotedWords(words, markers),
           current: () => markdown,
           version: (marker) => session.citationVersion(marker),
+          pages: (marker) => session.citedPages(marker),
           holds: (text) => home.holds?.(text) ?? true,
           changed: (marker) => session.quoteMarksChanged(marker),
           signal: controller.signal,

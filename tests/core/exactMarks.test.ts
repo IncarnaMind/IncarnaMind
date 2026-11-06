@@ -345,6 +345,7 @@ describe("A reply applies only to the Answer it was asked about", () => {
       unfound: () => [cited],
       current: () => markdown,
       version: () => cited.version,
+      pages: () => cited,
       holds: () => true,
       changed: () => {},
       signal: new AbortController().signal,
@@ -366,6 +367,17 @@ describe("A reply applies only to the Answer it was asked about", () => {
   test("a Citation of another version since the ask makes it stale", async () => {
     const result = await ask(quotes(taken), { version: () => "the Document read again" });
     expect(result?.ask).toMatchObject({ accepted: 0, invalidated: 1 });
+  });
+
+  test("a page whose words there changed since the second reading: the reply isn't found, not taken", async () => {
+    const result = await ask(quotes(taken), {
+      pages: () => ({
+        units: [{ page: 1, text: page.replace("14 days", "15 days") }],
+        matching: {},
+      }),
+    });
+    expect(result?.markdown).toBe(markdown);
+    expect(result?.ask).toMatchObject({ accepted: 0, rejected: 1 });
   });
 
   test("the quotation typed into in the Answer's place makes it stale", async () => {

@@ -27,8 +27,8 @@ export const OUTPUT_LIMITS = {
   // A record for each sentence it cites: a Meeting's notes ask for dozens at once (#2306).
   "unmarked-quotes": { most: 8_000, each: 150 },
   "quote-retry": { most: 600, each: 100 },
-  // Each quotation an Answer may quote is up to 400 characters (./answers/quotedWords).
-  "exact-marks": { most: 2_400, each: 400 },
+  // A quotation is up to 400 characters (../answers/quotedWords), and the Answer's model may think first.
+  "exact-marks": { most: 8_000, each: 2_000 },
   "figure-retry": { most: 1_800, each: 300 },
   evidence: { most: 4_000, each: 600 },
   comparison: { most: 300 },

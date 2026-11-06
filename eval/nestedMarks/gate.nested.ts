@@ -18,6 +18,7 @@ import type { Core, CoreEvents } from "../../src/core";
 import { SENTENCE_BATCH_INSTRUCTIONS } from "../../src/core/answers/checks/sentenceBatch";
 import { EXACT_MARKS_INSTRUCTIONS, exactMarks } from "../../src/core/answers/exactMarks";
 import { quotationsIn } from "../../src/core/answers/quotedWords";
+import { CNY_PER_USD } from "../../src/core/providers/catalog/billing";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { findQuote } from "../../src/shared/quoteMatch";
 import { shownPassages } from "../../tests/helpers/citations";
@@ -39,7 +40,9 @@ interface Case {
 const HERE = join(__dirname);
 const KEY = process.env.INCARNAMIND_EVAL_NESTED_KEY;
 const MODEL = process.env.INCARNAMIND_EVAL_NESTED_MODEL?.trim() || "deepseek-flash";
-const ONLY = process.env.INCARNAMIND_EVAL_NESTED_ONLY?.split(",").map((each) => each.trim());
+const ONLY = process.env.INCARNAMIND_EVAL_NESTED_ONLY?.trim()
+  ? process.env.INCARNAMIND_EVAL_NESTED_ONLY.split(",").map((each) => each.trim())
+  : null;
 const BUDGET = Number(process.env.INCARNAMIND_EVAL_NESTED_BUDGET ?? "5") || 5;
 const SAVED = process.env.INCARNAMIND_EVAL_NESTED_SAVED;
 
@@ -62,7 +65,7 @@ function answerTurn(call: ModelCall, each: Case): ScriptedReply {
 }
 
 /** A model whose Answer is scripted, and whose ask about its marks and judging are the real model's. */
-function routed(real: LanguageModelV4, each: Case): LanguageModelV4 {
+function routed(real: LanguageModelV4, each: Case, judged: string[]): LanguageModelV4 {
   const scripted = scriptedModel((call) => answerTurn(call, each));
   const toReal = (prompt: Parameters<LanguageModelV4["doGenerate"]>[0]["prompt"]) =>
     prompt.some(
@@ -76,15 +79,31 @@ function routed(real: LanguageModelV4, each: Case): LanguageModelV4 {
     provider: real.provider,
     modelId: real.modelId,
     supportedUrls: real.supportedUrls,
-    doGenerate: (options) => (toReal(options.prompt) ? real : scripted).doGenerate(options),
+    doGenerate: async (options) => {
+      if (!toReal(options.prompt)) return scripted.doGenerate(options);
+      const result = await real.doGenerate(options);
+      const text = result.content
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("");
+      judged.push(text);
+      return result;
+    },
     doStream: (options) => (toReal(options.prompt) ? real : scripted).doStream(options),
   };
 }
 
+/** What the app's meter says was spent, in dollars: DeepSeek is priced in yuan, at the app's own fixed rate. */
 const spentOf = async (core: Core) =>
-  (await core.getCostSummary()).spent
-    .filter((each) => each.currency === "USD")
-    .reduce((total, each) => total + each.amount, 0);
+  (await core.getCostSummary()).spent.reduce(
+    (total, each) =>
+      total +
+      (each.currency === "USD"
+        ? each.amount
+        : each.currency === "CNY"
+          ? each.amount / CNY_PER_USD
+          : 0),
+    0,
+  );
 
 interface Row {
   id: string;
@@ -93,7 +112,11 @@ interface Row {
   family: string;
   claimTrue: boolean;
   check: string;
+  checkReason: string | null;
+  verdict: string | null;
   quoteMarksChanged: boolean;
+  /** The judge's replies, raw: a \"supported\" one that ends Not checked is counted. */
+  judged: string[];
   ask: CoreEvents["answer.finished"]["exactMarks"];
   oldSentence: string;
   newText: string;
@@ -103,10 +126,12 @@ interface Row {
 }
 
 async function runCase(each: Case): Promise<Row> {
+  /** The judge's replies to this case's sentence, as the model gave them. */
+  const judged: string[] = [];
   const dataDir = await createTempDataFolder();
   const sources = await createTempDataFolder();
   const core = startCore(dataDir, {
-    createChatModel: (spec) => routed(createAiSdkChatModel(spec) as LanguageModelV4, each),
+    createChatModel: (spec) => routed(createAiSdkChatModel(spec) as LanguageModelV4, each, judged),
     answerPaths: { asksForExactMarks: () => true },
   });
   // Setting the key is the consent to send the case's sentence and page to the model.
@@ -153,7 +178,10 @@ async function runCase(each: Case): Promise<Row> {
     family: each.family,
     claimTrue: each.claimTrue,
     check: citation?.check ?? "none",
+    checkReason: citation?.checkReason ?? null,
+    verdict: citation?.verdict ?? null,
     quoteMarksChanged: citation?.quoteMarksChanged === true,
+    judged,
     ask: ended?.exactMarks ?? null,
     oldSentence: each.sentence,
     newText: answer.text,
@@ -198,6 +226,13 @@ function summary(rows: readonly Row[]) {
       nested: of.filter((row) => row.kind === "nested").length,
       falseSupported: of.filter((row) => !row.claimTrue && row.check === "found").length,
       firedOnPlain: of.filter((row) => row.kind === "plain" && (row.ask?.asked ?? 0) > 0).length,
+      supportedButNotChecked: of
+        .filter(
+          (row) =>
+            row.check === "not-checked" &&
+            row.judged.some((reply) => /"verdict"\s*:\s*"supported"/u.test(reply)),
+        )
+        .map((row) => row.id),
       waitMedian: median(waits),
       waitP95: p95(waits),
       dollars: of.reduce((total, row) => total + row.dollars, 0),
@@ -301,6 +336,7 @@ test("Where the ask would fire on saved Answers, counted offline", async () => {
             ],
       current: () => text,
       version: () => "",
+      pages: () => ({ units: [{ page: 1, text: page }], matching: {} }),
       holds: () => true,
       changed: () => {},
       signal: new AbortController().signal,

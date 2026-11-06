@@ -2428,6 +2428,12 @@ export function createCitationSession(
       });
     },
 
+    /** The text of the pages a marker's Citation cites, as `unfoundQuotedWords` gives it; null when it has none. */
+    citedPages: (marker: number): { units: PageText[]; matching: Matching } | null => {
+      const record = records.get(marker);
+      return record ? { units: citedText(record), matching: matchingFor(record.source) } : null;
+    },
+
     /** A marker's Citation as `unfoundQuotedWords` gives its version; null when it has none. */
     citationVersion: (marker: number): string | null => {
       const record = records.get(marker);

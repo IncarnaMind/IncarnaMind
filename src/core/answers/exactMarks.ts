@@ -179,6 +179,8 @@ export interface ExactMarksRequest {
   current(): string;
   /** A marker's Citation now, as `CitedPages.version`; null when it has none. */
   version(marker: number): string | null;
+  /** The text of the pages a marker's Citation cites now: a reply is found there or not taken. */
+  pages(marker: number): Pick<CitedPages, "units" | "matching"> | null;
   /** Whether the Answer's place still holds the quotation as written: the User may have typed into it. */
   holds(quotation: string): boolean;
   /** Records that a marker's quotation now has the Document's marks. */
@@ -270,10 +272,15 @@ function onlyPlace(text: string, part: string): TextRange | null {
   return { start, end: start + part.length };
 }
 
-/** Whether the check finds `reply` exactly at the place on the Citation's pages that the second reading found. */
-function foundThere(asked: Asked, reply: string): boolean {
-  const { units, matching } = asked.cited;
-  return findQuote(asked.pageText, reply, { ...matching, numbers: numbersIn(units) }) !== null;
+/** Whether the check finds `reply` exactly at the place the second reading found, on the Citation's pages as they are now. */
+function foundThere(
+  asked: Asked,
+  reply: string,
+  now: Pick<CitedPages, "units" | "matching"> | null,
+): boolean {
+  if (!now) return false;
+  const there = joinUnits(now.units).text.slice(asked.place.start, asked.place.end);
+  return findQuote(there, reply, { ...now.matching, numbers: numbersIn(now.units) }) !== null;
 }
 
 /** Resolves once `signal` aborts: a stream that stalls doesn't keep the Answer past it. */
@@ -392,7 +399,7 @@ export async function exactMarks(request: ExactMarksRequest): Promise<ExactMarks
       ask.declined++;
       continue;
     }
-    if (reply !== each.expected || !foundThere(each, reply)) {
+    if (reply !== each.expected || !foundThere(each, reply, request.pages(each.cited.marker))) {
       ask.rejected++;
       continue;
     }
