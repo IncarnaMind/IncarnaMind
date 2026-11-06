@@ -535,6 +535,66 @@ describe("The reranking channel", () => {
     await expect(crossEncoder.score("q", ["t"])).rejects.toThrow("The model failed on this text.");
   });
 
+  // protects=closing the model on purpose (reranking turned off, the model unloaded) fails what waits on it, so the searches queued behind it go on, and the next load starts afresh (#2532); fails_when=a scoring under way when the model is closed never settles and holds every search after it; no_claim=a process that exits by itself, which the next test covers.
+  test("closing it while it scores fails that scoring, so the searches after it go on", async () => {
+    let reachedModel = () => {};
+    const reached = new Promise<void>((resolve) => {
+      reachedModel = resolve;
+    });
+    const slow: CrossEncoder = {
+      load: async () => ({ device: "cpu" }),
+      score: (query, texts) =>
+        query === "held"
+          ? new Promise(() => {
+              reachedModel();
+            })
+          : Promise.resolve(texts.map(() => 0)),
+      close: () => {},
+    };
+    // Each start is a process of its own, as the app's are: a stopped one's work goes with it.
+    let starts = 0;
+    const start = (): CrossEncoderChannel => {
+      starts++;
+      let onRequest: (request: CrossEncoderRequest) => void = () => {};
+      let onResponse: (response: CrossEncoderResponse) => void = () => {};
+      serveCrossEncoder(slow, {
+        onRequest: (listener) => {
+          onRequest = listener;
+        },
+        respond: (response) => queueMicrotask(() => onResponse(response)),
+      });
+      return {
+        send: (request) => queueMicrotask(() => onRequest(request)),
+        onResponse: (listener) => {
+          onResponse = listener;
+        },
+        onExit: () => {},
+        stop: () => {},
+      };
+    };
+    const model = createRerankingModel({
+      definition: BUILT_IN_RERANKING_MODEL,
+      source: NO_MODEL_FILES,
+      dataDir: await createTempDataFolder(),
+      crossEncoder: createChannelCrossEncoder(start),
+      emitStatus: () => {},
+    });
+    const hits = [
+      { documentName: "Tides", text: "Spring tides come at new moon." },
+      { documentName: "Harbour", text: "The harbour office opens at nine." },
+    ];
+
+    const held = model.rerank("held", hits);
+    await reached;
+    const after = model.rerank("after", hits);
+    model.unload();
+
+    await expect(held).rejects.toThrow(/was stopped/);
+    expect(await after).toHaveLength(2);
+    expect(starts).toBe(2);
+    model.close();
+  });
+
   test("when the process stops, pending requests fail and the next load starts a new one", async () => {
     let release = () => {};
     let reachedModel = () => {};

@@ -114,6 +114,10 @@ export function createChannelCrossEncoder(start: () => CrossEncoderChannel): Cro
       const stopping = channel;
       channel = undefined;
       loaded = undefined;
+      // Its exit is no longer heard: what waits on it fails now, so the searches behind it go on.
+      const error = new Error("The reranking model was stopped.");
+      for (const waiting of pending.values()) waiting.reject(error);
+      pending.clear();
       stopping?.stop();
     },
   };
