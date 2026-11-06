@@ -582,7 +582,12 @@ function lastAnswerOf(
   // does one of something in the app that wasn't done (#2407).
   const said = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const blocks = [
-    ...withAnswerChecks(pageBlocks(answer, question?.text ?? ""), answer, question?.text ?? ""),
+    ...withAnswerChecks(
+      pageBlocks(answer, question?.text ?? ""),
+      answer,
+      question?.text ?? "",
+      question?.scope ?? null,
+    ),
     ...unrunToolNotes(said, answer.steps),
     ...unbackedCommandNotes(said, answer.steps),
   ];

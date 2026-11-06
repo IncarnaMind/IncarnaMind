@@ -219,6 +219,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     checkedAt: text(value.checkedAt) ?? "",
     ...(value.kept === true && { kept: true }),
     ...(read && { read }),
+    ...(text(value.fromAnswer) !== null && { fromAnswer: text(value.fromAnswer) as string }),
   };
   if (value.parts !== undefined && value.parts !== null) {
     const parts = readClaimParts(value.parts, check.text, check.state);

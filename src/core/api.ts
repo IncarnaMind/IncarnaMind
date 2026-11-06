@@ -7148,6 +7148,8 @@ export interface ClaimCheckBasis {
   kept?: true;
   /** "check-against-document": how much of the picked Document or Folder was read. */
   read?: WholeRead;
+  /** The Answer a carried check came from (#2313); absent for a check the Note ran itself. */
+  fromAnswer?: string;
 }
 
 /** Pages read of a whole-read pick's total pages; a page without text cannot be read. */

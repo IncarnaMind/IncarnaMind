@@ -130,11 +130,17 @@ export async function copyAnswer(answerId: string): Promise<boolean> {
  */
 export const notesToAdd = (answer: ConversationAnswer): NodeJSON[] => {
   const selected = selectedNotes(answer.id);
-  const question = questionOf(answer)?.text ?? "";
+  const asked = questionOf(answer);
+  const question = asked?.text ?? "";
   return [
     ...(selected
-      ? withAnswerChecks(asQuoteChecked(selected, answer.status), answer, question)
-      : withAnswerChecks(pageBlocks(answer, question), answer, question)),
+      ? withAnswerChecks(
+          asQuoteChecked(selected, answer.status),
+          answer,
+          question,
+          asked?.scope ?? null,
+        )
+      : withAnswerChecks(pageBlocks(answer, question), answer, question, asked?.scope ?? null)),
     ...unrunToolNotes(translateNow, answer.steps),
     ...unbackedCommandNotes(translateNow, answer.steps),
   ];

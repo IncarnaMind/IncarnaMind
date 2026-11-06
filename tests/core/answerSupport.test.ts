@@ -284,6 +284,7 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
         pageBlocks(judgedAnswer, each.question),
         judgedAnswer,
         each.question,
+        null,
       );
       const marks: unknown[] = [];
       const collect = (nodes: readonly NodeJSON[]) =>

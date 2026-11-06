@@ -20,6 +20,7 @@ import {
   type ClaimVerdict,
   type ConversationAnswer,
   type MarkedCitation,
+  type SearchScope,
 } from "../core/api";
 import { asGenerated } from "./aiText";
 import type { AnalysisValue } from "./analysis";
@@ -154,8 +155,10 @@ export function asQuoteChecked(
 export function withAnswerChecks(
   blocks: readonly NodeJSON[],
   answer: Pick<ConversationAnswer, "text" | "citations" | "figures"> &
-    Partial<Pick<ConversationAnswer, "model" | "status">>,
+    Partial<Pick<ConversationAnswer, "model" | "status" | "id">>,
   question: string,
+  /** What the Answer's Question searched: a Folder's, or the whole Library (null). */
+  scope: SearchScope | null,
 ): NodeJSON[] {
   const checks = carriedChecks(answer, question);
   if (checks.size === 0) return [...blocks];
@@ -184,12 +187,20 @@ export function withAnswerChecks(
         calculation: null,
         citedCaseUnchecked: false,
         citedCaseFound: false,
-        // The judgement searched the Answer's Question, not the Note's Folder: moving the Note
-        // changes nothing it read.
-        scope: { folderId: null, widened: true },
+        // What the Answer's Question searched, not where the Note sits: moving the Note changes
+        // nothing the judgement read.
+        scope:
+          scope === null
+            ? { folderId: null, widened: true }
+            : {
+                folderId: scope.folderIds.length === 1 ? scope.folderIds[0] : null,
+                widened: false,
+                chosen: scope,
+              },
         versions: check.versions,
         excluded: [],
         checkedAt: check.checkedAt,
+        ...(answer.id !== undefined && { fromAnswer: answer.id }),
       },
     };
   };

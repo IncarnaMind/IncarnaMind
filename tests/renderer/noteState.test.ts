@@ -938,17 +938,19 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
     checkReason: null,
   };
   const answer = (citations: readonly object[]) => ({
+    id: "answer-1",
     text: `${sentence} [^1]`,
     citations: citations as never,
     figures: [],
     status: "done" as const,
     model: { providerId: "provider", modelId: "model" },
   });
-  const blocksOf = (citations: readonly object[]) =>
+  const blocksOf = (citations: readonly object[], scope: SearchScope | null = null) =>
     withAnswerChecks(
       pageBlocks(answer(citations), ""),
       answer(citations),
       "",
+      scope,
     ) as unknown as JSONContent[];
   const withPlan = (doc: Y.Doc) =>
     readNoteState({
@@ -983,6 +985,29 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
       ),
     ).state;
     expect(state).toMatchObject({ kind: "needs-look", look: 1 });
+  });
+
+  test("a Folder-scoped Answer's check names that Folder; a library-wide one says so; both name the Answer", () => {
+    const marksOf = (blocks: JSONContent[]) => {
+      const marks: Record<string, unknown>[] = [];
+      const collect = (nodes: readonly JSONContent[]) =>
+        nodes.forEach((node) => {
+          for (const mark of node.marks ?? []) {
+            if (mark.type === CLAIM_CHECK_MARK) marks.push(mark.attrs as Record<string, unknown>);
+          }
+          collect(node.content ?? []);
+        });
+      collect(blocks);
+      return marks;
+    };
+    const scope = { folderIds: ["folder-a"], tagIds: [], documentIds: [] };
+    const scoped = marksOf(blocksOf([{ ...citation, judgedAt: CHECKED_AT }], scope));
+    expect(scoped[0]).toMatchObject({
+      scope: { folderId: "folder-a", widened: false, chosen: scope },
+      fromAnswer: "answer-1",
+    });
+    const wide = marksOf(blocksOf([{ ...citation, judgedAt: CHECKED_AT }]));
+    expect(wide[0]).toMatchObject({ scope: { folderId: null, widened: true } });
   });
 
   test("a sentence the judgement didn't settle carries nothing", () => {
