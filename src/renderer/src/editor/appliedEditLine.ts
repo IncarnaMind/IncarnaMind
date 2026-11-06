@@ -1006,7 +1006,8 @@ function decorations(state: EditorState, line: AppliedLine, options: Options): D
           ? changedBlocksOf(state, changesLeft(line))
           : { paragraphs: 0, tables: 0 };
     const words = line.kind === "failed" ? line.text : "";
-    const count = `${blocks.paragraphs}/${blocks.tables}`;
+    // What the count is said as, as well as the count: a pair whose one half is restored stays one.
+    const count = `${blocks.paragraphs}/${blocks.tables}/${blocks.added ? "added" : ""}/${blocks.removed ? `${blocks.removed.sentences}:${blocks.removed.start}` : ""}`;
     const canUndo = line.kind !== "review" || !line.undo || line.undo.available();
     marks.push(
       Decoration.widget(at, () => mainLine(line, options, blocks), {
