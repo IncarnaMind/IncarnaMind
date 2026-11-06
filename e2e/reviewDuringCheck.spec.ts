@@ -335,7 +335,7 @@ test("an Answer that writes in two Notes says no change of either waits while it
   expect(running.filter((frame) => frame.counted > 0)).toHaveLength(0);
   expect(running.filter((frame) => frame.opens !== 2)).toHaveLength(0);
   await expect(answer.getByTestId("mind-changes-title")).toHaveText([
-    "Wrote 1 paragraph in “Project plan”",
+    "Added 1 paragraph to “Project plan”",
     "Wrote “Fieldwork plan”",
   ]);
   await app.close();
