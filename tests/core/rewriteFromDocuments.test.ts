@@ -58,6 +58,16 @@ describe("A rewrite is kept", () => {
     });
   });
 
+  test("when the line's one figure reads as a year, which is still the figure the line gives", () => {
+    expect(
+      rewritten(
+        "The lot is 1,800 square feet.",
+        "Change 1: 1,800\nTo 1: 2025",
+        "The lot is 2025 square feet.",
+      ),
+    ).toMatchObject({ kind: "rewritten", correction: { choices: [{ wording: "2025" }] } });
+  });
+
   test("in Chinese too", () => {
     expect(
       rewritten(
@@ -238,6 +248,35 @@ describe("The held-out rewrites", () => {
           : { kind: "kept" },
       );
     }
+  });
+});
+
+describe("A party said again before a figure says whose figure it is", () => {
+  const NONE = "Change 1: none\nTo 1: none";
+  const QUOTE = "The Tenant pays the Landlord before the Landlord receives $700.";
+
+  test("so another party's keeps the sentence, as the same value and as a rewrite", () => {
+    expect(
+      rewritten("The Tenant pays the Landlord before the Tenant receives $700.", NONE, QUOTE),
+    ).toEqual({ kind: "none" });
+    expect(
+      rewritten(
+        "The Tenant pays the Landlord before the Tenant receives $500.",
+        "Change 1: $500\nTo 1: $700",
+        QUOTE,
+      ),
+    ).toMatchObject({ kind: "kept" });
+  });
+
+  test("and the same party's is the same value, or rewritten", () => {
+    expect(rewritten(QUOTE, NONE, QUOTE)).toEqual({ kind: "same" });
+    expect(
+      rewritten(
+        "The Tenant pays the Landlord before the Landlord receives $500.",
+        "Change 1: $500\nTo 1: $700",
+        QUOTE,
+      ),
+    ).toMatchObject({ kind: "rewritten", correction: { choices: [{ wording: "$700" }] } });
   });
 });
 

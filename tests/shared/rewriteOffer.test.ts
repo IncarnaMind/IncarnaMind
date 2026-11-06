@@ -13,6 +13,11 @@ describe("Rewrite is offered", () => {
     expect(mayRewrite("The pool fee is $30.", "The pool fee is $45.")).toBe(true);
   });
 
+  test("where the line's one figure reads as a year, as the rewrite writes it, but never for the sentence's year", () => {
+    expect(mayRewrite("The lot is 1,800 square feet.", "The lot is 2025 square feet.")).toBe(true);
+    expect(mayRewrite("The lot was sold in 2019.", "The lot was sold in 2021.")).toBe(false);
+  });
+
   test("for every held-out rewrite the rules write, and for none of the controls", () => {
     for (const each of REWRITE_RULE_CASES.filter((one) => one.kind === "rewritten")) {
       expect(mayRewrite(each.sentence, each.quote), each.id).toBe(true);

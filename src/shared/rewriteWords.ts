@@ -184,8 +184,9 @@ export const ratesIn = (text: string): Set<Rate> =>
   );
 
 /**
- * The words before a figure that say what it is of, each once, in their order: Latin words by
- * their stems, a lone capital too (Party A is not Party B), and Chinese characters one by one.
+ * The words before a figure that say what it is of, in their order, each as often as it is said
+ * (the Tenant again is not the Landlord again): Latin words by their stems, a lone capital too
+ * (Party A is not Party B), and Chinese characters one by one.
  * Left out are the words either side may add, a verb right after "by" ("by giving 90 days"), and
  * a rate word ("annual") whose period both sides name.
  */
@@ -211,7 +212,7 @@ function figureWords(text: string, periods: ReadonlySet<Rate>): string[] {
       continue;
     words.push(stem(word));
   }
-  return [...new Set(words)];
+  return words;
 }
 
 /** "by" or "to" just before a figure: a change ("rose by 8%") or a level ("rose to 12%"). */
@@ -379,7 +380,6 @@ export function mayRewrite(sentence: string, quote: string): boolean {
   const written = new Set((quote.match(NUMBERS) ?? []).map((number) => number.normalize("NFKC")));
   const aFigure =
     quoted !== undefined &&
-    !quoted.period &&
     more.length === 0 &&
     sameSet(directionsIn(sentence), directionsIn(quote)) &&
     figuresAt(sentence).some(
