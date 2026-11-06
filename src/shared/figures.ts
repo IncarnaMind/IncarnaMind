@@ -798,6 +798,8 @@ interface Settled {
   negativeBrackets: boolean;
   /** A header of periods ("2025 2024", "本期 上期", "２０２５ ２０２４") applies to the text read, or stands above it on the page. */
   periodColumns: boolean;
+  /** The page above a quote runs on past the 400 characters read with no blank line or heading in them. */
+  pageCut: boolean;
   /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
   before: string;
   after: string;
@@ -841,6 +843,20 @@ function periodHeaderEnd(prepared: Prepared): number {
   return end;
 }
 
+/** A short line with no closing punctuation, read as a heading: "Rent", "Income statement", "3. Deposit". */
+const HEADING = /^[^\n]{1,40}(?<![。．.！!？?；;，,：:])$/u;
+
+/**
+ * Whether the page above a quote runs on past the 400 characters the reader looks at with no blank
+ * line or heading in them, so that the start of the amount's part of the page is out of sight.
+ */
+function pageCut(before: string): boolean {
+  if (before.length <= 400) return false;
+  // The first piece may start mid-line and the last is the quote's own line: only those between count.
+  const lines = before.slice(-400).split("\n").slice(1, -1);
+  return !lines.some((line) => line.trim() === "" || HEADING.test(line.trim()));
+}
+
 /** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
 const DASHES = /[\u2010-\u2015\u2212]/g;
 
@@ -867,6 +883,7 @@ function settle(context: FigureContext): Settled {
     chinese: tag?.language === "zh",
     accounts: context.accounts === true,
     negativeBrackets: context.negativeBrackets === true,
+    pageCut: pageCut(context.around?.before ?? ""),
     periodColumns: headsPeriods(
       `${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC"),
     ),
@@ -2661,8 +2678,9 @@ function restates(
     // balance was negative. It was …", "… ($62,000.00), turned negative"), and a stop can't tell a
     // sentence's end from an abbreviation's ("St. Louis", "acct. A12"), so all the text within 400
     // characters counts, the Document's around a quote too. Words that start further into the text
-    // read keep the bracket's minus: the reader doesn't look that far back.
-    if (from > 400) return true;
+    // read, or a quote whose page runs further back with no blank line or heading in sight, keep the
+    // bracket's minus: the reader can't see where the amount's part of the page starts (#2578).
+    if (from > 400 || settled.pageCut) return true;
     const after = s.slice(inner.to, inner.to + 400) + settled.after;
     const window = settled.before + s.slice(0, from);
     if (NEGATIVE_WORD.test(window) || NEGATIVE_WORD.test(after) || DEDUCTION_LINE.test(window))
