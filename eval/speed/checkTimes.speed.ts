@@ -280,7 +280,7 @@ async function searchDuring(
     () => {
       if (!ended && watch.firstMarkMs() === null) throw new Error("The claims aren't named yet.");
     },
-    { timeout: 10 * 60_000, interval: 20 },
+    { timeout: 60_000, interval: 20 },
   );
   if (!ended) await new Promise((resolve) => setTimeout(resolve, Number(after)));
   if (ended) return null;
