@@ -2,7 +2,7 @@
  * A live test's model, billed as it goes (#2378): every request's tokens, priced as the catalog
  * prices its model, so a run reports what it cost and can stop at its cap.
  */
-import { costOf } from "../../src/core/cost/price";
+import { costOf, inCurrency } from "../../src/core/cost/price";
 import { catalogModel } from "../../src/core/providers/catalog";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 
@@ -23,21 +23,26 @@ const billedOf = (usage: Usage | undefined): Billed => ({
   output: usage?.outputTokens?.total ?? 0,
 });
 
-export function billedModels(model: string) {
-  const price = catalogModel("anthropic", model)?.price;
+/** `spent` is in US dollars, whatever currency the catalog prices the model in. */
+export function billedModels(model: string, provider = "anthropic") {
+  const price = catalogModel(provider, model)?.price;
   const billed: Billed[] = [];
   const priced = (each: Billed) =>
     price
-      ? costOf(
-          {
-            inputTokens: each.input,
-            cachedInputTokens: each.cacheRead,
-            cacheWriteTokens: each.cacheWrite,
-            outputTokens: each.output,
-          },
-          price,
-          new Date(),
-          { cacheWrites: true },
+      ? inCurrency(
+          costOf(
+            {
+              inputTokens: each.input,
+              cachedInputTokens: each.cacheRead,
+              cacheWriteTokens: each.cacheWrite,
+              outputTokens: each.output,
+            },
+            price,
+            new Date(),
+            { cacheWrites: true },
+          ),
+          price.currency,
+          "USD",
         )
       : 0;
   const spent = () => billed.reduce((total, each) => total + priced(each), 0);
