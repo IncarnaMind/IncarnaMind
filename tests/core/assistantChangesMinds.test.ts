@@ -2654,3 +2654,69 @@ describe("A line a reply without names adds beside one of the User's is said to 
     expect(after).toHaveLength(4);
   });
 });
+
+describe("The reporter's request ends with one parking sentence gone (#2322)", {
+  timeout: 30_000,
+}, () => {
+  /** A model whose edit_mind call is `asked`, whose rewrite is `reply`, and whose Answer says `said`. */
+  const removing = (asked: string, reply: string, said: string) =>
+    scriptedModel((call: ModelCall): ScriptedReply => {
+      if (/<passage>\n/.test(call.prompt))
+        return { text: `${reply}\n<why>Removed one sentence.</why>` };
+      return call.results.length === 0
+        ? { calls: [{ tool: "edit_mind", input: { instruction: asked } }] }
+        : { text: said };
+    });
+  const sentences = (text: string) =>
+    text.split(/(?<=[.!?。！？])\s*/u).filter((each) => each.trim() !== "");
+
+  // protects=the reporter's request over a short memo, in Chinese as in English: the Answer ends, its reply shows the one sentence taken out, and the parking paragraph is exactly the other two sentences, still there word for word; fails_when=the Answer doesn't end, the sentence stays, another sentence goes, or the other paragraph changes; no_claim=how a real model words its reply.
+  test.each([
+    {
+      case: "zh, the reporter's request",
+      asked: "从停车位那一段删掉一句话。",
+      lines: [
+        "工资按月支付。",
+        "停车位：承租方可使用地下停车位 6 个。每个车位每月 800 元。车位由出租方分配。",
+      ],
+      reply: "¶2 停车位：承租方可使用地下停车位 6 个。每个车位每月 800 元。",
+      removed: "车位由出租方分配。",
+      kept: ["承租方可使用地下停车位 6 个。", "每个车位每月 800 元。"],
+      said: "已删掉「车位由出租方分配。」这一句，其余两句保持不变。",
+    },
+    {
+      case: "en, the counterpart",
+      asked: "Delete one sentence from the Parking paragraph.",
+      lines: [
+        "Pay is monthly.",
+        "Parking: the tenant may use six underground spaces. Each costs 800 a month. Spaces are allocated by the landlord.",
+      ],
+      reply: "¶2 Parking: the tenant may use six underground spaces. Each costs 800 a month.",
+      removed: "Spaces are allocated by the landlord.",
+      kept: ["the tenant may use six underground spaces.", "Each costs 800 a month."],
+      said: 'Removed "Spaces are allocated by the landlord." from the Parking paragraph; the other two sentences are unchanged.',
+    },
+  ] as const)("$case", async (each) => {
+    const model = removing(each.asked, each.reply, each.said);
+    const { core, mind, client } = await setUp(model);
+    writeMind(
+      client,
+      each.lines.map((line) => note(line)),
+    );
+    await client.settled();
+    expect(sentences(each.lines[1])).toHaveLength(3);
+
+    const answer = await ask(core, { text: each.asked, mindId: mind.id });
+    await client.settled();
+
+    expect(lastResult(model)).toContain("It applies in the Note at once");
+    expect(answer.text).toContain(each.removed);
+    await resolveChanges(client, "accept");
+    const shown = shownWithChanges(client);
+    expect(shown).toEqual([each.lines[0], each.reply.replace(/^¶2 /, "")]);
+    const parking = shown[1] ?? "";
+    expect(parking).not.toContain(each.removed);
+    for (const kept of each.kept) expect(parking).toContain(kept);
+    expect(sentences(parking)).toHaveLength(2);
+  });
+});
