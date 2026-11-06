@@ -25,7 +25,7 @@ const OPENAI: SaveChatProviderInput = { kind: "openai", apiKey: "sk-test", model
  */
 function models() {
   const sent: Record<string, number> = {};
-  const creditCalls: Record<string, number> = {};
+  const named = new Map<string, number>();
   const byKind = new Map<string, MockLanguageModelV4>();
   let creditFailed = false;
   let hold: Promise<void> | null = null;
@@ -36,7 +36,11 @@ function models() {
       doGenerate: async (options) => {
         sent[kind] = (sent[kind] ?? 0) + 1;
         const prompt = JSON.stringify(options.prompt);
-        if (prompt.includes("Credit report")) creditCalls[kind] = (creditCalls[kind] ?? 0) + 1;
+        for (const name of ["Credit report", "Second report"]) {
+          if (!prompt.includes(name)) continue;
+          const key = `${kind}\n${name}`;
+          named.set(key, (named.get(key) ?? 0) + 1);
+        }
         if (kind === "anthropic" && hold !== null && prompt.includes("Blocker")) await hold;
         if (kind === "anthropic" && !creditFailed && prompt.includes("Credit report")) {
           creditFailed = true;
@@ -63,7 +67,7 @@ function models() {
   };
   return {
     sent: (kind: string) => sent[kind] ?? 0,
-    creditSent: (kind: string) => creditCalls[kind] ?? 0,
+    namedSent: (kind: string, name: string) => named.get(`${kind}\n${name}`) ?? 0,
     hold: (value: Promise<void> | null) => (hold = value),
     createChatModel: (spec: ChatModelSpec) => modelFor(spec.kind),
   };
@@ -107,7 +111,7 @@ async function start() {
     currentService,
     add,
     sent: scripted.sent,
-    creditSent: scripted.creditSent,
+    namedSent: scripted.namedSent,
     hold: scripted.hold,
   };
 }
@@ -166,7 +170,7 @@ describe("a billing continuation's destination (#2535)", () => {
   });
 
   test("a continuation that waits while Organize moves to B sends nothing to B", async () => {
-    const { core, dataDir, openai, choose, currentService, add, sent, creditSent, hold } =
+    const { core, dataDir, openai, choose, currentService, add, sent, namedSent, hold } =
       await start();
     const serviceA = await currentService();
     const credit = await add("Credit report.txt", "The account is out of credit.");
@@ -204,8 +208,104 @@ describe("a billing continuation's destination (#2535)", () => {
     await blockerClassified;
     await restored;
     // The blocker's own re-run after the model changed may go to B; the credit Document does not.
-    expect(creditSent("openai")).toBe(0);
-    expect(creditSent("anthropic")).toBe(1);
+    expect(namedSent("openai", "Credit report")).toBe(0);
+    expect(namedSent("anthropic", "Credit report")).toBe(1);
+    expect(clearedFor(dataDir, credit.id)).toEqual([serviceA]);
+    expect(clearedFor(dataDir, credit.id)).not.toContain(serviceB);
+    expect((await assignmentOf(core, credit.id))?.status).toBe("failed");
+  });
+
+  test("a continuation that waited in Local mode refuses when Organize moved to B", async () => {
+    const { core, dataDir, openai, choose, currentService, add, namedSent } = await start();
+    const serviceA = await currentService();
+    const credit = await add("Credit report.txt", "The account is out of credit.");
+    await failedFirst(core, credit.id);
+
+    await core.setLocalOnly(true);
+    await core.classifyDocuments([credit.id], { forService: serviceA });
+    await vi.waitFor(async () => {
+      expect((await assignmentOf(core, credit.id))?.status).toBe("waiting");
+    });
+
+    await choose(openai.id, OPENAI.modelId);
+    const serviceB = await currentService();
+    await core.setLocalOnly(false);
+    await vi.waitFor(async () => {
+      expect((await assignmentOf(core, credit.id))?.status).toBe("failed");
+    });
+
+    expect(namedSent("openai", "Credit report")).toBe(0);
+    expect(clearedFor(dataDir, credit.id)).toEqual([serviceA]);
+    expect(clearedFor(dataDir, credit.id)).not.toContain(serviceB);
+  });
+
+  test("a continuation that waited for consent refuses when accepted B is chosen", async () => {
+    const { core, dataDir, openai, choose, currentService, add, namedSent } = await start();
+    const serviceA = await currentService();
+    const credit = await add("Credit report.txt", "The account is out of credit.");
+    await failedFirst(core, credit.id);
+
+    await core.revokeConsent("classification", serviceA);
+    await core.classifyDocuments([credit.id], { forService: serviceA });
+    await vi.waitFor(async () => {
+      expect((await assignmentOf(core, credit.id))?.status).toBe("waiting");
+    });
+
+    await choose(openai.id, OPENAI.modelId);
+    const serviceB = await currentService();
+    // Completing a consent decision lets the waiting run go on; it finds B, not its A.
+    await core.allowDataFlow("classification", serviceB);
+    await vi.waitFor(async () => {
+      expect((await assignmentOf(core, credit.id))?.status).toBe("failed");
+    });
+
+    expect(namedSent("openai", "Credit report")).toBe(0);
+    expect(clearedFor(dataDir, credit.id)).toEqual([serviceA]);
+    expect(clearedFor(dataDir, credit.id)).not.toContain(serviceB);
+  });
+
+  test("while D1's A request waits, an explicit Organize of D2 on B leaves D1 behind", async () => {
+    const { core, dataDir, openai, choose, currentService, add, sent, namedSent, hold } =
+      await start();
+    const serviceA = await currentService();
+    const credit = await add("Credit report.txt", "The account is out of credit.");
+    await failedFirst(core, credit.id);
+    const blocker = await add("Blocker.txt", "A report that holds the background queue.");
+    const second = await add("Second report.txt", "Another report.");
+
+    let release: () => void = () => undefined;
+    hold(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const secondClassified = vi.waitFor(
+      async () => {
+        expect((await assignmentOf(core, second.id))?.status).toBe("classified");
+      },
+      { timeout: 15_000 },
+    );
+    const restored = new Promise<void>((resolve) => {
+      const stop = core.on("library.assignments", (changed) => {
+        if (changed.some((each) => each.documentId === credit.id && each.status === "failed")) {
+          stop();
+          resolve();
+        }
+      });
+    });
+
+    await core.classifyDocuments([blocker.id]);
+    await vi.waitFor(() => expect(sent("anthropic")).toBe(2), { timeout: 15_000 });
+    await core.classifyDocuments([credit.id], { forService: serviceA });
+    await choose(openai.id, OPENAI.modelId);
+    const serviceB = await currentService();
+    await core.classifyDocuments([second.id]);
+    release();
+
+    await secondClassified;
+    await restored;
+    expect(namedSent("openai", "Credit report")).toBe(0);
+    expect(namedSent("openai", "Second report")).toBe(1);
     expect(clearedFor(dataDir, credit.id)).toEqual([serviceA]);
     expect(clearedFor(dataDir, credit.id)).not.toContain(serviceB);
     expect((await assignmentOf(core, credit.id))?.status).toBe("failed");

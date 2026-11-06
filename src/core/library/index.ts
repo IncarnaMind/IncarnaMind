@@ -491,14 +491,15 @@ export function createLibrary(options: {
     const { taggingStopped } = getSettings();
     return taggingStopped.length > 0 && taggingStopped.includes(placeOf(id));
   };
-  const asked = new Set<string>();
-  /** A continuation's authorized service and the failure it leaves in place if that destination changes. */
-  interface Continuation {
-    service: string;
-    status: "failed" | "waiting";
-    error: ProviderError | null;
+  /** What the User asked of a Document: it lives until that request finishes (#2535). */
+  interface AskedRequest {
+    /** The service a billing continuation was authorized for; null for the User's own request. */
+    service: string | null;
+    /** The failure the continuation leaves in place if Organize's destination no longer matches. */
+    failure: { status: "failed" | "waiting"; error: ProviderError | null } | null;
   }
-  const continuations = new Map<string, Continuation>();
+  const OWN_REQUEST: AskedRequest = { service: null, failure: null };
+  const asked = new Map<string, AskedRequest>();
   const checkClassifier = (selected: Record<string, unknown>) => {
     if (selected.kind === "chat") {
       if (
@@ -992,7 +993,6 @@ export function createLibrary(options: {
           if (!lifetime.signal.aborted) {
             if (assignment(id)?.status === "classifying") state(id, "pending");
             if (!call.gaveWay) {
-              continuations.delete(id);
               queued.delete(id);
               const status = assignment(id)?.status;
               // Waiting to be allowed, it is still the User's request when it goes.
@@ -1023,14 +1023,14 @@ export function createLibrary(options: {
     },
   ): Promise<void> {
     const initial = assignment(id);
-    const continuation = continuations.get(id);
+    const request = asked.get(id);
+    const binding = request?.service ?? null;
     const destinationChanged = () =>
-      continuation !== undefined &&
-      options.organizeService(getSettings())?.id !== continuation.service;
+      binding !== null && options.organizeService(getSettings())?.id !== binding;
     const stopForDestination = () => {
-      if (continuation === undefined) return;
-      continuations.delete(id);
-      state(id, continuation.status, continuation.error ?? undefined);
+      if (binding === null) return;
+      asked.delete(id);
+      state(id, request?.failure?.status ?? "failed", request?.failure?.error ?? undefined);
     };
     const version = revision;
     const stale = () =>
@@ -1139,7 +1139,11 @@ export function createLibrary(options: {
         );
         const applied = options.tags.applyAutomatic(id, result.tags, result.newTags);
         tagState(id, "classified");
-        if (asked.has(id)) clearForService(db, id, services, now());
+        const bound = asked.get(id)?.service ?? null;
+        // A clearance goes only to the service the request was authorized for (#2535).
+        if (asked.has(id) && (bound === null || services.some((each) => each.id === bound))) {
+          clearForService(db, id, services, now());
+        }
         return applied;
       });
       if (made > 0) options.tagsMade?.();
@@ -1180,17 +1184,23 @@ export function createLibrary(options: {
     // A continuation goes only where its press was authorized: nothing is queued or cleared otherwise.
     if (forService !== undefined && service?.id !== forService) return;
     const docs = ids.map(document);
-    // A new request of the User's own replaces a continuation it supersedes for these Documents.
-    if (forService === undefined) for (const doc of docs) continuations.delete(doc.id);
-    for (const doc of docs) asked.add(doc.id);
+    for (const doc of docs) {
+      if (forService === undefined) {
+        // A new request of the User's own replaces a continuation it supersedes for these Documents.
+        asked.set(doc.id, OWN_REQUEST);
+      } else {
+        const existing = assignment(doc.id);
+        asked.set(doc.id, {
+          service: forService,
+          failure: {
+            status: existing?.status === "failed" ? "failed" : "waiting",
+            error: existing ? assignmentFields(existing).error : null,
+          },
+        });
+      }
+    }
     if (forService !== undefined) {
       for (const doc of docs) {
-        const existing = assignment(doc.id);
-        continuations.set(doc.id, {
-          service: forService,
-          status: existing?.status === "failed" ? "failed" : "waiting",
-          error: existing ? assignmentFields(existing).error : null,
-        });
         if (service) clearForService(db, doc.id, [service], now());
         enqueue(doc.id);
       }
@@ -1406,7 +1416,7 @@ export function createLibrary(options: {
         )
         .map((row) => row.id)
         .filter((id) => places.includes(placeOf(id)));
-      for (const id of ids) asked.add(id);
+      for (const id of ids) asked.set(id, OWN_REQUEST);
       db.transaction(() => {
         for (const id of ids) {
           const existing = assignment(id);
