@@ -212,7 +212,7 @@ describe("Paragraphs changed, each counted once (#1335)", () => {
 });
 
 describe("A heading is a section's title, not a paragraph written", () => {
-  test("a section added with its heading is its paragraphs, as 'Wrote 3 paragraphs' counts it", () => {
+  test("a section added with its heading is its paragraphs, as 'Added 3 paragraphs' counts it", () => {
     const section = [
       title("Risks", whole("insert")),
       added("One."),
