@@ -481,6 +481,7 @@ export function newVersionCitation(
     pageChecked: null,
     unsure: now.unsure ?? null,
     quotedWords: null,
+    quoteMarksChanged: null,
     verdict: null,
     keptOver: null,
   };

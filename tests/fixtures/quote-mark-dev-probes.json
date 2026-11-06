@@ -1,0 +1,1848 @@
+[
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "See “Table 3”. Use a 6” pipe.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "See “Table 3”. Use a 6” pipe.",
+    "quote": "see ‘table 3’",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "Model “X200” has a 6” screen.",
+    "quote": "has a 6’ screen",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "Model “X200” has a 6” screen.",
+    "quote": "model ‘x200’ has",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "Rated “4.5” by users, it has a 7” display.",
+    "quote": "it has a 7’ display",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "Rated “4.5” by users, it has a 7” display.",
+    "quote": "rated ‘4.5’ by users",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "The “Class of 2019” built a 12” wall.",
+    "quote": "built a 12’ wall",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "Read “Section 4” first; the slab is 8” deep.",
+    "quote": "the slab is 8’ deep",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "Read “Section 4” first; the slab is 8” deep.",
+    "quote": "read ‘section 4’ first",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "In “Top 10” lists the 5” phone wins.",
+    "quote": "the 5’ phone wins",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "Order “Kit 2” and a 3” hose.",
+    "quote": "and a 3’ hose",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "zh",
+    "page": "见“表3”。用6”的管子。",
+    "quote": "用6’的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "zh",
+    "page": "见“表3”。用6”的管子。",
+    "quote": "见‘表3’",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "zh",
+    "page": "型号“X200”配有7”屏幕。",
+    "quote": "配有7’屏幕",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "ja",
+    "page": "「第3」を見よ。6”の管を使う。",
+    "quote": "6’の管を使う",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "ja",
+    "page": "“モデル5”は7”画面です。",
+    "quote": "は7’画面です",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "de",
+    "page": "Siehe „Tabelle 3“. Das Rohr ist 6” breit.",
+    "quote": "das rohr ist 6’ breit",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "de",
+    "page": "Siehe „Tabelle 3”. Das Rohr ist 6” breit.",
+    "quote": "das rohr ist 6’ breit",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "fr",
+    "page": "Voir « Tableau 3 ». Un tuyau de 6” ici.",
+    "quote": "un tuyau de 6’ ici",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "fr",
+    "page": "Voir “Tableau 3”. Un tuyau de 6” ici.",
+    "quote": "un tuyau de 6’ ici",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "The “Plan A”(2019) was dropped. Use a 6” pipe.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "en",
+    "page": "The “Plan A”(2019) was dropped.",
+    "quote": "the ‘plan a’(2019) was dropped",
+    "truth": "in"
+  },
+  {
+    "kind": "two-inches",
+    "lang": "en",
+    "page": "“Use a 6” pipe and a 4” pipe,” he said.",
+    "quote": "use a 6’ pipe and a 4’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "two-inches",
+    "lang": "en",
+    "page": "“Use a 6” pipe and a 4” pipe,” he said.",
+    "quote": "a 4’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "two-inches",
+    "lang": "en",
+    "page": "“Use a 6” pipe and a 4” pipe,” he said.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "two-inches",
+    "lang": "en",
+    "page": "“Use a 6” pipe and a 4” pipe,” he said.",
+    "quote": "‘use a 6” pipe and a 4” pipe,’ he said",
+    "truth": "in"
+  },
+  {
+    "kind": "two-inches",
+    "lang": "en",
+    "page": "“A 3” × 5” card,” she said.",
+    "quote": "a 3’ × 5’ card",
+    "truth": "out"
+  },
+  {
+    "kind": "two-inches",
+    "lang": "zh",
+    "page": "他说：“用6”和4”的管子。”",
+    "quote": "用6’和4”的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "two-inches",
+    "lang": "zh",
+    "page": "他说：“用6”和4”的管子。”",
+    "quote": "用6”和4’的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Use a 6½” pipe,” he said.",
+    "quote": "use a 6½’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Use a 6½” pipe,” he said.",
+    "quote": "use a 6½” pipe",
+    "truth": "in"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Cut it to 10¾” wide,” she said.",
+    "quote": "cut it to 10¾’ wide",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Drill a ¼” hole,” he said.",
+    "quote": "drill a ¼’ hole",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Drill a 1/4” hole,” he said.",
+    "quote": "drill a 1/4’ hole",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Drill a 1-1/4” hole,” he said.",
+    "quote": "drill a 1-1/4’ hole",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "zh",
+    "page": "他说：“用6½”的管子。”",
+    "quote": "用6½’的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Use a 6 ” pipe,” he said.",
+    "quote": "use a 6 ’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Use a 6 ” pipe,” he said.",
+    "quote": "use a 6 ’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "zh",
+    "page": "“用６”的管子，”他说。",
+    "quote": "用６’的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "ar",
+    "page": "«أنبوب ٦” هنا»",
+    "quote": "أنبوب ٦’ هنا",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Use a 6.5” pipe,” he said.",
+    "quote": "use a 6.5’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "fraction",
+    "lang": "en",
+    "page": "“Use a 6½ ” pipe,” he said.",
+    "quote": "use a 6½ ’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "quote-side",
+    "lang": "en",
+    "page": "He said “use a 6’ pipe under the drive,” and left.",
+    "quote": "he said “use a 6” pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "quote-side",
+    "lang": "en",
+    "page": "The note: “a 6’ pipe”.",
+    "quote": "“a 6” pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "quote-side",
+    "lang": "en",
+    "page": "He said, “Use a 6’ pipe.”",
+    "quote": "“use a 6” pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "quote-side",
+    "lang": "zh",
+    "page": "他说：“用6’的管子。”",
+    "quote": "“用6”的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "quote-side",
+    "lang": "en",
+    "page": "“Use a 6’ pipe,” he said.",
+    "quote": "use a 6” pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "quote-side",
+    "lang": "en",
+    "page": "He said “use a 6” pipe,” and left.",
+    "quote": "he said “use a 6” pipe",
+    "truth": "in"
+  },
+  {
+    "kind": "quote-side",
+    "lang": "en",
+    "page": "He said “use a 6” pipe,” and left.",
+    "quote": "he said ‘use a 6” pipe",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The “soft weights” property holds.",
+    "quote": "the ‘soft weights’ property holds",
+    "truth": "in",
+    "at": "The “soft weights” property holds"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "He wrote ‘the “best” plan’ yesterday.",
+    "quote": "he wrote ‘the ‘best’ plan’ yesterday",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "He wrote “the ‘best’ plan” yesterday.",
+    "quote": "he wrote ‘the “best” plan’ yesterday",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "She said “it’s fine” and left.",
+    "quote": "she said ‘it’s fine’ and left",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "“It’s ‘fine,’ he said,” she recalled.",
+    "quote": "it’s “fine,” he said",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The “Top 10” list is out.",
+    "quote": "the ‘top 10’ list",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "Rated “4.5” by users.",
+    "quote": "rated ‘4.5’ by users",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The “Class of 2019” met.",
+    "quote": "the ‘class of 2019’ met",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "He said «oui» then “non”.",
+    "quote": "he said ‘oui’ then ‘non’",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The term “AI” is vague.",
+    "quote": "the term ‘ai’ is vague",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "Call it “Plan B” for now.",
+    "quote": "call it ‘plan b’ for now",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "A “6” rating is low.",
+    "quote": "a ‘6’ rating is low",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The “90s” look is back.",
+    "quote": "the ‘90s’ look is back",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The so-called “experts” disagree.",
+    "quote": "the so-called 'experts' disagree",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The so-called “experts” disagree.",
+    "quote": "the so-called \"experts\" disagree",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The so-called “experts” disagree.",
+    "quote": "the so-called «experts» disagree",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The so-called ‘experts’ disagree.",
+    "quote": "the so-called “experts” disagree",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The so-called 'experts' disagree.",
+    "quote": "the so-called “experts” disagree",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The so-called \"experts\" disagree.",
+    "quote": "the so-called “experts” disagree",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "The so-called \"experts\" disagree.",
+    "quote": "the so-called ‘experts’ disagree",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "“The ‘cooling-off period’ lasts 14 days,” it says.",
+    "quote": "the “cooling-off period” lasts 14 days",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "“Use a 6” pipe under the drive,” the fitter said.",
+    "quote": "‘use a 6” pipe under the drive,’ the fitter said",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "en",
+    "page": "“He is 5’10” tall,” she said.",
+    "quote": "‘he is 5’10” tall,’ she said",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "„Er nannte es ‚Plan B‘ und ging“, sagte sie.",
+    "quote": "er nannte es ‚plan b‘ und ging",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "„Er nannte es ‚Plan B‘ und ging“, sagte sie.",
+    "quote": "er nannte es “plan b” und ging",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "Er nannte es „Plan B“ dort.",
+    "quote": "er nannte es ‚plan b‘ dort",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "Er nannte es „Plan B“ dort.",
+    "quote": "er nannte es “plan b” dort",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "Er sagte »ja« und ging.",
+    "quote": "er sagte ›ja‹ und ging",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "Er sagte »ja« und ging.",
+    "quote": "er sagte „ja“ und ging",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "Sie sagte: „Er rief »Halt!« und lief.“",
+    "quote": "er rief ›halt!‹ und lief",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "de",
+    "page": "Sie sagte: „Er rief »Halt!« und lief.“",
+    "quote": "sie sagte: ‚er rief »halt!« und lief.‘",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "fr",
+    "page": "« Il a dit “oui” hier », note-t-elle.",
+    "quote": "il a dit ‘oui’ hier",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "fr",
+    "page": "« Il a dit “oui” hier », note-t-elle.",
+    "quote": "il a dit 'oui' hier",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "fr",
+    "page": "Il a répondu « non » sans attendre.",
+    "quote": "il a répondu ‘ non ’ sans attendre",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "fr",
+    "page": "Il a répondu « non » sans attendre.",
+    "quote": "il a répondu “ non ” sans attendre",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "fr",
+    "page": "Il a répondu «non» sans attendre.",
+    "quote": "il a répondu ‹non› sans attendre",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "zh",
+    "page": "报告称“十四五”规划已完成。",
+    "quote": "报告称‘十四五’规划已完成",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "zh",
+    "page": "这是“愿景2030”与“十四五”的衔接。",
+    "quote": "这是‘愿景2030’与‘十四五’的衔接",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "zh",
+    "page": "他说：“这就是所谓的‘软着陆’。”",
+    "quote": "这就是所谓的“软着陆”",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "zh",
+    "page": "他称之为「方案3」。",
+    "quote": "他称之为“方案3”",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "zh",
+    "page": "他说「这是『底线』」。",
+    "quote": "这是‘底线’",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "zh",
+    "page": "他说「这是『底线』」。",
+    "quote": "这是“底线”",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ja",
+    "page": "彼は「安い」と言った。",
+    "quote": "彼は‘安い’と言った",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ja",
+    "page": "「彼は『無理だ』と言った」",
+    "quote": "彼は‘無理だ’と言った",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ja",
+    "page": "「彼は『無理だ』と言った」",
+    "quote": "彼は“無理だ”と言った",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ja",
+    "page": "「彼は『無理だ』と言った」",
+    "quote": "彼は「無理だ」と言った",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "ja",
+    "page": "彼は「6”の管」と言った。",
+    "quote": "彼は‘6”の管’と言った",
+    "truth": "in"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "The “soft weights” property holds.",
+    "quote": "the ‘hard weights’ property holds",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "The “Top 10” list is out.",
+    "quote": "the ‘top 20’ list",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "Rated “4.5” by users.",
+    "quote": "rated ‘4.6’ by users",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "She said “it’s fine” and left.",
+    "quote": "she said ‘it’s not fine’ and left",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "“He is 5’10” tall,” she said.",
+    "quote": "he is 5’11” tall",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "en",
+    "page": "“He is 5’10” tall,” she said.",
+    "quote": "he is 5’10’ tall",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "de",
+    "page": "Er nannte es „Plan B“ dort.",
+    "quote": "er nannte es ‚plan c‘ dort",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "fr",
+    "page": "« Il a dit “oui” hier », note-t-elle.",
+    "quote": "il a dit ‘non’ hier",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "zh",
+    "page": "报告称“十四五”规划已完成。",
+    "quote": "报告称‘十三五’规划已完成",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "zh",
+    "page": "他说：“这就是所谓的‘软着陆’。”",
+    "quote": "这就是所谓的“硬着陆”",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "ja",
+    "page": "彼は「安い」と言った。",
+    "quote": "彼は‘高い’と言った",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "ja",
+    "page": "「彼は『無理だ』と言った」",
+    "quote": "彼は‘無理ではない’と言った",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“The sign reads 12’6” max,” he said.",
+    "quote": "the sign reads 12’6’ max",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "The sign said “Max height 12’6”” at the gate.",
+    "quote": "max height 12’6’",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "The sign said “Max height 12’6”” at the gate.",
+    "quote": "the sign said ‘max height 12’6”’ at the gate",
+    "truth": "in"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“We are at 40°26’46” N,” she said.",
+    "quote": "we are at 40°26’46’ n",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“We are at 40°26’46” N,” she said.",
+    "quote": "we are at 40°26’46” n",
+    "truth": "in"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“Set the angle to 30°15”,” he said.",
+    "quote": "set the angle to 30°15’",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“The record is 9.58” flat,” he said.",
+    "quote": "the record is 9.58’ flat",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“He ran it in 10”, a record,” the coach said.",
+    "quote": "he ran it in 10’, a record",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“A 2” gap is enough,” she said, “and a 3” one is too much.”",
+    "quote": "and a 3’ one is too much",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“A 2” gap is enough,” she said, “and a 3” one is too much.”",
+    "quote": "a 2’ gap is enough",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“A 2” gap is enough,” she said, “and a 3” one is too much.”",
+    "quote": "‘a 2” gap is enough,’ she said, ‘and a 3” one is too much.’",
+    "truth": "in"
+  },
+  {
+    "kind": "measure",
+    "lang": "de",
+    "page": "„Das Rohr ist 6” breit“, sagte er.",
+    "quote": "das rohr ist 6’ breit",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "de",
+    "page": "„Rura ma 6” średnicy”, powiedział.",
+    "quote": "rura ma 6’ średnicy",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "de",
+    "page": "Er sagte: „Nimm das 6”-Rohr.“",
+    "quote": "nimm das 6’-rohr",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "de",
+    "page": "«Das Rohr ist 6” breit», sagte er.",
+    "quote": "das rohr ist 6’ breit",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "de",
+    "page": "»Er ist 6” groß«, sagte sie.",
+    "quote": "er ist 6’ groß",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "de",
+    "page": "„Ja“, sagte er, „das Rohr ist 6” breit“.",
+    "quote": "das rohr ist 6’ breit",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "de",
+    "page": "„Ja“, sagte er, „das Rohr ist 6” breit“.",
+    "quote": "„ja“, sagte er, ‚das rohr ist 6” breit‘",
+    "truth": "in"
+  },
+  {
+    "kind": "measure",
+    "lang": "fr",
+    "page": "« Prenez un tuyau de 6” ici », dit-il.",
+    "quote": "prenez un tuyau de 6’ ici",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "fr",
+    "page": "« Il a dit “6” de plus” », écrit-elle.",
+    "quote": "6’ de plus",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "zh",
+    "page": "他说：“这根管子是6”的。”",
+    "quote": "这根管子是6’的",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "zh",
+    "page": "他说：“这根管子是6”的。”",
+    "quote": "这根管子是6”的",
+    "truth": "in"
+  },
+  {
+    "kind": "measure",
+    "lang": "zh",
+    "page": "他说：“屏幕是6.1”的。”",
+    "quote": "屏幕是6.1’的",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "ja",
+    "page": "彼は「6”のパイプを使え」と言った。",
+    "quote": "6’のパイプを使え",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "ja",
+    "page": "『6”の管』を買った。",
+    "quote": "6’の管",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "ja",
+    "page": "「第3」の6”パイプ",
+    "quote": "の6’パイプ",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "zh",
+    "page": "他称之为「方案3」，用6”的管子。",
+    "quote": "用6’的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "He wrote 6” and “ok”.",
+    "quote": "he wrote 6’ and",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "A 6” pipe, “he said”.",
+    "quote": "a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“He is 5′10″ tall,” she said.",
+    "quote": "he is 5′10′ tall",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "en",
+    "page": "“The board is 2” thick,” he said. “Cut it.”",
+    "quote": "the board is 2’ thick",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "“The value of x”(t) is zero,” he said.",
+    "quote": "the value of x’(t) is zero",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "“Solve f”(x)=0 for x,” he said.",
+    "quote": "solve f’(x)=0 for x",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "“Here y”=0 holds,” she said.",
+    "quote": "here y’=0 holds",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "“Here y”+y=0 holds,” she said.",
+    "quote": "here y’+y=0 holds",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "“Take g”3 as given,” she said.",
+    "quote": "take g’3 as given",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "“The angle θ” is small,” he said.",
+    "quote": "the angle θ’ is small",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "en",
+    "page": "“Let f” be the second derivative,” he wrote.",
+    "quote": "let f’ be the second derivative",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "“The plan is long. Use a 6” pipe there.",
+    "quote": "use a 6’ pipe there",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "“Use a 6” pipe under the drive.\n\n“Then fill the trench,” he said.",
+    "quote": "use a 6’ pipe under the drive",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "“Use a 6” pipe,\" he said.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "The “Smiths” house is old.",
+    "quote": "the smiths' house is old",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "The “Joneses” dog barked.",
+    "quote": "the joneses’ dog barked",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "Run echo “$HOME” now.",
+    "quote": "run echo ‘$HOME’ now",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "Set name=“total” in the file.",
+    "quote": "set name='total' in the file",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "“Point B” maps to B’,” he said.",
+    "quote": "point b’ maps to b’",
+    "truth": "out"
+  },
+  {
+    "kind": "documented",
+    "lang": "en",
+    "page": "“the “Top 10” list,” he said.",
+    "quote": "the ‘top 10’ list",
+    "truth": "in"
+  },
+  {
+    "kind": "documented",
+    "lang": "zh",
+    "page": "他说：“这是“方案6”。”",
+    "quote": "这是‘方案6’",
+    "truth": "in"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "“Open quote never closes and the “inner” one does.",
+    "quote": "the ‘inner’ one does",
+    "truth": "in"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "He said ” and then “left”.",
+    "quote": "then ‘left’",
+    "truth": "in"
+  },
+  { "kind": "unbalanced", "lang": "en", "page": "«a» » b « “c”", "quote": "‘c’", "truth": "in" },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "A stray ” here and “there”.",
+    "quote": "a stray ’ here",
+    "truth": "out"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "zh",
+    "page": "他说」方案「不行。",
+    "quote": "他说’方案‘不行",
+    "truth": "in"
+  },
+  { "kind": "unbalanced", "lang": "ja", "page": "」だけ「", "quote": "’だけ‘", "truth": "in" },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "Then she wrote “9” and stopped.",
+    "quote": "then she wrote ‘9’ and stopped",
+    "truth": "in"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "Then she wrote “9” and stopped. A 6” pipe.",
+    "quote": "then she wrote ‘9’ and stopped",
+    "truth": "in"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "Then she wrote “9” and stopped. A 6” pipe.",
+    "quote": "a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "Sizes “S”, “M” and a 6” cuff.",
+    "quote": "a 6’ cuff",
+    "truth": "out"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "Sizes “S”, “M” and a 6” cuff.",
+    "quote": "sizes ‘s’, ‘m’ and",
+    "truth": "in"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "“Use a 6” pipe and the “T” joint,” he said.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "unbalanced",
+    "lang": "en",
+    "page": "“Use a 6” pipe and the “T” joint,” he said.",
+    "quote": "the ‘t’ joint",
+    "truth": "in"
+  },
+  {
+    "kind": "place",
+    "lang": "en",
+    "page": "“Use a 6” pipe there,” he said. Then a 6’ pipe.",
+    "quote": "a 6’ pipe",
+    "truth": "in",
+    "at": "a 6’ pipe"
+  },
+  {
+    "kind": "place",
+    "lang": "en",
+    "page": "See “Table 3”. Use a 6” pipe. Later a 6’ pipe.",
+    "quote": "a 6’ pipe",
+    "truth": "in",
+    "at": "a 6’ pipe"
+  },
+  {
+    "kind": "place",
+    "lang": "en",
+    "page": "Model “X200” has a 6” screen; the X300 has a 6’ screen.",
+    "quote": "a 6’ screen",
+    "truth": "in",
+    "at": "a 6’ screen"
+  },
+  {
+    "kind": "place",
+    "lang": "zh",
+    "page": "见“表3”。用6”的管子，再用6’的管子。",
+    "quote": "用6’的管子",
+    "truth": "in",
+    "at": "用6’的管子"
+  },
+  {
+    "kind": "place",
+    "lang": "en",
+    "page": "The “boys” and the boys’ toys.",
+    "quote": "the boys’ toys",
+    "truth": "in",
+    "at": "the boys’ toys"
+  },
+  {
+    "kind": "place",
+    "lang": "en",
+    "page": "He said “go” and ‘go’ again.",
+    "quote": "‘go’ again",
+    "truth": "in",
+    "at": "‘go’ again"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "He said 'go' twice.",
+    "quote": "he said “go” twice",
+    "truth": "in"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "He said \"go\" twice.",
+    "quote": "he said 'go' twice",
+    "truth": "in"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "Use a 6' pipe.",
+    "quote": "use a 6\" pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "Use a 6\" pipe.",
+    "quote": "use a 6' pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "Use a 6' pipe.",
+    "quote": "use a 6” pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "Use a 6” pipe.",
+    "quote": "use a 6' pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "Use a 6′ pipe.",
+    "quote": "use a 6” pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "Use a 6″ pipe.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "The '6' key is stuck.",
+    "quote": "the “6” key is stuck",
+    "truth": "in"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "f'(x) is positive.",
+    "quote": "f”(x) is positive",
+    "truth": "out"
+  },
+  { "kind": "straight", "lang": "en", "page": "it's fine", "quote": "it”s fine", "truth": "out" },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "rock ’n’ roll",
+    "quote": "rock “n” roll",
+    "truth": "in"
+  },
+  {
+    "kind": "straight",
+    "lang": "en",
+    "page": "the “90s” were loud",
+    "quote": "the ’90s were loud",
+    "truth": "out"
+  },
+  {
+    "kind": "straight",
+    "lang": "zh",
+    "page": "他的‘软权重’特性",
+    "quote": "他的“软权重”特性",
+    "truth": "in"
+  },
+  {
+    "kind": "straight",
+    "lang": "zh",
+    "page": "他的'软权重'特性",
+    "quote": "他的“软权重”特性",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "See “Table 3”. Use a 6” pipe. “Yes.” Then a 4” hose.",
+    "quote": "then a 4’ hose",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "See “Table 3”. Use a 6” pipe. “Yes.” Then a 4” hose.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "See “Table 3”. Use a 6” pipe. “Yes.” Then a 4” hose.",
+    "quote": "‘yes.’ then",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "“The pipe was 6” long and the score was 10”",
+    "quote": "the pipe was 6’ long",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "“The pipe was 6” long and the score was 10” he said.",
+    "quote": "the pipe was 6’ long",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "See “Table 3”. Use a 6” pipe. Order a 4” hose.",
+    "quote": "order a 4’ hose",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "“Top 10” and “Top 20” lists, then a 6” pipe.",
+    "quote": "then a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "“Top 10” and “Top 20” lists, then a 6” pipe.",
+    "quote": "‘top 10’ and ‘top 20’ lists",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "Model “X200” and model “X300” have 6” screens.",
+    "quote": "have 6’ screens",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "“A 6” pipe,” he said, “goes under a 4” slab.”",
+    "quote": "goes under a 4’ slab",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "“A 6” pipe,” he said, “goes under a 4” slab.”",
+    "quote": "‘a 6” pipe,’ he said, ‘goes under a 4” slab.’",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "见“表3”和“表4”。用6”的管子。",
+    "quote": "用6’的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "見「表3」と“表4”。6”の管。",
+    "quote": "6’の管",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "Siehe „Tabelle 3”. Das Rohr ist 6” breit, „gut”.",
+    "quote": "das rohr ist 6’ breit",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "Siehe „Tabelle 3”. Das Rohr ist 6” breit, „gut”.",
+    "quote": "‚gut‘",
+    "truth": "in"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "Voir “Tableau 3”. Un tuyau de 6” ici, « bien ».",
+    "quote": "un tuyau de 6’ ici",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "-",
+    "page": "“Point A” is the image of A’,” he said.",
+    "quote": "‘point a’ is the image of a’",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "-",
+    "page": "“Point A” is the image of A’,” he said.",
+    "quote": "‘point a” is the image",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "-",
+    "page": "Let “x” be fixed and x’ vary.",
+    "quote": "let ‘x’ be fixed and x” vary",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "-",
+    "page": "The “B” side and B’ are equal.",
+    "quote": "the ‘b’ side and b” are equal",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "-",
+    "page": "‘Line A’ meets line A” here.",
+    "quote": "“line a” meets line a’ here",
+    "truth": "out"
+  },
+  {
+    "kind": "prime",
+    "lang": "-",
+    "page": "“Take y” and y’ apart,” she said.",
+    "quote": "‘take y’ and y’ apart",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "The “4K” screen is 6” wide.",
+    "quote": "the ‘4k’ screen is 6’ wide",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "A “6in” pipe and a 6” pipe.",
+    "quote": "a ‘6in’ pipe and a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "“Use the 6⅝” bit,” he said.",
+    "quote": "use the 6⅝’ bit",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "“Use a 6 ⅝” bit,” he said.",
+    "quote": "use a 6 ⅝’ bit",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "“Use 3 ft 6” of rope,” he said.",
+    "quote": "use 3 ft 6’ of rope",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "‘Use a 6” pipe,’ he said.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "‘Use a 6” pipe,’ he said.",
+    "quote": "“use a 6’ pipe,” he said",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "He said ‘a 6” pipe’ twice.",
+    "quote": "he said “a 6’ pipe” twice",
+    "truth": "out"
+  },
+  {
+    "kind": "measure",
+    "lang": "-",
+    "page": "“A 6” and a 4” pipe” is the plan.",
+    "quote": "‘a 6’ and a 4’ pipe’ is the plan",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "See “Table A”. Use a 6” pipe.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "See “Appendix”. Use a 6” pipe.",
+    "quote": "use a 6’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "cascade",
+    "lang": "-",
+    "page": "See “Appendix”. Use a 6” pipe.",
+    "quote": "see ‘appendix’. use a 6” pipe",
+    "truth": "in"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "-",
+    "page": "‘Twas the boys’ night.",
+    "quote": "“twas the boys” night",
+    "truth": "in"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "-",
+    "page": "The boys’ ‘secret’ room.",
+    "quote": "the boys’ “secret” room",
+    "truth": "in"
+  },
+  {
+    "kind": "apostrophe",
+    "lang": "-",
+    "page": "The boys’ room and ‘the girls’ room’.",
+    "quote": "the boys’ room and “the girls” room",
+    "truth": "out"
+  },
+  {
+    "kind": "code",
+    "lang": "-",
+    "page": "Type ‘ls -a’ to list.",
+    "quote": "type “ls -a” to list",
+    "truth": "out"
+  },
+  {
+    "kind": "code",
+    "lang": "-",
+    "page": "Use ‘\\n’ for a new line.",
+    "quote": "use “\\n” for a new line",
+    "truth": "out"
+  },
+  {
+    "kind": "code",
+    "lang": "-",
+    "page": "The value is ‘null’ here.",
+    "quote": "the value is “null” here",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "-",
+    "page": "He said “I’m done” and left.",
+    "quote": "he said ‘i’m done’ and left",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "-",
+    "page": "She called it “the boys’ room” today.",
+    "quote": "she called it ‘the boys’ room’ today",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "-",
+    "page": "“It’s ‘fine’,” he said.",
+    "quote": "‘it’s “fine”,’ he said",
+    "truth": "in"
+  },
+  {
+    "kind": "nested",
+    "lang": "-",
+    "page": "The “A-team” won.",
+    "quote": "the ‘a-team’ won",
+    "truth": "in"
+  },
+  {
+    "kind": "changed",
+    "lang": "-",
+    "page": "He said “I’m done” and left.",
+    "quote": "he said ‘i’m not done’ and left",
+    "truth": "out"
+  },
+  {
+    "kind": "changed",
+    "lang": "-",
+    "page": "The “boys’ room” is closed.",
+    "quote": "the ‘girls’ room’ is closed",
+    "truth": "out"
+  },
+  {
+    "kind": "place",
+    "lang": "-",
+    "page": "“go” then ‘go’ then “go!”",
+    "quote": "‘go!’",
+    "truth": "in",
+    "at": "“go!”"
+  },
+  {
+    "kind": "possessive2",
+    "lang": "-",
+    "page": "‘The bosses’ plan failed,’ she said.",
+    "quote": "“the bosses” plan failed",
+    "truth": "out"
+  },
+  {
+    "kind": "possessive2",
+    "lang": "-",
+    "page": "He read ‘the girls’ notes’ aloud.",
+    "quote": "he read “the girls” notes",
+    "truth": "out"
+  },
+  {
+    "kind": "possessive2",
+    "lang": "-",
+    "page": "He read ‘the girls’ notes’ aloud.",
+    "quote": "he read “the girls’ notes” aloud",
+    "truth": "in"
+  },
+  {
+    "kind": "possessive2",
+    "lang": "-",
+    "page": "The ‘experts’ said so; the cats’ toys.",
+    "quote": "the “experts” said so",
+    "truth": "in"
+  },
+  {
+    "kind": "possessive2",
+    "lang": "-",
+    "page": "The ‘experts’ said so; the cats’.",
+    "quote": "the “experts” said so",
+    "truth": "in"
+  },
+  {
+    "kind": "prime2",
+    "lang": "-",
+    "page": "“Segment AB” is longer than AB’,” he said.",
+    "quote": "‘segment ab’ is longer than ab’",
+    "truth": "out"
+  },
+  {
+    "kind": "prime2",
+    "lang": "-",
+    "page": "“Use x” not x’,” she said.",
+    "quote": "‘use x’ not x’",
+    "truth": "out"
+  },
+  {
+    "kind": "prime2",
+    "lang": "-",
+    "page": "The “f” and “g” keys.",
+    "quote": "the ‘f’ and ‘g’ keys",
+    "truth": "in"
+  },
+  {
+    "kind": "cjk2",
+    "lang": "-",
+    "page": "他说：“A”比“B”好。",
+    "quote": "他说：‘a’比‘b’好",
+    "truth": "in"
+  },
+  {
+    "kind": "cjk2",
+    "lang": "-",
+    "page": "他说：“6”比“7”好。",
+    "quote": "他说：‘6’比‘7’好",
+    "truth": "in"
+  },
+  {
+    "kind": "cjk2",
+    "lang": "-",
+    "page": "他说：“甲”比“乙”好。",
+    "quote": "他说：‘甲’比‘丙’好",
+    "truth": "out"
+  },
+  {
+    "kind": "cjk2",
+    "lang": "-",
+    "page": "见「附录」。用6”的管子。",
+    "quote": "用6’的管子",
+    "truth": "out"
+  },
+  {
+    "kind": "cjk2",
+    "lang": "-",
+    "page": "她说：“这是6’的管子。”",
+    "quote": "她说：‘这是6”的管子。’",
+    "truth": "out"
+  },
+  {
+    "kind": "cross",
+    "lang": "-",
+    "page": "“He said ‘no’ twice,” she wrote.",
+    "quote": "‘he said “no” twice,’ she wrote",
+    "truth": "in"
+  },
+  {
+    "kind": "cross",
+    "lang": "-",
+    "page": "“He said ‘no’ twice,” she wrote.",
+    "quote": "‘he said “yes” twice,’ she wrote",
+    "truth": "out"
+  },
+  {
+    "kind": "cross",
+    "lang": "-",
+    "page": "«Il a dit “non” deux fois», écrit-elle.",
+    "quote": "il a dit ‘non’ deux fois",
+    "truth": "in"
+  },
+  {
+    "kind": "cross",
+    "lang": "-",
+    "page": "«Il a dit “6” deux fois», écrit-elle.",
+    "quote": "il a dit ‘6’ deux fois",
+    "truth": "in"
+  },
+  {
+    "kind": "cross",
+    "lang": "-",
+    "page": "« Il a dit “6” de plus », écrit-elle.",
+    "quote": "6’ de plus",
+    "truth": "out"
+  },
+  {
+    "kind": "cross",
+    "lang": "-",
+    "page": "She said “we’re ‘done’ here.”",
+    "quote": "she said ‘we’re “done” here.’",
+    "truth": "in"
+  },
+  {
+    "kind": "offset",
+    "lang": "-",
+    "page": "The “quoted” word and ‘other’ word.",
+    "quote": "the ‘quoted’ word and “other” word",
+    "truth": "in"
+  },
+  {
+    "kind": "offset",
+    "lang": "-",
+    "page": "The “quoted” word and ‘other’ word.",
+    "quote": "the ‘quoted” word",
+    "truth": "out"
+  },
+  { "kind": "offset", "lang": "-", "page": "“a” “b” “c”", "quote": "‘a’ ‘b’ ‘d’", "truth": "out" },
+  {
+    "kind": "offset",
+    "lang": "-",
+    "page": "He wrote “x’s” and “y’s”.",
+    "quote": "he wrote ‘x’s’ and ‘y’s’",
+    "truth": "in"
+  },
+  {
+    "kind": "unbalanced2",
+    "lang": "-",
+    "page": "He said “stop and left. ‘Go’ now.",
+    "quote": "he said ‘stop and left",
+    "truth": "out"
+  },
+  {
+    "kind": "unbalanced2",
+    "lang": "-",
+    "page": "He said “stop and left.",
+    "quote": "he said ‘stop and left",
+    "truth": "in"
+  },
+  {
+    "kind": "ascii2",
+    "lang": "-",
+    "page": "He said \"6\" twice.",
+    "quote": "he said ‘6’ twice",
+    "truth": "in"
+  },
+  {
+    "kind": "ascii2",
+    "lang": "-",
+    "page": "A 6\" and 4\" pipe.",
+    "quote": "a 6’ and 4’ pipe",
+    "truth": "out"
+  },
+  {
+    "kind": "ascii2",
+    "lang": "-",
+    "page": "The \"cats\" and dogs' toys.",
+    "quote": "the ‘cats’ and dogs' toys",
+    "truth": "in"
+  },
+  {
+    "kind": "ascii2",
+    "lang": "-",
+    "page": "Type 'rm -rf /' never.",
+    "quote": "type “rm -rf /” never",
+    "truth": "out"
+  }
+]

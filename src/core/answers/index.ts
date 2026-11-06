@@ -133,6 +133,7 @@ import {
   type CoreEventName,
   type CoreEvents,
   type Effect,
+  type ExactMarksAsk,
   type ExternalService,
   type FigureRetry,
   type MarkedCitation,
@@ -310,6 +311,7 @@ import type {
   GatedCall,
   ToolSet,
 } from "./engine";
+import { exactMarks } from "./exactMarks";
 import {
   type LiveTranscript,
   listenedTokens,
@@ -366,7 +368,7 @@ import {
   workbookInstructions,
   workingCopyNote,
 } from "./prompt";
-import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
+import { quotationsIn, quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
 import { readKinds } from "./readKinds";
 import { withoutSearchTalk } from "./searchTalk";
 import { setAsideMarksInWords } from "./sheetRows";
@@ -403,6 +405,11 @@ interface AnswerHome {
   place: AnswerPlace;
   /** Writes the Answer as it stands; false when it is gone (or its Mind or conversation is). */
   write(answer: WrittenAnswer, outcome?: Outcome): boolean;
+  /**
+   * Whether the Answer as written there still holds `text`, which the User may have typed into;
+   * absent: a home the User can't type into.
+   */
+  holds?(text: string): boolean;
 }
 
 /** An Answer as it stands, for its home to write. */
@@ -644,6 +651,8 @@ export interface AnswersOptions {
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
   retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
+  /** Whether an Answer on this model, in this flow, asks once about its quotations' marks (./exactMarks). */
+  asksForExactMarks?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -1362,6 +1371,7 @@ export function createAnswers(options: AnswersOptions) {
     const citedAfterChecking = { count: 0, asked: false };
     /** The one request for exact quotes, if the engine made it (see ./quoteRetry). */
     let quoteRetry: QuoteRetry | null = null;
+    let exactMarksAsk: ExactMarksAsk | null = null;
     /** The one request to fix figures, if the engine made it (see ./figureRetry). */
     let figureRetry: FigureRetry | null = null;
     let unbackedClaims: ClaimedChange[] = [];
@@ -1891,6 +1901,7 @@ export function createAnswers(options: AnswersOptions) {
           citedAfterChecking: { ...citedAfterChecking },
           citationSupport: support,
           quoteRetry,
+          exactMarks: exactMarksAsk,
           figures: placed.figures,
           analyses,
           uncalculated: placed.missing.length,
@@ -3750,6 +3761,39 @@ export function createAnswers(options: AnswersOptions) {
             break;
         }
       }
+      // The Answer waits for the one ask about its quotations' marks, before any is checked. Its
+      // place gets its text as it stands first: the ask applies only while that place still holds it.
+      if (
+        outcome.status === "done" &&
+        !finished &&
+        options.asksForExactMarks?.(prepared, flow) &&
+        write()
+      ) {
+        activity = "checking-quotes";
+        showPhase();
+        const asked = await exactMarks({
+          model: prepared.model,
+          markdown,
+          quotations: quotationsIn(withoutFootnoteDefinitions(markdown)),
+          unfound: (words, markers) => session.unfoundQuotedWords(words, markers),
+          current: () => markdown,
+          version: (marker) => session.citationVersion(marker),
+          holds: (text) => home.holds?.(text) ?? true,
+          changed: (marker) => session.quoteMarksChanged(marker),
+          signal: controller.signal,
+        });
+        if (finished) return;
+        if (asked) {
+          markdown = asked.markdown;
+          exactMarksAsk = asked.ask;
+          if (asked.usage) {
+            usage.inputTokens += asked.usage.inputTokens ?? 0;
+            usage.outputTokens += asked.usage.outputTokens ?? 0;
+            usage.cachedInputTokens += asked.usage.cachedInputTokens ?? 0;
+            usage.cacheWriteTokens += asked.usage.cacheWriteTokens ?? 0;
+          }
+        }
+      }
       settleMinds(outcome.status === "failed");
       finish(outcome);
     };
@@ -3763,6 +3807,11 @@ export function createAnswers(options: AnswersOptions) {
   /** An Answer in its Mind: a Block right after its Question in the Mind's Yjs document. */
   const mindHome = (mindId: string, answerId: string): AnswerHome => ({
     place: { mindId },
+    holds: (text) =>
+      content.read(mindId, (blocks) => {
+        const found = findBlock(blocks, ANSWER_BLOCK, answerId);
+        return found !== undefined && found !== null && plainText(found.element).includes(text);
+      }),
     write(answer, outcome) {
       if (!options.mindExists(mindId)) return false;
       return content.edit(mindId, (blocks) => {

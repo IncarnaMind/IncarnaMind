@@ -125,6 +125,8 @@ function sentencesOf(text: string, spans: readonly Span[]): Span[] {
 
 interface QuotedSpan extends QuotedSentence {
   span: Span;
+  /** The sentence the span is in. */
+  sentence: Span;
 }
 
 function quotedSpansIn(text: string): QuotedSpan[] {
@@ -146,7 +148,7 @@ function quotedSpansIn(text: string): QuotedSpan[] {
       )
         .replace(/\s+/g, " ")
         .replace(TRAILING_PUNCTUATION, "");
-      if (isQuote(words)) found.push({ words, markers, span });
+      if (isQuote(words)) found.push({ words, markers, span, sentence });
     }
   }
   return found;
@@ -210,6 +212,28 @@ export function quotedWordsIn(markdown: string): QuotedSentence[] {
   const found: QuotedSentence[] = [];
   mapBlocks(markdown, (text) => {
     for (const { words, markers } of quotedSpansIn(text)) found.push({ words, markers });
+    return text;
+  });
+  return found;
+}
+
+/**
+ * Quoted words as `quotedWordsIn` finds them, each with its quotation as the Answer wrote it,
+ * marks included, and the sentence it is in.
+ */
+export function quotationsIn(
+  markdown: string,
+): (QuotedSentence & { quotation: string; sentence: string })[] {
+  const found: (QuotedSentence & { quotation: string; sentence: string })[] = [];
+  mapBlocks(markdown, (text) => {
+    for (const { words, markers, span, sentence } of quotedSpansIn(text)) {
+      found.push({
+        words,
+        markers,
+        quotation: text.slice(span.start, span.end),
+        sentence: text.slice(sentence.start, sentence.end),
+      });
+    }
     return text;
   });
   return found;

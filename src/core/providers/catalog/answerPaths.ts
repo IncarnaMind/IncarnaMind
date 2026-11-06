@@ -1,9 +1,10 @@
 /**
- * The faster Answer paths a model takes in the Tool loop, beside its catalog entry. A model is
- * listed only once it passes the quality gate on paired runs against the default path
- * (eval/speed/README.md › Paired runs), with the day, the flows it was measured on and the result
- * that admitted it, and is taken off the same way if it regresses. A model not listed, and a
- * listed one in any other flow, answers as before.
+ * The faster Answer paths a model takes in the Tool loop, and the steps an Answer takes only on a
+ * model that passed their gate, beside its catalog entry. A model is listed only once it passes
+ * the gate (for a path, the paired runs against the default path, eval/speed/README.md › Paired
+ * runs), with the day, the flows it was measured on and the result that admitted it, and is taken
+ * off the same way if it regresses. A model not listed, and a listed one in any other flow,
+ * answers as before.
  */
 import { withoutDateSuffix } from ".";
 
@@ -52,6 +53,14 @@ const WRITES_THEN_CITES: readonly Admitted[] = [
  */
 const RETRIEVES_FIRST: readonly Admitted[] = [];
 
+/**
+ * Asks the model once, when an Answer's quoted words differ from its page only in the kind of
+ * their quotation marks, for the same words in the Document's marks (#2504, ../../answers/exactMarks),
+ * against eval/nestedMarks/README.md. Every other model, local ones included, leaves those
+ * words not found.
+ */
+const ASKS_FOR_EXACT_MARKS: readonly Admitted[] = [];
+
 /** A model as an Answer runs it. */
 export interface ListedModel {
   catalogId: string | null;
@@ -62,6 +71,7 @@ export interface ListedModel {
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
   retrievesFirst?(model: ListedModel): boolean | undefined;
+  asksForExactMarks?(model: ListedModel): boolean | undefined;
 }
 
 const listed = (
@@ -86,3 +96,12 @@ export const retrievesFirst = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);
+
+export const asksForExactMarks = (
+  model: ListedModel,
+  flow: AnswerFlow,
+  override?: AnswerPathsOverride,
+): boolean =>
+  // Only an Answer's own sentences: never a check's, a Task's or another flow's step.
+  flow === "question" &&
+  (override?.asksForExactMarks?.(model) ?? listed(ASKS_FOR_EXACT_MARKS, model, flow));

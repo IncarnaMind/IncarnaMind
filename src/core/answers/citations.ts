@@ -1316,6 +1316,8 @@ interface Accepted {
   result: CheckResult | null;
   /** The Answer's quoted words that its sentence's Citations don't have, when they made `result` not found (#483). */
   quotedWords?: QuotedWords;
+  /** The Answer's quotation of it was given its Document's quotation marks (./exactMarks). */
+  quoteMarksChanged?: true;
   /** A Citation of the Question context, kept as it is (#1800): there is nothing of it to fix. */
   kept?: true;
 }
@@ -1358,6 +1360,7 @@ const toCitation = (record: Accepted, result: CheckResult | null): Citation => (
   checkReason: result?.checkReason ?? null,
   ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
   ...(record.quotedWords && { quotedWords: record.quotedWords }),
+  ...(record.quoteMarksChanged && { quoteMarksChanged: true }),
 });
 
 export interface CitationSessionEvents {
@@ -2228,6 +2231,80 @@ export function createCitationSession(
     passageText: (passage: string): string => shownTexts.get(passage) ?? "",
   };
 
+  /**
+   * Whether the words start on the one page a record cites and run on to the next page: a
+   * record's quote ends where its page does, as a Passage may, and the Answer may quote on
+   * (#2504). Only a document's pages run on; a slide or a section is a place of its own.
+   */
+  const runsOnToNextPage = (record: Accepted, words: string, matching: Matching) => {
+    const { pageFrom, pageTo } = record.range;
+    if (pageFrom === null || pageFrom !== pageTo) return false;
+    const units = documents.pageTexts(
+      record.source.documentId,
+      record.source.contentHash,
+      pageFrom,
+      pageTo + 1,
+    );
+    const next = units.findIndex((unit) => unit.page === pageTo + 1);
+    if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return false;
+    const found = quoteInUnits(units, words, matching);
+    const nextStarts = joinUnits(units).starts[next] ?? 0;
+    return found?.every((range) => range.start < nextStarts) === true;
+  };
+  /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
+  const titled = (
+    record: Accepted,
+    units: readonly PageText[],
+    words: string,
+    matching: Matching,
+  ) => {
+    const rows = units.find((unit) => unit.kind === "rows");
+    if (!rows) return false;
+    const text = titleRows(record, rows.label?.sheet ?? null);
+    return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
+  };
+
+  /**
+   * How `checkQuotedWords` reads quoted words before it looks for the Citation nearest them:
+   * "checked" for words it finds, a Document's name, or a sentence with a Citation it couldn't
+   * check; "translated" for words in another language than every page cited; else the sentence's
+   * Citations, each with the text it cites.
+   */
+  /** A record's Document, version, pages and quote: what an ask about its quotation was about. */
+  const versionOf = (record: Accepted) =>
+    JSON.stringify([
+      record.source.documentId,
+      record.source.contentHash,
+      record.range.pageFrom,
+      record.range.pageTo,
+      record.quote,
+    ]);
+
+  const readQuoted = (words: string, markers: readonly number[]) => {
+    // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
+    const names = new Set([...records.values()].map(({ source }) => nameKey(source.documentName)));
+    if (names.has(nameKey(words))) return "checked";
+    const cited = [...new Set(markers)].flatMap((marker) => {
+      const record = records.get(marker);
+      return record
+        ? [{ record, units: citedText(record), matching: matchingFor(record.source) }]
+        : [];
+    });
+    if (cited.some(({ record }) => record.result?.check === "cant-check")) return "checked";
+    if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) return "checked";
+    if (cited.some(({ record, matching }) => runsOnToNextPage(record, words, matching)))
+      return "checked";
+    if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
+      return "checked";
+    const inCjk = writtenInCjk(words);
+    if (
+      cited.length > 0 &&
+      cited.every(({ units }) => writtenInCjk(units.map((unit) => unit.text).join("\n")) !== inCjk)
+    )
+      return "translated";
+    return cited;
+  };
+
   return {
     tools,
 
@@ -2304,76 +2381,13 @@ export function createCitationSession(
      * their quotation marks.
      */
     checkQuotedWords(quoted: readonly { words: string; markers: readonly number[] }[]): string[] {
-      /**
-       * Whether the words start on the one page a record cites and run on to the next page: a
-       * record's quote ends where its page does, as a Passage may, and the Answer may quote on
-       * (#2504). Only a document's pages run on; a slide or a section is a place of its own.
-       */
-      const runsOnToNextPage = (record: Accepted, words: string, matching: Matching) => {
-        const { pageFrom, pageTo } = record.range;
-        if (pageFrom === null || pageFrom !== pageTo) return false;
-        const units = documents.pageTexts(
-          record.source.documentId,
-          record.source.contentHash,
-          pageFrom,
-          pageTo + 1,
-        );
-        const next = units.findIndex((unit) => unit.page === pageTo + 1);
-        if (next <= 0 || !units.every((unit) => (unit.kind ?? "page") === "page")) return false;
-        const found = quoteInUnits(units, words, matching);
-        const nextStarts = joinUnits(units).starts[next] ?? 0;
-        return found?.every((range) => range.start < nextStarts) === true;
-      };
-      /** Whether the words are the title rows of the sheet a record's rows are in (#2358). */
-      const titled = (
-        record: Accepted,
-        units: readonly PageText[],
-        words: string,
-        matching: Matching,
-      ) => {
-        const rows = units.find((unit) => unit.kind === "rows");
-        if (!rows) return false;
-        const text = titleRows(record, rows.label?.sheet ?? null);
-        return text !== "" && findQuote(text, words, { ...matching, numbers: true }) !== null;
-      };
       const translated: string[] = [];
-      // A Document's name in quotation marks, as an Answer gives a title, is a name, not a quote.
-      const names = new Set(
-        [...records.values()].map(({ source }) => nameKey(source.documentName)),
-      );
       for (const { words, markers } of quoted) {
-        if (names.has(nameKey(words))) continue;
-        const cited = [...new Set(markers)].flatMap((marker) => {
-          const record = records.get(marker);
-          return record
-            ? [
-                {
-                  record,
-                  units: citedText(record),
-                  matching: matchingFor(record.source),
-                },
-              ]
-            : [];
-        });
-        if (cited.some(({ record }) => record.result?.check === "cant-check")) continue;
-        if (cited.some(({ units, matching }) => quoteInUnits(units, words, matching))) continue;
-        if (cited.some(({ record, matching }) => runsOnToNextPage(record, words, matching))) {
-          continue;
-        }
-        if (cited.some(({ record, units, matching }) => titled(record, units, words, matching)))
-          continue;
-        const inCjk = writtenInCjk(words);
-        if (
-          cited.length > 0 &&
-          cited.every(
-            ({ units }) => writtenInCjk(units.map((unit) => unit.text).join("\n")) !== inCjk,
-          )
-        ) {
-          translated.push(words);
-          continue;
-        }
+        const read = readQuoted(words, markers);
+        if (read === "translated") translated.push(words);
+        if (read === "translated" || read === "checked") continue;
         let nearest: { record: Accepted; closest: ReturnType<typeof closestWords> } | undefined;
-        for (const { record, units, matching } of cited) {
+        for (const { record, units, matching } of read) {
           const closest = closestWords(units, words, matching);
           if (!nearest || closest.near > nearest.closest.near) nearest = { record, closest };
         }
@@ -2384,6 +2398,46 @@ export function createCitationSession(
         nearest.record.quotedWords = nearest.closest.shown;
       }
       return translated;
+    },
+
+    /**
+     * Quoted words `checkQuotedWords` would read as not found, for the one ask about their
+     * quotation marks (./exactMarks): each Citation of their sentence whose own quote is found,
+     * with the text of the Units it cites and where its quote is in that text. Null when the
+     * check finds the words, leaves them unchecked, or reads them as a translation.
+     */
+    unfoundQuotedWords(
+      words: string,
+      markers: readonly number[],
+    ):
+      | {
+          marker: number;
+          units: PageText[];
+          matching: Matching;
+          quoteAt: TextRange[] | null;
+          version: string;
+        }[]
+      | null {
+      const read = readQuoted(words, markers);
+      if (read === "translated" || read === "checked") return null;
+      return read.flatMap(({ record, units, matching }) => {
+        record.result ??= check(record);
+        if (record.result.check !== "found") return [];
+        const quoteAt = quoteInUnits(units, record.quote, matching);
+        return [{ marker: record.marker, units, matching, quoteAt, version: versionOf(record) }];
+      });
+    },
+
+    /** A marker's Citation as `unfoundQuotedWords` gives its version; null when it has none. */
+    citationVersion: (marker: number): string | null => {
+      const record = records.get(marker);
+      return record ? versionOf(record) : null;
+    },
+
+    /** The Answer's quotation for a marker's Citation now has its Document's marks (./exactMarks). */
+    quoteMarksChanged(marker: number): void {
+      const record = records.get(marker);
+      if (record) record.quoteMarksChanged = true;
     },
 
     finalCitation,

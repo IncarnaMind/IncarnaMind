@@ -979,6 +979,11 @@ function CitationCard({
         </p>
       )}
       {quotedWords && <p className="citation-card-note">{t("citation.quoted.why")}</p>}
+      {attributes.quoteMarksChanged === true && state.check === "found" && (
+        <p data-testid="citation-quote-marks-changed" className="citation-card-note">
+          {t("citation.quoteMarksChanged")}
+        </p>
+      )}
       {state.pageChecked && (
         <p data-testid="citation-page-checked" className="citation-card-note">
           {t("citation.pageChecked.done")}

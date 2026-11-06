@@ -2643,6 +2643,8 @@ export interface CitationAttributes {
   verdict?: string | null;
   /** The Answer's quoted words the check didn't find, when that is why `check` is "not-found" (#483). */
   quotedWords?: QuotedWords | null;
+  /** The Answer's quotation of its words was given the Document's quotation marks (#2504). */
+  quoteMarksChanged?: boolean | null;
   /**
    * The Document's version the User chose to keep citing the old one over (Keep citing the old
    * version, #99): while it is the current one, the Citation doesn't ask to be checked again.
@@ -2672,6 +2674,8 @@ export interface Citation {
   /** The unsure words of a scanned page the quote covers (#535). */
   unsure?: string[];
   quotedWords?: QuotedWords;
+  /** The Answer's quotation of its words was given the Document's quotation marks (#2504). */
+  quoteMarksChanged?: boolean | null;
   /** "unsupported" and "contradicted": what the Documents say of its sentence, in one plain sentence. */
   verdict?: string | null;
 }
@@ -7832,6 +7836,11 @@ export interface AnswerFinished extends AnswerPlace {
    * was made. The evaluation counts these.
    */
   quoteRetry: QuoteRetry | null;
+  /**
+   * The one ask about quotations whose marks alone kept them from being found (#2504); null when
+   * none was made. The evaluation counts these.
+   */
+  exactMarks: ExactMarksAsk | null;
   /** Its calculated figures (ADR-0021), in the order of their markers in the text, each once. */
   figures: MarkedFigure[];
   analyses: AnswerAnalysis[];
@@ -7869,6 +7878,30 @@ export interface QuoteRetry {
   /** Those whose new quote the check found on the pages it cites: it replaced theirs. */
   recovered: number;
   /** How long it took, in milliseconds, from the request to the records taken. */
+  durationMs: number;
+}
+
+/** What an Answer's one ask about its quotations' marks did (see `AnswerFinished.exactMarks`). */
+export interface ExactMarksAsk {
+  /** Quotations the check wouldn't find. */
+  unfound: number;
+  /** Of those, the ones the second reading found at one place, with as many marks there. */
+  secondReadings: number;
+  /** Of those, the ones not asked about: the page's marks there are of both kinds, or another than “ ” and ‘ ’. */
+  otherMarks: number;
+  /** Those asked about: at most 6. */
+  asked: number;
+  /** Replies taken: their quotations now have the Document's marks. */
+  accepted: number;
+  /** Replies of "none". */
+  declined: number;
+  /** Quotations the reply didn't answer: an error, the deadline, or no entry for them. */
+  failed: number;
+  /** Replies not taken: other words or marks than the page's there, given twice, or not found there. */
+  rejected: number;
+  /** Replies the Answer had changed under: its text, the Citation or its place. */
+  invalidated: number;
+  /** How long the request took, in milliseconds. */
   durationMs: number;
 }
 

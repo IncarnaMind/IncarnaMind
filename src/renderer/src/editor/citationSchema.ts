@@ -129,6 +129,14 @@ export const Citation = Node.create<CitationOptions>({
       },
       // Only a claim check sets it, so a Citation without one stores nothing.
       verdict: { ...dataAttribute("verdict"), default: undefined },
+      // Only an Answer whose quotation was given its Document's marks sets it (#2504).
+      quoteMarksChanged: {
+        default: undefined,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-quote-marks-changed") === "true" ? true : undefined,
+        renderHTML: (attributes: Record<string, unknown>) =>
+          attributes.quoteMarksChanged === true ? { "data-quote-marks-changed": "true" } : {},
+      },
       // Only an Answer whose quoted words weren't found sets it (#483), as JSON in the HTML.
       quotedWords: {
         default: undefined,

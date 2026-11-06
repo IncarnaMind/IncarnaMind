@@ -555,6 +555,7 @@ describe("Usage data: what the core derives from its events", () => {
       citedAfterChecking: { count: 0, asked: false },
       citationSupport: null,
       quoteRetry: null,
+      exactMarks: null,
       figures: [],
       analyses: [],
       uncalculated: 0,
