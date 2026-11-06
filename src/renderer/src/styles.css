@@ -4293,6 +4293,23 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  .answer-asked {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* The question the assistant asked, folded to its words in the Answer's ink (#2530); its options are gone. */
+  .answer-asked-question {
+    margin: 0;
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--color-ink-answer);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .answer-asked-turn .assistant-question {
+    margin-top: 0;
+  }
   .answer-asked-line {
     font-size: 13px;
     line-height: 20px;
@@ -8675,8 +8692,43 @@
    * change (a layout shift the feel check counts).
    */
   .answer-steps-live {
+    /* The wait takes the first form that fits (#2531): its own row when it cannot. */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
     position: relative;
     align-self: stretch;
+  }
+  .answer-steps-live-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+  }
+  /* A wait on a second row sits under the step's words, in the smaller ink of a note. */
+  .answer-steps-live-row--second {
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .answer-steps-wait-measures {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .answer-steps-wait-measure {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    white-space: nowrap;
   }
   .answer-steps-live-toggle {
     display: inline-flex;
@@ -8728,22 +8780,13 @@
     background: var(--color-attention);
     animation: none;
   }
+  /*
+   * The wait that joins the live line after 15 seconds (#2530, #2531): never
+   * dropped; the form is measured so the step's own words stay whole.
+   */
   .answer-steps-wait {
-    max-width: calc(100% - 20px);
-    margin: 0 0 0 20px;
-    font-size: 13px;
-    line-height: 18px;
-    color: var(--color-ink-meta);
-  }
-  .answer-steps-wait-stop {
-    padding: 0;
-    border-radius: 4px;
-    font-weight: 600;
-    color: var(--color-ink-secondary);
-
-    &:hover {
-      color: var(--color-ink);
-    }
+    flex: none;
+    white-space: nowrap;
   }
   .answer-timeline {
     display: flex;

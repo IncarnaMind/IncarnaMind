@@ -3,7 +3,11 @@ import { type LiveStep, liveStepKey } from "./answerSteps";
 /** The least time a live step stays up while another replaces it, so the line never flickers. */
 export const MIN_STEP_MS = 1000;
 
-const waitsForUser = (step: LiveStep) => step.kind === "waiting" || step.kind === "consent";
+/** A step where the line waits for the User: an approval, a consent, or a question they answer below. */
+const waitsForUser = (step: LiveStep) =>
+  step.kind === "waiting" ||
+  step.kind === "consent" ||
+  (step.kind === "call" && step.call.source === "asks");
 
 /** A step on screen, and since when. */
 export interface ShownStep {
@@ -38,8 +42,9 @@ export function takeOver(first: LiveStep): ShownStep | null {
 /**
  * Shows the steps of an Answer one at a time, `onShow` hearing each: a new
  * step shows once the one before has been up `MIN_STEP_MS`, then the latest
- * of those that came meanwhile; one that waits for the User shows at once.
- * `from` is the step it starts on, and since when.
+ * of those that came meanwhile; one where the line waits for the User shows at
+ * once, and so does the step after it. `from` is the step it starts on, and
+ * since when.
  */
 export function holdSteps(from: ShownStep, onShow: (step: LiveStep) => void): StepHold {
   let current = from;
@@ -60,7 +65,7 @@ export function holdSteps(from: ShownStep, onShow: (step: LiveStep) => void): St
       stop();
       if (liveStepKey(step) === liveStepKey(current.step)) return;
       const left = MIN_STEP_MS - (Date.now() - current.since);
-      if (waitsForUser(step) || left <= 0) show();
+      if (waitsForUser(step) || waitsForUser(current.step) || left <= 0) show();
       else timer = setTimeout(show, left);
     },
     shown: () => current,
