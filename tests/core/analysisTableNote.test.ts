@@ -1651,6 +1651,17 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
     expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
+    // The check's record keeps the line that says a scale, and not the Note's title above it.
+    const stored: string[] = [];
+    const visit = (node: NodeJSON) => {
+      for (const mark of node.marks ?? [])
+        if (mark.type === CLAIM_CHECK_MARK) stored.push(JSON.stringify(mark.attrs));
+      for (const child of node.content ?? []) visit(child);
+    };
+    for (const block of blocksOf(client)) visit(block);
+    const underTheLine = stored.filter((each) => each.includes(above));
+    expect(underTheLine.length).toBeGreaterThan(0);
+    expect(underTheLine.some((each) => each.includes(WORDS[language].title))).toBe(false);
     core.close();
     const titled = await walked(
       language,

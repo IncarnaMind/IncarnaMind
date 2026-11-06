@@ -346,6 +346,9 @@ function framesIn(text: string): Frame[] {
   ];
 }
 
+/** Whether `text` says a scale, currency or percent apart from its numbers (`framesIn`). */
+export const statesAFrame = (text: string): boolean => framesIn(text).length > 0;
+
 const sameCurrency = (a: string, b: string) =>
   a === b ||
   (a === "$" && (b === "$" || isDollar(b))) ||

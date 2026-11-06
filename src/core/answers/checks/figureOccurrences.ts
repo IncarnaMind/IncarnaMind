@@ -35,6 +35,7 @@ import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
+import { statesAFrame } from "./analysisNaming";
 import {
   isTableCaption,
   type SelectedSentence,
@@ -281,8 +282,9 @@ const ABOVE_CHARACTERS = 2000;
 
 /**
  * The lines above the Block holding `node` in its section, and each heading it is under up to the
- * Note's title, nearest first: "All amounts below are in thousands" there is said of its figures
- * too (#2544). A table or chart above states its own cells' units, not the sentence's.
+ * Note's title, nearest first, that state a scale, currency or percent: "All amounts below are in
+ * thousands" there is said of its figures too (#2544). Only those are kept, since the check's record
+ * keeps them. A table or chart above states its own cells' units, not the sentence's.
  */
 function linesAbove(node: Y.XmlElement): { above?: string } {
   let block: Y.XmlElement = node;
@@ -305,7 +307,7 @@ function linesAbove(node: Y.XmlElement): { above?: string } {
     const words = plainText(at)
       .trim()
       .slice(0, ABOVE_CHARACTERS - length);
-    if (words) lines.push(words);
+    if (words && statesAFrame(words)) lines.push(words);
     length += words.length;
     if (under === 1) break;
   }
