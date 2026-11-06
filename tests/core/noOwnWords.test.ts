@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
+import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { wholeMind } from "../helpers/editing";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, resolveChanges, shownWithChanges, writeMind } from "../helpers/minds";
 import {
@@ -267,6 +270,24 @@ const KEPT_WHOLE: readonly Shape[] = [
     ],
   },
   {
+    case: "en, a line with a line break the reply writes as it was",
+    lines: ["Fees are monthly.", "Rates are<br>monthly.", "Fees and rates are monthly."],
+    reply: ["Fees are monthly.", "Rates are\nmonthly.", "Fees and rates are monthly, from May."],
+    asked: "Say the fees and rates line starts in May.",
+    after: [
+      "Fees are monthly.",
+      "Rates are\uFFFCmonthly.",
+      "Fees and rates are monthly, from May.",
+    ],
+  },
+  {
+    case: "zh, a line with a line break the reply writes as it was",
+    lines: ["费用按月支付。", "税费<br>按月支付。", "费用和税费按月支付。"],
+    reply: ["费用按月支付。", "税费\n按月支付。", "费用和税费从五月起按月支付。"],
+    asked: "把最后一行改成从五月起。",
+    after: ["费用按月支付。", "税费\uFFFC按月支付。", "费用和税费从五月起按月支付。"],
+  },
+  {
     case: "en, a new line that says every word of the line between",
     lines: FEES,
     reply: between(FEES, "Water rates are monthly."),
@@ -453,6 +474,16 @@ const SHAPES = [...ADDED_BESIDE, ...KEPT_WHOLE, ...NO_EVIDENCE, ...REPLACED];
 const rewrite = (shape: Shape) =>
   `${"named" in shape.reply ? shape.reply.named : shape.reply.join("\n\n")}\n<why>Done.</why>`;
 
+/** A paragraph with a line break where the line has `<br>`, as the reply writes one. */
+function withBreak(line: string): JSONContent {
+  const [before, after] = line.split("<br>");
+  return {
+    type: "paragraph",
+    attrs: { id: randomUUID() },
+    content: [{ type: "text", text: before }, { type: "hardBreak" }, { type: "text", text: after }],
+  };
+}
+
 async function onNote(shape: Shape, reply: (call: ModelCall) => ScriptedReply) {
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(scriptedModel(reply)).createChatModel,
@@ -461,7 +492,11 @@ async function onNote(shape: Shape, reply: (call: ModelCall) => ScriptedReply) {
   const mind = await core.createMind({ title: "Fees" });
   const client = await connectToMind(core, mind.id);
   const blocks = shape.lines.map((line) =>
-    line.startsWith("## ") ? heading(2, line.slice(3)) : note(line),
+    line.startsWith("## ")
+      ? heading(2, line.slice(3))
+      : line.includes("<br>")
+        ? withBreak(line)
+        : note(line),
   );
   writeMind(client, blocks);
   await client.settled();
@@ -494,20 +529,11 @@ describe("A paragraph with no words of its own is never written over by a namele
   });
 
   test.each(SHAPES)("$case, from Edit with AI", async (shape) => {
-    const { core, mind, client, blocks } = await onNote(shape, (call) =>
+    const { core, mind, client } = await onNote(shape, (call) =>
       /<passage>\n/.test(call.prompt) ? { text: rewrite(shape) } : { text: "Done." },
     );
-    const shown = shape.lines.map((line) => line.replace(/^## /, ""));
 
-    const edited = await core.editWithAi({
-      requestId: "edit-1",
-      mindId: mind.id,
-      from: { blockId: blocks[0]?.attrs?.id as string, offset: 0 },
-      to: { blockId: blocks.at(-1)?.attrs?.id as string, offset: shown.at(-1)?.length ?? 0 },
-      text: shown.join("\n"),
-      action: "instruction",
-      instruction: shape.asked,
-    });
+    const edited = await core.editWithAi(wholeMind(client, mind.id, shape.asked));
 
     expect(edited.kind).toBe("proposed");
     expect(await accepted(client, shape)).toEqual(expected(shape));
