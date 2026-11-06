@@ -1011,6 +1011,8 @@ test("a stopped Transcript has no row of its own: from its Note, Get info names 
   );
   await expect(panel.getByRole("term").filter({ hasText: /^Note$/ })).toBeVisible();
   await expect(panel.getByTestId("info-open-meeting-note")).toHaveText(note ?? "");
+  // Organize never files a meeting's Transcript, so Get info has no Organize row for it.
+  await expect(panel.getByTestId("info-organize")).toHaveCount(0);
   await expect(panel.getByTestId("info-path")).toHaveCount(0);
   await expect(panel).not.toContainText(".vtt");
   await expect(panel).not.toContainText("In your Library");

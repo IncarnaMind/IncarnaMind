@@ -2,6 +2,7 @@ import type {
   Document,
   DocumentGroupAssignment,
   DocumentKind,
+  DocumentTextMatch,
   Folder,
   LibraryGroup,
   Mind,
@@ -333,6 +334,40 @@ export function scopeChoices(
             .map(({ choice }) => choice);
     return matching.slice(0, MAX_CHOICES_PER_KIND);
   });
+}
+
+/**
+ * The meetings whose Transcripts hold the words typed, found by the core's text search, each
+ * offered as its Note's choice with the time the words were said: "Weekly call · Transcript,
+ * 00:01" (#2528). None already in the scope or already `offered` by its name.
+ */
+export function meetingChoices(
+  library: ScopeLibrary,
+  scope: SearchScope,
+  found: ReadonlyMap<string, DocumentTextMatch> | null,
+  offered: readonly ScopeChoice[],
+): ScopeChoice[] {
+  const { t } = library;
+  if (!found || !t) return [];
+  const skip = new Set([
+    ...scope.documentIds,
+    ...offered.filter((each) => each.kind === "document").map((each) => each.id),
+  ]);
+  const byId = new Map(library.documents.map((document) => [document.id, document]));
+  const meetings = new Map(
+    everything(library)
+      .filter((choice) => choice.kind === "document" && choice.meeting)
+      .map((choice) => [choice.id, choice]),
+  );
+  return [...found.values()]
+    .flatMap((match): ScopeChoice[] => {
+      const choice = meetings.get(match.documentId);
+      const document = byId.get(match.documentId);
+      const note = document && noteOf(document, library.minds ?? []);
+      if (!choice || !note || skip.has(choice.id)) return [];
+      return [{ ...choice, name: transcriptInNote(note, match.atMs, t) }];
+    })
+    .slice(0, MAX_CHOICES_PER_KIND);
 }
 
 /** A Question's Search scope as chips, Folders first, then Tags, then Documents, each in the order chosen. */

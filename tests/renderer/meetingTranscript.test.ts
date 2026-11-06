@@ -16,6 +16,7 @@ import {
 import type * as Palette from "../../src/renderer/src/palette";
 import {
   blockedFrom,
+  meetingChoices,
   type ScopeLibrary,
   scopeChips,
   scopeChoices,
@@ -181,6 +182,30 @@ describe("A meeting in a Search scope", () => {
     expect(chips.map((chip) => chip.name)).toEqual(["Weekly call · Transcript"]);
     expect(scopeCounts(library(true)).get("g-harbour")).toBe(1);
     expect(scopeCounts(library(false)).get("g-harbour")).toBe(0);
+  });
+
+  test('is found in the "@" picker by words said in it, as its Note\'s choice, in English and Chinese', () => {
+    const found = new Map([
+      [transcript.id, hit(transcript.id, 1_000)],
+      [lease.id, hit(lease.id, null)],
+    ]);
+    expect(
+      meetingChoices(library(true), none, found, []).map(({ id, name, meeting }) => ({
+        id,
+        name,
+        meeting,
+      })),
+    ).toEqual([{ id: transcript.id, name: "Weekly call · Transcript, 00:01", meeting: true }]);
+    expect(meetingChoices({ ...library(true), t: zh }, none, found, [])[0]?.name).toBe(
+      "Weekly call · 转写稿 00:01",
+    );
+    // Not twice: once offered by its name, or once in the scope, and never without its Note.
+    const byName = scopeChoices(library(true), none, "weekly");
+    expect(meetingChoices(library(true), none, found, byName)).toEqual([]);
+    expect(
+      meetingChoices(library(true), { ...none, documentIds: [transcript.id] }, found, []),
+    ).toEqual([]);
+    expect(meetingChoices(library(false), none, found, [])).toEqual([]);
   });
 
   test("Check against a Document… offers it by its Note's name and counts it in its Note's Folder", () => {

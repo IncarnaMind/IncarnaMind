@@ -87,7 +87,7 @@ export const evidenceCommands: readonly Command[] = [
     label: "evidence.notCited.transcript",
     hint: "evidence.notCited.hint",
     group: "main",
-    appliesTo: ["mind"],
+    appliesTo: ["mind", "tab"],
     when: (ctx) => {
       const transcripts = transcriptsOf(ctx);
       return transcripts.length > 0 && transcripts.every((each) => !each.notCited);
@@ -99,7 +99,7 @@ export const evidenceCommands: readonly Command[] = [
     id: "mind.citeTranscriptAgain",
     label: "evidence.citeAgain.transcript",
     group: "main",
-    appliesTo: ["mind"],
+    appliesTo: ["mind", "tab"],
     when: (ctx) => {
       const transcripts = transcriptsOf(ctx);
       return transcripts.length > 0 && transcripts.every((each) => each.notCited);

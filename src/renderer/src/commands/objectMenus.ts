@@ -116,6 +116,8 @@ registerMenu(
     "mind.useAsSource",
     "mind.updateSourceSnapshot",
     "mind.removeAsSource",
+    "mind.dontCiteTranscript",
+    "mind.citeTranscriptAgain",
     "mind.look.word",
     "mind.look.plain",
     "mind.openOriginal",

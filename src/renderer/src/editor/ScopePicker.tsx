@@ -28,7 +28,8 @@ import {
 } from "../components/lineIcons";
 import { folderWallOf } from "../folders";
 import { useT } from "../i18n";
-import { blockedFrom, type ScopeChoice, scopeChoices } from "../scope";
+import { useTextSearch } from "../libraryTextSearch";
+import { blockedFrom, meetingChoices, type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
 import { takeTypedTrigger } from "./documentPicker";
 import { asOneStep } from "./editorUndo";
@@ -233,7 +234,10 @@ export function ScopeChoiceList({
   const assignments = useAppStore((state) => state.library?.assignments);
   const minds = useAppStore((state) => state.minds);
   const library = { folders, groups, tags, documents, assignments, minds, t };
-  const shown = scopeChoices(library, scope, query).filter(
+  // Words said in a meeting find it as its Note's choice, as the Library's search does (#2528).
+  const inside = useTextSearch(query);
+  const named = scopeChoices(library, scope, query);
+  const shown = [...named, ...meetingChoices(library, scope, inside.matches, named)].filter(
     (choice) => !kinds || kinds.includes(choice.kind),
   );
   const isBlocked = (item: ScopeChoice) => blockedFrom(library, item, currentWalled);

@@ -88,7 +88,8 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   const tides = join(sources, "tide-tables.txt");
   await writeFile(tides, "High water at the pier at noon.");
   await addDocuments(window, [tides]);
-  const { title } = await recordAndStop(window);
+  const { meeting: recorded, title } = await recordAndStop(window);
+  const transcriptId = recorded.transcript?.documentId as string;
 
   // No row of its own: the sidebar and the Library list the User's Document, and only it.
   const rows = window.getByTestId("document-list-item");
@@ -143,9 +144,11 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(transcript.locator("[data-quote-highlight]").first()).toBeInViewport();
   await shot(window, "one-item-opened-en");
 
-  // Its menu keeps Get info, and has no Move to…, Tags… or Delete of its own.
+  // Its menu keeps Get info, and has no Move to…, Tags… or Delete of its own; nor has its viewer
+  // a Tags button.
   const header = window.getByTestId("viewer-header");
   await expect(header).toContainText("Transcript");
+  await expect(header.getByTestId("document-tags")).toHaveCount(0);
   await pointAndClick(window, header.getByTestId("document-file-menu"));
   const menu = header.getByTestId("document-file-actions");
   await expect(menu.getByTestId("file.info")).toBeVisible();
@@ -155,6 +158,23 @@ test("a meeting's Transcript has no row; a ⌘K hit inside it is the Note's and 
   await expect(menu.getByTestId("document.rename")).toHaveCount(0);
   await expect(menu.getByTestId("document.dontCite")).toHaveCount(0);
   await window.keyboard.press("Escape");
+
+  // Don't cite the Transcript is the meeting Note's, on its menu, and back.
+  const notCited = () =>
+    window.evaluate(
+      async (id) =>
+        (
+          await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
+        ).find((each) => each.id === id)?.notCited,
+      transcriptId,
+    );
+  const noteTab = window.getByTestId("mind-tab").first();
+  await pointAndClick(window, noteTab, { button: "right" });
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Don’t cite the Transcript" }));
+  await expect.poll(notCited).toBe(true);
+  await pointAndClick(window, noteTab, { button: "right" });
+  await pointAndClick(window, window.getByRole("menuitem", { name: "Cite the Transcript again" }));
+  await expect.poll(notCited).toBe(false);
 
   await setLanguage(window, "zh-CN");
   await window.keyboard.press("ControlOrMeta+k");
