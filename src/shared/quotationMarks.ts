@@ -11,8 +11,9 @@
  * - a closing mark closes only the innermost open quote, and only its own kind („ closes with ” or
  *   “, ‚ with ’ or ‘, and guillemets point either way). Guillemets and corner brackets are never a
  *   measure's, so they need no clear side;
- * - the words between the pair have no code symbols ("echo ‘$HOME’", "sed ‘s/a/b/’"), and the pair
- *   doesn't follow a word in capitals, as SQL's do ("SELECT “name” FROM").
+ * - the pair is in a sentence of prose: one with no code character, read from the text's own
+ *   characters ("echo ‘$HOME’", "sed ‘s/a/b/’", a backtick), no command option ("ls -la") and no
+ *   SQL statement in any case ("select “name” from users").
  *
  * Straight marks " and ' are never quotation marks here: they delimit code as often as prose, where
  * one kind isn't the other ("SELECT "name"" names a column, "SELECT 'name'" is a string).
@@ -20,7 +21,7 @@
  * A mark that is not one of such a pair matches only itself, as on main, so a quote with a single
  * mark is found for the page's double one only where both are quotation marks.
  */
-import type { NormalisedUnit } from "./text";
+import { INVISIBLE, type NormalisedUnit } from "./text";
 
 /** A quotation mark as matching reads it. Noncharacters, so no text has them of its own. */
 const DOUBLE_QUOTATION = String.fromCharCode(0xfdd0);
@@ -63,6 +64,8 @@ const OPENING_BRACKET = 512;
 const CLOSING_BRACKET = 1024;
 const EDGE = 2048;
 const KNOWN = 4096;
+/** What the normaliser drops, a soft hyphen or a zero-width space: every neighbour is read past it. */
+const HIDDEN = 16384;
 
 const LISTED: readonly [number, string][] = [
   [CODE, "$`\\{}<>|=^~@#/*+_[]"],
@@ -94,6 +97,7 @@ function classify(code: number): number {
   if (/\s/u.test(char)) classes |= SPACE;
   if (isCjk(code)) classes |= CJK;
   for (const [listed, chars] of LISTED) if (chars.includes(char)) classes |= listed;
+  if (INVISIBLE.has(char)) classes |= HIDDEN;
   CLASSES[code] = classes;
   return classes;
 }
@@ -105,29 +109,38 @@ function at(text: string, index: number): number {
   return (CLASSES[code] as number) || classify(code);
 }
 
-/** The first index from `index` on, stepping by `step`, that isn't whitespace: a run of it is one gap. */
-function pastSpace(text: string, index: number, step: 1 | -1): number {
-  let past = index;
-  while (at(text, past) & SPACE) past += step;
-  return past;
+/** The first index from `index` on, stepping by `step`, that isn't one of `skipped`. */
+function past(text: string, index: number, step: 1 | -1, skipped: number): number {
+  let at_ = index;
+  while (at(text, at_) & skipped) at_ += step;
+  return at_;
 }
 
-/** Whether a word of two or more capitals ends at `index`, as an SQL keyword does. */
-function capitalsEndAt(text: string, index: number): boolean {
-  let start = index;
-  while (at(text, start) & LETTER && !(at(text, start) & CJK)) start--;
-  const word = text.slice(start + 1, index + 1);
-  return word.length >= 2 && word === word.toUpperCase() && word !== word.toLowerCase();
+/** Past a gap: a run of whitespace, and of what the normaliser drops, is one gap. */
+const pastGap = (text: string, index: number, step: 1 | -1) =>
+  past(text, index, step, SPACE | HIDDEN);
+
+const SQL_STATEMENT =
+  /\bselect\b.*\bfrom\b|\binsert\s+into\b|\bupdate\b.*\bset\b|\bdelete\s+from\b|\b(?:order|group)\s+by\b/i;
+const OPTION = /(?:^|\s)-\p{L}/u;
+const SENTENCE = /[^.!?。！？\n]+/g;
+
+/** The spans of `text`'s sentences that aren't prose: a code character, a command option or SQL. */
+function codeSentences(text: string): [number, number][] {
+  const spans: [number, number][] = [];
+  for (const { 0: words, index } of text.matchAll(SENTENCE)) {
+    let code = OPTION.test(words) || SQL_STATEMENT.test(words);
+    for (let at_ = 0; !code && at_ < words.length; at_++) code = (at(words, at_) & CODE) !== 0;
+    if (code) spans.push([index, index + words.length]);
+  }
+  return spans;
 }
 
 /** Whether the code unit at `index`, just outside an opening mark, ends a word rather than code or a number. */
 function opensAfter(text: string, index: number): boolean {
   const outside = at(text, index);
   if (outside & (EDGE | CJK)) return true;
-  if (outside & SPACE) {
-    const before = pastSpace(text, index, -1);
-    return !(at(text, before) & CODE) && !capitalsEndAt(text, before);
-  }
+  if (outside & SPACE) return true;
   if (outside & (CODE | CLOSING_BRACKET) || !(outside & PUNCTUATION)) return false;
   // A bracket against a word is a call: print(‘hi’).
   return !(outside & OPENING_BRACKET) || !(at(text, index - 1) & (LETTER | NUMBER));
@@ -137,7 +150,7 @@ function opensAfter(text: string, index: number): boolean {
 function closesBefore(text: string, index: number): boolean {
   const outside = at(text, index);
   if (outside & (EDGE | CJK)) return true;
-  if (outside & SPACE) return !(at(text, pastSpace(text, index, 1)) & CODE);
+  if (outside & SPACE) return true;
   return (outside & PUNCTUATION) !== 0 && !(outside & (CODE | OPENING_BRACKET));
 }
 
@@ -151,7 +164,7 @@ function clearlyOpens(text: string, index: number): boolean {
 /**
  * Whether the mark at `index` closes: "yes" with a word's end inside it and a boundary outside, "no"
  * when a one-letter word or a name of up to three capitals ends in a prime ("A’", "AB’", "4K”"), and
- * "maybe" for a single mark after an "s" with a word or a number after it, past any whitespace: a
+ * "maybe" for a single mark after an "s" with a word or a number after it, past any gap: a
  * possessive or a quote's end ("the girls’ room", "the bosses’ 2024 plan", "‘soft weights’ property").
  */
 function closing(text: string, index: number, single: boolean): "yes" | "no" | "maybe" {
@@ -161,7 +174,7 @@ function closing(text: string, index: number, single: boolean): "yes" | "no" | "
   if (!(last & LETTER) || !closesBefore(text, index + 1)) return "no";
   if (last & CJK) return "yes";
   let start = inside;
-  while (start > inside - 3 && (at(text, start - 1) & (LETTER | CJK)) === LETTER) start--;
+  while (start > inside - 2 && (at(text, start - 1) & (LETTER | CJK)) === LETTER) start--;
   if (start === inside) return "no";
   const word = text.slice(start, inside + 1);
   const name = word === word.toUpperCase() && word !== word.toLowerCase();
@@ -172,7 +185,7 @@ function closing(text: string, index: number, single: boolean): "yes" | "no" | "
     inside === index - 1 &&
     (s === 0x73 || s === 0x53) &&
     at(text, index + 1) & SPACE &&
-    at(text, pastSpace(text, index + 1, 1)) & (LETTER | NUMBER);
+    at(text, pastGap(text, index + 1, 1)) & (LETTER | NUMBER);
   return possessive ? "maybe" : "yes";
 }
 
@@ -195,45 +208,42 @@ const CLOSED_BY: ReadonlyMap<string, string> = new Map([
 interface Open {
   mark: string;
   unit: NormalisedUnit;
-  /** How many code characters came before it, so a pair around one is seen. */
-  code: number;
   /** The last "maybe" closing mark seen while it was innermost: it closes the quote if nothing clearer does. */
-  maybe?: { unit: NormalisedUnit; code: number };
+  maybe?: NormalisedUnit;
 }
 
 const asQuotation = (char: string) => (char === '"' ? DOUBLE_QUOTATION : SINGLE_QUOTATION);
 
 /**
- * Marks each unit of `text` that is a quotation mark of a pair around plain words as a quotation
- * mark of its kind (see `sameChar`). `units` are the normaliser's, folded: every quote mark is '"' or
- * "'", and their offsets point into `text`.
+ * Marks each unit of `text` that is a quotation mark of a pair around plain words, in a sentence of
+ * prose, as a quotation mark of its kind (see `sameChar`). `units` are the normaliser's, folded:
+ * every quote mark is '"' or "'", and their offsets point into `text`.
  */
 export function markQuotationMarks(text: string, units: NormalisedUnit[]): void {
   const opened: Open[] = [];
-  const close = (open: Open, unit: NormalisedUnit, code: number) => {
-    if (open.code !== code) return;
+  let code: [number, number][] | undefined;
+  const inCode = (index: number) => {
+    code ??= codeSentences(text);
+    return code.some(([from, to]) => index >= from && index < to);
+  };
+  const close = (open: Open, unit: NormalisedUnit) => {
+    if (inCode(open.unit.start)) return;
     open.unit.char = asQuotation(open.unit.char);
     unit.char = asQuotation(unit.char);
   };
   // A later mark that opens or closes something else ends the wait for a clearer closing mark.
   const settle = () => {
     const top = opened.pop();
-    if (top?.maybe) close(top, top.maybe.unit, top.maybe.code);
+    if (top?.maybe) close(top, top.maybe);
   };
-  let code = 0;
-  let afterSpace = false;
   for (const unit of units) {
     const char = unit.char;
-    if (char === "-" && afterSpace && at(text, unit.end) & LETTER) code++;
-    // The text's own character: the normaliser has made a backtick an apostrophe.
-    else if (at(text, unit.start) & CODE || (char.length === 1 && at(char, 0) & CODE)) code++;
-    afterSpace = char === " ";
     if ((char !== '"' && char !== "'") || unit.end !== unit.start + 1) continue;
+    if (!(at(text, unit.start) & QUOTE_MARK)) continue;
     const mark = text.charAt(unit.start);
     const ambiguous = (at(text, unit.start) & AMBIGUOUS) !== 0;
     const single = char === "'";
     let top = opened.at(-1);
-    if (!(at(text, unit.start) & QUOTE_MARK)) continue;
     if (top?.maybe && !CLOSED_BY.get(top.mark)?.includes(mark)) {
       const acts =
         !ambiguous ||
@@ -250,11 +260,11 @@ export function markQuotationMarks(text: string, units: NormalisedUnit[]): void 
         : "no";
     if (top && how === "yes") {
       opened.pop();
-      close(top, unit, code);
+      close(top, unit);
     } else if (top && how === "maybe") {
-      top.maybe = { unit, code };
+      top.maybe = unit;
     } else if (CLOSED_BY.has(mark) && (!ambiguous || clearlyOpens(text, unit.start))) {
-      opened.push({ mark, unit, code });
+      opened.push({ mark, unit });
     }
   }
   while (opened.length) settle();

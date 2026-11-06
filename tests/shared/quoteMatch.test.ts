@@ -536,7 +536,7 @@ describe("which double marks are quotation marks (#2504)", () => {
     expect(
       covered("“He said ‘the experts’ disagree” today.", "‘he said “the experts” disagree’ today"),
     ).toBe("“He said ‘the experts’ disagree” today");
-    for (const gap of ["  ", "\r\n", "\t", " \n "]) {
+    for (const gap of ["  ", "\r\n", "\t", " \n ", " \u200b ", " \u00ad ", "\u200b "]) {
       const missing = `The ‘girls’${gap}notes’ are missing.`;
       expect(findQuote(missing, `the “girls”${gap}notes’ are missing`)).toBeNull();
       expect(covered(missing, `the “girls’${gap}notes” are missing`)).toBe(missing.slice(0, -1));
@@ -572,6 +572,37 @@ describe("which double marks are quotation marks (#2504)", () => {
     expect(covered(curledSql, "run select “name” from users to read each stored name")).toBe(
       curledSql.slice(0, -1),
     );
+    for (const select of ["select", "Select"]) {
+      const lower = `Run ${select} “name” from users to read each stored name.`;
+      expect(
+        findQuote(lower, `run ${select} ‘name’ from users to read each stored name`),
+      ).toBeNull();
+      expect(covered(lower, `run ${select} “name” from users to read each stored name`)).toBe(
+        lower.slice(0, -1),
+      );
+    }
+    const lowerZh = "运行 select “name” from users 读取每个名字。";
+    expect(findQuote(lowerZh, "运行 select ‘name’ from users 读取每个名字")).toBeNull();
+    expect(covered(lowerZh, "运行 select “name” from users 读取每个名字")).toBe(
+      lowerZh.slice(0, -1),
+    );
+    const alias = "Run select count(*) as “total” from orders.";
+    expect(findQuote(alias, "run select count(*) as ‘total’ from orders")).toBeNull();
+    expect(covered(alias, "run select count(*) as “total” from orders")).toBe(alias.slice(0, -1));
+    expect(
+      findQuote("update users set “name” = 1 where id = 2", "update users set ‘name’ = 1"),
+    ).toBeNull();
+    expect(findQuote("Insert into “users” the row.", "insert into ‘users’ the row")).toBeNull();
+    expect(
+      findQuote("Sort the rows, order by “name” first.", "sort the rows, order by ‘name’ first"),
+    ).toBeNull();
+    const save = "Please select “Save” and then quit.";
+    expect(covered(save, "please select ‘save’ and then quit")).toBe(save.slice(0, -1));
+    const hamlet = "He read a line from “Hamlet” aloud.";
+    expect(covered(hamlet, "he read a line from ‘hamlet’ aloud")).toBe(hamlet.slice(0, -1));
+    const hidden = "Set name =\u200b ‘total’; then run it.";
+    expect(findQuote(hidden, "set name =\u200b “total”; then run it")).toBeNull();
+    expect(covered(hidden, "set name =\u200b ‘total’; then run it")).toBe(hidden.slice(0, -1));
     const curledSqlZh = "运行 SELECT “name” FROM users 读取每个名字。";
     expect(findQuote(curledSqlZh, "运行 SELECT ‘name’ FROM users 读取每个名字")).toBeNull();
     expect(covered(curledSqlZh, "运行 SELECT “name” FROM users 读取每个名字")).toBe(
