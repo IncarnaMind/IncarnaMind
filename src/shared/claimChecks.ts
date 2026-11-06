@@ -427,6 +427,8 @@ export interface ClaimCheckNow {
   note?: RecordCiteNote;
   /** The sentence as the Note holds it, its Citations included, where `text` leaves them out: what its record cites are read in. */
   noteText?(): string;
+  /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
+  keptInside?: ((documentId: string) => string | null) | null;
 }
 
 /** A verdict a check landed, the only kind a Folder move has a result to keep (#2313). */
@@ -750,30 +752,42 @@ export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow)
 }
 
 /**
- * How an Analysis figure shows (#2378): a claim check's own state when one covers it — one that
- * passed it over did not check it — else what the core worked out when the Analysis ran, while the
- * Documents it read are as they were. A check that differs or couldn't be made stays as it shows.
+ * How an Analysis figure shows (#2378). Its number is what the core worked out when the Analysis
+ * ran, while the Documents it read are as they were; Not checked otherwise. Whether its sentence
+ * names it is its own check's: Supported only once the claim judge read the sentence as naming it,
+ * Unsupported once it read another figure's name there, and no verdict before a check or once the
+ * sentence's words changed. The User's own Keep of the sentence stands.
  */
 export function analysisFigureShown(
   shown: ClaimCheckShown,
   figure: {
-    /** Whether a claim check covers the figure, whatever it found: a check that left it unread saw it. */
-    checked: boolean;
     /** The record the Note keeps of the figure's Analysis; null when it kept none. */
     run: RetainedFigureAnalysis | null;
     result: string | null;
     /** Each live Document's version now; null while they aren't known. */
     versions: ReadonlyMap<string, string> | null;
+    /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
+    keptInside?: ((documentId: string) => string | null) | null;
+    /** The figure's own check: whether the claim judge read its sentence as naming it (`named`). */
+    check?: Pick<FigureCheckAttributes, "state" | "unsupported" | "named"> | null;
   },
 ): ClaimCheckShown {
+  if (figure.result === null || shown.state === "kept") return shown;
   const value = figure.run?.values.find((each) => each.name === figure.result);
+  // Its run read a Document a wall keeps from this Note (#1934): it backs nothing here.
+  if (
+    figure.keptInside &&
+    (figure.run?.inputs ?? []).some((input) => {
+      const citation = input.kind === "figure" ? input.input.citation : input.citation;
+      return figure.keptInside?.(citation.documentId) != null;
+    })
+  )
+    return { state: "not-checked", reason: "kept-inside" };
   // A figure that names an Analysis whose record the Note no longer keeps reads as its value and
-  // Not checked: neither a sentence's check nor a recalculation can stand for a record that is
-  // gone, and an earlier build could take one away (#2378).
-  if (figure.result !== null && !value)
-    return shown.state === "kept" ? shown : { state: "not-checked", reason: "unread" };
-  if (figure.checked) return shown;
-  if (value?.check?.kind !== "same") return shown;
+  // Not checked: a recalculation can't stand for a record that is gone, and an earlier build could
+  // take one away (#2378).
+  if (!value) return { state: "not-checked", reason: "analysis-gone" };
+  if (value.check?.kind !== "same") return { state: "not-checked", reason: "analysis" };
   for (const input of figure.run?.inputs ?? []) {
     const citation = input.kind === "figure" ? input.input.citation : input.citation;
     const current = figure.versions?.get(citation.documentId);
@@ -782,13 +796,31 @@ export function analysisFigureShown(
     if (current !== undefined && citation.contentHash !== null && current !== citation.contentHash)
       return { state: "needs-recheck", why: "new-version" };
   }
-  return { state: "supported" };
+  if (shown.state === "needs-recheck" || shown.state === "checking") return shown;
+  if (figure.check?.state === "unsupported" && figure.check.unsupported?.kind === "analysis-name")
+    return { state: "unsupported" };
+  // Its own check's total that doesn't add up is Unsupported whoever named it; a verdict on the
+  // sentence's words, or an earlier check's on a source, never stood for an Analysis's figure.
+  if (shown.state === "unsupported" && figure.check && figure.check.state !== "unsupported")
+    return shown;
+  if (shown.state === "supported" && figure.check?.state === "supported" && figure.check.named)
+    return shown;
+  return shown.state === "not-checked" ? shown : { state: "not-checked", reason: "unread" };
 }
 
 export function figureCheckShown(
   figure: FigureCheckAttributes,
   now: ClaimCheckNow,
 ): ClaimCheckShown {
+  // An Analysis figure's evidence is its run's inputs, each one: behind a wall the Note is now
+  // outside, the check made inside it backs nothing (#2378).
+  if (
+    figure.calculated?.figure.analysis &&
+    [figure.evidence?.documentId, ...figure.versions.map((version) => version.documentId)].some(
+      (documentId) => documentId && now.keptInside?.(documentId),
+    )
+  )
+    return { state: "not-checked", reason: "kept-inside" };
   const shown = basisShown(figure, now);
   // Unknown contexts (null) are a reader that hasn't read them yet, not a change to them.
   if (

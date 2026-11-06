@@ -7,7 +7,15 @@ import Collaboration from "@tiptap/extension-collaboration";
 import { Focus, Placeholder } from "@tiptap/extensions";
 import { Selection } from "@tiptap/pm/state";
 import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react";
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
 import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD } from "../../../core/api";
@@ -34,6 +42,7 @@ import { commentIdsOf, commentOnSelection } from "../comments";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { useComposer } from "../composer";
 import { core } from "../core";
+import { AnalysisTableView } from "../editor/AnalysisTableView";
 import { AnswerView } from "../editor/AnswerView";
 import { holdsAiText } from "../editor/aiText";
 import { AppliedEditLine } from "../editor/appliedEditLine";
@@ -159,6 +168,7 @@ import { skillDescription, skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { askForSuggestion, describeSuggestion } from "../suggestions";
 import { resumeTabCloseFocus } from "../tabFocus";
+import { keptInsideName } from "../walls";
 import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
 import { StartGuide, useIsExample } from "./GettingStarted";
@@ -418,6 +428,10 @@ function MindEditorView({
             (props) => <CalculatedFigureView {...props} doc={doc} />,
             { as: "span" },
           ),
+          analysisTableView: ReactNodeViewRenderer(
+            (props) => <AnalysisTableView {...props} doc={doc} />,
+            { as: "span" },
+          ),
           footnoteView: footnoteView(() => footnoteLabel.current),
           documentChipView: ReactNodeViewRenderer(DocumentChipView, { as: "span" }),
           comparisonViews,
@@ -596,10 +610,22 @@ function MindEditorView({
         : null,
     [rows],
   );
+  const library = useAppStore((state) => state.library);
+  const keptInside = useCallback(
+    (documentId: string) => keptInsideName(library, documentId, folderId),
+    [library, folderId],
+  );
   useEffect(() => {
     if (!editor.isDestroyed)
-      setClaimContext(editor.view, { versions, folderId, scope, figureContexts, figurePlaces });
-  }, [editor, versions, folderId, scope, figureContexts, figurePlaces]);
+      setClaimContext(editor.view, {
+        versions,
+        folderId,
+        scope,
+        figureContexts,
+        figurePlaces,
+        keptInside,
+      });
+  }, [editor, versions, folderId, scope, figureContexts, figurePlaces, keptInside]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.

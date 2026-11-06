@@ -13,9 +13,11 @@ import { messageReference } from "../../src/core/references";
 import type { NoteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import {
+  checkedCaveat,
   noteStateOf,
   noteStateParts,
   noteStateUnreadWords,
+  nothingLeft,
   readNoteState,
   unreadForCard,
 } from "../../src/renderer/src/noteState";
@@ -37,6 +39,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   toCheck: [],
   failed: [],
   uncheckable: [],
+  notRecalculated: [],
   recheck: [],
   edited: [],
   checking: [],
@@ -132,6 +135,7 @@ describe("A note's state (D266)", () => {
       unreadMatters: false,
       checkable: 2,
       cantCheck: 0,
+      notRecalculated: 0,
       needsCheck: 0,
     });
   });
@@ -179,6 +183,50 @@ describe("A note's state (D266)", () => {
     expect(unchecked).toMatchObject({ kind: "not-checked", unread: 2, unreadMatters: false });
     expect(words(unchecked)).toBe("2 files couldn’t be read");
     expect(parts(unchecked)).toEqual(["Claims not checked"]);
+  });
+
+  test("a figure an Analysis gave that couldn't be worked out again leaves the Note Checked, naming it (#2378)", () => {
+    const now = new Date("2026-10-20T18:00:00.000Z");
+    const slope = health({
+      checkable: 2,
+      supported: 1,
+      checkedAt: CHECKED_AT,
+      toCheck: [9],
+      failed: [9],
+      notRecalculated: [9],
+    });
+    const state = noteStateOf(slope) ?? fail();
+    expect(state).toMatchObject({ kind: "checked", tone: "success", notRecalculated: 1 });
+    const words = (language: "en" | "zh-CN") =>
+      noteStateParts(state, (key, params) => translate(language, key, params), language, now);
+    expect(words("en").slice(1)).toEqual(["1 figure not recalculated"]);
+    expect(words("zh-CN").slice(1)).toEqual(["1 个数字未重新计算"]);
+    const two =
+      noteStateOf(health({ ...slope, toCheck: [4, 9], failed: [4, 9], notRecalculated: [4, 9] })) ??
+      fail();
+    expect(
+      noteStateParts(two, (key, params) => translate("en", key, params), "en", now).slice(1),
+    ).toEqual(["2 figures not recalculated"]);
+    // Only alone: a sentence a check could still settle keeps the Note Not checked.
+    expect(noteStateOf(health({ ...slope, toCheck: [4, 9], failed: [4, 9] }))?.kind).toBe(
+      "not-checked",
+    );
+    // Under 400 px the green line's short form names it, as the export's line does.
+    const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
+      translate("en", key, params);
+    expect(checkedCaveat(state, t, String)).toBe("1 figure not recalculated");
+    expect(nothingLeft(state)).toBe(false);
+    expect(nothingLeft({ ...state, notRecalculated: 0 })).toBe(true);
+  });
+
+  test("✓ needs a verdict earned: a Note whose only figures weren't recalculated rests on them, with no ✓ and no amber", () => {
+    const only = health({ checkable: 1, toCheck: [9], failed: [9], notRecalculated: [9] });
+    const state = noteStateOf(only) ?? fail();
+    expect(state).toMatchObject({ kind: "not-checked", tone: "neutral", notRecalculated: 1 });
+    const words = (language: "en" | "zh-CN") =>
+      noteStateParts(state, (key, params) => translate(language, key, params), language);
+    expect(words("en")).toEqual(["1 figure not recalculated"]);
+    expect(words("zh-CN")).toEqual(["1 个数字未重新计算"]);
   });
 
   test("says the words of each state in English and Chinese, the times from dates.ts", () => {

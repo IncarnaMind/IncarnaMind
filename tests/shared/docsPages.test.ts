@@ -77,6 +77,22 @@ const QUOTES: readonly DocQuote[] = [
   { page: "check", key: "checks.smallModel" },
   { page: "check", key: "claim.courtDecision.body" },
   { page: "check", key: "health.unexamined.one" },
+  {
+    page: "check",
+    key: "figures.table.recalculated.sum.other",
+    params: {
+      en: { heading: "Amount", count: "40", key: "Region" },
+      "zh-CN": { heading: "Amount", count: "40", key: "Region" },
+    },
+  },
+  {
+    page: "check",
+    key: "figures.table.notRecalculated",
+    params: { en: { heading: "Share" }, "zh-CN": { heading: "Share" } },
+  },
+  { page: "check", key: "claim.why.differsFromAnalysis" },
+  { page: "check", key: "claim.reason.analysis" },
+  { page: "check", key: "health.state.notRecalculated.one" },
   { page: "data", key: "embeddingProviders.localOnly.label" },
   { page: "data", key: "tagging.automatic.switch" },
   { page: "data", key: "skills.make.command" },

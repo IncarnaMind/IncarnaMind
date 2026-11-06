@@ -797,6 +797,8 @@ export const zhCN = {
     "{count} 个数值，由 {documents} 个文档中的 {inputs}计算得出",
   "chart.source.analysis.one": "1 个数值，来自分析",
   "chart.source.analysis.other": "{count} 个数值，来自分析",
+  "chart.source.byAnalysis.one": "1 个数值，由数据分析计算得出",
+  "chart.source.byAnalysis.other": "{count} 个数值，均由数据分析计算得出",
   "chart.inputs.cells.one": "1 个单元格",
   "chart.inputs.cells.other": "{count} 个单元格",
   "chart.inputs.numbers.one": "1 个引用的数字",
@@ -841,6 +843,7 @@ export const zhCN = {
   "editor.ai.checkAgainstDocuments": "对照文档核对",
   "editor.ai.checkAgainstDocuments.keywords": "核对 查找出处",
   "claim.why.doesntAddUp": "合计不符",
+  "claim.why.differsFromAnalysis": "与数据分析不符",
   "figures.citationAdded": "已添加引用",
   "figures.cited": "已引用“{document}”",
   "figures.changedToSource.many": "已将 {count} 个数字改为来源数值",
@@ -879,6 +882,39 @@ export const zhCN = {
   "figures.analysisRows.list.one": "第 {runs} 行",
   "figures.analysisRows.list.other": "第 {runs} 行",
   "figures.analysisRows.separator": "、",
+  "figures.table.label": "计算所得表格 {number}：{title}",
+  "figures.table.recalculated.sum.one": "{heading}：按 {key} 计算 {count} 行的合计 · 已重新计算",
+  "figures.table.recalculated.sum.other": "{heading}：按 {key} 计算 {count} 行的合计 · 已重新计算",
+  "figures.table.recalculated.sum.named.one":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的合计 · 已重新计算",
+  "figures.table.recalculated.sum.named.other":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的合计 · 已重新计算",
+  "figures.table.recalculated.mean.one": "{heading}：按 {key} 计算 {count} 行的平均值 · 已重新计算",
+  "figures.table.recalculated.mean.other":
+    "{heading}：按 {key} 计算 {count} 行的平均值 · 已重新计算",
+  "figures.table.recalculated.mean.named.one":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的平均值 · 已重新计算",
+  "figures.table.recalculated.mean.named.other":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的平均值 · 已重新计算",
+  "figures.table.recalculated.min.one": "{heading}：按 {key} 计算 {count} 行的最小值 · 已重新计算",
+  "figures.table.recalculated.min.other":
+    "{heading}：按 {key} 计算 {count} 行的最小值 · 已重新计算",
+  "figures.table.recalculated.min.named.one":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的最小值 · 已重新计算",
+  "figures.table.recalculated.min.named.other":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的最小值 · 已重新计算",
+  "figures.table.recalculated.max.one": "{heading}：按 {key} 计算 {count} 行的最大值 · 已重新计算",
+  "figures.table.recalculated.max.other":
+    "{heading}：按 {key} 计算 {count} 行的最大值 · 已重新计算",
+  "figures.table.recalculated.max.named.one":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的最大值 · 已重新计算",
+  "figures.table.recalculated.max.named.other":
+    "{heading}：按 {key} 计算 {count} 行中 {column} 的最大值 · 已重新计算",
+  "figures.table.notRecalculated": "{heading}：来自数据分析 · 未重新计算",
+  "figures.table.differs": "{label}：笔记中为 {written}，数据分析中为 {analysis}",
+  "figures.table.notInAnalysis": "{label}：笔记中为 {written}，数据分析中没有",
+  "figures.table.rowsMissing.one": "数据分析中有 {count} 行不在笔记里",
+  "figures.table.rowsMissing.other": "数据分析中有 {count} 行不在笔记里",
   "figures.inline.code": "查看保留的代码",
   "figures.inline.literal": "{value}，公式中的固定数字",
   "figures.inline.raw": "单元格原始值：{value}",
@@ -1218,6 +1254,10 @@ export const zhCN = {
   "claim.reason.no-evidence": "不显示结论：模型给出的引文不在那个文档中。",
   "claim.reason.unread": "不显示结论：模型没有读取你的文档。",
   "claim.reason.other-cell": "不显示结论：模型给这个数字写的是文档表格中另一行或另一列的名称。",
+  "claim.reason.analysis": "来自数据分析 · 未重新计算",
+  "claim.reason.analysis-gone": "它所来自的数据分析已不可用",
+  "claim.reason.analysis-unnamed": "句中没有写明这个数字是{detail}",
+  "claim.analysisName": "句中没有写明这个数字是{label}",
   "claim.reason.rate-limit": "模型服务暂时繁忙，请稍后重新核对。",
   "claim.reason.cost-cap": "核对这句话可能超出你设置的每月上限。",
   "claim.reason.plan-limit": "已达到套餐的用量上限。",
@@ -1321,6 +1361,8 @@ export const zhCN = {
   "health.state.look": "需要留意 {count} 处",
   "health.state.checked": "已核对 {time}",
   "health.state.checked.noTime": "已核对",
+  "health.state.notRecalculated.one": "1 个数字未重新计算",
+  "health.state.notRecalculated": "{count} 个数字未重新计算",
   "health.state.cantCheck.one": "1 句无法核对",
   "health.state.cantCheck": "{count} 句无法核对",
   "health.state.needsCheck.one": "1 句待核对",
@@ -4617,6 +4659,11 @@ export const zhCN = {
   "export.figure.unavailable": "“{figure}”保存的输入暂不可用，IncarnaMind 按数值写出。",
   "export.figure.calculated": "计算得出：{formula} = {figure}。",
   "export.figure.analysis": "由数据分析“{title}”计算得出：{figure}。",
+  "export.table.analysis": "由数据分析“{title}”根据{sources}计算得出。",
+  "export.table.source.one": "“{file}”的 {count} 行",
+  "export.table.source.other": "“{file}”的 {count} 行",
+  "export.table.and": "和",
+  "export.table.comma": "、",
   "export.figure.workbook": "按工作簿中的公式计算得出（{cell} = {formula}）：{figure}。",
   "export.figure.whatIf":
     "按工作簿中的公式计算得出（{cell} = {formula}），其中“{input}”改为 {value}：{figure}。",

@@ -816,6 +816,8 @@ export const en = {
     "{count} values, calculated from {inputs} in {documents} Documents",
   "chart.source.analysis.one": "1 value, from an Analysis",
   "chart.source.analysis.other": "{count} values, from an Analysis",
+  "chart.source.byAnalysis.one": "1 value, calculated by the Analysis",
+  "chart.source.byAnalysis.other": "{count} values, each calculated by the Analysis",
   "chart.inputs.cells.one": "1 cell",
   "chart.inputs.cells.other": "{count} cells",
   "chart.inputs.numbers.one": "1 cited number",
@@ -860,6 +862,7 @@ export const en = {
   "editor.ai.checkAgainstDocuments": "Check against Documents",
   "editor.ai.checkAgainstDocuments.keywords": "check find support",
   "claim.why.doesntAddUp": "Doesn’t add up",
+  "claim.why.differsFromAnalysis": "Differs from the Analysis",
   "figures.citationAdded": "Added Citation",
   "figures.cited": "Cited “{document}”",
   "figures.changedToSource.many": "Changed {count} figures to their source values",
@@ -902,6 +905,40 @@ export const en = {
   "figures.analysisRows.list.one": "row {runs}",
   "figures.analysisRows.list.other": "rows {runs}",
   "figures.analysisRows.separator": ", ",
+  "figures.table.label": "Calculated table {number}: {title}",
+  "figures.table.recalculated.sum.one": "{heading}: sum of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.sum.other": "{heading}: sum of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.sum.named.one":
+    "{heading}: sum of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.sum.named.other":
+    "{heading}: sum of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.mean.one": "{heading}: average of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.mean.other":
+    "{heading}: average of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.mean.named.one":
+    "{heading}: average of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.mean.named.other":
+    "{heading}: average of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.min.one": "{heading}: lowest value of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.min.other":
+    "{heading}: lowest value of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.min.named.one":
+    "{heading}: lowest value of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.min.named.other":
+    "{heading}: lowest value of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.max.one":
+    "{heading}: highest value of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.max.other":
+    "{heading}: highest value of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.max.named.one":
+    "{heading}: highest value of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.max.named.other":
+    "{heading}: highest value of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.notRecalculated": "{heading}: from the Analysis · not recalculated",
+  "figures.table.differs": "{label}: {written} in the note, {analysis} in the Analysis",
+  "figures.table.notInAnalysis": "{label}: {written} in the note, not in the Analysis",
+  "figures.table.rowsMissing.one": "1 row of the Analysis isn’t in the note",
+  "figures.table.rowsMissing.other": "{count} rows of the Analysis aren’t in the note",
   "figures.inline.code": "Show saved code",
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
@@ -1257,6 +1294,10 @@ export const en = {
   "claim.reason.unread": "Verdict hidden: the model didn’t read your Documents.",
   "claim.reason.other-cell":
     "Verdict hidden: the model named another row or column of the Document’s table for this number.",
+  "claim.reason.analysis": "From the Analysis · not recalculated",
+  "claim.reason.analysis-gone": "The Analysis it came from is no longer available",
+  "claim.reason.analysis-unnamed": "The sentence doesn’t clearly say this figure is {detail}",
+  "claim.analysisName": "The sentence doesn’t say this figure is {label}",
   "claim.reason.rate-limit": "The model’s service is busy for now. Check again in a moment.",
   "claim.reason.cost-cap": "Checking it could pass your monthly cap.",
   "claim.reason.plan-limit": "Your plan’s usage limit is reached.",
@@ -1369,6 +1410,8 @@ export const en = {
   "health.state.look": "{count} need a look",
   "health.state.checked": "Checked {time}",
   "health.state.checked.noTime": "Checked",
+  "health.state.notRecalculated.one": "1 figure not recalculated",
+  "health.state.notRecalculated": "{count} figures not recalculated",
   "health.state.cantCheck.one": "1 sentence can’t be checked",
   "health.state.cantCheck": "{count} sentences can’t be checked",
   "health.state.needsCheck.one": "1 sentence needs a check",
@@ -4836,6 +4879,11 @@ export const en = {
     "The saved inputs for {figure} aren’t available, so IncarnaMind writes it as its value.",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
+  "export.table.analysis": "Calculated by the Analysis “{title}” from {sources}.",
+  "export.table.source.one": "{count} row of {file}",
+  "export.table.source.other": "{count} rows of {file}",
+  "export.table.and": " and ",
+  "export.table.comma": ", ",
   "export.figure.workbook":
     "Worked out from the workbook’s formulas ({cell} = {formula}): {figure}.",
   "export.figure.whatIf":

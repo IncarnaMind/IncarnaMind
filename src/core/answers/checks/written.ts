@@ -44,6 +44,7 @@ import { citationAttributesOf } from "../../../shared/citations";
 import { SENTENCES_CHECKED_AT_MOST } from "../../../shared/claimChecks";
 import { planOf } from "../../../shared/claimParts";
 import { beginFigureCheck } from "../../../shared/figureChecks";
+import { readTableBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextPiece,
   type InlineTextProjection,
@@ -51,9 +52,11 @@ import {
   projectInlineText,
   sliceInlineText,
 } from "../../../shared/inlineText";
-import { INLINE_NODE, isClaim, sentenceSpans } from "../../../shared/sentences";
+import { INLINE_NODE, isClaim, onlyNamesItsTable, sentenceSpans } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
@@ -217,8 +220,12 @@ function projectedContent(content: readonly NodeJSON[]) {
   return { pieces, projection: projectInlineText(pieces) };
 }
 
+/** An Analysis's own table: its cells are its run's, never claims a check reads (#2378). */
+const boundTable = (node: NodeJSON) =>
+  node.type === "table" && readTableBinding(node.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) !== null;
+
 /** The sentences a check reads that the write holds (#1909): every sentence with a Citation, and every claim with none. */
-function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
+export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
   const found: Sentence[] = [];
   // Before the write's first Block: the Note's start, when the write begins the Note.
   let after: FirstLook["place"]["after"] = { kind: "start" };
@@ -233,7 +240,7 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
         after = { kind: "heading", text: projectedContent(node.content ?? []).projection.text };
         return;
       }
-      if (UNCHECKED.has(node.type)) {
+      if (UNCHECKED.has(node.type) || boundTable(node)) {
         after = { kind: "paragraph" };
         return;
       }
@@ -250,8 +257,13 @@ function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
         if (content.length === 0) after = { kind: "paragraph" };
         return;
       }
-      // A header cell names its column or row; it states nothing a check could support (#2378).
-      if (inHeader) {
+      // A header cell names its column or row, and a caption its table: they state nothing a check
+      // could support (#2378).
+      if (
+        inHeader ||
+        (content.some((inline) => inline.type === ANALYSIS_TABLE_NODE) &&
+          onlyNamesItsTable(paragraphText(content)))
+      ) {
         after = { kind: "paragraph" };
         return;
       }
