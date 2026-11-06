@@ -124,6 +124,7 @@
   "history.spec.ts": 13,
   "home.spec.ts": 68,
   "jev.spec.ts": 4,
+  "jevSetUp.spec.ts": 90,
   "keyCharacters.spec.ts": 8,
   "keyForm.spec.ts": 155,
   "keyNotChecked.spec.ts": 5,
