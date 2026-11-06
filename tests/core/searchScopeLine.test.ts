@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import type { AskInConversationInput, Core, SearchScope } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
+import { startCore } from "../helpers/core";
 import { note, writeMind } from "../helpers/minds";
 import { type ModelCall, promptOf, scriptedModel } from "../helpers/models";
 
@@ -683,6 +684,90 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
         .map((message) => message.text)
         .join("\n"),
     ).not.toContain("A marker only the second wall holds.");
+  });
+
+  // protects=an interrupted Try again leaves the Question's old origin with the Answer that held its text, so a Question in the Folder the retry would have recorded gets nothing of the wall; fails_when=the origin is written apart from the reset, filing the marker under the open Folder; no_claim=what a real model makes of it.
+  test("an interrupted Try again keeps the old origin with the Answer it held", async () => {
+    const marker = "A marker only the wall holds.";
+    const model = scriptedModel((call) =>
+      call.index === 1 ? { text: marker } : { text: "The harmless answer." },
+    );
+    const { core, client, mind, dataDir, models } = await setUpWithDocuments(model, everyFile);
+    const open = await core.createLibraryGroup({ name: "Open", description: "" });
+    const walled = await core.createLibraryGroup({ name: "Vault", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Vault",
+      description: "",
+      keepInside: true,
+    });
+    await core.moveToFolder({ mindIds: [mind.id], folderId: open.id });
+    const first = await ask(core, { text: "A question before the move.", mindId: mind.id });
+
+    writeMind(client, [note(marker)]);
+    await client.settled();
+    await core.moveToFolder({ mindIds: [mind.id], folderId: walled.id });
+    const readWall = await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+      folderInFrontId: open.id,
+    });
+    if (!readWall.asked) throw new Error("Not asked again.");
+    await answerEnded(core, readWall.answerId);
+    expect(
+      promptOf(model, 1)
+        .map((message) => message.text)
+        .join("\n"),
+    ).toContain(marker);
+
+    writeMind(client, [note("Nothing private.")]);
+    await client.settled();
+    await core.moveToFolder({ mindIds: [mind.id], folderId: open.id });
+    core.close();
+
+    // The origin write lands, then the reset fails, as a quit between the two would leave it.
+    const db = openDatabase(join(dataDir, "incarnamind.db"));
+    try {
+      db.exec(
+        `CREATE TRIGGER interrupted_retry BEFORE UPDATE ON conversation_messages
+         WHEN OLD.kind = 'answer' AND OLD.status = 'done' AND NEW.text = '' AND NEW.status = 'streaming'
+         BEGIN SELECT RAISE(ABORT, 'interrupted retry'); END`,
+      );
+    } finally {
+      db.close();
+    }
+    const interrupted = startCore(dataDir, { createChatModel: models.createChatModel });
+    await expect(
+      interrupted.regenerateConversationAnswer({
+        conversationId: first.conversation.id,
+        answerId: first.answerId,
+        folderInFrontId: open.id,
+      }),
+    ).rejects.toThrow(/interrupted retry/);
+    interrupted.close();
+
+    const clean = openDatabase(join(dataDir, "incarnamind.db"));
+    try {
+      clean.exec("DROP TRIGGER interrupted_retry");
+    } finally {
+      clean.close();
+    }
+    const reopened = startCore(dataDir, { createChatModel: models.createChatModel });
+    const conversation = await reopened.getConversation(first.conversation.id);
+    const answer = conversation.messages.find((message) => message.kind === "answer");
+    expect(answer?.kind === "answer" ? answer.text : undefined).toContain(marker);
+
+    await ask(reopened, {
+      text: "What did I ask before?",
+      conversationId: first.conversation.id,
+      folderInFrontId: open.id,
+    });
+    expect(
+      promptOf(model, 2)
+        .map((message) => message.text)
+        .join("\n"),
+    ).not.toContain(marker);
+    const question = conversation.messages.find((message) => message.kind === "question");
+    expect(question?.kind === "question" ? question.folderAskedIn : undefined).toBe(walled.id);
   });
 
   // protects=the instructions and the Note's message do not change with the scope, so a provider's prompt cache keeps its start; fails_when=a scope line goes into the instructions or the Note's message; no_claim=none beyond protects.

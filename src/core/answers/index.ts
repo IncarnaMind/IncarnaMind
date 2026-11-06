@@ -161,7 +161,14 @@ import {
   type WebPageCall,
 } from "../api";
 import type { CallToDecide, ToolCallToApprove } from "../approvals";
-import type { AddedTurn, AnswerRead, AnswerWrite, QuestionInput, Turn } from "../conversations";
+import type {
+  AddedTurn,
+  AnswerRead,
+  AnswerWrite,
+  QuestionInput,
+  RetryOrigin,
+  Turn,
+} from "../conversations";
 import type { WindowedPassage } from "../documents/search";
 import { ChatNotReadyError, InvalidInputError, isRecord, NotFoundError } from "../errors";
 import type { createEventHub } from "../events";
@@ -491,16 +498,16 @@ export interface AnswerConversations {
   setQuestionModel(questionId: string, model: ChatModelChoice): ConversationQuestion | null;
   /** Takes the Search scope off a Question: its Answers search every Document (#748). */
   clearScope(questionId: string): ConversationQuestion | null;
-  /** Records the scope a regenerated Answer searched on its Question (#2529). */
-  setQuestionScope(questionId: string, scope: SearchScope | null): ConversationQuestion | null;
-  /** Records the Folder a regenerated Answer ran in on its Question (#2529). */
-  setQuestionFolder(questionId: string, folderId: string): ConversationQuestion | null;
-  /** Empties an Answer, where it is, to write it again, reading `read`. */
+  /**
+   * Empties an Answer, where it is, to write it again, reading `read`; with `origin`, records it
+   * on the Question in the same transaction, so an interrupted Try again keeps both as they were.
+   */
   restartAnswer(
     answerId: string,
     answerModel: ChatModelChoice | null,
     read: AnswerRead | null,
     emit?: boolean,
+    origin?: RetryOrigin,
   ): Turn;
   /** Writes an Answer as it stands; false when it is gone: its conversation was deleted. */
   writeAnswer(answerId: string, write: AnswerWrite): boolean;
@@ -4639,17 +4646,22 @@ export function createAnswers(options: AnswersOptions) {
       const mindId = mind?.mindId ?? null;
       const front = mindId === null && typeof folderInFrontId === "string" ? folderInFrontId : null;
       // The retry's origin is what it actually reads: a Note at the Folder it is in now, else the
-      // Folder in front. Recording that keeps a later Question's history filter on the same wall.
+      // Folder in front. It is written with the Answer's reset, so a crash keeps the old origin
+      // with the Answer that held its text, never one without the other.
+      let origin: RetryOrigin | undefined;
       if (mindId !== null) {
         const own = options.mindFolder(mindId) ?? "";
-        if ((question.folderAskedIn ?? "") !== own) {
-          options.conversations.setQuestionFolder(question.id, own);
-        }
+        if ((question.folderAskedIn ?? "") !== own) origin = { folderId: own };
       } else if (front !== null) {
-        options.conversations.setQuestionScope(question.id, folderScope(front));
-        options.conversations.setQuestionFolder(question.id, front);
+        origin = { folderId: front, scope: folderScope(front) };
       }
-      const turn = options.conversations.restartAnswer(answerId, ready.model, readOf(mind));
+      const turn = options.conversations.restartAnswer(
+        answerId,
+        ready.model,
+        readOf(mind),
+        true,
+        origin,
+      );
       const wall =
         mindId !== null
           ? null

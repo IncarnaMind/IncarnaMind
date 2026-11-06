@@ -130,6 +130,16 @@ export interface AddedTurn {
   previousConversationUpdatedAt: string | null;
 }
 
+/**
+ * What a Try again reads, kept on its Question in the same transaction as the Answer's reset
+ * (#2529): a field left undefined keeps what the Question had. Written together, an interrupted
+ * Try again leaves the old origin with its old Answer, never a new Folder over text it holds.
+ */
+export interface RetryOrigin {
+  folderId?: string;
+  scope?: SearchScope | null;
+}
+
 interface ConversationRow {
   seq: number;
   id: string;
@@ -1309,37 +1319,33 @@ export function createConversations(db: Database, now: () => string) {
       return row?.kind === "question" ? toQuestion(row) : null;
     },
 
-    /** Keeps the scope a regenerated Answer searched, so the Question says what it read (#2529). */
-    setQuestionScope(questionId: string, scope: SearchScope | null): ConversationQuestion | null {
-      db.run(
-        "UPDATE conversation_messages SET scope = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
-        [scope ? JSON.stringify(scope) : null, now(), questionId],
-      );
-      const row = liveMessage(questionId);
-      return row?.kind === "question" ? toQuestion(row) : null;
-    },
-
-    /** Keeps the Folder a regenerated Answer ran in, so later turns judge its side of the wall (#2529). */
-    setQuestionFolder(questionId: string, folderId: string): ConversationQuestion | null {
-      db.run(
-        "UPDATE conversation_messages SET folder_asked_in = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
-        [folderId, now(), questionId],
-      );
-      const row = liveMessage(questionId);
-      return row?.kind === "question" ? toQuestion(row) : null;
-    },
-
     /** Empties an Answer, where it is, to write it again with `answerModel` from the Mind it reads. */
     restartAnswer(
       answerId: string,
       answerModel: ChatModelChoice | null,
       read: AnswerRead | null,
+      origin?: RetryOrigin,
     ): Turn {
       return db.transaction(() => {
         const answer = liveMessage(answerId);
         const question = liveMessage(answer?.question_id);
         if (!answer || !question)
           throw new NotFoundError({ key: "error.answer.notInConversation" });
+        if (origin) {
+          const at = now();
+          if (origin.scope !== undefined) {
+            db.run(
+              "UPDATE conversation_messages SET scope = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
+              [origin.scope ? JSON.stringify(origin.scope) : null, at, question.id],
+            );
+          }
+          if (origin.folderId !== undefined) {
+            db.run(
+              "UPDATE conversation_messages SET folder_asked_in = ?, updated_at = ? WHERE id = ? AND kind = 'question'",
+              [origin.folderId, at, question.id],
+            );
+          }
+        }
         db.run(
           `UPDATE conversation_messages SET text = '', citations = '[]', figures = '[]', analyses = '[]', tool_calls = '[]',
              status = 'streaming', error_kind = NULL, error_message = NULL,
@@ -1356,7 +1362,7 @@ export function createConversations(db: Database, now: () => string) {
           ],
         );
         db.run("DELETE FROM conversation_messages_fts WHERE rowid = ?", [BigInt(answer.seq)]);
-        return turnOf(question, answerId);
+        return turnOf(origin ? (liveMessage(question.id) ?? question) : question, answerId);
       });
     },
 
