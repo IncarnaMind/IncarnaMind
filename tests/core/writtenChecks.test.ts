@@ -733,6 +733,77 @@ describe("What the assistant writes is checked before it lands", { timeout: 30_0
     });
   });
 
+  // protects=a User who allowed checks before they sent more isn't asked as the assistant writes, nor is anything sent: the write's sentences land not checked, saying why, and the Check of one asks for the more and checks the whole write once allowed (#2525); fails_when=the write lands unchecked with no reason, is sent on the earlier consent, asks in the background, or Allow checks only the one sentence; no_claim=the consent dialog's words.
+  test("allowed before checks sent more, the write waits for the User's OK, then is checked whole", async () => {
+    const asked: string[][] = [];
+    const { core, calls, change, client } = await write(
+      {
+        content: `## Tides\n\nSpring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      },
+      async ({ core: started, service }) => {
+        const checks = started.dataFlows.get("checks");
+        if (!service || !checks) throw new Error("The checks flow to the model isn't set up.");
+        const more = [
+          "library-counts",
+          "library-names",
+          "file-properties",
+          "absence-documents",
+          "watched-sentences",
+        ];
+        await started.revokeConsent("checks", service);
+        started.dataFlows.register({
+          ...checks,
+          sends: checks.sends.filter((kind) => !more.includes(kind)),
+        });
+        await started.allowDataFlow("checks", service);
+        started.dataFlows.register(checks);
+        started.on("consent.requested", (request) => asked.push([...request.newKinds]));
+      },
+    );
+
+    expect(asked).toEqual([]);
+    expect(calls.some(isCheckRun)).toBe(false);
+    expect((await marksIn(core, client)).map(({ check }) => [check.state, check.reason])).toEqual([
+      ["not-checked", "consent-widened"],
+      ["not-checked", "consent-widened"],
+    ]);
+    expect(change?.selfCheck).toMatchObject({
+      cited: 2,
+      sent: 2,
+      checked: 0,
+      failed: 2,
+      blocked: { reason: "consent-widened", count: 2 },
+    });
+
+    const paragraph = change?.selfCheck?.blocks?.[1];
+    if (!paragraph || !change) throw new Error("The write has no paragraph.");
+    // What the assistant wrote is a change to accept before a check reads it, as for every check.
+    await resolveChanges(client, "accept");
+    await core.checkSentences({
+      requestId: "review-consent",
+      mindId: change.mindId,
+      action: "check-against-documents",
+      from: { blockId: paragraph, offset: 0 },
+      to: { blockId: paragraph, offset: paragraphText(client, 1).length },
+    });
+
+    expect(asked).toEqual([
+      [
+        "library-counts",
+        "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
+      ],
+    ]);
+    expect(calls.some(isCheckRun)).toBe(true);
+    expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual([
+      "supported",
+      "unsupported",
+    ]);
+  });
+
   // protects=one write checks at most SENTENCES_CHECKED_AT_MOST sentences; the rest land marked not checked, and the reply says so; fails_when=a long draft sends a check for every sentence, or the rest land unmarked; no_claim=how long each check takes.
   test("one write checks at most the first sentences; the rest land marked not checked", async () => {
     const many = SENTENCES_CHECKED_AT_MOST + 1;

@@ -1085,8 +1085,9 @@ export function useStepsScopeOf(
   const deletedGroups = useAppStore((state) => state.library?.deletedGroups);
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
+  const minds = useAppStore((state) => state.minds);
   const chips = scopeChips(
-    { folders, groups, deletedGroups, tags, documents },
+    { folders, groups, deletedGroups, tags, documents, minds, t },
     question?.scope ?? NO_SCOPE,
   );
   return (extra) => stepsScope(t, chips, extra);

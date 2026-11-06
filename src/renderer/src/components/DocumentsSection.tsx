@@ -12,6 +12,7 @@ import { useFirstOpen } from "../firstOpen";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
+import { isListedDocument } from "../meetingTranscript";
 import { useLibraryDocuments, useLibraryShown } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
@@ -129,7 +130,7 @@ export function DocumentsSection() {
   const addDocuments = useAppStore((state) => state.addDocuments);
   const treeIsEmpty = useAppStore(
     (state) =>
-      state.documents.length === 0 &&
+      !state.documents.some(isListedDocument) &&
       state.minds.length === 0 &&
       (state.library?.groups.length ?? 0) === 0 &&
       state.linkedFolders.length === 0,

@@ -17,6 +17,7 @@ import type { NodeJSON } from "../../src/shared/blockJson";
 import { readChart } from "../../src/shared/charts";
 import { calculatedFiguresIn } from "../../src/shared/figureRuns";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { translate } from "../../src/shared/i18n";
 import { askAssistant } from "../helpers/assistant";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -368,8 +369,9 @@ describe("an Analysis's figures in a Note (#2378)", () => {
       expect(after.analyses.map((run) => run.values.map((value) => value.name).sort())).toEqual([
         ["slope", "total_amount"],
       ]);
+      // Its record is still there: no verdict before a Check reads its sentence, and never "gone".
       const total = after.rows.find((row) => row.calculated?.figure.value === 35550);
-      expect(total?.shown.state).toBe("supported");
+      expect(total?.shown).toEqual({ state: "not-checked", reason: "unread" });
 
       await core.closeMind(madeId);
       const reloaded = await core.getFigureSchedule(madeId);
@@ -405,11 +407,10 @@ describe("an Analysis's figures in a Note (#2378)", () => {
           check: "found",
         });
       }
-      // Each point of the chart is cited: the schedule never offers Add as Citation on one.
+      // Its points are its table's, which counts once, as one figure: no point is a row of its own.
       const schedule = await core.getFigureSchedule(madeId);
-      const points = schedule.rows.filter((row) => row.locator.kind === "chart");
-      expect(points.length).toBeGreaterThan(0);
-      expect(points.every((row) => row.cited)).toBe(true);
+      expect(schedule.rows.filter((row) => row.locator.kind === "chart")).toEqual([]);
+      expect(schedule.rows.filter((row) => row.analysisTable)).toHaveLength(1);
       core.close();
     },
   );
@@ -675,9 +676,10 @@ describe("a Note from an earlier build, its figure's Analysis record gone (#2378
       expect(notes).toContain(unavailable);
       expect(notes).not.toContain(calculated);
 
-      const pack = await running.exportMind(madeId, { format: "source-pack" });
-      expect(pack.citations).toBeGreaterThan(0);
-      expect(printer.printed.at(-1)?.body ?? "").not.toContain(calculated);
+      // Its table named its rows only through the run the Note lost: the Note cites nothing now.
+      await expect(running.exportMind(madeId, { format: "source-pack" })).rejects.toThrow(
+        translate(language, "export.pack.empty"),
+      );
       running.close();
     },
   );

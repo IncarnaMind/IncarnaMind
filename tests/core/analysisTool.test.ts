@@ -836,9 +836,16 @@ describe("an Analysis an Answer runs", () => {
     const { answer } = await askAndRead(core, "画出每个地区的收入");
 
     expect(answer.analyses.map((each) => each.markers.charts)).toEqual([[1], [2]]);
-    expect(answer.text.split("**每个地区的收入**")).toHaveLength(2);
-    expect(answer.text).toContain("| North | 270.5 |");
-    expect(answer.text.indexOf("图表已生成")).toBeLessThan(answer.text.indexOf("每个地区的收入**"));
+    expect(answer.text.split("| North | 270.5 |")).toHaveLength(2);
+    expect(answer.text.indexOf("图表已生成")).toBeLessThan(
+      answer.text.indexOf("| North | 270.5 |"),
+    );
+    // Its title is its caption, beside the table's marker: never written again as words (#2378).
+    expect(answer.text).not.toContain("**每个地区的收入**");
+    const blocks = answerBlocks(answer);
+    const at = blocks.findIndex((block) => block.type === "table");
+    expect(blocks[at - 1]?.content?.map((node) => node.type)).toEqual(["text", "analysisTable"]);
+    expect(blocks[at - 1]?.content?.[0]?.text).toBe("每个地区的收入");
   });
 
   test("a plot comes back as a picture where the Answer puts [=picture n], in the conversation and in a Note", async () => {
@@ -930,34 +937,13 @@ describe("an Analysis an Answer runs", () => {
     expect(answer.text).not.toContain("[=table");
     expect(told(model, "run_analysis")[0]).toContain("[=table 1] Revenue by region");
 
-    // The Answer's table and what Add to note writes keep the Analysis's Citations (#2378).
+    // The Answer's table and what Add to note writes are the Analysis's own, bound to its run
+    // under their caption, with no Citation in a heading of their own (#2378).
     for (const blocks of [answerBlocks(answer), pageBlocks(answer, "Revenue by region?")]) {
       const table = blocks.find((block) => block.type === "table");
       if (!table) throw new Error("The Answer has no table.");
-      const citations: Record<string, unknown>[] = [];
-      const visit = (node: { content?: unknown[] }) => {
-        for (const child of (node.content ?? []) as {
-          type?: string;
-          attrs?: Record<string, unknown>;
-          content?: unknown[];
-        }[]) {
-          if (child.type === "citation") citations.push(child.attrs ?? {});
-          visit(child);
-        }
-      };
-      visit(table);
-      expect(citations).toEqual([
-        expect.objectContaining({
-          documentId: expect.any(String),
-          location: { kind: "rows", sheet: null, from: 1, to: 5 },
-          check: "found",
-        }),
-        expect.objectContaining({
-          documentId: expect.any(String),
-          location: { kind: "rows", sheet: null, from: 1, to: 5 },
-          check: "found",
-        }),
-      ]);
+      expect(JSON.stringify(table)).not.toContain('"citation"');
+      expect(table.attrs?.analysisTable).toMatchObject({ table: { result: "by_region" } });
     }
   });
 

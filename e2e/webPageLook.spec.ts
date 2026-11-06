@@ -149,14 +149,16 @@ test("off by default: the box is unticked, a page saved is never loaded for its 
   const dialog = window.getByTestId("add-web-page-dialog");
   await expect(dialog.getByTestId("add-web-page-keep-look")).not.toBeChecked();
   await expect(dialog.getByTestId("add-web-page-fetch")).toContainText(
-    "Fetched once from this computer, kept as a Document.",
+    "Fetched once from this computer and kept as a Document; the request names your interface language.",
   );
   await dialog.getByTestId("add-web-page-fetch-details").click();
   const fetched = dialog.getByTestId("add-web-page-fetch-list");
   await expect(fetched).toContainText("Nothing else on the page is loaded.");
   await dialog.getByTestId("add-web-page-keep-look").check();
   await expect(fetched).not.toContainText("Nothing else on the page is loaded.");
-  await expect(dialog).toContainText("the site sees a second visit");
+  await expect(dialog).toContainText(
+    "keeping the look also loads the page’s scripts, stylesheets, fonts, frames and media, which may come from other sites",
+  );
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
   await add(window, "/report", "Harbour trade in 2026", false);
