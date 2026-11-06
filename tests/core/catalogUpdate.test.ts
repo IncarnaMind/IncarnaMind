@@ -178,6 +178,37 @@ describe("the catalog's prices by prompt length (#2285)", () => {
     expect(providers.deepseek?.models[0]?.price).toBeUndefined();
   });
 
+  // protects=ids a provider's API no longer serves never return with a catalog refresh (#2567); fails_when=the generator lists deepseek-v4-flash again in any list; no_claim=the other providers' lists.
+  test("the generator leaves out the DeepSeek ids the API no longer serves", () => {
+    const gone = model("Old Flash", { input: 1, output: 2 });
+    const { providers } = generateModels(
+      {
+        deepseek: {
+          models: {
+            "deepseek-flash": model("DeepSeek V4.1 Flash", { input: 1, output: 2 }),
+            "deepseek-v4-flash": gone,
+            "deepseek-v4-flash-vision-exp": gone,
+            "deepseek-v4-pro": model("DeepSeek V4 Pro", { input: 1, output: 2 }),
+          },
+        },
+      },
+      {
+        "deepseek/deepseek-v4-flash": { litellm_provider: "deepseek", mode: "embedding" },
+        "deepseek/deepseek-v4-flash-vision-exp": {
+          litellm_provider: "deepseek",
+          mode: "completion",
+        },
+      },
+    );
+
+    expect(providers.deepseek?.models.map((each) => each.id)).toEqual([
+      "deepseek-flash",
+      "deepseek-v4-pro",
+    ]);
+    expect(providers.deepseek?.nonChat).toEqual([]);
+    expect(providers.deepseek?.cannotAnswer).toEqual({});
+  });
+
   // protects=the weekly pull request shows a tier that a refresh adds or drops, so a person sees it before it ships; fails_when=a dropped tier passes as no change; no_claim=which way is right.
   test("a tier a refresh drops or adds is in the diff", () => {
     const tiered = generateModels({ anthropic: { models: { haiku } } }, {}).providers;
