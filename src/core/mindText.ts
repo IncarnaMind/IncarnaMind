@@ -49,7 +49,13 @@ import {
   comparisonQuestionsOf,
   visibleComparisonQuestions,
 } from "../shared/comparisons";
-import { calculatedSources, labelledCitations } from "../shared/figureRuns";
+import {
+  calculatedSources,
+  figureRunsFor,
+  labelledCitations,
+  readTableBinding,
+  sameBinding,
+} from "../shared/figureRuns";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
@@ -77,7 +83,10 @@ import type { ScopeKind } from "../shared/searchScope";
 import { comparisonCellTarget } from "../shared/signOffs";
 import { readWordAtom, wordAtomText } from "../shared/wordFiles";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   ANSWER_BLOCK,
+  type AnalysisTableBinding,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
   type CalculatedFigureAttributes,
@@ -104,6 +113,7 @@ import {
   type ProposalRequest,
   QUESTION_BLOCK,
   type RecordCiteResult,
+  type RetainedFigureAnalysis,
   type SignOffNow,
   type SignOffTarget,
   type StyledRun,
@@ -118,6 +128,19 @@ import {
   WORD_CHANGE_ID,
 } from "./api";
 import { isRecord } from "./errors";
+
+/** The table a caption's marker names: the one top-level table bound as the marker is (#2378). */
+function boundTableOf(marker: Y.XmlElement, binding: AnalysisTableBinding): Y.XmlElement | null {
+  let at: unknown = marker.parent;
+  while (at instanceof Y.XmlElement) at = at.parent;
+  if (!(at instanceof Y.XmlFragment)) return null;
+  for (const each of at.toArray()) {
+    if (!(each instanceof Y.XmlElement) || each.nodeName !== "table") continue;
+    const bound = readTableBinding(each.getAttribute(ANALYSIS_TABLE_ATTRIBUTE));
+    if (bound && sameBinding(bound, binding)) return each;
+  }
+  return null;
+}
 
 export interface Marks {
   bold: boolean;
@@ -275,8 +298,9 @@ export type Inline = (
   /**
    * A footnote the User wrote, at its marker: its text. A Citation in it is
    * part of that text (written as its source), not a footnote of its own.
+   * An Analysis table's note (#2378) names, in `cites`, the input rows its text speaks of.
    */
-  | { kind: "footnote"; content: Inline[] }
+  | { kind: "footnote"; content: Inline[]; cites?: Footnote[] }
   | { kind: "image"; image: Image }
   /**
    * Citations written in a citation style (#289) by the exports (./exports/citations), never
@@ -426,6 +450,12 @@ export interface ReadOptions {
   review?: ReviewReading;
   /** The sentence checks that aren't good, by check id: their text is read with `sentenceCheck`. */
   sentenceChecks?: ReadonlyMap<string, FailedSentence>;
+  /**
+   * An Analysis table's footnote, from the run the Note keeps (#2378): what it was worked out
+   * by and from, for the table beneath its caption. Null, or absent: its caption's marker is read
+   * as nothing, as the editor's text does.
+   */
+  tableNote?(run: RetainedFigureAnalysis, table: Y.XmlElement): string | null;
   /** Set by the reader in an Answer from before AI text was marked, which is the AI's as a whole. */
   wholeAnswerAi?: boolean;
 }
@@ -1271,6 +1301,28 @@ function readInlineElement(
     case CALCULATED_FIGURE_NODE: {
       const attributes = readCalculatedFigureAttributes(child.getAttributes());
       if (attributes) add(readFigure(attributes, child.doc));
+      break;
+    }
+    case ANALYSIS_TABLE_NODE: {
+      const doc = child.doc;
+      if (inFootnote || !doc || !options.tableNote) break;
+      const binding = readTableBinding(child.getAttribute(ANALYSIS_TABLE_ATTRIBUTE));
+      const node = { type: ANALYSIS_TABLE_NODE, attrs: { [ANALYSIS_TABLE_ATTRIBUTE]: binding } };
+      // A run the Note lost leaves its table with no note to say where it came from (#2378).
+      const run = binding ? figureRunsFor(doc, [node])[0] : undefined;
+      // The note speaks for its caption's table, found by its binding wherever the caption is:
+      // none once that table is gone.
+      const table = binding ? boundTableOf(child, binding) : null;
+      const note = run && table ? options.tableNote(run, table) : null;
+      if (!run || note === null) break;
+      if (options.trimBeforeFootnote ?? options.trimBeforeCitation) trimTrailingSpace(content);
+      add({
+        kind: "footnote",
+        content: [{ kind: "text", text: note, marks: NO_MARKS }],
+        cites: run.inputs.flatMap((input) =>
+          input.kind === "range" ? [options.footnote({ ...input.citation })] : [],
+        ),
+      });
       break;
     }
     case "inlineMath":

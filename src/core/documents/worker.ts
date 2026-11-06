@@ -47,6 +47,7 @@ port.on("message", (message: WorkerRequest) => {
       signal: job.stop.signal,
       progress: (contentHash, read, of, unit) =>
         send({ id, progress: { contentHash, read, of, unit } }),
+      head: (head) => send({ id, head }),
       log: (event, fields) => send({ id, log: { event, fields } }),
       read: (page, picture) =>
         new Promise((resolve, reject) => {

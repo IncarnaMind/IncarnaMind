@@ -89,7 +89,17 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
       allowed("chat", [...CHAT_FLOW_SENDS]),
       allowed("suggestions", ["writing", "writing-passages"]),
       allowed("edits", ["selection"]),
-      allowed("checks", ["selection", "passages", "verified-document", "blocks"]),
+      allowed("checks", [
+        "selection",
+        "passages",
+        "verified-document",
+        "blocks",
+        "library-counts",
+        "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
+      ]),
       {
         flow: {
           id: "document-check",
@@ -251,7 +261,17 @@ describe("Decisions made before choosing was the consent", () => {
             AT,
           ],
         );
-      decided("checks", "accepted", ["selection", "passages", "verified-document", "blocks"]);
+      decided("checks", "accepted", [
+        "selection",
+        "passages",
+        "verified-document",
+        "blocks",
+        "library-counts",
+        "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
+      ]);
       decided("edits", "declined", []);
     } finally {
       db.close();
@@ -264,7 +284,17 @@ describe("Decisions made before choosing was the consent", () => {
       flow: {
         id: "checks",
         service: OPENAI_SERVICE,
-        sends: ["selection", "passages", "verified-document", "blocks"],
+        sends: [
+          "selection",
+          "passages",
+          "verified-document",
+          "blocks",
+          "library-counts",
+          "library-names",
+          "file-properties",
+          "absence-documents",
+          "watched-sentences",
+        ],
       },
       consent: "accepted",
       decidedAt: AT,
@@ -357,7 +387,17 @@ describe("Data-flow consent", () => {
       // Suggestions, Edit with AI, the checks (#96, #97) and tagging go there too.
       notAsked("suggestions", ["writing", "writing-passages"]),
       notAsked("edits", ["selection"]),
-      notAsked("checks", ["selection", "passages", "verified-document", "blocks"]),
+      notAsked("checks", [
+        "selection",
+        "passages",
+        "verified-document",
+        "blocks",
+        "library-counts",
+        "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
+      ]),
       notAsked("document-check", ["selection", "whole-document"]),
       notAsked("tagging", ["tags", "document-excerpts"]),
     ]);

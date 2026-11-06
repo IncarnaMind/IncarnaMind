@@ -52,10 +52,18 @@ import { useNotices } from "./notices";
  * Documents say something different, one only the User's own workings say,
  * or one citing a court decision no Document holds, which have cards of their own.
  */
+/**
+ * A sentence that names an Analysis's figure otherwise than its label (#2378): the fix is the User's
+ * edit of its words, so nothing cuts, searches or re-quotes it away.
+ */
+export const misnamesFigure = (claim: ShownClaim): boolean =>
+  claim.check.unsupported?.kind === "analysis-name";
+
 export function offersFixes(editor: Editor, claim: ShownClaim): boolean {
   const { check } = claim;
   return (
     claim.kind !== "chart" &&
+    !misnamesFigure(claim) &&
     claim.shown.state === "unsupported" &&
     check.evidence === null &&
     !check.citedCaseUnchecked &&
@@ -78,6 +86,7 @@ export function offersNotFound(editor: Editor, claim: ShownClaim): boolean {
     editor.isEditable &&
     claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
+    !misnamesFigure(claim) &&
     !claim.check.citedCaseUnchecked &&
     citationsOf(editor.state, claim).length === 0
   );
@@ -95,6 +104,7 @@ export function offersFindSources(editor: Editor, claim: ShownClaim): boolean {
   return (
     claim.kind !== "chart" &&
     claim.shown.state === "unsupported" &&
+    !misnamesFigure(claim) &&
     claim.check.evidence === null &&
     !claim.check.citedCaseUnchecked &&
     !offersFixes(editor, claim)

@@ -31,6 +31,7 @@ import { focusFirstAction } from "./cardFocus";
 import { useReadableQuote } from "./citationScan";
 import type { ShownClaim } from "./claimChecks";
 import { ClaimMarkIcon } from "./icons";
+import { LibrarySource } from "./LibrarySource";
 import { SignOffsContext } from "./mindContext";
 import { PropertySource, showFileProperties } from "./PropertySource";
 import { SignOffLine, SignOffToggle } from "./SignOff";
@@ -63,6 +64,7 @@ function PartCitation({
   const quote = useReadableQuote(citation);
   const location = citationLocation(citation);
   const property = location?.kind === "properties" ? location : null;
+  const library = location?.kind === "library" ? location : null;
   const where = location ? formatLocation(location, t) : null;
   const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
   const { records } = useContext(SignOffsContext);
@@ -84,7 +86,7 @@ function PartCitation({
     if (id && signer) toggleCitationSignOff(editor, id, signer);
   };
   const open = () => {
-    if (!citation.documentId) return;
+    if (!citation.documentId || library) return;
     if (property) return showFileProperties(citation.documentId, onOpen);
     void openCited(
       { ...citation, documentId: state.documentId ?? citation.documentId },
@@ -102,7 +104,13 @@ function PartCitation({
   );
   return (
     <div data-testid="claim-part-receipt" data-citation-id={id ?? undefined} {...menu.rowProps}>
-      {property ? (
+      {library ? (
+        <LibrarySource
+          location={library}
+          className="claim-part-citation claim-part-source claim-property"
+          testId="claim-part-library"
+        />
+      ) : property ? (
         <PropertySource
           citation={citation}
           location={property}
@@ -134,7 +142,7 @@ function PartCitation({
           align="end"
           without={["citation.update", "citation.keepOld", "citation.remove"]}
           here={{
-            ...(citation.documentId && { "citation.open": open }),
+            ...(citation.documentId && !library && { "citation.open": open }),
             ...(canSignOff &&
               (checkedByMe(signOff)
                 ? { "citation.signOffRemove": toggle }
@@ -331,7 +339,7 @@ function PartRow({
         {state !== null && <ClaimMarkIcon state={state} className="citation-badge-icon" />}
         <span>
           {state === null
-            ? t("claim.opinion")
+            ? t(part.itself ? "claim.itself" : "claim.opinion")
             : state === "checking"
               ? t("claim.part.checking")
               : state === "unsupported" && showsNotFound

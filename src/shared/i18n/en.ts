@@ -33,6 +33,13 @@ export const en = {
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
   "library.organize.needsModel": "Organize needs an AI model",
   "library.organize.use": "Use {company}",
+  "library.toSort.one": "1 to organize",
+  "library.toSort.other": "{count} to organize",
+  "library.toSort.allow": "Allow {service}",
+  "library.toSort.sends.one":
+    "1 Document waits to be organized: {service} isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for this one and for Documents you add later.",
+  "library.toSort.sends.other":
+    "{count} Documents wait to be organized: {service} isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions and any matching Tags’, to {service}, for these and for Documents you add later.",
   "library.organize.sends": "Sends document names and excerpts to {company}.",
   "library.organize.sends.details":
     "Each Document’s name and the start of its text (for a scan, images of its first pages), and your Folders’ and Tags’ names and descriptions, go to {company}.",
@@ -842,6 +849,8 @@ export const en = {
     "{count} values, calculated from {inputs} in {documents} Documents",
   "chart.source.analysis.one": "1 value, from an Analysis",
   "chart.source.analysis.other": "{count} values, from an Analysis",
+  "chart.source.byAnalysis.one": "1 value, calculated by the Analysis",
+  "chart.source.byAnalysis.other": "{count} values, each calculated by the Analysis",
   "chart.inputs.cells.one": "1 cell",
   "chart.inputs.cells.other": "{count} cells",
   "chart.inputs.numbers.one": "1 cited number",
@@ -886,6 +895,7 @@ export const en = {
   "editor.ai.checkAgainstDocuments": "Check against Documents",
   "editor.ai.checkAgainstDocuments.keywords": "check find support",
   "claim.why.doesntAddUp": "Doesn’t add up",
+  "claim.why.differsFromAnalysis": "Differs from the Analysis",
   "figures.citationAdded": "Added Citation",
   "figures.cited": "Cited “{document}”",
   "figures.changedToSource.many": "Changed {count} figures to their source values",
@@ -928,6 +938,40 @@ export const en = {
   "figures.analysisRows.list.one": "row {runs}",
   "figures.analysisRows.list.other": "rows {runs}",
   "figures.analysisRows.separator": ", ",
+  "figures.table.label": "Calculated table {number}: {title}",
+  "figures.table.recalculated.sum.one": "{heading}: sum of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.sum.other": "{heading}: sum of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.sum.named.one":
+    "{heading}: sum of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.sum.named.other":
+    "{heading}: sum of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.mean.one": "{heading}: average of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.mean.other":
+    "{heading}: average of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.mean.named.one":
+    "{heading}: average of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.mean.named.other":
+    "{heading}: average of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.min.one": "{heading}: lowest value of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.min.other":
+    "{heading}: lowest value of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.min.named.one":
+    "{heading}: lowest value of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.min.named.other":
+    "{heading}: lowest value of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.max.one":
+    "{heading}: highest value of 1 row, by {key} · recalculated",
+  "figures.table.recalculated.max.other":
+    "{heading}: highest value of {count} rows, by {key} · recalculated",
+  "figures.table.recalculated.max.named.one":
+    "{heading}: highest value of {column} over 1 row, by {key} · recalculated",
+  "figures.table.recalculated.max.named.other":
+    "{heading}: highest value of {column} over {count} rows, by {key} · recalculated",
+  "figures.table.notRecalculated": "{heading}: from the Analysis · not recalculated",
+  "figures.table.differs": "{label}: {written} in the note, {analysis} in the Analysis",
+  "figures.table.notInAnalysis": "{label}: {written} in the note, not in the Analysis",
+  "figures.table.rowsMissing.one": "1 row of the Analysis isn’t in the note",
+  "figures.table.rowsMissing.other": "{count} rows of the Analysis aren’t in the note",
   "figures.inline.code": "Show saved code",
   "figures.inline.literal": "{value}, written in the formula",
   "figures.inline.raw": "Cell’s stored value: {value}",
@@ -1194,6 +1238,7 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.unit.library": "Your Library has {amount}, not {figure}.",
   "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
@@ -1242,7 +1287,15 @@ export const en = {
   "opinions.one": "1 opinion left out",
   "opinions.count": "{count} opinions left out",
   "opinions.show": "Show",
+  "opinions.itself.one": "1 sentence about this note left out",
+  "opinions.itself": "{count} sentences about this note left out",
+  "opinions.both.one.one": "1 opinion and 1 sentence about this note left out",
+  "opinions.both.one.other": "1 opinion and {itself} sentences about this note left out",
+  "opinions.both.other.one": "{opinions} opinions and 1 sentence about this note left out",
+  "opinions.both.other.other":
+    "{opinions} opinions and {itself} sentences about this note left out",
   "claim.opinion": "Left out as an opinion",
+  "claim.itself": "About this note, not the Documents: left out",
   "claim.checkAnyway": "Check anyway",
   "claim.part.checking": "Checking this part…",
   "claim.parts.more": "{count} more",
@@ -1274,6 +1327,10 @@ export const en = {
   "claim.reason.unread": "Verdict hidden: the model didn’t read your Documents.",
   "claim.reason.other-cell":
     "Verdict hidden: the model named another row or column of the Document’s table for this number.",
+  "claim.reason.analysis": "From the Analysis · not recalculated",
+  "claim.reason.analysis-gone": "The Analysis it came from is no longer available",
+  "claim.reason.analysis-unnamed": "The sentence doesn’t clearly say this figure is {detail}",
+  "claim.analysisName": "The sentence doesn’t say this figure is {label}",
   "claim.reason.rate-limit": "The model’s service is busy for now. Check again in a moment.",
   "claim.reason.cost-cap": "Checking it could pass your monthly cap.",
   "claim.reason.plan-limit": "Your plan’s usage limit is reached.",
@@ -1285,6 +1342,8 @@ export const en = {
   "claim.checkNow": "Check now",
   "claim.reason.consent-revoked": "Not checked: you turned off sending to this service.",
   "claim.reason.local-mode": "Not checked: everything stays on this computer.",
+  "claim.reason.consent-widened": "Checks now send more than when you allowed them",
+  "claim.reviewConsent": "Review…",
   "claim.reason.absence-read-limit":
     "A sentence that says something is absent needs its Document read whole.",
   "claim.reason.absence-unconfirmed":
@@ -1314,6 +1373,7 @@ export const en = {
   "claim.reason.figures-not-read.whole": "The figures in “{document}” couldn’t be read.",
   "claim.reason.figures-not-read.unknown": "The figures in a Document couldn’t be read.",
   "claim.reason.sentence-figures-not-read": "The figures in this sentence couldn’t be read.",
+  "claim.reason.library-unsettled": "Only your Library’s counts, names and kinds can be checked.",
   "claim.readBudget.continue": "Continue",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
@@ -1324,6 +1384,30 @@ export const en = {
   "claim.recheck.figures":
     "It was checked before each of its figures was checked with its own source.",
   "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
+  "claim.recheck.library": "Your Library has changed since this was checked.",
+  "claim.library.row": "{source}: {fact}",
+  "claim.library.source.library": "Your Library",
+  "claim.library.source.scope": "“{name}”",
+  "claim.library.source.scope.more": "“{name}” and {count} more",
+  "claim.library.documents.one": "1 Document",
+  "claim.library.documents": "{count} Documents",
+  "claim.library.folder.one": "1 Document in “{folder}”",
+  "claim.library.folder": "{count} Documents in “{folder}”",
+  "claim.library.unfiled.one": "1 Document not in a Folder",
+  "claim.library.unfiled": "{count} Documents not in a Folder",
+  "claim.library.name.one": "1 Document named “{name}”",
+  "claim.library.name": "{count} Documents named “{name}”",
+  "claim.library.shared.one": "1 name shared by several Documents",
+  "claim.library.shared": "{count} names shared by several Documents",
+  "claim.library.folders.one": "1 Folder",
+  "claim.library.folders": "{count} Folders",
+  "claim.library.tags.one": "1 Tag",
+  "claim.library.tags": "{count} Tags",
+  "claim.library.tag.one": "1 Document tagged “{tag}”",
+  "claim.library.tag": "{count} Documents tagged “{tag}”",
+  "claim.library.notes.one": "1 other note",
+  "claim.library.notes": "{count} other notes",
+  "claim.library.note": "the note “{name}”",
   "health.label": "Claims and Citations",
   "health.found.one": "1 Citation found",
   "health.found": "{count} Citations found",
@@ -1359,6 +1443,8 @@ export const en = {
   "health.state.look": "{count} need a look",
   "health.state.checked": "Checked {time}",
   "health.state.checked.noTime": "Checked",
+  "health.state.notRecalculated.one": "1 figure not recalculated",
+  "health.state.notRecalculated": "{count} figures not recalculated",
   "health.state.cantCheck.one": "1 sentence can’t be checked",
   "health.state.cantCheck": "{count} sentences can’t be checked",
   "health.state.needsCheck.one": "1 sentence needs a check",
@@ -2082,6 +2168,8 @@ export const en = {
   "evidence.notCitedMany": "Don’t cite {count} Documents",
   "evidence.citeAgain": "Cite this Document again",
   "evidence.citeAgainMany": "Cite {count} Documents again",
+  "evidence.notCited.transcript": "Don’t cite the Transcript",
+  "evidence.citeAgain.transcript": "Cite the Transcript again",
   "evidence.notCited.hint": "Read for context only: never cited or used as evidence.",
   "evidence.notCited.label": "Not cited",
   "evidence.notCited.done": "“{name}” won’t be cited",
@@ -2891,11 +2979,12 @@ export const en = {
   "providers.sendsLine": "Sends your questions and document text to {provider}.",
   "providers.sends.chat":
     "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
-  "providers.sends.checks": "each sentence you check",
+  "providers.sends.checks":
+    "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
   "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
   "providers.sends.edits": "the text you ask the assistant to change",
   "providers.sends.onRequest":
-    "Tagging and sorting your Documents send each Document’s name and an excerpt, with your Folder and Tag names, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
+    "Tagging and organizing your Documents send each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ and Tags’ names and descriptions, only when you turn them on or ask for them. Page images of scans go only if you allow them in Settings → Privacy.",
   "providers.form.saving": "Saving…",
   "providers.form.moreShort": "More…",
   "providers.form.whereKey": "Where do I find it?",
@@ -3167,6 +3256,16 @@ export const en = {
   "consent.data.document-names":
     "The names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50 Documents)",
   "consent.data.other-minds": "Part of another note, when a Question names it",
+  "consent.data.library-counts":
+    "For a sentence about your Library: how many Documents in all, not in a Folder and of each kind, how many Folders, Tags and other notes, how many names are shared by several Documents, and how many more items the note’s search has",
+  "consent.data.library-names":
+    "For a sentence about your Library: the name of the Folder, Tag or Document the note searches, and the names of Documents, Folders, Tags and notes that match the sentence’s words, with each one’s kind and count and how many more matched",
+  "consent.data.file-properties":
+    "A file’s name, its own dates (or this computer’s when it has none), author, page, slide or sheet count and size, for a sentence about the file",
+  "consent.data.absence-documents":
+    "Whole Documents in the scope, up to 40 pages in all, for a sentence that says something is absent",
+  "consent.data.watched-sentences":
+    "After a new version of a Document, the cited sentences of the notes in its Folder, to check them for contradictions",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":
@@ -4399,6 +4498,10 @@ export const en = {
   "scripts.call.running": "Running {script} ({skill})…",
   "scripts.call.denied": "Not allowed: {script} ({skill})",
   "scripts.call.cantRun": "Couldn’t run {script} ({skill})",
+  "scripts.call.missingPackage":
+    "This Skill needs the Python package “{package}”, which isn’t included in IncarnaMind.",
+  "scripts.call.missingPackage.model":
+    "{problem} Installing it on this computer won’t help: IncarnaMind runs Skills on its own Python.",
   "scripts.call.timedOut": "{script} ({skill}) ran too long and was stopped",
   "scripts.call.exited": "Ran {script} ({skill}): exit code {code}",
   "scripts.call.stopped": "{script} ({skill}) was stopped",
@@ -4792,6 +4895,8 @@ export const en = {
     "Needs re-check: checked before each of its figures was checked with its own source.",
   "export.comment.sentence.needs-recheck.referent":
     "Needs re-check: the record cite its Id. or supra refers back to has changed.",
+  "export.comment.sentence.needs-recheck.library":
+    "Needs re-check: your Library has changed since this was checked.",
   "export.comment.recordCite.result": "{raw}: {outcome}",
   "export.comment.recordCite.passage": "Passage: {passage}",
   "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
@@ -4807,6 +4912,11 @@ export const en = {
     "The saved inputs for {figure} aren’t available, so IncarnaMind writes it as its value.",
   "export.figure.calculated": "Calculated: {formula} = {figure}.",
   "export.figure.analysis": "Calculated by the Analysis “{title}”: {figure}.",
+  "export.table.analysis": "Calculated by the Analysis “{title}” from {sources}.",
+  "export.table.source.one": "{count} row of {file}",
+  "export.table.source.other": "{count} rows of {file}",
+  "export.table.and": " and ",
+  "export.table.comma": ", ",
   "export.figure.workbook":
     "Worked out from the workbook’s formulas ({cell} = {formula}): {figure}.",
   "export.figure.whatIf":
@@ -5481,6 +5591,10 @@ export const en = {
   "error.transcription.localMode":
     "Meeting audio can’t go to a cloud service: “Keep everything on this computer” is on.",
   "error.transcription.noKey": "Add a {service} key first.",
+  "error.transcript.withNote":
+    "A meeting’s Transcript goes with its note. Move or delete the note instead.",
+  "error.transcript.tagWithNote": "Tag the meeting’s note instead.",
+  "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
   "error.transcription.keyMissing": "Paste the key first.",
   "error.transcription.unreachable":
     "Couldn’t reach {service}. Check the connection and try again.",
@@ -6088,6 +6202,17 @@ export const en = {
   "meetings.guide.close": "Close (Esc)",
   "meetings.transcript.name": "Transcript · {meeting}",
   "meetings.transcript.nameAlone": "Transcript",
+  "meetings.transcript.inNote": "{meeting} · Transcript",
+  "meetings.transcript.inNoteAt": "{meeting} · Transcript, {time}",
+  "meetings.joined": "“{meeting}” moved to “{folder}” with its Transcript",
+  "meetings.joined.transcript":
+    "The Transcript of “{meeting}” moved to “{folder}”, beside its note",
+  "meetings.joined.undo": "Undo",
+  "meetings.leftApart.one":
+    "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
+  "meetings.leftApart.other":
+    "{count} meetings left apart from their Transcripts, since each Folder keeps its work inside it",
+  "meetings.leftApart.show": "Show",
   "meetings.bar.showTranscript": "Show transcript",
   "meetings.bar.hideTranscript": "Hide transcript",
   "meetings.bar.transcriptSoon": "The transcript appears with its first line",
@@ -6843,6 +6968,10 @@ export const en = {
     "1 sentence couldn’t be checked: you turned off sending to this service",
   "selfCheck.localMode": "{count} sentences couldn’t be checked: everything stays on this computer",
   "selfCheck.localMode.one": "1 sentence couldn’t be checked: everything stays on this computer",
+  "selfCheck.consentWidened":
+    "{count} sentences couldn’t be checked: checks now send more than when you allowed them",
+  "selfCheck.consentWidened.one":
+    "1 sentence couldn’t be checked: checks now send more than when you allowed them",
   "selfCheck.planLimit": "{count} sentences couldn’t be checked: plan limit reached",
   "selfCheck.planLimit.one": "1 sentence couldn’t be checked: plan limit reached",
   "selfCheck.resumesAt": "Resumes at {time}",

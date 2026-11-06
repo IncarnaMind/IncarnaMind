@@ -24,6 +24,7 @@ import { formatCount } from "../../linkedFolders";
 import { organizeDocuments, useProposing } from "../../organizeDocuments";
 import { organizeFailedIds, organizeStateOf } from "../../organizeOutcome";
 import { useOrganizeAsk } from "../../organizeRun";
+import { useListedDocuments } from "../../ownDocuments";
 import { useRequests } from "../../requests";
 import type { ReviewReason } from "../../reviewProblems";
 import { notOrganizedLine, retryableCause, reviewProblemsOf } from "../../reviewProblems";
@@ -609,7 +610,7 @@ const organizeHasModel = (settings: LibrarySettings | undefined) =>
  */
 function Organize({ documents }: { documents: readonly Document[] }) {
   const t = useT();
-  const all = useAppStore((state) => state.documents);
+  const all = useListedDocuments();
   const library = useAppStore((state) => state.library);
   const proposing = useProposing((state) => state.proposing);
   const states = useMemo(() => {

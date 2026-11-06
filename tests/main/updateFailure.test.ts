@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { heldByAnotherCopy, lockInstance } from "../../src/main/instanceLock";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -18,6 +21,7 @@ const fixture = vi.hoisted(() => ({
   relaunch: vi.fn(),
   exit: vi.fn(),
   showMessageBox: vi.fn(),
+  updateData: "",
 }));
 
 vi.mock("electron", async () => {
@@ -28,12 +32,16 @@ vi.mock("electron", async () => {
       releaseSingleInstanceLock: fixture.releaseSingleInstanceLock,
       relaunch: fixture.relaunch,
       exit: fixture.exit,
+      getPath: () => fixture.updateData,
     }),
     autoUpdater: new EventEmitter(),
     BrowserWindow: { getAllWindows: () => [] },
   };
 });
-vi.mock("../../src/main/autoUpdater", () => ({ autoUpdater: fixture.updater }));
+vi.mock("../../src/main/autoUpdater", () => ({
+  autoUpdater: fixture.updater,
+  updateCheckSendsNoInstallId: true,
+}));
 vi.mock("../../src/main/platform", () => ({ systemBrowser: { open: vi.fn() } }));
 vi.mock("../../src/main/systemDialogs", () => ({
   showMessageBox: fixture.showMessageBox,
@@ -51,6 +59,7 @@ beforeEach(async () => {
   vi.resetModules();
   vi.resetAllMocks();
   vi.stubEnv("APPIMAGE", "/tmp/IncarnaMind.AppImage");
+  fixture.updateData = mkdtempSync(join(tmpdir(), "incarnamind-update-failure-"));
   fixture.updater.autoInstallOnAppQuit = true;
   fixture.showMessageBox.mockResolvedValue({ response: 0 });
   const { autoUpdater: native } = await import("electron");
@@ -74,6 +83,7 @@ afterEach(async () => {
   autoUpdater.removeAllListeners();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  rmSync(fixture.updateData, { recursive: true, force: true });
 });
 
 test("the real quit guard keeps SQLite ownership through the install attempt", async () => {
