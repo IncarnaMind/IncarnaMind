@@ -2476,15 +2476,21 @@ export function createRewriteStream(
     return (ownShare[index] ?? 0) > HALF_ITS_OWN || (ofOwn[index] ?? 0) >= HALF_ITS_OWN;
   };
   /**
-   * Whether a new paragraph's words say it is this one: as `saysItsOwn`, of one with words of its
-   * own. One after the selection's first with none, each also in another's, can't be told by words
-   * from a line added beside it, however alike they are (#2356); the selection's first takes the
-   * text's first (#2333).
+   * Whether anything can say a new paragraph is this one of the selection's rather than one added
+   * beside it: this is the selection's first, which takes the text's first (#2333); it has words
+   * no other has, amounts left out; or the new one reads as it, sign for sign. One with none, each
+   * of its words also in another's, can't be told from a line added there, however alike, or
+   * however much of it the line says (#2356). Every rule that lets a new paragraph take one of the
+   * selection's places, or read as one moved, asks this first.
    */
-  const toldByWords = (segment: Segment, paragraph: NewParagraph) =>
-    (indexOf.get(segment) === 0 ||
-      [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word))) &&
-    saysItsOwn(segment, paragraph);
+  const mayTakePlace = (segment: Segment, paragraph: NewParagraph) => {
+    const index = indexOf.get(segment) ?? -1;
+    return (
+      index === 0 ||
+      [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word)) ||
+      newCharsOf(paragraph.tokens).chars === sameAs[index]
+    );
+  };
   /** Much like one of the selection's paragraphs, whichever it is. */
   const resembles = (paragraph: NewParagraph) =>
     nearnessOf(paragraph).alike.some((alike) => alike >= MOVED_LIKENESS);
@@ -2510,6 +2516,7 @@ export function createRewriteStream(
       ownWords: saysOwn = true,
     }: { standIn?: boolean; least?: number; ownWords?: boolean } = {},
   ) => {
+    if (saysOwn && !mayTakePlace(segment, paragraph)) return false;
     const { alike, own, cover, words } = nearnessOf(paragraph);
     const index = indexOf.get(segment) ?? -1;
     const mine = alike[index] ?? 0;
@@ -2523,7 +2530,7 @@ export function createRewriteStream(
       );
     return (
       (mine >= least &&
-        (!saysOwn || toldByWords(segment, paragraph)) &&
+        (!saysOwn || saysItsOwn(segment, paragraph)) &&
         rivals((at) => (alike[at] ?? 0) <= mine - CLEARLY_MORE)) ||
       (words >= TELLING_WORDS &&
         (cover[index] ?? 0) >= NEARLY_ALL &&
@@ -2708,9 +2715,11 @@ export function createRewriteStream(
       held.every((paragraph) => !paragraph.asOther) &&
       (bounded
         ? held.length === 1
-          ? toldByWords(between[0] as Segment, held[0] as NewParagraph)
+          ? mayTakePlace(between[0] as Segment, held[0] as NewParagraph) &&
+            saysItsOwn(between[0] as Segment, held[0] as NewParagraph)
           : held.every(
               (paragraph, index) =>
+                mayTakePlace(between[index] as Segment, paragraph) &&
                 placeLikeness(between[index] as Segment, paragraph) > MOVED_LIKENESS,
             )
         : held.every(
@@ -2969,7 +2978,8 @@ export function createRewriteStream(
           (paragraph.kind === null || paragraph.kind === segment.kind) &&
           placeLikeness(segment, paragraph) >= MOVED_LIKENESS &&
           covered(segment.tokens, paragraph.tokens) >= NEARLY_ALL &&
-          !numbersOnly(segment, paragraph),
+          !numbersOnly(segment, paragraph) &&
+          mayTakePlace(segment, paragraph),
       );
       if (again < 0) continue;
       const [movedTo] = said.splice(again, 1);
