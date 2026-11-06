@@ -70,14 +70,11 @@ const ABSENCE_LINE =
 
 // Under Roles alone, "should" for "must" and a rule stated without its Passage's condition were
 // "same" (a side that says neither must nor may; a condition one side adds), so Claude Sonnet
-// 5.5 called every such near copy of a held-out set Supported (#1766, #1708). Without the
-// Chinese words, the act and the deadline below, Claude Haiku 5.5 wrote 应当 as should, a
-// prohibition of the opposite act as must not and a deadline inside a duty as a condition,
-// each "differs" where the clause says the same.
+// 5.5 called every such near copy of a held-out set Supported (#1766, #1708).
 const DUTY_LINE =
-  'Duty: how each side puts it, one word each: must (a duty: shall, 须, 必须, 应当), should (advice, or what is expected: 应该), may (a permission or an ability), must not (a prohibition) or none (it says only what is or happens); the sentence\'s first, then " / " and the Passage\'s for the sentence\'s own act, then same or differs ("Duty: should / must, differs"; "Duty: must / may, differs"; "Duty: must / must, same" for "is bound to" against "must"). Not to do the opposite is to do it: "must keep it shut" against "must not leave it open" is "Duty: must / must, same". "differs" when they are two different words of the first four. Anything else is "same": the same word, or a side that is none.';
+  'Duty: how each side puts it, one word each: must (a duty), should (advice, or what is expected), may (a permission or an ability), must not (a prohibition) or none (it says only what is or happens); the sentence\'s first, then " / " and the Passage\'s for that very thing, then same or differs ("Duty: should / must, differs"; "Duty: must / may, differs"; "Duty: must / must, same" for "is bound to" against "must"). "differs" when they are two different words of the first four. Anything else is "same": the same word, or a side that is none. One rule put the other way round takes the same word on both sides ("Duty: must / must, same" for "must keep it shut" against "must not leave it open").';
 const CONDITION_LINE =
-  'Condition: the condition or exception it holds on, copied as written (such as only if, unless, except, provided that, subject to, after notice; none when it has none), first as the sentence says it, then " / " and as the Passage says it for that very thing, then same or differs ("Condition: none / unless it rains, differs"; "Condition: on Sundays only / only on Sundays, same"; "Condition: none / none, same"). A deadline or manner a duty must meet ("before dusk", "in pencil", 日落前) is none; one that ends a right ("may trade it in before dusk") is a condition. "differs" when one side holds it only on a condition, or with an exception, that the other leaves out or puts otherwise. Anything else is "same".';
+  'Condition: the condition or exception it holds on, copied as written (such as only if, unless, except, provided that, subject to, after notice; none when it has none), first as the sentence says it, then " / " and as the Passage says it for that very thing, then same or differs ("Condition: none / unless it rains, differs"; "Condition: on Sundays only / only on Sundays, same"; "Condition: none / none, same"). "differs" when one side holds it only on a condition, or with an exception, that the other leaves out or puts otherwise. Anything else is "same".';
 
 /**
  * The sentence is written in the interface's language, whatever language the
