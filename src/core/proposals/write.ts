@@ -2127,6 +2127,15 @@ function onlyNumbersDiffer(segment: Segment, paragraph: NewParagraph): boolean {
   return old.join("\n") !== now.join("\n") && rest(old) === rest(now);
 }
 
+/** A paragraph's text as it reads: its spaces kept, as one between words, so "Now here." is not "Nowhere.". */
+function readText(tokens: readonly { text?: string }[]): string {
+  return tokens
+    .map((token) => token.text ?? "")
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** A paragraph's words and signs as compared with a quote: no spaces, any case, each character where it is in its Block. */
 function charsOf(tokens: readonly OldToken[]): { chars: string; at: number[] } {
   let chars = "";
@@ -2430,6 +2439,7 @@ export function createRewriteStream(
   const numbersOnly = (segment: Segment, paragraph: NewParagraph) =>
     segments.length > 1 && onlyNumbersDiffer(segment, paragraph);
   const sameAs = segments.map((segment) => charsOf(segment.tokens).chars);
+  const texts = segments.map((segment) => readText(segment.tokens));
   /**
    * How alike a new paragraph is to each of the selection's, whether it says words of that one's
    * own, what share of them (1 for one with none) and what share of its own words they are, how
@@ -2478,7 +2488,7 @@ export function createRewriteStream(
   /**
    * Whether anything can say a new paragraph is this one of the selection's rather than one added
    * beside it: this is the selection's first, which takes the text's first (#2333); it has words
-   * no other has, amounts left out; or the new one reads as it, sign for sign. One with none, each
+   * no other has, amounts left out; or the new one reads as it, word for word. One with none, each
    * of its words also in another's, can't be told from a line added there, however alike, or
    * however much of it the line says (#2356). Every rule that lets a new paragraph take one of the
    * selection's places, or read as one moved, asks this first.
@@ -2488,7 +2498,7 @@ export function createRewriteStream(
     return (
       index === 0 ||
       [...(ownWords.get(segment) ?? [])].some((word) => !isAmount(word)) ||
-      newCharsOf(paragraph.tokens).chars === sameAs[index]
+      readText(paragraph.tokens) === texts[index]
     );
   };
   /** Much like one of the selection's paragraphs, whichever it is. */
