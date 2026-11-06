@@ -839,6 +839,10 @@ const WAITING =
 const APPLIES =
   "It applies in the Note at once, with Undo. Reply in one short sentence saying what you did and where: don't repeat the new text, nor say that anything waits.";
 
+/** What applied and what waits once a reply's changes in a Note are held together: an earlier one told it applied waits too. */
+const heldNow = (name: string, count: number) =>
+  `Applied now: nothing in “${name}”. Waiting for the User: ${count === 1 ? "this change" : `all ${count} of this reply's changes there, the earlier ones too`}.`;
+
 const held = (name: string) =>
   `It would take out most of the User's own text in “${name}”, so it waits there for them to apply or discard; nothing of their text has changed yet. Say that it waits for them, not that it changed.`;
 
@@ -1140,9 +1144,11 @@ export function mindTools(options: MindToolsOptions): {
     askedIn.set(mind.id, asked);
     const wait = whyItWaits(doc, asked);
     if (wait === null) return APPLIES;
-    return wait.why === "more-than-taken-out"
-      ? moreThanTakenOut(mind.name, wait.changes, wait.writtenAgain)
-      : held(mind.name);
+    const why =
+      wait.why === "more-than-taken-out"
+        ? moreThanTakenOut(mind.name, wait.changes, wait.writtenAgain)
+        : held(mind.name);
+    return `${why} ${heldNow(mind.name, asked.size)}`;
   };
 
   /** The Mind a call means: the one it names, else the one in focus; or why there is none. */

@@ -182,6 +182,8 @@ export function whyItWaits(
     const made = proposalRequestOf(doc, request);
     if (made?.source !== "edit-with-ai" || made.removesOnly !== true) continue;
     const { before, after } = changedText(blocks, request);
+    // A removal the reply revised in place left no Proposals of its own: its revision is judged instead.
+    if (before.length === 0 && after.length === 0) continue;
     const changes = sentenceChanges(before, after);
     // The reply's other changes may write back what this one takes out: together they do more.
     const others = new Set([...requests].filter((each) => each !== request));
