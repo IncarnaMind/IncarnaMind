@@ -4,6 +4,7 @@ import { create } from "zustand";
 import type { Mind } from "../../core/api";
 import { isProcessing } from "../../shared/documentStatus";
 import { core } from "./core";
+import { isListedDocument } from "./meetingTranscript";
 import { type NoteReading, readNoteState } from "./noteState";
 import { suggestedIds } from "./organizeOutcome";
 import { useSelection } from "./selection";
@@ -154,7 +155,8 @@ export function useMindNoteStates(
 
 export function useHomeNeeds(): { reading: number; suggestions: number } {
   const reading = useAppStore(
-    (state) => state.documents.filter((each) => isProcessing(each.status)).length,
+    (state) =>
+      state.documents.filter((each) => isListedDocument(each) && isProcessing(each.status)).length,
   );
   const suggestions = useAppStore(
     (state) => suggestedIds(state.documents, state.library?.assignments ?? []).length,

@@ -3873,6 +3873,13 @@ export interface Document {
    */
   yourNote: DocumentYourNote | null;
   /**
+   * Set when the Document is a Meeting's Transcript (#2528): the Note it belongs to. It goes
+   * where the Note goes, into its Folder, behind its wall and to Recently deleted, and has no
+   * Folder, Tags or row of its own: it is reached through its Note. Null for every other
+   * Document, a .vtt the User added among them.
+   */
+  meetingMindId: string | null;
+  /**
    * The Mind this file was last imported as, still there (#720): the User's working copy of
    * it, which is never cited. Null for a file never imported.
    */
@@ -8145,6 +8152,11 @@ export interface DocumentTextMatch {
   pageTo: number | null;
   excerpt: string;
   highlights: TextRange[];
+  /**
+   * In a Transcript, when the words found were said: the start of the line they are in, in ms
+   * from its start (#2528). Null for every other Document, and where the line isn't found.
+   */
+  atMs: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -10586,6 +10598,28 @@ export type MeetingSourceState =
   | "denied"
   | "unavailable"
   | "ended";
+
+/**
+ * A meeting this version joined with its Transcript on the walled side of the one wall between
+ * them (#2528): its Note moved into its Transcript's Folder, or its Transcript into its Note's.
+ */
+export interface JoinedMeeting {
+  id: string;
+  mindId: string;
+  /** The Folder the meeting is in now. */
+  folderId: string;
+  /** Its Note went in to its Transcript's Folder; false: its Transcript went in to its Note's. */
+  noteMoved: boolean;
+}
+
+/**
+ * A meeting left apart from its Transcript when pairs filed apart were joined (#2528): two walls
+ * lay between them, so each stayed exactly where it was, the Transcript a Document of its own.
+ */
+export interface MeetingLeftApart {
+  id: string;
+  mindId: string;
+}
 
 /**
  * A stretch the User didn't choose not to record: IncarnaMind wasn't running
@@ -13106,6 +13140,25 @@ export interface CoreApi {
   /** Every Meeting, newest first. */
   listMeetings(): Promise<Meeting[]>;
   /**
+   * The meetings this version joined across a wall's edge (#2528), not said yet, each still where
+   * the join put it: the sidebar says each once, with Undo.
+   */
+  listJoinedMeetings(): Promise<JoinedMeeting[]>;
+  /** Records that the sidebar said these (`listJoinedMeetings`), so it never says them again. */
+  joinedMeetingsSaid(ids: string[]): Promise<void>;
+  /**
+   * Puts a joined meeting back exactly as it was: its Transcript a Document of its own in its own
+   * Folder, its Note in its own. Refused once the User has moved the Note since.
+   */
+  undoMeetingJoin(id: string): Promise<void>;
+  /**
+   * The meetings this version left apart from their Transcripts, two walls lying between them,
+   * when it joined each pair filed apart (#2528), not said yet: the sidebar says so once.
+   */
+  listMeetingsLeftApart(): Promise<MeetingLeftApart[]>;
+  /** Records that the sidebar said these (`listMeetingsLeftApart`), so it never says them again. */
+  meetingsLeftApartSaid(ids: string[]): Promise<void>;
+  /**
    * A Meeting ready to record, in a new Mind named for the day or in an empty
    * Mind given: its Mind shows the start block. Needs a Mind with no Meeting,
    * and a copy that can record audio.
@@ -13836,6 +13889,11 @@ const methods: Record<CoreApiMethod, true> = {
   listFileWriteRequests: true,
   respondToFileWrite: true,
   listMeetings: true,
+  listJoinedMeetings: true,
+  joinedMeetingsSaid: true,
+  undoMeetingJoin: true,
+  listMeetingsLeftApart: true,
+  meetingsLeftApartSaid: true,
   createMeeting: true,
   discardMeeting: true,
   startMeeting: true,
