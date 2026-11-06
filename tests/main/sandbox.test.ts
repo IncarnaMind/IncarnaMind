@@ -1352,9 +1352,10 @@ console.log(JSON.stringify(results));
       });
       const random = 'open(my $r, "<", "/dev/urandom") or die;';
       // Five helpers each duplicate an unlinked regular file far past the 1024 cap, then it writes
-      // 250 MB of unlinked files against a 200 MB folder limit. Without the cap the open files
-      // overflow lsof's buffer and hide the unlinked bytes; with it, lsof stays readable and the
-      // run is stopped at the folder limit. run_code always sets a file limit, as this does.
+      // 250 MB of unlinked files against a 200 MB folder limit. Without the cap, reading their
+      // descriptors outgrows what the meter allows, so the run would end unmeasured; with it the
+      // read stays whole and the run is stopped at the folder limit. run_code always sets a file
+      // limit, as this does.
       const flood = [
         "for i in 1 2 3 4 5; do",
         '  perl -e \'open(my $b, "+>", "base") or die; unlink "base"; my @d; for (1..120000) { open(my $c, "<&", $b) or last; push @d, $c; } sleep 40\' &',

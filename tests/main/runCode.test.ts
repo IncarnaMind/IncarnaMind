@@ -100,8 +100,17 @@ let pythonPrepared = 0;
 /** The data and temporary folders the runs here use, unless a test gives its own. */
 const folders = () => ({ data, temp: join(root, "temp") });
 
-/** The app's OS sandbox Executor; `login`: more of the login environment than the tests' own. */
-function executor(where = folders(), login: Record<string, string> = {}) {
+/**
+ * The app's OS sandbox Executor; `login`: more of the login environment than the tests' own.
+ * What it reports it couldn't measure or sweep fails the test, unless `report` takes it.
+ */
+function executor(
+  where = folders(),
+  login: Record<string, string> = {},
+  report: (error: unknown) => void = (error) => {
+    throw error;
+  },
+) {
   if (!sandbox.available) throw new Error(sandbox.reason);
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -120,9 +129,7 @@ function executor(where = folders(), login: Record<string, string> = {}) {
       temporaryFolder: tmpdir(),
       ...(typeof process.getuid === "function" && { uid: process.getuid() }),
     }),
-    reportError: (error) => {
-      throw error;
-    },
+    reportError: report,
     runRecords: guard.records(join(where.data, "runs")),
     sweep: { stopper: guard.stopper },
   });
@@ -212,12 +219,14 @@ async function sales(text = SALES): Promise<CodeDocument> {
 
 /**
  * The Tool as an Answer offers it, its runs and figures recorded as the Answer records them.
- * `own`: a runtime of a test's own, with the folders it runs in and the font it draws with.
+ * `own`: a runtime of a test's own, with the folders it runs in and the font it draws with;
+ * `report`: takes what its Executor reports.
  */
 function tool(
   documents: Record<string, CodeDocument>,
   timeLimitMs?: number,
   own?: { python: PythonRuntime; where: ReturnType<typeof folders>; font: string },
+  report?: (error: unknown) => void,
 ) {
   const figures: CalculatedFigure[] = [];
   const analyses: AnswerAnalysis[] = [];
@@ -226,7 +235,7 @@ function tool(
     language: "en",
   });
   const runner = createCodeRunner({
-    executor: executor(own?.where),
+    executor: executor(own?.where, {}, report),
     tempDir: own?.where.temp ?? join(root, "temp"),
     python: own?.python ?? python,
     helper: analysisHelper,
@@ -479,6 +488,17 @@ describe.skipIf(unavailable !== undefined)(
             .filter((line) => line.includes(join(root, "temp"))),
         )
         .toEqual([]);
+    }, 60_000);
+
+    test("a fork bomb that outlasts the 10 s a run's disk may stay unknown ends at its time limit, with no disk read it couldn't make", async () => {
+      const reports: string[] = [];
+      const { call, analyses } = tool({}, 14_000, undefined, (error) =>
+        reports.push(String(error)),
+      );
+      await call("bash", "bomb() { bomb | bomb & }; bomb; sleep 200");
+      expect(analyses[0]?.end).toEqual({ kind: "timed-out", limitMs: 14_000 });
+      // On macOS the bomb can hold footprint past its 2 s, and resident memory counts that turn.
+      expect(reports.filter((report) => !report.includes("/usr/bin/footprint "))).toEqual([]);
     }, 60_000);
 
     test("the loopback server the probes knock on answers this test", async () => {

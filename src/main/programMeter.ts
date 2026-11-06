@@ -6,13 +6,26 @@
  * that no folder names any more. Windows has no `ps`; its Job Object will hold these limits.
  */
 import { execFile } from "node:child_process";
-import type { Dirent } from "node:fs";
+import { createReadStream, type Dirent } from "node:fs";
 import { lstat, readdir, readFile, readlink, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
 import type { ProgramMeter, ProgramUse } from "../core/execution";
 
 const execFileAsync = promisify(execFile);
+
+/** A Linux task as its `/proc/<pid>/stat` line shows it. */
+export interface TaskStat {
+  comm: string;
+  state: string;
+  /** The kernel's `PF_*` flags (field 9). */
+  flags: number;
+  /** When it started, in clock ticks since boot (field 22). */
+  started: number;
+  /** Its address space in bytes (field 23): 0 once it has given up its memory. */
+  vsize: number;
+}
 
 /** A read of the disk a run holds couldn't complete: its errno, the path and the pid it was for. */
 export class DiskReadError extends Error {
@@ -20,22 +33,24 @@ export class DiskReadError extends Error {
     readonly errno: string,
     readonly path: string,
     readonly pid: number,
+    { cause, task }: { cause?: unknown; task?: TaskStat } = {},
   ) {
-    super(`A disk read for process ${pid} failed (${errno}): ${path}`);
+    super(
+      `A disk read for process ${pid} failed (${errno}): ${path}${task ? ` (${task.comm}: state ${task.state}, flags 0x${task.flags.toString(16)}, vsize ${task.vsize})` : ""}`,
+      { cause },
+    );
     this.name = "DiskReadError";
   }
 }
 
 const errnoOf = (error: unknown): string => {
   const e = error as NodeJS.ErrnoException;
-  return typeof e?.code === "string" ? e.code : String(e?.errno ?? "unknown");
+  if (typeof e?.code === "string") return e.code;
+  if (typeof e?.code === "number") return `exit ${e.code}`;
+  return String(e?.errno ?? "unknown");
 };
 
-/**
- * Linux `/proc`, as `procUnlinked` reads it; a test supplies its own with made-up processes.
- * `readStat` is `/proc/<pid>/stat` (readable even for a process this app can't dump), used to tell
- * a process that is exiting, a zombie or a reused pid from one that is only guarding its `fd`.
- */
+/** Linux `/proc`, as the meter reads it; a test supplies its own with made-up processes. */
 export interface ProcReader {
   /** A process's open fds; `tid` reads a live thread's table when the leader's is unreadable. */
   fds(pid: number, tid: number | null): Promise<string[]>;
@@ -45,10 +60,13 @@ export interface ProcReader {
     tid: number | null,
     fd: string,
   ): Promise<{ device: number; inode: string; bytes: number }>;
-  maps(pid: number, tid: number | null): Promise<string>;
-  /** The live threads of `pid` other than a dead leader. */
+  /** `/proc/<pid>/maps`, in the chunks it is read in, so a read can stop part way. */
+  maps(pid: number, tid: number | null): AsyncIterable<Uint8Array>;
   tasks(pid: number): Promise<number[]>;
-  readStat(pid: number): Promise<string>;
+  /** `/proc/<pid>/stat`, which stays readable when the task's `fd` doesn't. */
+  stat(pid: number, tid: number | null): Promise<string>;
+  /** The time since boot, in the clock ticks `stat` gives start times in. */
+  ticks(): Promise<number>;
 }
 
 export const WATCH_MS = 250;
@@ -226,6 +244,7 @@ async function macUnlinked(
   command: MeterCommand,
   pids: readonly number[],
 ): Promise<UnlinkedFile[]> {
+  if (pids.length === 0) return [];
   // -b: no stat or readlink, which wait on a volume that doesn't answer; it halves lsof's time.
   const args = ["-n", "-P", "-w", "-b", "-a", "+L1", "-p", pids.join(","), "-F", "pftDisk"];
   try {
@@ -237,11 +256,9 @@ async function macUnlinked(
       killed?: unknown;
       signal?: unknown;
     };
-    // Some pids gone: lsof still printed the rest.
     if (code === SOME_NOT_FOUND && typeof stdout === "string") return unlinkedFiles(stdout);
-    // Stopped at its deadline (COMMAND_MS): unknown this turn, not an error.
     if (killed === true || typeof signal === "string") throw new DiskTimeout();
-    throw new DiskReadError(errnoOf(error), "lsof", 0);
+    throw new DiskReadError(errnoOf(error), "lsof", pids[0] ?? 0, { cause: error });
   }
 }
 
@@ -288,11 +305,15 @@ export const MAPS_CAP_BYTES = 6 * 1024 * 1024;
 /** An fd whose target no longer exists, or a process gone between reads: counted as nothing. */
 const GONE = new Set(["ENOENT", "ESRCH"]);
 
-/** `/proc/<pid>` or, with a live thread, `/proc/<pid>/task/<tid>`. */
+/** The kernel sets it as a task starts to exit, before it gives up its memory and files. */
+const PF_EXITING = 0x4;
+
+/** `stat`'s clock ticks a second (USER_HZ), 100 on every architecture Linux runs Electron on. */
+const USER_HZ = 100;
+
 const procBase = (pid: number, tid: number | null) =>
   tid === null ? `/proc/${pid}` : `/proc/${pid}/task/${tid}`;
 
-/** The real `/proc`, as the app reads it. */
 export const procReader: ProcReader = {
   fds: (pid, tid) => readdir(`${procBase(pid, tid)}/fd`),
   readlink: (pid, tid, fd) => readlink(`${procBase(pid, tid)}/fd/${fd}`),
@@ -300,139 +321,193 @@ export const procReader: ProcReader = {
     const info = await stat(`${procBase(pid, tid)}/fd/${fd}`);
     return { device: info.dev, inode: String(info.ino), bytes: info.size };
   },
-  maps: (pid, tid) => readFile(`${procBase(pid, tid)}/maps`, "utf8"),
+  maps: (pid, tid) => createReadStream(`${procBase(pid, tid)}/maps`, { highWaterMark: 64 * 1024 }),
   tasks: async (pid) =>
     (await readdir(`/proc/${pid}/task`)).map(Number).filter((tid) => Number.isSafeInteger(tid)),
-  readStat: (pid) => readFile(`/proc/${pid}/stat`, "utf8"),
+  stat: (pid, tid) => readFile(`${procBase(pid, tid)}/stat`, "utf8"),
+  async ticks() {
+    const [seconds = "", hundredths = ""] =
+      (await readFile("/proc/uptime", "utf8")).split(" ")[0]?.split(".") ?? [];
+    return Number(seconds) * USER_HZ + Number(hundredths.padEnd(2, "0").slice(0, 2));
+  },
 };
 
-/** The state letter and start time (field 22) of a `/proc/<pid>/stat` line. */
-export function statOf(line: string): { state: string; started: number } {
-  const after = line.slice(line.lastIndexOf(")") + 2).split(" ");
-  return { state: after[0] ?? "", started: Number(after[19]) };
+export function statOf(line: string): TaskStat {
+  const close = line.lastIndexOf(")");
+  const after = line.slice(close + 2).split(" ");
+  return {
+    comm: line.slice(line.indexOf("(") + 1, close),
+    state: after[0] ?? "",
+    flags: Number(after[6]),
+    started: Number(after[19]),
+    vsize: Number(after[20]),
+  };
 }
 
-/** The unlinked files `pids` hold, read the way this platform allows; `capped` when a pid's maps
- * passed the cap, so the turn is unknown. Throws `DiskReadError` on a real read error (stops the
- * run) or `DiskTimeout` on a read that passed its deadline (unknown that turn). */
-async function readUnlinked(
-  platform: NodeJS.Platform,
-  command: MeterCommand,
-  pids: readonly number[],
+/** The task as `stat` shows it now; null once it has gone. */
+async function taskStat(reader: ProcReader, pid: number, tid: number | null) {
+  try {
+    return statOf(await reader.stat(pid, tid));
+  } catch (error) {
+    if (GONE.has(errnoOf(error))) return null;
+    throw new DiskReadError(errnoOf(error), `${procBase(pid, tid)}/stat`, pid, { cause: error });
+  }
+}
+
+/**
+ * Once a task has given up its memory on its way out, the kernel makes its `fd` root's, though it
+ * isn't a zombie yet and its files are still closing.
+ */
+const exiting = (task: TaskStat | null) =>
+  task === null ||
+  task.state === "Z" ||
+  task.state === "X" ||
+  (task.flags & PF_EXITING) !== 0 ||
+  task.vsize === 0;
+
+/** EACCES on a task's files is its exit, or an error when the task is alive: it hides them. */
+async function denied(reader: ProcReader, pid: number, tid: number | null, path: string) {
+  const task = await taskStat(reader, pid, tid);
+  if (!exiting(task)) throw new DiskReadError("EACCES", path, pid, { task: task ?? undefined });
+}
+
+/**
+ * The unlinked files the Linux processes `pids` of a listing held, as `listedAt` ticks after boot:
+ * through their fds and maps. `capped` when a pid's maps passed the cap, so the turn is unknown.
+ */
+async function procUnlinked(
   reader: ProcReader,
-  firstSeen: Map<number, number>,
+  pids: readonly number[],
+  listedAt: number,
 ): Promise<{ files: UnlinkedFile[]; capped: boolean }> {
-  if (pids.length === 0) return { files: [], capped: false };
-  if (platform === "darwin") return { files: await macUnlinked(command, pids), capped: false };
   const files: UnlinkedFile[] = [];
   let capped = false;
   for (const pid of pids) {
-    const where = await whereToRead(reader, pid, firstSeen);
-    if (where === "gone") continue;
-    files.push(...(await readFds(reader, pid, where.fds, where.tid)));
-    const read = await readMaps(reader, pid, where.tid);
-    files.push(...read.files);
-    capped ||= read.capped;
+    try {
+      const where = await whereToRead(reader, pid, listedAt);
+      if (where === "gone") continue;
+      const held = await readFds(reader, pid, where.fds, where.tid);
+      if (held === "exited") continue;
+      files.push(...held);
+      const mapped = await readMaps(reader, pid, where.tid);
+      files.push(...mapped.files);
+      capped ||= mapped.capped;
+    } catch (error) {
+      if (error instanceof DiskReadError) throw error;
+      throw new DiskReadError(errnoOf(error), `/proc/${pid}`, pid, { cause: error });
+    }
   }
   return { files, capped };
 }
 
 /**
- * Whether to read `pid` (and through which task), or that it is gone. On EACCES its `/proc/<pid>/
- * stat` tells a process that is exiting, a zombie or a reused pid (gone) from a live one guarding
- * its `fd` (an error, failing closed); a zombie leader with a live task is read through that task.
+ * Whether to read `pid`, through which task, or that it is gone. A zombie leader whose thread lives
+ * on is read through that thread.
  */
 async function whereToRead(
   reader: ProcReader,
   pid: number,
-  firstSeen: Map<number, number>,
+  listedAt: number,
 ): Promise<"gone" | { fds: string[]; tid: number | null }> {
   try {
     return { fds: await reader.fds(pid, null), tid: null };
   } catch (error) {
     const code = errnoOf(error);
     if (GONE.has(code)) return "gone";
-    if (code !== "EACCES") throw new DiskReadError(code, `/proc/${pid}/fd`, pid);
-    let stat: { state: string; started: number };
-    try {
-      stat = statOf(await reader.readStat(pid));
-    } catch (statError) {
-      if (GONE.has(errnoOf(statError))) return "gone";
-      throw new DiskReadError(errnoOf(statError), `/proc/${pid}/stat`, pid);
+    if (code !== "EACCES") {
+      throw new DiskReadError(code, `/proc/${pid}/fd`, pid, { cause: error });
     }
-    const seen = firstSeen.get(pid);
-    if (seen === undefined) firstSeen.set(pid, stat.started);
-    else if (seen !== stat.started) return "gone";
-    const live = await liveTask(reader, pid);
-    if (live !== null) return live;
-    // Exiting or a zombie with no live task left: gone. A live, non-dumpable process: an error.
-    if (stat.state === "Z" || stat.state === "X") return "gone";
-    throw new DiskReadError("EACCES", `/proc/${pid}/fd`, pid);
   }
+  const leader = await taskStat(reader, pid, null);
+  // Started after the listing: the pid has gone to another process.
+  if (leader === null || leader.started > listedAt) return "gone";
+  const live = await liveTask(reader, pid);
+  if (live !== null) return live;
+  if (exiting(leader)) return "gone";
+  throw new DiskReadError("EACCES", `/proc/${pid}/fd`, pid, { task: leader });
 }
 
-/** A thread of `pid` other than a dead leader whose `fd` can be read, and its fds; null when none. */
 async function liveTask(
   reader: ProcReader,
   pid: number,
 ): Promise<{ fds: string[]; tid: number } | null> {
-  const tasks = await reader.tasks(pid).catch(() => [] as number[]);
+  let tasks: number[];
+  try {
+    tasks = await reader.tasks(pid);
+  } catch (error) {
+    if (GONE.has(errnoOf(error))) return null;
+    throw new DiskReadError(errnoOf(error), `/proc/${pid}/task`, pid, { cause: error });
+  }
   for (const tid of tasks) {
     if (tid === pid) continue;
     try {
       return { fds: await reader.fds(pid, tid), tid };
-    } catch {
-      // That thread is gone too; try the next.
+    } catch (error) {
+      const code = errnoOf(error);
+      if (GONE.has(code)) continue;
+      const path = `${procBase(pid, tid)}/fd`;
+      if (code !== "EACCES") throw new DiskReadError(code, path, pid, { cause: error });
+      await denied(reader, pid, tid, path);
     }
   }
   return null;
 }
 
-/** The unlinked regular files `pid` holds open through `fds` (of a live task when `tid` is set). */
+/** The unlinked regular files `pid` holds through `fds`; "exited" when it exits part way. */
 async function readFds(
   reader: ProcReader,
   pid: number,
   fds: readonly string[],
   tid: number | null,
-): Promise<UnlinkedFile[]> {
+): Promise<UnlinkedFile[] | "exited"> {
   const files: UnlinkedFile[] = [];
   for (const fd of fds) {
-    let target: string;
+    const path = `${procBase(pid, tid)}/fd/${fd}`;
     try {
-      target = await reader.readlink(pid, tid, fd);
-    } catch (error) {
-      // One fd closed since the listing: skip it, never the whole process.
-      if (GONE.has(errnoOf(error))) continue;
-      throw new DiskReadError(errnoOf(error), `${procBase(pid, tid)}/fd/${fd}`, pid);
-    }
-    if (!target.endsWith(" (deleted)")) continue;
-    try {
+      if (!(await reader.readlink(pid, tid, fd)).endsWith(" (deleted)")) continue;
       const { device, inode, bytes } = await reader.size(pid, tid, fd);
       files.push({ pid, device, inode, bytes });
     } catch (error) {
-      if (GONE.has(errnoOf(error))) continue;
-      throw new DiskReadError(errnoOf(error), `${procBase(pid, tid)}/fd/${fd}`, pid);
+      const code = errnoOf(error);
+      if (GONE.has(code)) continue;
+      if (code !== "EACCES") throw new DiskReadError(code, path, pid, { cause: error });
+      await denied(reader, pid, tid, path);
+      return "exited";
     }
   }
   return files;
 }
 
-/** The deleted files `pid` maps (through a live task when `tid` is set); `capped` past the byte cap. */
+/** The deleted files `pid` maps; `capped`, and read no further, past `MAPS_CAP_BYTES`. */
 async function readMaps(
   reader: ProcReader,
   pid: number,
   tid: number | null,
 ): Promise<{ files: UnlinkedFile[]; capped: boolean }> {
-  let text: string;
+  const deleted: string[] = [];
+  const decoder = new StringDecoder("utf8");
+  let bytes = 0;
+  let partial = "";
   try {
-    text = await reader.maps(pid, tid);
+    for await (const chunk of reader.maps(pid, tid)) {
+      bytes += chunk.byteLength;
+      if (bytes > MAPS_CAP_BYTES) {
+        return { files: unlinkedMappings(pid, deleted.join("\n")), capped: true };
+      }
+      const lines = (partial + decoder.write(chunk)).split("\n");
+      partial = lines.pop() ?? "";
+      for (const line of lines) if (line.endsWith(" (deleted)")) deleted.push(line);
+    }
   } catch (error) {
-    // The process (or task) is gone: keep what its fds gave.
-    if (GONE.has(errnoOf(error))) return { files: [], capped: false };
-    throw new DiskReadError(errnoOf(error), `${procBase(pid, tid)}/maps`, pid);
+    const code = errnoOf(error);
+    if (GONE.has(code)) return { files: [], capped: false };
+    const path = `${procBase(pid, tid)}/maps`;
+    if (code !== "EACCES") throw new DiskReadError(code, path, pid, { cause: error });
+    await denied(reader, pid, tid, path);
+    return { files: [], capped: false };
   }
-  const capped = text.length > MAPS_CAP_BYTES;
-  return { files: unlinkedMappings(pid, capped ? text.slice(0, MAPS_CAP_BYTES) : text), capped };
+  deleted.push(partial + decoder.end());
+  return { files: unlinkedMappings(pid, deleted.join("\n")), capped: false };
 }
 
 /**
@@ -493,35 +568,34 @@ export type AdoptedFinder = (
   started: Map<number, number | null>,
 ) => Promise<number[]>;
 
-/** How a run's last disk read ended; `null` once a tick has acted on it. */
-type DiskOutcome = "ok" | "timeout" | "error" | null;
-
 interface Watched {
   root: number;
   folder: string;
   adopted: AdoptedFinder | undefined;
   use(use: ProgramUse): void;
   unmeasured(error: unknown): void;
-  /** The open bytes with no name, and the named folder bytes, when last read well; kept otherwise. */
+  adoptedPids: number[];
+  memory: number;
+  folderUse: number | "unknown";
+  /** The named folder bytes from its last walk, and the unlinked bytes from its last good read. */
+  named: number;
   unlinked: number;
-  lastNamed: number;
-  lastMemory: number;
-  /** When the current run of unreadable turns began (ms); null while the disk is readable. */
+  walking: boolean;
+  /** When its read of open files in flight began. */
+  readingSince: number | null;
+  /** How its last read ended, and when that read began, until a tick acts on it. */
+  ended: { ok: boolean; startedAt: number } | null;
+  failed: boolean;
+  /** When its disk became unknown, in the current run of unknown turns. */
   unknownSince: number | null;
-  /** The last read's end a tick hasn't acted on yet; a real error stops the run at once. */
-  outcome: DiskOutcome;
-  /** A read is in flight, and when it began, so an overdue one counts as unknown each tick. */
-  reading: boolean;
-  readStartedAt: number | null;
-  device: number | undefined;
-  deviceRead: boolean;
+  device: Promise<number | undefined> | undefined;
 }
 
 export interface Meters {
   meter(adopted?: AdoptedFinder): ProgramMeter;
-  /** Measures every watched program once, as each `WATCH_MS` does; its own disk reads run after. */
+  /** Measures every watched program once, as each `WATCH_MS` does; its slower reads run after. */
   tick(): Promise<void>;
-  /** Waits for the disk reads this tick's `tick` set going, so a test can read what they report. */
+  /** Waits for the reads `tick` set going, so a test can read what they report. */
   settle(): Promise<void>;
 }
 
@@ -529,46 +603,27 @@ export interface MetersOptions {
   command?: MeterCommand;
   platform?: NodeJS.Platform;
   folder?: (folder: string) => Promise<number>;
-  /** A test's `/proc`; the real one otherwise. */
   reader?: ProcReader;
-  /** A test's clock (fake timers); `Date.now` otherwise. */
   now?: () => number;
   /** False: only `tick` measures, as a test drives it. */
   interval?: boolean;
 }
 
-/** Past this, a disk read in flight counts as unknown for the turn (it isn't cancellable). */
+/** Past this, a read in flight leaves the disk unknown each tick (it isn't cancellable). */
 const DISK_DEADLINE_MS = COMMAND_MS;
 
-/** A run whose disk has stayed unreadable this long in a row is stopped (`disk-unmeasured`). */
+/** A run whose disk has stayed unknown for longer than this in a row is stopped. */
 export const UNKNOWN_DISK_MS = 10_000;
 
-/** How a read of the open files ended. */
-type DiskRead =
-  | { kind: "ok"; files: UnlinkedFile[]; capped: boolean }
-  | { kind: "timeout" }
-  | { kind: "error"; error: DiskReadError };
-
-async function classifyUnlinked(
-  read: Promise<{ files: UnlinkedFile[]; capped: boolean }>,
-): Promise<DiskRead> {
-  try {
-    const { files, capped } = await read;
-    return { kind: "ok", files, capped };
-  } catch (error) {
-    if (error instanceof DiskTimeout) return { kind: "timeout" };
-    if (error instanceof DiskReadError) return { kind: "error", error };
-    return { kind: "error", error: new DiskReadError(errnoOf(error), "?", 0) };
-  }
-}
-
 /**
- * Measures every program it watches each `WATCH_MS`. One listing of the computer's processes a
- * tick serves them all, and resident memory is judged from it before the slower disk reads, so one
- * run never waits on another's. Each run reads its own open files and walks its own folder on its
- * own; a read that errs stops that run at once (`disk-unmeasured`), a read that is slow leaves the
- * disk unknown for the turn, and a run whose disk stays unknown for more than `UNKNOWN_DISK_MS` in
- * a row is stopped. The clock is checked every tick, so a read that never returns still stops it.
+ * Measures every program it watches each `WATCH_MS`, from one listing of the computer's processes
+ * a tick, which judges resident memory before anything slower. Each run walks its folder and reads
+ * the files its processes hold open with no name, each with one read in flight. A read that fails
+ * stops that run at once (`disk-unmeasured`). One that is slow, past its 2 s deadline, leaves the
+ * disk unknown for that turn while every limit keeps running on what was last read; a run whose
+ * disk stays unknown for more than `UNKNOWN_DISK_MS` in a row is stopped. The clock is checked every
+ * tick, so a read that never returns stops its run too. On macOS one lsof reads every run's open
+ * files every other turn, and each run reads its own when that fails; on Linux each reads `/proc`.
  */
 export function createMeters(options: MetersOptions = {}): Meters {
   const command = options.command ?? runCommand;
@@ -577,124 +632,209 @@ export function createMeters(options: MetersOptions = {}): Meters {
   const reader = options.reader ?? procReader;
   const now = options.now ?? Date.now;
   const watched = new Set<Watched>();
-  /** Each pid's start time when a read first saw it, to tell a reused pid from a guarded one. */
-  const firstSeen = new Map<number, number>();
   let timer: ReturnType<typeof setInterval> | undefined;
   let ticking = false;
+  let refining = false;
   let turn = 0;
   let held = new Map<number, number>();
-  const reading = new Set<Promise<void>>();
+  const pending = new Set<Promise<void>>();
 
   const schedule = (work: Promise<void>) => {
-    reading.add(work);
-    void work.finally(() => reading.delete(work));
+    pending.add(work);
+    void work.finally(() => pending.delete(work));
   };
 
   const reportAll = (programs: readonly Watched[], error: unknown) => {
-    for (const each of programs) each.unmeasured(error);
+    for (const each of programs) if (watched.has(each)) each.unmeasured(error);
   };
 
-  /** Reads one run's open files and walks its folder; records how the read ended. */
-  async function account(each: Watched, pids: readonly number[]) {
+  const pidsOf = (each: Watched, listed: readonly ListedProcess[]) =>
+    programPids(listed, [each.root, ...each.adoptedPids]);
+
+  function walk(each: Watched) {
+    each.walking = true;
+    schedule(
+      sizeOf(each.folder)
+        .then(
+          (bytes) => {
+            each.named = bytes;
+          },
+          (error: unknown) => {
+            if (watched.has(each)) each.unmeasured(error);
+          },
+        )
+        .finally(() => {
+          each.walking = false;
+        }),
+    );
+  }
+
+  /** Records how a run's read of its open files ended; a failed one stops the run before it's told. */
+  async function settleRead(
+    each: Watched,
+    pids: readonly number[],
+    startedAt: number,
+    read: () => Promise<{ files: UnlinkedFile[]; capped: boolean }>,
+  ) {
+    let result: { files: UnlinkedFile[]; capped: boolean };
+    let device: number | undefined;
     try {
-      if (!each.deviceRead) {
-        each.device = await stat(each.folder).then(
-          (info) => info.dev,
-          () => undefined,
-        );
-        each.deviceRead = true;
+      each.device ??= stat(each.folder).then(
+        (info) => info.dev,
+        () => undefined,
+      );
+      device = await each.device;
+      result = await read();
+    } catch (error) {
+      each.readingSince = null;
+      if (!watched.has(each)) return;
+      if (error instanceof DiskTimeout) {
+        each.ended = { ok: false, startedAt };
+        return;
       }
-      if (pids.length > 0) {
-        const read = await classifyUnlinked(
-          readUnlinked(platform, command, pids, reader, firstSeen),
-        );
-        if (read.kind === "error") {
-          each.unmeasured(read.error);
-          each.outcome = "error";
-          return;
+      each.failed = true;
+      each.unmeasured(error);
+      return;
+    }
+    each.readingSince = null;
+    if (!watched.has(each)) return;
+    const bytes = heldBytes(result.files, new Set(pids), device);
+    each.unlinked = result.capped ? Math.max(each.unlinked, bytes) : bytes;
+    each.ended = { ok: !result.capped, startedAt };
+  }
+
+  async function readShared(batch: readonly { each: Watched; pids: number[] }[], at: number) {
+    let shared: UnlinkedFile[] | undefined;
+    let failure: unknown;
+    try {
+      shared = await macUnlinked(command, [...new Set(batch.flatMap(({ pids }) => pids))]);
+    } catch (error) {
+      failure = error;
+    }
+    await Promise.all(
+      batch.map(async ({ each, pids }) => {
+        await settleRead(each, pids, at, async () => ({
+          files: shared ?? (await macUnlinked(command, pids)),
+          capped: false,
+        }));
+        // A run whose own read failed reported that; the others hear why they read their own.
+        if (shared === undefined && !each.failed && watched.has(each)) {
+          each.unmeasured(
+            new Error("The open files of every run couldn't be read at once.", { cause: failure }),
+          );
         }
-        if (read.kind === "timeout") {
-          each.outcome = "timeout";
-          return;
-        }
-        each.unlinked = heldBytes(read.files, new Set(pids), each.device);
-        if (read.capped) {
-          each.outcome = "timeout";
-          return;
-        }
+      }),
+    );
+  }
+
+  function verdict(each: Watched, at: number, unknownTurn: boolean): number | "unknown" {
+    if (each.failed) return "unknown";
+    const ended = each.ended;
+    each.ended = null;
+    if (ended?.ok) {
+      // A read that began before the disk became unknown says nothing of it since.
+      if (each.unknownSince === null || ended.startedAt >= each.unknownSince) {
+        each.unknownSince = null;
       }
-      each.lastNamed = await sizeOf(each.folder);
-      each.outcome = "ok";
-    } finally {
-      each.reading = false;
-      each.readStartedAt = null;
+    } else if (ended) {
+      each.unknownSince ??= ended.startedAt;
+    }
+    if (each.readingSince !== null && at - each.readingSince > DISK_DEADLINE_MS) {
+      each.unknownSince ??= each.readingSince;
+    }
+    if (unknownTurn) each.unknownSince ??= at;
+    if (each.unknownSince !== null && at - each.unknownSince > UNKNOWN_DISK_MS) return "unknown";
+    return each.named + each.unlinked;
+  }
+
+  /** Reports each run's resident memory and folder, and starts the reads none has in flight. */
+  function report(
+    programs: readonly Watched[],
+    listing: { listed: ListedProcess[]; listedAt: number } | null,
+    unlinkedTurn: boolean,
+  ) {
+    const at = now();
+    const batch: { each: Watched; pids: number[] }[] = [];
+    for (const each of programs) {
+      if (!watched.has(each)) continue;
+      const pids = listing ? pidsOf(each, listing.listed) : [];
+      if (listing) each.memory = memoryOf(listing.listed, pids, held);
+      each.folderUse = verdict(each, at, listing === null);
+      each.use({ memory: each.memory, folder: each.folderUse });
+      if (each.folderUse === "unknown" || !watched.has(each)) continue;
+      if (!each.walking) walk(each);
+      if (listing && unlinkedTurn && each.readingSince === null) {
+        each.readingSince = at;
+        batch.push({ each, pids });
+      }
+    }
+    if (listing === null || batch.length === 0) return;
+    if (platform === "darwin") {
+      schedule(readShared(batch, at));
+      return;
+    }
+    for (const { each, pids } of batch) {
+      schedule(settleRead(each, pids, at, () => procUnlinked(reader, pids, listing.listedAt)));
     }
   }
 
-  /** From its last read and any overdue in-flight read, what this run's folder is this tick. */
-  function verdict(each: Watched, at: number): number | "unknown" {
-    const status =
-      each.outcome ??
-      (each.reading && each.readStartedAt !== null && at - each.readStartedAt > DISK_DEADLINE_MS
-        ? "timeout"
-        : "pending");
-    each.outcome = null;
-    if (status === "error") return "unknown";
-    if (status === "ok") each.unknownSince = null;
-    else if (status === "timeout") each.unknownSince ??= each.readStartedAt ?? at;
-    if (each.unknownSince !== null && at - each.unknownSince > UNKNOWN_DISK_MS) return "unknown";
-    return each.lastNamed + each.unlinked;
-  }
-
-  /** Reports every run's memory and folder this tick, and starts a fresh read where none is pending. */
-  function report(programs: readonly Watched[], pids: Map<Watched, number[]>) {
-    const at = now();
+  /**
+   * Tells each run's adopted processes and, on macOS on its turn, the footprints, then reports the
+   * memory they add: apart from the tick, so no lookup holds back any run's resident memory.
+   */
+  async function refine(
+    programs: readonly Watched[],
+    listed: readonly ListedProcess[],
+    footprintTurn: boolean,
+  ) {
+    const started = new Map<number, number | null>();
     for (const each of programs) {
-      const folder = verdict(each, at);
-      if (watched.has(each)) each.use({ memory: each.lastMemory, folder });
-      if (folder !== "unknown" && !each.reading) {
-        each.reading = true;
-        each.readStartedAt = at;
-        schedule(account(each, pids.get(each) ?? []));
+      if (!each.adopted || !watched.has(each)) continue;
+      try {
+        each.adoptedPids = await each.adopted(each.root, listed, started);
+      } catch (error) {
+        each.unmeasured(error);
       }
+    }
+    if (platform === "darwin" && footprintTurn) {
+      const all = [...new Set(programs.flatMap((each) => pidsOf(each, listed)))];
+      try {
+        held = await macFootprints(command, all);
+      } catch (error) {
+        held = new Map();
+        reportAll(programs, error);
+      }
+    }
+    for (const each of programs) {
+      const memory = memoryOf(listed, pidsOf(each, listed), held);
+      if (memory === each.memory || !watched.has(each)) continue;
+      each.memory = memory;
+      each.use({ memory, folder: each.folderUse });
     }
   }
 
   async function measure(programs: readonly Watched[]) {
-    // The open-file read runs every tick (so a failed one keeps the disk unknown, which a folder
-    // walk on an off tick must not reset); macOS footprints, which only refine memory, alternate.
-    const footprintTurn = turn++ % 2 === 0;
+    // macOS runs footprint and lsof, each a process of its own, on alternate turns.
+    const footprintTurn = turn % 2 === 0;
+    turn += 1;
     let listed: ListedProcess[];
+    let listedAt = 0;
     try {
       listed = readListing(await command("ps", LISTING_ARGS));
+      if (platform === "linux") listedAt = await reader.ticks();
     } catch (error) {
-      // No listing: memory can't be judged this tick; mark the turn unknown so a lasting failure
-      // fails closed, and report from the last memory.
+      report(programs, null, false);
       reportAll(programs, error);
-      for (const each of programs) each.outcome = "timeout";
-      report(programs, new Map());
       return;
     }
-    const started = new Map<number, number | null>();
-    const pids = new Map<Watched, number[]>();
-    for (const each of programs) {
-      const adopted = each.adopted
-        ? await each.adopted(each.root, listed, started).catch((error: unknown) => {
-            each.unmeasured(error);
-            return [];
-          })
-        : [];
-      pids.set(each, programPids(listed, [each.root, ...adopted]));
-    }
-    const all = [...new Set([...pids.values()].flat())];
-    if (platform === "darwin" && footprintTurn) {
-      held = await macFootprints(command, all).catch((error: unknown) => {
-        reportAll(programs, error);
-        return new Map<number, number>();
-      });
-    }
-    for (const each of programs) each.lastMemory = memoryOf(listed, pids.get(each) ?? [], held);
-    report(programs, pids);
+    report(programs, { listed, listedAt }, platform !== "darwin" || !footprintTurn);
+    if (refining) return;
+    refining = true;
+    schedule(
+      refine(programs, listed, footprintTurn).finally(() => {
+        refining = false;
+      }),
+    );
   }
 
   async function tick() {
@@ -713,7 +853,7 @@ export function createMeters(options: MetersOptions = {}): Meters {
   return {
     tick,
     settle: async () => {
-      await Promise.allSettled([...reading]);
+      await Promise.allSettled([...pending]);
     },
     meter: (adopted) => ({
       watch(root, folder, use, unmeasured) {
@@ -723,15 +863,17 @@ export function createMeters(options: MetersOptions = {}): Meters {
           adopted,
           use,
           unmeasured,
+          adoptedPids: [],
+          memory: 0,
+          folderUse: 0,
+          named: 0,
           unlinked: 0,
-          lastNamed: 0,
-          lastMemory: 0,
+          walking: false,
+          readingSince: null,
+          ended: null,
+          failed: false,
           unknownSince: null,
-          outcome: null,
-          reading: false,
-          readStartedAt: null,
           device: undefined,
-          deviceRead: false,
         };
         watched.add(each);
         if (options.interval !== false && timer === undefined) {
