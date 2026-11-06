@@ -1,11 +1,10 @@
 import { type MouseEvent, useEffect, useMemo, useState } from "react";
-import * as Y from "yjs";
 import { create } from "zustand";
 import type { Mind } from "../../core/api";
 import { isProcessing } from "../../shared/documentStatus";
 import { core } from "./core";
 import { isListedDocument } from "./meetingTranscript";
-import { type NoteReading, readNoteState } from "./noteState";
+import { homeReading, type NoteReading } from "./noteState";
 import { suggestedIds } from "./organizeOutcome";
 import { useSelection } from "./selection";
 import { type AppState, exampleMindIds, useAppStore } from "./store";
@@ -92,6 +91,7 @@ export function useMindNoteStates(
     state.status.kind === "ready" ? state.documents : null,
   );
   const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
+  const library = useAppStore((state) => state.library);
   const [saves, setSaves] = useState(0);
   const [states, setStates] = useState<ReadonlyMap<string, NoteReading>>(new Map());
   useEffect(() => {
@@ -119,28 +119,23 @@ export function useMindNoteStates(
       .readMindContents(ids)
       .then((snapshots) => {
         const found = new Map<string, NoteReading>();
-        for (const { mindId, state, cellFigures } of snapshots) {
-          const doc = new Y.Doc();
+        for (const snapshot of snapshots) {
           try {
-            Y.applyUpdate(doc, state);
             found.set(
-              mindId,
-              readNoteState({
-                doc,
-                cellFigures,
+              snapshot.mindId,
+              homeReading(snapshot, {
                 documents,
                 keptCitationTexts,
-                folderId: folders.get(mindId) ?? null,
+                library,
+                folderId: folders.get(snapshot.mindId) ?? null,
               }),
             );
           } catch (error) {
             // One Mind's content this version can't read must not blank every other row's state.
             console.warn(
-              `Couldn't read the state of Mind ${mindId}; its row shows the snippet.`,
+              `Couldn't read the state of Mind ${snapshot.mindId}; its row shows the snippet.`,
               error,
             );
-          } finally {
-            doc.destroy();
           }
         }
         if (current) setStates(found);
@@ -149,7 +144,7 @@ export function useMindNoteStates(
     return () => {
       current = false;
     };
-  }, [wanted, documents, keptCitationTexts, saves]);
+  }, [wanted, documents, keptCitationTexts, library, saves]);
   return states;
 }
 

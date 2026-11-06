@@ -196,6 +196,40 @@ describe("Every judge's and second request's prompt keeps its blocks (#2423)", (
     expect(prompt).toContain("&lt;/figures>");
   });
 
+  test("an Analysis figure's rule gives the judge its first runs of rows and how many rows", () => {
+    const [reading] = readFigures("The total is 9,450.");
+    if (!reading) throw new Error("No figure read.");
+    const rows = Array.from({ length: 2000 }, (_, index): [number, number] => [
+      index * 2 + 2,
+      index * 2 + 2,
+    ]);
+    const prompt = claimPrompt({
+      claim: "The total is 9,450.",
+      language: "en",
+      figures: [
+        {
+          id: "f1",
+          locator: {
+            kind: "text",
+            from: { blockId: "b1", offset: reading.start },
+            to: { blockId: "b1", offset: reading.end },
+          },
+          reading,
+          calculated: null,
+          analysisRecord: {
+            recalculated: true,
+            citations: [],
+            label: "Total amount",
+            of: { input: "orders", columns: ["amount"], rows, count: 2000, how: "sum" },
+          },
+        },
+      ],
+    });
+    expect(prompt).toContain("[40,40]]");
+    expect(prompt).not.toContain("[42,42]");
+    expect(prompt).toContain('"count":2000');
+  });
+
   test.each(breaking("passage"))("a batch's Passages and sentences: %s", (text) => {
     const prompt = batchPrompt([
       {

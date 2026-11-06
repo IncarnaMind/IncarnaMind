@@ -9,18 +9,22 @@
 
 import { getSchema } from "@tiptap/core";
 import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
   type CellFigurePlace,
   type KeptCitationText,
   MIND_CONTENT_FIELD,
+  type MindContentSnapshot,
   type UnreadFile,
 } from "../../core/api";
 import type { Language } from "../../core/language";
+import { liveVersions, tableShownIn } from "../../shared/analysisTables";
 import { allOrigins } from "../../shared/blockOrigins";
 import { citationState, type LiveDocument } from "../../shared/citations";
 import { checkSearchedNarrowerThanAll } from "../../shared/claimChecks";
 import { formatDateTime } from "../../shared/dates";
+import { keptBinding } from "../../shared/figureRuns";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { mindCheckOf } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
@@ -29,6 +33,7 @@ import { claimsOf, figurePlacesOf, type ShownClaim } from "./editor/claimChecks"
 import { type NoteHealth, noteHealth } from "./editor/healthCounts";
 import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
 import { opinionSentenceRanges } from "./editor/opinionLocations";
+import { keptInsideName } from "./walls";
 
 export type NoteStateKind = "not-checked" | "needs-look" | "checked";
 
@@ -61,6 +66,8 @@ export interface NoteState {
   checkable: number;
   /** Sentences whose check couldn't settle them, named after the time: something is left, not the whole Note. */
   cantCheck: number;
+  /** Sentences whose figure an Analysis gave and IncarnaMind didn't work out again, named after the time (#2378). */
+  notRecalculated: number;
   /** Sentences a change made since their check, named after the time while the rest holds. */
   needsCheck: number;
 }
@@ -87,6 +94,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     unreadMatters,
     checkable: health.checkable,
     cantCheck: 0,
+    notRecalculated: 0,
     needsCheck: 0,
   };
   if (health.contradicted.length > 0) {
@@ -115,7 +123,10 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
   if (health.toCheck.length > 0) {
     // A claim a check covered holds; what a check could not settle, or a change made need one,
     // is named beside it rather than turning the whole Note back to Not checked (#2313).
-    const settled = health.uncheckable.length + health.edited.length;
+    const settled =
+      health.uncheckable.length + health.edited.length + health.notRecalculated.length;
+    // A figure an Analysis gave that couldn't be worked out again is settled as well as it can be,
+    // but earns no ✓: only a verdict a check gave does (#2378).
     if (health.supported > 0 && settled === health.toCheck.length) {
       // A file a narrow check couldn't read could hold the evidence: the unread reading keeps the Note amber.
       if (unreadMatters) {
@@ -134,7 +145,24 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
         tone: "success",
         mark: "checked",
         cantCheck: health.uncheckable.length,
+        notRecalculated: health.notRecalculated.length,
         needsCheck: health.edited.length,
+      };
+    }
+    // Nothing to fix and nothing earned: the Note rests on what wasn't recalculated, never on ✓.
+    if (
+      health.notRecalculated.length > 0 &&
+      settled === health.toCheck.length &&
+      health.uncheckable.length + health.edited.length === 0 &&
+      !unreadMatters
+    ) {
+      return {
+        ...base,
+        kind: "not-checked",
+        look: 0,
+        tone: "neutral",
+        mark: "notChecked",
+        notRecalculated: health.notRecalculated.length,
       };
     }
     const mark: NoteStateMark = health.recheck.length > 0 ? "recheck" : "notChecked";
@@ -200,7 +228,17 @@ export function noteStateParts(
 ): readonly string[] {
   const count = (value: number) => new Intl.NumberFormat(language).format(value);
   const unread = noteStateShowsUnread(state) ? noteStateUnreadWords(state, t, language) : null;
-  if (state.kind === "not-checked") return [t("health.state.notChecked")];
+  if (state.kind === "not-checked")
+    return [
+      state.notRecalculated > 0
+        ? t(
+            state.notRecalculated === 1
+              ? "health.state.notRecalculated.one"
+              : "health.state.notRecalculated",
+            { count: count(state.notRecalculated) },
+          )
+        : t("health.state.notChecked"),
+    ];
   if (state.kind === "needs-look") {
     const parts: string[] = [];
     if (state.look > 0) {
@@ -224,6 +262,16 @@ export function noteStateParts(
           t(state.cantCheck === 1 ? "health.state.cantCheck.one" : "health.state.cantCheck", {
             count: count(state.cantCheck),
           }),
+        ]
+      : []),
+    ...(state.notRecalculated > 0
+      ? [
+          t(
+            state.notRecalculated === 1
+              ? "health.state.notRecalculated.one"
+              : "health.state.notRecalculated",
+            { count: count(state.notRecalculated) },
+          ),
         ]
       : []),
     ...(state.needsCheck > 0
@@ -265,6 +313,7 @@ export function readNoteState({
   documents,
   keptCitationTexts,
   folderId,
+  keptInside = null,
 }: {
   doc: Y.Doc;
   /** Where its table cells hold figures, as the core reads them (`MindContentSnapshot`). */
@@ -272,6 +321,8 @@ export function readNoteState({
   documents: readonly LiveDocument[] | null;
   keptCitationTexts: readonly KeptCitationText[];
   folderId: string | null;
+  /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
+  keptInside?: ((documentId: string) => string | null) | null;
 }): { health: NoteHealth; state: NoteState | null; filedAnswers: ReadonlySet<string> } {
   schema ??= getSchema(noteExtensions());
   const root = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(MIND_CONTENT_FIELD), schema);
@@ -283,6 +334,7 @@ export function readNoteState({
     folderId,
     scope: mindScopeOf(doc),
     figurePlaces: figurePlacesOf(cellFigures),
+    keptInside,
   });
   const health = noteHealth(root, {
     claims,
@@ -290,6 +342,9 @@ export function readNoteState({
     skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
     omitted: opinionSentenceRanges(root, doc),
     citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
+    tableShown: (table) =>
+      tableShownIn(doc, table.toJSON(), "en", liveVersions(documents), keptInside),
+    tableKept: (table) => keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
   });
   const requests = new Set(
     claims.map((claim) => claim.check.request).filter((request) => request !== ""),
@@ -310,4 +365,91 @@ export function readNoteState({
     state: noteStateOf(health, unread, narrowUnread),
     filedAnswers,
   };
+}
+
+/**
+ * What the green state leaves, in the badge's short form under 400 px: "1 file couldn't be read ·
+ * 1 figure not recalculated · …"; null when it leaves nothing.
+ */
+export function checkedCaveat(
+  state: NoteState,
+  t: Translate,
+  format: (value: number) => string,
+): string | null {
+  const parts = [
+    ...(state.cantCheck > 0
+      ? [
+          t(
+            state.cantCheck === 1
+              ? "health.state.cantCheck.short.one"
+              : "health.state.cantCheck.short",
+            { count: format(state.cantCheck) },
+          ),
+        ]
+      : []),
+    ...(state.notRecalculated > 0
+      ? [
+          t(
+            state.notRecalculated === 1
+              ? "health.state.notRecalculated.one"
+              : "health.state.notRecalculated",
+            { count: format(state.notRecalculated) },
+          ),
+        ]
+      : []),
+    ...(state.needsCheck > 0
+      ? [
+          t(
+            state.needsCheck === 1
+              ? "health.state.needsCheck.short.one"
+              : "health.state.needsCheck.short",
+            { count: format(state.needsCheck) },
+          ),
+        ]
+      : []),
+  ];
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Whether a line that reports the Note's state, as the export's does, has nothing to add: ✓ with nothing left. */
+export const nothingLeft = (state: NoteState | null): boolean =>
+  state === null ||
+  (state.kind === "checked" &&
+    state.unread === 0 &&
+    state.cantCheck === 0 &&
+    state.notRecalculated === 0 &&
+    state.needsCheck === 0);
+
+/**
+ * One Note's reading as Home's rows show it, from its stored content: behind a walled Folder the
+ * Note is outside, what a Document inside it backs counts for nothing (#2378).
+ */
+export function homeReading(
+  snapshot: Pick<MindContentSnapshot, "state" | "cellFigures">,
+  {
+    documents,
+    keptCitationTexts,
+    library,
+    folderId,
+  }: {
+    documents: Parameters<typeof readNoteState>[0]["documents"];
+    keptCitationTexts: Parameters<typeof readNoteState>[0]["keptCitationTexts"];
+    library: Parameters<typeof keptInsideName>[0];
+    folderId: string | null;
+  },
+): NoteReading {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, snapshot.state);
+    return readNoteState({
+      doc,
+      cellFigures: snapshot.cellFigures,
+      documents,
+      keptCitationTexts,
+      folderId,
+      keptInside: (documentId) => keptInsideName(library, documentId, folderId),
+    });
+  } finally {
+    doc.destroy();
+  }
 }

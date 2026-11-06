@@ -33,23 +33,28 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { rowsKey } from "../../../shared/analysis";
 import {
   type AnalysisTableMatch,
   analysisTableFor,
   analysisTablesOf,
+  boundTableFor,
+  countBoundTables,
+  holdsTableAgain,
+  keptAnalysisTables,
 } from "../../../shared/analysisTables";
 import { askedFor, translationRequested, whyItWaits } from "../../../shared/askedChanges";
 import { setOrigins, setOriginsOf } from "../../../shared/blockOrigins";
-import {
-  type ChartData,
-  chartFromTable,
-  gridOfTable,
-  readChart,
-  sameChartData,
-} from "../../../shared/charts";
+import { type ChartData, gridOfTable, readChart, redrawnData } from "../../../shared/charts";
 import { closeTitles } from "../../../shared/closeTitles";
 import { formatShortDate } from "../../../shared/dates";
 import { FIGURE_MARKER, type PlacedFigure } from "../../../shared/figureMarkers";
+import {
+  boundTablesIn,
+  figureRunsFor,
+  readTableBinding,
+  sameBinding,
+} from "../../../shared/figureRuns";
 import { translate } from "../../../shared/i18n";
 import { holdsNothing } from "../../../shared/madeMind";
 import { looksLikeTable } from "../../../shared/markdownTables";
@@ -81,6 +86,8 @@ import type { ContextCitations } from "../../answers/contextCitations";
 import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import { withoutPointersBack } from "../../answers/pointersBack";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  type AnalysisTableBinding,
   BLOCK_ID_ATTRIBUTE,
   type BlockOrigin,
   CHART_NODE,
@@ -304,6 +311,8 @@ export interface MindToolsOptions {
     searchTalk: number;
     /** The Analysis tables among its Blocks, so a chart of one draws the Analysis's own values (#2378). */
     analysisTables: readonly AnalysisTableMatch[];
+    /** The charts its content places with a marker ("[=chart 1]"), each its Analysis's kind and title. */
+    chartsPlaced?: readonly ChartAsked[];
   };
   /** A call changed a Mind: its card says so, as soon as it does, also while it writes. */
   changed(toolCallId: string, change: MindChange): void;
@@ -1479,6 +1488,73 @@ export function mindTools(options: MindToolsOptions): {
     return beside === null ? null : { text: beside, kind: "applied" };
   };
 
+  /**
+   * An Analysis's table written twice (#2378): given twice in `blocks`, as its marker and typed
+   * again, or again by a later call to a Note that holds it. Its name, and whether the Note holds
+   * it already; null when `blocks` give each table once.
+   */
+  const tableTwiceIn = (
+    mindId: string,
+    replaced: readonly string[],
+    blocks: readonly NodeJSON[],
+    tables: readonly AnalysisTableMatch[],
+  ): { caption: string; held: boolean } | null => {
+    const bound = blocks.flatMap((block) => {
+      const binding =
+        block.type === "table" ? readTableBinding(block.attrs?.[ANALYSIS_TABLE_ATTRIBUTE]) : null;
+      return binding ? [binding] : [];
+    });
+    const matchOf = (binding: AnalysisTableBinding) =>
+      tables.find((table) => sameBinding(table.binding, binding));
+    // One run's result and its chart can hold the same rows under two names: one table to the User.
+    const same = (one: AnalysisTableBinding, other: AnalysisTableBinding) => {
+      if (sameBinding(one, other)) return true;
+      const [a, b] = [matchOf(one), matchOf(other)];
+      return (
+        one.id === other.id &&
+        a !== undefined &&
+        b !== undefined &&
+        rowsKey(a.table.rows) === rowsKey(b.table.rows)
+      );
+    };
+    const typedAgain = (binding: AnalysisTableBinding) => {
+      const match = matchOf(binding);
+      return match !== undefined && blocks.some((block) => holdsTableAgain(block, match));
+    };
+    const named = (binding: AnalysisTableBinding) => matchOf(binding)?.label.trim() || binding.id;
+    const twice = bound.find(
+      (binding, at) =>
+        bound.slice(0, at).some((each) => same(each, binding)) || typedAgain(binding),
+    );
+    if (twice) return { caption: named(twice), held: false };
+    // What this call wrote as its content streamed in, or writes over, is this same table.
+    const own = new Set(replaced);
+    const held = minds.read(mindId, (note) =>
+      boundTablesIn(
+        topLevelBlocks(note)
+          .filter((each) => !own.has(idOf(each)))
+          .map(nodeOf),
+      ),
+    );
+    const again = held.find(
+      (binding) => bound.some((each) => same(each, binding)) || typedAgain(binding),
+    );
+    return again ? { caption: named(again), held: true } : null;
+  };
+
+  const tableTwice = (
+    mind: ChangeableMind,
+    { caption, held }: { caption: string; held: boolean },
+    unmade: string | null,
+    again: string,
+  ) =>
+    new Refusal(
+      { kind: "copy", mindId: mind.id, text: caption },
+      held
+        ? `Nothing was added to “${mind.name}”: it holds this Analysis's table, “${caption}”, already. Write each table once; to chart it, call add_to_mind with chart and content empty.`
+        : `${unmade ?? `Nothing was added to “${mind.name}”`}: content gives this Analysis's table, “${caption}”, twice. Write each table once: its marker, [=table n], gives it with its Citations, so leave out the table typed again with its figures, and ${again} with the rest.`,
+    );
+
   const repeatRefusal = (mind: ChangeableMind, repeat: Repeat) => {
     const shown = repeat.text.length > 80 ? `${repeat.text.slice(0, 80)}…` : repeat.text;
     return new Refusal(
@@ -1594,12 +1670,18 @@ export function mindTools(options: MindToolsOptions): {
 
   type Content = ReturnType<MindToolsOptions["blocksOf"]>;
 
+  /** The last Answer's Analyses, whose tables its blocks, and a later write, may hold. */
+  const lastRuns = () => {
+    const last = options.lastAnswer?.answer;
+    return (last?.analyses ?? []).map((analysis) => ({ answerId: last?.id ?? "", analysis }));
+  };
+
   const answerContent = (blocks: NodeJSON[]): Content => {
     const citations = blocks.flatMap(citationNodesIn);
     const notFound = citations.filter((node) => node.attrs?.check === "not-found").length;
     return {
       blocks,
-      cited: citations.length,
+      cited: citations.length + countBoundTables(blocks),
       notFound,
       unrecorded: 0,
       firstUnrecorded: -1,
@@ -1608,7 +1690,7 @@ export function mindTools(options: MindToolsOptions): {
       unlinkedSources: 0,
       extraCells: 0,
       searchTalk: 0,
-      analysisTables: analysisTablesOf(options.lastAnswer?.answer.analyses ?? []),
+      analysisTables: analysisTablesOf(lastRuns()),
     };
   };
 
@@ -1683,7 +1765,7 @@ export function mindTools(options: MindToolsOptions): {
     given: string | NonNullable<MindToolsOptions["lastAnswer"]>,
     made: boolean,
     retry: boolean,
-    chart: ChartAsked | null = null,
+    chartGiven: ChartAsked | null = null,
   ): (Written & { change: MindChange; charted: string | null }) | null => {
     const stream = streams.get(toolCallId);
     streams.delete(toolCallId);
@@ -1692,7 +1774,18 @@ export function mindTools(options: MindToolsOptions): {
     const markdown = typeof given === "string" ? alone.markdown : null;
     const content =
       typeof given === "string" ? options.blocksOf(alone.markdown) : answerContent(given.blocks);
-    const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, ...notes } = content;
+    const {
+      blocks,
+      cited,
+      notFound,
+      unrecorded,
+      searchTalk,
+      analysisTables,
+      chartsPlaced,
+      ...notes
+    } = content;
+    // Each chart's marker asks for its chart, beneath its table, as `chart` does (#2378).
+    const charts = chartGiven ? [chartGiven] : [...(chartsPlaced ?? [])];
     let writer = stream?.writer ?? null;
     const unmade = blocks.some(unmadeTable);
     const again = made ? "call create_mind again" : "call add_to_mind again";
@@ -1718,18 +1811,26 @@ export function mindTools(options: MindToolsOptions): {
     writer ??= writerFor(mind, after, made);
     if (typeof given !== "string") writer.origin = given.origin;
     const copy = stream?.copy ?? repeatIn(writer, blocks);
-    if (copy !== null) {
+    const twice =
+      copy === null ? tableTwiceIn(writer.mind.id, writer.ids, blocks, analysisTables) : null;
+    if (copy !== null || twice !== null) {
       withdraw(writer);
       minds.writing(writer.mind.id, null);
-      throw repeatRefusal(mind, copy);
+      if (copy !== null) throw repeatRefusal(mind, copy);
+      if (twice) throw tableTwice(mind, twice, made ? `“${mind.name}” wasn't made` : null, again);
     }
     writeMore(writer, blocks);
     minds.writing(writer.mind.id, null);
     logPointersLeft(alone.left, writer.mind.id, toolCallId);
     // A chart drawn before `cite` records its table's markers would draw values with no Citation.
-    const later = chart !== null && unrecorded > 0 && markdown !== null;
-    const drawn =
-      chart && !later ? drawChart(writer, blocks, chart, markdown, analysisTables) : null;
+    const later = charts.length > 0 && unrecorded > 0 && markdown !== null;
+    const drawAll = (settled: readonly NodeJSON[]) => {
+      const results = charts.map((chart) =>
+        drawChart(writer, settled, chart, markdown, analysisTables),
+      );
+      return results.find((each) => each.problem) ?? results[0] ?? null;
+    };
+    const drawn = later ? null : drawAll(blocks);
     // Markers `cite` may still record in this step count as left out only once the Run is done.
     const change = {
       ...changeOf(writer, made),
@@ -1746,10 +1847,7 @@ export function mindTools(options: MindToolsOptions): {
         markdown,
         change: () => changeOf(writer, made),
         sent: change,
-        chart:
-          later && chart
-            ? (settled) => drawChart(writer, settled, chart, markdown, analysisTables)
-            : null,
+        chart: later ? (settled) => drawAll(settled) ?? { said: "" } : null,
       });
     }
     const charted = later
@@ -1774,7 +1872,14 @@ export function mindTools(options: MindToolsOptions): {
     markdown: string | null,
     analysisTables: readonly AnalysisTableMatch[],
   ): { said: string; problem?: ChartProblem } => {
-    const at = blocks.findLastIndex((block) => block.type === "table");
+    // A chart's marker charts the rows its Analysis drew: the table that holds them, wherever it is.
+    const rows = asked.rows ? rowsKey(asked.rows) : null;
+    const at = rows
+      ? blocks.findIndex((block) => {
+          const bound = boundTableFor(block, analysisTables);
+          return bound !== null && rowsKey(bound.table.rows) === rows;
+        })
+      : blocks.findLastIndex((block) => block.type === "table");
     const table = blocks[at];
     const tableId = writer.ids[at];
     // A later call of the Answer may have revised the table away before `cite` recorded its markers.
@@ -1818,7 +1923,13 @@ export function mindTools(options: MindToolsOptions): {
       const picked =
         tables.find((each) => selected.has(idOf(each))) ??
         (tables.length === 1 ? tables[0] : undefined);
-      return { picked: picked ? { id: idOf(picked), node: nodeOf(picked) } : null, tables };
+      const node = picked ? nodeOf(picked) : null;
+      // A table the Note holds as an Analysis's own is read from the run the Note keeps of it.
+      const kept = node && note.doc ? keptAnalysisTables(figureRunsFor(note.doc, [node])) : [];
+      return {
+        picked: picked && node ? { id: idOf(picked), node, kept: boundTableFor(node, kept) } : null,
+        tables,
+      };
     });
     if (!table.picked) {
       const several = table.tables.length > 1;
@@ -1827,14 +1938,13 @@ export function mindTools(options: MindToolsOptions): {
         `No chart was drawn: “${mind.name}” has ${several ? "more than one table, and the User's cursor is in none" : "no table"}. Say so, and ask them to put the cursor in the table to chart.`,
       );
     }
-    const analyses = options.lastAnswer?.answer.analyses ?? [];
     const drawn = chartOfTable(
       table.picked.node,
       table.picked.id,
       asked,
       options.language,
       null,
-      analysisTableFor(table.picked.node, analysisTablesOf(analyses)),
+      table.picked.kept ?? analysisTableFor(table.picked.node, analysisTablesOf(lastRuns())),
     );
     if ("problem" in drawn) {
       throw new Refusal({ kind: "no-chart", mindId: mind.id, problem: drawn.problem }, drawn.why);
@@ -1861,19 +1971,10 @@ export function mindTools(options: MindToolsOptions): {
           continue;
         }
         const table = blocks.find((each) => idOf(each) === source.blockId);
-        const fresh =
-          table &&
-          chartFromTable(gridOfTable(nodeOf(table)), {
-            blockId: source.blockId,
-            title: chart.title,
-            language: options.language,
-          });
-        if (fresh && !sameChartData(fresh.data, chart.data)) {
-          (element as unknown as Y.XmlElement<{ data: ChartData }>).setAttribute(
-            "data",
-            fresh.data,
-          );
-        }
+        // As an Update draws it: an Analysis's values and inputs stay with cells that still read them.
+        const data = table && redrawnData(gridOfTable(nodeOf(table)), chart, options.language);
+        if (data)
+          (element as unknown as Y.XmlElement<{ data: ChartData }>).setAttribute("data", data);
       }
     });
 
@@ -2148,6 +2249,8 @@ export function mindTools(options: MindToolsOptions): {
     const newText = remade ? alone.markdown : null;
     const uncited = uncitedIn(mind, content, again, { answer: false, retry, markdown: newText });
     if (uncited) throw uncited;
+    const twice = tableTwiceIn(mind.id, over.blockIds, blocks, analysisTables);
+    if (twice) throw tableTwice(mind, twice, `Nothing was changed in “${mind.name}”`, again);
     const dropped = minds.read(mind.id, (note) => citationsDropped(note, over, blocks));
     const replaced = over.kind === "own" ? replacedOwn(mind.id, over.blockIds) : {};
     const request = randomUUID();
@@ -2749,7 +2852,12 @@ export function mindTools(options: MindToolsOptions): {
           chartAsked(input.chart),
         );
       } catch (error) {
-        if (error instanceof Refusal && error.problem.kind === "uncited") minds.discard(mind.id);
+        // A new Note whose content was refused is empty: the call made again makes it again.
+        if (
+          error instanceof Refusal &&
+          (error.problem.kind === "uncited" || error.problem.kind === "copy")
+        )
+          minds.discard(mind.id);
         throw error;
       }
       if (!written) {
