@@ -150,7 +150,8 @@ export function useSorting() {
     loading: read.state === "loading",
     read,
     library,
-    jevSetUp: offersJevSetUp(jev, localMode),
+    // With the rest of the list, once it is read: the picker waits for both.
+    jevSetUp: read.state === "ready" && offersJevSetUp(jev, localMode),
     jevSettings,
     /** Reads the list again, once Jev is set up in place and chosen (#2615). */
     reread: () => setRereads((count) => count + 1),
