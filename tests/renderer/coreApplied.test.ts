@@ -15,6 +15,7 @@ import {
   type LayoutChange,
   MIND_CONTENT_FIELD,
   PROPOSAL_ATTRIBUTE,
+  type TabItem,
   type WindowLayout,
 } from "../../src/core/api";
 import { arrivingInMind } from "../../src/renderer/src/arrivingChanges";
@@ -598,6 +599,185 @@ test("a background edit doesn't hold regeneration for its inactive editor", asyn
   await eventually(() => (undoCalls === 1 ? true : null));
   await making;
   doc.destroy();
+});
+
+/** A window showing `item` in its focused group, with `beside` in a group on its right. */
+function layoutShowing(item: TabItem, beside?: TabItem): WindowLayout {
+  const tab = (id: string, item: TabItem) => ({
+    id,
+    item,
+    preview: false,
+    pinned: false,
+    place: null,
+    opened: 0,
+  });
+  return {
+    groups: [
+      {
+        id: "group",
+        tabs: [tab("front", item)],
+        activeTabId: "front",
+        width: beside ? 0.5 : 1,
+      },
+      ...(beside
+        ? [{ id: "beside", tabs: [tab("side", beside)], activeTabId: "side", width: 0.5 }]
+        : []),
+    ],
+    focusedGroupId: "group",
+    reopenable: 0,
+    conversationId: null,
+    assistant: DEFAULT_ASSISTANT,
+  };
+}
+
+/** An Answer that only makes one Note, with no change beside it. */
+function conversationWithOnlyMade(
+  application: AskedChangeApplication,
+  mindId: string,
+): ConversationAnswer {
+  const answer = conversationWithChange(application);
+  answer.toolCalls = [
+    {
+      id: `made-call-${mindId}`,
+      tool: "create_mind",
+      source: "minds",
+      input: {},
+      status: "done",
+      resultCount: null,
+      mindChange: {
+        mindId,
+        created: true,
+        request: "made-request",
+        proposals: 1,
+        paragraphs: 1,
+      },
+    },
+  ];
+  return answer;
+}
+
+type OpenChange = Extract<LayoutChange, { type: "open" }>;
+
+const openedMade = (opens: LayoutChange[], mindId: string): OpenChange | null =>
+  opens.find(
+    (change): change is OpenChange =>
+      change.type === "open" && change.item.kind === "mind" && change.item.mindId === mindId,
+  ) ?? null;
+
+const askedAs = (answer: ConversationAnswer): ConversationAskResult => ({
+  asked: true,
+  conversation: {
+    id: answer.conversationId,
+    title: "",
+    autoTitle: "Make a note",
+    folderId: null,
+    askedFrom: [],
+    createdAt: answer.createdAt,
+    updatedAt: answer.updatedAt,
+  },
+  questionId: answer.questionId,
+  answerId: answer.id,
+});
+
+/** A Question asked with Library in front beside a Note the assistant reads. */
+async function askFromLibrary(madeId: string) {
+  const { application } = applicationWithChange(false);
+  const opens: LayoutChange[] = [];
+  const shown = layoutShowing({ kind: "library" }, { kind: "mind", mindId: "overview" });
+  const editors = new Set<string>();
+  /** The tab opening mounts its editor, which the application then waits for. */
+  const mount = (mindId: string) => {
+    if (editors.has(mindId)) return;
+    editors.add(mindId);
+    const editor = editorWith(new Y.Doc());
+    onTestFinished(registerMindEditor(mindId, editor));
+  };
+  mountDom(
+    {
+      undoAskedChanges: async () => null,
+      redoAskedChanges: async () => null,
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async () => application,
+      layout: async (change) => {
+        opens.push(change);
+        if (change.type === "open" && change.item.kind === "mind") mount(change.item.mindId);
+        return shown;
+      },
+    },
+  );
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  useAppStore.setState({ layout: shown });
+  const answer = conversationWithOnlyMade(application, madeId);
+  activeAsk = async () => askedAs(answer);
+  const { askInAssistant } = await import("../../src/renderer/src/conversations");
+  await askInAssistant({ text: "Make a note about the tides.", mindId: "overview" });
+  const show = (item: TabItem) => useAppStore.setState({ layout: layoutShowing(item) });
+  return { answer, opens, show };
+}
+
+// Value: protects=the place a Question was asked is the tab in front, not the Note the assistant reads; fails_when=Library beside a Note records the Note and flips the made Note's placement; why_new=#2572 review found split groups; seam=askInAssistant with Library in front beside Overview; no_claim=how the core reads the Note.
+test("a Question asked from Library beside a Note comes back to Library when the Note is made (#2572)", async () => {
+  const { answer, opens } = await askFromLibrary("made-from-library");
+  emitConversation(answer);
+
+  const open = await eventually(() => openedMade(opens, "made-from-library"));
+  expect(open.behind).toBe(false);
+  const { useAskedChanges } = await import("../../src/renderer/src/askedChanges");
+  await eventually(() => (useAskedChanges.getState().arriving.has(answer.id) ? null : true));
+});
+
+// Value: protects=going elsewhere is measured from the tab that was in front, not the Note the assistant reads; fails_when=selecting that Note while the Answer runs lets the made Note take focus; why_new=#2572 review found the same origin bug; seam=the User selecting Overview after asking from Library; no_claim=the answer's own line.
+test("a Question asked from Library is left behind when the User selects the Note the assistant reads (#2572)", async () => {
+  const { answer, opens, show } = await askFromLibrary("made-left-behind");
+  show({ kind: "mind", mindId: "overview" });
+  emitConversation(answer);
+
+  const open = await eventually(() => openedMade(opens, "made-left-behind"));
+  expect(open.behind).toBe(true);
+});
+
+// Value: protects=a moved User keeps the Note in front while the core writes a made Note; fails_when=placement is decided before the core's reply; why_new=#2572 review held the reply and switched Notes; seam=held core application, then another Note in front; no_claim=the open failing.
+test("a made Note stays behind when the User moves while the core writes it (#2572)", async () => {
+  const { application } = applicationWithChange(false);
+  const writing = Promise.withResolvers<AskedChangeApplication | null>();
+  const opens: LayoutChange[] = [];
+  const shown = layoutShowing({ kind: "mind", mindId: "overview" });
+  let applied = 0;
+  mountDom(
+    {
+      undoAskedChanges: async () => null,
+      redoAskedChanges: async () => null,
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: (input) => {
+        if (input.mindId !== "made-held") return Promise.resolve(null);
+        applied += 1;
+        return writing.promise;
+      },
+      layout: async (change) => {
+        opens.push(change);
+        return shown;
+      },
+    },
+  );
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  useAppStore.setState({ layout: shown });
+  const { applyWhatWasAsked } = await import("../../src/renderer/src/askedChanges");
+  const answer = conversationWithOnlyMade(application, "made-held");
+  await applyWhatWasAsked(answer.id, {
+    askedFromItem: { kind: "mind", mindId: "overview" },
+  });
+  emitConversation(answer);
+  await eventually(() => (applied > 0 ? true : null));
+
+  useAppStore.setState({ layout: layoutShowing({ kind: "mind", mindId: "other" }) });
+  writing.resolve(application);
+
+  const open = await eventually(() => openedMade(opens, "made-held"));
+  expect(open.behind).toBe(true);
 });
 
 // Value: protects=an editor activated during core apply gets Review and Undo immediately; fails_when=the background return misses its earlier open event; why_new=review found the activation race; seam=editor registration inside the core response; no_claim=inactive recovery (covered separately)
