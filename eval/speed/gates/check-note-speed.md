@@ -94,3 +94,9 @@ The runs were made at ebd66de0d (twelve) against 7cb76c42a (six), in the order a
 - **DeepSeek V4.1 Flash 1017 (`deepseek-flash`), one run per arm, reported only:** first verdict 5.8 → 4.4 s (timing, en), 5.1 → 5.7 s (timing, zh-CN), 7.8 → 7.5 s (mixed, en), 7.3 → 6.4 s (mixed, zh-CN); end 13.0 → 10.6, 9.6 → 9.2, 17.5 → 13.3 and 16.5 → 12.5 s; judged right 37 of 40 on both arms, one false Supported on each arm: English sentence 5 on six's (timing Library), Chinese sentence 3 on twelve's (mixed Library). $0.07.
 
 The write, Verify and the background watch keep six: the write's failing cell in `check-speed-twelve.md` has a cause of its own, twelve requests to the key at once, and wasn't run here.
+
+## Not checked at the head, 2026-11-06: the rule, written before its rerun
+
+A check of the head (a9bc9b0bc, twelve, against 7cb76c42a, six; Claude Haiku 5.5, three runs per arm) gave not checked 2 → 7, past the bar's 6, where gate B gave 7 → 1. In its saved records none of the 7, and not gate B's 1, has a failed request, a stopped or restarted check, or a second look at the judge's reply: each check ran its requests to the end and gave Not checked itself. The records keep what a mark shows, not why, so the report now gives a Not checked mark's reason, and the head's two arms are run once more, alternating as above, to name each.
+
+**Rule:** if every Not checked is the model's own reply (malformed, empty or no evidence), and they fall on both arms in about the same number, that is the model's behaviour, not twelve's: twelve ships, with the pooled count on each arm (Haiku, gates B and the head: 8 of 240 on six, 8 of 240 on twelve) and the reasons in a dated note. If one reason shows up only at twelve, twelve waits.
