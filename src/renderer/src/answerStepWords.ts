@@ -61,12 +61,36 @@ export function sourcesText(t: Translate, count: number): string {
 /**
  * The Documents read with the Question: “{Document}” for one (a deleted one
  * has no name), else how many; after the Mind's line `read` when it was read too.
+ * The examples' are counted apart, as example Documents, so the count of the
+ * User's own agrees with their Library.
  */
 export function documentsReadText(
   t: Translate,
   documents: readonly ReadDocument[],
   nameOf: (document: ReadDocument) => string | null,
   read: string | null = null,
+  isExample: (document: ReadDocument) => boolean = () => false,
+): string {
+  const examples = documents.filter(isExample);
+  if (examples.length === 0) return ownDocumentsReadText(t, documents, nameOf, read);
+  const own = documents.filter((document) => !isExample(document));
+  const before = own.length === 0 ? read : ownDocumentsReadText(t, own, nameOf, read);
+  const count = examples.length;
+  if (before === null) {
+    return count === 1
+      ? t("steps.readDocuments.examples.only.one")
+      : t("steps.readDocuments.examples.only", { count });
+  }
+  return count === 1
+    ? t("steps.readDocuments.examples.one", { read: before })
+    : t("steps.readDocuments.examples", { read: before, count });
+}
+
+function ownDocumentsReadText(
+  t: Translate,
+  documents: readonly ReadDocument[],
+  nameOf: (document: ReadDocument) => string | null,
+  read: string | null,
 ): string {
   const [first] = documents;
   const document = documents.length === 1 && first ? nameOf(first) : null;
@@ -91,6 +115,8 @@ export interface FoldedWords {
   modelOf(modelId: string): string;
   /** A Document's name as it is now; null when it can't be found. */
   documentOf(document: ReadDocument): string | null;
+  /** Whether a Document is one of the examples': absent, none is. */
+  isExample?(document: ReadDocument): boolean;
   /** Where the Mind's name goes, to split the line around it. */
   mindName?: string;
 }
@@ -123,6 +149,7 @@ export function foldedWords(t: Translate, line: FoldedLine, words: FoldedWords):
         line.documents,
         words.documentOf,
         line.read && mindStepText(t, line.read, words.mindName),
+        words.isExample,
       );
     case "read":
     case "asked":

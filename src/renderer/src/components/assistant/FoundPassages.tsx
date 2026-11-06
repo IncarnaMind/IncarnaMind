@@ -1,6 +1,7 @@
 import type { PassageSearchResult } from "../../../../core/api";
 import { citationLocation, formatLocation } from "../../../../shared/locations";
 import { useT } from "../../i18n";
+import { useIsExampleDocument } from "../../ownDocuments";
 import { useAppStore } from "../../store";
 
 /**
@@ -21,6 +22,7 @@ export function FoundPassages({
 }) {
   const t = useT();
   const openDocument = useAppStore((state) => state.openDocument);
+  const isExample = useIsExampleDocument();
   if (failed) return null;
   if (passages.length === 0 && !emptyNote) return null;
   return (
@@ -66,6 +68,9 @@ export function FoundPassages({
                   >
                     {passage.documentName}
                     {where && <span data-testid="found-passage-where"> · {where}</span>}
+                    {isExample(passage.documentId) && (
+                      <span data-testid="found-passage-example"> · {t("examples.chip")}</span>
+                    )}
                   </span>
                   <span
                     data-testid="found-passage-text"

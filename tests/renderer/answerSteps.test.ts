@@ -13,6 +13,7 @@ import {
   checkedWords,
   checkingWords,
   documentReadText,
+  documentsReadText,
   foldedWords,
 } from "../../src/renderer/src/answerStepWords";
 import { translate } from "../../src/shared/i18n";
@@ -741,24 +742,34 @@ describe("where an Answer found what it says", () => {
   const NDA = { documentId: "nda", name: null };
   const LEASE_READ = { documentId: "lease", name: "租赁合同-2026" };
   const sentWhole = (...documents: string[]) => ({ ...STEPS, sent: { documents } });
-  const words = (line: ReturnType<typeof foldedLine>, names: Record<string, string> = {}) =>
+  const words = (
+    line: ReturnType<typeof foldedLine>,
+    names: Record<string, string> = {},
+    examples: readonly string[] = [],
+  ) =>
     line &&
     foldedWords(en, line, {
       scope: () => "All Documents",
       modelOf: (id) => id,
       documentOf: (document) => names[document.documentId] ?? document.name,
+      isExample: (document) => examples.includes(document.documentId),
     });
   const unsearched = (extra: Partial<StepsInput["answer"]> = {}, more: Partial<StepsInput> = {}) =>
     input(
       { text: "月租金 4,800 元 [^1]。押金 9,600 元 [^2]。", citations: [LEASE, RENT], ...extra },
       more,
     );
-  const wordsZh = (line: ReturnType<typeof foldedLine>, names: Record<string, string> = {}) =>
+  const wordsZh = (
+    line: ReturnType<typeof foldedLine>,
+    names: Record<string, string> = {},
+    examples: readonly string[] = [],
+  ) =>
     line &&
     foldedWords(zh, line, {
       scope: () => "全部文档",
       modelOf: (id) => id,
       documentOf: (document) => names[document.documentId] ?? document.name,
+      isExample: (document) => examples.includes(document.documentId),
     });
 
   // protects=three short Documents sent whole, of which the model cites only the lease, a Mind open beside them: the line names the Mind and all three Documents, and the timeline has a row for the three with the lease's places under it; fails_when=the other two are left out, or the line names only the lease; no_claim=that they were sent, which tests/core/answerSources.test.ts holds.
@@ -843,6 +854,84 @@ describe("where an Answer found what it says", () => {
       input({ read: { ...READ, deleted: true }, steps: sentWhole("lease") }, { askedFrom: MIND }),
     );
     expect(words(gone, library)).toBe("Read a deleted note and “租赁合同-2026”");
+  });
+
+  // protects=asked from an example's own Note after the User added two Documents, the line counts their two as Documents and the example's two as example Documents, so the count agrees with the Library's 2 and the example's are still said to have been read; fails_when=the four are counted as 4 Documents, the User's two go unnamed, or the example's two are left out of the line; no_claim=which Documents a Question reads, which tests/core/exampleDocumentsRead.test.ts holds.
+  describe("beside an example's Note, the User's Documents and the example's are told apart", () => {
+    const EXAMPLE_MIND: AskedFrom = {
+      mindId: "m-example",
+      name: "Draft: credit committee paper",
+      deleted: false,
+    };
+    const EXAMPLE_ZH: AskedFrom = {
+      mindId: "m-example",
+      name: "授信委员会报告（草稿）",
+      deleted: false,
+    };
+    const read = (mind: AskedFrom) => ({ ...mind, version: "v1", partial: false });
+    const sent = (mind: AskedFrom, ...documents: string[]) =>
+      foldedLine(input({ read: read(mind), steps: sentWhole(...documents) }, { askedFrom: mind }));
+    const NAMES = {
+      lease: "Harbour lease",
+      insurance: "Contents insurance",
+      facility: "Senior facilities agreement",
+      results: "Q3 results",
+    };
+    const EXAMPLES = ["facility", "results"];
+
+    test("two of the User's own and two of the example's", () => {
+      const line = sent(EXAMPLE_MIND, "lease", "insurance", "facility", "results");
+      expect(words(line, NAMES, EXAMPLES)).toBe(
+        "Read “Draft: credit committee paper” and 2 Documents, plus 2 example Documents",
+      );
+      expect(
+        wordsZh(sent(EXAMPLE_ZH, "lease", "insurance", "facility", "results"), NAMES, EXAMPLES),
+      ).toBe("读了“授信委员会报告（草稿）”，还读了 2 个文档，外加 2 个示例文档");
+      // The same four, none of them an example's: they are all the User's.
+      expect(words(line, NAMES)).toBe("Read “Draft: credit committee paper” and 4 Documents");
+    });
+
+    test("one of the User's own is named, and one of the example's is counted", () => {
+      const line = sent(EXAMPLE_MIND, "lease", "facility");
+      expect(words(line, NAMES, EXAMPLES)).toBe(
+        "Read “Draft: credit committee paper” and “Harbour lease”, plus 1 example Document",
+      );
+      expect(wordsZh(sent(EXAMPLE_ZH, "lease", "facility"), NAMES, EXAMPLES)).toBe(
+        "读了“授信委员会报告（草稿）”，还读了“Harbour lease”，外加 1 个示例文档",
+      );
+    });
+
+    test("none of the User's own yet: only the example's are read, and the line says so", () => {
+      const line = sent(EXAMPLE_MIND, "facility", "results");
+      expect(words(line, NAMES, EXAMPLES)).toBe(
+        "Read “Draft: credit committee paper”, plus 2 example Documents",
+      );
+      expect(wordsZh(sent(EXAMPLE_ZH, "facility", "results"), NAMES, EXAMPLES)).toBe(
+        "读了“授信委员会报告（草稿）”，外加 2 个示例文档",
+      );
+      const alone = foldedLine(input({ steps: sentWhole("facility", "results") }));
+      expect(words(alone, NAMES, EXAMPLES)).toBe("Read 2 example Documents");
+      expect(wordsZh(alone, NAMES, EXAMPLES)).toBe("读了 2 个示例文档");
+      const one = foldedLine(input({ steps: sentWhole("facility") }));
+      expect(words(one, NAMES, EXAMPLES)).toBe("Read 1 example Document");
+      expect(wordsZh(one, NAMES, EXAMPLES)).toBe("读了 1 个示例文档");
+    });
+
+    test("the timeline's row says the same", () => {
+      const steps = input({ steps: sentWhole("lease", "insurance", "facility", "results") });
+      const row = stepRows(steps).find((each) => each.kind === "read-documents");
+      if (row?.kind !== "read-documents") throw new Error("The timeline has no row of Documents.");
+      const nameOf = (document: { documentId: string }) =>
+        NAMES[document.documentId as keyof typeof NAMES] ?? null;
+      const isExample = (document: { documentId: string }) =>
+        EXAMPLES.includes(document.documentId);
+      expect(documentsReadText(en, row.documents, nameOf, null, isExample)).toBe(
+        "Read 2 Documents, plus 2 example Documents",
+      );
+      expect(documentsReadText(zh, row.documents, nameOf, null, isExample)).toBe(
+        "读了 2 个文档，外加 2 个示例文档",
+      );
+    });
   });
 
   // protects=a long scope sends nothing whole, so an Answer that searches says it searched and counts its sources, with no Document read with the Question; fails_when=a Document is called read that was only searched; no_claim=none beyond protects.
