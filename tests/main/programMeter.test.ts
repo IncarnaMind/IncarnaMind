@@ -19,6 +19,7 @@ import {
   type MeterCommand,
   type Meters,
   type ProcReader,
+  procReader,
   readListing,
   runCommand,
   statOf,
@@ -1252,7 +1253,13 @@ describe("on this computer", () => {
   }
 
   async function held(child: ChildProcess, folder: string): Promise<number> {
-    const meters = createMeters({ interval: false });
+    // On Linux the meter reads only processes in a run's own PID namespace (the real layout has
+    // its own case in runCode.test.ts); this process is put there, and the rest is this /proc.
+    const reader: ProcReader = {
+      ...procReader,
+      status: async (pid) => (pid === "self" ? "NSpid:\t1\n" : "NSpid:\t1\t1\t2\n"),
+    };
+    const meters = createMeters({ interval: false, reader });
     const each = watcher();
     meters.meter().watch(child.pid ?? 0, folder, each.use, each.unmeasured);
     // Enough ticks that both turns read and their counts are reported a tick later.
