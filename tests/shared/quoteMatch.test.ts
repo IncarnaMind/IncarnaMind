@@ -598,6 +598,21 @@ describe("which double marks are quotation marks (#2504)", () => {
     ).toBeNull();
     const save = "Please select “Save” and then quit.";
     expect(covered(save, "please select ‘save’ and then quit")).toBe(save.slice(0, -1));
+    const dotted = "Run echo “prefix.$name” now.";
+    expect(findQuote(dotted, "run echo ‘prefix.$name’ now")).toBeNull();
+    expect(covered(dotted, "run echo “prefix.$name” now")).toBe(dotted.slice(0, -1));
+    const dottedZh = "运行 echo “前缀.$name” 现在。";
+    expect(findQuote(dottedZh, "运行 echo ‘前缀.$name’ 现在")).toBeNull();
+    expect(covered(dottedZh, "运行 echo “前缀.$name” 现在")).toBe(dottedZh.slice(0, -1));
+    const broken = "Run SELECT\n“name” FROM users to read each stored name.";
+    expect(findQuote(broken, "run select\n‘name’ from users to read each stored name")).toBeNull();
+    expect(covered(broken, "run select\n“name” from users to read each stored name")).toBe(
+      broken.slice(0, -1),
+    );
+    const brokenZh = "运行 SELECT\n“name” FROM users 读取每个名字。";
+    expect(findQuote(brokenZh, "运行 SELECT\n‘name’ FROM users 读取每个名字")).toBeNull();
+    const nextSentence = "He said “go.” Then he left. Use x = 5.";
+    expect(covered(nextSentence, "he said ‘go.’ then he left")).toBe("He said “go.” Then he left");
     const hamlet = "He read a line from “Hamlet” aloud.";
     expect(covered(hamlet, "he read a line from ‘hamlet’ aloud")).toBe(hamlet.slice(0, -1));
     const hidden = "Set name =\u200b ‘total’; then run it.";

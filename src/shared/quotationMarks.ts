@@ -11,9 +11,10 @@
  * - a closing mark closes only the innermost open quote, and only its own kind („ closes with ” or
  *   “, ‚ with ’ or ‘, and guillemets point either way). Guillemets and corner brackets are never a
  *   measure's, so they need no clear side;
- * - the pair is in a sentence of prose: one with no code character, read from the text's own
- *   characters ("echo ‘$HOME’", "sed ‘s/a/b/’", a backtick), no command option ("ls -la") and no
- *   SQL statement in any case ("select “name” from users").
+ * - every sentence the pair is in, from its opening to its closing mark, is prose: one with no code
+ *   character, read from the text's own characters ("echo ‘$HOME’", "echo “a.$b”", a backtick), no
+ *   command option ("ls -la") and no SQL statement in any case, across line breaks ("select “name”
+ *   from users").
  *
  * Straight marks " and ' are never quotation marks here: they delimit code as often as prose, where
  * one kind isn't the other ("SELECT "name"" names a column, "SELECT 'name'" is a string).
@@ -121,18 +122,26 @@ const pastGap = (text: string, index: number, step: 1 | -1) =>
   past(text, index, step, SPACE | HIDDEN);
 
 const SQL_STATEMENT =
-  /\bselect\b.*\bfrom\b|\binsert\s+into\b|\bupdate\b.*\bset\b|\bdelete\s+from\b|\b(?:order|group)\s+by\b/i;
+  /\bselect\b.*\bfrom\b|\binsert\s+into\b|\bupdate\b.*\bset\b|\bdelete\s+from\b|\b(?:order|group)\s+by\b/is;
 const OPTION = /(?:^|\s)-\p{L}/u;
-const SENTENCE = /[^.!?。！？\n]+/g;
+/** Where a sentence ends: its punctuation or a blank line, not a line break inside it. */
+const SENTENCE_END = /[.!?。！？]|\n[^\S\n]*\n/g;
 
-/** The spans of `text`'s sentences that aren't prose: a code character, a command option or SQL. */
+/** The spans of `text`'s sentences that aren't prose, in order: a code character, a command option or SQL. */
 function codeSentences(text: string): [number, number][] {
   const spans: [number, number][] = [];
-  for (const { 0: words, index } of text.matchAll(SENTENCE)) {
+  const check = (from: number, to: number) => {
+    const words = text.slice(from, to);
     let code = OPTION.test(words) || SQL_STATEMENT.test(words);
     for (let at_ = 0; !code && at_ < words.length; at_++) code = (at(words, at_) & CODE) !== 0;
-    if (code) spans.push([index, index + words.length]);
+    if (code) spans.push([from, to]);
+  };
+  let start = 0;
+  for (const end of text.matchAll(SENTENCE_END)) {
+    check(start, end.index);
+    start = end.index + end[0].length;
   }
+  check(start, text.length);
   return spans;
 }
 
@@ -222,12 +231,21 @@ const asQuotation = (char: string) => (char === '"' ? DOUBLE_QUOTATION : SINGLE_
 export function markQuotationMarks(text: string, units: NormalisedUnit[]): void {
   const opened: Open[] = [];
   let code: [number, number][] | undefined;
-  const inCode = (index: number) => {
+  // Whether a sentence that isn't prose meets the pair anywhere from its opening to its closing mark.
+  const inCode = (from: number, to: number) => {
     code ??= codeSentences(text);
-    return code.some(([from, to]) => index >= from && index < to);
+    let low = 0;
+    let high = code.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((code[middle] as [number, number])[1] <= from) low = middle + 1;
+      else high = middle;
+    }
+    const first = code[low];
+    return first !== undefined && first[0] < to;
   };
   const close = (open: Open, unit: NormalisedUnit) => {
-    if (inCode(open.unit.start)) return;
+    if (inCode(open.unit.start, unit.end)) return;
     open.unit.char = asQuotation(open.unit.char);
     unit.char = asQuotation(unit.char);
   };
