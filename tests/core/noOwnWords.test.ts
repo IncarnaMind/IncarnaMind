@@ -319,6 +319,73 @@ const KEPT_WHOLE: readonly Shape[] = [
   },
 ];
 
+const PARKING = [
+  "Rent is due on the first.",
+  "Parking spaces are allocated by the landlord.",
+  "Deposit is three months.",
+] as const;
+const PARKING_ZH = [
+  "房租每月一号交。",
+  "停车位由房东统一分配并登记。",
+  "押金为三个月房租。",
+] as const;
+
+/** A first line, or a line between two kept ones, that nothing in the reply says it rewrites. */
+const NO_EVIDENCE: readonly Shape[] = [
+  {
+    case: "en, the selection's first line renamed while the line after is kept",
+    lines: ["Rates are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
+    reply: ["Taxes are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
+    asked: "Say taxes instead of rates in the first line.",
+    after: [
+      "Taxes are monthly.",
+      "Rates are monthly.",
+      "Fees and rates are monthly.",
+      "Fees are monthly.",
+    ],
+  },
+  {
+    case: "zh, the selection's first line renamed while the line after is kept",
+    lines: ["税费按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+    reply: ["税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+    asked: "把第一行的税费改成税金。",
+    after: ["税金按月支付。", "税费按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+  },
+  {
+    case: "en, a new first line before a kept one",
+    lines: ["Rates are monthly.", "Fees are monthly.", "Fees and rates are monthly."],
+    reply: ["Gym fees are monthly.", "Fees are monthly.", "Fees and rates are monthly."],
+    asked: "Add a line on gym fees at the top; keep the existing lines.",
+    after: [
+      "Gym fees are monthly.",
+      "Rates are monthly.",
+      "Fees are monthly.",
+      "Fees and rates are monthly.",
+    ],
+  },
+  {
+    case: "zh, a new first line before a kept one",
+    lines: ["税费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
+    reply: ["保险费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
+    asked: "在最上面加一行保险费，原有的各行都保留。",
+    after: ["保险费按月支付。", "税费按月支付。", "费用按月支付。", "费用和税费按月支付。"],
+  },
+  {
+    case: "en, a new line between two kept ones that says half of the line's own words",
+    lines: PARKING,
+    reply: between(PARKING, "Parking spaces are free on Sundays."),
+    asked: "Add that parking spaces are free on Sundays; keep the existing lines.",
+    after: beside(PARKING, "Parking spaces are free on Sundays."),
+  },
+  {
+    case: "zh, a new line between two kept ones that says half of the line's own words",
+    lines: PARKING_ZH,
+    reply: between(PARKING_ZH, "停车位由房东周日开放。"),
+    asked: "加一行：停车位由房东周日开放，原有的各行都保留。",
+    after: beside(PARKING_ZH, "停车位由房东周日开放。"),
+  },
+];
+
 const REPLACED: readonly Shape[] = [
   {
     case: "en, a line with words of its own rewritten",
@@ -349,22 +416,36 @@ const REPLACED: readonly Shape[] = [
     after: between(FEES_ZH, "税金按月支付。"),
   },
   {
-    case: "en, the selection's first line, which takes the reply's first",
-    lines: ["Rates are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
-    reply: ["Taxes are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
-    asked: "Say taxes instead of rates in the first line.",
-    after: ["Taxes are monthly.", "Fees and rates are monthly.", "Fees are monthly."],
+    case: "en, the selection's first line with words of its own rewritten, the rest kept",
+    lines: ["The harbour office opens early.", "Boats leave at high water.", "Both close at dusk."],
+    reply: ["The harbour office opens late.", "Boats leave at high water.", "Both close at dusk."],
+    asked: "Say late instead of early in the first line.",
+    after: ["The harbour office opens late.", "Boats leave at high water.", "Both close at dusk."],
   },
   {
-    case: "zh, the selection's first line, which takes the reply's first",
-    lines: ["税费按月支付。", "费用和税费按月支付。", "费用按月支付。"],
-    reply: ["税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
-    asked: "把第一行的税费改成税金。",
-    after: ["税金按月支付。", "费用和税费按月支付。", "费用按月支付。"],
+    case: "zh, the selection's first line with words of its own rewritten, the rest kept",
+    lines: ["港务办公室早上开门。", "船只在涨潮时出港。", "两处都在傍晚关门。"],
+    reply: ["港务办公室上午开门。", "船只在涨潮时出港。", "两处都在傍晚关门。"],
+    asked: "把第一行的早上改成上午。",
+    after: ["港务办公室上午开门。", "船只在涨潮时出港。", "两处都在傍晚关门。"],
+  },
+  {
+    case: "en, a line with words of its own between two kept ones, most of them said",
+    lines: PARKING,
+    reply: between(PARKING, "Parking spaces are assigned by the landlord."),
+    asked: "Say assigned instead of allocated in the parking line.",
+    after: between(PARKING, "Parking spaces are assigned by the landlord."),
+  },
+  {
+    case: "zh, a line with words of its own between two kept ones, most of them said",
+    lines: PARKING_ZH,
+    reply: between(PARKING_ZH, "停车位由房东统一分配并编号。"),
+    asked: "把停车那行的登记改成编号。",
+    after: between(PARKING_ZH, "停车位由房东统一分配并编号。"),
   },
 ];
 
-const SHAPES = [...ADDED_BESIDE, ...KEPT_WHOLE, ...REPLACED];
+const SHAPES = [...ADDED_BESIDE, ...KEPT_WHOLE, ...NO_EVIDENCE, ...REPLACED];
 
 const rewrite = (shape: Shape) =>
   `${"named" in shape.reply ? shape.reply.named : shape.reply.join("\n\n")}\n<why>Done.</why>`;
