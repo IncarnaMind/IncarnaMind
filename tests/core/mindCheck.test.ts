@@ -25,6 +25,7 @@ import { readFigures } from "../../src/shared/figures";
 import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
 import { setMindModel } from "../../src/shared/mindModel";
 import { readOpinionSentences } from "../../src/shared/opinions";
+import { recordCiteSettingsOf, writeRecordCiteChoice } from "../../src/shared/recordCiteChoices";
 import {
   checkGenerate,
   checkReply,
@@ -1787,13 +1788,26 @@ describe("Check this note starts each sentence's check once its claims are named
     expect(runsOf(MOON)).toHaveLength(1);
   });
 
-  // protects=a record cite's check started early is stopped and sent again when the Note changed elsewhere while the claims were named, since its `Id.`, `supra` and source choices read the Note's other paragraphs and settings; a sentence with no record cite is kept (#2532); fails_when=an edit elsewhere in the Note leaves a record cite's early check taken, or stops one with no record cite; no_claim=what the record cite resolves to.
+  const elsewhere = {
+    "an edit in another paragraph": (client: MindClient) =>
+      typeInto(client, 1, SECOND.length, " Neap tides come at the quarter moons."),
+    "a source chosen for a record cite": (client: MindClient) =>
+      writeRecordCiteChoice(recordCiteSettingsOf(client.doc), "tide dep", {
+        documentId: "a-chosen-document",
+        contentHash: "a-chosen-version",
+      }),
+  };
+  const CITED = "Spring tides come at new moon (Tide Dep. 4:1–2).";
+
+  // protects=a record cite's check started early is stopped and sent again when the Note changed elsewhere while the claims were named, since its `Id.`, `supra` and source choices read the Note's other paragraphs and settings; a sentence with no record cite is kept (#2532); fails_when=an edit elsewhere or a source chosen leaves a record cite's early check taken, or stops one with no record cite; no_claim=what the record cite resolves to.
   test.each([
-    ["a sentence with a record cite", "Spring tides come at new moon (Tide Dep. 4:1–2).", 2],
-    ["a sentence with none", MOON, 1],
+    ["an edit in another paragraph", "a sentence with a record cite", CITED, 2],
+    ["an edit in another paragraph", "a sentence with none", MOON, 1],
+    ["a source chosen for a record cite", "a sentence with a record cite", CITED, 2],
+    ["a source chosen for a record cite", "a sentence with none", MOON, 1],
   ] as const)(
-    "after an edit in another paragraph, %s is checked again only if it cites the record",
-    async (_, first, runs) => {
+    "after %s, %s is checked again only if it cites the record",
+    async (change, _, first, runs) => {
       const firstRun = Promise.withResolvers<void>();
       const { core, client, mindId, sort, runsOf } = await noteOfTwo(
         "held",
@@ -1804,7 +1818,7 @@ describe("Check this note starts each sentence's check once its claims are named
 
       const checking = core.checkMind(request(mindId, "all"));
       await vi.waitFor(() => expect(runsOf(first)).toHaveLength(1));
-      typeInto(client, 1, SECOND.length, " Neap tides come at the quarter moons.");
+      elsewhere[change](client);
       await client.settled();
       sort.release();
       if (runs === 2) await vi.waitFor(() => expect(runsOf(first)).toHaveLength(2));
