@@ -592,6 +592,100 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
     expect(sent).not.toContain("The wall's private answer.");
   });
 
+  // protects=Try again records the wall of the Note it reads after the Note moved, so a later Question in the old Folder sees nothing of that Answer; fails_when=the old Folder stays recorded and the walled turn leaks; no_claim=what a real model makes of it.
+  test("Try again binds a moved Note's wall, so a later Question outside it sees nothing", async () => {
+    const model = scriptedModel(() => ({ text: "A marker only the wall holds." }));
+    const { core, client, mind } = await setUpWithDocuments(model, everyFile);
+    const open = await core.createLibraryGroup({ name: "Open", description: "" });
+    const walled = await core.createLibraryGroup({ name: "Vault", description: "" });
+    await core.updateLibraryGroup(walled.id, {
+      name: "Vault",
+      description: "",
+      keepInside: true,
+    });
+    await core.moveToFolder({ mindIds: [mind.id], folderId: open.id });
+    const first = await ask(core, { text: "A question before the move.", mindId: mind.id });
+    const beforeRetry = model.doStreamCalls.length;
+
+    writeMind(client, [note("A marker only the wall holds.")]);
+    await client.settled();
+    await core.moveToFolder({ mindIds: [mind.id], folderId: walled.id });
+
+    const again = await core.regenerateConversationAnswer({
+      conversationId: first.conversation.id,
+      answerId: first.answerId,
+      folderInFrontId: open.id,
+    });
+    if (!again.asked) throw new Error("Not asked again.");
+    await answerEnded(core, again.answerId);
+    expect(
+      promptOf(model, 1)
+        .map((message) => message.text)
+        .join("\n"),
+    ).toContain("A marker only the wall holds.");
+
+    const conversation = await core.getConversation(first.conversation.id);
+    const question = conversation.messages.find((message) => message.kind === "question");
+    expect(question?.kind === "question" ? question.folderAskedIn : undefined).toBe(walled.id);
+
+    await ask(core, {
+      text: "What did I ask before?",
+      conversationId: first.conversation.id,
+      folderInFrontId: open.id,
+    });
+    expect(
+      promptOf(model, 2)
+        .map((message) => message.text)
+        .join("\n"),
+    ).not.toContain("A marker only the wall holds.");
+  });
+
+  // protects=Try again after a Note moves between walls binds the wall it reads, so a later Question in the first wall sees nothing; fails_when=the first wall stays recorded; no_claim=none beyond protects.
+  test("Try again after a move between walls binds the wall it reads", async () => {
+    const model = scriptedModel(() => ({ text: "A marker only the second wall holds." }));
+    const { core, client, mind } = await setUpWithDocuments(model, everyFile);
+    const firstWall = await core.createLibraryGroup({ name: "First vault", description: "" });
+    const secondWall = await core.createLibraryGroup({ name: "Second vault", description: "" });
+    for (const folder of [firstWall, secondWall]) {
+      await core.updateLibraryGroup(folder.id, {
+        name: folder.name,
+        description: "",
+        keepInside: true,
+      });
+    }
+    await core.moveToFolder({ mindIds: [mind.id], folderId: firstWall.id });
+    const asked = await ask(core, {
+      text: "A question in the first vault.",
+      mindId: mind.id,
+    });
+
+    writeMind(client, [note("A marker only the second wall holds.")]);
+    await client.settled();
+    await core.moveToFolder({ mindIds: [mind.id], folderId: secondWall.id });
+
+    const again = await core.regenerateConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+      folderInFrontId: firstWall.id,
+    });
+    if (!again.asked) throw new Error("Not asked again.");
+    await answerEnded(core, again.answerId);
+    const conversation = await core.getConversation(asked.conversation.id);
+    const question = conversation.messages.find((message) => message.kind === "question");
+    expect(question?.kind === "question" ? question.folderAskedIn : undefined).toBe(secondWall.id);
+
+    await ask(core, {
+      text: "What did I ask before?",
+      conversationId: asked.conversation.id,
+      folderInFrontId: firstWall.id,
+    });
+    expect(
+      promptOf(model, 2)
+        .map((message) => message.text)
+        .join("\n"),
+    ).not.toContain("A marker only the second wall holds.");
+  });
+
   // protects=the instructions and the Note's message do not change with the scope, so a provider's prompt cache keeps its start; fails_when=a scope line goes into the instructions or the Note's message; no_claim=none beyond protects.
   test("leaves the instructions and the Note's message as they were", async () => {
     const { core, model, client, mind, reports, contracts } = await setUp();

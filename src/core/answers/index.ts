@@ -4638,7 +4638,14 @@ export function createAnswers(options: AnswersOptions) {
       // Folder in front. One decision drives the search, the context, the Tools and what is kept.
       const mindId = mind?.mindId ?? null;
       const front = mindId === null && typeof folderInFrontId === "string" ? folderInFrontId : null;
-      if (front !== null) {
+      // The retry's origin is what it actually reads: a Note at the Folder it is in now, else the
+      // Folder in front. Recording that keeps a later Question's history filter on the same wall.
+      if (mindId !== null) {
+        const own = options.mindFolder(mindId) ?? "";
+        if ((question.folderAskedIn ?? "") !== own) {
+          options.conversations.setQuestionFolder(question.id, own);
+        }
+      } else if (front !== null) {
         options.conversations.setQuestionScope(question.id, folderScope(front));
         options.conversations.setQuestionFolder(question.id, front);
       }
