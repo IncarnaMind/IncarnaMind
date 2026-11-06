@@ -3362,399 +3362,397 @@ export function createAnswers(options: AnswersOptions) {
         (options.retrievesFirst?.(prepared, flow) ?? false);
       // A model cites as the write-then-cite list says, whichever way it searches, so it never
       // cites in a way that list didn't admit it to (#1633).
-      let writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
-        for await (const event of engine.generate({
-          instructions: (
-            mode,
-            {
-              passages,
-              skillTools: withSkillTools = false,
-              connectorTools = false,
-              sourceTools = false,
-              webTools: withWebTools = false,
-              mindTools: withMindTools = false,
-              analysisTools: withAnalysisTools = false,
-              codeTools: withCodeTools = false,
-              workbookTools: withWorkbookTools = false,
-              commandTools: withCommandTools = false,
-            } = {},
-          ) =>
-            [
-              base,
-              mode === "no-documents"
-                ? [
-                    scoped && input.emptyScope
-                      ? EMPTY_SCOPE_NOTE
-                      : noDocumentsNote(input.emptyScope, library?.total ?? 0),
-                    ...(withMindTools ? [MINDS_ARE_NOT_DOCUMENTS] : []),
-                  ].join(" ")
-                : documentInstructions(
-                    mode,
-                    options.documents.searchableNames(documentIds, LISTED_DOCUMENTS),
-                    passages,
-                    scoped,
-                    calculating,
-                    withMindTools || ids.size() > 0,
-                    { writeFirst, minds: withMindTools, library },
-                  ),
-              stillReadingNote(options.documents.reading(documentIds)),
-              coverageInstructions(coverage, asked.each, coverageSized),
-              skillInstructions(listed, forced, withSkillTools, scripts),
-              connectorTools ? connectorInstructions(fromConnectors, mode === "no-documents") : "",
-              sourcesInstructions(sourceTools),
-              webInstructions(withWebTools),
-              workingCopyNote(original?.name ?? null),
-              exampleNote(exampleNames),
-              mindInstructions(withMindTools, {
-                inAssistant: mindsTools !== null && !help,
-                lastAnswer: input.assistant?.lastAnswer != null,
-                commands: withCommandTools,
-              }),
-              commandInstructions(withCommandTools),
-              input.assistant && !help ? THIS_DOCUMENT_RULE : "",
-              emptyMindNote(withMindTools, focusedEmpty),
-              analysisInstructions(withAnalysisTools),
-              codeInstructions(withCodeTools, withAnalysisTools),
-              workbookInstructions(withWorkbookTools),
-              meetingInstructions(heard !== null),
-              signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
-              help ? "" : language,
-            ]
-              .filter(Boolean)
-              .join("\n\n"),
-          // Button instructions stay with the Question so presses with the same Search scope share
-          // the provider's cache (#1634).
-          messages: help
-            ? withHelp(
-                messages,
-                [
-                  meetingHelpInstructions(help, {
-                    found: foundAhead,
-                    language: options.interfaceLanguage(),
-                    callLanguage,
-                  }),
-                  ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
-                ].join("\n\n"),
-              )
-            : messages,
-          ...(mindRequest && { mind: mindRequest }),
-          question: context.question,
-          ...(input.mindsLine && { mindsLine: input.mindsLine }),
-          model: prepared.model,
-          ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
-          documents,
-          tools: [
-            ...provided,
-            ...fromSkills,
-            ...fromWeb,
-            ...(mindsTools?.tools ?? []),
-            ...fromAnalysis,
-            ...fromCode,
-            ...fromWorkbooks,
-            ...(commandsOffered?.tools ?? []),
-            ...(asking ? [asking] : []),
-          ],
-          gate,
-          streamsInput,
-          toolSet: input.toolSet ?? (help ? "documents" : undefined),
-          ...(input.outputKind && { outputKind: input.outputKind }),
-          ...(keepsQuestionsLanguage && {
-            languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),
-          }),
-          thirdParty: contextReasons,
-          support: startingSupport(prepared.support, supportByModel.get(learntKey)),
-          writeThenCite: writeFirst,
-          retrieveFirst,
-          structuredOutput: givesStructuredOutput(prepared.capabilities),
-          takesTemperature: prepared.capabilities.facts.temperature,
-          window: prepared.window,
-          ...(prepared.capabilities.facts.maxOutput !== undefined && {
-            maxOutput: prepared.capabilities.facts.maxOutput,
-          }),
-          ...(prepared.capabilities.facts.toolsEveryRequest && { toolsEveryRequest: true }),
-          ...(prepared.provider.kind === "openrouter" && {
-            forcedToolChoice: prepared.capabilities.facts.forcedToolChoice,
-          }),
-          retryQuotes: prepared.retryQuotes,
-          cacheKey: place.conversationId ?? place.mindId ?? undefined,
-          ...(input.assistant
-            ? {
-                turnChecks,
-                shownUpTo,
-                // A command that only acted on the window, or that is the User's alone, ends the
-                // turn: its card is the reply (#1421), and a refusal's line follows it
-                // (`appSuffix`).
-                mayEndBlank: () =>
-                  changedAMind() ||
-                  [...commandsDone.values()].some(
-                    (done) => done.window !== undefined || done.yours,
-                  ),
-                blankReply: () => {
-                  if (!endedAfterRefusal()) return null;
-                  const language = answerLanguage(context.question);
-                  const missing = missingMindNames();
-                  const [only] = missing;
-                  if (missing.length === 1 && only !== undefined) {
-                    return translate(language, "answer.refused.noSuchMind", { name: only });
-                  }
-                  const quoted = missing.map((name) => `“${name}”`);
-                  return translate(language, "answer.refused.noSuchMind.many", {
-                    names:
-                      language === "zh-CN"
-                        ? quoted.join("、")
-                        : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
-                  });
-                },
-              }
-            : input.checkScales
-              ? {
-                  turnChecks: [
-                    {
-                      name: "changed-scale",
-                      check: (text: string) => {
-                        const found = scaleChangeIn(text);
-                        return found
-                          ? { note: changedScaleNote(found, calculating), claims: [] }
-                          : null;
-                      },
-                    },
-                  ],
+      const writeFirst = options.writesThenCites?.(prepared, flow) ?? false;
+      for await (const event of engine.generate({
+        instructions: (
+          mode,
+          {
+            passages,
+            skillTools: withSkillTools = false,
+            connectorTools = false,
+            sourceTools = false,
+            webTools: withWebTools = false,
+            mindTools: withMindTools = false,
+            analysisTools: withAnalysisTools = false,
+            codeTools: withCodeTools = false,
+            workbookTools: withWorkbookTools = false,
+            commandTools: withCommandTools = false,
+          } = {},
+        ) =>
+          [
+            base,
+            mode === "no-documents"
+              ? [
+                  scoped && input.emptyScope
+                    ? EMPTY_SCOPE_NOTE
+                    : noDocumentsNote(input.emptyScope, library?.total ?? 0),
+                  ...(withMindTools ? [MINDS_ARE_NOT_DOCUMENTS] : []),
+                ].join(" ")
+              : documentInstructions(
+                  mode,
+                  options.documents.searchableNames(documentIds, LISTED_DOCUMENTS),
+                  passages,
+                  scoped,
+                  calculating,
+                  withMindTools || ids.size() > 0,
+                  { writeFirst, minds: withMindTools, library },
+                ),
+            stillReadingNote(options.documents.reading(documentIds)),
+            coverageInstructions(coverage, asked.each, coverageSized),
+            skillInstructions(listed, forced, withSkillTools, scripts),
+            connectorTools ? connectorInstructions(fromConnectors, mode === "no-documents") : "",
+            sourcesInstructions(sourceTools),
+            webInstructions(withWebTools),
+            workingCopyNote(original?.name ?? null),
+            exampleNote(exampleNames),
+            mindInstructions(withMindTools, {
+              inAssistant: mindsTools !== null && !help,
+              lastAnswer: input.assistant?.lastAnswer != null,
+              commands: withCommandTools,
+            }),
+            commandInstructions(withCommandTools),
+            input.assistant && !help ? THIS_DOCUMENT_RULE : "",
+            emptyMindNote(withMindTools, focusedEmpty),
+            analysisInstructions(withAnalysisTools),
+            codeInstructions(withCodeTools, withAnalysisTools),
+            workbookInstructions(withWorkbookTools),
+            meetingInstructions(heard !== null),
+            signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
+            help ? "" : language,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        // Button instructions stay with the Question so presses with the same Search scope share
+        // the provider's cache (#1634).
+        messages: help
+          ? withHelp(
+              messages,
+              [
+                meetingHelpInstructions(help, {
+                  found: foundAhead,
+                  language: options.interfaceLanguage(),
+                  callLanguage,
+                }),
+                ...(textBehind ? [LIVE_TEXT_BEHIND_NOTE] : []),
+              ].join("\n\n"),
+            )
+          : messages,
+        ...(mindRequest && { mind: mindRequest }),
+        question: context.question,
+        ...(input.mindsLine && { mindsLine: input.mindsLine }),
+        model: prepared.model,
+        ...(prepareQuick && { quickModel: () => prepareQuick(model, prepared) }),
+        documents,
+        tools: [
+          ...provided,
+          ...fromSkills,
+          ...fromWeb,
+          ...(mindsTools?.tools ?? []),
+          ...fromAnalysis,
+          ...fromCode,
+          ...fromWorkbooks,
+          ...(commandsOffered?.tools ?? []),
+          ...(asking ? [asking] : []),
+        ],
+        gate,
+        streamsInput,
+        toolSet: input.toolSet ?? (help ? "documents" : undefined),
+        ...(input.outputKind && { outputKind: input.outputKind }),
+        ...(keepsQuestionsLanguage && {
+          languageNote: () => (skillNamesNoLanguage ? skillLanguageNote(language) : null),
+        }),
+        thirdParty: contextReasons,
+        support: startingSupport(prepared.support, supportByModel.get(learntKey)),
+        writeThenCite: writeFirst,
+        retrieveFirst,
+        structuredOutput: givesStructuredOutput(prepared.capabilities),
+        takesTemperature: prepared.capabilities.facts.temperature,
+        window: prepared.window,
+        ...(prepared.capabilities.facts.maxOutput !== undefined && {
+          maxOutput: prepared.capabilities.facts.maxOutput,
+        }),
+        ...(prepared.capabilities.facts.toolsEveryRequest && { toolsEveryRequest: true }),
+        ...(prepared.provider.kind === "openrouter" && {
+          forcedToolChoice: prepared.capabilities.facts.forcedToolChoice,
+        }),
+        retryQuotes: prepared.retryQuotes,
+        cacheKey: place.conversationId ?? place.mindId ?? undefined,
+        ...(input.assistant
+          ? {
+              turnChecks,
+              shownUpTo,
+              // A command that only acted on the window, or that is the User's alone, ends the
+              // turn: its card is the reply (#1421), and a refusal's line follows it
+              // (`appSuffix`).
+              mayEndBlank: () =>
+                changedAMind() ||
+                [...commandsDone.values()].some((done) => done.window !== undefined || done.yours),
+              blankReply: () => {
+                if (!endedAfterRefusal()) return null;
+                const language = answerLanguage(context.question);
+                const missing = missingMindNames();
+                const [only] = missing;
+                if (missing.length === 1 && only !== undefined) {
+                  return translate(language, "answer.refused.noSuchMind", { name: only });
                 }
-              : readByUser && { turnChecks: [claimedTools] }),
-          // Every Answer, in the assistant or a Note, ends with its refusal lines after the model's
-          // reply, after none, and after a reply asked again that then failed, so the reply and the
-          // card never disagree and the card keeps only its button (#2252).
-          appSuffix: (reply) => {
-            const language = answerLanguage(context.question);
-            // Whether the reply says `text` or names it: a letter, mark or digit right before it is
-            // another number or word, so "13 Documents couldn't be sorted." doesn't say
-            // "3 Documents couldn't be sorted."; a name also takes none right after it, so
-            // "Rental" doesn't name "Rent" (#2252). Quotes may be straight where the app writes
-            // them typographic.
-            const words = sameWords(reply);
-            const holds = (text: string, ends: boolean) => {
-              if (text === "") return false;
-              const escaped = sameWords(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const after = ends ? "(?![\\p{L}\\p{M}\\p{N}])" : "";
-              return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])${escaped}${after}`, "u").test(words);
-            };
-            const says = (line: string) => holds(line, false);
-            const saysName = (name: string) => holds(name, true);
-            // What a command changed, in the app's own words, so the reply and the card agree
-            // (#2252): the Folders Organize filed the Documents into, and the Tags merged.
-            const resultLines: ((each: Language) => string)[] = [];
-            for (const done of commandsDone.values()) {
-              const folders = done.folders;
-              // The model's own sentence may already name every Folder: the app adds its line only
-              // when the reply doesn't (#2252), so the reply never says the same thing twice.
-              if (
-                done.command === "documents.organize" &&
-                folders &&
-                folders.length > 0 &&
-                !folders.every((folder) => saysName(folder.name))
-              ) {
-                const count = folders.reduce((sum, folder) => sum + folder.count, 0);
-                resultLines.push((each) => {
-                  const line = translate(
-                    each,
-                    count === 1 ? "library.review.summary.one" : "library.review.summary",
-                    {
-                      count,
-                      parts: folders
-                        .map((folder) =>
-                          translate(each, "library.review.part", {
-                            count: folder.count,
-                            folder: folder.name,
-                          }),
-                        )
-                        .join(translate(each, "library.review.separator")),
-                    },
-                  );
-                  // The summary is a card line: in a reply it ends as a sentence, and the line
-                  // after it may follow with no space in Chinese.
-                  return each === "zh-CN" ? `${line}。` : `${line}.`;
+                const quoted = missing.map((name) => `“${name}”`);
+                return translate(language, "answer.refused.noSuchMind.many", {
+                  names:
+                    language === "zh-CN"
+                      ? quoted.join("、")
+                      : `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1) ?? ""}`,
                 });
+              },
+            }
+          : input.checkScales
+            ? {
+                turnChecks: [
+                  {
+                    name: "changed-scale",
+                    check: (text: string) => {
+                      const found = scaleChangeIn(text);
+                      return found
+                        ? { note: changedScaleNote(found, calculating), claims: [] }
+                        : null;
+                    },
+                  },
+                ],
               }
-              if (done.command === "documents.organize" && done.untouched) {
-                const count = done.untouched;
-                resultLines.push((each) =>
-                  translate(
-                    each,
-                    count === 1 ? "answer.commands.untouched.one" : "answer.commands.untouched",
-                    { count },
-                  ),
-                );
-              }
-              if (done.command === "documents.organize" && done.unsorted) {
-                const count = done.unsorted;
-                resultLines.push((each) =>
-                  translate(
-                    each,
-                    count === 1 ? "answer.commands.unsorted.one" : "answer.commands.unsorted",
-                    { count },
-                  ),
-                );
-              }
-              const merges = done.merges;
-              if (
-                done.command === "tag.merge" &&
-                merges &&
-                merges.length > 0 &&
-                !merges.every((pair) => saysName(pair.from) && saysName(pair.into))
-              ) {
-                resultLines.push((each) =>
-                  translate(each, "answer.commands.merged", {
-                    parts: merges
-                      .map((pair) =>
-                        translate(each, "answer.commands.mergePart", {
-                          from: pair.from,
-                          into: pair.into,
+            : readByUser && { turnChecks: [claimedTools] }),
+        // Every Answer, in the assistant or a Note, ends with its refusal lines after the model's
+        // reply, after none, and after a reply asked again that then failed, so the reply and the
+        // card never disagree and the card keeps only its button (#2252).
+        appSuffix: (reply) => {
+          const language = answerLanguage(context.question);
+          // Whether the reply says `text` or names it: a letter, mark or digit right before it is
+          // another number or word, so "13 Documents couldn't be sorted." doesn't say
+          // "3 Documents couldn't be sorted."; a name also takes none right after it, so
+          // "Rental" doesn't name "Rent" (#2252). Quotes may be straight where the app writes
+          // them typographic.
+          const words = sameWords(reply);
+          const holds = (text: string, ends: boolean) => {
+            if (text === "") return false;
+            const escaped = sameWords(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const after = ends ? "(?![\\p{L}\\p{M}\\p{N}])" : "";
+            return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}])${escaped}${after}`, "u").test(words);
+          };
+          const says = (line: string) => holds(line, false);
+          const saysName = (name: string) => holds(name, true);
+          // What a command changed, in the app's own words, so the reply and the card agree
+          // (#2252): the Folders Organize filed the Documents into, and the Tags merged.
+          const resultLines: ((each: Language) => string)[] = [];
+          for (const done of commandsDone.values()) {
+            const folders = done.folders;
+            // The model's own sentence may already name every Folder: the app adds its line only
+            // when the reply doesn't (#2252), so the reply never says the same thing twice.
+            if (
+              done.command === "documents.organize" &&
+              folders &&
+              folders.length > 0 &&
+              !folders.every((folder) => saysName(folder.name))
+            ) {
+              const count = folders.reduce((sum, folder) => sum + folder.count, 0);
+              resultLines.push((each) => {
+                const line = translate(
+                  each,
+                  count === 1 ? "library.review.summary.one" : "library.review.summary",
+                  {
+                    count,
+                    parts: folders
+                      .map((folder) =>
+                        translate(each, "library.review.part", {
+                          count: folder.count,
+                          folder: folder.name,
                         }),
                       )
                       .join(translate(each, "library.review.separator")),
-                  }),
+                  },
                 );
-              }
+                // The summary is a card line: in a reply it ends as a sentence, and the line
+                // after it may follow with no space in Chinese.
+                return each === "zh-CN" ? `${line}。` : `${line}.`;
+              });
             }
-            // Said in either language, a line is said: a reply can copy an earlier Answer's, with
-            // straight quotes too (#2252).
-            const lines = [...resultLines, ...refusalLines()].filter(
-              (line) => !LANGUAGES.some((each) => says(line(each))),
-            );
-            return lines.length === 0
-              ? null
-              : lines.map((line) => line(language)).join(language === "zh-CN" ? "" : " ");
-          },
-          signal: controller.signal,
-        })) {
-          if (finished) break;
-          switch (event.type) {
-            case "support":
-              support = event.support;
-              supportByModel.set(learntKey, event.support);
-              // The model has begun to answer: it is loaded.
-              responded = true;
-              showPhase();
-              writeSoon();
-              break;
-            case "phase":
-              activity = event.phase;
-              showPhase();
-              break;
-            case "markers-placed":
-              placedMarkers += event.count;
-              break;
-            case "cited-after-checking":
-              citedAfterChecking.count += event.count;
-              citedAfterChecking.asked ||= event.asked;
-              break;
-            case "mind-cut":
-              if (read) read = event.share === 0 ? null : { ...read, partial: true };
-              readShare = event.share;
-              writeSoon();
-              break;
-            case "documents-dropped":
-              sentDocuments?.clear();
-              writeSoon();
-              break;
-            case "quotes-retried":
-              quoteRetry = event.retry;
-              break;
-            case "figures-retried":
-              figureRetry = event.retry;
-              break;
-            case "claims-unbacked":
-              unbackedClaims = event.claims;
-              unbackedCommands = event.commands ?? [];
-              unrunTools = event.tools ?? [];
-              writeSoon();
-              break;
-            case "asked-again":
-              askedAgainFor = event.tools;
-              writeSoon();
-              break;
-            case "usage":
-              usage.inputTokens += event.usage.inputTokens ?? 0;
-              usage.outputTokens += event.usage.outputTokens ?? 0;
-              usage.cachedInputTokens += event.usage.cachedInputTokens ?? 0;
-              usage.cacheWriteTokens += event.usage.cacheWriteTokens ?? 0;
-              break;
-            case "reasoning":
-              // Raw chain of thought is dropped: only a provider's own summary is kept.
-              if (!prepared.summarizesReasoning) break;
-              reasoningStartedAt ??= Date.now();
-              if (!event.text) break;
-              lastReasoningAt = Date.now();
-              reasoning += event.text;
-              announce("answer.reasoning", { ...place, answerId, text: event.text });
-              writeSoon();
-              break;
-            case "text-delta":
-              responded = true;
-              showPhase();
-              firstTextAt ??= Date.now();
-              markdown += event.text;
-              announce("answer.delta", { ...place, answerId, text: event.text });
-              writeSoon();
-              break;
-            case "text-retracted":
-              markdown = markdown.slice(0, Math.max(0, markdown.length - event.length));
-              if (markdown === "") firstTextAt = null;
-              writeSoon();
-              break;
-            case "tool-call-started": {
-              // The card says where the Tool comes from, from its provider, as Minds store it.
-              const { provider } = event;
-              callStarted({
-                id: event.id,
-                tool: event.tool,
-                source: CARD_SOURCES[provider.kind],
-                ...(provider.kind === "connector" && {
-                  connector: { id: provider.id, name: provider.name },
+            if (done.command === "documents.organize" && done.untouched) {
+              const count = done.untouched;
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "answer.commands.untouched.one" : "answer.commands.untouched",
+                  { count },
+                ),
+              );
+            }
+            if (done.command === "documents.organize" && done.unsorted) {
+              const count = done.unsorted;
+              resultLines.push((each) =>
+                translate(
+                  each,
+                  count === 1 ? "answer.commands.unsorted.one" : "answer.commands.unsorted",
+                  { count },
+                ),
+              );
+            }
+            const merges = done.merges;
+            if (
+              done.command === "tag.merge" &&
+              merges &&
+              merges.length > 0 &&
+              !merges.every((pair) => saysName(pair.from) && saysName(pair.into))
+            ) {
+              resultLines.push((each) =>
+                translate(each, "answer.commands.merged", {
+                  parts: merges
+                    .map((pair) =>
+                      translate(each, "answer.commands.mergePart", {
+                        from: pair.from,
+                        into: pair.into,
+                      }),
+                    )
+                    .join(translate(each, "library.review.separator")),
                 }),
-                input: event.input,
-                status: "running",
-                resultCount: null,
-              });
-              break;
+              );
             }
-            case "tool-call-finished": {
-              const webPage = webPages.get(event.id);
-              const mindChange = mindChanges.get(event.id);
-              const mindProblem = mindProblems.get(event.id);
-              const analysis = analysisCalls.get(event.id);
-              const found = commandsFound.get(event.id);
-              const command = commandsDone.get(event.id);
-              const commandProblem = commandProblems.get(event.id);
-              const question = userQuestions.get(event.id);
-              callFinished(event.id, event.ok, event.resultCount, {
-                ...(analysis && { analysis }),
-                ...(event.passages && { passages: [...event.passages] }),
-                ...(event.error && { error: event.error }),
-                ...(webPage && { webPage }),
-                ...(mindChange && { mindChange }),
-                ...(mindProblem && { mindProblem }),
-                ...(found && { found }),
-                ...(command && { command }),
-                ...(commandProblem && { commandProblem }),
-                ...(question && { asked: question }),
-              });
-              break;
-            }
-            case "read-third-party":
-              if (textOrigin === null) {
-                textOrigin = event.source;
-                writeSoon();
-              }
-              break;
-            case "finished":
-              outcome = { status: "done" };
-              break;
-            case "failed":
-              outcome = { status: "failed", error: event.error };
-              break;
           }
+          // Said in either language, a line is said: a reply can copy an earlier Answer's, with
+          // straight quotes too (#2252).
+          const lines = [...resultLines, ...refusalLines()].filter(
+            (line) => !LANGUAGES.some((each) => says(line(each))),
+          );
+          return lines.length === 0
+            ? null
+            : lines.map((line) => line(language)).join(language === "zh-CN" ? "" : " ");
+        },
+        signal: controller.signal,
+      })) {
+        if (finished) break;
+        switch (event.type) {
+          case "support":
+            support = event.support;
+            supportByModel.set(learntKey, event.support);
+            // The model has begun to answer: it is loaded.
+            responded = true;
+            showPhase();
+            writeSoon();
+            break;
+          case "phase":
+            activity = event.phase;
+            showPhase();
+            break;
+          case "markers-placed":
+            placedMarkers += event.count;
+            break;
+          case "cited-after-checking":
+            citedAfterChecking.count += event.count;
+            citedAfterChecking.asked ||= event.asked;
+            break;
+          case "mind-cut":
+            if (read) read = event.share === 0 ? null : { ...read, partial: true };
+            readShare = event.share;
+            writeSoon();
+            break;
+          case "documents-dropped":
+            sentDocuments?.clear();
+            writeSoon();
+            break;
+          case "quotes-retried":
+            quoteRetry = event.retry;
+            break;
+          case "figures-retried":
+            figureRetry = event.retry;
+            break;
+          case "claims-unbacked":
+            unbackedClaims = event.claims;
+            unbackedCommands = event.commands ?? [];
+            unrunTools = event.tools ?? [];
+            writeSoon();
+            break;
+          case "asked-again":
+            askedAgainFor = event.tools;
+            writeSoon();
+            break;
+          case "usage":
+            usage.inputTokens += event.usage.inputTokens ?? 0;
+            usage.outputTokens += event.usage.outputTokens ?? 0;
+            usage.cachedInputTokens += event.usage.cachedInputTokens ?? 0;
+            usage.cacheWriteTokens += event.usage.cacheWriteTokens ?? 0;
+            break;
+          case "reasoning":
+            // Raw chain of thought is dropped: only a provider's own summary is kept.
+            if (!prepared.summarizesReasoning) break;
+            reasoningStartedAt ??= Date.now();
+            if (!event.text) break;
+            lastReasoningAt = Date.now();
+            reasoning += event.text;
+            announce("answer.reasoning", { ...place, answerId, text: event.text });
+            writeSoon();
+            break;
+          case "text-delta":
+            responded = true;
+            showPhase();
+            firstTextAt ??= Date.now();
+            markdown += event.text;
+            announce("answer.delta", { ...place, answerId, text: event.text });
+            writeSoon();
+            break;
+          case "text-retracted":
+            markdown = markdown.slice(0, Math.max(0, markdown.length - event.length));
+            if (markdown === "") firstTextAt = null;
+            writeSoon();
+            break;
+          case "tool-call-started": {
+            // The card says where the Tool comes from, from its provider, as Minds store it.
+            const { provider } = event;
+            callStarted({
+              id: event.id,
+              tool: event.tool,
+              source: CARD_SOURCES[provider.kind],
+              ...(provider.kind === "connector" && {
+                connector: { id: provider.id, name: provider.name },
+              }),
+              input: event.input,
+              status: "running",
+              resultCount: null,
+            });
+            break;
+          }
+          case "tool-call-finished": {
+            const webPage = webPages.get(event.id);
+            const mindChange = mindChanges.get(event.id);
+            const mindProblem = mindProblems.get(event.id);
+            const analysis = analysisCalls.get(event.id);
+            const found = commandsFound.get(event.id);
+            const command = commandsDone.get(event.id);
+            const commandProblem = commandProblems.get(event.id);
+            const question = userQuestions.get(event.id);
+            callFinished(event.id, event.ok, event.resultCount, {
+              ...(analysis && { analysis }),
+              ...(event.passages && { passages: [...event.passages] }),
+              ...(event.error && { error: event.error }),
+              ...(webPage && { webPage }),
+              ...(mindChange && { mindChange }),
+              ...(mindProblem && { mindProblem }),
+              ...(found && { found }),
+              ...(command && { command }),
+              ...(commandProblem && { commandProblem }),
+              ...(question && { asked: question }),
+            });
+            break;
+          }
+          case "read-third-party":
+            if (textOrigin === null) {
+              textOrigin = event.source;
+              writeSoon();
+            }
+            break;
+          case "finished":
+            outcome = { status: "done" };
+            break;
+          case "failed":
+            outcome = { status: "failed", error: event.error };
+            break;
         }
+      }
       settleMinds(outcome.status === "failed");
       finish(outcome);
     };

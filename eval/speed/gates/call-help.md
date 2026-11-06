@@ -5,11 +5,10 @@ Written and committed on 2026-11-04 with the held-out cases (`eval/speed/callHel
 ## The runs
 
 - **Arms:** `today` against each step's own arm, paired as `eval/speed/README.md` › Paired runs says: each case on both arms in one run, the order turning case by case, one run at a time. Each step is its own run against today's path:
-  - (a) the quick-tasks model first, thinking off, the User's model only when the quick reply is flagged or a quote isn't found (#1667, step E);
   - (b) only the newest stretch of the transcript the button needs;
   - (c) one search before the first call, falling back to the loop;
   - (d) the reply written first and shown as it streams, its records and their check after it (`write-then-cite`).
-- **Models:** Claude Haiku 5.5 and Claude Sonnet 5.5 as the User's Answers model. A step that sends the same requests on a model (the quick model first, where the Answers model is the quick one) is shown so by a unit test, not run. The judge is Claude Sonnet 5.5, or Claude Opus 5.5 when Sonnet 5.5 is under test.
+- **Models:** Claude Haiku 5.5 and Claude Sonnet 5.5 as the User's Answers model. The judge is Claude Sonnet 5.5, or Claude Opus 5.5 when Sonnet 5.5 is under test. The run in "Main against this head" below uses Claude Haiku 5.5 and DeepSeek V4.1 Flash 1017.
 - **The User's reasoning model:** GPT-6.1 Sol through OpenRouter, where the key allows, on today's path and on the steps that pass, reported and not gated.
 - **Languages:** all 30 cases, 15 English and 15 Chinese. The guards count both languages together; each language is reported beside them.
 
@@ -38,15 +37,9 @@ $15 for all the runs of this work, held by the runner itself: each run reads wha
 
 Per model and step: the times to the first sign, the first words, the first whole option and the end; where the time went (each request's first byte, first text and end, the requests for other steps, reasoning); model calls; how often a reply searched again or went to the User's model; each language's counts; the load; and what each run cost.
 
-## What the remaining change compares (written before its run, committed before it)
-
-After the review, the change this PR ships is call help's model thinking off, and its reply checked as any other reply is: the quick-tasks-model path and its arm are not in the product. This run pairs `answer-thinking` (the normal path's thinking, as before the change) against `today` (the branch), one case after the other, on Claude Haiku 5.5 and Claude Sonnet 5.5, in English and Chinese, one run per case.
-
-**What counts as faster:** the seconds from the press to the first whole option's words (the panel's first useful words), per case, each language and model its own; the first streamed words are reported beside it but not held. **The spread:** the item-by-item difference. A model and language hold when the branch's median is at least 0.3 s sooner and no guard line above moves: cited, judged right, false Supported counted over the set, and the other guards. Any guard line that moves fails the step whatever the time. The arm differs from main by the claims check too, which the step below measured on its own (the reply was the same path sampled twice; the end came 1.2–1.3 s sooner; the check rewrote one reply in 90).
-
 ## Main against this head (written 2026-11-06, committed before its first run)
 
-The change this PR ships is call help skipping the check of the changes a reply claims, and nothing else: the quick-tasks-model path is not in the product. This run compares origin/main (the check kept) with this head (the check skipped) on the call-help set, in a fresh worktree of each, each with a temporary HOME and its own data folders.
+The change this PR ships is call help skipping the check of the changes a reply claims, and nothing else: the quick-tasks-model path is not in the product. This run compares origin/main (the check kept) with this head (the check skipped) on the call-help set, from two checkouts: a fresh worktree of origin/main and this worktree, the same eval files copied into each, a temporary HOME and its own data folders for every run. Each checkout runs the paired runner with today's path twice (`today,today`), one run per sample, and the runs alternate between the checkouts — main 1, head 1, main 2, head 2, main 3, head 3 — so drift over time meets both alike. The two arms within a run are the same path in separate cores, and their samples are read together for that checkout. The per-language tables the run writes are the source of the split.
 
 - **Models:** Claude Haiku 5.5 and DeepSeek V4.1 Flash 1017 (`deepseek-flash`), each language its own. Judge: the same judge for both arms.
 - **Samples:** three per arm, alternating sample by sample (main 1, head 1, main 2, head 2, …), so drift over time meets both arms alike.

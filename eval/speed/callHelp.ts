@@ -282,11 +282,14 @@ async function press(
   firstWordsMs: number | null;
   firstOptionMs: number | null;
 }> {
+  let stopPhase: () => void = () => undefined;
   const shape = HELP_SHAPE[each.kind];
   const seen = new Map<string, { firstWordsMs: number | null; firstOptionMs: number | null }>();
   let start = 0;
+  let latestText = "";
   const stop = core.on("conversation.message", (message) => {
     if (message.kind !== "answer") return;
+    latestText = message.text;
     const at = performance.now() - start;
     const shown = shownItems(readHelpReply(message.text), {
       shape,
@@ -310,6 +313,13 @@ async function press(
     start = performance.now();
     const asked = await core.askMeetingHelp({ meetingId, kind: each.kind as MeetingHelpKind });
     if (!asked.asked) throw new Error(`Not asked: ${JSON.stringify(asked)}`);
+    // The check of the changes a reply claims runs once it is written: what it shows as it runs
+    // is the text before the check, and what the Answer then holds is the text after it.
+    let beforeCheck: string | null = null;
+    stopPhase = core.on("answer.phase", (event) => {
+      if (event.answerId === asked.answerId && event.phase === "checking-claims")
+        beforeCheck = latestText;
+    });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<"late">((resolve) => {
       timer = setTimeout(() => resolve("late"), ANSWER_TIMEOUT_MS);
@@ -328,14 +338,17 @@ async function press(
     const answer = messages.find((message) => message.id === asked.answerId);
     if (answer?.kind !== "answer") throw new Error("No reply.");
     const times = seen.get(answer.id) ?? { firstWordsMs: null, firstOptionMs: null };
+    if (beforeCheck !== null && answer.text !== beforeCheck)
+      rewrittenReplies.push({ item: each.id, before: beforeCheck, after: answer.text });
     return { answer, ...times };
   } finally {
     stop();
+    stopPhase();
   }
 }
 
-/** Every reply the change-claim check rewrote: the claims it made, and the reply as it then read. */
-export const rewrittenReplies: { item: string; claimed: string[]; after: string }[] = [];
+/** Every reply the change-claim check rewrote, with the text before the check and after it. */
+export const rewrittenReplies: { item: string; before: string; after: string }[] = [];
 
 function item(each: CallHelpCase): PairedGroup["items"][number] {
   return {
@@ -370,12 +383,6 @@ function item(each: CallHelpCase): PairedGroup["items"][number] {
       );
       const found = citations.filter((citation) => citation.check === "found");
       const reply = shownReply(answer, shown, numbers);
-      if ((answer.unbackedClaims?.length ?? 0) > 0)
-        rewrittenReplies.push({
-          item: each.id,
-          claimed: (answer.unbackedClaims ?? []).map((claim) => claim.sentence),
-          after: answer.text,
-        });
       const judged = done
         ? await judge(
             claimsJudge,

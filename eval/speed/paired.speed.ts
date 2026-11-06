@@ -234,7 +234,7 @@ test.skipIf(env("PAIRED") === null)("paired runs: today's path against a new one
       // Two libraries processed differently would make every pair unequal.
       if (first !== second) {
         stopped = `Stopped at ${group.name}: the arms' libraries hold ${first} and ${second} Passages.`;
-        break run;
+        break;
       }
       const recorders = [recorderOf(opened[0].library), recorderOf(opened[1].library)] as const;
       for (const { library } of opened) {

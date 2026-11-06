@@ -94,11 +94,6 @@ export const ARMS: readonly Arm[] = [
         : { ...spec, thinking: "summary" },
   },
   {
-    id: "answer-thinking",
-    label: "call help's model thinking as the normal path does, as before #2526",
-    spec: (spec) => (spec.thinking === "off" ? { ...spec, thinking: "answer" } : spec),
-  },
-  {
     id: "newest-stretch",
     label: `call help reads only the newest ${STRETCH_TOKENS} tokens of the live transcript, the newest Passage at least (#2526)`,
     request: (params) => ({
