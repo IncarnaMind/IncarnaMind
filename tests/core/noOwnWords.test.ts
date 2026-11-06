@@ -243,6 +243,30 @@ const KEPT_WHOLE: readonly Shape[] = [
     after: beside(PAYMENTS_ZH, "押金按月支付。"),
   },
   {
+    case: "en, a new line that reads as the line between without its spaces",
+    lines: ["We are now here and ready.", "Now here.", "We are ready now, here at the office."],
+    reply: ["We are now here and ready.", "Nowhere.", "We are ready now, here at the office."],
+    asked: "Add a line saying nowhere; keep every existing line.",
+    after: [
+      "We are now here and ready.",
+      "Nowhere.",
+      "Now here.",
+      "We are ready now, here at the office.",
+    ],
+  },
+  {
+    case: "en, a new line that reads as the line between with a space more",
+    lines: ["We are nowhere near the office.", "Nowhere.", "The office is nowhere near home."],
+    reply: ["We are nowhere near the office.", "Now here.", "The office is nowhere near home."],
+    asked: "Add a line saying now here; keep every existing line.",
+    after: [
+      "We are nowhere near the office.",
+      "Now here.",
+      "Nowhere.",
+      "The office is nowhere near home.",
+    ],
+  },
+  {
     case: "en, a new line that says every word of the line between",
     lines: FEES,
     reply: between(FEES, "Water rates are monthly."),
