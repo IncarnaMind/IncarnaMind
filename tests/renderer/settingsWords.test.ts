@@ -82,6 +82,7 @@ const CONSENT_FACTS = [
   "connectors.directory.where.body",
   "connectors.form.sends",
   "connectors.import.sends",
+  "connectors.import.placeholder",
   "embeddingProviders.confirm.cloud",
   "embeddingProviders.settings.sendsTo",
   "privacy.flows.intro",
