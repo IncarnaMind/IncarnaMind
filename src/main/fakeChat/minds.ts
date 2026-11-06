@@ -106,6 +106,8 @@ export function mindRead(prompt: Prompt): string | null {
 const SUMMARY_PAGE =
   /\bwrite a summary page\b|写一个总结页面|\bwrite a summary of my documents\b|根据我现有的文件帮我写一份summary/i;
 const LONGER = /\blonger\b|长一点|更长/i;
+/** "Delete the second paragraph of the note" (删除笔记的第二段): asked only to take text out (#2356). */
+const DELETES_SECOND = /^delete the second paragraph of the note|^删除笔记的第二段/i;
 const LONGER_TWICE = /\bmake it longer twice\b/i;
 const RETELL = /\bretell the summary\b|重述总结/i;
 const RETOLD = [
@@ -340,6 +342,14 @@ export function mindsReply(prompt: Prompt, asked: string, names: readonly string
     const result = lastResult(prompt, "edit_mind");
     if (result === undefined) return { tool: "edit_mind", input: { content: RETOLD } };
     return { text: firstSentence(result) };
+  }
+  if (DELETES_SECOND.test(question)) {
+    const result = lastResult(prompt, "edit_mind");
+    if (result !== undefined) return { text: firstSentence(result) };
+    const instruction = /\p{Script=Han}/u.test(question)
+      ? "删除第二段"
+      : "delete the second paragraph";
+    return { tool: "edit_mind", input: { instruction, removes_only: true } };
   }
   if (
     SHORTEN.test(question) ||

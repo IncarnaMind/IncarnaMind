@@ -8,6 +8,7 @@ import {
   presencePrompt,
 } from "../../src/core/answers/checks/prompt";
 import { batchPrompt } from "../../src/core/answers/checks/sentenceBatch";
+import { earlierContext } from "../../src/core/answers/context";
 import {
   citeRetryPrompt,
   figureRetryPrompt,
@@ -406,4 +407,18 @@ describe("Passages shown to a model keep their blocks, through the core (#2423)"
     expect(lastResult(model)).toContain("List<Document> of 900 items");
     core.close();
   });
+});
+
+// protects=a Note's own paragraph that reads like the scope line is kept in the rewrite's context (#2529); fails_when=the generated scope line, or the Note's matching paragraph, is dropped; no_claim=none beyond protects.
+test("drops only the generated scope line, not a Note's own paragraph that reads like one", () => {
+  const question = "Summarise this folder.";
+  const generated = 'Search scope: the Folder "Contracts" (2 Documents)';
+  const prose = "First paragraph about the lease.\n\nSearch scope: European contracts";
+  const asked = `<mind version="1">${prose}</mind>\n\n${generated}\n\n${question}`;
+
+  const earlier = earlierContext([{ role: "user", content: asked }], question, 2_000, [generated]);
+
+  expect(earlier).toContain("Search scope: European contracts");
+  expect(earlier).toContain("</mind>");
+  expect(earlier).not.toContain(generated);
 });

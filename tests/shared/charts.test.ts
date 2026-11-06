@@ -1381,6 +1381,19 @@ describe("an Analysis's own values in a chart (#2378)", () => {
     expect(chartSources(chart)).toMatchObject({ uncited: 0, documents: 2 });
   });
 
+  // protects=a chart value read from a line keeps what the check of its Citation's quoted words found, the next page they ran on to included (#2504), as the Citation has it; fails_when=the copy drops it; no_claim=how the chart shows it.
+  test("a line's Citation whose quoted words ran on keeps that page in the chart's copy", () => {
+    const cited = { ...orders, quotedWords: { runsOnTo: { kind: "page", from: 2, to: 2 } } };
+    const line = sourceLineOf({
+      type: "paragraph",
+      content: [
+        { type: "text", text: "289.4" },
+        { type: "citation", attrs: cited },
+      ],
+    });
+    expect(line.citation).toEqual(cited);
+  });
+
   test("reads every Citation a cell holds, not only its first, from its own text", () => {
     const cell: NodeJSON = {
       type: "tableCell",
