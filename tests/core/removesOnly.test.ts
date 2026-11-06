@@ -646,3 +646,82 @@ describe("A whole paragraph out and two of its sentences written back, decided b
     },
   );
 });
+
+const JOINED = {
+  en: "Parking: the tenant may use six underground spaces, each costing 800 a month.",
+  zh: "停车位：承租方可使用地下停车位 6 个，每个车位每月 800 元。",
+};
+
+describe("A held removal stays the User's to decide (#2356)", { timeout: 30_000 }, () => {
+  // protects=a removal asked only to take text out that the reply then revises in place, with content, into a rewrite that joins the kept sentences waits like the same rewrite in one edit, whatever the revision's own removes_only says, while a clean revision applies (above); English and Chinese; fails_when=the revision applies at once because the removal it replaced is no longer judged; no_claim=what a real model writes.
+  test.each([
+    { language: "en", flag: true },
+    { language: "en", flag: undefined },
+    { language: "zh", flag: false },
+    { language: "zh", flag: undefined },
+  ] as const)(
+    "$language, a removal revised into a join, its own flag $flag",
+    async ({ language, flag }) => {
+      const model = stepping([
+        removal(language, PARKING_OUT[language]),
+        {
+          tool: "edit_mind",
+          input: {
+            part: LEASE[language].part,
+            content: JOINED[language],
+            ...(flag !== undefined && { removes_only: flag }),
+          },
+        },
+      ]);
+      const { core, mind, client, answer } = await setUp(language, model);
+
+      const requests = changesIn(answer).map((change) => change.request);
+      expect(whyItWaits(client.doc, new Set(requests))?.why).toBe("more-than-taken-out");
+      const applied = await core.applyAskedChanges({
+        answerId: answer.id,
+        mindId: mind.id,
+        requests,
+      });
+      expect(applied?.held).toBe(true);
+      expect(lastResult(model)).not.toContain("It applies in the Note at once");
+    },
+  );
+
+  // protects=once the User accepts or rejects one change of a held pair (the paragraph out, two of its sentences written back), applying the reply's changes again, as the window does when the Note opens, leaves the other waiting and the Note as the User left it; English and Chinese, each change, each decision; fails_when=the other change applies without the User, giving the User's paragraph beside the copy, or losing it all; no_claim=two windows deciding at once.
+  test.each([
+    { language: "en", decided: "removal", outcome: "reject" },
+    { language: "en", decided: "write-back", outcome: "reject" },
+    { language: "en", decided: "removal", outcome: "accept" },
+    { language: "en", decided: "write-back", outcome: "accept" },
+    { language: "zh", decided: "removal", outcome: "reject" },
+    { language: "zh", decided: "write-back", outcome: "reject" },
+    { language: "zh", decided: "removal", outcome: "accept" },
+    { language: "zh", decided: "write-back", outcome: "accept" },
+  ] as const)(
+    "$language, the $decided decided ($outcome), then the changes applied again",
+    async ({ language, decided, outcome }) => {
+      const model = stepping([
+        removal(language, PARKING_OUT[language]),
+        { tool: "add_to_mind", input: { after: RENT_START[language], content: BACK[language] } },
+      ]);
+      const { core, mind, client, answer } = await setUp(language, model);
+      const [removing, writing] = changesIn(answer).map((change) => change.request);
+      if (!removing || !writing) throw new Error("The Answer made two changes.");
+      const input = { answerId: answer.id, mindId: mind.id, requests: [removing, writing] };
+      expect((await core.applyAskedChanges(input))?.held).toBe(true);
+      await client.settled();
+
+      await decide(client, decided === "removal" ? removing : writing, outcome);
+      const left = shownWithChanges(client);
+      const again = await core.applyAskedChanges(input);
+      await client.settled();
+
+      expect(again?.held).toBe(true);
+      expect(shownWithChanges(client)).toEqual(left);
+      const other = decided === "removal" ? writing : removing;
+      expect(pendingProposals(client.blocks).some((proposal) => proposal.request === other)).toBe(
+        true,
+      );
+    },
+  );
+});
