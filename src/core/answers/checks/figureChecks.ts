@@ -20,6 +20,7 @@ import type {
 import { isRecord } from "../../errors";
 import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
+import { namingHolds } from "./analysisNaming";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
 import { FIGURES, type ReadVerdict, readVerdict } from "./prompt";
@@ -42,6 +43,8 @@ export interface FigureReplyItem extends ReadVerdict {
     unitQuote: string | null;
   } | null;
   calculation: number | null;
+  /** An Analysis's figure: whether the sentence's words name it as its label and rule do; null when not given. */
+  names: "same" | "other" | "unclear" | null;
 }
 
 export interface FigureReplyRemainder extends ReadVerdict {
@@ -120,8 +123,17 @@ export function readFigureReply(
     return null;
   const ids = new Set(figures.map((figure) => figure.id));
   if (ids.size !== figures.length) return null;
+  // An Analysis's figure is judged by its name alone: a source or calculation given for it is
+  // never read, so one written as prose doesn't make the reply unreadable (#2378).
+  const analysed = new Set(
+    figures.filter((figure) => figure.calculated?.figure.analysis).map((figure) => figure.id),
+  );
   const items: FigureReplyItem[] = [];
-  for (const raw of value.items) {
+  for (const given of value.items) {
+    const raw =
+      isRecord(given) && typeof given.id === "string" && analysed.has(given.id)
+        ? { ...given, source: null, calculation: null, reading: null }
+        : given;
     const judgment = judgmentOf(raw);
     const reading = isRecord(raw) ? optionalCount(raw.reading) : undefined;
     const calculation = isRecord(raw) ? optionalCount(raw.calculation) : undefined;
@@ -177,6 +189,8 @@ export function readFigureReply(
       relation: raw.relation,
       source,
       calculation,
+      names:
+        raw.names === "same" || raw.names === "other" || raw.names === "unclear" ? raw.names : null,
     });
   }
   if (ids.size > 0) return null;
@@ -307,6 +321,82 @@ export function figureJudgment(
   };
 }
 
+/**
+ * An Analysis's figure in a sentence (#2378). Its number is its run's, never the Documents' text,
+ * which never holds it; whether the sentence names it is the claim judge's, from its label, rule and
+ * code (`names`). Supported only when IncarnaMind worked the number out again, the Documents it read
+ * are as they were, the judge read the sentence as naming it, and `namingHolds`, which can only take
+ * that away, finds its own clause names it and nothing else. Unsupported only when the judge read the
+ * sentence as naming another figure. Not checked otherwise: no code ever reads a name as right.
+ */
+function analysisJudgment(
+  target: CheckFigure,
+  facts: Facts,
+  options: Pick<FigureCheckOptions, "misnamed" | "keptInside">,
+  item: FigureReplyItem | undefined,
+  holds: boolean,
+): ClaimJudgment {
+  const record = target.analysisRecord;
+  const read = (record?.citations ?? []).map(({ documentId, contentHash }) => ({
+    documentId,
+    contentHash,
+  }));
+  const known = { ...facts, versions: [...facts.versions, ...read] };
+  if (!record) return { verdict: "not-checked", reason: "analysis-gone", detail: null, ...known };
+  // Its run read a Document kept inside a walled Folder this check is outside: nothing of it counts.
+  const wall = record.citations.map((each) => options.keptInside(each.documentId)).find(Boolean);
+  if (wall) return { verdict: "not-checked", reason: "kept-inside", detail: wall, ...known };
+  const [evidence] = record.citations;
+  if (!record.recalculated || !evidence)
+    return { verdict: "not-checked", reason: "analysis", detail: null, ...known };
+  const label = record.label ?? target.calculated?.figure.label ?? "";
+  const unread = { citedCaseUnchecked: false, citedCaseFound: false, calculation: null };
+  // The judge decides: a reply whose fields disagree with its verdict was asked once already
+  // (`analysisItemDisagrees`), and still can't be read as one.
+  if (!item || analysisItemDisagrees(item) !== null)
+    return { verdict: "not-checked", reason: "malformed", detail: null, ...known };
+  if (item.names === "other")
+    return {
+      verdict: "unsupported",
+      evidence: null,
+      says: item.says,
+      unsupported: options.misnamed(label),
+      ...unread,
+      ...known,
+    };
+  if (item.names === "same" && holds)
+    return { verdict: "supported", evidence, says: null, unsupported: null, ...unread, ...known };
+  return { verdict: "not-checked", reason: "analysis-unnamed", detail: label, ...known };
+}
+
+/**
+ * Why an Analysis figure's item disagrees with its own verdict (#2378); null when it agrees. Its
+ * "same" stands only with the verdict supported, the relation equals and its subject, roles and
+ * scope the figure's own; "other" only with unsupported; "unclear" never with supported.
+ */
+export function analysisItemDisagrees(item: FigureReplyItem): string | null {
+  switch (item.names) {
+    case "same":
+      return item.verdict === "supported" &&
+        item.relation === "equals" &&
+        item.topic === "found" &&
+        item.roles === "same" &&
+        item.scope === "same"
+        ? null
+        : `"names" is "same", but its verdict is ${item.verdict}, relation ${item.relation}, topic ${item.topic}, roles ${item.roles} and scope ${item.scope}`;
+    case "other":
+      return item.verdict === "unsupported"
+        ? null
+        : `"names" is "other", but its verdict is ${item.verdict}`;
+    case "unclear":
+      return item.verdict === "supported"
+        ? `"names" is "unclear", but its verdict is supported`
+        : null;
+    default:
+      return 'it gives no "names"';
+  }
+}
+
 export interface FigureCheckOptions {
   requested: readonly CheckFigure[];
   claim: string;
@@ -334,6 +424,10 @@ export interface FigureCheckOptions {
   around(citation: Citation): readonly string[];
   /** Why a figure isn't backed by a source number (`amount`) that measures something else (#2255). */
   otherMeasure(amount: string, measured: string, claimed: string): UnsupportedReason;
+  /** Why an Analysis's figure isn't backed by its run: the sentence doesn't name it as `label` does. */
+  misnamed(label: string): UnsupportedReason;
+  /** The walled Folder that keeps a Document inside it, outside this check's scope; null otherwise. */
+  keptInside(documentId: string): string | null;
   signal: AbortSignal;
 }
 
@@ -515,6 +609,21 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
   const rows: FigureCheckResult[] = [];
   for (const original of requested) {
     let target = original;
+    if (target.calculated?.figure.analysis) {
+      const result = analysisJudgment(
+        target,
+        options.facts(),
+        options,
+        items.get(target.id),
+        namingHolds(options.claim, target, requested),
+      );
+      rows.push({
+        ...finding(target),
+        ...(result.verdict === "supported" && { named: true as const }),
+        result,
+      });
+      continue;
+    }
     const item = items.get(target.id);
     if (!item) {
       rows.push({ ...finding(target), result: unavailable("malformed") });
@@ -774,6 +883,33 @@ export async function checkFigureReply(options: FigureCheckOptions): Promise<Cla
 }
 
 /**
+ * One verdict everywhere (#2378): a sentence whose reply couldn't be read, once its last ask is
+ * settled, backs none of its figures either, so its marker, its schedule row and the sentence read
+ * the same.
+ */
+export function oneVerdict(result: ClaimCheckResult): ClaimCheckResult {
+  if (result.verdict !== "not-checked" || result.reason !== "malformed" || !result.figures)
+    return result;
+  return {
+    ...result,
+    figures: result.figures.map(({ named, ...figure }) =>
+      figure.result.verdict === "supported"
+        ? {
+            ...figure,
+            result: {
+              verdict: "not-checked",
+              reason: "malformed",
+              detail: null,
+              versions: figure.result.versions,
+              excluded: figure.result.excluded,
+            },
+          }
+        : { ...figure, ...(named && { named }) },
+    ),
+  };
+}
+
+/**
  * A sentence's figure results when the reply's Roles line gives the sentence to someone its
  * Passage doesn't name (#1766): a figure that agreed or disagreed with that Passage's number is
  * Unsupported, since the number is someone else's, and so are the sentence's other words, whatever
@@ -828,6 +964,9 @@ export async function withSentenceVerdict(
 ): Promise<ClaimCheckResult> {
   const { figures, remainder } = result;
   if (!figures || result.verdict === "contradicted") return result;
+  // The verdict on the whole sentence weighed an Analysis's figure against the Documents, which
+  // never hold it: only the remainder the reply gave speaks for its other words (#2378).
+  if (figures.some((figure) => figure.calculated?.figure.analysis)) return result;
   const judged = await sentence();
   if (
     judged.verdict === "supported" ||
