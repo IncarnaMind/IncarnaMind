@@ -31,11 +31,28 @@ let watchingReturns = false;
 let returns = 0;
 
 /**
+ * The one retry a press arms runs only while Organize still sends where its billing page was
+ * opened. A model changed elsewhere while the page was away is another destination, and the
+ * return sends nothing to it without a new choice (#2535, ADR-0022).
+ */
+async function retryOnReturn(openedFor: string): Promise<void> {
+  try {
+    const route = await core.getTaggingRoute("classification");
+    if (route.where !== "cloud" || route.service.id !== openedFor) return;
+    const ids = documentsOfCause("credit");
+    if (ids.length === 0) return;
+    await organizeDocuments([...ids]);
+  } catch (error) {
+    useAppStore.getState().reportError(error);
+  }
+}
+
+/**
  * The User came back after adding credit: every Document that still has the credit failure tries
  * once, with no press. Only an Add credit press arms this, so a plain return spends nothing, and
  * the list is read on return rather than kept from the press (#2535).
  */
-function retryWhenBack(pressedAfter: number): void {
+function retryWhenBack(pressedAfter: number, openedFor: string): void {
   if (!watchingReturns) {
     watchingReturns = true;
     window.addEventListener("focus", () => {
@@ -49,11 +66,7 @@ function retryWhenBack(pressedAfter: number): void {
     "focus",
     () => {
       retryPending = false;
-      const ids = documentsOfCause("credit");
-      if (ids.length === 0) return;
-      void organizeDocuments([...ids]).catch((error: unknown) =>
-        useAppStore.getState().reportError(error),
-      );
+      void retryOnReturn(openedFor);
     },
     { once: true },
   );
@@ -82,7 +95,7 @@ export async function fixOrganizeProblem(kind: ReviewProblemKind): Promise<void>
     const url = billingUrlOfProvider(provider);
     if (provider && url) {
       useKeyRefusals.getState().openBilling(provider.id, url);
-      retryWhenBack(pressedAfter);
+      retryWhenBack(pressedAfter, route.service.id);
     } else {
       organizeModelSettings();
     }
