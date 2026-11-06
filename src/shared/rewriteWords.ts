@@ -338,14 +338,22 @@ const UNITS = new Set(
     "l litre litres liter liters ml gallon gallons kwh kw mw mwh gb mb tb",
     "people persons person staff employees workers users customers members units items pieces copies",
     "shares seats rooms beds cars vehicles households homes students patients visitors guests",
-    "words pages hours minutes seconds days weeks nights times points percent per",
+    "words pages hours minutes seconds days weeks nights times points percent",
     "dollars dollar euros euro yen yuan pounds cents",
   ]
     .join(" ")
     .split(" "),
 );
-/** "2025 in long": inches, not "in 2025", only before a dimension. */
-const INCHES = /^\s*in\s+(?:long|wide|high|tall|deep|thick|across)\b/iu;
+/** "2025 in long.": inches only in a bare dimension at the clause's end, not "in long talks". */
+const INCHES = /^\s*in\s+(?:long|wide|high|tall|deep|thick|across)\s*(?:[.,;:!?)]|$)/iu;
+/** What "per" is followed by in a rate ("per day", "per person"), not "per the agreement". */
+const PER_WHAT = new Set("person head guest unit item hour minute seat room".split(" "));
+const perRate = (after: string): boolean => {
+  const what = /^\s*per\s+([^\s\p{P}]+)/iu.exec(after)?.[1]?.toLowerCase();
+  return (
+    what !== undefined && (Object.hasOwn(RATE_WORDS, what) || UNITS.has(what) || PER_WHAT.has(what))
+  );
+};
 const HAN_UNITS = [
   ..."平方米 平方公里 平米 公里 千米 厘米 毫米 公顷 公斤 千克 毫升 小时 分钟 美元 欧元 英镑 日元 港元 人民币 人次".split(
     " ",
@@ -356,8 +364,8 @@ const HAN_UNITS = [
 /**
  * Whether the line's one figure is a period, which no rewrite writes for another figure: a figure
  * that reads as a year ("2025", full-width digits too) is one unless it carries a measure's mark,
- * a currency before it or a known unit after it ("$2025", "2025 square feet", "2025 m", "2025 in
- * long", 2020 人). Any other word after it ("in 2025 under the scheme", 2025 会计年度), or none,
+ * a currency before it or a known unit after it ("$2025", "2025 square feet", "2025 m", "2025 per
+ * day", "2025 in long.", 2020 人). Any other word after it ("in 2025 under the scheme", 2025 会计年度), or none,
  * keeps it a period, so a word the lists don't know never makes a year an amount.
  */
 export function givesAPeriod(quote: string): boolean {
@@ -368,7 +376,7 @@ export function givesAPeriod(quote: string): boolean {
   const han = /^\s*(\p{Script=Han}+)/u.exec(after)?.[1];
   if (han !== undefined) return !HAN_UNITS.some((unit) => han.startsWith(unit));
   const word = /^\s*([^\s\p{P}]+)/u.exec(after)?.[1]?.toLowerCase();
-  return !(word !== undefined && UNITS.has(word)) && !INCHES.test(after);
+  return !((word !== undefined && UNITS.has(word)) || INCHES.test(after) || perRate(after));
 }
 
 /** The numbers `text` writes outside `at` to `end`, which a rewrite there leaves as they are. */

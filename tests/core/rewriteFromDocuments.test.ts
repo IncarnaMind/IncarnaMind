@@ -1153,6 +1153,25 @@ describe("rewriteFromDocuments", () => {
       "500",
       "2025",
     ],
+    [
+      "The grant was paid 500 per the agreement.",
+      "The grant was paid in 2025 per the agreement.",
+      "500",
+      "2025",
+    ],
+    [
+      "The fee was agreed at 500 in long negotiations.",
+      "The fee was agreed in 2025 in long negotiations.",
+      "500",
+      "2025",
+    ],
+    [
+      "The grant was paid 500 in long-term instalments.",
+      "The grant was paid in 2025 in long-term instalments.",
+      "500",
+      "2025",
+    ],
+    ["The grant was paid 500 in full.", "The grant was paid in 2025 in full.", "500", "2025"],
   ])("keeps %s where the Passage gives a year: %s", async (sentence, line, from, to) => {
     const { core, mindId } = await noteWithCheck(
       () => ({ text: `Change 1: ${from}\nTo 1: ${to}` }),
