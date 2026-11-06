@@ -796,7 +796,7 @@ interface Settled {
   chinese: boolean;
   accounts: boolean;
   negativeBrackets: boolean;
-  /** A header of periods ("2025 2024", "本期 上期") applies to the text read, or stands above it on the page. */
+  /** A header of periods ("2025 2024", "本期 上期", "２０２５ ２０２４") applies to the text read, or stands above it on the page. */
   periodColumns: boolean;
   /** Up to 400 characters of the Document before and after the text read, in NFKC, dashes as "-". */
   before: string;
@@ -867,7 +867,9 @@ function settle(context: FigureContext): Settled {
     chinese: tag?.language === "zh",
     accounts: context.accounts === true,
     negativeBrackets: context.negativeBrackets === true,
-    periodColumns: headsPeriods(context.header ?? "") || headsPeriods(context.around?.before ?? ""),
+    periodColumns: headsPeriods(
+      `${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC"),
+    ),
     before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
     after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
