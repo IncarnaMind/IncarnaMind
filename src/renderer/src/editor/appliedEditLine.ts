@@ -21,11 +21,12 @@ import {
   ySyncPluginKey,
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
-import { BLOCK_ID_ATTRIBUTE, type EditPart } from "../../../core/api";
+import { BLOCK_ID_ATTRIBUTE, type EditPart, type RemovedParagraphs } from "../../../core/api";
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
-import { type ChangeKind, countChanged } from "../../../shared/proposals";
-import { type ChangeCounts, changeFact } from "../changeFacts";
+import { addsOnly, type ChangeKind, countChanged, onlyRemoves } from "../../../shared/proposals";
+import { paragraphsRemoved } from "../../../shared/sentenceChanges";
+import { type ChangeCounts, changeFact, removedFact } from "../changeFacts";
 import { SPARK_PATH } from "../components/iconPaths";
 import type { EstimateLine } from "../cost";
 import { anchorOf } from "./arrivedChanges";
@@ -476,6 +477,10 @@ const COUNTED: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 export interface ChangedBlocks {
   paragraphs: number;
   tables: number;
+  /** Every paragraph and table counted was added whole, the User's kept: added, not changed (`addsOnly`). */
+  added?: true;
+  /** Every paragraph counted was removed whole, and nothing else changed (`onlyRemoves`). */
+  removed?: RemovedParagraphs;
 }
 
 /** Whether a paragraph or heading lies wholly between two positions. */
@@ -501,6 +506,7 @@ export function changedBlocksOf(
   changes: readonly AppliedChange[],
 ): ChangedBlocks {
   const kinds: ChangeKind[] = [];
+  const removedTexts: string[] = [];
   const counted = new Set<number>();
   const tables = new Set<number>();
   let removedTables = 0;
@@ -519,11 +525,13 @@ export function changedBlocksOf(
       change.removed.descendants((node) => {
         if (node.type.name === "table") {
           wholeTables++;
+          kinds.push("table-removed");
           return false;
         }
         if (COUNTED.has(node.type.name)) {
           blocks++;
           kinds.push(node.type.name === "heading" ? "title-removed" : "removed");
+          if (node.type.name !== "heading") removedTexts.push(node.textContent);
         }
         return !node.isTextblock;
       });
@@ -533,6 +541,7 @@ export function changedBlocksOf(
     }
     state.doc.nodesBetween(place.from, Math.max(place.to, place.from + 1), (node, pos) => {
       if (node.type.name === "table" && change.block === "added") {
+        if (!tables.has(pos)) kinds.push("table-added");
         tables.add(pos);
         return false;
       }
@@ -544,7 +553,12 @@ export function changedBlocksOf(
       return !node.isTextblock;
     });
   }
-  return { paragraphs: countChanged(kinds), tables: tables.size + removedTables };
+  return {
+    paragraphs: countChanged(kinds),
+    tables: tables.size + removedTables,
+    ...(addsOnly(kinds) && { added: true }),
+    ...(onlyRemoves(kinds) && { removed: paragraphsRemoved(removedTexts) }),
+  };
 }
 
 const changesIn = (t: Translate, { paragraphs, tables }: ChangedBlocks): string => {
@@ -562,13 +576,34 @@ const changesIn = (t: Translate, { paragraphs, tables }: ChangedBlocks): string 
 
 /** What the applied line and its Undo notice say an edit changed: "Changed 3 paragraphs and 1 table". */
 export function appliedText(t: Translate, blocks: ChangedBlocks): string {
+  if (blocks.added) return addedText(t, blocks);
+  if (blocks.removed) return removedFact(t, blocks.removed, null);
   if (blocks.tables > 0) return t("edit.applied.changes", { changes: changesIn(t, blocks) });
   return blocks.paragraphs === 1
     ? t("edit.applied.one")
     : t("edit.applied", { count: blocks.paragraphs });
 }
 
+/** An edit that only added: "Added 3 paragraphs and a table", as the assistant's lines say it. */
+function addedText(t: Translate, { paragraphs, tables }: ChangedBlocks): string {
+  const table =
+    tables === 1
+      ? t("mindChanges.count.tables.one")
+      : t("mindChanges.count.tables", { count: tables });
+  if (paragraphs === 0) return t("edit.tables", { tables: table });
+  if (tables > 0) {
+    const counted =
+      paragraphs === 1
+        ? t("mindChanges.count.paragraphs.one")
+        : t("mindChanges.count.paragraphs", { count: paragraphs });
+    return t("edit.added.tables", { paragraphs: counted, tables: table });
+  }
+  return paragraphs === 1 ? t("edit.added.one") : t("edit.added", { count: paragraphs });
+}
+
 function reviewText(t: Translate, blocks: ChangedBlocks, byAssistant: boolean): string {
+  if (blocks.added) return addedText(t, blocks);
+  if (blocks.removed) return removedFact(t, blocks.removed, null);
   if (blocks.tables > 0) {
     const changes = changesIn(t, blocks);
     return byAssistant
@@ -971,7 +1006,8 @@ function decorations(state: EditorState, line: AppliedLine, options: Options): D
           ? changedBlocksOf(state, changesLeft(line))
           : { paragraphs: 0, tables: 0 };
     const words = line.kind === "failed" ? line.text : "";
-    const count = `${blocks.paragraphs}/${blocks.tables}`;
+    // What the count is said as, as well as the count: a pair whose one half is restored stays one.
+    const count = `${blocks.paragraphs}/${blocks.tables}/${blocks.added ? "added" : ""}/${blocks.removed ? `${blocks.removed.sentences}:${blocks.removed.start}` : ""}`;
     const canUndo = line.kind !== "review" || !line.undo || line.undo.available();
     marks.push(
       Decoration.widget(at, () => mainLine(line, options, blocks), {

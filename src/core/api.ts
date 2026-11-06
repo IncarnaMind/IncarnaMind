@@ -679,6 +679,8 @@ export type ProposalRequest =
       instruction?: string;
       /** Why the model changed the text, in its few words (#202); absent when it didn't say. */
       reason?: string;
+      /** The assistant said the User asked only for text to go: a change that does more waits for them (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "answer"; answerId: string })
   | (ProposalMaker & {
@@ -686,6 +688,8 @@ export type ProposalRequest =
       requested?: RequestedChange;
       action?: EditAction;
       instruction?: string;
+      /** It revises a change the assistant said was asked only to take text out, and is held to it (#2356). */
+      removesOnly?: true;
     })
   | (ProposalMaker & { source: "comparison-table"; tableId: string })
   | (ProposalMaker & { source: "research"; taskId: string })
@@ -1464,6 +1468,29 @@ export interface EditAsk {
 export type ChartProblem = "noTable" | "noNumbers" | "needsTwo" | "uncited";
 
 /**
+ * What an edit does to the User's sentences in the paragraphs it touches (#2356): each kept word
+ * for word, taken out whole, shortened by words taken out, or rewritten (joined to another or
+ * reworded); and how many it writes that aren't one of theirs with words taken out.
+ */
+export interface SentenceChanges {
+  kept: number;
+  takenOut: number;
+  shortened: number;
+  rewritten: number;
+  written: number;
+  /** The first few of the User's sentences taken out whole and rewritten, as they read. */
+  named: { takenOut: string[]; rewritten: string[] };
+}
+
+/** Whole paragraphs a change removes and nothing else (`paragraphsRemoved`): how many, their sentences, and how the first is named. */
+export interface RemovedParagraphs {
+  paragraphs: number;
+  sentences: number;
+  /** The first one's label ("Parking"), or its first words, "…" when cut. */
+  start: string;
+}
+
+/**
  * What a call of a Minds' Tool did (#202): the changes it proposed in one
  * Mind, which wait there for the User to accept or reject them.
  */
@@ -1479,6 +1506,12 @@ export interface MindChange {
   proposals: number;
   /** How many paragraphs they change, add or remove, each once (`changedParagraphs`). Absent: none. */
   changed?: number;
+  /** Every paragraph and table it changes it adds whole, changing none of the User's (`addsOnly`). */
+  added?: true;
+  /** What it does to the User's sentences, read from the text before and after it (`sentenceChanges`). Absent: it touches none. */
+  sentences?: SentenceChanges;
+  /** It only removes whole paragraphs, none of the User's other text changed (`onlyRemoves`). */
+  removed?: RemovedParagraphs;
   /** How many paragraphs the whole Blocks it wrote hold (a heading or a table holds none). Absent: none. */
   paragraphs?: number;
   /** How many tables it added. Absent: none. */
@@ -3041,7 +3074,10 @@ export interface EditCause {
   requestId: string;
   /** Its Proposals' `ProposalRef.request`. */
   request: string;
-  /** Drawn as applied while it streams in; false until its new text maps onto the selection. */
+  /**
+   * Drawn as applied while it streams in: its new text maps onto the selection, and what it has
+   * written so far would not wait for the User.
+   */
   apply: boolean;
 }
 
@@ -6458,6 +6494,8 @@ export type EditWithAiResult =
       stopped?: "changed";
       /** What its new text left out of the selection, kept; absent when nothing. */
       leftOut?: LeftOutPart[];
+      /** The paragraphs of the selection a reply by names didn't name, as they were (#2356). Absent: none. */
+      unnamed?: LeftOutPart[];
       /**
        * The Mind's Yjs state vector once the Proposals were written. This reply can reach a
        * window before the last `"mind.update"` that wrote them, so a window waits until its
