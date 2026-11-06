@@ -70,7 +70,7 @@ import { createAiSdkAnswerEngine, createAnswers } from "./answers";
 import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
-import type { LibraryListing } from "./answers/checks/libraryFacts";
+import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
 import { AFTER_NEW_VERSION_MS, CLAIM_TIME_LIMIT_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -1779,6 +1779,11 @@ export function createCore(adapters: CoreAdapters): Core {
       : kind === "tag"
         ? (tags.list().find((tag) => tag.id === id)?.name ?? null)
         : (documents.getMany([id])[0]?.name ?? null);
+  const nameSent = (kind: ScopeKind, id: string): string | null => {
+    const linked =
+      kind === "folder" ? folders.list().find((folder) => folder.id === id) : undefined;
+    return linked ? linkedFolderName(linked) : scopeItemName(kind, id);
+  };
   /**
    * What a check's scope sees of the Library (#2525), from a Note in `mindId`: the Documents the
    * scope covers, the Folders, Tags and other notes it may see, with Folder walls applied both
@@ -1800,7 +1805,7 @@ export function createCore(adapters: CoreAdapters): Core {
     const within = one === null ? null : new Set(library.subtree(one));
     const seen = (folderId: string | null) =>
       walledFolderId(folderId) === ownWall && (within === null || within.has(folderId ?? ""));
-    const named = visible && hasSearchScope(visible) ? scopeName(visible, scopeItemName) : null;
+    const named = visible && hasSearchScope(visible) ? scopeName(visible, nameSent) : null;
     const walls = library.folders().filter((folder) => folder.keepInside).length;
     const folders = library
       .folders()
@@ -3565,7 +3570,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const ready = await chat.readiness(choice, "classification");
       if (embedding.localOnly() && "provider" in ready && ready.provider.service)
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
-      const prepared = await chat.prepareModel(choice, "classification", undefined, permit);
+      const prepared = await chat.prepareModel(choice, "classification", undefined, { permit });
       if (embedding.localOnly() && prepared.provider.service)
         throw new TaggingNotReadyError({ key: "error.tagging.cloudPaused" });
       // A scan's page images go only where the User allowed them (the "scan-images" flow).
@@ -3578,7 +3583,9 @@ export function createCore(adapters: CoreAdapters): Core {
       const imageModel = readsImages(prepared.capabilities) ? null : chat.imageModel(choice);
       if (imageModel && scanImagesAllowed(imageModel)) {
         chosen = withPageReader(chosen, async () => {
-          const reader = await chat.prepareModel(imageModel, "classification", undefined, permit);
+          const reader = await chat.prepareModel(imageModel, "classification", undefined, {
+            permit,
+          });
           return {
             ...chatGroupClassifier(reader.model, reader.provider.service === null, true),
             model: { id: imageModel.modelId, images: true, reason: "selected" as const },

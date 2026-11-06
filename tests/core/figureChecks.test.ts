@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
 import { readFigureReply } from "../../src/core/answers/checks/figureChecks";
-import { replyAcrossTurns } from "../../src/core/answers/checks/prompt";
+import { figureHandle, replyAcrossTurns } from "../../src/core/answers/checks/prompt";
 import { createAiSdkAnswerEngine } from "../../src/core/answers/engine";
 import type {
   CalculatedFigure,
@@ -45,11 +45,18 @@ const item = (id = "f1") => ({
   source: { citation: 1, position: 1, reading: null, unitQuote: null },
   calculation: null,
 });
+/** A reply as a model writes it: each figure named by the handle its request gives it. */
+const asSent = (text: string, sent: readonly CheckFigure[]) =>
+  sent.reduce(
+    (written, figure, index) =>
+      written.replaceAll(JSON.stringify(figure.id), JSON.stringify(figureHandle(index))),
+    text,
+  );
 const reply = (items: unknown[], remainder: unknown = null) =>
   `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({ items, remainder })}`;
 
 test("a complete same-run reply binds only the exact requested occurrence ids", () => {
-  expect(readFigureReply(reply([item()]), figures, claim)).toMatchObject({
+  expect(readFigureReply(asSent(reply([item()]), figures), figures, claim)).toMatchObject({
     items: [{ id: "f1", source: { citation: 1, position: 1 } }],
     remainder: null,
   });
@@ -61,7 +68,7 @@ test.each([
   { name: "duplicate", items: [item(), item()] },
   { name: "malformed", items: [{ ...item(), relation: "maybe" }] },
 ])("$name item set is rejected", ({ items }) =>
-  expect(readFigureReply(reply(items), figures, claim)).toBeNull(),
+  expect(readFigureReply(asSent(reply(items), figures), figures, claim)).toBeNull(),
 );
 
 test("a chart's largest reply, for 500 values, is read whole", () => {
@@ -77,22 +84,33 @@ test("a chart's largest reply, for 500 values, is read whole", () => {
   }));
   const text = reply(items);
   expect(text.length).toBeGreaterThan(100_000);
-  expect(readFigureReply(text, many, claim)?.items).toHaveLength(MAX_CHART_VALUES);
+  expect(readFigureReply(asSent(text, many), many, claim)?.items).toHaveLength(MAX_CHART_VALUES);
 });
 
 test("missing remainder remains missing rather than explicitly empty", () => {
   expect(
-    readFigureReply(`Figures: ${JSON.stringify({ items: [item()] })}`, figures, claim)?.remainder,
+    readFigureReply(
+      asSent(`Figures: ${JSON.stringify({ items: [item()] })}`, figures),
+      figures,
+      claim,
+    )?.remainder,
   ).toBeUndefined();
 });
 
 test("only trailing citation transport annotations may follow the complete object", () => {
-  expect(readFigureReply(`${reply([item()])}[^1][^2]`, figures, claim)?.items[0]?.id).toBe("f1");
+  expect(
+    readFigureReply(asSent(`${reply([item()])}[^1][^2]`, figures), figures, claim)?.items[0]?.id,
+  ).toBe("f1");
   for (const suffix of ["garbage", " {}", "[^1] garbage", "[^0]", "[^10000]"])
-    expect(readFigureReply(`${reply([item()])}${suffix}`, figures, claim)).toBeNull();
+    expect(
+      readFigureReply(asSent(`${reply([item()])}${suffix}`, figures), figures, claim),
+    ).toBeNull();
   expect(
     readFigureReply(
-      `${reply([{ ...item(), source: { ...item().source, unitQuote: "Keep } and [^2] inside the string." } }])}[^1]`,
+      asSent(
+        `${reply([{ ...item(), source: { ...item().source, unitQuote: "Keep } and [^2] inside the string." } }])}[^1]`,
+        figures,
+      ),
       figures,
       claim,
     )?.items[0]?.source?.unitQuote,
@@ -105,18 +123,22 @@ test("a source names its number as the quote writes it, and markers written as d
     reading: "1",
     source: { citation: "1", number: "£20", unitQuote: null },
   };
-  expect(readFigureReply(reply([written]), figures, claim)?.items[0]).toMatchObject({
+  expect(
+    readFigureReply(asSent(reply([written]), figures), figures, claim)?.items[0],
+  ).toMatchObject({
     reading: 1,
     source: { citation: 1, number: "£20", position: null, reading: null },
   });
   for (const marker of ["3", { marker: 3 }]) {
     const calculated = { ...item(), source: null, calculation: marker };
-    expect(readFigureReply(reply([calculated]), figures, claim)?.items[0]?.calculation).toBe(3);
+    expect(
+      readFigureReply(asSent(reply([calculated]), figures), figures, claim)?.items[0]?.calculation,
+    ).toBe(3);
   }
   for (const marker of ["0", "one", "1.5", -1])
     expect(
       readFigureReply(
-        reply([{ ...item(), source: { ...item().source, citation: marker } }]),
+        asSent(reply([{ ...item(), source: { ...item().source, citation: marker } }]), figures),
         figures,
         claim,
       ),
@@ -127,14 +149,14 @@ test("a quote copied from a sheet row with its raw tabs is read", () => {
   const row = { ...item(), source: { passage: "P2", quote: "Fuel\t510\t450", number: "450" } };
   const written = reply([row]).replace(/\\t/g, "\t");
   expect(written).toContain("\t510");
-  expect(readFigureReply(written, figures, claim)?.items[0]?.source?.record?.quote).toBe(
-    "Fuel\t510\t450",
-  );
+  expect(
+    readFigureReply(asSent(written, figures), figures, claim)?.items[0]?.source?.record?.quote,
+  ).toBe("Fuel\t510\t450");
 });
 
 test("the Figures line is the JSON one, not a line of prose that starts the same way", () => {
   const prose = `Verdict: supported\nFigures: the revenue figure is £20, as the accounts give it.\n${reply([item()]).replace("Verdict: supported\nAbsence: no\n", "")}`;
-  expect(readFigureReply(prose, figures, claim)?.items[0]?.id).toBe("f1");
+  expect(readFigureReply(asSent(prose, figures), figures, claim)?.items[0]?.id).toBe("f1");
 });
 
 test.each([
@@ -227,6 +249,7 @@ async function checkWith(options: {
     options.body ?? "Revenue in 2024 was £20; revenue in 2025 was £21. The licence has expired.";
   const calls: ModelCall[] = [];
   const confirmations: string[] = [];
+  const sent = (text: string) => asSent(text, options.figures ?? []);
   let emitted = "";
   // Where the quotes are, as a model names it: a sheet's rows, or the page.
   const sheet = options.units?.find((unit) => unit.kind === "rows")?.label;
@@ -246,10 +269,10 @@ async function checkWith(options: {
         !asked &&
         !call.results.some((result) => result.tool === "cite")
       )
-        return { text: options.text };
+        return { text: sent(options.text) };
       if (!options.neverCites && !call.results.some((result) => result.tool === "cite"))
         return {
-          text: options.besideCite,
+          text: options.besideCite && sent(options.besideCite),
           calls: [
             {
               tool: "cite",
@@ -267,8 +290,8 @@ async function checkWith(options: {
       if (options.calculations && !call.results.some((result) => result.tool === "calculate"))
         return { calls: [{ tool: "calculate", input: { figures: options.calculations } }] };
       if (options.askedAgain && call.prompt.includes(options.askedAgain.note))
-        return { text: options.askedAgain.text };
-      return options.failure ? { error: options.failure } : { text: options.text };
+        return { text: sent(options.askedAgain.text) };
+      return options.failure ? { error: options.failure } : { text: sent(options.text) };
     },
     {
       generate(call) {
@@ -695,6 +718,11 @@ test("saved formulas recheck exact UTF-16 spans without another calculate call",
   expect(
     again.calls.flatMap((call) => call.results).some((result) => result.tool === "calculate"),
   ).toBe(false);
+  // The saved figure goes by its handle, without its Citations' ids and versions (#2525).
+  const asked = again.calls.map((call) => call.prompt).join("\n");
+  expect(asked).toContain('"id":"F1"');
+  expect(asked).toContain('"saved":{');
+  for (const id of ["document-1", "passage-1", "hash-1"]) expect(asked).not.toContain(id);
   const elsewhere = await checkWith({
     figures: [saved],
     body,

@@ -74,6 +74,13 @@ export interface LibraryListing {
   searches: { kind: ScopeKind; name: string } | null;
 }
 
+/**
+ * A Linked folder's own Folder as the facts name it: one at a disk's root is named by its path,
+ * and no path goes to a model (#2525).
+ */
+export const linkedFolderName = (folder: { name: string; relativePath: string }): string =>
+  folder.relativePath === "" && /[\\/]/.test(folder.name) ? "a linked folder" : folder.name;
+
 /** What a Run's searches ask of the Library's facts (`ClaimCheckDependencies`). */
 export interface LibraryFactSearch {
   /** The facts' Passage a search adds to what it found: its names chosen by the sentence's words. */
@@ -111,6 +118,7 @@ const NAMED: Readonly<Record<string, LibraryFact["kind"]>> = {
   unfiled: "unfiled",
   kind: "format",
   name: "name",
+  shared: "shared",
   folders: "folders",
   tags: "tags",
   tag: "tag",
@@ -128,11 +136,11 @@ const grouped = (count: number) => groupedNumbers.format(count);
 
 export const LIBRARY_NOTE = [
   "The Library facts above are what IncarnaMind's Library lists for this check's scope, not what any Document says. They decide only a sentence about the Library itself: how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, and its Folders, Tags and notes. A count they give that differs from the sentence's contradicts it. They never decide what a Document's text says. A description of the Library they can't settle, such as what its Documents are about or a reading of their names, can't be checked. Nor can which Folder a Document is in or which Tags it has, unless these facts are of that Folder or Tag, named on their first line: such a sentence is a description they can't settle.",
-  'Cite the one line that decides it. After your Verdict line, add a line "Library: " and the facts the sentence states, from documents, folder, unfiled, kind, name, folders, tags, tag, notes and note, separated by commas; "Library: description" for a description of the Library they can\'t settle; or "Library: none" when it is about what a Document says.',
+  'Cite the one line that decides it. After your Verdict line, add a line "Library: " and the facts the sentence states, from documents, folder, unfiled, kind, name, shared, folders, tags, tag, notes and note, separated by commas; "Library: description" for a description of the Library they can\'t settle; or "Library: none" when it is about what a Document says.',
 ].join("\n");
 
 const LIBRARY_ASK =
-  'Your reply has no Library line. Write your whole reply again, with a line after the Verdict line: "Library: " and the facts the sentence states (documents, folder, unfiled, kind, name, folders, tags, tag, notes or note), "Library: description" for a description of the Library the facts can\'t settle, or "Library: none" when it is about what a Document says.';
+  'Your reply has no Library line. Write your whole reply again, with a line after the Verdict line: "Library: " and the facts the sentence states (documents, folder, unfiled, kind, name, shared, folders, tags, tag, notes or note), "Library: description" for a description of the Library the facts can\'t settle, or "Library: none" when it is about what a Document says.';
 
 const WORD_OF = Object.fromEntries(
   Object.entries(NAMED).map(([word, kind]) => [kind, word]),
@@ -212,6 +220,7 @@ function factsOf(listing: LibraryListing): LibraryFact[] {
     ),
     { kind: "notes", count: listing.notes.count },
     ...listing.notes.names.map((name): LibraryFact => ({ kind: "note", name: oneLine(name) })),
+    { kind: "shared", count: [...names.values()].filter((count) => count > 1).length },
     ...[...names]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([name, count]): LibraryFact => ({ kind: "name", name, count })),
@@ -239,6 +248,8 @@ function lineOf(fact: LibraryFact, listing: LibraryListing): string {
       return `Notes besides this one: ${grouped(fact.count)}`;
     case "note":
       return `Note “${fact.name}”`;
+    case "shared":
+      return `Names more than one Document shares: ${grouped(fact.count)}`;
     case "name": {
       const kinds = listing.documents
         .filter((each) => oneLine(each.name) === fact.name)
@@ -659,7 +670,7 @@ const ownVersions = (versions: readonly CheckedVersion[]): CheckedVersion[] =>
 
 /** What a count of the Library counts, written after its figure: "22 uploaded Documents", "7 个文档". */
 const COUNT_NOUN =
-  /^(?:[\p{L}-]+\s+)?(?:documents?|files?|notes?|folders?|tags?|items?|cop(?:y|ies)|records?|entr(?:y|ies)|names?|times)(?![\p{L}])|^(?:个|份|篇|项|条|次|本|件)/iu;
+  /^(?:[\p{L}-]+\s+){0,2}(?:documents?|files?|notes?|folders?|tags?|items?|cop(?:y|ies)|records?|entr(?:y|ies)|names?|times|workbooks?|spreadsheets?)(?![\p{L}])|^(?:个|份|篇|项|条|次|本|件)/iu;
 
 /**
  * Whether a figure reads as a count of things, which a Library count may decide: no scale word,

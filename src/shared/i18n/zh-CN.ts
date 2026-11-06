@@ -1134,6 +1134,7 @@ export const zhCN = {
   "claim.unsupported.currency.uncovered": "币种（{currency}）",
   "claim.unsupported.scale.uncovered": "{figure} 的币种、单位或量级",
   "claim.unsupported.unit": "文档写的是{amount}，不是{figure}。",
+  "claim.unsupported.unit.library": "资料库列出的是{amount}，不是{figure}。",
   "claim.unsupported.otherMeasure": "文档中的{amount}指的是{measure}，而不是{claimed}。",
   "claim.unsupported.whichDollar": "“{document}”写的是“{amount}”，没有注明币种",
   "claim.unsupported.yuanSign": "“{document}”写的是“{amount}”，中文里 ¥ 指人民币",
@@ -1227,6 +1228,8 @@ export const zhCN = {
   "claim.checkNow": "立即核对",
   "claim.reason.consent-revoked": "未核对：你关闭了向此服务发送内容。",
   "claim.reason.local-mode": "未核对：所有内容都留在这台电脑上。",
+  "claim.reason.consent-widened": "核对现在发送的内容比你当初允许的更多",
+  "claim.reviewConsent": "查看…",
   "claim.reason.absence-read-limit": "说某样东西不存在的句子，需要通读文档才能核对。",
   "claim.reason.absence-unconfirmed": "不显示结论：模型给出的引文并没有写到这句话说不存在的内容。",
   "claim.reason.absence-other-document":
@@ -1272,6 +1275,8 @@ export const zhCN = {
   "claim.library.unfiled": "{count} 个文档不在文件夹中",
   "claim.library.name.one": "1 个文档名为“{name}”",
   "claim.library.name": "{count} 个文档名为“{name}”",
+  "claim.library.shared.one": "1 个名称由多个文档共用",
+  "claim.library.shared": "{count} 个名称由多个文档共用",
   "claim.library.folders.one": "1 个文件夹",
   "claim.library.folders": "{count} 个文件夹",
   "claim.library.tags.one": "1 个标签",
@@ -2758,7 +2763,7 @@ export const zhCN = {
   "providers.sends.chat":
     "你的问题、你所在或在问题中提到的笔记、相关段落及其文档名称和页码、问题或命令找到的文档的名称、文件夹和标签（最多 50 个）、会议的转写稿，以及你在笔记中选中要询问的图片",
   "providers.sends.checks":
-    "你核对的每一句话，以及用于核对的段落和文档名称；句子说的是你的资料库时，还有资料库的数量、笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
+    "你核对的每一句话及其所在段落和数字，以及用于核对的段落、其文档名称、页码或位置和工作表行的公式；整篇核对笔记或文件时，其中每一句话（用于找出说法）；句子说某处没有某内容时，范围内的整份文档（最多 40 页）；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；文档有新版本后，所在文件夹中笔记里带引用的句子；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称及其搜索范围中其余项目的数量，以及与句中词语相符的文档、文件夹和标签的名称、类型和数量、笔记的名称，和其余相符名称的数量",
   "providers.sends.suggestions": "写作建议时你停下的那一段",
   "providers.sends.edits": "你让助手修改的文字",
   "providers.sends.onRequest":
@@ -3019,9 +3024,14 @@ export const zhCN = {
   "consent.data.blocks": "这篇笔记的正文、你写的内容和之前的问题和回答，不含已排除的内容",
   "consent.data.document-names": "问题或命令找到的文档和笔记：名称、文件夹和标签（最多 50 个文档）",
   "consent.data.other-minds": "问题中提到的另一篇笔记的部分内容",
-  "consent.data.library-counts": "句子说的是你的资料库时，资料库的数量",
+  "consent.data.library-counts":
+    "句子说的是你的资料库时：文档总数、不在文件夹中的文档数和各类型文档数，文件夹、标签和其他笔记的数量，以及笔记搜索范围中其余项目的数量",
   "consent.data.library-names":
-    "笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
+    "句子说的是你的资料库时：笔记搜索的文件夹、标签或文档名称，以及与句中词语相符的文档、文件夹、标签和笔记的名称，连同各自的类型和数量，以及其余相符名称的数量",
+  "consent.data.file-properties":
+    "句子说的是文件本身时，文件的名称、文件自身的日期（没有时用这台电脑记录的日期）、作者、页数（或幻灯片数、工作表数）和大小",
+  "consent.data.absence-documents": "句子说某处没有某内容时，范围内的整份文档（最多 40 页）",
+  "consent.data.watched-sentences": "文档有新版本后，所在文件夹中笔记里带引用的句子",
   "consent.data.live-transcript": "会议转写稿：录制时的实时部分，停止录制后整份用于填写笔记",
   "consent.data.passages": "文档中与问题相关的段落，连同所属文档的名称和页码",
   "consent.data.tool-results": "回答所用连接器、技能脚本和数据分析返回的结果",
@@ -6503,6 +6513,8 @@ export const zhCN = {
   "selfCheck.consentRevoked.one": "1 句未能核对：你关闭了向此服务发送内容",
   "selfCheck.localMode": "{count} 句未能核对：所有内容都留在这台电脑上",
   "selfCheck.localMode.one": "1 句未能核对：所有内容都留在这台电脑上",
+  "selfCheck.consentWidened": "{count} 句未能核对：核对现在发送的内容比你当初允许的更多",
+  "selfCheck.consentWidened.one": "1 句未能核对：核对现在发送的内容比你当初允许的更多",
   "selfCheck.planLimit": "{count} 句未能核对：已达到订阅用量上限",
   "selfCheck.planLimit.one": "1 句未能核对：已达到订阅用量上限",
   "selfCheck.resumesAt": "{time} 恢复",

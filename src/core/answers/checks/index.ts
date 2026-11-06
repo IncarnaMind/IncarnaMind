@@ -82,6 +82,7 @@ import {
   type ContradictionCheckPlan,
   type Currency,
   claimCheckActions,
+  type DataKind,
   type Document,
   type DocumentCheckPlan,
   type DocumentCheckProgress,
@@ -180,7 +181,28 @@ export const CHECKS_FLOW_SENDS = [
   "blocks",
   "library-counts",
   "library-names",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
 ] as const;
+
+/**
+ * What the contradiction watch may send of the checks flow: its sentences checked as any claim is,
+ * file properties and whole Documents too, never the Library's facts. Its consent is to these
+ * alone, so it never waits on the rest (#2525).
+ */
+const WATCH_SENDS: readonly DataKind[] = [
+  "selection",
+  "passages",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
+];
+
+/** What checking the assistant's write may send: all the checks flow does but the watch's sentences. */
+const WRITTEN_SENDS: readonly DataKind[] = CHECKS_FLOW_SENDS.filter(
+  (kind) => kind !== "watched-sentences",
+);
 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
 const MAX_CLAIM_CHARACTERS = 2_000;
@@ -238,7 +260,12 @@ export interface ChecksOptions
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   chat: {
     readiness(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<ChatReadiness>;
-    prepareModel(choice: ChatModelChoice | undefined, flow: CheckFlow): Promise<PreparedChatModel>;
+    prepareModel(
+      choice: ChatModelChoice | undefined,
+      flow: CheckFlow,
+      thinking?: undefined,
+      options?: { sends?: readonly DataKind[] },
+    ): Promise<PreparedChatModel>;
     modelShape(choice: ChatModelChoice | undefined): Promise<ModelShape | null>;
     /** The service the default chat model sends to; null with none, or one on this computer. */
     defaultService(): ExternalService | null;
@@ -1434,19 +1461,32 @@ export function createChecks(options: ChecksOptions) {
     return { signal: controller.signal, done: () => running.delete(requestId) };
   };
 
-  /** The model, when it can be used now without asking the User: never in the background. */
-  async function prepareQuietly(choice: ChatModelChoice | null): Promise<PreparedChatModel | null> {
+  /**
+   * Whether work on the checks flow that sends `sends` to `service` waits for the User to allow
+   * them: they allowed checks before the flow sent more, and not the more yet (#2525).
+   */
+  const waitsFor = (service: ExternalService | null, sends: readonly DataKind[]) =>
+    service !== null &&
+    !options.localOnly() &&
+    options.consent.allows("checks", service) &&
+    !options.consent.covers("checks", service, sends);
+
+  /**
+   * The model, when it can be used now without asking the User: never in the background. `sends`:
+   * what this work sends of the checks flow, all of it when left out, the consent it needs.
+   */
+  async function prepareQuietly(
+    choice: ChatModelChoice | null,
+    sends: readonly DataKind[] = CHECKS_FLOW_SENDS,
+  ): Promise<PreparedChatModel | null> {
     const readiness = await chat.readiness(choice ?? undefined, "checks");
     if (!readiness.ready) return null;
     const { service } = readiness.provider;
-    if (
-      service &&
-      (options.localOnly() || options.consent.status("checks", service) !== "accepted")
-    ) {
+    if (service && (options.localOnly() || !options.consent.covers("checks", service, sends))) {
       return null;
     }
     try {
-      return await chat.prepareModel(choice ?? undefined, "checks");
+      return await chat.prepareModel(choice ?? undefined, "checks", undefined, { sends });
     } catch (error) {
       if (error instanceof ChatNotReadyError || error instanceof ConsentDeclinedError) return null;
       throw error;
@@ -1466,7 +1506,11 @@ export function createChecks(options: ChecksOptions) {
       ),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     prepare,
-    prepareQuietly,
+    prepareQuietly: (choice) => prepareQuietly(choice, WATCH_SENDS),
+    waitsForConsent: async (choice) => {
+      const readiness = await chat.readiness(choice ?? undefined, "checks");
+      return readiness.ready && waitsFor(readiness.provider.service, WATCH_SENDS);
+    },
     claimCheck: wholeCheck,
     withResult: noteResult,
     retainEvidence,
@@ -1520,7 +1564,7 @@ export function createChecks(options: ChecksOptions) {
         { catalogId, modelId: quick.modelId },
         options.checkPaths,
       );
-    return looks ? prepareQuietly(quick) : null;
+    return looks ? prepareQuietly(quick, WRITTEN_SENDS) : null;
   }
 
   const firstLook = createFastPaths({
@@ -1538,7 +1582,8 @@ export function createChecks(options: ChecksOptions) {
   const checkWritten = createWrittenCheck({
     ...options,
     prepare: (answer) =>
-      prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }),
+      prepareQuietly({ providerId: answer.provider.id, modelId: answer.modelId }, WRITTEN_SENDS),
+    widened: ({ provider: { service } }) => waitsFor(service, WRITTEN_SENDS),
     quickModel: quickModelOf,
     firstLook,
     claimCheck,

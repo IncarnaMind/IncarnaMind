@@ -1508,7 +1508,8 @@ export interface MindChange {
    * stopped it, if anything did. Those it couldn't check, or didn't, are marked
    * not checked, under `request`; `blocked` says how many of them the User's own
    * choice kept from being sent (the flow turned off, or Local mode), which
-   * checking again can't change. Absent: none was checked.
+   * checking again can't change, or how many wait for the User to allow what
+   * checks send now ("consent-widened"). Absent: none was checked.
    */
   selfCheck?: {
     request: string;
@@ -1521,7 +1522,7 @@ export interface MindChange {
     checked: number;
     failed: number;
     stop?: RunStop;
-    blocked?: { reason: "consent-revoked" | "local-mode"; count: number };
+    blocked?: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number };
   };
 }
 
@@ -2523,10 +2524,12 @@ export type LibrarySource =
 
 /**
  * One fact of the Library a check can cite (#2525). Every count is of the Documents, Folders,
- * Tags or notes the check's scope sees; "notes" leaves out the note being checked.
+ * Tags or notes the check's scope sees; "notes" leaves out the note being checked; "shared" is how
+ * many names more than one Document shares.
  */
 export type LibraryFact =
   | { kind: "documents"; count: number }
+  | { kind: "shared"; count: number }
   | { kind: "folder"; name: string; count: number }
   | { kind: "unfiled"; count: number }
   | { kind: "format"; format: DocumentKind; count: number }
@@ -5571,9 +5574,11 @@ export type RunStop = { reason: "cost-cap" } | { reason: "plan-limit"; resetsAt:
 /**
  * Why a full watch of a Mind ended before it finished: a stop a Run gives way
  * to, or the User stopping it. A cancelled watch is never a complete one: the
- * next Check sweeps every cited sentence again (#1941).
+ * next Check sweeps every cited sentence again (#1941). "consent-widened": it
+ * waits, unsent, for the User to allow what the checks flow sends now, which
+ * they allowed before it sent more (#2525).
  */
-export type WatchStop = RunStop | { reason: "cancelled" };
+export type WatchStop = RunStop | { reason: "cancelled" } | { reason: "consent-widened" };
 
 /** What Compare Documents makes a comparison table of (#98). */
 export interface CompareDocumentsInput {
@@ -6501,6 +6506,8 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  * - "too-many": the assistant wrote more sentences with Citations than one write has checked (#1111).
  * - "consent-revoked": the User turned off sending checks to the model's service while it ran.
  * - "local-mode": "Keep everything on this computer" came on while it ran.
+ * - "consent-widened": the User allowed checks to the model's service before checks sent more, so
+ *   what the assistant wrote waited, unsent, for them to allow the more (#2525).
  * - "kept-inside": the existing Citation is outside this wall, so it was not read again.
  * - "absence-unconfirmed": a whole read said what the sentence calls absent is there, but a look
  *   at its quote found it doesn't state that (#1554, #1443).
@@ -6537,6 +6544,7 @@ export type ClaimCheckFailure =
   | "too-many"
   | "consent-revoked"
   | "local-mode"
+  | "consent-widened"
   | "absence-read-limit"
   | "absence-unconfirmed"
   | "absence-other-document"
@@ -8683,6 +8691,9 @@ export const dataKinds = [
   "pictures",
   "library-counts",
   "library-names",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];

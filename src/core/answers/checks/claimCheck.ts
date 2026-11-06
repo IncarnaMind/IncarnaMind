@@ -33,6 +33,7 @@ import {
 } from "../../../shared/figures";
 import { type MessageKey, type MessageParams, translate } from "../../../shared/i18n";
 import type { InlineTextProjection } from "../../../shared/inlineText";
+import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { isPeriod } from "../../../shared/periods";
 import { sentenceSpans } from "../../../shared/sentences";
@@ -918,16 +919,21 @@ function createSentenceCheck(deps: ClaimCheckDependencies) {
         const reason = t(key, { document, amount });
         return problem({ reason, covered: null, uncovered: null, found: true }, true);
       }
+      // A Library fact's number is the Library's, not a Document's (#2525).
+      const unitKey =
+        candidates.length > 0 && candidates.every((each) => each.documentId === LIBRARY_FACTS)
+          ? "claim.unsupported.unit.library"
+          : "claim.unsupported.unit";
       if (found.kind === "scale") {
         return problem({
           found: true,
-          reason: t("claim.unsupported.unit", { amount, figure: found.figure }),
+          reason: t(unitKey, { amount, figure: found.figure }),
           covered: t("claim.unsupported.currency.covered", { amount }),
           uncovered: t("claim.unsupported.scale.uncovered", { figure: found.figure }),
         });
       }
       if (found.kind === "unit") {
-        const reason = t("claim.unsupported.unit", { amount, figure: found.figure });
+        const reason = t(unitKey, { amount, figure: found.figure });
         return problem({ reason, covered: null, uncovered: null, found: true });
       }
       return problem({

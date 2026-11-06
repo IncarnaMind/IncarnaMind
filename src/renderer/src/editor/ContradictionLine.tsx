@@ -38,6 +38,8 @@ export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string 
     const after = saidInLine(t, (t) =>
       t("contradictions.after", { document: watched.documentName ?? "", result: first }),
     );
+    // Waiting for the User's OK, the line's action is the check that asks it (#2525).
+    const waiting = watched.stop?.reason === "consent-widened";
     return (
       <>
         <div className="check-card-sep" />
@@ -47,12 +49,23 @@ export function ContradictionLine({ doc, mindId }: { doc: Y.Doc; mindId: string 
           title={after.fullMessage}
           className="mind-health-line"
           details={[...rest, ...cost]}
-          action={{
-            label: t("checks.close"),
-            testId: "contradictions-watched-close",
-            // Closed for good: the record goes from the Mind, everywhere it is open.
-            onClick: () => clearContradictionWatch(doc.getMap(MIND_SETTINGS_FIELD)),
-          }}
+          action={
+            waiting
+              ? {
+                  label: t("claim.reviewConsent"),
+                  testId: "contradictions-watched-review",
+                  onClick: () => {
+                    clearContradictionWatch(doc.getMap(MIND_SETTINGS_FIELD));
+                    void checkContradictions(mindId);
+                  },
+                }
+              : {
+                  label: t("checks.close"),
+                  testId: "contradictions-watched-close",
+                  // Closed for good: the record goes from the Mind, everywhere it is open.
+                  onClick: () => clearContradictionWatch(doc.getMap(MIND_SETTINGS_FIELD)),
+                }
+          }
         >
           {after.message}
         </ProblemLine>

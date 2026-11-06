@@ -8,6 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { ClaimCheckAttributes, Core, Document, SearchScope } from "../../src/core";
@@ -17,6 +18,7 @@ import {
   type LibraryListing,
   libraryNow,
   libraryText,
+  linkedFolderName,
 } from "../../src/core/answers/checks/libraryFacts";
 import type { Language } from "../../src/core/language";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
@@ -38,7 +40,7 @@ import {
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { addAndProcess, linkAndProcess, writeSourceFile } from "../helpers/documents";
 import { textOf, unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
@@ -292,6 +294,10 @@ const SENTENCES = {
     en: "The files are mostly fieldwork material.",
     "zh-CN": "这些文件大多是野外调查资料。",
   },
+  shared: {
+    en: "Exactly one name in your Library is shared by two Documents.",
+    "zh-CN": "你的资料库里有一个文件名重名了。",
+  },
 } as const;
 
 describe.each(["en", "zh-CN"] as const)("a sentence about the Library (%s)", (language) => {
@@ -372,6 +378,44 @@ describe.each(["en", "zh-CN"] as const)("a sentence about the Library (%s)", (la
         ? "Your Library: 1 Document named “Kestrel plan”"
         : "你的资料库：1 个文档名为“Kestrel plan”",
     );
+  });
+
+  // protects=a sentence about names Documents share is decided by how many names more than one Document shares, however it says it; fails_when="shared by" or 重名 sends no count and the true sentence reads Unsupported with Cut.
+  test("a sentence about shared names reads Supported by their count, and Contradicted against none", async () => {
+    const sentence = SENTENCES.shared[language];
+    const plan = (verdict: Plan["verdict"], count: number) => ({
+      [sentence]: {
+        verdict,
+        quote: `Names more than one Document shares: ${count}`,
+        line: "shared",
+      },
+    });
+    const two = await setUp(
+      [
+        { name: "Kestrel plan.txt", contents: "Plan for the Kestrel site." },
+        { name: "Kestrel plan.md", contents: "# Kestrel plan\n\nThe second draft." },
+        { name: "Harbour survey.txt", contents: "Harbour survey notes." },
+      ],
+      plan("supported", 1),
+      language,
+    );
+    const supported = await checkInNote(two.core, sentence);
+    expect(supported.check.state).toBe("supported");
+    expect(rowOf(supported.check, language)).toBe(
+      language === "en"
+        ? "Your Library: 1 name more than one Document shares"
+        : "你的资料库：1 个名称由多个文档共用",
+    );
+
+    const none = await setUp(
+      [
+        { name: "Kestrel plan.txt", contents: "Plan for the Kestrel site." },
+        { name: "Harbour survey.txt", contents: "Harbour survey notes." },
+      ],
+      plan("contradicted", 0),
+      language,
+    );
+    expect((await checkInNote(none.core, sentence)).check.state).toBe("contradicted");
   });
 
   // protects=the saved notes are Library facts, the note being checked left out; fails_when=notes are not among the facts, or the note itself is counted.
@@ -680,6 +724,8 @@ describe("a count wrong by its scale or unit", () => {
   // protects=a Library count is decided by its own figure, scale and unit: "22 thousand" or "22 GB" never reads Supported by "Documents in all: 22"; fails_when=the judge's Supported stands on the bare number.
   test.each([
     ["en", "Your Library holds 22 Documents.", "supported"],
+    ["en", "Your Library holds 22 plain text files.", "supported"],
+    ["en", "Your Library holds 22 workbooks.", "supported"],
     ["en", "Your Library holds 22 thousand Documents.", "not supported"],
     ["en", "Your Library holds 22 GB of Documents.", "not supported"],
     ["en", "Your Library takes up 22 TB.", "not supported"],
@@ -695,6 +741,21 @@ describe("a count wrong by its scale or unit", () => {
     const { check } = await checkInNote(setup.core, sentence);
     if (reads === "supported") expect(check.state).toBe("supported");
     else expect(check.state).not.toBe("supported");
+  });
+
+  // protects=a Library count at another scale says it is the Library's number, never a Document's; fails_when="The Document gives 22, not 22 thousand." for a count of the Library.
+  test.each([
+    ["en", "Your Library holds 22 thousand Documents.", "Your Library lists 22, not 22 thousand."],
+    ["zh-CN", "你的资料库里有 22 万个文档。", "资料库列出的是 22，不是 22 万个。"],
+  ] as const)("%s: %s says why with the Library's number", async (language, sentence, reason) => {
+    const setup = await setUp(
+      files(22),
+      { [sentence]: { verdict: "supported", quote: "Documents in all: 22", line: "documents" } },
+      language,
+    );
+    const { check } = await checkInNote(setup.core, sentence);
+    expect(check.state).toBe("unsupported");
+    expect(check.unsupported?.reason).toBe(reason);
   });
 });
 
@@ -819,6 +880,15 @@ describe("Folder walls", () => {
   });
 });
 
+/** The kinds of data the checks flow named when this was built, which a User who allowed it before hasn't. */
+const WIDENED: readonly string[] = [
+  "library-counts",
+  "library-names",
+  "file-properties",
+  "absence-documents",
+  "watched-sentences",
+];
+
 describe("where the Library's facts go", () => {
   const sentence = "Your Library holds 3 Documents.";
   const plans: Record<string, Plan> = {
@@ -909,9 +979,7 @@ describe("where the Library's facts go", () => {
     const before = await library(async (core) => {
       const checks = core.dataFlows.get("checks");
       if (!checks) throw new Error("The checks flow isn't registered.");
-      const earlier = checks.sends.filter(
-        (kind) => kind !== "library-counts" && kind !== "library-names",
-      );
+      const earlier = checks.sends.filter((kind) => !WIDENED.includes(kind));
       core.dataFlows.register({ ...checks, sends: earlier });
       const chosen = await cloud(core);
       core.dataFlows.register(checks);
@@ -923,7 +991,7 @@ describe("where the Library's facts go", () => {
       void before.core.respondToConsent(request.requestId, false);
     });
     await before.check();
-    expect(asked).toEqual([["library-counts", "library-names"]]);
+    expect(asked).toEqual([[...WIDENED]]);
     expect(before.requests()).toHaveLength(0);
   });
 
@@ -976,39 +1044,149 @@ describe("where the Library's facts go", () => {
 describe("the words for what a check sends", () => {
   const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 
-  // protects=the consent line and the re-ask name every kind of Library fact a check sends, in the words given for them; fails_when=the line says less than the request carries.
+  // protects=the consent line and the re-ask name every row of what a check sends, in the words given for them; fails_when=the line says less than the request carries.
   test("the consent line and the data kinds, in English and Chinese", () => {
     expect(translate("en", "providers.sends.checks")).toBe(
-      "each sentence you check, with the passages and Document names it's checked against; for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
+      "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and a workbook row’s formulas; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
     );
     expect(translate("zh-CN", "providers.sends.checks")).toBe(
-      "你核对的每一句话，以及用于核对的段落和文档名称；句子说的是你的资料库时，还有资料库的数量、笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
+      "你核对的每一句话及其所在段落和数字，以及用于核对的段落、其文档名称、页码或位置和工作表行的公式；整篇核对笔记或文件时，其中每一句话（用于找出说法）；句子说某处没有某内容时，范围内的整份文档（最多 40 页）；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；文档有新版本后，所在文件夹中笔记里带引用的句子；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称及其搜索范围中其余项目的数量，以及与句中词语相符的文档、文件夹和标签的名称、类型和数量、笔记的名称，和其余相符名称的数量",
     );
-    expect(translate("en", "consent.data.library-counts")).toBe(
-      "For a sentence about your Library, its counts",
-    );
-    expect(translate("zh-CN", "consent.data.library-counts")).toBe(
-      "句子说的是你的资料库时，资料库的数量",
-    );
-    expect(translate("en", "consent.data.library-names")).toBe(
-      "The name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
-    );
-    expect(translate("zh-CN", "consent.data.library-names")).toBe(
-      "笔记搜索的文件夹、标签或文档名称、与句中词语相符的文档、文件夹、标签名称和笔记标题，以及多个文档共用的文档名称",
-    );
+    const kinds = {
+      "library-counts": [
+        "For a sentence about your Library: how many Documents in all, not in a Folder and of each kind, how many Folders, Tags and other notes, and how many more items the note’s search has",
+        "句子说的是你的资料库时：文档总数、不在文件夹中的文档数和各类型文档数，文件夹、标签和其他笔记的数量，以及笔记搜索范围中其余项目的数量",
+      ],
+      "library-names": [
+        "For a sentence about your Library: the name of the Folder, Tag or Document the note searches, and the names of Documents, Folders, Tags and notes that match the sentence’s words, with each one’s kind and count and how many more matched",
+        "句子说的是你的资料库时：笔记搜索的文件夹、标签或文档名称，以及与句中词语相符的文档、文件夹、标签和笔记的名称，连同各自的类型和数量，以及其余相符名称的数量",
+      ],
+      "file-properties": [
+        "A file’s name, its own dates (or this computer’s when it has none), author, page, slide or sheet count and size, for a sentence about the file",
+        "句子说的是文件本身时，文件的名称、文件自身的日期（没有时用这台电脑记录的日期）、作者、页数（或幻灯片数、工作表数）和大小",
+      ],
+      "absence-documents": [
+        "Whole Documents in the scope, up to 40 pages, for a sentence that says something is absent",
+        "句子说某处没有某内容时，范围内的整份文档（最多 40 页）",
+      ],
+      "watched-sentences": [
+        "After a new version of a Document, the cited sentences of the notes in its Folder",
+        "文档有新版本后，所在文件夹中笔记里带引用的句子",
+      ],
+    } as const;
+    for (const [kind, [english, chinese]] of Object.entries(kinds)) {
+      expect(translate("en", `consent.data.${kind}` as Parameters<typeof translate>[1])).toBe(
+        english,
+      );
+      expect(translate("zh-CN", `consent.data.${kind}` as Parameters<typeof translate>[1])).toBe(
+        chinese,
+      );
+    }
   });
 
-  // protects=the privacy pages say what a Library-fact check sends, in English and Chinese; fails_when=a page leaves the Library's names out.
+  // protects=the privacy pages say what a check sends, in English and Chinese; fails_when=a page leaves a row out or says something is never sent that is.
   test("the privacy pages, in English and Chinese", () => {
-    expect(read("docs/privacy.md")).toContain(
-      "A sentence about your Library also sends the Library's counts (Documents in all, per Folder, not in a Folder and per kind, and the numbers of Folders, Tags and other notes), the name of the Folder, Tag or Document the note searches, with its count, the names of Documents, Folders and Tags and the titles of other notes that share a word with the sentence or the note's search, and, for a sentence about duplicates, the names two or more Documents share, with how many and their kinds. A Folder that keeps its work inside it is sent only as a number to a note outside it. Never sent: ids, paths, sizes, dates, page counts, Folder or Tag descriptions, any note's text, or which Document is in which Folder or has which Tag beyond the counts.",
+    const privacy = read("docs/privacy.md");
+    expect(privacy).toContain(
+      "A sentence about a file itself sends the file's name, its own created and modified dates (or this computer's when it records none), author, page, slide or sheet count and size. A sentence about your Library sends the Library's counts (Documents in all, not in a Folder and per kind, and the numbers of Folders, Tags and other notes), the name of the Folder, Tag or Document the note searches and how many more items its search has, and the names of Documents, Folders and Tags with their kinds and counts, and the names of other notes, that share a word with the sentence, with how many more matched past 200. A Folder that keeps its work inside it is sent only as a number to a note outside it. Never sent in a check: ids, file paths, Folder or Tag descriptions, the rest of your notes' text, or which Document is in which Folder or has which Tag beyond the Folder or Tag the note searches.",
     );
+    expect(privacy).toContain(
+      "then each claim with its paragraph and the Passages found or read for it. The passages come from the Folder or Tag the note searches, so their Document names show which Documents are in it.",
+    );
+    expect(privacy).not.toContain("any note's text");
+    expect(privacy).toContain(
+      "When a quick model of the same service looks first at a sentence the assistant wrote, it gets the sentence, its paragraph, the heading above it and the quote with its Passage.",
+    );
+    expect(privacy).not.toContain("Never sent: ids, paths, sizes, dates, page counts");
     expect(read("docs/where-your-data-goes.md")).toContain(
-      "; for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches and the matching names of Documents, Folders, Tags and notes (a Folder that keeps its work inside it only as a number), never their text, paths or descriptions",
+      "; its paragraph and figures, and a workbook row's formulas; for a sentence about a file, its name, dates, author, page count and size; the heading above a sentence the assistant wrote; for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches, and the matching names of Documents, Folders, Tags and notes with their kinds and counts (a Folder that keeps its work inside it only as a number), never their text, paths or descriptions",
     );
     expect(read("docs/where-your-data-goes.zh-CN.md")).toContain(
-      "；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称，以及相符的文档、文件夹、标签名称和笔记标题（只在本文件夹内工作的文件夹只计数量），不含其内容、路径或说明",
+      "；句子所在段落和数字，以及工作表行的公式；句子说的是文件本身时，文件的名称、日期、作者、页数和大小；助手所写句子上方的标题；句子说的是你的资料库时，资料库的数量、笔记搜索的文件夹、标签或文档名称，以及相符的文档、文件夹、标签和笔记的名称及其类型和数量（只在本文件夹内工作的文件夹只计数量），不含其内容、路径或描述",
     );
+  });
+});
+
+/** A UUID, as a Note's Blocks, Documents and notes are named by. */
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+describe("what a check's request never carries", () => {
+  // protects=a figure goes to the model by a handle of this request, never by its id, which holds the note's Block id, a UUID; fails_when=any UUID is in any message or Tool result of the request.
+  test("no id: a figure is named by a handle, its Block too", async () => {
+    const sentence = "Your Library holds 3 Documents.";
+    const setup = await setUp(files(3), {
+      [sentence]: { verdict: "supported", quote: "Documents in all: 3", line: "documents" },
+    });
+    const note = await setup.core.createMind({ title: "Library overview", folderId: null });
+    const mind = await connectToMind(setup.core, note.id);
+    const blockId = randomUUID();
+    writeMind(mind, [paragraph(blockId, sentence)]);
+    await mind.settled();
+    await setup.core.checkSentences({
+      requestId: `check-${randomUUID()}`,
+      mindId: note.id,
+      action: "check-against-documents",
+      from: { blockId, offset: 0 },
+      to: { blockId, offset: sentence.length },
+      allDocuments: true,
+    });
+    await mind.settled();
+    expect(claimSpans(readMind(mind))[0]?.check.state).toBe("supported");
+    expect(setup.calls.flatMap((call) => requestedFigures(call).map(({ id }) => id))).toContain(
+      "F1",
+    );
+    expect(setup.sent()).not.toMatch(UUID);
+  });
+
+  // protects=a Linked folder the note searches is named by its folder's name, never its path; fails_when=the folder's path on disk reaches a request.
+  test("no path: a Linked folder the note searches goes by its name", async () => {
+    const sentence = "This folder holds 2 Documents.";
+    const setup = await setUp([], {
+      [sentence]: {
+        verdict: "supported",
+        quote: "Documents in all: 2",
+        line: "documents",
+      },
+    });
+    const disk = await createTempDataFolder();
+    const survey = join(disk, "Field work", "Survey");
+    await writeSourceFile(survey, "North wall.txt", "North wall: dry stone, two courses.");
+    await writeSourceFile(survey, "Gauge.txt", "Gauge: read normal at noon.");
+    await linkAndProcess(setup.core, survey);
+    const root = (await setup.core.listFolders()).find((folder) => folder.relativePath === "");
+    if (!root) throw new Error("The Linked folder has no Folder.");
+    const scope = { folderIds: [root.id], tagIds: [], documentIds: [] };
+    const { check } = await checkInNote(setup.core, sentence, null, false, scope);
+    expect(check.state).toBe("supported");
+    expect(setup.factsSent()).toContain("Library facts of “Survey”");
+    const sent = setup.sent();
+    for (const part of [disk, "Field work", join("Field work", "Survey")])
+      expect(sent).not.toContain(part);
+  });
+
+  // protects=only the Folder the note searches says which Documents are in it: a Document in another Folder never goes with that Folder's name; fails_when=a sentence naming both brings the other Folder's line or its Documents.
+  test("no membership elsewhere: a Document in another Folder never goes with its name", async () => {
+    const sentence = "Ledger 2023 sits in the Archive Folder, beside Budgets.";
+    const setup = await setUp(
+      [
+        { name: "Budget plan.txt", contents: "Budget plan: timber and crew." },
+        { name: "Ledger 2023.txt", contents: "Ledger 2023: closing balance." },
+      ],
+      { [sentence]: { verdict: "unsupported", line: "description" } },
+    );
+    const { core } = setup;
+    const budgets = await core.createLibraryGroup({ name: "Budgets", description: "" });
+    const archive = await core.createLibraryGroup({ name: "Archive", description: "" });
+    const plan = setup.documents.find((each) => each.name === "Budget plan");
+    const ledger = setup.documents.find((each) => each.name === "Ledger 2023");
+    if (!plan || !ledger) throw new Error("The test Documents are missing.");
+    await core.assignDocumentGroup(plan.id, budgets.id);
+    await core.assignDocumentGroup(ledger.id, archive.id);
+    const scope = { folderIds: [budgets.id], tagIds: [], documentIds: [] };
+    await checkInNote(core, sentence, null, false, scope);
+    const facts = setup.factsSent();
+    expect(facts).toContain("Library facts of “Budgets”");
+    for (const elsewhere of ["Archive", "Ledger 2023"]) expect(facts).not.toContain(elsewhere);
   });
 });
 
@@ -1330,6 +1508,7 @@ describe("the facts' text", () => {
     "Folders: 2",
     "Tags on these Documents: 2",
     "Notes besides this one: 2",
+    "Names more than one Document shares: 1",
   ];
 
   // protects=a sentence that names nothing is sent the counts and no name; fails_when=Folder, Tag, note or Document names go with every check.
@@ -1366,6 +1545,31 @@ describe("the facts' text", () => {
       expect(lines.join("\n")).not.toContain("Harbour");
     },
   );
+
+  // protects=how many names more than one Document shares goes with every sentence, so one about duplicates in any words can be decided; fails_when=the count goes only with the words a list knows, and "shared by", "share the name" or 重名 send none.
+  test.each([
+    "Exactly one name in your Library is shared by two Documents.",
+    "Two Documents share the name of the harbour survey.",
+    "有些文件重名了。",
+    "你的资料库里有 3 个文档。",
+  ])("sends how many names are shared, whatever the words: %s", (sentence) => {
+    expect(linesOf(["Kestrel plan", "Kestrel plan", "Harbour"], sentence)).toContain(
+      "Names more than one Document shares: 1",
+    );
+    expect(linesOf(["Kestrel plan", "Harbour"], sentence)).toContain(
+      "Names more than one Document shares: 0",
+    );
+  });
+
+  // protects=a Linked folder at a disk's root is named by its path, which never goes to a model; one deeper keeps its folder name; fails_when="/" or "C:\\" reaches the facts.
+  test.each([
+    [{ name: "/", relativePath: "" }, "a linked folder"],
+    [{ name: "C:\\", relativePath: "" }, "a linked folder"],
+    [{ name: "Survey", relativePath: "" }, "Survey"],
+    [{ name: "2024", relativePath: "Field/2024" }, "2024"],
+  ])("names a Linked folder without its path: %o", (folder, named) => {
+    expect(linkedFolderName(folder)).toBe(named);
+  });
 
   // protects=the Folder the note searches keeps its name and count though the sentence names no Folder; fails_when="this folder has 1 Document" has no Folder line to rest on.
   test.each(["This folder has 1 Document.", "这个文件夹里有 1 个文档。"])(

@@ -22,7 +22,7 @@ import { figureAgain, keptReason, whatIfAgain } from "../../workbooks/trace";
 import { type CalculationSession, documentFigureContext, whole } from "../calculations";
 import { agreesAtShownPrecision, comparedFigure } from "./calculated";
 import { type FigureMeasure, measureFinding, readMeasure } from "./figureMeasures";
-import { FIGURES, type ReadVerdict, readVerdict } from "./prompt";
+import { FIGURES, figureHandle, type ReadVerdict, readVerdict } from "./prompt";
 import type { BoundNumber } from "./units";
 
 export interface FigureReplyItem extends ReadVerdict {
@@ -120,16 +120,18 @@ export function readFigureReply(
     return null;
   const ids = new Set(figures.map((figure) => figure.id));
   if (ids.size !== figures.length) return null;
+  const byHandle = new Map(figures.map((figure, index) => [figureHandle(index), figure.id]));
   const items: FigureReplyItem[] = [];
   for (const raw of value.items) {
+    const id = isRecord(raw) && typeof raw.id === "string" ? byHandle.get(raw.id) : undefined;
     const judgment = judgmentOf(raw);
     const reading = isRecord(raw) ? optionalCount(raw.reading) : undefined;
     const calculation = isRecord(raw) ? optionalCount(raw.calculation) : undefined;
     if (
       !isRecord(raw) ||
       !judgment ||
-      typeof raw.id !== "string" ||
-      !ids.delete(raw.id) ||
+      id === undefined ||
+      !ids.delete(id) ||
       reading === undefined ||
       calculation === undefined ||
       (raw.relation !== "equals" && raw.relation !== "at most" && raw.relation !== "at least")
@@ -171,7 +173,7 @@ export function readFigureReply(
     if (source && calculation !== null) return null;
     items.push({
       ...judgment,
-      id: raw.id,
+      id,
       measure: readMeasure(raw.measure),
       reading,
       relation: raw.relation,

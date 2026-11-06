@@ -96,6 +96,9 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
         "blocks",
         "library-counts",
         "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
       ]),
       {
         flow: {
@@ -265,6 +268,9 @@ describe("Decisions made before choosing was the consent", () => {
         "blocks",
         "library-counts",
         "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
       ]);
       decided("edits", "declined", []);
     } finally {
@@ -285,6 +291,9 @@ describe("Decisions made before choosing was the consent", () => {
           "blocks",
           "library-counts",
           "library-names",
+          "file-properties",
+          "absence-documents",
+          "watched-sentences",
         ],
       },
       consent: "accepted",
@@ -385,6 +394,9 @@ describe("Data-flow consent", () => {
         "blocks",
         "library-counts",
         "library-names",
+        "file-properties",
+        "absence-documents",
+        "watched-sentences",
       ]),
       notAsked("document-check", ["selection", "whole-document"]),
       notAsked("tagging", ["tags", "document-excerpts"]),

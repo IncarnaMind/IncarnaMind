@@ -34,6 +34,8 @@
  * as it is sent, so turning it off stops the rest at once (#1206), as the cost
  * cap and a plan's limit do. Nothing is checked when the flow is off as it
  * starts, or on a model on this computer too small to judge reliably (#680).
+ * Allowed before checks sent more, the flow isn't asked about here: each
+ * sentence lands not checked, waiting for the User to allow the more (#2525).
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
@@ -91,6 +93,8 @@ export interface WrittenCheckOptions {
    * as it is sent (ADR-0022); null when that flow may not send to it now. Never asks.
    */
   prepare(answer: PreparedChatModel): Promise<PreparedChatModel | null>;
+  /** Whether the User allowed the checks flow to the Answer's model before it sent more, and not the more yet. */
+  widened(answer: PreparedChatModel): boolean;
   claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult>;
   /** Where the Mind's sentences are checked, as Check this Mind checks them. */
   scopeOf(mindId: string): { searchable: number; check: CheckScope };
@@ -155,7 +159,7 @@ export interface WrittenCheck {
   checked: number;
   failed: number;
   stop: RunStop | null;
-  blocked: { reason: "consent-revoked" | "local-mode"; count: number } | null;
+  blocked: { reason: "consent-revoked" | "local-mode" | "consent-widened"; count: number } | null;
   cut: string[];
   unsupported: number;
   contradicted: number;
@@ -800,8 +804,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     // The claims with no Citation are left to the one count and Check the rest (#1909).
     const sentences = checkable.filter((sentence) => sentence.cited.length > 0);
     if (sentences.length === 0) return null;
-    const prepared = await options.prepare(input.prepared);
-    if (!prepared) return null;
+    const allowed = await options.prepare(input.prepared);
+    const waiting = !allowed && options.widened(input.prepared);
+    if (!allowed && !waiting) return null;
+    // Waiting, nothing is sent: the Answer's model only names who the marks wait for.
+    const prepared = allowed ?? input.prepared;
     const { searchable, check: scope } = options.scopeOf(mindId);
     if (searchable === 0) return null;
     const sending = sentences.slice(0, SENTENCES_CHECKED_AT_MOST);
@@ -815,16 +822,18 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         }),
       );
     });
-    input.checking(sending.length);
+    if (!waiting) input.checking(sending.length);
     const request = randomUUID();
     const startedAt = options.now().toISOString();
     const limit = slots(claimsAtOnce(prepared));
-    const quick = await options.quickModel(prepared).catch((error: unknown) => {
-      console.warn(
-        `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return null;
-    });
+    const quick = waiting
+      ? null
+      : await options.quickModel(prepared).catch((error: unknown) => {
+          console.warn(
+            `No quick model looks first at what the assistant wrote in Mind ${mindId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return null;
+        });
     // A sentence its check asks about again, after a rate limit, keeps its first look's answer:
     // asked again, a quick model's later yes would stand.
     const looked = new Map<Sentence, FirstLookResult>();
@@ -841,7 +850,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           : { kind: "unknown" };
       });
     const { outcomes, stop } = await runItems(
-      sending,
+      waiting ? [] : sending,
       async (sentence): Promise<Checked> => {
         const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
         const first =
@@ -938,7 +947,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     };
     const failed = (sentence: Sentence, reason: ClaimCheckFailure, detail: string | null) => {
       done.failed++;
-      if (reason === "consent-revoked" || reason === "local-mode") {
+      if (reason === "consent-revoked" || reason === "local-mode" || reason === "consent-widened") {
         done.blocked = {
           reason: done.blocked?.reason ?? reason,
           count: (done.blocked?.count ?? 0) + 1,
@@ -955,6 +964,10 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       });
     };
     sending.forEach((sentence, index) => {
+      if (waiting) {
+        failed(sentence, "consent-widened", null);
+        return;
+      }
       const outcome = outcomes[index];
       if (!outcome || outcome.status === "stopped") return;
       if (outcome.status === "not-checked") {

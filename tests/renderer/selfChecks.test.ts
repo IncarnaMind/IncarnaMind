@@ -276,4 +276,42 @@ describe("What a write's check left to do", () => {
       }).map(({ kind }) => kind),
     ).toEqual(["cost-cap"]);
   });
+
+  // protects=sentences waiting for the User to allow what checks send now say so in both languages, with Review…, the Check that asks it (#2525); fails_when=the line reads as a plain failure, or offers no way to allow; no_claim=the consent dialog's words.
+  test("sentences waiting for the User to allow what checks send now offer Review…", () => {
+    const lines = (language: "en" | "zh-CN", count: number) =>
+      selfCheckLines(
+        {
+          mindId: "mind-1",
+          request: "w",
+          checkable: count,
+          cited: count,
+          sent: count,
+          checked: 0,
+          failed: count,
+          blocked: { reason: "consent-widened", count },
+        },
+        (key: MessageKey, params?: MessageParams) => translate(language, key, params),
+        language,
+      ).map(({ kind, text, action }) => ({ kind, text, action }));
+
+    expect(lines("en", 2)).toEqual([
+      {
+        kind: "consent-widened",
+        text: "2 sentences couldn’t be checked: checks now send more than when you allowed them",
+        action: { label: "Review…", does: "check" },
+      },
+    ]);
+    expect(lines("en", 1)[0]?.text).toBe(
+      "1 sentence couldn’t be checked: checks now send more than when you allowed them",
+    );
+    expect(lines("zh-CN", 2)).toEqual([
+      {
+        kind: "consent-widened",
+        text: "2 句未能核对：核对现在发送的内容比你当初允许的更多",
+        action: { label: "查看…", does: "check" },
+      },
+    ]);
+    expect(lines("zh-CN", 1)[0]?.text).toBe("1 句未能核对：核对现在发送的内容比你当初允许的更多");
+  });
 });

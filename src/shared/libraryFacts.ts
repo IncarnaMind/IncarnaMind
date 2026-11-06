@@ -73,6 +73,7 @@ export function parseLibraryFact(value: unknown): LibraryFact | null {
   const { kind, count, name } = value;
   switch (kind) {
     case "documents":
+    case "shared":
     case "unfiled":
     case "folders":
     case "tags":
@@ -197,6 +198,10 @@ export function factWords(fact: LibraryFact, t: Translate, language: Language): 
       return one
         ? t("claim.library.name.one", { name: fact.name })
         : t("claim.library.name", { name: fact.name, count: count(fact.count) });
+    case "shared":
+      return one
+        ? t("claim.library.shared.one")
+        : t("claim.library.shared", { count: count(fact.count) });
     case "folders":
       return one
         ? t("claim.library.folders.one")

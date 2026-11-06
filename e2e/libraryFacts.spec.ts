@@ -11,10 +11,12 @@ import type {
   LibraryFact,
   LibrarySource,
 } from "../src/core/api";
+import { writeContradictionWatch } from "../src/shared/contradictionWatch";
 import { factVersion, LIBRARY_FACTS, SOURCE_KEY, sourceValue } from "../src/shared/libraryFacts";
 import { sentenceKey, writeMindCheck } from "../src/shared/mindCheck";
 import { writeOpinionSentences } from "../src/shared/opinions";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   checkCard,
   useLocalChatModel as connectLocalChatModel,
@@ -35,8 +37,9 @@ import {
  * names the Library fact that decided the sentence and where it came from, a description the facts
  * can't settle says why it can't be checked, the badge's green line names it, the sentences about
  * the note itself are named on the left-out line, and a change to the Library puts a sentence back
- * to needs re-check. The marks are written as a check writes them. Set INCARNAMIND_SCREENSHOTS to a
- * folder to also save screenshots.
+ * to needs re-check. What the assistant wrote that waits for the User to allow what checks send now
+ * says so on its card, whose Review… asks, then checks the whole write. The marks are written as a
+ * check writes them. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -346,6 +349,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card).toHaveAttribute("data-check", "not-checked");
       await expect(card.getByTestId("claim-reason")).toHaveText(words.reason);
       await expect(card.getByTestId("claim-cut")).toHaveCount(0);
+      // No check can change a description: none is offered.
+      await expect(card.getByTestId("claim-check-again")).toHaveCount(0);
       expect(await inside(card.getByTestId("claim-reason"), card)).toBe(true);
       await screenshot(window, `library-unsettled-${language}-${width}`);
       await window.keyboard.press("Escape");
@@ -372,6 +377,111 @@ for (const language of ["en", "zh-CN"] as const) {
       words.changed,
     );
     await screenshot(window, `library-changed-${language}`);
+    await app.close();
+  });
+}
+
+const WAITING = {
+  en: {
+    supported: "The harbour survey covers the north wall.",
+    unsupported: "High water came at 04:12.",
+    reason: "Checks now send more than when you allowed them",
+    review: "Review…",
+  },
+  "zh-CN": {
+    supported: "Harbour survey 记录了 north wall。",
+    unsupported: "高潮出现在 04:12。",
+    reason: "核对现在发送的内容比你当初允许的更多",
+    review: "查看…",
+  },
+} as const;
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`what the assistant wrote waits for the User to allow what checks send now: its card says why, and Review… asks, then checks the whole write (${language})`, async () => {
+    const words = WAITING[language];
+    await writeFile(join(sources, "Harbour survey.txt"), "Harbour survey: the north wall.");
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    // Checks to the chosen service aren't allowed as they send now: Review… is where they're asked.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const provider = await bridge.saveChatProvider({
+        kind: "openai",
+        modelId: "gpt-6.1-sol",
+        apiKey: "key-not-real",
+      });
+      if (provider.service) await bridge.revokeConsent("checks", provider.service.id);
+    });
+    await setLanguage(window, language);
+    await addDocuments(window, [join(sources, "Harbour survey.txt")]);
+    await setWindowSize(app, window, 1440, 900);
+    await newMind(window);
+
+    checkedAt = new Date().toISOString();
+    const waiting = (id: string, text: string) =>
+      paragraph(
+        id,
+        text,
+        checked(`${id}-check`, text, {
+          request: "waiting-write",
+          state: "not-checked",
+          reason: "consent-widened",
+        }),
+      );
+    await setContent(window, [
+      waiting("first", words.supported),
+      waiting("second", words.unsupported),
+    ]);
+
+    const badge = window.getByTestId("check-badge");
+    await expect(badge).not.toHaveAttribute("data-state", "checked");
+    // The contradiction watch waited too, as a new version of a Document records it.
+    const settings = new Y.Doc();
+    writeContradictionWatch(settings.getMap("settings"), {
+      at: checkedAt,
+      documentName: "Harbour survey",
+      claims: 2,
+      checked: 0,
+      contradicted: 0,
+      cost: null,
+      stop: { reason: "consent-widened" },
+      smallModel: false,
+    });
+    await applySettings(window, Array.from(Y.encodeStateAsUpdate(settings)));
+    const watched = (await checkCard(window)).getByTestId("contradictions-watched");
+    await expect(watched).toContainText(words.reason);
+    await expect(watched.getByTestId("contradictions-watched-review")).toHaveText(words.review);
+    await screenshot(window, `waiting-watch-${language}`);
+    await window.keyboard.press("Escape");
+    const card = window.getByTestId("claim-card");
+    for (const width of [1440, 900]) {
+      await setWindowSize(app, window, width, 900);
+      // A sentence not checked has no mark on the page: the health card's Next opens its card.
+      await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
+      await expect(card).toHaveAttribute("data-check", "not-checked");
+      const reason = card.getByTestId("claim-reason");
+      await expect(reason).toContainText(words.reason);
+      const review = card.getByTestId("claim-review-consent");
+      await expect(review).toHaveText(words.review);
+      await expect(card.getByTestId("claim-check-again")).toHaveCount(0);
+      expect(await inside(reason, card)).toBe(true);
+      expect(await inside(review, card)).toBe(true);
+      await screenshot(window, `waiting-consent-${language}-${width}`);
+      if (width === 1440) await window.keyboard.press("Escape");
+    }
+
+    await pointAndClick(window, card.getByTestId("claim-review-consent"));
+    const consent = window.getByTestId("consent-dialog");
+    await expect(consent).toBeVisible();
+    await screenshot(window, `waiting-consent-dialog-${language}`);
+    await pointAndClick(window, consent.getByTestId("consent-allow"));
+
+    // Allowed, both sentences of the write are checked, not only the one whose card asked.
+    const marks = window.getByTestId("claim-mark");
+    await expect(marks).toHaveCount(2, { timeout: 30_000 });
+    await expect(marks.nth(0)).toHaveAttribute("data-check", "supported");
+    await expect(marks.nth(1)).toHaveAttribute("data-check", "unsupported");
     await app.close();
   });
 }

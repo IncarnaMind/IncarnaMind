@@ -1168,6 +1168,7 @@ export const en = {
   "claim.unsupported.currency.uncovered": "the currency ({currency})",
   "claim.unsupported.scale.uncovered": "the currency, unit or scale in {figure}",
   "claim.unsupported.unit": "The Document gives {amount}, not {figure}.",
+  "claim.unsupported.unit.library": "Your Library lists {amount}, not {figure}.",
   "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
@@ -1267,6 +1268,8 @@ export const en = {
   "claim.checkNow": "Check now",
   "claim.reason.consent-revoked": "Not checked: you turned off sending to this service.",
   "claim.reason.local-mode": "Not checked: everything stays on this computer.",
+  "claim.reason.consent-widened": "Checks now send more than when you allowed them",
+  "claim.reviewConsent": "Review…",
   "claim.reason.absence-read-limit":
     "A sentence that says something is absent needs its Document read whole.",
   "claim.reason.absence-unconfirmed":
@@ -1320,6 +1323,8 @@ export const en = {
   "claim.library.unfiled": "{count} Documents not in a Folder",
   "claim.library.name.one": "1 Document named “{name}”",
   "claim.library.name": "{count} Documents named “{name}”",
+  "claim.library.shared.one": "1 name more than one Document shares",
+  "claim.library.shared": "{count} names more than one Document shares",
   "claim.library.folders.one": "1 Folder",
   "claim.library.folders": "{count} Folders",
   "claim.library.tags.one": "1 Tag",
@@ -2897,7 +2902,7 @@ export const en = {
   "providers.sends.chat":
     "your Questions, the note you’re in or one you name, matching passages with their Document names and pages, the names, Folders and Tags of the Documents a Question or a command finds (up to 50), a Meeting’s Transcript, and a picture you select in a note to ask about",
   "providers.sends.checks":
-    "each sentence you check, with the passages and Document names it's checked against; for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
+    "each sentence you check, with its paragraph and figures, and the passages it’s checked against with their Document names, pages or locations and a workbook row’s formulas; every sentence of a note or file you check whole, to find its claims; whole Documents in the scope, up to 40 pages, for a sentence that says something is absent; a file’s name, dates, author, page count and size, for a sentence about the file; the heading above a sentence the assistant wrote; after a new version of a Document, the cited sentences of the notes in its Folder; and for a sentence about your Library, its counts, the name of the Folder, Tag or Document the note searches with how many more items its search has, and the names, kinds and counts of the Documents, Folders and Tags, and the names of notes, that match the sentence’s words, with how many more matched",
   "providers.sends.suggestions": "the paragraph you pause on, for writing suggestions",
   "providers.sends.edits": "the text you ask the assistant to change",
   "providers.sends.onRequest":
@@ -3173,9 +3178,16 @@ export const en = {
   "consent.data.document-names":
     "The names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50 Documents)",
   "consent.data.other-minds": "Part of another note, when a Question names it",
-  "consent.data.library-counts": "For a sentence about your Library, its counts",
+  "consent.data.library-counts":
+    "For a sentence about your Library: how many Documents in all, not in a Folder and of each kind, how many Folders, Tags and other notes, and how many more items the note’s search has",
   "consent.data.library-names":
-    "The name of the Folder, Tag or Document the note searches, the names of Documents, Folders, Tags and notes that match the sentence's words, and Document names that more than one Document shares",
+    "For a sentence about your Library: the name of the Folder, Tag or Document the note searches, and the names of Documents, Folders, Tags and notes that match the sentence’s words, with each one’s kind and count and how many more matched",
+  "consent.data.file-properties":
+    "A file’s name, its own dates (or this computer’s when it has none), author, page, slide or sheet count and size, for a sentence about the file",
+  "consent.data.absence-documents":
+    "Whole Documents in the scope, up to 40 pages, for a sentence that says something is absent",
+  "consent.data.watched-sentences":
+    "After a new version of a Document, the cited sentences of the notes in its Folder",
   "consent.data.live-transcript":
     "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
   "consent.data.passages":
@@ -6858,6 +6870,10 @@ export const en = {
     "1 sentence couldn’t be checked: you turned off sending to this service",
   "selfCheck.localMode": "{count} sentences couldn’t be checked: everything stays on this computer",
   "selfCheck.localMode.one": "1 sentence couldn’t be checked: everything stays on this computer",
+  "selfCheck.consentWidened":
+    "{count} sentences couldn’t be checked: checks now send more than when you allowed them",
+  "selfCheck.consentWidened.one":
+    "1 sentence couldn’t be checked: checks now send more than when you allowed them",
   "selfCheck.planLimit": "{count} sentences couldn’t be checked: plan limit reached",
   "selfCheck.planLimit.one": "1 sentence couldn’t be checked: plan limit reached",
   "selfCheck.resumesAt": "Resumes at {time}",

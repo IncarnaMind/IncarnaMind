@@ -5,7 +5,13 @@
  * one sentence on what the Document says, carrying the marker.
  */
 import type { Reading } from "../../../shared/figures";
-import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
+import type {
+  CheckFigure,
+  CitationSupport,
+  ClaimVerdict,
+  FigureLocator,
+  UnsupportedReason,
+} from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asAttribute, asData, fromData, type PromptTag, tagged } from "../../promptData";
 import { setAsideRowsMeaning } from "../prompt";
@@ -213,6 +219,33 @@ export function checkInstructions(
   }
 }
 
+/**
+ * A requested figure's id in a check's request, by its place among them: a Note's own ids hold
+ * its Blocks' ids, which never go to a model (#2525). `readFigureReply` reads it back.
+ */
+export const figureHandle = (index: number) => `F${index + 1}`;
+
+/** Where a figure is, its Block named by a handle for this request alone, as its id is. */
+function locatorSent(locator: FigureLocator, blocks: Map<string, string>) {
+  const handle = (blockId: string) => {
+    const known = blocks.get(blockId) ?? `B${blocks.size + 1}`;
+    blocks.set(blockId, known);
+    return known;
+  };
+  return locator.kind === "chart"
+    ? { ...locator, blockId: handle(locator.blockId) }
+    : {
+        ...locator,
+        from: { ...locator.from, blockId: handle(locator.from.blockId) },
+        to: { ...locator.to, blockId: handle(locator.to.blockId) },
+      };
+}
+
+const ID_KEYS: ReadonlySet<string> = new Set(["passageId", "documentId", "contentHash"]);
+
+/** A saved figure's Citations without the ids and versions the request has no use for. */
+const withoutIds = (key: string, value: unknown) => (ID_KEYS.has(key) ? undefined : value);
+
 /** The message a check Run is given: the sentence, its paragraph, and what it already cites. */
 export function claimPrompt(input: {
   claim: string;
@@ -226,6 +259,7 @@ export function claimPrompt(input: {
   const context = input.context?.trim();
   const cited = input.cited ?? [];
   const setAside = meaningOf(input.citedShown ?? "");
+  const blocks = new Map<string, string>();
   return [
     ...(context && context !== input.claim.trim()
       ? [
@@ -253,9 +287,9 @@ export function claimPrompt(input: {
           tagged(
             "figures",
             JSON.stringify(
-              input.figures?.map(({ id, locator, reading, calculated, context, label }) => ({
-                id,
-                locator,
+              input.figures?.map(({ locator, reading, calculated, context, label }, index) => ({
+                id: figureHandle(index),
+                locator: locatorSent(locator, blocks),
                 shown: reading.chars,
                 unit: reading.unit,
                 ...(reading.ambiguous.length > 0 && {
@@ -271,6 +305,7 @@ export function claimPrompt(input: {
                 ...(label && { label }),
                 ...(calculated && { saved: calculated.figure }),
               })),
+              withoutIds,
             ),
             "",
             CHECK_TAGS,

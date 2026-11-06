@@ -6,6 +6,8 @@
  * figure). Each case has a Library of its own, one scope per case, and records the evidence that
  * decided it. Runs only with the key in the environment (INCARNAMIND_LIVE_ANTHROPIC_KEY; the model
  * is INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku 5.5 by default), and makes no request without one.
+ * With INCARNAMIND_LIVE_PROVIDER=deepseek it runs on DeepSeek instead (DEEPSEEK_API_KEY;
+ * INCARNAMIND_LIVE_DEEPSEEK_MODEL, "deepseek-flash" by default).
  * INCARNAMIND_LIVE_REPORT keeps what each check said. These cases are held out: none is an example
  * in the check's or the sort's instructions, or in its search Tool. The test uses only what main
  * has too, so the same cases run against main.
@@ -23,10 +25,13 @@ import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { docxOf, xlsxOf } from "../helpers/office";
 
-const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
-const MODEL =
-  process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
-  (catalogProvider("anthropic")?.roles.quickTasks as string);
+const DEEPSEEK = process.env.INCARNAMIND_LIVE_PROVIDER === "deepseek";
+const KIND = DEEPSEEK ? "deepseek" : "anthropic";
+const KEY = DEEPSEEK ? process.env.DEEPSEEK_API_KEY : process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
+const MODEL = DEEPSEEK
+  ? (process.env.INCARNAMIND_LIVE_DEEPSEEK_MODEL ?? "deepseek-flash")
+  : (process.env.INCARNAMIND_LIVE_ANTHROPIC_MODEL ??
+    (catalogProvider("anthropic")?.roles.quickTasks as string));
 
 /** Seven Documents, two of them sharing a name, two filed in "Research", and two other notes. */
 const OPEN = [
@@ -241,7 +246,7 @@ interface Checked {
 async function libraryFor(library: Case["library"], language: "en" | "zh-CN") {
   const core = startCore(await createTempDataFolder(), { createChatModel: createAiSdkChatModel });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
-  await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
+  await core.saveChatProvider({ kind: KIND, apiKey: KEY ?? "", modelId: MODEL });
   await core.updateSettings({ user: { language } });
   const sources = await createTempDataFolder();
   const files = library === "open" ? OPEN : [...OPEN, ...WALLED];

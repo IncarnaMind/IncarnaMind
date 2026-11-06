@@ -30,10 +30,18 @@ export const selfChecksOf = (toolCalls: readonly AnswerToolCall[]): SelfCheck[] 
  * action: check the sentences left now, or change the spending cap. A plan's
  * limit has none: nothing can be checked until it resets. Nor has a line for
  * sentences the User's own choice kept from being sent (sending turned off,
- * Local mode): checking again can't succeed.
+ * Local mode): checking again can't succeed. Sentences waiting for the User
+ * to allow what checks send now have Review…, the Check that asks it (#2525).
  */
 export interface SelfCheckLine {
-  kind: "failed" | "cost-cap" | "plan-limit" | "consent-revoked" | "local-mode" | "left";
+  kind:
+    | "failed"
+    | "cost-cap"
+    | "plan-limit"
+    | "consent-revoked"
+    | "local-mode"
+    | "consent-widened"
+    | "left";
   text: string;
   details: string[];
   action: { label: string; does: "check" | "change-cap" } | null;
@@ -42,6 +50,7 @@ export interface SelfCheckLine {
 const BLOCKED = {
   "consent-revoked": "selfCheck.consentRevoked",
   "local-mode": "selfCheck.localMode",
+  "consent-widened": "selfCheck.consentWidened",
 } as const;
 
 export function selfCheckLines(
@@ -79,7 +88,8 @@ export function selfCheckLines(
         kind: reason,
         text: count === 1 ? t(`${key}.one`) : t(key, { count }),
         details: [],
-        action: null,
+        action:
+          reason === "consent-widened" ? { label: t("claim.reviewConsent"), does: "check" } : null,
       });
     }
     const rest = failed - (blocked?.count ?? 0);

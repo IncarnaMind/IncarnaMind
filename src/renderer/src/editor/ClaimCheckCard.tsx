@@ -763,6 +763,15 @@ export function ClaimCard({
   const checkedIn = decided || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
+  // Review… is the Check, which asks the User to allow what checks send now (#2525).
+  const waitingConsent = shown.state === "not-checked" && shown.reason === "consent-widened";
+  // A description of the Library its facts can't settle: no check can change it, so none is offered.
+  const described = shown.state === "not-checked" && shown.reason === "library-unsettled";
+  const lineAction = pastCap
+    ? { label: t("claim.checkNow"), testId: "claim-check-now" }
+    : waitingConsent
+      ? { label: t("claim.reviewConsent"), testId: "claim-review-consent" }
+      : null;
   // A whole read stopped at its budget before it judged every part, the sentence's verdict resting
   // on those it did: Continue sizes what is left and asks again.
   const sentenceStopped = shown.state === "not-checked" && shown.reason === "read-budget";
@@ -1129,20 +1138,13 @@ export function ClaimCard({
           </button>
         </p>
       )}
-      {reason && pastCap && (
+      {reason && lineAction && (
         <div className="citation-card-note">
           <MetaLine
             data-testid="claim-reason"
             parts={[
               reason,
-              <LineAction
-                key="now"
-                action={{
-                  label: t("claim.checkNow"),
-                  testId: "claim-check-now",
-                  onClick: () => onCheckAgain(),
-                }}
-              />,
+              <LineAction key="now" action={{ ...lineAction, onClick: () => onCheckAgain() }} />,
             ]}
           />
         </div>
@@ -1165,7 +1167,7 @@ export function ClaimCard({
           />
         </div>
       )}
-      {reason && !pastCap && !sentenceStopped && (
+      {reason && !lineAction && !sentenceStopped && (
         <p data-testid="claim-reason" className="citation-card-note">
           {reason}
         </p>
@@ -1424,7 +1426,8 @@ export function ClaimCard({
             {t("claim.removeMark")}
           </button>
         )}
-        {(state === "needs-recheck" || (state === "not-checked" && added === 0 && !pastCap)) && (
+        {(state === "needs-recheck" ||
+          (state === "not-checked" && added === 0 && !lineAction && !described)) && (
           <button
             type="button"
             data-testid="claim-check-again"
