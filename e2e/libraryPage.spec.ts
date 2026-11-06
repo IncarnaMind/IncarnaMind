@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
@@ -766,6 +767,7 @@ test("the selection's bar holds at 900px and at 1,100px beside the viewer, in En
 });
 
 test("a Folder opened from the sidebar brings its section into view, open, with the focus on its name", async () => {
+  test.setTimeout(180_000);
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 660);
@@ -799,8 +801,56 @@ test("a Folder opened from the sidebar brings its section into view, open, with 
     await window.keyboard.press("ControlOrMeta+j");
     const composer = window.getByTestId("composer");
     await expect(composer.getByTestId("scope-chip")).toContainText(last.name);
-    await pointAndClick(window, composer.getByTestId("scope-chip-remove"));
+    // A pick made while the Folder's chip stands must not come back when its × clears the scope.
+    const picked = (
+      await rowsOf(target).first().getByTestId("library-document-name").innerText()
+    ).trim();
+    await pointAndClick(window, composer.getByTestId("composer-input"));
+    await window.keyboard.type(`@${picked}`);
+    await expect(window.getByTestId("scope-picker")).toBeVisible();
+    await window.keyboard.press("Enter");
+    await expect(composer.getByTestId("scope-chip")).toContainText(picked);
+    await pointAndClick(window, composer.getByTestId("scope-chip-remove").first());
     await expect(composer.getByTestId("composer-scope-all")).toHaveText("All Documents");
+  } finally {
+    await app.close();
+  }
+});
+
+test("the Folder the Library shows in the composer's scope chip, before and after, for the screenshots", async () => {
+  test.setTimeout(240_000);
+  const shots = process.env.INCARNAMIND_SCREENSHOTS;
+  test.skip(shots === undefined, "Only for the screenshots.");
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await setWindowSize(app, window, 1600, 660);
+    const library = await openFullLibrary(window, sources);
+    await window.keyboard.press("ControlOrMeta+j");
+    const composer = window.getByTestId("composer");
+    await expect(composer.getByTestId("composer-scope-all")).toBeVisible();
+    await window.screenshot({ path: join(shots ?? "", "library-folder-before-en-1600.png") });
+    await setWindowSize(app, window, 900, 660);
+    await window.screenshot({ path: join(shots ?? "", "library-folder-before-en-900.png") });
+    await setWindowSize(app, window, 1600, 660);
+    const folder = sidebarFolder(window, "财务报表");
+    await pointAt(window, folder.getByTestId("folder-row"));
+    await pointAndClick(window, folder.getByTestId("folder-menu"));
+    await pointAndClick(window, folder.getByTestId("folder.open"));
+    await expect(composer.getByTestId("scope-chip")).toContainText("财务报表");
+    await window.screenshot({ path: join(shots ?? "", "library-folder-after-en-1600.png") });
+    await setWindowSize(app, window, 900, 660);
+    await window.screenshot({ path: join(shots ?? "", "library-folder-after-en-900.png") });
+    await setLanguage(window, "zh-CN");
+    await expect(composer.getByTestId("scope-chip")).toContainText("财务报表");
+    await window.screenshot({ path: join(shots ?? "", "library-folder-after-zh-900.png") });
+    await setWindowSize(app, window, 1600, 660);
+    await window.screenshot({ path: join(shots ?? "", "library-folder-after-zh-1600.png") });
+    await pointAndClick(window, composer.getByTestId("scope-chip-remove"));
+    await expect(composer.getByTestId("composer-scope-all")).toHaveText("全部文档");
+    await window.screenshot({ path: join(shots ?? "", "library-folder-before-zh-1600.png") });
+    await setWindowSize(app, window, 900, 660);
+    await window.screenshot({ path: join(shots ?? "", "library-folder-before-zh-900.png") });
+    expect(library).toBeDefined();
   } finally {
     await app.close();
   }

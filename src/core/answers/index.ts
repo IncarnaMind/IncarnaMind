@@ -4632,7 +4632,13 @@ export function createAnswers(options: AnswersOptions) {
       const frontWall =
         typeof folderInFrontId === "string" ? options.walledFolderId(folderInFrontId) : null;
       const frontScope = typeof folderInFrontId === "string" ? folderScope(folderInFrontId) : null;
-      const wall = mind ? null : (frontWall ?? wallOfTurn(question));
+      // A Folder in front decides the wall, even an ordinary one (none); only without one does the
+      // Question's own recorded Folder decide.
+      const wall = mind
+        ? null
+        : typeof folderInFrontId === "string"
+          ? frontWall
+          : wallOfTurn(question);
       const { documentIds, emptyScope } = scopeNow(
         frontScope ?? question.scope,
         from && !from.deleted ? from.mindId : null,

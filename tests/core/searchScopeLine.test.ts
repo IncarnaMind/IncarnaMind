@@ -468,6 +468,93 @@ describe("The Search scope in the assistant's Question", { timeout: 60_000 }, ()
     ).rejects.toThrow(/Folder in front/);
   });
 
+  // protects=the Library open on a nested Folder inside a wall keeps that Folder's scope, on the ask and on Try again; fails_when=the whole wall is named or another Folder is searched; no_claim=what a real model makes of it.
+  test("keeps a nested Folder's own scope inside its wall, on the ask and Try again", async () => {
+    const { core, model, clientB, idsOf } = await setUp();
+    await core.updateLibraryGroup(clientB.id, {
+      name: clientB.name,
+      description: "",
+      keepInside: true,
+    });
+    const inner = await core.createLibraryGroup({
+      name: "Inner Sub",
+      description: "",
+      parentId: clientB.id,
+    });
+    const [loose] = idsOf(["Loose notes.txt"]);
+    if (!loose) throw new Error("No loose note.");
+    await core.assignDocumentGroup(loose, inner.id);
+
+    const asked = await ask(core, { text: "Summarise this folder.", folderInFrontId: inner.id });
+    expect(lastSent(model, 0)).toContain('Search scope: the Folder "Inner Sub" (1 Document)');
+    expect(lastSent(model, 0)).not.toContain(clientB.name);
+
+    const again = await core.regenerateConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+      folderInFrontId: inner.id,
+    });
+    if (!again.asked) throw new Error("Not asked again.");
+    await answerEnded(core, again.answerId);
+    expect(lastSent(model, 1)).toContain('Search scope: the Folder "Inner Sub" (1 Document)');
+    expect(lastSent(model, 1)).not.toContain(clientB.name);
+  });
+
+  // protects=Try again with an ordinary Folder in front leaves the wall and reads the ordinary Folder; fails_when=it keeps the wall's Folder or its name; no_claim=none beyond protects.
+  test("Try again with an ordinary Folder in front leaves the wall behind", async () => {
+    const { core, model, clientB, reports } = await setUp();
+    await core.updateLibraryGroup(clientB.id, {
+      name: clientB.name,
+      description: "",
+      keepInside: true,
+    });
+    const asked = await ask(core, {
+      text: "Summarise this folder.",
+      folderInFrontId: clientB.id,
+    });
+
+    const again = await core.regenerateConversationAnswer({
+      conversationId: asked.conversation.id,
+      answerId: asked.answerId,
+      folderInFrontId: reports.id,
+    });
+    if (!again.asked) throw new Error("Not asked again.");
+    await answerEnded(core, again.answerId);
+
+    expect(lastSent(model, 1)).toContain('Search scope: the Folder "Reports & presentations"');
+    expect(lastSent(model, 1)).not.toContain(clientB.name);
+  });
+
+  // protects=a follow-up with another Folder in front does not read a turn from the other side of a wall; fails_when=the walled turn's Question or Answer reaches it; no_claim=none beyond protects.
+  test("a follow-up with another Folder in front does not read the walled turn", async () => {
+    const { core, model, clientB, reports } = await setUp();
+    await core.updateLibraryGroup(clientB.id, {
+      name: clientB.name,
+      description: "",
+      keepInside: true,
+    });
+    const first = await ask(core, {
+      text: "Summarise the contracts wall.",
+      folderInFrontId: clientB.id,
+    });
+
+    await ask(core, {
+      text: "What did I just ask about?",
+      conversationId: first.conversation.id,
+      folderInFrontId: reports.id,
+    });
+
+    const sent = promptOf(model, 1)
+      .filter((message) => message.role === "user")
+      .map((message) => message.text)
+      .join("\n");
+    expect(sent).not.toContain("Summarise the contracts wall.");
+    // From the core alone the front names the Folder; the composer also sends it as the scope.
+    expect(lastSent(model, 1)).toContain(
+      'The Library is open in the Folder "Reports & presentations"',
+    );
+  });
+
   // protects=the instructions and the Note's message do not change with the scope, so a provider's prompt cache keeps its start; fails_when=a scope line goes into the instructions or the Note's message; no_claim=none beyond protects.
   test("leaves the instructions and the Note's message as they were", async () => {
     const { core, model, client, mind, reports, contracts } = await setUp();
