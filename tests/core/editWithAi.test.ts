@@ -1935,7 +1935,7 @@ describe("Edit with AI and the model's service", () => {
     const asked = nextEvent(core, "consent.requested");
     const declined = core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "improve"));
     const request = (await asked) as ConsentRequest;
-    expect(request.flow).toMatchObject({ id: "edits", sends: ["selection"] });
+    expect(request.flow).toMatchObject({ id: "edits", sends: ["selection", "source-quotes"] });
     await core.respondToConsent(request.requestId, false);
     expect(await declined).toMatchObject({
       kind: "not-ready",

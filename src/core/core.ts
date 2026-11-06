@@ -1367,9 +1367,9 @@ export function createCore(adapters: CoreAdapters): Core {
    * so the chat flow sends "tool-results" too, and asks again for it. So do
    * Skill scripts that can run (#41): what they print could be anything.
    *
-   * Skills alone don't: their Tools (`use_skill`, `read_skill_file`) return
-   * only the text of Skills the User imported, which is sent like the system
-   * prompt, not data fetched from another service.
+   * Skills alone don't add "tool-results": their Tools (`use_skill`,
+   * `read_skill_file`) return only a Skill's own instructions and files, which
+   * the chat flow names as "skill-files".
    */
   const sendsToolResults = () => connectors.anyEnabled() || scriptsOffered();
   /** Whether the chat flow sends "tool-results", as last registered. */

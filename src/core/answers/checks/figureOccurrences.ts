@@ -24,6 +24,7 @@ import { perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
   CALCULATED_FIGURE_NODE,
   type CellFigurePlace,
   CHART_NODE,
@@ -35,6 +36,7 @@ import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
+import { statesAFrame } from "./analysisNaming";
 import {
   isTableCaption,
   type SelectedSentence,
@@ -264,10 +266,14 @@ function inSentence(
 /** How much of a run's code the claim judge reads as its rule: a long run's first lines hold its inputs. */
 const JUDGED_CODE = 3000;
 
-/** The heading above the Block holding `node`, as the judge reads a scale or unit stated there. */
-function headingAbove(node: Y.XmlElement): { heading?: string } {
+function topBlockOf(node: Y.XmlElement): Y.XmlElement {
   let block: Y.XmlElement = node;
   while (block.parent instanceof Y.XmlElement) block = block.parent;
+  return block;
+}
+
+/** The heading above a top-level Block, as the judge reads a scale or unit stated there. */
+function headingAbove(block: Y.XmlElement): { heading?: string } {
   for (let at = block.prevSibling; at; at = at.prevSibling)
     if (at instanceof Y.XmlElement && at.nodeName === "heading") {
       const words = plainText(at).trim();
@@ -275,6 +281,88 @@ function headingAbove(node: Y.XmlElement): { heading?: string } {
     }
   return {};
 }
+
+/** How much of the Note above a sentence its Analysis figures' scale and currency are read in. */
+const ABOVE_CHARACTERS = 2000;
+
+/**
+ * The lines above a top-level Block that are said of it, nearest first (#2544): its section's
+ * lines, each heading it is under up to the Note's title, and each enclosing section's own opening
+ * lines ("# Report / All amounts below are in thousands. / ## North"). A sibling section's lines
+ * aren't its, nor is a table or chart above, with its caption, which states its own cells' units.
+ * Lines are read up to a bound; the headings above always are.
+ */
+function linesAbove(block: Y.XmlElement): string[] {
+  const lines: string[] = [];
+  let pending: string[] = [];
+  let under = Number.POSITIVE_INFINITY;
+  let read = 0;
+  for (let at = block.prevSibling; at && under > 1; at = at.prevSibling) {
+    if (!(at instanceof Y.XmlElement)) continue;
+    if (at.nodeName === "heading") {
+      const level = Number(at.getAttribute("level")) || 1;
+      if (level < under) {
+        under = level;
+        lines.push(plainText(at).trim(), ...pending);
+      } else read -= pending.reduce((sum, each) => sum + each.length, 0);
+      // A sibling section's lines aren't the sentence's, and take nothing from the bound.
+      pending = [];
+      continue;
+    }
+    if (read >= ABOVE_CHARACTERS || !saysOfText(at)) continue;
+    const words = plainText(at)
+      .trim()
+      .slice(-(ABOVE_CHARACTERS - read));
+    read += words.length;
+    if (under === Number.POSITIVE_INFINITY) lines.push(words);
+    else pending.push(words);
+  }
+  // Lines before the first heading open the whole Note.
+  return [...lines, ...pending].filter(Boolean);
+}
+
+/** A record without what it read above its Block, which `withAboveNow` reads again. */
+const withoutAbove = ({
+  heading: _heading,
+  above: _above,
+  ...record
+}: NonNullable<CheckFigure["analysisRecord"]>) => record;
+
+/**
+ * `figures` with each Analysis figure's heading and lines above read from the Note as it is now,
+ * when a check sends its sentence (#2544): a heading or line typed above since the Block's
+ * figures were read is the sentence's too. Only the lines that state a scale, currency or percent
+ * are kept, since the check's record keeps them.
+ */
+export function withAboveNow<Figure extends CheckFigure>(
+  figures: readonly Figure[],
+  element: Y.XmlElement,
+): Figure[] {
+  if (!figures.some((figure) => figure.analysisRecord)) return [...figures];
+  const block = topBlockOf(element);
+  const framing = linesAbove(block).filter(statesAFrame);
+  return figures.map((figure) =>
+    figure.analysisRecord
+      ? {
+          ...figure,
+          analysisRecord: {
+            ...withoutAbove(figure.analysisRecord),
+            ...headingAbove(block),
+            ...(framing.length > 0 && { above: framing.join("\n") }),
+          },
+        }
+      : figure,
+  );
+}
+
+/** A line of the Note's own text, not a table, a chart or a table's caption. */
+const saysOfText = (line: Y.XmlElement) =>
+  line.nodeName !== "table" &&
+  line.nodeName !== CHART_NODE &&
+  !(line.nextSibling instanceof Y.XmlElement && line.nextSibling.nodeName === "table") &&
+  !line
+    .toArray()
+    .some((part) => part instanceof Y.XmlElement && part.nodeName === ANALYSIS_TABLE_NODE);
 
 /** What the Note keeps of an Analysis figure's run: whether IncarnaMind worked it out again, and what it read. */
 function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
@@ -297,7 +385,7 @@ function recordOf(node: Y.XmlElement): CheckFigure["analysisRecord"] {
       ],
       code: run.code.slice(0, JUDGED_CODE),
       unit: value.unit ?? null,
-      ...headingAbove(node),
+      ...headingAbove(topBlockOf(node)),
     };
   } catch (error) {
     console.error("Reading an Analysis figure's record for its check failed:", error);
