@@ -125,8 +125,11 @@ const pastGap = (text: string, index: number, step: 1 | -1) =>
 const SQL_START = /\b(?:select|insert|update|delete|order\s+by|group\s+by)\b/gi;
 const SQL_SHAPE =
   /^(?:select\b.*\bfrom\b|insert\s+into\b|update\b.*\bset\b|delete\s+from\b|order|group)/is;
-/** An SQL statement runs to ";", a blank line or the text's end, across sentences and line breaks. */
-const STATEMENT_END = /;|\n[^\S\n]*\n/g;
+/**
+ * An SQL statement runs to a blank line or the text's end, across sentences and line breaks. A ";"
+ * ends nothing: it may be inside a string ("'semi;colon'"), so where SQL may be, marks stay exact.
+ */
+const STATEMENT_END = /\n[^\S\n]*\n/g;
 /** How far a statement is read from its first word, so a text of many is read in one pass. */
 const STATEMENT_REACH = 2000;
 const OPTION = /(?:^|\s)-\p{L}/u;

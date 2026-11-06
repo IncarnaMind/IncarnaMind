@@ -632,6 +632,11 @@ describe("which double marks are quotation marks (#2504)", () => {
     expect(covered(twoLines, "set ratio = 2\nand call it ‘total’;")).toBe(twoLines);
     const mention = "Please select a file. He said “go” there.";
     expect(covered(mention, "he said ‘go’ there")).toBe("He said “go” there");
+    for (const literal of ["'semi;colon'", "'semicolon'"]) {
+      const semi = `SELECT “name”, ${literal} FROM users;`;
+      expect(findQuote(semi, `select ‘name’, ${literal} from users;`)).toBeNull();
+      expect(covered(semi, `select “name”, ${literal} from users;`)).toBe(semi);
+    }
     const unqualified = "SELECT “name”, usersid FROM users;";
     expect(findQuote(unqualified, "select ‘name’, usersid from users;")).toBeNull();
     expect(covered(unqualified, "select “name”, usersid from users;")).toBe(unqualified);
