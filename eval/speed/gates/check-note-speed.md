@@ -53,3 +53,24 @@ The Note's ten sentences say what `eval/repeats` says of them: the agreement sta
 ## What decides
 
 A gate holds only if every cell holds every bar and each model holds the verdict bars. If gate A fails, steps 1 and 2 keep `main`'s path for what failed, and the pull request names the cell. Gate B is run only after gate A holds; if it fails, Check this Note keeps six and the failing cell is named.
+
+## Result of gate A, 2026-11-06: one bar not met; steps 1 and 2 ship as an exception
+
+The runs were made at 7cb76c42a against 08be5ac66, in the order above, on a direct Anthropic key, with the 15-minute load at 11.9 to 14.0. They spent $2.08. Medians are given today → step; the spread is today's runs' largest minus smallest first verdict.
+
+| Cell | First verdict | Spread | Done | Holds |
+|---|---|--:|---|---|
+| Haiku, timing Library, en | 6.8 → 6.2 s | 1.4 s | 14.7 → 13.9 s | yes |
+| Haiku, timing Library, zh-CN | 5.3 → 5.1 s | 0.4 s | 13.3 → 12.2 s | yes |
+| Haiku, mixed Library, en | 9.2 → 7.7 s | 2.9 s | 16.6 → 16.5 s | yes |
+| Haiku, mixed Library, zh-CN | 7.6 → 5.8 s | 1.6 s | 14.1 → 13.3 s | yes |
+| Sonnet, timing Library, en | 9.7 → 7.8 s | 0.4 s | 19.2 → 19.6 s | **no:** the end came later |
+| Sonnet, timing Library, zh-CN | 10.0 → 8.9 s | 0.5 s | 17.6 → 16.7 s | yes |
+
+- **The end bar in Sonnet's English cell is not met:** a median of 19.2 → 19.6 s, today's runs 18.1, 19.2 and 21.2 s against the step's 18.7, 19.6 and 20.2 s, today's spread of ends 3.1 s. Its cause is unproven.
+- **Every other bar holds.** The first verdict came sooner in all six cells. No request failed and no rate limit was met.
+- **Verdicts:** on Claude Haiku 5.5, judged right 114 → 119 of 120, false Supported 2 → 0, not checked 3 → 2; on Claude Sonnet 5.5, judged right 60 of 60 on both arms, with no false Supported. No sentence the Documents don't state was Supported more often on the step.
+- **Reranks that repeat one already scored in the same check:** 4 of 263 over both arms (1.5%), too few for a cache of them.
+- **DeepSeek V4.1 Flash 1017 (`deepseek-flash`), one run per arm, reported only:** first verdict 6.6 → 5.6 s (timing, en), 4.8 → 5.0 s (timing, zh-CN), 6.4 → 7.5 s (mixed, en), 7.0 → 6.2 s (mixed, zh-CN); end 13.4 → 12.4, 10.1 → 12.1, 16.5 → 18.0 and 16.5 → 12.8 s; judged right 39 → 37 of 40, no false Supported on either arm, not checked 1 → 0. $0.07.
+
+**Decision, 2026-11-06:** steps 1 and 2 ship as an exception that accepts the failed end bar in Sonnet's English cell, because it is a timing bar, not a quality bar, and no quality bar moved the wrong way. The bar stays failed. Gate B is run on this footing.
