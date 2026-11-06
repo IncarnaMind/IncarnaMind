@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { documentFigureContext } from "../../src/core/answers/calculations";
 import { createClaimCheck } from "../../src/core/answers/checks/claimCheck";
@@ -2789,6 +2791,48 @@ test.each([
   }
   if ("verdict" in each) expect(result.verdict).toBe(each.verdict);
 });
+
+interface SignProbe {
+  id: string;
+  shape: string;
+  lang: "en" | "zh-CN";
+  body: string;
+  quote?: string;
+  amount: string;
+  number: string;
+  truth: "pos" | "neg";
+  asMain: boolean;
+}
+
+// Written before it was run (#2341): restatements beside sign words near and far, false sign
+// claims, headers of periods and "Less:" lines, each checked with its amount and with its minus.
+// A claim the Document doesn't back is never Supported, except where a sign word stands more than
+// 400 characters from the quote, and where the reader keeps main's minus by design.
+const signProbes = JSON.parse(
+  readFileSync(join(__dirname, "../fixtures/figures/bracket-sign-probes.json"), "utf8"),
+) as SignProbe[];
+test.each(signProbes.flatMap((probe) => [false, true].map((signed) => ({ ...probe, signed }))))(
+  "$id ($shape), with its minus $signed: a claim the Document doesn't back isn't Supported (#2341)",
+  async (probe) => {
+    const shown = `${probe.signed ? "-" : ""}${probe.amount}`;
+    const claim = probe.lang === "zh-CN" ? `金额为${shown}。` : `The amount is ${shown}.`;
+    const { result } = await checkWith({
+      claim,
+      figures: [target("f1", shown, claim, probe.lang)],
+      body: probe.body,
+      quotes: probe.quote ? [probe.quote] : undefined,
+      text: reply([
+        {
+          ...item(),
+          source: { citation: 1, number: probe.number, reading: null, unitQuote: null },
+        },
+      ]),
+    });
+    const backed = (probe.truth === "neg") === probe.signed;
+    if (!backed && probe.shape !== "farRealBefore" && !probe.asMain)
+      expect(result.verdict).not.toBe("supported");
+  },
+);
 
 // The figure the Check reads its number from is backed only when every formula behind it was
 // worked out here and gave the value Excel saved (#2347).
