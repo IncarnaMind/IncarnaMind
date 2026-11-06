@@ -17,7 +17,9 @@ import { VERDICT_DOCUMENTS } from "./verdictCases";
  * which either verdict flags; "partly" for a general word for the agreement's own term, which
  * is judged on the term with the wider group not covered (DESIGN.md › Checks); "contradicted"
  * for a genuine conflict, which a judgement must never lose; "absent" for a figure for a period
- * the agreement doesn't cover, which is another claim, so its card says nothing was found.
+ * the agreement doesn't cover, which is another claim, so its card says nothing was found;
+ * "not-contradicted" for a sentence whose duty or permission word sits on the condition its clause
+ * puts on the act, which may read Supported or Unsupported but never Contradicted.
  */
 export type Expected =
   | "supported"
@@ -25,7 +27,8 @@ export type Expected =
   | "contradicted-or-unsupported"
   | "contradicted"
   | "unsupported"
-  | "absent";
+  | "absent"
+  | "not-contradicted";
 
 export interface RepeatSentence {
   /** The same for the same kind of sentence in each language, so the two read side by side. */
@@ -281,6 +284,12 @@ const nearMisses = sentencesOf("near-miss", "unsupported");
 const notCovered = sentencesOf("near-miss", "absent");
 const paraphrases = sentencesOf("paraphrase", "supported");
 
+// Relabelled on 2026-11-04 under the ruling on #1708: a sentence that claims more than its Document
+// grants is Unsupported. A right stated without the agreement in advance its clause requires
+// (own-words, same-subject, named) is Unsupported, and each has a twin that keeps it (…-kept); the
+// general-word sentences keep it, so they test the wider word alone; yingdang-trial states the
+// notice-first condition of ending as a duty to notify, so it is no conflict. A second rule joined
+// with "and" ("and must be taken by 31 March", behind `can`) is not a condition of the first.
 export const SETS: readonly RepeatSet[] = [
   {
     id: "en",
@@ -303,13 +312,19 @@ export const SETS: readonly RepeatSet[] = [
         key: "staff-home",
         kind: "general-word",
         expected: "partly",
-        text: "Staff may work from home two days a week.",
+        text: "Staff may work from home two days a week, agreed in advance with the manager.",
       },
       {
         key: "own-words",
+        kind: "near-miss",
+        expected: "unsupported",
+        text: "The Employee may work from home two days a week.",
+      },
+      {
+        key: "own-words-kept",
         kind: "word-for-word",
         expected: "supported",
-        text: "The Employee may work from home two days a week.",
+        text: "The Employee may work from home two days a week, agreed in advance with the manager.",
       },
       {
         key: "car",
@@ -346,13 +361,19 @@ export const SETS: readonly RepeatSet[] = [
         key: "staff-home",
         kind: "general-word",
         expected: "partly",
-        text: "员工每周可以居家办公两天。",
+        text: "员工每周可以居家办公两天，须事先与主管商定。",
       },
       {
         key: "own-words",
+        kind: "near-miss",
+        expected: "unsupported",
+        text: "乙方每周可在家工作两天。",
+      },
+      {
+        key: "own-words-kept",
         kind: "word-for-word",
         expected: "supported",
-        text: "乙方每周可在家工作两天。",
+        text: "乙方每周可在家工作两天，须事先与主管商定。",
       },
       { key: "car", kind: "absent", expected: "unsupported", text: "公司每月发放300元交通补贴。" },
       {
@@ -370,27 +391,39 @@ export const SETS: readonly RepeatSet[] = [
     sentences: [
       {
         key: "same-subject",
-        kind: "paraphrase",
-        expected: "supported",
+        kind: "near-miss",
+        expected: "unsupported",
         text: "The Employee can work from home for two days each week.",
       },
       {
         key: "named",
+        kind: "near-miss",
+        expected: "unsupported",
+        text: "Tunde Okoro may work from home two days a week.",
+      },
+      {
+        key: "same-subject-kept",
         kind: "paraphrase",
         expected: "supported",
-        text: "Tunde Okoro may work from home two days a week.",
+        text: "The Employee can work from home for two days each week, agreed in advance with the manager.",
+      },
+      {
+        key: "named-kept",
+        kind: "paraphrase",
+        expected: "supported",
+        text: "Tunde Okoro may work from home two days a week if they are agreed in advance with the manager.",
       },
       {
         key: "staff-home",
         kind: "general-word",
         expected: "partly",
-        text: "Staff may work from home two days a week.",
+        text: "Staff may work from home two days a week, agreed in advance with the manager.",
       },
       {
         key: "employees-home",
         kind: "general-word",
         expected: "partly",
-        text: "Employees may work from home two days a week.",
+        text: "Employees may work from home two days a week, agreed in advance with the manager.",
       },
     ],
   },
@@ -401,22 +434,39 @@ export const SETS: readonly RepeatSet[] = [
     sentences: [
       {
         key: "same-subject",
-        kind: "paraphrase",
-        expected: "supported",
+        kind: "near-miss",
+        expected: "unsupported",
         text: "乙方每周有两天可以在家办公。",
       },
-      { key: "named", kind: "paraphrase", expected: "supported", text: "林晓每周可在家工作两天。" },
+      {
+        key: "named",
+        kind: "near-miss",
+        expected: "unsupported",
+        text: "林晓每周可在家工作两天。",
+      },
+      {
+        key: "same-subject-kept",
+        kind: "paraphrase",
+        expected: "supported",
+        text: "乙方每周有两天可以在家办公，须事先与主管商定。",
+      },
+      {
+        key: "named-kept",
+        kind: "paraphrase",
+        expected: "supported",
+        text: "林晓每周可在家工作两天，但须事先与主管商定。",
+      },
       {
         key: "staff-home",
         kind: "general-word",
         expected: "partly",
-        text: "员工每周可以居家办公两天。",
+        text: "员工每周可以居家办公两天，须事先与主管商定。",
       },
       {
         key: "employees-home",
         kind: "general-word",
         expected: "partly",
-        text: "职工每周可在家工作两天。",
+        text: "职工每周可在家工作两天，须事先与主管商定。",
       },
     ],
   },
@@ -534,7 +584,6 @@ export const SETS: readonly RepeatSet[] = [
       ["period", "2026年乙方享有带薪年休假15天。"],
       ["duty-xu", "乙方每周需在家工作两天。"],
       ["duty-ying", "甲方应提前24小时通知乙方在居家工作日到岗。"],
-      ["duty-yingdang", "试用期内任何一方应当提前三日书面通知对方解除本合同。"],
       ["permission-keyi", "乙方离职后可以对甲方的商业秘密保密。"],
       ["prohibition-bude", "乙方不得在家工作。"],
     ]),
@@ -570,6 +619,7 @@ export const SETS: readonly RepeatSet[] = [
       ["bixu", "乙方在职期间及离职后都必须对甲方的商业秘密保密。"],
       ["keyi", "甲方可以提前24小时通知乙方在居家工作日到岗。"],
       ["bude", "乙方在职期间及离职后均不得泄露甲方的商业秘密。"],
+      ["yingdang-trial", "试用期内任何一方应当提前三日书面通知对方解除本合同。"],
     ]),
   },
   {

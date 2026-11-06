@@ -83,6 +83,10 @@ export function holds(row: Pick<WholeReadRow, "expected" | "outcome" | "readAll"
       );
     case "absent":
       return row.outcome === "absent";
+    case "not-contradicted":
+      return (
+        row.outcome !== "contradicted" && row.outcome !== "not-checked" && row.outcome !== "no-mark"
+      );
   }
 }
 

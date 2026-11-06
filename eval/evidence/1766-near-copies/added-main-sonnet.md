@@ -1,0 +1,60 @@
+# The amended file's added cases on main, Claude Sonnet 5.5, 1 check a case
+
+Commit c4ff0f379 with the check of `main` (e2dda3770) in place of the stacked one. Spent $0.73.
+
+| Language | Case | Kind | Shape | Label | Checks |
+|---|---|---|---|---|---|
+| en | fees-paid | added-condition | whole | decoy | partly |
+| en | only-if-reserved-negated | changed-condition | whole | decoy | contradicted |
+| en | not-if-reserved | paraphrase | whole | positive | supported |
+| en | have-to | paraphrase | whole | positive | supported |
+| en | allowed-to | paraphrase | whole | positive | supported |
+| en | parent-on-bank | changed-condition | whole | decoy | contradicted |
+| en | allowed-to-take-scull | condition | whole | decoy | supported |
+| en | if-coach-first | paraphrase | whole | positive | partly |
+| en | invoiced-once-a-year | paraphrase | whole | positive | supported |
+| en | once-a-term-for-week | period | whole | decoy | contradicted |
+| en | weekdays-only | added-condition | whole | decoy | partly |
+| en | only-if-booked | changed-condition | whole | decoy | contradicted |
+| en | free-to-bring-guests | condition | whole | decoy | supported |
+| en | unless-first | paraphrase | whole | positive | supported |
+| en | online-account | added-condition | whole | decoy | partly |
+| en | obliged-to | paraphrase | whole | positive | supported |
+| en | prohibited-from | paraphrase | whole | positive | supported |
+| en | once-a-year-for-month | period | whole | decoy | contradicted |
+| en | walk-inspected-once-a-year | period | walk | decoy | contradicted |
+| en | council-approval | changed-condition | whole | decoy | contradicted |
+| en | hens-can-be-kept | condition | whole | decoy | supported |
+| en | need-to | paraphrase | whole | positive | supported |
+| en | entitled-to | paraphrase | whole | positive | supported |
+| en | confirmed-unless-dropped | condition | confirmed | decoy | supported |
+| en | book-twice | duty-elsewhere | whole | positive | supported |
+| en | spare-rackets | duty-elsewhere | whole | positive | supported |
+| en | bicycle-registered | duty-elsewhere | whole | positive | supported |
+| en | part-judge-churn-timing | period | walk | positive | supported |
+| en | part-judge-every-year | period | walk | positive | unsupported |
+| zh-CN | weekdays-only | added-condition | whole | decoy | partly |
+| zh-CN | fee-paid | changed-condition | whole | decoy | contradicted |
+| zh-CN | bring-a-friend | condition | whole | decoy | partly |
+| zh-CN | xu | paraphrase | whole | positive | supported |
+| zh-CN | consent-first | paraphrase | whole | positive | supported |
+| zh-CN | same-person-first | paraphrase | whole | positive | supported |
+| zh-CN | ying | paraphrase | whole | positive | supported |
+| zh-CN | residents-committee | changed-condition | whole | decoy | contradicted |
+| zh-CN | yanjin | paraphrase | whole | positive | supported |
+| zh-CN | card-one-year | added-condition | whole | decoy | partly |
+| zh-CN | only-if-reserved-negated | changed-condition | whole | decoy | contradicted |
+| zh-CN | renew-by-network | condition | whole | decoy | supported |
+| zh-CN | dei | paraphrase | whole | positive | supported |
+| zh-CN | dispatcher-consent | added-condition | whole | decoy | partly |
+| zh-CN | zhunxu | paraphrase | whole | positive | supported |
+| zh-CN | buzhun | paraphrase | whole | positive | supported |
+| zh-CN | can-keep-chickens | condition | whole | decoy | supported |
+| zh-CN | you-yiwu | paraphrase | whole | positive | supported |
+| zh-CN | only-if-booked | changed-condition | whole | decoy | contradicted |
+| zh-CN | when-not-booked | paraphrase | whole | positive | supported |
+| zh-CN | book-twice | duty-elsewhere | whole | positive | supported |
+| zh-CN | spare-rackets | duty-elsewhere | whole | positive | supported |
+| zh-CN | bicycle-registered | duty-elsewhere | whole | positive | supported |
+| zh-CN | part-judge-churn-timing | period | walk | positive | supported |
+| zh-CN | part-judge-every-year | period | walk | positive | supported |

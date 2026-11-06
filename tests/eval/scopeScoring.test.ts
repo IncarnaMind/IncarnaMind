@@ -133,7 +133,7 @@ describe("the scope cases' Documents", () => {
     for (const language of LANGUAGES) {
       expect(SCOPE_SETS[language].sentences.map((each) => [each.key, each.expected])).toEqual([
         ["notice", "supported"],
-        ["own-words", "supported"],
+        ["own-words-kept", "supported"],
         ["car", "unsupported"],
         ["holiday", "contradicted-or-unsupported"],
       ]);
@@ -157,7 +157,7 @@ describe("the Passages handed over", () => {
       "Employment Agreement - T. Okoro",
       "Remote Working Policy",
     ]);
-    const own = ENGLISH.find((each) => each.key === "own-words");
+    const own = ENGLISH.find((each) => each.key === "own-words-kept");
     expect(handsClause({ clause: own?.clause ?? null, handed })).toBe(true);
     expect(handsClause({ clause: own?.clause ?? null, handed: handed.slice(1) })).toBe(false);
     expect(handsClause({ clause: null, handed })).toBeNull();
@@ -169,11 +169,11 @@ describe("the scope scoring", () => {
     const right = [{ document: "Agreement", text: "Entitled to 27 working days of paid\nholiday" }];
     const [summary] = summarise([
       row("unfiled-20", 1, "notice", "supported"),
-      row("unfiled-20", 1, "own-words", "absent"),
+      row("unfiled-20", 1, "own-words-kept", "absent"),
       row("unfiled-20", 1, "car", "absent"),
       row("unfiled-20", 1, "holiday", "contradicted", right),
       row("unfiled-20", 2, "notice", "partly"),
-      row("unfiled-20", 2, "own-words", "supported"),
+      row("unfiled-20", 2, "own-words-kept", "supported"),
       row("unfiled-20", 2, "car", "supported"),
       row("unfiled-20", 2, "holiday", "supported", right),
     ]);
@@ -182,7 +182,7 @@ describe("the scope scoring", () => {
     expect(summary?.falseSupported).toEqual({ wrong: 2, total: 4 });
     expect(summary?.wrongWithClause).toEqual({ wrong: 1, total: 3 });
     expect(summary?.misses.map((each) => [each.repeat, each.key])).toEqual([
-      [1, "own-words"],
+      [1, "own-words-kept"],
       [2, "notice"],
       [2, "car"],
       [2, "holiday"],
@@ -192,9 +192,9 @@ describe("the scope scoring", () => {
   test("compare the placements in points of the false Unsupported rate", () => {
     const summaries = summarise([
       row("unfiled-5", 1, "notice", "supported"),
-      row("unfiled-5", 1, "own-words", "absent"),
+      row("unfiled-5", 1, "own-words-kept", "absent"),
       row("filed-5", 1, "notice", "supported"),
-      row("filed-5", 1, "own-words", "supported"),
+      row("filed-5", 1, "own-words-kept", "supported"),
     ]);
     expect(placementEffects(summaries)).toMatchObject([
       { others: 5, unfiled: { wrong: 1, total: 2 }, filed: { wrong: 0, total: 2 }, points: 50 },

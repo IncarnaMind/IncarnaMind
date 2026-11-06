@@ -31,17 +31,17 @@ import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models
  * scripted.
  */
 
-const DELIVERY = "Northgate delivers the equipment free of charge within the city boundary.";
+const DELIVERY = "Quillowgarth delivers the equipment free of charge within the city boundary.";
 const REFUND =
-  "Northgate refunds the deposit only if the equipment comes back clean and undamaged.";
+  "Quillowgarth refunds the deposit only if the equipment comes back clean and undamaged.";
 const CHARGE = "The hire charge is 120 pounds per week.";
 const TERMS = `# Terms of hire\n\nThe Hirer looks after the equipment. ${DELIVERY} ${REFUND} ${CHARGE}\n`;
-const PARAPHRASE = "Within the city boundary, Northgate brings the equipment over for free.";
+const PARAPHRASE = "Within the city boundary, Quillowgarth brings the equipment over for free.";
 const ZH_DELIVERY = "北岭在市区范围内免费送货。";
 const ZH_TERMS = `# 租赁条款\n\n承租人负责设备的保养。${ZH_DELIVERY}\n`;
 const ZH_PARAPHRASE = "在市区范围内，北岭送货不收费。";
 const AMENDMENT =
-  "# Amendment\n\nWithin the city boundary, Northgate now brings the equipment over for a fee.\n";
+  "# Amendment\n\nWithin the city boundary, Quillowgarth now brings the equipment over for a fee.\n";
 const CANTEEN = "# Canteen\n\nThe canteen opens at noon in the city.\n";
 const LISTED: CheckPathsOverride = { quickFirstLook: () => true };
 
@@ -522,7 +522,7 @@ describe("which sentences and Citations the quick model may look at", () => {
     ["in a table's cell", {}, { inCell: true }],
     ["a figure the check reads", {}, { figures: 1 }],
     ["a number in words", {}, { claim: "Up to five machines are delivered free." }],
-    ["a time", {}, { claim: "Northgate delivers free on the last day." }],
+    ["a time", {}, { claim: "Quillowgarth delivers free on the last day." }],
     ["a record cite", {}, { claim: RECORD }],
     ["a deleted Document", { citationSource: () => ({ ...SOURCE, documentDeleted: true }) }, {}],
     ["own workings", { citationSource: () => ({ ...SOURCE, notCited: true }) }, {}],
@@ -579,7 +579,7 @@ describe("which sentences and Citations the quick model may look at", () => {
     ["去年公司盈利。", true],
     ["本季度收入上升。", true],
     ["北岭每星期送货。", true],
-    ["Northgate delivers once a fortnight.", true],
+    ["Quillowgarth delivers once a fortnight.", true],
     ["Rooms are cleaned by noon.", true],
     ["北岭数分钟内送达。", true],
     ["The rent is 950 a month.", true],

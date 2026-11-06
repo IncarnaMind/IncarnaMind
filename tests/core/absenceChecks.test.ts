@@ -7,7 +7,7 @@ import { readPresence } from "../../src/core/answers/checks/prompt";
 import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readFigures } from "../../src/shared/figures";
-import { checkGenerate, checkReply } from "../helpers/checks";
+import { checkGenerate, checkReply, SAME_DETAIL } from "../helpers/checks";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
@@ -83,7 +83,9 @@ function leaseModel(claim: string, fields: string, wholeReads: number[], request
       requests.push(call.system);
       const scripted = checkReply(call, { [claim]: plan });
       if (!("text" in scripted)) return withParts(call, scripted, [claim]);
-      return { text: fields.startsWith("{") ? fields : `Verdict: supported\n${fields}` };
+      return {
+        text: fields.startsWith("{") ? fields : `Verdict: supported\n${fields}\n${SAME_DETAIL}`,
+      };
     },
     {
       generate: (call) => {
@@ -465,13 +467,15 @@ describe("Checking an absence sentence", () => {
     { name: "Absence: **Yes.**", reply: "Absence: **Yes.**", shown: "whole read" },
     {
       name: "asserts_absence true",
-      reply: '{"verdict":"supported","asserts_absence":true}',
+      reply:
+        '{"verdict":"supported","asserts_absence":true,"duty":"none / none, same","condition":"none / none, same"}',
       shown: "whole read",
     },
     { name: "Absence: no", reply: "Absence: no", shown: "search" },
     {
       name: "asserts_absence false",
-      reply: '{"verdict":"supported","asserts_absence":false}',
+      reply:
+        '{"verdict":"supported","asserts_absence":false,"duty":"none / none, same","condition":"none / none, same"}',
       shown: "search",
     },
     {

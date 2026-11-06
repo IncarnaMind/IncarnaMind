@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
-import { checkGenerate, type Plan, sentenceOf } from "../helpers/checks";
+import { checkGenerate, type Plan, SAME_DETAIL, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
@@ -95,7 +95,9 @@ function supporting(call: ModelCall): ScriptedReply {
       ],
     };
   }
-  return { text: "Verdict: supported\nAbsence: no\nThe Document says so [^1].\nEvidence: [1]" };
+  return {
+    text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nThe Document says so [^1].\nEvidence: [1]`,
+  };
 }
 
 /** A core on a model billed on a service, as a check offered calculate runs, with the four Documents. */
