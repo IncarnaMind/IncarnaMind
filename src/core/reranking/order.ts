@@ -31,17 +31,30 @@ function placeNow(): Place {
 const comesAfter = (a: Place, b: Place) =>
   a.check === b.check ? a.order > b.order : a.check && !b.check;
 
-/** Runs scorings one at a time, the one whose place comes first next; one stopped while it waits never runs. */
+/** Runs scorings one at a time, the one whose place comes first next; one stopped while it waits leaves at once, never run. */
 export function createRerankQueue() {
   const waiting: (Place & { start(): void })[] = [];
   let busy = false;
   return async <T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
     const place = placeNow();
     if (busy) {
-      await new Promise<void>((start) => {
+      await new Promise<void>((start, reject) => {
+        signal?.throwIfAborted();
+        const stopped = () => {
+          waiting.splice(waiting.indexOf(entry), 1);
+          reject(signal?.reason);
+        };
+        const entry = {
+          ...place,
+          start: () => {
+            signal?.removeEventListener("abort", stopped);
+            start();
+          },
+        };
+        signal?.addEventListener("abort", stopped, { once: true });
         // After the last of its place, so one check's searches keep their order.
         const at = waiting.findIndex((each) => comesAfter(each, place));
-        waiting.splice(at < 0 ? waiting.length : at, 0, { ...place, start });
+        waiting.splice(at < 0 ? waiting.length : at, 0, entry);
       });
     }
     busy = true;

@@ -400,8 +400,8 @@ describe("The order searches are scored in", () => {
 });
 
 describe("A search waiting to be scored", () => {
-  // protects=a search whose Answer or check is stopped while it waits is never scored, so the searches after it go sooner (#2532); fails_when=a stopped search is scored in its turn; no_claim=a search already being scored, which the model finishes.
-  test("is never scored once it is stopped, and the next goes in its place", async () => {
+  // protects=a search whose Answer or check is stopped while it waits leaves at once and is never scored, so its Stop isn't held up and the searches after it go sooner (#2532); fails_when=a stopped search waits for its turn or is scored in it; no_claim=a search already being scored, which the model finishes.
+  test("leaves at once when it is stopped, is never scored, and the next goes in its place", async () => {
     const inTurn = createRerankQueue();
     const ran: string[] = [];
     let finishFirst = () => {};
@@ -420,10 +420,12 @@ describe("A search waiting to be scored", () => {
       ran.push("third");
     });
     stopped.abort();
-    finishFirst();
 
-    await first;
     await expect(second).rejects.toThrow();
+    await expect(inTurn(async () => ran.push("never"), stopped.signal)).rejects.toThrow();
+    expect(ran).toEqual(["first"]);
+    finishFirst();
+    await first;
     await third;
     expect(ran).toEqual(["first", "third"]);
   });
