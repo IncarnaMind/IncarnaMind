@@ -191,4 +191,29 @@ describe("Running a run's items", () => {
     expect(run.outcomes.map((each) => each.status)).toEqual(["done", "stopped", "stopped"]);
     expect(run.stop).toBeNull();
   });
+
+  // protects=an outcome listener that throws is never its item's failure and is never heard twice: the item keeps the outcome it had, every item still runs and is heard once, and the run comes back with the listener's first error once every item has settled (#2543); fails_when=the throw is filed as the item's failure and the listener hears it again as failed, or the run stops before its other items run; no_claim=how a caller says the error.
+  test("a throwing outcome listener never fails its item, and the run comes back with its error once every item has settled", async () => {
+    const heard: string[] = [];
+    const ran: string[] = [];
+    const thrown = new Error("The mark couldn't be written.");
+    const run = await runItems(
+      ["first", "second", "third"],
+      async (item) => {
+        ran.push(item);
+        return item;
+      },
+      {
+        onOutcome(item, outcome) {
+          heard.push(`${item}:${outcome.status}`);
+          if (item === "first" && outcome.status === "done") throw thrown;
+        },
+      },
+    );
+    // The listener heard each item once, with the outcome its check gave: never a second, failed "first".
+    expect(heard).toEqual(["first:done", "second:done", "third:done"]);
+    expect(ran).toEqual(["first", "second", "third"]);
+    expect(run.outcomeError).toBe(thrown);
+    expect(run.outcomes.map((each) => each.status)).toEqual(["done", "done", "done"]);
+  });
 });

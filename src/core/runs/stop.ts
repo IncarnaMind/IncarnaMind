@@ -84,12 +84,19 @@ const failureOf = (thrown: unknown): ProviderError =>
  * then on, and fail once the pauses run out; a stop ends it: that item and
  * every one not started yet are not checked, for the stop's reason, while
  * those already running finish.
+ *
+ * `onOutcome` says what became of an item (writing its mark, say). It is
+ * called outside the try that ran the item, and an error it throws is never
+ * the item's failure and is heard for no item twice: the item keeps the
+ * outcome it had, the rest still run and are heard once, and the first such
+ * error comes back as `outcomeError` once every item has settled, for the
+ * caller to say once where the User can read it (#2543).
  */
 export async function runItems<I, T>(
   items: readonly I[],
   each: (item: I) => Promise<T>,
   { concurrency = 1, onOutcome, signal, wait = sleep }: RunItemsOptions<I, T> = {},
-): Promise<{ outcomes: ItemOutcome<T>[]; stop: RunStop | null }> {
+): Promise<{ outcomes: ItemOutcome<T>[]; stop: RunStop | null; outcomeError: unknown }> {
   const outcomes: ItemOutcome<T>[] = new Array(items.length);
   const queue = items.map((_, index) => index);
   const tries = items.map(() => 0);
@@ -104,9 +111,21 @@ export async function runItems<I, T>(
   let limitedOut: ProviderError | null = null;
   let holding = 0;
 
+  /** An outcome, recorded; `hear` says it once outside the try that ran its item. */
   const settle = (index: number, outcome: ItemOutcome<T>) => {
     outcomes[index] = outcome;
-    onOutcome?.(items[index] as I, outcome);
+  };
+
+  /** The first error `onOutcome` threw: returned once every item has settled, never its item's. */
+  let outcomeError: unknown = null;
+
+  const hear = (index: number) => {
+    if (!onOutcome) return;
+    try {
+      onOutcome(items[index] as I, outcomes[index] as ItemOutcome<T>);
+    } catch (error) {
+      outcomeError ??= error;
+    }
   };
 
   const ended = () => {
@@ -130,16 +149,17 @@ export async function runItems<I, T>(
     }
     if (limitedOut) {
       settle(index, { status: "failed", error: limitedOut });
+      hear(index);
       return true;
     }
     tries[index] = (tries[index] ?? 0) + 1;
+    let outcome: ItemOutcome<T>;
     try {
-      settle(index, { status: "done", value: await each(items[index] as I) });
-      ended();
-      return true;
+      outcome = { status: "done", value: await each(items[index] as I) };
     } catch (thrown) {
       if (signal?.aborted) {
         settle(index, { status: "stopped" });
+        hear(index);
         return false;
       }
       if (thrown instanceof RunItemGaveWay) {
@@ -152,6 +172,7 @@ export async function runItems<I, T>(
       if (stopped) {
         stop ??= stopped;
         settle(index, { status: "not-checked", stop: stopped });
+        hear(index);
         return false;
       }
       const tried = tries[index] ?? 1;
@@ -167,8 +188,13 @@ export async function runItems<I, T>(
         limitedOut = error;
       } else ended();
       settle(index, { status: "failed", error });
+      hear(index);
       return true;
     }
+    settle(index, outcome);
+    hear(index);
+    ended();
+    return true;
   };
 
   const worker = async () => {
@@ -200,8 +226,9 @@ export async function runItems<I, T>(
   for (let index = 0; index < pool.length; index++) await pool[index];
   for (const index of queue) {
     settle(index, stop ? { status: "not-checked", stop } : { status: "stopped" });
+    hear(index);
   }
-  return { outcomes, stop };
+  return { outcomes, stop, outcomeError };
 }
 
 /** Model calls that share one run's limit of `size` at once, whichever item asks: a claim's parts and its neighbours. */

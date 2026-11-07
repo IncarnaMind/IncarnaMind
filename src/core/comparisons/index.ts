@@ -1204,11 +1204,13 @@ export function createComparisons(options: ComparisonsOptions) {
         return null;
       }
       reportProgress(fill, tableId);
-      const { stop } = await runItems(next, (cell) => write(fill, tableId, cell), {
+      const { stop, outcomeError } = await runItems(next, (cell) => write(fill, tableId, cell), {
         concurrency: fill.local ? 1 : CLOUD_CELLS_AT_ONCE,
         signal,
         onOutcome: (cell, outcome) => record(fill, tableId, cell, outcome),
       });
+      // A cell whose result couldn't be written to the table fails the fill, not its own check.
+      if (outcomeError !== null) throw outcomeError;
       if (stop) {
         // A column added meanwhile isn't checked either: the same limit stands.
         const left = content.read(fill.mindId, (all) => {

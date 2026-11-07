@@ -261,7 +261,7 @@ export async function runChecks(
   let checked = 0;
   const atOnce = claimsAtOnce(prepared);
   const limit = run.slots ?? slots(atOnce);
-  const { stop } = await runItems(
+  const { stop, outcomeError } = await runItems(
     run.queued,
     async (claim) => {
       const result = await checkClaim(
@@ -306,5 +306,9 @@ export async function runChecks(
       },
     },
   );
+  if (outcomeError !== null) {
+    console.error(`A mark for Note ${mindId} couldn't be written:`, outcomeError);
+    throw outcomeError;
+  }
   return { checked, stop };
 }
