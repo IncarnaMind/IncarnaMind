@@ -5132,6 +5132,7 @@ export const zhCN = {
   "error.commands.undoGone": "这些改动已无法撤销：IncarnaMind 之后重启过。",
   "error.commands.wordLoses":
     "Word 文件无法保留这篇笔记的全部内容。请先从笔记的菜单导出，查看会丢失什么。",
+  "error.commands.exportDenied": "未保存任何文件：你没有允许新的文件列表。",
   "error.commands.noFolderId": "没有 id 为 {id} 的文件夹。",
   "error.commands.noTagId": "没有 id 为 {id} 的标签。",
   "error.commands.noTarget": "没有 id 为 {id}、可供这个命令处理的项目。",
@@ -5305,7 +5306,10 @@ export const zhCN = {
   "commands.notRun": "未运行，没有改动",
   "commands.denied": "未允许，没有改动",
   "commands.ask.export.title": "将“{mind}”以 {format} 格式保存到“{folder}”？",
+  "commands.ask.export.changed": "文件已有变化。改为允许这些吗？",
+  "commands.ask.export.new": "新增",
   "commands.ask.export.text": "这会在保存位置之外写入一个新文件。",
+  "commands.ask.export.why.files": "这会在保存位置之外写入 {count} 个新文件。",
   "commands.ask.add.title": "读取“{folder}”中的 {count} 个文件？",
   "commands.ask.add.title.one": "读取“{folder}”中的 1 个文件？",
   "commands.ask.add.text": "文件在这台电脑上读取，并添加到资料库。不会读取文件夹中的其他内容。",

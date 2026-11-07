@@ -5392,6 +5392,7 @@ export const en = {
     "These changes can’t be undone any more: IncarnaMind has restarted since.",
   "error.commands.wordLoses":
     "A Word file can’t keep everything in this note. Export it from the note’s menu to see what first.",
+  "error.commands.exportDenied": "Nothing was saved: you didn’t allow the new file list.",
   "error.commands.noFolderId": "There is no Folder with the id {id}.",
   "error.commands.noTagId": "There is no Tag with the id {id}.",
   "error.commands.noTarget": "There is nothing with the id {id} that this command acts on.",
@@ -5573,7 +5574,10 @@ export const en = {
   "commands.notRun": "Didn’t run, so nothing changed",
   "commands.denied": "Not allowed, so nothing changed",
   "commands.ask.export.title": "Save “{mind}” as {format} in “{folder}”?",
+  "commands.ask.export.changed": "The files changed since you looked. Allow these instead?",
+  "commands.ask.export.new": "New",
   "commands.ask.export.text": "This writes a new file outside your Output location.",
+  "commands.ask.export.why.files": "This writes {count} new files outside your Output location.",
   "commands.ask.add.title": "Read {count} files in “{folder}”?",
   "commands.ask.add.title.one": "Read 1 file in “{folder}”?",
   "commands.ask.add.text":
