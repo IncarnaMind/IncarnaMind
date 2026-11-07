@@ -16,7 +16,6 @@ import { ProblemLine } from "../ProblemLine";
 import { UndoLineAt } from "../UndoLine";
 import { quietButtonClass } from "./LibrarySection";
 
-/** "·" and an action after it, as the line's parts are joined. */
 function Action({ label, testId, onClick }: { label: string; testId: string; onClick(): void }) {
   return (
     <>

@@ -14,7 +14,6 @@ import {
   runCommand,
   setLanguage,
   setWindowSize,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -108,7 +107,13 @@ async function files(): Promise<string[]> {
 
 async function start(language: Language, width: number, height: number) {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
-  await useLocalChatModel(window);
+  // The scripted model on this computer, as useLocalChatModel sets it, from a helper that isn't a hook.
+  await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.saveChatProvider({
+      kind: "ollama",
+      modelId: "fake-model",
+    }),
+  );
   await dismissChatSetup(window);
   await setWindowSize(app, window, width, height);
   await setLanguage(window, language);

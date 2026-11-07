@@ -189,10 +189,6 @@ function Section({
   );
 }
 
-/**
- * The pinned bar: the title and what Confirm will do, following the ticks, then ⋯, Not Now and
- * Confirm. A hairline shows once the cards scroll under it.
- */
 function ReviewBar({ layout }: { layout: ReviewLayout }) {
   const t = useT();
   const sentinel = useRef<HTMLDivElement>(null);
@@ -266,7 +262,6 @@ function ReviewBar({ layout }: { layout: ReviewLayout }) {
   );
 }
 
-/** The Review's ⋯: Fewer Folders, More Folders and Try Again, then Discard (with Undo). */
 function ReviewMenu({ scoped }: { scoped: boolean }) {
   const t = useT();
   const menu = usePopoverMenu({ align: "end", focus: "first" });
