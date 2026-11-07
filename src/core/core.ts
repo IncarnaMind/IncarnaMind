@@ -9,6 +9,7 @@ import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { parseQuotedWords } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import { ACCEPT_SUGGESTIONS } from "../shared/commands";
+import { exportMarksOf, isExportMarks, writeExportMarks } from "../shared/exportMarks";
 import { optionsFor } from "../shared/exportOptions";
 import { figureScheduleChange } from "../shared/figureSchedule";
 import { graphemeBoundary } from "../shared/graphemes";
@@ -3167,6 +3168,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return lineSpacing === "default" ? null : lineSpacing;
     },
     bibliography: (mindId) => content.readSettings(mindId, bibliographyShown),
+    exportMarks: (mindId) => content.readSettings(mindId, exportMarksOf),
     formatCitations: (request) => citationStyles.format(request),
     citedPage: (citation) => citedPages.image(citation),
     citedUnits: ({ documentId, contentHash, pageFrom, pageTo }) => {
@@ -6926,6 +6928,13 @@ export function createCore(adapters: CoreAdapters): Core {
       await adapters.shell.openPath(path);
     },
     getMindStyle: async (mindId) => content.readSettings(minds.get(mindId).id, mindStyleOf),
+    getExportMarks: async (mindId) => content.readSettings(minds.get(mindId).id, exportMarksOf),
+    setExportMarks: async (mindId, marks) => {
+      if (!isExportMarks(marks)) throw new InvalidInputError({ key: "error.exportMarks.invalid" });
+      const mind = writableMind(mindId);
+      content.editSettings(mind.id, (mindSettings) => writeExportMarks(mindSettings, marks));
+      return content.readSettings(mind.id, exportMarksOf);
+    },
     getPageSetup: async (mindId) => {
       const mind = minds.get(mindId);
       const paper = systemPaper();

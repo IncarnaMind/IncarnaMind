@@ -69,6 +69,7 @@ import type { CitationForm, CitationStyleId, StyleCatalogue } from "../shared/ci
 import type { DrawnPage } from "../shared/citedPage";
 import type { ClaimCheckShown } from "../shared/claimChecks";
 import type { CommandId, CommandTarget, OfferedCommand, Yours } from "../shared/commands";
+import type { ExportMarks } from "../shared/exportMarks";
 import type { FigureFooting } from "../shared/figureFooting";
 import type { Figure } from "../shared/figures";
 import type { FormulaInput, FormulaLiteral, ResultUnit, ShowAs } from "../shared/formula";
@@ -13676,6 +13677,10 @@ export interface CoreApi {
   getMindStyle(mindId: string): Promise<MindStyle>;
   /** Sets the Mind's font and text size together, so Undo can put both back. */
   setMindStyle(mindId: string, style: MindStyle): Promise<MindStyle>;
+  /** The page numbers and watermark a Mind's Word file and PDF carry (#1258): its own choice, saved with the Mind. */
+  getExportMarks(mindId: string): Promise<ExportMarks>;
+  /** Sets the Mind's page numbers and watermark, together. */
+  setExportMarks(mindId: string, marks: ExportMarks): Promise<ExportMarks>;
   /**
    * The pages of a Mind, for Page view (#803): each section's size, orientation and margins, and its
    * headers and footers with their page fields, as the Word file it was imported from has them; for
@@ -14471,6 +14476,8 @@ const methods: Record<CoreApiMethod, true> = {
   openCitationStyleLicences: true,
   getMindStyle: true,
   setMindStyle: true,
+  getExportMarks: true,
+  setExportMarks: true,
   getPageSetup: true,
   getOutputSettings: true,
   setOutputLocation: true,
