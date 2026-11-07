@@ -6120,6 +6120,7 @@ export const zhCN = {
   "meetings.fill.problem.noTranscript": "转写稿里没有内容。",
   "meetings.fill.problem.model": "模型未能补全笔记。",
   "meetings.fill.problem.empty": "模型没有找到可补充的内容。",
+  "meetings.fill.problem.unchecked": "模型写的内容都没能在转写稿中核对上。",
   "meetings.fill.reference.above": "{topic}，详见上文",
   "meetings.fill.reference.below": "{topic}，详见下文",
   "meetings.fill.problem.stopped": "补全完成前 IncarnaMind 已关闭。",
