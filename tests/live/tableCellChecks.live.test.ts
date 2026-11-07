@@ -1,8 +1,10 @@
 /**
  * The check of a table the assistant writes reads each cell with its row and column (#1459):
- * against Claude on the Anthropic key, right cells land Supported and wrong ones Contradicted.
- * The table is the scripted writer's, so its right and wrong cells are known; every check
- * goes to the real model. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (the model is
+ * against Claude on the Anthropic key, right cells land Supported and wrong ones Contradicted
+ * or Unsupported, never Supported. The table is the scripted writer's, so its right and wrong
+ * cells are known; every check goes to the real model. A run fails unless every fixture cell
+ * is written with its text and has a completed check (#2186), so a check that never ran can't
+ * pass. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (the model is
  * INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku 5.5 by default). INCARNAMIND_LIVE_TABLE_RUNS asks
  * each language that many times, INCARNAMIND_LIVE_TABLE_ONLY ("shapes" or "few") writes fewer
  * cells, INCARNAMIND_LIVE_REPORT keeps what each cell came to, as its mark shows it, and
@@ -18,7 +20,11 @@ import {
   createAiSdkChatModel,
 } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
-import { claimCheckShown, readClaimCheck } from "../../src/shared/claimChecks";
+import {
+  type ClaimCheckShown,
+  claimCheckShown,
+  readClaimCheck,
+} from "../../src/shared/claimChecks";
 import { askAssistant } from "../helpers/assistant";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -226,6 +232,13 @@ const cellsOf = (each: Case) =>
     tables.flatMap((table) => table.rows.flatMap((row) => row.filter(isCell).filter(cited))),
   );
 
+/** A check still running, failed or absent lands no verdict, so it can't stand for a completed one. */
+const COMPLETED: readonly ClaimCheckShown["state"][] = ["supported", "unsupported", "contradicted"];
+
+/** A wrong cell is rejected as Contradicted or, where the unit guard rejects it, Unsupported; never Supported (#2132). */
+const intendedResults = (each: Cell): readonly ClaimCheckShown["state"][] =>
+  each.right ? ["supported"] : ["contradicted", "unsupported"];
+
 const markdownOf = (tables: readonly Table[]) =>
   tables
     .map((table) =>
@@ -282,7 +295,7 @@ const isWriting = (prompt: readonly { role: string; content: unknown }[]) => {
 
 describe.each(CASES)("table cell checks, live: $language", (each) => {
   test.skipIf(KEY === undefined)(
-    `right cells land Supported and wrong ones Contradicted, ${RUNS} run(s)`,
+    `right cells land Supported and wrong ones Contradicted or Unsupported, ${RUNS} run(s)`,
     { timeout: 1_800_000 },
     async () => {
       const verdicts: { cell: string; right: boolean; verdict: string; why: string }[] = [];
@@ -360,16 +373,31 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
           if (cited) found.push({ text: text.trim(), check });
           return false;
         });
-        cellsOf(each).forEach((written, index) => {
+        const expected = cellsOf(each);
+        expect
+          .soft(
+            found.map((one) => one.text),
+            `run ${run + 1}: the cited table cells are the fixtures`,
+          )
+          .toEqual(expected.map((one) => one.text));
+        expected.forEach((written, index) => {
           const { text, check } = found[index] ?? { text: "(missing)", check: null };
           const shown = check
             ? claimCheckShown(check, { text, versions: null, folderId: folder.id, scope: null })
             : null;
+          const verdict = shown?.state ?? "not-checked";
+          const label = `${written.right ? "right" : "wrong"} ${written.text}${check ? "" : " (no check)"}`;
+          expect
+            .soft(COMPLETED, `run ${run + 1}: ${label} has a completed check`)
+            .toContain(verdict);
+          expect
+            .soft(intendedResults(written), `run ${run + 1}: ${label} lands its result`)
+            .toContain(verdict);
           const figure = check?.figures?.[0];
           verdicts.push({
             cell: text === written.text ? written.text : `${written.text} (now ${text})`,
             right: written.right,
-            verdict: shown?.state ?? "not-checked",
+            verdict,
             why: figure
               ? (figure.says ?? figure.reason ?? "")
               : check
@@ -395,11 +423,6 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
       if (process.env.INCARNAMIND_LIVE_REPORT) {
         await appendFile(process.env.INCARNAMIND_LIVE_REPORT, `${lines.join("\n")}\n\n`);
       }
-      expect(count(false, "supported"), "a wrong cell is never Supported").toBe(0);
-      expect(
-        count(true, "unsupported") + count(true, "contradicted"),
-        "a right cell is never found wanting",
-      ).toBe(0);
     },
   );
 });
