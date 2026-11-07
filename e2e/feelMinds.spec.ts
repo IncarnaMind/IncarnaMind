@@ -8,6 +8,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   mindWrittenBefore,
+  newMind,
   pointAndClick,
   removeDataFolder,
   setWindowSize,
@@ -190,6 +191,54 @@ test("the assistant writes into the Mind, then Undo", async () => {
     await window.keyboard.press("ControlOrMeta+z");
     await expect(editorOf(window)).not.toContainText("The supplier is late.");
   });
+
+  await endFeel(run);
+});
+
+// protects=the assistant's whole new text for its own report takes the old text's place a paragraph at a time as the model writes it: the report never holds both versions, nothing moves up when the call ends, and the page stays where it was scrolled (#1635); fails_when=the new text comes in below the old, the page jumps as the old text goes, or nothing changes until the call is whole; no_claim=a real model, whose input may come in one burst.
+test("the assistant writes its report again in full, as it comes", async () => {
+  test.setTimeout(150_000);
+  const run = await startFeel(dataDir, "assistant-rewrites", { fakeChat: true });
+  const { app, window, feel } = run;
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await newMind(window);
+  const paragraphs = editorOf(window).locator(":scope > p");
+
+  await feel.step("write the report", async () => {
+    await askInAssistant(window, "Write the tide report");
+    await expect(paragraphs).toHaveCount(8);
+  });
+  const scroller = window.locator('[data-testid="mind-scroller"]:visible');
+  const scrolledTo = await scroller.evaluate((element) => element.scrollTop);
+  const first = "Spring tides come at new and full moon, when the Sun and the Moon pull together.";
+  // Each state the report passes through: how many paragraphs it shows, and whether its first is
+  // already new while a later one is still the old text.
+  await editorOf(window).evaluate((editor, newFirst) => {
+    const seen: { count: number; both: boolean }[] = [];
+    new MutationObserver(() => {
+      const texts = [...editor.querySelectorAll<HTMLElement>(":scope > p")].map(
+        (each) => each.innerText,
+      );
+      seen.push({
+        count: texts.length,
+        both: texts[0] === newFirst && texts.includes("Storms can raise the water by a metre."),
+      });
+    }).observe(editor, { childList: true, subtree: true, characterData: true });
+    Object.assign(window, { reportStates: seen });
+  }, first);
+  await feel.step("write it again in full", async () => {
+    await askInAssistant(window, "Write the tide report again in full");
+    await expect(paragraphs).toHaveCount(9);
+    await expect(paragraphs.first()).toHaveText(first);
+  });
+  const states = await window.evaluate(
+    () => (window as unknown as { reportStates: { count: number; both: boolean }[] }).reportStates,
+  );
+  expect(states.some((state) => state.both)).toBe(true);
+  expect(Math.max(...states.map((state) => state.count))).toBe(9);
+  expect(await scroller.evaluate((element) => element.scrollTop)).toBe(scrolledTo);
 
   await endFeel(run);
 });

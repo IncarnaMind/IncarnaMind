@@ -53,6 +53,22 @@ export const KNOWN: readonly Known[] = [
     sometimes: true,
     issue: 2519,
   },
+  {
+    // The Note and the conversation move as the rewrite's Answer ends; `main` measured 0.0226 here.
+    flow: "assistant-rewrites",
+    step: "write it again in full",
+    kind: "shift",
+    moved: [
+      "mind-editor",
+      "mind-changes",
+      "mind-changes-open",
+      "mind-changes-undo",
+      "assistant-answer",
+      "assistant-question",
+    ],
+    max: 0.023,
+    issue: 1742,
+  },
 ];
 
 interface Shift {
