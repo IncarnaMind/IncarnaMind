@@ -333,7 +333,7 @@ class PrintWriter {
             const label =
               marker === undefined
                 ? ""
-                : `<span class="list-marker" aria-hidden="true">${escapeHtml(marker)}</span>`;
+                : `<span class="list-marker">${escapeHtml(marker)}</span>`;
             return `<li${drawn}>${label}${this.blocks(item)}</li>`;
           })
           .join("");
