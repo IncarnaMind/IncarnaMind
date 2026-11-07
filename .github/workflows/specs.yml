@@ -93,14 +93,14 @@ jobs:
         if: runner.os == 'Linux'
         uses: ./.github/actions/apt-install
         with:
-          package: fonts-noto-cjk
+          packages: fonts-noto-cjk
       - name: Install ffmpeg for the feel check's videos
         if: runner.os == 'Linux'
         continue-on-error: true
         timeout-minutes: 3
         uses: ./.github/actions/apt-install
         with:
-          package: ffmpeg
+          packages: ffmpeg
       # On Linux the app needs a display: two virtual ones, one for each of the two workers, as in
       # ci.yml. The word split of $SPECS is safe: the check above allowed only e2e paths.
       - name: Run the specs

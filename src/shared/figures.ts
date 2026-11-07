@@ -139,6 +139,8 @@ export interface FigureContext {
   yen?: "CNY" | "JPY" | "unsure" | null;
   /** A table header or caption that applies to the text: the scale or currency it states. */
   header?: string | null;
+  /** `header` read once with this context, so each cell of a table reads it no more (#2523). */
+  headerRead?: HeaderRead | null;
   /** Read years, dates, quarters and periods as plain figures too. */
   dates?: boolean;
   /**
@@ -199,7 +201,7 @@ export const countFigureSteps = (count: number): void => {
 };
 
 /** A footnote mark or a circled number, which NFKC would otherwise turn into a digit beside the figure. */
-const MARK = "\ue000";
+export const FOOTNOTE_MARK_CHAR = "\ue000";
 /** A no-break or thin space: nobody puts one between two separate numbers, so it always groups. */
 const NBSP = "\u00a0";
 
@@ -211,6 +213,31 @@ const FULL_WIDTH_DIGIT = /^[\uff10-\uff19]$/;
 const LATIN_LETTER = /^[A-Za-z]$/;
 /** A length that "²" or "³" raises to a power ("m²", "km³"): there they are digits, not footnote marks. */
 const POWER_AFTER = /(?<![A-Za-z])(?:m|km|cm|mm|ft)$/;
+
+/** Whether `text` at `start`–`end` is a superscript read as a footnote mark, not a digit ("1,240.50¹", not "m²"). */
+const isFootnoteMark = (text: string, start: number, end: number): boolean =>
+  SUPERSCRIPT.test(text.slice(start, end)) &&
+  !POWER_AFTER.test(text.slice(Math.max(0, start - 3), start));
+
+/** The superscript digits NFKC writes as digits ("¹²³", "⁰", "⁴" to "⁹"). */
+const SUPERSCRIPT_DIGIT = /^[¹²³⁰⁴-⁹]$/u;
+/** What a figure ends in: a digit, a closing bracket, or a percent. */
+const ENDS_FIGURE = /[\p{Nd})）%]$/u;
+
+/**
+ * Whether `text` at `start`–`end` is a footnote's mark directly after a
+ * figure ("1,240.50¹"): not a power or a unit's sign elsewhere ("x²",
+ * "Ca²⁺", "2ⁿᵈ", "see note¹").
+ */
+export const isFootnoteAfterFigure = (text: string, start: number, end: number): boolean =>
+  SUPERSCRIPT_DIGIT.test(text.slice(start, end)) &&
+  ENDS_FIGURE.test(text.slice(Math.max(0, start - 1), start));
+
+/** `text` with each footnote's mark read as `FOOTNOTE_MARK_CHAR`, which NFKC keeps apart from the figure ("1,240.50¹"). */
+export const markedFootnotes = (text: string): string =>
+  text.replace(/./gu, (char, at: number) =>
+    isFootnoteAfterFigure(text, at, at + char.length) ? FOOTNOTE_MARK_CHAR : char,
+  );
 
 interface Prepared {
   /** The normalised text (./text, ADR-0009), one character per character read. */
@@ -269,11 +296,8 @@ function prepare(text: string, midLine = false): Prepared {
       if (LINE_BREAK.test(original)) char = "\n";
       else if (original === " ") char = " ";
       else char = SPACE_LIKE.test(original) ? NBSP : "\t";
-    } else if (
-      SUPERSCRIPT.test(original) &&
-      !POWER_AFTER.test(text.slice(Math.max(0, unit.start - 3), unit.start))
-    ) {
-      char = MARK;
+    } else if (isFootnoteMark(text, unit.start, unit.end)) {
+      char = FOOTNOTE_MARK_CHAR;
     } else if (original === "。" || original === "｡") {
       char = "。";
     } else if (original === "、" || original === "､") {
@@ -883,9 +907,9 @@ function settle(context: FigureContext): Settled {
     accounts: context.accounts === true,
     negativeBrackets: context.negativeBrackets === true,
     pageCut: pageCut(context.around?.before ?? ""),
-    periodColumns: headsPeriods(
-      `${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC"),
-    ),
+    periodColumns:
+      context.headerRead?.periodColumns ??
+      headsPeriods(`${context.header ?? ""}\n${context.around?.before ?? ""}`.normalize("NFKC")),
     before: (context.around?.before ?? "").slice(-400).normalize("NFKC").replace(DASHES, "-"),
     after: (context.around?.after ?? "").slice(0, 400).normalize("NFKC").replace(DASHES, "-"),
   };
@@ -1269,7 +1293,7 @@ const APPROXIMATE_AFTER =
 
 /** A footnote mark stuck to a figure: "¹", "*", "†", "(a)", "[1]", "(1)". */
 const FOOTNOTE_AFTER = new RegExp(
-  `${MARK}+|\\*+(?![\\d])|[†‡]|\\([a-z]\\)|\\[(?:\\d{1,3}|[a-z])\\]|\\(\\d{1,2}\\)(?![\\d.,])`,
+  `${FOOTNOTE_MARK_CHAR}+|\\*+(?![\\d])|[†‡]|\\([a-z]\\)|\\[(?:\\d{1,3}|[a-z])\\]|\\(\\d{1,2}\\)(?![\\d.,])`,
   "y",
 );
 
@@ -1389,6 +1413,29 @@ interface Statement extends Span {
   exponent: number;
   scaleWord: string | null;
   unit: FigureUnit;
+}
+
+/** A `header` read once, for a table's many cells to share (#2523). */
+export interface HeaderRead {
+  readonly statements: readonly HeaderStatement[];
+  /** Whether a line of the header heads columns of periods (`headsPeriods`). */
+  readonly periodColumns: boolean;
+}
+
+export type HeaderStatement = Statement;
+
+/**
+ * What a header (`FigureContext.header`) states, read with `context` once: the stated units its
+ * text gives, and whether it heads columns of periods. Each cell of a table then reads it with
+ * `headerRead` instead of reading the header again (#2523).
+ */
+export function readHeader(text: string, context: FigureContext = {}): HeaderRead {
+  const ofHeader = { ...context, header: null, headerRead: null };
+  const settled = settle({ ...context, header: text, headerRead: null });
+  return {
+    statements: headerStatements(text, ofHeader, settled),
+    periodColumns: settled.periodColumns,
+  };
 }
 
 const CN_UNIT_WORDS = `${HAN_CURRENCIES}|元`;
@@ -3404,7 +3451,9 @@ function figuresIn(text: string, context: FigureContext): Figure[] {
   const { s } = prepared;
   const plain = settle(context);
   const statements = statementsIn(prepared, text, plain);
-  const header = context.header ? headerStatements(context.header, context, plain) : [];
+  const header =
+    context.headerRead?.statements ??
+    (context.header ? headerStatements(context.header, context, plain) : []);
   const settled = {
     ...plain,
     accounts: context.accounts ?? writesAccounts(s, [...statements, ...header]),

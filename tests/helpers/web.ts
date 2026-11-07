@@ -65,8 +65,12 @@ export async function startWeb(routes: Record<string, (port: number) => WebRoute
       }),
   );
   const resolve: Resolve = async () => [{ address: PUBLIC_ADDRESS, family: 4 }];
-  const adapters: { web: PublicFetchOptions } = {
+  // The local server stands in for the web, its pages as well as its pictures: a page a test
+  // saves by its literal 127.0.0.1 address reaches it. The guard over a saved page is
+  // webFetcher.test.ts's and webPagePublicFetch.test.ts's, which build their own adapters.
+  const adapters: { web: PublicFetchOptions; webPages: { fetch: typeof fetch } } = {
     web: { resolve, connector: connectorTo(port) },
+    webPages: { fetch },
   };
   return { port, heard, adapters };
 }

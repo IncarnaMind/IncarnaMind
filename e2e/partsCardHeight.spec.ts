@@ -8,6 +8,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   newMind,
   pointAndClick,
   removeDataFolder,
@@ -121,6 +122,12 @@ test("the parts card keeps one height as verdicts land, scrolls a longer result,
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toContainText("Checking");
     await expect(rows.nth(1)).toContainText("Checking");
+    // The card grows from its mark as it opens, so its box holds still only once that ends.
+    await motionSettled(window);
+    // It opens to the rows it has, every one in view.
+    expect(await pane.evaluate((element) => element.scrollHeight <= element.clientHeight + 1)).toBe(
+      true,
+    );
     const before = await pane.boundingBox();
     if (!before) throw new Error("The parts card isn't drawn.");
 
@@ -139,6 +146,7 @@ test("the parts card keeps one height as verdicts land, scrolls a longer result,
     ]);
     await expect(rows.nth(0)).toContainText("Supported");
     await expect(rows.nth(1)).toContainText("Needs a look");
+    await motionSettled(window);
     const after = await pane.boundingBox();
     if (!after) throw new Error("The parts card is gone.");
     expect(after.height).toBeCloseTo(before.height, 0);

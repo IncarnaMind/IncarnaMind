@@ -42,6 +42,7 @@ import {
   figureContextOf,
   figureContextOfFacts,
   figureLanguageTag,
+  markedFootnotes,
   namedCurrencies,
   pageScale,
   type Reading,
@@ -444,7 +445,8 @@ function givenConstants(value: unknown): number[] {
 }
 
 /** Text as numbers are compared: full-width as half-width, no spaces. */
-const squeezed = (value: string) => value.normalize("NFKC").replace(/\s+/g, "");
+// A footnote's mark is no digit of the figure (#2474): "1,240.50¹" and "1,240.50" are one number, "1,240.501" isn't.
+const squeezed = (value: string) => markedFootnotes(value).normalize("NFKC").replace(/\s+/g, "");
 
 /**
  * Whether `named` is a figure's own digits written plainly, without its separators, sign, scale

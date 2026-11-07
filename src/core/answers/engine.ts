@@ -204,6 +204,8 @@ export interface AnswerSearchOptions {
   properties?: true;
   /** The Library's own facts too: a check's search, for a sentence about the Library itself (#2525). */
   library?: true;
+  /** A search no one is waiting on (a writing suggestion): it never asks for consent. */
+  background?: boolean;
 }
 
 /** A page range, a Document opening, or the Passages around one already shown. */
