@@ -48,9 +48,17 @@ import {
   type Theme,
 } from "./drawingml";
 import { ExtractionError } from "./errors";
+import {
+  mainRootOf,
+  OfficePackage,
+  partOfType,
+  type Relationship,
+  type Relationships,
+  relationshipOfType,
+} from "./officePackage";
 import { type ChartData, chartLines, readChart } from "./pptxChart";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
-import { openPackage, resolvePart, type ZipArchive } from "./zip";
+import { openPackage, type ZipArchive } from "./zip";
 
 export type { Fill, Line, Shadow } from "./drawingml";
 export type { ChartData, ChartSeries } from "./pptxChart";
@@ -221,36 +229,9 @@ export interface DeckDrawing {
   width: number;
   height: number;
   slides: (SlideDrawing | FailedSlide)[];
+  /** Relationships parts that couldn't be read; the deck was drawn without what they name. */
+  unreadable: string[];
 }
-
-/* ------------------------------------------------------------------ */
-/* Relationships and parts                                             */
-
-interface Rel {
-  type: string;
-  target: string;
-}
-
-type Rels = Map<string, Rel>;
-
-async function relationships(zip: ZipArchive, part: string): Promise<Rels> {
-  const slash = part.lastIndexOf("/");
-  const xml = await zip.readText(`${part.slice(0, slash)}/_rels/${part.slice(slash + 1)}.rels`);
-  const rels: Rels = new Map();
-  if (!xml) return rels;
-  for (const rel of elements(parseXml(xml))) {
-    // Linked (external) targets are never fetched: no request leaves the app for a deck.
-    if (rel.attrs.TargetMode === "External" || !rel.attrs.Id || !rel.attrs.Target) continue;
-    rels.set(rel.attrs.Id, {
-      type: rel.attrs.Type ?? "",
-      target: resolvePart(part, rel.attrs.Target),
-    });
-  }
-  return rels;
-}
-
-const relOfType = (rels: Rels, suffix: string) =>
-  [...rels.values()].find((rel) => rel.type.endsWith(suffix));
 
 /* ------------------------------------------------------------------ */
 /* Text styles                                                         */
@@ -577,7 +558,7 @@ function placeholdersIn(tree: XmlElement | undefined): Placeholder[] {
 
 interface Master {
   part: string;
-  rels: Rels;
+  rels: Relationships;
   tree: XmlElement | undefined;
   background: XmlElement | undefined;
   colourMap: ColourMap;
@@ -588,7 +569,7 @@ interface Master {
 
 interface Layout {
   part: string;
-  rels: Rels;
+  rels: Relationships;
   tree: XmlElement | undefined;
   background: XmlElement | undefined;
   colourOverride: XmlElement | undefined;
@@ -628,6 +609,7 @@ function tableStylesFrom(xml: string | undefined, into: Map<string, XmlElement>)
 /* The deck                                                            */
 
 interface Deck {
+  pkg: OfficePackage;
   zip: ZipArchive;
   defaultStyle: ListStyle;
   tableStyles: Map<string, XmlElement>;
@@ -640,7 +622,7 @@ interface Scope {
   deck: Deck;
   colours: ColourContext;
   part: string;
-  rels: Rels;
+  rels: Relationships;
   layout: Layout | undefined;
   master: Master;
   origin: Origin;
@@ -652,8 +634,8 @@ interface Scope {
 async function readMaster(deck: Deck, part: string): Promise<Master> {
   const xml = await deck.zip.readText(part);
   const root = xml ? parseXml(xml) : undefined;
-  const rels = await relationships(deck.zip, part);
-  const themeRel = relOfType(rels, "/theme");
+  const rels = await deck.pkg.internalRelationships(part);
+  const themeRel = relationshipOfType(rels, "/theme");
   const theme = readTheme(themeRel ? await deck.zip.readText(themeRel.target) : undefined);
   const txStyles = root && child(root, "p:txStyles");
   const tree = spTreeOf(root);
@@ -676,8 +658,8 @@ async function readMaster(deck: Deck, part: string): Promise<Master> {
 async function readLayout(deck: Deck, part: string): Promise<Layout> {
   const xml = await deck.zip.readText(part);
   const root = xml ? parseXml(xml) : undefined;
-  const rels = await relationships(deck.zip, part);
-  const masterRel = relOfType(rels, "/slideMaster");
+  const rels = await deck.pkg.internalRelationships(part);
+  const masterRel = relationshipOfType(rels, "/slideMaster");
   if (!masterRel) throw new ExtractionError("unreadable", `The layout ${part} has no master.`);
   let master = deck.masters.get(masterRel.target);
   if (!master) {
@@ -700,21 +682,24 @@ async function readLayout(deck: Deck, part: string): Promise<Layout> {
 /** The deck as drawings. Throws `ExtractionError` when it isn't a PowerPoint file at all. */
 export async function drawPptx(bytes: Uint8Array): Promise<DeckDrawing> {
   const zip = openPackage(bytes);
-  const presentationXml = await zip.readText("ppt/presentation.xml");
-  if (presentationXml === undefined) {
-    throw new ExtractionError(
-      "unreadable",
-      "Not a PowerPoint file: it has no ppt/presentation.xml.",
-    );
-  }
-  const presentation = parseXml(presentationXml);
+  const pkg = new OfficePackage(zip);
+  const presentationPart = await pkg.mainPart("ppt/presentation.xml");
+  const presentation = mainRootOf(
+    await zip.readText(presentationPart),
+    presentationPart,
+    "presentation",
+    "Not a PowerPoint file",
+  );
   const size = child(presentation, "p:sldSz");
-  const presentationRels = await relationships(zip, "ppt/presentation.xml");
+  const presentationRels = await pkg.internalRelationships(presentationPart);
   const tableStyles = new Map<string, XmlElement>();
   tableStylesFrom(MEDIUM_STYLE_2_ACCENT_1, tableStyles);
-  const stylesRel = relOfType(presentationRels, "/tableStyles");
-  tableStylesFrom(await zip.readText(stylesRel?.target ?? "ppt/tableStyles.xml"), tableStyles);
+  tableStylesFrom(
+    await zip.readText(partOfType(presentationRels, "/tableStyles", "ppt/tableStyles.xml")),
+    tableStyles,
+  );
   const deck: Deck = {
+    pkg,
     zip,
     defaultStyle: readListStyle(child(presentation, "p:defaultTextStyle")),
     tableStyles,
@@ -724,7 +709,7 @@ export async function drawPptx(bytes: Uint8Array): Promise<DeckDrawing> {
   const list = child(presentation, "p:sldIdLst");
   const slideParts = (list ? elements(list) : [])
     .map((id) => presentationRels.get(id.attrs["r:id"] ?? ""))
-    .filter((rel): rel is Rel => rel?.type.endsWith("/slide") ?? false)
+    .filter((rel): rel is Relationship => rel?.type.endsWith("/slide") ?? false)
     .map((rel) => rel.target);
 
   const slides: (SlideDrawing | FailedSlide)[] = [];
@@ -740,6 +725,7 @@ export async function drawPptx(bytes: Uint8Array): Promise<DeckDrawing> {
     width: emu(size?.attrs.cx, 960),
     height: emu(size?.attrs.cy, 540),
     slides,
+    unreadable: pkg.unreadable,
   };
 }
 
@@ -747,8 +733,8 @@ async function drawSlide(deck: Deck, part: string, number: number): Promise<Slid
   const xml = await deck.zip.readText(part);
   if (!xml) throw new ExtractionError("unreadable", `The slide ${part} is missing.`);
   const root = parseXml(xml);
-  const rels = await relationships(deck.zip, part);
-  const layoutRel = relOfType(rels, "/slideLayout");
+  const rels = await deck.pkg.internalRelationships(part);
+  const layoutRel = relationshipOfType(rels, "/slideLayout");
   let layout: Layout | undefined;
   if (layoutRel) {
     let pending = deck.layouts.get(layoutRel.target);
@@ -766,7 +752,7 @@ async function drawSlide(deck: Deck, part: string, number: number): Promise<Slid
   map = readColourMap(colourOverrideOf(root), map);
   const colours: ColourContext = { theme: master.theme, map };
 
-  const scope = (origin: Origin, partName: string, partRels: Rels): Scope => ({
+  const scope = (origin: Origin, partName: string, partRels: Relationships): Scope => ({
     deck,
     colours,
     part: partName,
@@ -1504,7 +1490,7 @@ async function readDiagram(
   const xml = await scope.deck.zip.readText(drawingRel.target);
   if (!xml) return undefined;
   const tree = descendants(parseXml(xml), "spTree")[0];
-  const drawingRels = await relationships(scope.deck.zip, drawingRel.target);
+  const drawingRels = await scope.deck.pkg.internalRelationships(drawingRel.target);
   const children = await readTree(tree, { ...scope, part: drawingRel.target, rels: drawingRels });
   if (children.length === 0) return undefined;
   return { kind: "group", box, origin: scope.origin, children };

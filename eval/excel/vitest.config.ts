@@ -5,7 +5,7 @@ import { evalCache } from "../lib/cache";
 
 /**
  * `npm run eval:excel`: comparison tables exported to Excel, opened in LibreOffice (#132). Neither
- * `npm test` nor `npm run eval` runs it: it needs LibreOffice, which CI's own job installs.
+ * `npm test` nor `npm run eval` runs it: it needs LibreOffice.
  */
 export default defineConfig({
   root: fileURLToPath(new URL("../..", import.meta.url)),

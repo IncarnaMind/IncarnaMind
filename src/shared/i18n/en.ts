@@ -2696,6 +2696,7 @@ export const en = {
   "jev.settings.hosted": "TypeSafe",
   "jev.settings.keyMissing": "No Jev key on this device, so Documents wait. Enter it again.",
   "jev.settings.setUp": "Use TypeSafe Jev…",
+  "jev.setUp.line": "TypeSafe’s model for sorting and meeting hints, with your key",
   "jev.settings.change": "Change",
   "jev.settings.remove": "Stop using Jev",
   "jev.form.apiKey": "Jev API key",
@@ -4245,6 +4246,7 @@ export const en = {
   "citation.closest.document": "Closest words in {document}",
   "citation.closest.transcript": "Closest words in the transcript at {location}",
   "citation.quoted.why": "Words in quotation marks are checked word for word.",
+  "citation.quotedWordsRunOn": "The quote continues on {place}.",
   "citation.meaning":
     "“Quote found” means the words are there, not that they support the sentence.",
   "citation.open.page": "Open the page",
@@ -5164,6 +5166,7 @@ export const en = {
     "Copied as plain text: this figure’s saved inputs are incomplete, so its check didn’t come with it. Check the figure again, then copy it.",
   "error.conversation.notFound": "That conversation doesn’t exist or has been deleted.",
   "error.question.empty": "Write the Question before asking it.",
+  "error.question.folderInFront": "The Folder in front must be a Folder’s id, or null for none.",
   "error.question.analyseChoice": "Whether a Question may analyse data must be true or false.",
   "error.estimate.searches": "An estimate counts from 0 to {max} web searches.",
   "error.estimate.each": "An estimate is for Answers or for checks.",

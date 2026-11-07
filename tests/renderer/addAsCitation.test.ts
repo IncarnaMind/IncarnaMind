@@ -1,7 +1,9 @@
 import { type Editor, getSchema, type JSONContent } from "@tiptap/core";
+import { DOMSerializer, DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import { EditorState, type Transaction } from "@tiptap/pm/state";
+import { parseHTML } from "linkedom";
 import { describe, expect, test, vi } from "vitest";
-import { CITATION_NODE, type CitationAttributes } from "../../src/core/api";
+import { CITATION_NODE, type CitationAttributes, type QuotedWordsCheck } from "../../src/core/api";
 import {
   citationNumbersPlugin,
   numberedCitations,
@@ -146,6 +148,28 @@ const QUOTED_WORDS: CitationAttributes["quotedWords"] = {
   closest: null,
 };
 
+// protects=a Citation copied as HTML, and pasted, keeps what the check of its Answer's quoted words found, either kind (#483, #2504); fails_when=the page they ran on to, or the words not found, are lost on the way; no_claim=how the card shows them.
+test.each<[string, QuotedWordsCheck]>([
+  ["the page its quoted words ran on to", { runsOnTo: { kind: "page", from: 3, to: 3 } }],
+  [
+    "its quoted words not found",
+    { answer: [{ text: "three months", found: false }], closest: null },
+  ],
+])("a Citation copied and pasted keeps %s", (_, quotedWords) => {
+  const node = schema.nodeFromJSON({ type: CITATION_NODE, attrs: attributes({ quotedWords }) });
+  const { document } = parseHTML("<!doctype html><html><body></body></html>");
+  const paragraph = document.createElement("p");
+  paragraph.append(DOMSerializer.fromSchema(schema).serializeNode(node, { document }));
+  document.body.append(paragraph);
+  const pasted: unknown[] = [];
+  ProseMirrorDOMParser.fromSchema(schema)
+    .parse(document.body)
+    .descendants((each) => {
+      if (each.type.name === CITATION_NODE) pasted.push(each.attrs.quotedWords);
+    });
+  expect(pasted).toEqual([quotedWords]);
+});
+
 describe("Widen the Citation and Replace the Citation", () => {
   test("widening keeps the one Citation and takes the clause's Passage, words, Place and version", () => {
     const { editor } = editorHolding({
@@ -223,6 +247,38 @@ describe("Widen the Citation and Replace the Citation", () => {
       quotedWords: QUOTED_WORDS,
     });
   });
+
+  // protects=the page the Answer's quoted words ran on to (#2504) is the old quote's, so widening and replacing drop it with the old check of those words; fails_when=the new quote's card still says the quote continues on the old page; no_claim=how the card words it.
+  test.each([
+    ["widening", widenCitation],
+    ["replacing", replaceCitation],
+  ])(
+    "%s a Citation whose quoted words ran on to the next page says nothing of that page",
+    (_, rewrite) => {
+      const { editor } = editorHolding({
+        passageId: "passage-OLD",
+        quotedWords: { runsOnTo: { kind: "page", from: 3, to: 3 } },
+      });
+      expect(
+        rewrite(editor, {
+          citation: onlyCitation(editor.state),
+          evidence: foundEvidence({
+            passageId: "passage-NEW",
+            quote: LINE,
+            pageFrom: 5,
+            pageTo: 5,
+            location: { kind: "page", from: 5, to: 5 },
+            contentHash: "v2",
+          }),
+        }),
+      ).toBe(true);
+      expect(onlyCitation(editor.state).attributes).toMatchObject({
+        passageId: "passage-NEW",
+        check: "found",
+        quotedWords: null,
+      });
+    },
+  );
 
   test("does not replace with a Passage that doesn't hold the sentence's quoted words", () => {
     const { editor } = editorHolding({
