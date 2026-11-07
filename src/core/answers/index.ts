@@ -49,7 +49,13 @@ import {
   countBoundTables,
   withAnalysisTables,
 } from "../../shared/analysisTables";
-import { hasText, markersIn, pageBlocks, withCalculatedFigures } from "../../shared/answerBlocks";
+import {
+  hasText,
+  markersIn,
+  pageBlocks,
+  withAnswerChecks,
+  withCalculatedFigures,
+} from "../../shared/answerBlocks";
 import { ANSWER_CHECKING_LIMIT } from "../../shared/answerChecking";
 import { runsByDefault } from "../../shared/approvalRules";
 import { appliedAsAsked } from "../../shared/askedChanges";
@@ -590,7 +596,12 @@ function lastAnswerOf(
   // does one of something in the app that wasn't done (#2407).
   const said = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const blocks = [
-    ...pageBlocks(answer, question?.text ?? ""),
+    ...withAnswerChecks(
+      pageBlocks(answer, question?.text ?? ""),
+      answer,
+      question?.text ?? "",
+      question?.scope ?? null,
+    ),
     ...unrunToolNotes(said, answer.steps),
     ...unbackedCommandNotes(said, answer.steps),
   ];
@@ -1154,6 +1165,7 @@ export function createAnswers(options: AnswersOptions) {
           ...citation,
           check: result.check,
           checkReason: null,
+          judgedAt: new Date().toISOString(),
           ...(result.verdict && { verdict: result.verdict }),
         };
       });

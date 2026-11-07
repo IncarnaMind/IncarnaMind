@@ -229,8 +229,17 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   await expect(markers.nth(2)).toHaveAttribute("data-check", "not-found");
 
   // The right margin holds a sentence's own check, never a Citation's: the markers carry theirs.
+  // Its one mark is the added sentence's, with the verdict the Answer's judgement gave it (#2313).
   const margin = window.locator(".mind-editor-frame").getByTestId("margin-checks");
-  await expect(margin.getByRole("button")).toHaveCount(0);
+  await expect(margin.getByRole("button")).toHaveCount(1);
+  const sentenceMark = margin.getByTestId("claim-mark");
+  await expect(sentenceMark).toHaveAttribute("data-check", "supported");
+  const added = await box(texts.added);
+  const besideIt = middle(await box(sentenceMark));
+  expect(besideIt, "the mark is beside the added sentence").toBeGreaterThanOrEqual(added.y);
+  expect(besideIt, "the mark is beside the added sentence").toBeLessThanOrEqual(
+    added.y + added.height,
+  );
   const [neutral, warning] = [
     await tokenColor(window, "--color-chip"),
     await tokenColor(window, "--color-warning-wash"),
@@ -267,11 +276,13 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   await window.mouse.click(away.x, away.y);
   await expect(card).toHaveCount(0);
 
-  // Under 760px (here, the viewer open beside it) the markers keep their states.
+  // Under 760px (here, the viewer open beside it) the markers keep their states, and the
+  // sentence's one mark moves into the text.
   await setGroupBeside(window, true);
   expect((await paintOf(markers.nth(0))).background).toBe(neutral);
   expect((await paintOf(markers.nth(2))).background).toBe(warning);
-  await expect(margin.getByRole("button")).toHaveCount(0);
+  await expect(margin.getByRole("button")).toHaveCount(1);
+  await expect(sentenceMark).toHaveClass(/claim-mark--inline/);
   expectNear((await box(texts.note)).x, (await textColumn(editor)).x, 1, "narrow: the Note's edge");
   expectNear(
     (await box(texts.added)).x,
@@ -624,7 +635,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await askInAssistant(window, "When do spring tides happen, and what makes them stronger?"),
     );
     await expect(editor.getByTestId("citation").first()).toBeVisible();
-    // A sentence the Mind has checked has a mark in the margin: the Mind's checks, not the assistant's.
+    // A sentence the Mind has checked has a mark in the margin, and so has the added sentence its
+    // Answer's judgement settled (#2313).
     const first = editor.locator(":scope > p").first();
     await slideSelect(window, first, "Spring tides follow the Moon.");
     await pointAndClick(
@@ -642,6 +654,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(window.getByTestId("assistant")).toHaveAttribute("data-dock", "right");
     expect(await (await box(window.getByTestId("assistant"))).width).toBeCloseTo(320, 0);
     const marks = card.getByTestId("claim-mark");
+    await expect(marks).toHaveCount(2);
     await expect(marks.first()).toBeVisible();
     expect((await box(column)).width, "the Mind is under the old 900px fold").toBeLessThan(900);
     const wide = await gutters();
@@ -672,8 +685,8 @@ for (const language of ["en", "zh-CN"] as const) {
       .toBeLessThanOrEqual(foldedText.x + foldedText.width);
     expect(
       await window.getByTestId("margin-checks").getByTestId("claim-mark").count(),
-      "the mark is drawn, in the text",
-    ).toBe(1);
+      "each sentence's mark is drawn once, in the text",
+    ).toBe(2);
     const folded = await gutters();
     expectNear(folded.left, 40, 1, "the left gutter when folded");
     expectNear(folded.right, 40, 1, "the right gutter when folded");

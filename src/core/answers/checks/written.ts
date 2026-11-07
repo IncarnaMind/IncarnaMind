@@ -291,6 +291,15 @@ export function checkableSentences(blocks: readonly NodeJSON[]): Sentence[] {
           citationAttributesOf(inline.attrs ?? {}),
         );
         if (cited.length === 0 && !isClaim(text)) continue;
+        // A sentence the Answer's own judgement settled came with its mark: it isn't checked again.
+        const carried = layout.some(
+          ({ node: inline, start }) =>
+            inline.type === "text" &&
+            start >= span.from &&
+            start < span.to &&
+            (inline.marks ?? []).some((mark) => mark.type === CLAIM_CHECK_MARK),
+        );
+        if (carried) continue;
         found.push({
           path: here,
           from: span.from,
