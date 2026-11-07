@@ -174,13 +174,15 @@ export interface MindsForTools {
   /**
    * The Mind as the model reads the one in focus, within about `tokens`
    * tokens, its Citations with their ids in `ids`, and where the third-party
-   * text in what it gives came from (#78).
+   * text in what it gives came from (#78). A change whose request is in
+   * `applied` reads as applied, as the window takes it in at once (#2321).
    */
   text(
     mindId: string,
     name: string,
     tokens: number,
     ids: ContextCitations,
+    applied?: ReadonlySet<string>,
   ): { text: string; origins: readonly ThirdPartySource[] };
   /** Saves a Checkpoint of the Mind as it is, before the AI changes it (#113). */
   checkpoint(mindId: string): void;

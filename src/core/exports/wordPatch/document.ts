@@ -268,6 +268,7 @@ export class DocumentPatch {
     };
     this.baseReading = {
       skips: () => false,
+      applies: () => false,
       made: (request) => madeBy(base.structure.changes.get(request) ?? null),
     };
     this.collect(
